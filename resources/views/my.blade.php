@@ -48,7 +48,7 @@
 <body>
 <div class="container">
     <div class="header">
-        <img src="/blog/storage/img/my.jpg" alt="Profile Picture">
+        <img src="{{ asset('storage/img/my.jpg') }}" alt="Profile Picture">
         <h1>吳偉誠</h1>
         <p>後端工程師</p>
     </div>

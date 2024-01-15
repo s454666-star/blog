@@ -60,14 +60,26 @@
 
     <div class="section">
         <h2 class="section-title">工作經歷</h2>
-        <h3>工作一</h3>
-        <p>使用技術: [技術詳細]</p>
 
-        <h3>工作二</h3>
-        <p>使用技術: [技術詳細]</p>
+        <!-- PHP工程師 at 亞東資訊科技有限公司 -->
+        <h3>PHP工程師 - 亞東資訊科技有限公司</h3>
+        <p>後端工程師 - 台北市內湖區<br>2020/9~2023/12<br>3年4個月</p>
+        <p>技術棧: Laravel, GCP, AWS, 阿里雲, 騰訊雲, MySQL, Redis, Git, Jenkins, Domain, DNS, ECS, SLB, ELK, Docker, API串接, 爬蟲</p>
 
-        <h3>工作三</h3>
-        <p>使用技術: [技術詳細]</p>
+        <!-- 後端工程師 at 健和興端子股份有限公司 -->
+        <h3>後端工程師 - 健和興端子股份有限公司</h3>
+        <p>MIS程式設計師 - 彰化縣線西鄉<br>2020/3~2020/9<br>7個月</p>
+        <p>負責商品資料串接，利用單元測試和整合測試確保程式品質，後台bug修改維護。</p>
+
+        <!-- PHP工程師 at 新魂科技 -->
+        <h3>PHP工程師 - 新魂科技</h3>
+        <p>軟體工程師 - 台北市內湖區<br>2019/10~2020/2<br>5個月</p>
+        <p>參與開發平台的權限模組，開發獨立爬蟲系統，技術棧: PHP, HTML, JavaScript, jQuery, CSS, Vue.js, MySQL, Redis, Docker, PHPUnit。</p>
+
+        <!-- 系統工程師 at 喜士多科技 -->
+        <h3>系統工程師 - 喜士多科技</h3>
+        <p>軟體工程師 - 台北市中山區<br>2013/5~2019/10<br>6年6個月</p>
+        <p>參與大型ERP專案前後台開發，使用技術: PHP, HTML, JavaScript, jQuery, CSS, MySQL, MSSQL, Ajax。</p>
     </div>
 </div>
 </body>

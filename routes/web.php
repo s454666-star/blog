@@ -16,3 +16,9 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     return view('welcome');
 });
+
+
+// 添加一個路由指向你的視圖
+Route::get('/my-page', function () {
+    return view('my');
+});

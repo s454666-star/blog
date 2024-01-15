@@ -64,7 +64,7 @@
         <!-- PHP工程師 at 亞東資訊科技有限公司 -->
         <h3>PHP工程師 - 亞東資訊科技有限公司</h3>
         <p>後端工程師 - 台北市內湖區<br>2020/9~2023/12<br>3年4個月</p>
-        <p>技術棧: Laravel, GCP, AWS, 阿里雲, 騰訊雲, MySQL, Redis, Git, Jenkins, Domain, DNS, ECS, SLB, ELK, Docker, API串接, 爬蟲</p>
+        <p>使用技術: Laravel, GCP, AWS, 阿里雲, 騰訊雲, MySQL, Redis, Git, Jenkins, Domain, DNS, ECS, SLB, ELK, Docker, API串接, 爬蟲</p>
 
         <!-- 後端工程師 at 健和興端子股份有限公司 -->
         <h3>後端工程師 - 健和興端子股份有限公司</h3>

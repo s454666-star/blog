@@ -78,7 +78,7 @@
 
         <p> 版本控制:git</p>
 
-        <p> CL/CI1部署工具:jenkies,會寫佈署的shell</p>
+        <p> CL/CD部署工具:jenkies,會寫佈署的shell</p>
 
         <p> 公司網站買域名,設定域名DNS,使用CDN網站加速</p>
 

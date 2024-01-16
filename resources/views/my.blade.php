@@ -64,7 +64,21 @@
         <!-- PHP工程師 at 亞東資訊科技有限公司 -->
         <h3>PHP工程師 - 亞東資訊科技有限公司</h3>
         <p>後端工程師 - 台北市內湖區<br>2020/9~2023/12<br>3年4個月</p>
-        <p>使用技術: Laravel, GCP, AWS, 阿里雲, 騰訊雲, MySQL, Redis, Git, Jenkins, Domain, DNS, ECS, SLB, ELK, Docker, API串接, 爬蟲</p>
+        <p>串接第三方金流:串接支付寶和微信支付等等
+
+            使用語言:laravel,mysql,redis
+
+            建立公司項目服務器:使用過aws,阿里雲,gpc,騰訊雲等等雲端服務,開ecs和slb..等等雲端服務
+
+            版本控制:git
+
+            CL/CI1部署工具:jenkies,會寫佈署的shell
+
+            公司網站買域名,設定域名DNS,使用CDN網站加速
+
+            公司另一個金融項目是用docker開發,寫過dockerfile,並在dockerfile加上elk服務方便log查詢
+
+            公司內部工作:和前端串接api,確認問題,寫爬蟲抓取網站上資料供內部使用</p>
 
         <!-- 後端工程師 at 健和興端子股份有限公司 -->
         <h3>後端工程師 - 健和興端子股份有限公司</h3>

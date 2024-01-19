@@ -51,6 +51,34 @@
             font-weight: bold;
         }
 
+        .header {
+            background-color: #FFC0CB; /* 淡粉紅色背景 */
+            padding: 5px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logo img {
+            width: 80px; /* 根據您的圖片實際大小調整 */
+            height: auto;
+        }
+        .info-nav {
+            background-color: #FFC0CB; /* 淡粉紅色背景 */
+            padding: 5px 0;
+            display: flex;
+            justify-content: flex-start; /* 導航項目向左對齊 */
+        }
+        .info-nav a {
+            color: #333;
+            margin: 0 15px;
+            text-decoration: none;
+            font-weight: bold;
+            padding: 5px 10px;
+        }
+        .info-nav a:hover {
+            text-decoration: underline;
+        }
+
         .close:hover,
         .close:focus {
             color: black;
@@ -62,14 +90,14 @@
 <body>
 
 <div class="header">
-    <img src="{{ asset('storage/img/morning call logo.jpg') }}" alt="Morning Call Logo" class="logo">
-    <!-- 其他導航內容 -->
-</div>
-
-<div class="info-nav">
-    <a href="javascript:void(0);" id="storeInfo">店家資訊</a>
-    <a href="javascript:void(0);">運費規則</a>
-    <a href="javascript:void(0);">會員中心</a>
+    <div class="logo">
+        <img src="{{ asset('storage/img/morning call logo.jpg') }}" alt="Morning Call Logo">
+    </div>
+    <div class="info-nav">
+        <a href="javascript:void(0);" id="storeInfo">店家資訊</a>
+        <a href="javascript:void(0);">運費規則</a>
+        <a href="javascript:void(0);">會員中心</a>
+    </div>
 </div>
 
 <div id="storeModal" class="modal">

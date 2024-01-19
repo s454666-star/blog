@@ -22,3 +22,8 @@ Route::get('/', function () {
 Route::get('/my-page', function () {
     return view('my');
 });
+
+// 添加一個路由指向你的視圖
+Route::get('/product', function () {
+    return view('product');
+});

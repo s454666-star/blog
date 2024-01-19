@@ -4,30 +4,59 @@
     <meta charset="UTF-8">
     <title>早餐選單</title>
     <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            font-family: Arial, sans-serif;
+        /* 現有樣式保持不變 */
+        /* ... 其他先前定義的 CSS ... */
+
+        .info-nav {
+            background-color: #FFC0CB; /* 淡粉紅色背景 */
+            padding: 5px 0;
+            text-align: center;
         }
-        .header {
-            background-color: #FFC0CB; /* 粉紅色背景 */
+        .info-nav a {
             color: #333;
-            padding: 10px 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            margin: 0 15px;
+            text-decoration: none;
+            font-weight: bold;
         }
-        .logo {
-            width: 150px; /* 根據您的logo實際大小調整 */
-            height: auto;
+        .info-nav a:hover {
+            text-decoration: underline;
         }
-        .main-content {
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgb(0,0,0);
+            background-color: rgba(0,0,0,0.4);
+            padding-top: 60px;
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
             padding: 20px;
-            background-color: #fff;
-            /* 其他樣式 */
+            border: 1px solid #888;
+            width: 80%;
         }
-        /* 接下來的 CSS 根據實際需求添加 */
-        /* 底部導航欄、產品列表和購物車按鈕的樣式等 */
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -37,11 +66,45 @@
     <!-- 其他導航內容 -->
 </div>
 
+<div class="info-nav">
+    <a href="javascript:void(0);" id="storeInfo">店家資訊</a>
+    <a href="javascript:void(0);">運費規則</a>
+    <a href="javascript:void(0);">會員中心</a>
+</div>
+
+<div id="storeModal" class="modal">
+    <div class="modal-content">
+        <span class="close">&times;</span>
+        <p><strong>Morning Call 早餐店 (某某店)</strong></p>
+        <p>地址: 新北市某某區某某路101號</p>
+        <p>聯絡電話: 02-89673368</p>
+        <p>營業時間: 06:00-15:30</p>
+    </div>
+</div>
+
 <div class="main-content">
     <!-- 主要內容，比如產品列表 -->
 </div>
 
-<!-- 頁腳、購物車按鈕等 -->
+<script>
+    var modal = document.getElementById('storeModal');
+    var btn = document.getElementById('storeInfo');
+    var span = document.getElementsByClassName('close')[0];
+
+    btn.onclick = function() {
+        modal.style.display = "block";
+    }
+
+    span.onclick = function() {
+        modal.style.display = "none";
+    }
+
+    window.onclick = function(event) {
+        if (event.target == modal) {
+            modal.style.display = "none";
+        }
+    }
+</script>
 
 </body>
 </html>

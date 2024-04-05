@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Storage;
 
 class insertViCommand extends Command
 {
-    protected $signature = 'command:ins-vi';
+    protected $signature   = 'command:ins-vi';
     protected $description = 'Command description';
 
     public function __construct()
@@ -25,9 +25,9 @@ class insertViCommand extends Command
             return;
         }
 
-        $data = [];
+        $data   = [];
         $pkData = [];
-        $lines = Storage::get($filePath);
+        $lines  = Storage::get($filePath);
 
         foreach (explode("\n", $lines) as $line) {
             $line = trim($line);
@@ -73,7 +73,8 @@ class insertViCommand extends Command
             }
 
             $this->info("總共插入了 " . $counts . " 條記錄。");
-        } catch (Exception $e) {
+        }
+        catch (Exception $e) {
             $this->error("插入數據時發生錯誤。");
             dd($data, $e);
         }

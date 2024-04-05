@@ -1,0 +1,142 @@
+/* 全體背景 */
+body {
+    background: linear-gradient(#ebf2f5 0%, #61bada 100%);
+    font-family: 'Arial', sans-serif;
+}
+
+/* 容器 */
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    background: #fff; /* 容器背景色 */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2); /* 容器陰影 */
+    border-radius: 8px; /* 容器邊角圓滑 */
+}
+
+/* 文章樣式 */
+.article {
+    background: #ffffff; /* 文章背景色 */
+    border: 1px solid #e0e0e0; /* 文章邊框 */
+    border-radius: 8px; /* 文章邊角圓滑 */
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* 文章陰影 */
+    margin-bottom: 20px; /* 文章間距 */
+    overflow: hidden; /* 超出邊框的內容被隱藏 */
+}
+
+/* 文章標題 */
+.article h2 {
+    background: #f2f2f2; /* 標題背景色 */
+    color: #333; /* 標題文字顏色 */
+    padding: 10px 15px; /* 標題內邊距 */
+    font-size: 1.5rem; /* 標題字體大小 */
+}
+
+/* 文章內的圖片 */
+.article img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* 文章內容 */
+.article-content {
+    padding: 15px;
+}
+
+/* 文章段落 */
+.article p {
+    color: #666; /* 段落文字顏色 */
+    line-height: 1.6; /* 行高 */
+    margin: 10px 0; /* 段落間距 */
+    font-size: 1rem; /* 段落字體大小 */
+}
+
+/* 文章中的連結 */
+.article a {
+    color: #3273dc; /* 連結顏色 */
+    font-weight: bold; /* 連結加粗 */
+}
+
+/* 滑鼠懸停時的連結效果 */
+.article a:hover {
+    text-decoration: underline; /* 下劃線 */
+}
+
+/* 刪除按鈕 */
+.btn-danger {
+    background-color: #ff3860; /* 按鈕背景色 */
+    color: #fff; /* 按鈕文字顏色 */
+    border: none; /* 移除邊框 */
+    padding: 10px 20px; /* 按鈕內邊距 */
+    cursor: pointer; /* 滑鼠樣式 */
+    border-radius: 4px; /* 按鈕邊角圓滑 */
+    font-size: 1rem; /* 按鈕字體大小 */
+    transition: background-color 0.3s; /* 背景色變化動畫 */
+}
+
+/* 滑鼠懸停時的刪除按鈕效果 */
+.btn-danger:hover {
+    background-color: #ff2b56; /* 按鈕背景色變深 */
+}
+
+/* 搜索表單 */
+.search-form {
+    margin-bottom: 20px; /* 表單下邊距 */
+}
+
+/* 搜索輸入框 */
+.search-form input[type="text"] {
+    padding: 5px; /* 輸入框內邊距 */
+    border: 1px solid #ddd; /* 輸入框邊框 */
+    border-radius: 4px; /* 輸入框邊角圓滑 */
+    width: calc(100% - 90px); /* 輸入框寬度 */
+}
+
+/* 搜索按鈕 */
+.search-form button {
+    padding: 5px 15px; /* 按鈕內邊距 */
+    cursor: pointer; /* 滑鼠樣式 */
+    border: none; /* 移除邊框 */
+    border-radius: 4px; /* 按鈕邊角圓滑 */
+    background-color: #4CAF50; /* 按鈕背景色 */
+    color: white; /* 按鈕文字顏色 */
+}
+
+/* 分頁樣式 */
+.pagination {
+    display: flex;
+    list-style: none;
+    justify-content: center;
+}
+
+.pagination li {
+    margin: 0 5px; /* 分頁項目間距 */
+}
+
+.pagination li a, .pagination li span {
+    color: #007bff; /* 分頁連結顏色 */
+    text-decoration: none;
+    padding: 5px 10px; /* 分頁項目內邊距 */
+    border: 1px solid #ddd; /* 分頁項目邊框 */
+    border-radius: 5px; /* 分頁項目邊角圓滑 */
+}
+
+/* 活動分頁項目 */
+.pagination li.active span, .pagination li a:hover {
+    background-color: #007bff; /* 分頁背景色 */
+    color: #fff; /* 分頁文字顏色 */
+    border-color: #007bff; /* 分頁邊框顏色 */
+}
+
+.article-info {
+    display: flex; /* 啟用 Flexbox */
+    justify-content: space-between; /* 兩端對齊 */
+    align-items: center; /* 垂直居中 */
+    margin-bottom: 10px; /* 添加一些底部間距 */
+}
+
+.article-info p, .article-info a {
+    margin: 0; /* 移除邊距 */
+    padding: 0; /* 移除內距 */
+}

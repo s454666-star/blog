@@ -15,10 +15,10 @@ class UrlDetailController extends Controller
         $client = new Client();
 
         try {
-            $response = $client->request('GET', $url, ['verify' => false]);
+            $response = $client->request('GET', $url, [ 'verify' => false ]);
 
             if ($response->getStatusCode() == 200) {
-                $body = $response->getBody()->getContents();
+                $body    = $response->getBody()->getContents();
                 $crawler = new Crawler($body);
 
                 // 定位到包含所有文章的容器
@@ -44,9 +44,19 @@ class UrlDetailController extends Controller
                     })[0] ?? 'No Password';
 
                     // 提取下載鏈接
-                    $https_link = $articleCrawler->filterXPath('//a[contains(text(), "下载地址：")]')->each(function (Crawler $node) {
-                        return trim($node->attr('href'));
-                    })[0] ?? 'No Link';
+                    // 提取下載鏈接
+                    $links = $articleCrawler->filter('a')->each(function (Crawler $node) {
+                        // 檢查 href 是否包含特定的字串
+                        if (strpos($node->attr('href'), 'www.qqupload.com') !== false) {
+                            return trim($node->attr('href'));
+                        }
+                    });
+
+                    // 移除空值並去重
+                    $links = array_unique(array_filter($links));
+
+                    // 將鏈接使用逗號串聯起來
+                    $https_link = implode(',', $links);
 
                     // 提取圖片 src 屬性
                     $imageSrcs = $articleCrawler->filter('img')->each(function (Crawler $node) {
@@ -55,8 +65,8 @@ class UrlDetailController extends Controller
 
                     // 在資料庫中查找或創建新的文章
                     $article = Article::firstOrCreate(
-                        ['title' => $title], // 查找條件
-                        ['password' => $password, 'https_link' => $https_link] // 創建時的其他屬性
+                        [ 'title' => $title ],                                   // 查找條件
+                        [ 'password' => $password, 'https_link' => $https_link ] // 創建時的其他屬性
                     );
 
                     // 如果文章是新創建的，則添加相關圖片
@@ -70,11 +80,12 @@ class UrlDetailController extends Controller
                         }
                     }
                 }
-                dd('sucess');
             }
-        } catch (GuzzleException $e) {
+        }
+        catch (GuzzleException $e) {
             dd('HTTP 請求失敗: ' . $e->getMessage());
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e) {
             dd('發生錯誤: ' . $e->getMessage());
         }
     }

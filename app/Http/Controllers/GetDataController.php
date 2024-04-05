@@ -11,16 +11,19 @@ class GetDataController extends Controller
     public function fetchData()
     {
         $client = new Client();
-        $urls = []; // Initialize an array to hold the extracted URLs
+        $urls   = []; // Initialize an array to hold the extracted URLs
 
         for ($i = 1; $i <= 10; $i++) {
             $url = "https://2a5n.com/f/3/new/{$i}.html";
 
             try {
-                $response = $client->request('GET', $url, ['verify' => false]);
+                $headers  = [
+                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+                ];
+                $response = $client->request('GET', $url, [ 'verify' => false, 'headers' => $headers ]);
                 // Check if the response is successful
                 if ($response->getStatusCode() == 200) {
-                    $body = $response->getBody()->getContents();
+                    $body    = $response->getBody()->getContents();
                     $crawler = new Crawler($body);
                     // Filter the content to get all 'a' tags and extract their 'href' attributes
                     $crawler->filter('a')->each(function (Crawler $node) use (&$urls) {
@@ -30,17 +33,19 @@ class GetDataController extends Controller
                             $numericPart = (int)$matches[1]; // Convert the string to an integer
                             // Check if the numeric part is >= 100000
                             if ($numericPart >= 1000000) {
-                                $urls[] = $href;
+                                $urls[]           = $href;
                                 $detailController = new UrlDetailController();
                                 $detailController->fetchDetails($href);
                             }
                         }
                     });
                 }
-            } catch (GuzzleException $e) {
+            }
+            catch (GuzzleException $e) {
                 // Dump the error message and stop script execution
                 dd('HTTP Request failed: ' . $e->getMessage());
-            } catch (\Exception $e) {
+            }
+            catch (\Exception $e) {
                 // Catch any other general exceptions
                 dd('An error occurred: ' . $e->getMessage());
             }

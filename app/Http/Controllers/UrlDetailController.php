@@ -68,8 +68,8 @@ class UrlDetailController extends Controller
 
                     // 在資料庫中查找或創建新的文章
                     $article = Article::firstOrCreate(
-                        [ 'title' => $title ],                                   // 查找條件
-                        [ 'password' => $password, 'https_link' => $https_link ] // 創建時的其他屬性
+                        [ 'title' => $title ],                                                       // 查找條件
+                        [ 'password' => $password, 'https_link' => $https_link, 'source_type' => 1 ] // 創建時的其他屬性
                     );
 
 

@@ -7,6 +7,7 @@ use GuzzleHttp\Exception\GuzzleException;
 use Symfony\Component\DomCrawler\Crawler;
 use App\Models\Article;
 use App\Models\Image;
+use Illuminate\Support\Facades\Log;
 
 class UrlDetailController extends Controller
 {
@@ -36,14 +37,13 @@ class UrlDetailController extends Controller
                     // 提取標題
                     $title = $articleCrawler->filterXPath('//text()[contains(., "【影片名称】：")]')->each(function (Crawler $node) {
                         return trim(str_replace('【影片名称】：', '', $node->text()));
-                    })[0] ?? 'Unknown Title';
+                    })[0] ?? '未知標題';
 
                     // 提取密碼
-                    $password = $articleCrawler->filterXPath('//text()[contains(., "解压密码：")]')->each(function (Crawler $node) {
-                        return trim(str_replace('解压密码：', '', $node->text()));
-                    })[0] ?? 'No Password';
+                    $password = $articleCrawler->filterXPath('//text()[contains(., "【解压密码】：")]')->each(function (Crawler $node) {
+                        return trim(str_replace('【解压密码】：', '', $node->text()));
+                    })[0] ?? '無密碼';
 
-                    // 提取下載鏈接
                     // 提取下載鏈接
                     $links = $articleCrawler->filter('a')->each(function (Crawler $node) {
                         // 檢查 href 是否包含特定的字串
@@ -58,25 +58,33 @@ class UrlDetailController extends Controller
                     // 將鏈接使用逗號串聯起來
                     $https_link = implode(',', $links);
 
-                    // 提取圖片 src 屬性
-                    $imageSrcs = $articleCrawler->filter('img')->each(function (Crawler $node) {
-                        return $node->attr('src');
-                    });
-
                     // 在資料庫中查找或創建新的文章
                     $article = Article::firstOrCreate(
                         [ 'title' => $title ],                                   // 查找條件
                         [ 'password' => $password, 'https_link' => $https_link ] // 創建時的其他屬性
                     );
 
-                    // 如果文章是新創建的，則添加相關圖片
+
+                    // 提取圖片 src 屬性
+                    $imageSrcs = $articleCrawler->filter('img')->each(function (Crawler $node) {
+                        // 對於每個找到的 img 標籤，檢查它的 src 屬性
+                        return $node->attr('src');
+                    });
+
+                    // 確認文章成功創建並且有有效的 id
                     if ($article->wasRecentlyCreated) {
-                        foreach ($imageSrcs as $src) {
-                            Image::create([
-                                'article_id' => $article->id,
-                                'image_path' => $src,
-                                'image_name' => basename($src),
-                            ]);
+                        if (!empty($imageSrcs)) {
+                            foreach ($imageSrcs as $src) {
+                                Image::create([
+                                    'article_id' => $article->article_id,
+                                    'image_path' => $src,
+                                    'image_name' => basename($src),
+                                ]);
+                            }
+                        } else {
+                            // 如果沒有圖片，則記錄錯誤訊息
+                            Log::error('文章缺少圖片', [ 'title' => $title, 'password' => $password, 'https_link' => $https_link ]);
+                            throw new \Exception("文章 '{$title}' 缺少圖片，無法進行處理。");
                         }
                     }
                 }

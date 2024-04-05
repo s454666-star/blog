@@ -49,9 +49,10 @@ class GetDataController extends Controller
                 // Catch any other general exceptions
                 dd('An error occurred: ' . $e->getMessage());
             }
+            dd('success');
         }
 
         // Use dd() to dump the array of URLs for debugging
-        dd($urls);
+        dd('success');
     }
 }

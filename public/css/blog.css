@@ -1,3 +1,21 @@
+/* 展開/收縮按鈕樣式 */
+.toggle-images {
+    cursor: pointer; /* 讓滑鼠指標變成手形圖標 */
+    background-color: #4CAF50; /* 設定按鈕背景顏色 */
+    color: white; /* 設定文字顏色為白色 */
+    padding: 8px 16px; /* 設定內邊距 */
+    border: none; /* 移除邊框 */
+    border-radius: 5px; /* 邊角圓滑 */
+    font-size: 14px; /* 文字大小 */
+    margin-top: 10px; /* 與上方內容的間距 */
+    transition: background-color 0.3s; /* 點擊時的背景顏色變化動畫 */
+}
+
+/* 滑鼠懸停在按鈕上時的效果 */
+.toggle-images:hover {
+    background-color: #45a049; /* 滑鼠懸停時按鈕的背景顏色 */
+}
+
 /* 全體背景 */
 body {
     background: linear-gradient(#ebf2f5 0%, #61bada 100%);

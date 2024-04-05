@@ -27,3 +27,8 @@ Route::get('/my-page', function () {
 Route::get('/product', function () {
     return view('product');
 });
+
+// web.php
+Route::get('/snake', function () {
+    return view('snake');
+});

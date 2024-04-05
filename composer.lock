@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c61ff82cbf0142a401a48a8161e1595a",
+    "content-hash": "e93e29909760a46199f431f1ece90599",
     "packages": [
         {
             "name": "asm89/stack-cors",
@@ -561,6 +561,88 @@
                 }
             ],
             "time": "2020-12-29T14:50:06+00:00"
+        },
+        {
+            "name": "flobee/spss",
+            "version": "5.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/flobee/spss.git",
+                "reference": "a78b07e842b999de91f60f9585cdfa95ee1fca79"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/flobee/spss/zipball/a78b07e842b999de91f60f9585cdfa95ee1fca79",
+                "reference": "a78b07e842b999de91f60f9585cdfa95ee1fca79",
+                "shasum": ""
+            },
+            "require": {
+                "ext-bcmath": "*",
+                "ext-mbstring": "*",
+                "php": ">=5.6"
+            },
+            "require-dev": {
+                "composer/composer": "^2.1.",
+                "friendsofphp/php-cs-fixer": "^2.16",
+                "phing/phing": "*",
+                "phpunit/phpunit": "^5.7 || ^6.4 || ^7.0 || ^9",
+                "squizlabs/php_codesniffer": "*"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "SPSS\\": "src/"
+                },
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Korniienko Vladyslav",
+                    "email": "vk.tiamo@gmail.com",
+                    "role": "origin"
+                },
+                {
+                    "name": "Florian Blasel",
+                    "email": "flobee.code@gmail.com",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Sam Mousa",
+                    "email": "sam@mousa.nl",
+                    "role": "Developer"
+                }
+            ],
+            "description": "SPSS is a php-based implementation of IBM SPSS Statistics Standard. (Read/write SPSS, PSPP .sav files)",
+            "keywords": [
+                "cli",
+                "cli-app",
+                "dataset",
+                "ibm",
+                "por",
+                "pspp",
+                "reader",
+                "sav",
+                "spss",
+                "statistics",
+                "writer"
+            ],
+            "support": {
+                "issues": "https://github.com/flobee/spss/issues",
+                "source": "https://github.com/flobee/spss/tree/5.0.0"
+            },
+            "funding": [
+                {
+                    "url": "https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=9UFPH5MGUD7LS&source=url",
+                    "type": "custom"
+                }
+            ],
+            "time": "2022-02-28T13:04:33+00:00"
         },
         {
             "name": "fruitcake/laravel-cors",
@@ -1730,6 +1812,73 @@
                 }
             ],
             "time": "2023-10-17T14:13:20+00:00"
+        },
+        {
+            "name": "masterminds/html5",
+            "version": "2.8.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/Masterminds/html5-php.git",
+                "reference": "f47dcf3c70c584de14f21143c55d9939631bc6cf"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/Masterminds/html5-php/zipball/f47dcf3c70c584de14f21143c55d9939631bc6cf",
+                "reference": "f47dcf3c70c584de14f21143c55d9939631bc6cf",
+                "shasum": ""
+            },
+            "require": {
+                "ext-dom": "*",
+                "php": ">=5.3.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^4.8.35 || ^5.7.21 || ^6 || ^7 || ^8"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "2.7-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Masterminds\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Matt Butcher",
+                    "email": "technosophos@gmail.com"
+                },
+                {
+                    "name": "Matt Farina",
+                    "email": "matt@mattfarina.com"
+                },
+                {
+                    "name": "Asmir Mustafic",
+                    "email": "goetas@gmail.com"
+                }
+            ],
+            "description": "An HTML5 parser and serializer.",
+            "homepage": "http://masterminds.github.io/html5-php",
+            "keywords": [
+                "HTML5",
+                "dom",
+                "html",
+                "parser",
+                "querypath",
+                "serializer",
+                "xml"
+            ],
+            "support": {
+                "issues": "https://github.com/Masterminds/html5-php/issues",
+                "source": "https://github.com/Masterminds/html5-php/tree/2.8.1"
+            },
+            "time": "2023-05-10T11:58:31+00:00"
         },
         {
             "name": "monolog/monolog",
@@ -3311,6 +3460,73 @@
                 }
             ],
             "time": "2022-01-02T09:53:40+00:00"
+        },
+        {
+            "name": "symfony/dom-crawler",
+            "version": "v7.0.4",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/symfony/dom-crawler.git",
+                "reference": "6cb272cbec4dc7a30a853d2931766b03bea92dda"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/symfony/dom-crawler/zipball/6cb272cbec4dc7a30a853d2931766b03bea92dda",
+                "reference": "6cb272cbec4dc7a30a853d2931766b03bea92dda",
+                "shasum": ""
+            },
+            "require": {
+                "masterminds/html5": "^2.6",
+                "php": ">=8.2",
+                "symfony/polyfill-ctype": "~1.8",
+                "symfony/polyfill-mbstring": "~1.0"
+            },
+            "require-dev": {
+                "symfony/css-selector": "^6.4|^7.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Symfony\\Component\\DomCrawler\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Tests/"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Fabien Potencier",
+                    "email": "fabien@symfony.com"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Eases DOM navigation for HTML and XML documents",
+            "homepage": "https://symfony.com",
+            "support": {
+                "source": "https://github.com/symfony/dom-crawler/tree/v7.0.4"
+            },
+            "funding": [
+                {
+                    "url": "https://symfony.com/sponsor",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://github.com/fabpot",
+                    "type": "github"
+                },
+                {
+                    "url": "https://tidelift.com/funding/github/packagist/symfony/symfony",
+                    "type": "tidelift"
+                }
+            ],
+            "time": "2024-02-12T11:15:03+00:00"
         },
         {
             "name": "symfony/error-handler",
@@ -5283,6 +5499,71 @@
                 }
             ],
             "time": "2023-09-12T10:09:58+00:00"
+        },
+        {
+            "name": "tiamo/spss",
+            "version": "2.2.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/tiamo/spss.git",
+                "reference": "8fe40261cdf4980aab0913f64f8bca7aeb0937b0"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/tiamo/spss/zipball/8fe40261cdf4980aab0913f64f8bca7aeb0937b0",
+                "reference": "8fe40261cdf4980aab0913f64f8bca7aeb0937b0",
+                "shasum": ""
+            },
+            "require": {
+                "ext-bcmath": "*",
+                "ext-mbstring": "*",
+                "php": ">=5.6"
+            },
+            "require-dev": {
+                "friendsofphp/php-cs-fixer": "^2.16",
+                "phpunit/phpunit": "^5.7 || ^6.4 || ^7.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "SPSS\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Korniienko Vladyslav",
+                    "email": "vk.tiamo@gmail.com"
+                }
+            ],
+            "description": "SPSS is a php-based implementation of IBM SPSS Statistics Standard",
+            "keywords": [
+                "cli",
+                "cli-app",
+                "dataset",
+                "ibm",
+                "por",
+                "pspp",
+                "reader",
+                "sav",
+                "spss",
+                "statistics",
+                "writer"
+            ],
+            "support": {
+                "issues": "https://github.com/tiamo/spss/issues",
+                "source": "https://github.com/tiamo/spss/tree/2.2.2"
+            },
+            "funding": [
+                {
+                    "url": "https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=9UFPH5MGUD7LS&source=url",
+                    "type": "custom"
+                }
+            ],
+            "time": "2021-01-29T16:12:01+00:00"
         },
         {
             "name": "tijsverkoyen/css-to-inline-styles",
@@ -7847,8 +8128,9 @@
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
-        "php": "^7.3|^8.0"
+        "php": "^7.3|^8.0",
+        "ext-json": "*"
     },
     "platform-dev": [],
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.3.0"
 }

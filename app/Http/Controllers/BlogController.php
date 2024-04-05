@@ -34,4 +34,16 @@ class BlogController
         // 儲存更改後，重定向回文章列表，並帶有成功消息
         return redirect()->route('blog.index')->with('success', 'Article has been disabled successfully.');
     }
+
+    public function batchDelete(Request $request)
+    {
+        $selectedArticles = $request->input('selected_articles', []);
+
+        if (count($selectedArticles) > 0) {
+            Article::whereIn('article_id', $selectedArticles)->update(['is_disabled' => 1]);
+        }
+
+        return redirect()->route('blog.index')->with('success', '選中的文章已成功刪除。');
+    }
+
 }

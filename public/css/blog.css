@@ -1,3 +1,4 @@
+
 /* 展開/收縮按鈕樣式 */
 .toggle-images {
     cursor: pointer; /* 讓滑鼠指標變成手形圖標 */
@@ -24,12 +25,25 @@ body {
 
 /* 容器 */
 .container {
-    max-width: 800px;
+    max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
     background: #fff; /* 容器背景色 */
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2); /* 容器陰影 */
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2); /* 容器陰影 */
     border-radius: 8px; /* 容器邊角圓滑 */
+}
+
+.article-images {
+    display: flex; /* 設置為flex佈局 */
+    flex-wrap: wrap; /* 允許換行 */
+    justify-content: space-between; /* 兩張圖片之間留有間隔 */
+    margin-bottom: 15px; /* 與下方內容留有間隔 */
+}
+
+.article-image {
+    max-width: 48%; /* 每張圖片最大寬度設為48%，以便兩張圖片能夠適當顯示在一行 */
+    height: auto; /* 高度自動 */
+    margin-bottom: 10px; /* 圖片之間留有間隔 */
 }
 
 /* 文章樣式 */
@@ -121,32 +135,6 @@ body {
     color: white; /* 按鈕文字顏色 */
 }
 
-/* 分頁樣式 */
-.pagination {
-    display: flex;
-    list-style: none;
-    justify-content: center;
-}
-
-.pagination li {
-    margin: 0 5px; /* 分頁項目間距 */
-}
-
-.pagination li a, .pagination li span {
-    color: #007bff; /* 分頁連結顏色 */
-    text-decoration: none;
-    padding: 5px 10px; /* 分頁項目內邊距 */
-    border: 1px solid #ddd; /* 分頁項目邊框 */
-    border-radius: 5px; /* 分頁項目邊角圓滑 */
-}
-
-/* 活動分頁項目 */
-.pagination li.active span, .pagination li a:hover {
-    background-color: #007bff; /* 分頁背景色 */
-    color: #fff; /* 分頁文字顏色 */
-    border-color: #007bff; /* 分頁邊框顏色 */
-}
-
 .article-info {
     display: flex; /* 啟用 Flexbox */
     justify-content: space-between; /* 兩端對齊 */
@@ -157,4 +145,174 @@ body {
 .article-info p, .article-info a {
     margin: 0; /* 移除邊距 */
     padding: 0; /* 移除內距 */
+}
+
+.pagination-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    font-size: 14px;
+    font-weight: medium;
+    color: #007bff; /* 藍色文字 */
+    background-color: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+.pagination-button:hover {
+    color: #0056b3; /* 深藍色文字，滑鼠懸停時 */
+    background-color: #e9ecef;
+    border-color: #dee2e6;
+}
+
+.pagination-button.disabled {
+    color: #6c757d; /* 灰色文字，禁用狀態 */
+    pointer-events: none; /* 禁止點擊 */
+    background-color: #fff;
+    border-color: #dee2e6;
+}
+
+/* 自定義按鈕樣式 */
+.custom-btn {
+    padding: 10px 15px;
+    background-color: #3490dc; /* 按鈕背景色 */
+    color: #ffffff; /* 按鈕文字色 */
+    border: none; /* 去除邊框 */
+    border-radius: 5px; /* 圓角邊框 */
+    cursor: pointer; /* 鼠標懸停時顯示指針 */
+    transition: background-color 0.3s ease; /* 平滑過渡效果 */
+}
+
+/* 按鈕懸停效果 */
+.custom-btn:hover {
+    background-color: #2874a6; /* 按鈕懸停時的背景色 */
+}
+
+/* 禁用狀態的按鈕樣式 */
+.custom-btn.disabled, .custom-btn:disabled {
+    background-color: #6c757d; /* 禁用狀態的背景色 */
+    cursor: not-allowed; /* 禁用狀態顯示不可點擊的標誌 */
+}
+
+/* 分頁按鈕間隔 */
+.custom-pagination-btn:not(:last-child) {
+    margin-right: 8px; /* 設定按鈕間隔 */
+}
+
+.pagination-btn:hover {
+    background-color: #0056b3;
+}
+
+.pagination-btn.disabled {
+    background-color: #6c757d;
+    pointer-events: none;
+}
+
+.pagination-container {
+    display: flex;
+    justify-content: center; /* 居中顯示分頁按鈕 */
+    align-items: center; /* 垂直居中 */
+    flex-wrap: wrap; /* 允許換行，以適應響應式布局 */
+}
+
+.pagination-btn {
+    display: inline-block;
+    padding: 8px 16px; /* 調整內邊距以增加按鈕大小，提高可讀性 */
+    margin: 0 4px; /* 增加按鈕間的間距 */
+    font-size: 16px; /* 增大字體大小 */
+    font-weight: bold; /* 字體加粗 */
+    color: #007bff; /* 按鈕文字顏色 */
+    background-color: #fff; /* 按鈕背景顏色 */
+    border: 1px solid #dee2e6; /* 按鈕邊框 */
+    border-radius: 5px; /* 邊框圓角 */
+    cursor: pointer; /* 鼠標懸停時的手形指標 */
+    text-decoration: none; /* 移除文字下劃線 */
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out; /* 平滑過渡效果 */
+}
+
+.pagination-btn:hover {
+    color: #0056b3; /* 滑鼠懸停時文字顏色變化 */
+    background-color: #e9ecef; /* 滑鼠懸停時背景顏色變化 */
+    border-color: #dee2e6; /* 滑鼠懸停時邊框顏色變化 */
+}
+.pagination-btn.disabled {
+    color: #6c757d; /* 禁用按鈕的文字顏色 */
+    pointer-events: none; /* 禁止點擊行為 */
+    background-color: #fff; /* 禁用按鈕的背景顏色 */
+    border-color: #dee2e6; /* 禁用按鈕的邊框顏色 */
+}
+
+
+.pagination-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.pagination-prev, .pagination-next {
+    /* 確保這些元素靠左和靠右 */
+    flex: 0 0 auto;
+}
+
+.pagination-center {
+    /* 確保這個元素可以擴展以填滿可用空間 */
+    flex-grow: 1;
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.article-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+
+.article-checkbox {
+    margin-right: 10px;
+    width: 40px; /* 增大複選框的寬度 */
+    height: 40px; /* 增大複選框的高度 */
+    cursor: pointer;
+}
+
+.article-checkbox + label {
+    cursor: pointer;
+}
+
+#batch-delete-btn {
+    display: block; /* 改變顯示方式以適應新的布局 */
+    width: max-content; /* 自適應內容寬度 */
+    margin: 0 auto 20px; /* 上下邊距調整，居中顯示 */
+    background-color: #3490dc;
+    color: white;
+    border-radius: 5px;
+    padding: 10px 20px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s;
+}
+
+#batch-delete-btn:hover {
+    background-color: #2874a6;
+}
+
+/* 調整文章容器樣式 */
+.article {
+    border: 1px solid #e0e0e0;
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* 標題樣式調整，確保與複選框對齊 */
+.article h2 {
+    margin: 0;
+    font-size: 24px;
+    line-height: 28px;
+    flex-grow: 1;
 }

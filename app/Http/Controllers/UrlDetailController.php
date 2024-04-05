@@ -31,6 +31,8 @@ class UrlDetailController extends Controller
                 // 移除第一個元素，因為它是在第一個【影片名称】：之前的內容
                 array_shift($articlesHtml);
 
+                $pageTitle = $crawler->filter('title')->first()->text();
+
                 foreach ($articlesHtml as $articleHtml) {
                     $articleCrawler = new Crawler("<div>【影片名称】：" . $articleHtml);
 
@@ -40,9 +42,15 @@ class UrlDetailController extends Controller
                     })[0] ?? '未知標題';
 
                     // 提取密碼
-                    $password = $articleCrawler->filterXPath('//text()[contains(., "【解压密码】：")]')->each(function (Crawler $node) {
-                        return trim(str_replace('【解压密码】：', '', $node->text()));
-                    })[0] ?? '無密碼';
+                    $passwordPattern = '/(?:【解压密码】：|解压密码：|【文件密码】：|【解压密码】|解压密码)(?:<\/?font.*?>)?\s*([^<]+?)(?:<\/?font>)?\s*(?:<br\s*\/?>|$)/i';
+
+                    if (preg_match($passwordPattern, $articleHtml, $passwordMatches)) {
+                        $password = trim($passwordMatches[1]); // 使用trim函数去除可能的前后空白字符
+                    } else {
+                        $password = '无密码';
+                    }
+                    $password = html_entity_decode($password);
+
 
                     // 提取下載鏈接
                     $links = $articleCrawler->filter('a')->each(function (Crawler $node) {
@@ -83,8 +91,7 @@ class UrlDetailController extends Controller
                             }
                         } else {
                             // 如果沒有圖片，則記錄錯誤訊息
-                            Log::error('文章缺少圖片', [ 'title' => $title, 'password' => $password, 'https_link' => $https_link ]);
-                            throw new \Exception("文章 '{$title}' 缺少圖片，無法進行處理。");
+                            Log::error('文章缺少圖片', [ 'title' => $title, 'pageTitle' => $pageTitle ]);
                         }
                     }
                 }

@@ -13,7 +13,7 @@ class GetDataController extends Controller
         $client = new Client();
         $urls   = []; // Initialize an array to hold the extracted URLs
 
-        for ($i = 1; $i <= 10; $i++) {
+        for ($i = 1; $i <= 100; $i++) {
             $url = "https://2a5n.com/f/3/new/{$i}.html";
 
             try {
@@ -49,7 +49,6 @@ class GetDataController extends Controller
                 // Catch any other general exceptions
                 dd('An error occurred: ' . $e->getMessage());
             }
-            dd('success');
         }
 
         // Use dd() to dump the array of URLs for debugging

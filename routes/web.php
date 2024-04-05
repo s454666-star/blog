@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/blog', [BlogController::class, 'index'])->name('blog.index');
 Route::delete('/articles/{article}', [BlogController::class, 'destroy'])->name('articles.destroy');
+Route::delete('/blog/batch-delete', [BlogController::class, 'batchDelete'])->name('blog.batch-delete');
+
 
 Route::get('/', function () {
     return view('welcome');

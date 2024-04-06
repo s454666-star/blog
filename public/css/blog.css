@@ -274,8 +274,8 @@ body {
 
 .article-checkbox {
     margin-right: 10px;
-    width: 40px; /* 增大複選框的寬度 */
-    height: 40px; /* 增大複選框的高度 */
+    width: 30px; /* 增大複選框的寬度 */
+    height: 30px; /* 增大複選框的高度 */
     cursor: pointer;
 }
 

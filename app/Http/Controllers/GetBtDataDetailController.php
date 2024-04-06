@@ -21,7 +21,7 @@ class GetBtDataDetailController
 
     public function __construct(GetRealImageController $getRealImageController)
     {
-        $imagesProcessedSuccessfully = false; // 跟蹤是否有圖片成功處理
+        $imagesProcessedSuccessfully  = false; // 跟蹤是否有圖片成功處理
         $this->getRealImageController = $getRealImageController;
         $this->client                 = new Client([
             // 允許更多重新導向
@@ -53,6 +53,7 @@ class GetBtDataDetailController
             $existingArticle = Article::where('title', $title)->first();
             if ($existingArticle) {
                 echo "文章已存在，跳過儲存。" . "\r\n";
+                DB::commit();
                 return;
             }
 
@@ -105,7 +106,6 @@ class GetBtDataDetailController
                 }
                 catch (Exception  $e) {
                     Log::error("圖片處理失敗", [ 'url' => $imageUrl, 'error' => $e->getMessage() ]);
-                    // 注意：這裡我們不回滾事務，因為我們只是跳過這張有問題的圖片
                 }
             }
 

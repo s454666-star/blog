@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Http\Controllers\GetRealImageController;
+use GuzzleHttp\Client;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -13,7 +15,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        //
+        $this->app->singleton(GetRealImageController::class, function ($app) {
+            return new GetRealImageController(new Client());
+        });
+
     }
 
     /**

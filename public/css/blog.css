@@ -25,7 +25,7 @@ body {
 
 /* 容器 */
 .container {
-    max-width: 1200px;
+    max-width: 1600px;
     margin: 0 auto;
     padding: 20px;
     background: #fff; /* 容器背景色 */
@@ -315,4 +315,50 @@ body {
     font-size: 24px;
     line-height: 28px;
     flex-grow: 1;
+}
+
+.seed-link-btn {
+    background-color: #4CAF50; /* 綠色背景 */
+    color: white; /* 白色文字 */
+    padding: 10px 24px; /* 內邊距 */
+    border: none; /* 無邊框 */
+    border-radius: 5px; /* 圓角邊框 */
+    cursor: pointer; /* 手形游標 */
+    text-decoration: none; /* 移除文字裝飾 */
+    font-size: 16px; /* 文字大小 */
+    transition: background 0.3s ease-in-out; /* 過渡效果 */
+}
+
+.seed-link-btn:hover {
+    background-color: #45a049; /* 深綠色背景 */
+}
+
+
+.seed-link-btn, .download-btn {
+    padding: 10px 24px; /* 內邊距 */
+    border: none; /* 無邊框 */
+    border-radius: 5px; /* 圓角邊框 */
+    cursor: pointer; /* 手形游標 */
+    text-decoration: none; /* 移除文字裝飾 */
+    font-size: 16px; /* 文字大小 */
+    transition: background 0.3s ease-in-out; /* 背景色過渡效果 */
+    margin-right: 10px; /* 右邊距 */
+}
+
+.seed-link-btn {
+    background-color: #4CAF50; /* 綠色背景 */
+    color: white; /* 白色文字 */
+}
+
+.seed-link-btn:hover {
+    background-color: #45a049; /* 深綠色背景 */
+}
+
+.download-btn {
+    background-color: #007bff; /* 藍色背景 */
+    color: white; /* 白色文字 */
+}
+
+.download-btn:hover {
+    background-color: #0056b3; /* 深藍色背景 */
 }

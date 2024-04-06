@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\DomCrawler\Crawler;
 use App\Models\Article;
 use App\Models\Image;
@@ -13,6 +14,7 @@ class UrlDetailController extends Controller
 {
     public function fetchDetails($url)
     {
+        DB::beginTransaction();
         $client = new Client();
 
         try {
@@ -103,5 +105,7 @@ class UrlDetailController extends Controller
         catch (\Exception $e) {
             dd('發生錯誤: ' . $e->getMessage());
         }
+
+        DB::commit();
     }
 }

@@ -13,6 +13,7 @@ class Article extends Model
         'title',
         'password',
         'https_link',
+        'source_type',
     ];
 
     public function images()

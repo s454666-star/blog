@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
 use Illuminate\Support\Facades\Route;
 
@@ -14,9 +15,13 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
+Route::get('/blog-bt', [BlogBtController::class, 'index'])->name('blogBt.index');
+
+
 Route::get('/blog', [BlogController::class, 'index'])->name('blog.index');
 Route::delete('/articles/{article}', [BlogController::class, 'destroy'])->name('articles.destroy');
 Route::delete('/blog/batch-delete', [BlogController::class, 'batchDelete'])->name('blog.batch-delete');
+Route::delete('/blog/batch-delete-bt', [BlogBtController::class, 'batchDelete'])->name('blog.batch-delete');
 
 
 Route::get('/', function () {

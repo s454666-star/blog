@@ -15,7 +15,8 @@
         "laravel/tinker": "^2.5",
         "symfony/dom-crawler": "*",
         "tiamo/spss": "^2.2",
-      "ext-http": "*"
+      "ext-http": "*",
+      "ext-dom": "*"
     },
     "require-dev": {
         "facade/ignition": "^2.5",

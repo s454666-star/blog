@@ -3,12 +3,12 @@
 
 @section('content')
     <div class="container">
-        <form action="{{ url('blog') }}" method="GET" class="search-form">
+        <form action="{{ url('blog-bt') }}" method="GET" class="search-form">
             <input type="text" name="search" placeholder="搜尋文章..." value="{{ request()->search }}">
             <button type="submit">搜尋</button>
         </form>
 
-        <form id="batch-delete-form" action="{{ url('blog/batch-delete') }}" method="POST">
+        <form id="batch-delete-form" action="{{ url('blog/batch-delete-bt') }}" method="POST">
             @csrf
             @method('DELETE')
 
@@ -23,6 +23,16 @@
                                class="article-checkbox">
                         <h2>{{ $article->title }}</h2>
                     </div>
+
+                    <div class="article-info">
+                        <button class="seed-link-btn" onclick="window.open('{{ $article->password }}', '_blank')">
+                            種子鏈結
+                        </button>
+                        <button class="download-btn" onclick="window.open('{{ $article->https_link }}', '_blank')">
+                            下載
+                        </button>
+                    </div>
+
                     <button type="button" class="toggle-images" data-target="#images-{{ $article->article_id }}">
                         隱藏圖片
                     </button>
@@ -31,10 +41,6 @@
                         @foreach($article->images as $image)
                             <img src="{{ $image->image_path }}" class="article-image">
                         @endforeach
-                    </div>
-                    <div class="article-info">
-                        <p>密碼：{{ $article->password }}</p>
-                        <a href="{{ $article->https_link }}" target="_blank">連結</a>
                     </div>
                 </div>
             @endforeach

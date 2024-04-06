@@ -51,47 +51,56 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            // 在頁面加載時明確設置每個圖片容器的顯示樣式為 'flex'
-            document.querySelectorAll('.article-images').forEach(imagesDiv => {
-                imagesDiv.style.display = 'flex';
+            initializePage();
+
+            document.addEventListener('click', function (e) {
+                if (e.target.matches('.pagination a')) {
+                    e.preventDefault();
+                    const url = e.target.href;
+                    fetch(url)
+                        .then(response => response.text())
+                        .then(html => {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(html, "text/html");
+                            const newContent = doc.querySelector('.container').innerHTML;
+                            document.querySelector('.container').innerHTML = newContent;
+                            initializePage();
+                        })
+                        .catch(error => console.error('Error loading the page: ', error));
+                }
+            });
+        });
+
+        function initializePage() {
+            document.querySelectorAll('.article-images img').forEach(img => {
+                img.onload = () => {
+                    if (img.naturalHeight > 3000) {
+                        img.closest('.article-images').classList.add('full-width-image');
+                        img.style.transformOrigin = 'top left';
+                    } else if (img.naturalHeight > 2000) {
+                        img.style.transform = 'scale(2)';
+                        img.style.transformOrigin = 'top left';
+                    }
+                };
             });
 
             document.querySelectorAll('.toggle-images').forEach(button => {
-                button.textContent = '隱藏圖片'; // 確保按鈕預設文字是「隱藏圖片」
-
                 button.addEventListener('click', function () {
                     const target = document.querySelector(this.getAttribute('data-target'));
-                    console.log('Button clicked, target:', target); // 輸出目標信息
-                    toggleImages(target, this);
-                });
-            });
-
-            document.querySelectorAll('.article-images img').forEach(img => {
-                img.addEventListener('click', function () {
-                    const articleContainer = this.closest('.article');
-                    const toggleButton = articleContainer ? articleContainer.querySelector('.toggle-images') : null;
-                    console.log('Image clicked, toggleButton:', toggleButton); // 輸出按鈕信息
-                    if (toggleButton) {
-                        const imagesDiv = articleContainer.querySelector('.article-images');
-                        toggleImages(imagesDiv, toggleButton);
+                    if (target.style.display === 'none' || target.style.display === '') {
+                        target.style.display = 'flex';
+                        this.textContent = '隱藏圖片';
                     } else {
-                        console.error('ToggleButton not found for image:', this); // 如果按鈕未找到，輸出錯誤信息
+                        target.style.display = 'none';
+                        this.textContent = '顯示圖片';
                     }
                 });
             });
 
-            function toggleImages(target, button) {
-                if (target && button) { // 確保目標和按鈕都存在
-                    console.log('Toggling images for target:', target, 'button:', button); // 輸出正在切換的目標和按鈕信息
-                    // 調整判斷邏輯，考慮空字符串的情況也視為 'flex'
-                    if (target.style.display === 'none' || target.style.display === '' || target.style.display === 'flex') {
-                        target.style.display = (target.style.display === 'none' || target.style.display === '') ? 'flex' : 'none';
-                        button.textContent = (target.style.display === 'flex') ? '隱藏圖片' : '顯示圖片';
-                    }
-                } else {
-                    console.error('toggleImages called with null target or button:', target, button); // 如果目標或按鈕為 null，輸出錯誤信息
-                }
-            }
-        });
+            document.querySelectorAll('.article-images').forEach(imagesDiv => {
+                imagesDiv.style.display = 'flex';
+            });
+        }
+
     </script>
 @endsection

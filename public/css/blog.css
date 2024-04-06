@@ -25,7 +25,7 @@ body {
 
 /* 容器 */
 .container {
-    max-width: 1600px;
+    max-width: 2000px;
     margin: 0 auto;
     padding: 20px;
     background: #fff; /* 容器背景色 */
@@ -37,7 +37,10 @@ body {
     display: flex; /* 設置為flex佈局 */
     flex-wrap: wrap; /* 允許換行 */
     justify-content: space-between; /* 兩張圖片之間留有間隔 */
-    margin-bottom: 15px; /* 與下方內容留有間隔 */
+    /*margin-bottom: 15px; !* 與下方內容留有間隔 *!*/
+    max-width: 100%; /* 或更大的值，根据布局需要 */
+    overflow: visible; /* 确保内容不会被裁切 */
+    margin-bottom: 500px; /* 增加底部外边距，为长图片留出空间 */
 }
 
 .article-image {
@@ -54,6 +57,9 @@ body {
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* 文章陰影 */
     margin-bottom: 20px; /* 文章間距 */
     overflow: hidden; /* 超出邊框的內容被隱藏 */
+    max-width: 100%; /* 設定文章最大寬度，視需要調整 */
+    padding: 20px; /* 增加內邊距以改善閱讀體驗 */
+    min-height: auto;
 }
 
 /* 文章標題 */
@@ -361,4 +367,28 @@ body {
 
 .download-btn:hover {
     background-color: #0056b3; /* 深藍色背景 */
+}
+
+.full-width-image {
+    width: 50%; /* 確保父容器占滿整行 */
+    display: flex; /* 使用 Flex 佈局 */
+    flex-direction: column; /* 子元素（圖片）縱向排列 */
+    align-items: center; /* 子元素（圖片）居中對齊 */
+    margin-bottom: 200px; /* 與下一個元素的間距 */
+    max-width: 50%; /* 确保图片宽度不超过容器宽度 */
+    height: auto; /* 保持图片原始比例 */
+}
+
+
+.pagination-btn.active {
+    color: #fff; /* 設定文字顏色為白色 */
+    background-color: #007bff; /* 設定背景顏色為深藍色 */
+    border-color: #007bff; /* 設定邊框顏色與背景色一致 */
+    cursor: default; /* 更改鼠標樣式，表示該按鈕是不可點擊的 */
+}
+
+.pagination-btn:hover,
+.pagination-btn.active:hover {
+    background-color: #0056b3; /* 深藍色，滑鼠懸停時 */
+    border-color: #0056b3;
 }

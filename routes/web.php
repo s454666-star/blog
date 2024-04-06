@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
+use App\Http\Controllers\TelegramController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -14,6 +15,24 @@ use Illuminate\Support\Facades\Route;
 | contains the "web" middleware group. Now create something great!
 |
 */
+
+Route::get('/dashboard', function () {
+    return view('dashboard');
+})->middleware('auth'); // 確保這個路由受到身份驗證的保護
+
+
+Route::get('/login', function () {
+    return view('telegramLogin');
+});
+
+Route::get('/login', function () {
+    return view('telegramLogin'); // 假设您的登录视图名为 telegramLogin.blade.php
+})->name('login');
+
+Route::get('/get-chat-list', [TelegramController::class, 'getChatList']);
+
+Route::post('/telegram/auth', [TelegramController::class, 'authenticate'])->name('telegram.auth');
+
 
 Route::get('/blog-bt', [BlogBtController::class, 'index'])->name('blogBt.index');
 

@@ -40,7 +40,7 @@ body {
     /*margin-bottom: 15px; !* 與下方內容留有間隔 *!*/
     max-width: 100%; /* 或更大的值，根据布局需要 */
     overflow: visible; /* 确保内容不会被裁切 */
-    margin-bottom: 500px; /* 增加底部外边距，为长图片留出空间 */
+    margin-bottom: 250px; /* 增加底部外边距，为长图片留出空间 */
 }
 
 .article-image {

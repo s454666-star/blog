@@ -31,11 +31,11 @@ class insertViCommand extends Command
 
         foreach (explode("\n", $lines) as $line) {
             $line = trim($line);
-            preg_match_all('/(vi_|p_|d_|pk_)[\w-]+/', $line, $matches);
+            preg_match_all('/(v_|p_|d_|pk_)[\w-]+/', $line, $matches);
 
             foreach ($matches[0] as $match) {
                 $length = strlen($match);
-                if (str_starts_with($match, 'vi_') || str_starts_with($match, 'd_')) {
+                if (str_starts_with($match, 'v_') || str_starts_with($match, 'd_')) {
                     if ($length > 70) {
                         $data[] = $match;
                     }

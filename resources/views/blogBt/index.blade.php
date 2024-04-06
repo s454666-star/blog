@@ -13,7 +13,7 @@
             @method('DELETE')
 
             <div class="batch-delete">
-                <button type="submit" id="batch-delete-btn" class="btn custom-btn">批次刪除</button>
+                <button type="submit" id="batch-delete-btn" class="btn custom-btn" style="background-color: #e74c3c !important;">批次刪除</button>
             </div>
 
             @foreach($articles as $index => $article)
@@ -33,7 +33,7 @@
                         </button>
                     </div>
 
-                    <button type="button" class="toggle-images" data-target="#images-{{ $article->article_id }}">
+                    <button type="button" class="toggle-images" data-target="#images-{{ $article->article_id }}" style="background-color: #8e44ad !important;">
                         隱藏圖片
                     </button>
 
@@ -72,18 +72,6 @@
         });
 
         function initializePage() {
-            // document.querySelectorAll('.article-images img').forEach(img => {
-            //     img.onload = () => {
-            //         if (img.naturalHeight > 3000) {
-            //             img.closest('.article-images').classList.add('full-width-image');
-            //             img.style.transformOrigin = 'top left';
-            //         } else if (img.naturalHeight > 2000) {
-            //             img.style.transform = 'scale(2)';
-            //             img.style.transformOrigin = 'top left';
-            //         }
-            //     };
-            // });
-
             document.querySelectorAll('.toggle-images').forEach(button => {
                 button.addEventListener('click', function () {
                     const target = document.querySelector(this.getAttribute('data-target'));

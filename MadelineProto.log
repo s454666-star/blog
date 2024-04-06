@@ -5373,3 +5373,760 @@ SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\s
 SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
 SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
 APIWrapper, 6133598200:     	Saved session!
+Logger:         	MadelineProto
+Logger:         	Copyright (C) 2016-2024 Daniil Gentili
+Logger:         	Licensed under AGPLv3
+Logger:         	https://github.com/danog/MadelineProto
+Server:         	Starting IPC server C:\xampp\htdocs\blog\public\session.madeline (process)
+ProcessRunner:  	Starting process with "C:\php81\php.exe" "-dhtml_errors=0" "-ddisplay_errors=0" "-dlog_errors=1" "C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Ipc\Runner/entry.php" "madeline-ipc" "C:\xampp\htdocs\blog\public\session.madeline" "1690006439"
+Server:         	Amp\Parallel\Context\ContextException: Mismatch between absolute root dir (C:\xampp\htdocs\blog\) and URI dir (\telegram\) in C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Ipc\Runner\WebRunner.php:55
+Stack trace:
+#0 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Ipc\Server.php(108): danog\MadelineProto\Ipc\Runner\WebRunner::start()
+#1 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Serialization.php(186): danog\MadelineProto\Ipc\Server::startMe()
+#2 [internal function]: danog\MadelineProto\Serialization::unserialize()
+#3 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Coroutine.php(110): Generator->send()
+#4 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Internal\Placeholder.php(46): danog\MadelineProto\Coroutine->danog\MadelineProto\{closure}()
+#5 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Coroutine.php(143): Amp\Coroutine->onResolve()
+#6 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Tools.php(439): danog\MadelineProto\Coroutine->__construct()
+#7 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Tools.php(406): danog\MadelineProto\Tools::call()
+#8 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\API.php(302): danog\MadelineProto\Tools::timeoutWithDefault()
+#9 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\API.php(194): danog\MadelineProto\API->connectToMadelineProto()
+#10 [internal function]: danog\MadelineProto\API->internalInitAPI()
+#11 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Coroutine.php(69): Generator->current()
+#12 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Tools.php(439): danog\MadelineProto\Coroutine->__construct()
+#13 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Async\AsyncConstruct.php(91): danog\MadelineProto\Tools::call()
+#14 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\API.php(172): danog\MadelineProto\Async\AsyncConstruct->setInitPromise()
+#15 C:\xampp\htdocs\blog\vendor\danog\magicalserializer\src\danog\Serializable.php(35): danog\MadelineProto\API->__magic_construct()
+#16 C:\xampp\htdocs\blog\app\Http\Controllers\TelegramController.php(31): danog\MadelineProto\API->__construct()
+#17 [internal function]: App\Http\Controllers\TelegramController->__construct()
+#18 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(917): ReflectionClass->newInstanceArgs()
+#19 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(758): Illuminate\Container\Container->build()
+#20 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Application.php(851): Illuminate\Container\Container->resolve()
+#21 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(694): Illuminate\Foundation\Application->resolve()
+#22 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Application.php(836): Illuminate\Container\Container->make()
+#23 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(276): Illuminate\Foundation\Application->make()
+#24 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(1080): Illuminate\Routing\Route->getController()
+#25 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(1023): Illuminate\Routing\Route->controllerMiddleware()
+#26 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(734): Illuminate\Routing\Route->gatherMiddleware()
+#27 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(714): Illuminate\Routing\Router->gatherRouteMiddleware()
+#28 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(698): Illuminate\Routing\Router->runRouteWithinStack()
+#29 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(662): Illuminate\Routing\Router->runRoute()
+#30 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(651): Illuminate\Routing\Router->dispatchToRoute()
+#31 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(167): Illuminate\Routing\Router->dispatch()
+#32 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(128): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}()
+#33 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#34 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle()
+#35 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle()
+#36 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#37 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(40): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle()
+#38 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\TrimStrings->handle()
+#39 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#40 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\ValidatePostSize->handle()
+#41 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(86): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#42 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle()
+#43 C:\xampp\htdocs\blog\vendor\fruitcake\laravel-cors\src\HandleCors.php(38): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#44 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Fruitcake\Cors\HandleCors->handle()
+#45 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(39): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#46 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Http\Middleware\TrustProxies->handle()
+#47 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(103): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#48 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(142): Illuminate\Pipeline\Pipeline->then()
+#49 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(111): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter()
+#50 C:\xampp\htdocs\blog\public\index.php(52): Illuminate\Foundation\Http\Kernel->handle()
+#51 C:\xampp\htdocs\blog\server.php(21): require_once('...')
+#52 {main}
+Server:         	Starting IPC server C:\xampp\htdocs\blog\public\session.madeline (web)
+Server:         	Amp\Parallel\Context\ContextException: Mismatch between absolute root dir (C:\xampp\htdocs\blog\) and URI dir (\telegram\) in C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Ipc\Runner\WebRunner.php:55
+Stack trace:
+#0 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Ipc\Server.php(115): danog\MadelineProto\Ipc\Runner\WebRunner::start()
+#1 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Serialization.php(186): danog\MadelineProto\Ipc\Server::startMe()
+#2 [internal function]: danog\MadelineProto\Serialization::unserialize()
+#3 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Coroutine.php(110): Generator->send()
+#4 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Internal\Placeholder.php(46): danog\MadelineProto\Coroutine->danog\MadelineProto\{closure}()
+#5 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Coroutine.php(143): Amp\Coroutine->onResolve()
+#6 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Tools.php(439): danog\MadelineProto\Coroutine->__construct()
+#7 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Tools.php(406): danog\MadelineProto\Tools::call()
+#8 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\API.php(302): danog\MadelineProto\Tools::timeoutWithDefault()
+#9 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\API.php(194): danog\MadelineProto\API->connectToMadelineProto()
+#10 [internal function]: danog\MadelineProto\API->internalInitAPI()
+#11 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Coroutine.php(69): Generator->current()
+#12 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Tools.php(439): danog\MadelineProto\Coroutine->__construct()
+#13 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Async\AsyncConstruct.php(91): danog\MadelineProto\Tools::call()
+#14 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\API.php(172): danog\MadelineProto\Async\AsyncConstruct->setInitPromise()
+#15 C:\xampp\htdocs\blog\vendor\danog\magicalserializer\src\danog\Serializable.php(35): danog\MadelineProto\API->__magic_construct()
+#16 C:\xampp\htdocs\blog\app\Http\Controllers\TelegramController.php(31): danog\MadelineProto\API->__construct()
+#17 [internal function]: App\Http\Controllers\TelegramController->__construct()
+#18 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(917): ReflectionClass->newInstanceArgs()
+#19 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(758): Illuminate\Container\Container->build()
+#20 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Application.php(851): Illuminate\Container\Container->resolve()
+#21 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(694): Illuminate\Foundation\Application->resolve()
+#22 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Application.php(836): Illuminate\Container\Container->make()
+#23 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(276): Illuminate\Foundation\Application->make()
+#24 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(1080): Illuminate\Routing\Route->getController()
+#25 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(1023): Illuminate\Routing\Route->controllerMiddleware()
+#26 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(734): Illuminate\Routing\Route->gatherMiddleware()
+#27 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(714): Illuminate\Routing\Router->gatherRouteMiddleware()
+#28 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(698): Illuminate\Routing\Router->runRouteWithinStack()
+#29 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(662): Illuminate\Routing\Router->runRoute()
+#30 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(651): Illuminate\Routing\Router->dispatchToRoute()
+#31 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(167): Illuminate\Routing\Router->dispatch()
+#32 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(128): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}()
+#33 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#34 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle()
+#35 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle()
+#36 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#37 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(40): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle()
+#38 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\TrimStrings->handle()
+#39 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#40 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\ValidatePostSize->handle()
+#41 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(86): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#42 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle()
+#43 C:\xampp\htdocs\blog\vendor\fruitcake\laravel-cors\src\HandleCors.php(38): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#44 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Fruitcake\Cors\HandleCors->handle()
+#45 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(39): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#46 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Http\Middleware\TrustProxies->handle()
+#47 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(103): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#48 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(142): Illuminate\Pipeline\Pipeline->then()
+#49 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(111): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter()
+#50 C:\xampp\htdocs\blog\public\index.php(52): Illuminate\Foundation\Http\Kernel->handle()
+#51 C:\xampp\htdocs\blog\server.php(21): require_once('...')
+#52 {main}
+Serialization:  	MadelineProto is starting, please wait...
+Exception:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Serialization:  	MadelineProto is starting, please wait...
+Exception:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Serialization:  	MadelineProto is starting, please wait...
+Exception:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Serialization:  	MadelineProto is starting, please wait...
+Exception:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Serialization:  	MadelineProto is starting, please wait...
+Exception:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Serialization:  	MadelineProto is starting, please wait...
+Exception:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Serialization:  	MadelineProto is starting, please wait...
+Exception:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Serialization:  	MadelineProto is starting, please wait...
+Exception:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Serialization:  	MadelineProto is starting, please wait...
+Exception:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Serialization:  	MadelineProto is starting, please wait...
+Exception:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Serialization:  	MadelineProto is starting, please wait...
+Exception:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+API:            	!!! Could not connect to MadelineProto, please check and report the logs for more details. !!!
+API:            	!!! Reconnecting using slower method. !!!
+Serialization:  	Got exclusive session lock!
+MTProto, 6133598200:        	Filling database cache. This can take few minutes.
+MTProto, 6133598200:        	Cache filled.
+DataCenter, 6133598200:     	Disconnecting all before reconnect!
+DataCenterConnection, 6133598200: 	Disconnecting from shared DC 
+DataCenterConnection, 6133598200: 	Backed up 0, added to 0 existing messages) from DC 
+DataCenter, 6133598200:     	Disconnecting all before reconnect!
+DataCenterConnection, 6133598200: 	Disconnecting from shared DC 
+DataCenterConnection, 6133598200: 	Backed up 0, added to 0 existing messages) from DC 
+DataCenter, 6133598200:     	Disconnecting all before reconnect!
+DataCenterConnection, 6133598200: 	Disconnecting from shared DC 
+DataCenterConnection, 6133598200: 	Backed up 0, added to 0 existing messages) from DC 
+DataCenter, 6133598200:     	Disconnecting all before reconnect!
+DataCenterConnection, 6133598200: 	Disconnecting from shared DC 
+DataCenterConnection, 6133598200: 	Backed up 0, added to 0 existing messages) from DC 
+DataCenter, 6133598200:     	Disconnecting all before reconnect!
+DataCenterConnection, 6133598200: 	Disconnecting from shared DC 
+DataCenterConnection, 6133598200: 	Backed up 0, added to 0 existing messages) from DC 
+DataCenter, 6133598200:     	Disconnecting all before reconnect!
+DataCenterConnection, 6133598200: 	Disconnecting from shared DC 
+DataCenterConnection, 6133598200: 	Backed up 0, added to 0 existing messages) from DC 
+DataCenter, 6133598200:     	Disconnecting all before reconnect!
+DataCenterConnection, 6133598200: 	Disconnecting from shared DC 
+DataCenterConnection, 6133598200: 	Backed up 0, added to 0 existing messages) from DC 
+DataCenter, 6133598200:     	Disconnecting all before reconnect!
+DataCenterConnection, 6133598200: 	Disconnecting from shared DC 
+DataCenterConnection, 6133598200: 	Backed up 0, added to 0 existing messages) from DC 
+DataCenter, 6133598200:     	Disconnecting all before reconnect!
+DataCenterConnection, 6133598200: 	Disconnecting from shared DC 
+DataCenterConnection, 6133598200: 	Backed up 0, added to 0 existing messages) from DC 
+DataCenter, 6133598200:     	Reconnecting to DC 2 (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.167.51:443 main DC 2, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+Connection, 6133598200:     	Connecting to DC 2.0
+Session, 6133598200:        	Resetting session in DC 2.0...
+DataCenter, 6133598200:     	Reconnecting to DC 1 (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.175.52:443 main DC 1, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+Connection, 6133598200:     	Connecting to DC 1.0
+Session, 6133598200:        	Resetting session in DC 1.0...
+DataCenter, 6133598200:     	Reconnecting to DC 2_media (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.167.222:443 main DC 2_media, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+Connection, 6133598200:     	Connecting to DC 2_media.0
+Session, 6133598200:        	Resetting session in DC 2_media.0...
+DataCenter, 6133598200:     	Reconnecting to DC 3 (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.175.100:443 main DC 3, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+Connection, 6133598200:     	Connecting to DC 3.0
+Session, 6133598200:        	Resetting session in DC 3.0...
+DataCenter, 6133598200:     	Reconnecting to DC 4 (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.167.91:443 main DC 4, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+Connection, 6133598200:     	Connecting to DC 4.0
+Session, 6133598200:        	Resetting session in DC 4.0...
+DataCenter, 6133598200:     	Reconnecting to DC 4_media (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.166.120:443 main DC 4_media, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+Connection, 6133598200:     	Connecting to DC 4_media.0
+Session, 6133598200:        	Resetting session in DC 4_media.0...
+DataCenter, 6133598200:     	Reconnecting to DC 5 (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://91.108.56.153:443 main DC 5, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+Connection, 6133598200:     	Connecting to DC 5.0
+Session, 6133598200:        	Resetting session in DC 5.0...
+DataCenter, 6133598200:     	Reconnecting to DC 1_media (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.175.211:443 main DC 1_media, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+Connection, 6133598200:     	Connecting to DC 1_media.0
+Session, 6133598200:        	Resetting session in DC 1_media.0...
+DataCenter, 6133598200:     	Reconnecting to DC 5_media (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.171.255:443 main DC 5_media, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+Connection, 6133598200:     	Connecting to DC 5_media.0
+Session, 6133598200:        	Resetting session in DC 5_media.0...
+Connection, 6133598200:     	Connected to DC 5.0!
+DataCenterConnection, 6133598200: 	Restoring 0 messages to DC 5
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 5
+DataCenter, 6133598200:     	OK!
+Connection, 6133598200:     	Connected to DC 5_media.0!
+Connection, 6133598200:     	Connecting to DC 5_media.1
+Session, 6133598200:        	Resetting session in DC 5_media.1...
+Connection, 6133598200:     	Connected to DC 5_media.1!
+Connection, 6133598200:     	Connecting to DC 5_media.2
+Session, 6133598200:        	Resetting session in DC 5_media.2...
+Connection, 6133598200:     	Connected to DC 2.0!
+PingLoop, 6133598200:       	Ping DC 2.0
+DataCenterConnection, 6133598200: 	Restoring 0 messages to DC 2
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 2
+DataCenter, 6133598200:     	OK!
+Connection, 6133598200:     	Connected to DC 1.0!
+PingLoop, 6133598200:       	Ping DC 1.0
+DataCenterConnection, 6133598200: 	Restoring 0 messages to DC 1
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 1
+DataCenter, 6133598200:     	OK!
+Connection, 6133598200:     	Connected to DC 2_media.0!
+Connection, 6133598200:     	Connecting to DC 2_media.1
+Session, 6133598200:        	Resetting session in DC 2_media.1...
+Connection, 6133598200:     	Connected to DC 4.0!
+PingLoop, 6133598200:       	Ping DC 4.0
+DataCenterConnection, 6133598200: 	Restoring 0 messages to DC 4
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 4
+DataCenter, 6133598200:     	OK!
+Connection, 6133598200:     	Connected to DC 4_media.0!
+Connection, 6133598200:     	Connecting to DC 4_media.1
+Session, 6133598200:        	Resetting session in DC 4_media.1...
+Connection, 6133598200:     	Connected to DC 5_media.2!
+Connection, 6133598200:     	Connecting to DC 5_media.3
+Session, 6133598200:        	Resetting session in DC 5_media.3...
+Connection, 6133598200:     	Connected to DC 3.0!
+PingLoop, 6133598200:       	Ping DC 3.0
+DataCenterConnection, 6133598200: 	Restoring 0 messages to DC 3
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 3
+DataCenter, 6133598200:     	OK!
+Connection, 6133598200:     	Connected to DC 1_media.0!
+Connection, 6133598200:     	Connecting to DC 1_media.1
+Session, 6133598200:        	Resetting session in DC 1_media.1...
+Connection, 6133598200:     	Connected to DC 5_media.3!
+Connection, 6133598200:     	Connecting to DC 5_media.4
+Session, 6133598200:        	Resetting session in DC 5_media.4...
+Connection, 6133598200:     	Connected to DC 5_media.4!
+DataCenterConnection, 6133598200: 	Restoring 0 messages to DC 5_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 5_media
+DataCenter, 6133598200:     	OK!
+Connection, 6133598200:     	Connected to DC 2_media.1!
+Connection, 6133598200:     	Connecting to DC 2_media.2
+Session, 6133598200:        	Resetting session in DC 2_media.2...
+Connection, 6133598200:     	Connected to DC 4_media.1!
+Connection, 6133598200:     	Connecting to DC 4_media.2
+Session, 6133598200:        	Resetting session in DC 4_media.2...
+Connection, 6133598200:     	Connected to DC 1_media.1!
+Connection, 6133598200:     	Connecting to DC 1_media.2
+Session, 6133598200:        	Resetting session in DC 1_media.2...
+ResponseHandler, 6133598200: 	Received bad_msg_notification: incorrect server salt (in this case, the bad_server_salt response is received with the correct salt, and the message is to be re-sent with it)
+Connection, 6133598200:     	Connected to DC 2_media.2!
+Connection, 6133598200:     	Connecting to DC 2_media.3
+Session, 6133598200:        	Resetting session in DC 2_media.3...
+Connection, 6133598200:     	Connected to DC 4_media.2!
+Connection, 6133598200:     	Connecting to DC 4_media.3
+Session, 6133598200:        	Resetting session in DC 4_media.3...
+ResponseHandler, 6133598200: 	Received bad_msg_notification: incorrect server salt (in this case, the bad_server_salt response is received with the correct salt, and the message is to be re-sent with it)
+Serialization, 6133598200:  	MadelineProto is starting, please wait...
+Exception, 6133598200:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization, 6133598200:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Connection, 6133598200:     	Connected to DC 1_media.2!
+Connection, 6133598200:     	Connecting to DC 1_media.3
+Session, 6133598200:        	Resetting session in DC 1_media.3...
+Connection, 6133598200:     	Connected to DC 2_media.3!
+Connection, 6133598200:     	Connecting to DC 2_media.4
+Session, 6133598200:        	Resetting session in DC 2_media.4...
+Connection, 6133598200:     	Connected to DC 4_media.3!
+Connection, 6133598200:     	Connecting to DC 4_media.4
+Session, 6133598200:        	Resetting session in DC 4_media.4...
+Session, 6133598200:        	Can't garbage collect msg_container in DC 2, not handled yet!
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 2, 1 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 2, 1 left
+Session, 6133598200:        	Can't garbage collect bad_server_salt in DC 1, not handled yet!
+Session, 6133598200:        	Garbage collected 0 incoming messages in DC 1, 1 left
+Session, 6133598200:        	Can't garbage collect ping_delay_disconnect with message ID 7354975819015389184 in DC 1 sent 3 seconds ago, no response has been received or it wasn't yet handled!
+Session, 6133598200:        	Garbage collected 0 outgoing messages in DC 1, 1 left
+Session, 6133598200:        	Can't garbage collect msg_container in DC 4, not handled yet!
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 4, 1 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 4, 1 left
+Session, 6133598200:        	Can't garbage collect bad_server_salt in DC 3, not handled yet!
+Session, 6133598200:        	Garbage collected 0 incoming messages in DC 3, 1 left
+Session, 6133598200:        	Can't garbage collect ping_delay_disconnect with message ID 7354975819015389184 in DC 3 sent 3 seconds ago, no response has been received or it wasn't yet handled!
+Session, 6133598200:        	Garbage collected 0 outgoing messages in DC 3, 1 left
+ResponseHandler, 6133598200: 	Got a reponse bad_server_salt with message ID 7354975819015389184, but there is no request!
+ResponseHandler, 6133598200: 	Got a reponse bad_server_salt with message ID 7354975819015389184, but there is no request!
+Connection, 6133598200:     	Connected to DC 4_media.4!
+DataCenterConnection, 6133598200: 	Restoring 0 messages to DC 4_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 4_media
+DataCenter, 6133598200:     	OK!
+Connection, 6133598200:     	Connected to DC 2_media.4!
+DataCenterConnection, 6133598200: 	Restoring 0 messages to DC 2_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 2_media
+DataCenter, 6133598200:     	OK!
+Connection, 6133598200:     	Connected to DC 1_media.3!
+Connection, 6133598200:     	Connecting to DC 1_media.4
+Session, 6133598200:        	Resetting session in DC 1_media.4...
+Connection, 6133598200:     	Connected to DC 1_media.4!
+DataCenterConnection, 6133598200: 	Restoring 0 messages to DC 1_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 1_media
+DataCenter, 6133598200:     	OK!
+MTProto, 6133598200:        	Initing authorization...
+DataCenterConnection, 6133598200: 	Initing auth for DC 2
+PingLoop, 6133598200:       	Ping DC 2.0
+DataCenterConnection, 6133598200: 	Initing auth for DC 1
+DataCenterConnection, 6133598200: 	Initing auth for DC 3
+DataCenterConnection, 6133598200: 	Initing auth for DC 4
+PingLoop, 6133598200:       	Ping DC 4.0
+DataCenterConnection, 6133598200: 	Initing auth for DC 5
+DataCenterConnection, 6133598200: 	Generating permanent authorization key for DC 5...
+AuthKeyHandler, 6133598200: 	Requesting pq...
+ResponseHandler, 6133598200: 	Trying to assign a response of type ResPQ to its request...
+ResponseHandler, 6133598200: 	Does the request of return type ResPQ match?
+ResponseHandler, 6133598200: 	Yes
+AuthKeyHandler, 6133598200: 	Factorizing with native_single_cpp (please wait, might take a while)
+AuthKeyHandler, 6133598200: 	Factorizing with python_single_alt (please wait, might take a while)
+AuthKeyHandler, 6133598200: 	Install https://prime.madelineproto.xyz and the FFI extension to speed this up!
+AuthKeyHandler, 6133598200: 	Factorizing with python_single (please wait, might take a while)
+AuthKeyHandler, 6133598200: 	Install https://prime.madelineproto.xyz and the FFI extension to speed this up!
+AuthKeyHandler, 6133598200: 	Factorizing with native_single (please wait, might take a while)
+AuthKeyHandler, 6133598200: 	Install https://prime.madelineproto.xyz and the FFI extension to speed this up!
+AuthKeyHandler, 6133598200: 	Factorization 2282048039670850309 = 1194102941 * 1911098249
+AuthKeyHandler, 6133598200: 	Starting Diffie Hellman key exchange
+Serialization, 6133598200:  	MadelineProto is starting, please wait...
+Exception, 6133598200:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization, 6133598200:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 1, 0 left
+Session, 6133598200:        	Can't garbage collect pong in DC 2, not handled yet!
+Session, 6133598200:        	Garbage collected 3 incoming messages in DC 2, 1 left
+Session, 6133598200:        	Can't garbage collect ping_delay_disconnect with message ID 7354975831900291072 in DC 2 sent 3 seconds ago, no response has been received or it wasn't yet handled!
+Session, 6133598200:        	Garbage collected 2 outgoing messages in DC 2, 1 left
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 5, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 5, 0 left
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 3, 0 left
+Session, 6133598200:        	Can't garbage collect pong in DC 4, not handled yet!
+Session, 6133598200:        	Garbage collected 3 incoming messages in DC 4, 1 left
+Session, 6133598200:        	Can't garbage collect ping_delay_disconnect with message ID 7354975831900291072 in DC 4 sent 3 seconds ago, no response has been received or it wasn't yet handled!
+Session, 6133598200:        	Garbage collected 2 outgoing messages in DC 4, 1 left
+CheckLoop, 6133598200:      	We did not receive a response for 2 seconds: reconnecting and exiting check loop on DC 1.0
+CheckLoop, 6133598200:      	We did not receive a response for 2 seconds: reconnecting and exiting check loop on DC 3.0
+Connection, 6133598200:     	Reconnecting DC 1.0
+Connection, 6133598200:     	Disconnecting from DC 1.0
+Connection, 6133598200:     	Disconnected from DC 1.0
+DataCenter, 6133598200:     	Reconnecting to DC 1 (0) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.175.52:443 main DC 1, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (0)
+Connection, 6133598200:     	Connecting to DC 1.0
+Connection, 6133598200:     	Reconnecting DC 3.0
+Connection, 6133598200:     	Disconnecting from DC 3.0
+Connection, 6133598200:     	Disconnected from DC 3.0
+DataCenter, 6133598200:     	Reconnecting to DC 3 (0) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.175.100:443 main DC 3, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (0)
+Connection, 6133598200:     	Connecting to DC 3.0
+Connection, 6133598200:     	Connected to DC 1.0!
+DataCenter, 6133598200:     	OK!
+Connection, 6133598200:     	Connected to DC 3.0!
+DataCenter, 6133598200:     	OK!
+ResponseHandler, 6133598200: 	Trying to assign a response of type Server_DH_Params to its request...
+ResponseHandler, 6133598200: 	Does the request of return type Server_DH_Params match?
+ResponseHandler, 6133598200: 	Yes
+AuthKeyHandler, 6133598200: 	Server-client time delta = 0.0 s
+Crypt, 6133598200:          	Executing p/g checks (1/2)...
+Crypt, 6133598200:          	Executing p/g checks (2/2)...
+Crypt, 6133598200:          	Executing g check...
+Crypt, 6133598200:          	Executing g_a check (1/2)...
+Crypt, 6133598200:          	Executing g_a check (2/2)...
+AuthKeyHandler, 6133598200: 	Generating b...
+AuthKeyHandler, 6133598200: 	Generating g_b...
+Crypt, 6133598200:          	Executing g_a check (1/2)...
+Crypt, 6133598200:          	Executing g_a check (2/2)...
+AuthKeyHandler, 6133598200: 	Executing g_b check...
+AuthKeyHandler, 6133598200: 	Preparing client_DH_inner_data...
+AuthKeyHandler, 6133598200: 	Executing set_client_DH_params...
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 5, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 5, 0 left
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 2, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 2, 0 left
+Serialization, 6133598200:  	MadelineProto is starting, please wait...
+Exception, 6133598200:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization, 6133598200:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 4, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 4, 0 left
+Session, 6133598200:        	Garbage collected 0 outgoing messages in DC 5, 1 left
+ResponseHandler, 6133598200: 	Trying to assign a response of type Set_client_DH_params_answer to its request...
+ResponseHandler, 6133598200: 	Does the request of return type Set_client_DH_params_answer match?
+ResponseHandler, 6133598200: 	Yes
+AuthKeyHandler, 6133598200: 	Generating authorization key...
+AuthKeyHandler, 6133598200: 	Diffie Hellman key exchange processed successfully!
+AuthKeyHandler, 6133598200: 	Auth key generated
+Serialization, 6133598200:  	MadelineProto is starting, please wait...
+Exception, 6133598200:      	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) in functions.php:43
+Serialization, 6133598200:  	stream_socket_client(): Unable to connect to tcp://127.0.0.1:8015 (無法連線，因為目標電腦拒絕連線。) while connecting to IPC socket
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 5, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 5, 0 left
+WriteLoop, 6133598200:      	Writing client info (also executing help.getConfig)...
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 5
+PingLoop, 6133598200:       	Ping DC 5.0
+DataCenterConnection, 6133598200: 	Initing auth for DC 2_media
+DataCenterConnection, 6133598200: 	Initing auth for DC 4_media
+DataCenterConnection, 6133598200: 	Initing auth for DC 1_media
+DataCenterConnection, 6133598200: 	Initing auth for DC 5_media
+MTProto, 6133598200:        	Done initing authorization!
+MTProto, 6133598200:        	Starting update system
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in update feed loop generic
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in update feed loop generic
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in getUpdate loop generic
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in getUpdate loop generic
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 2
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 1
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 2_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 3
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 4
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 4_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 5
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 1_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 5_media
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in update seq loop
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in update seq loop
+DataCenter, 6133598200:     	Reconnecting to DC 2 (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.167.51:443 main DC 2, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+DataCenterConnection, 6133598200: 	Already connected!
+DataCenter, 6133598200:     	OK!
+DataCenter, 6133598200:     	Reconnecting to DC 1 (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.175.52:443 main DC 1, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+DataCenterConnection, 6133598200: 	Already connected!
+DataCenter, 6133598200:     	OK!
+DataCenter, 6133598200:     	Reconnecting to DC 2_media (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.167.222:443 main DC 2_media, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+DataCenterConnection, 6133598200: 	Already connected!
+DataCenter, 6133598200:     	OK!
+DataCenter, 6133598200:     	Reconnecting to DC 3 (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.175.100:443 main DC 3, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+DataCenterConnection, 6133598200: 	Already connected!
+DataCenter, 6133598200:     	OK!
+DataCenter, 6133598200:     	Reconnecting to DC 4 (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.167.91:443 main DC 4, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+DataCenterConnection, 6133598200: 	Already connected!
+DataCenter, 6133598200:     	OK!
+DataCenter, 6133598200:     	Reconnecting to DC 4_media (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.166.120:443 main DC 4_media, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+DataCenterConnection, 6133598200: 	Already connected!
+DataCenter, 6133598200:     	OK!
+DataCenter, 6133598200:     	Reconnecting to DC 5 (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://91.108.56.153:443 main DC 5, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+DataCenterConnection, 6133598200: 	Already connected!
+DataCenter, 6133598200:     	OK!
+DataCenter, 6133598200:     	Reconnecting to DC 1_media (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.175.211:443 main DC 1_media, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+DataCenterConnection, 6133598200: 	Already connected!
+DataCenter, 6133598200:     	OK!
+DataCenter, 6133598200:     	Reconnecting to DC 5_media (-1) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://149.154.171.255:443 main DC 5_media, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (-1)
+DataCenterConnection, 6133598200: 	Already connected!
+DataCenter, 6133598200:     	OK!
+MTProto, 6133598200:        	Initing authorization...
+DataCenterConnection, 6133598200: 	Initing auth for DC 2
+PingLoop, 6133598200:       	Ping DC 2.0
+DataCenterConnection, 6133598200: 	Initing auth for DC 1
+DataCenterConnection, 6133598200: 	Initing auth for DC 3
+DataCenterConnection, 6133598200: 	Initing auth for DC 4
+PingLoop, 6133598200:       	Ping DC 4.0
+DataCenterConnection, 6133598200: 	Initing auth for DC 5
+DataCenterConnection, 6133598200: 	Initing auth for DC 2_media
+DataCenterConnection, 6133598200: 	Initing auth for DC 4_media
+DataCenterConnection, 6133598200: 	Initing auth for DC 1_media
+DataCenterConnection, 6133598200: 	Initing auth for DC 5_media
+MTProto, 6133598200:        	Done initing authorization!
+MTProto, 6133598200:        	Starting update system
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in update feed loop generic
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in getUpdate loop generic
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 2
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 1
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 2_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 3
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 4
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 4_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 5
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 1_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 5_media
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in update seq loop
+ResponseHandler, 6133598200: 	Auth key not registered in DC 5 with RPC error AUTH_KEY_UNREGISTERED, resetting temporary and permanent auth keys...
+ResponseHandler, 6133598200: 	Permanent auth key was main authorized key, logging out...
+ResponseHandler, 6133598200: 	!!!!!!! WARNING !!!!!!!
+ResponseHandler, 6133598200: 	Telegram's flood prevention system suspended this account.
+ResponseHandler, 6133598200: 	To continue, manual verification is required.
+ResponseHandler, 6133598200: 	Send an email to recover@telegram.org, asking to unban the phone number +886900054073, and quickly describe what will you do with this phone number.
+ResponseHandler, 6133598200: 	Then login again.
+ResponseHandler, 6133598200: 	If you intentionally deleted this account, ignore this message.
+MTProto, 6133598200:        	AUTH_KEY_UNREGISTERED
+MTProto, 6133598200:        	Starting update system
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in update feed loop generic
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in getUpdate loop generic
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 2
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 1
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 2_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 3
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 4
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 4_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 5
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 1_media
+DataCenterConnection, 6133598200: 	Flushing pending messages, DC 5_media
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in update seq loop
+MTProto, 6133598200:        	Getting updates after deserialization...
+MTProto, 6133598200:        	Initing auth 5
+InternalLoop, 6133598200:   	Waiting for auth in getUpdate loop generic
+API, 6133598200:            	MadelineProto is ready!
+Serialization, 6133598200:  	MadelineProto is starting, please wait...
+Serialization, 6133598200:  	Connected to IPC socket!
+Session, 6133598200:        	Garbage collected 8 incoming messages in DC 5, 0 left
+Session, 6133598200:        	Garbage collected 5 outgoing messages in DC 5, 0 left
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 4, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 4, 0 left
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 2, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 2, 0 left
+MTProto, 6133598200:        	Accepted IPC client connection!
+Server, 6133598200:         	Exception in IPC connection: Amp\Ipc\Sync\ChannelException: The channel closed unexpectedly. Did the context die? in C:\xampp\htdocs\blog\vendor\danog\ipc\lib\Sync\ChannelledStream.php:72
+Stack trace:
+#0 [internal function]: Amp\Ipc\Sync\ChannelledStream->Amp\Ipc\Sync\{closure}()
+#1 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Coroutine.php(118): Generator->send()
+#2 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Success.php(41): Amp\Coroutine->Amp\{closure}()
+#3 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Coroutine.php(151): Amp\Success->onResolve()
+#4 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\functions.php(96): Amp\Coroutine->__construct()
+#5 C:\xampp\htdocs\blog\vendor\danog\ipc\lib\Sync\ChannelledStream.php(79): Amp\call()
+#6 C:\xampp\htdocs\blog\vendor\danog\ipc\lib\Sync\ChannelledSocket.php(67): Amp\Ipc\Sync\ChannelledStream->receive()
+#7 [internal function]: Amp\Ipc\Sync\ChannelledSocket->Amp\Ipc\Sync\{closure}()
+#8 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Coroutine.php(67): Generator->current()
+#9 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\functions.php(96): Amp\Coroutine->__construct()
+#10 C:\xampp\htdocs\blog\vendor\danog\ipc\lib\Sync\ChannelledSocket.php(84): Amp\call()
+#11 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Ipc\Server.php(212): Amp\Ipc\Sync\ChannelledSocket->receive()
+#12 [internal function]: danog\MadelineProto\Ipc\Server->clientLoop()
+#13 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Coroutine.php(69): Generator->current()
+#14 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Tools.php(462): danog\MadelineProto\Coroutine->__construct()
+#15 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Ipc\Server.php(191): danog\MadelineProto\Tools::callFork()
+#16 C:\xampp\htdocs\blog\vendor\danog\loop\lib\Traits\Loop.php(46): danog\MadelineProto\Ipc\Server->loop()
+#17 [internal function]: danog\Loop\SignalLoop->danog\Loop\Traits\{closure}()
+#18 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Coroutine.php(118): Generator->send()
+#19 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Internal\Placeholder.php(46): Amp\Coroutine->Amp\{closure}()
+#20 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Internal\PrivatePromise.php(23): Amp\Promise@anonymous->onResolve()
+#21 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Internal\Placeholder.php(143): Amp\Internal\PrivatePromise->onResolve()
+#22 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Deferred.php(53): Amp\Promise@anonymous->resolve()
+#23 C:\xampp\htdocs\blog\vendor\danog\loop\lib\Traits\SignalLoop.php(76): Amp\Deferred->resolve()
+#24 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Internal\Placeholder.php(149): danog\Loop\SignalLoop->danog\Loop\Traits\{closure}()
+#25 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Deferred.php(53): Amp\Promise@anonymous->resolve()
+#26 C:\xampp\htdocs\blog\vendor\danog\ipc\lib\IpcServer.php(176): Amp\Deferred->resolve()
+#27 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Loop\NativeDriver.php(327): Amp\Ipc\IpcServer::Amp\Ipc\{closure}()
+#28 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Loop\NativeDriver.php(127): Amp\Loop\NativeDriver->selectStreams()
+#29 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Loop\Driver.php(138): Amp\Loop\NativeDriver->dispatch()
+#30 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Loop\Driver.php(72): Amp\Loop\Driver->tick()
+#31 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Loop.php(95): Amp\Loop\Driver->run()
+#32 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Tools.php(284): Amp\Loop::run()
+#33 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\AbstractAPIFactory.php(135): danog\MadelineProto\Tools::wait()
+#34 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\InternalDoc.php(7939): danog\MadelineProto\AbstractAPIFactory->__call()
+#35 C:\xampp\htdocs\blog\app\Http\Controllers\TelegramController.php(35): danog\MadelineProto\InternalDoc->start()
+#36 [internal function]: App\Http\Controllers\TelegramController->__construct()
+#37 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(917): ReflectionClass->newInstanceArgs()
+#38 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(758): Illuminate\Container\Container->build()
+#39 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Application.php(851): Illuminate\Container\Container->resolve()
+#40 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(694): Illuminate\Foundation\Application->resolve()
+#41 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Application.php(836): Illuminate\Container\Container->make()
+#42 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(276): Illuminate\Foundation\Application->make()
+#43 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(1080): Illuminate\Routing\Route->getController()
+#44 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(1023): Illuminate\Routing\Route->controllerMiddleware()
+#45 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(734): Illuminate\Routing\Route->gatherMiddleware()
+#46 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(714): Illuminate\Routing\Router->gatherRouteMiddleware()
+#47 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(698): Illuminate\Routing\Router->runRouteWithinStack()
+#48 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(662): Illuminate\Routing\Router->runRoute()
+#49 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(651): Illuminate\Routing\Router->dispatchToRoute()
+#50 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(167): Illuminate\Routing\Router->dispatch()
+#51 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(128): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}()
+#52 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#53 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle()
+#54 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle()
+#55 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#56 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(40): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle()
+#57 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\TrimStrings->handle()
+#58 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#59 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\ValidatePostSize->handle()
+#60 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(86): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#61 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle()
+#62 C:\xampp\htdocs\blog\vendor\fruitcake\laravel-cors\src\HandleCors.php(38): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#63 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Fruitcake\Cors\HandleCors->handle()
+#64 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(39): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#65 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Http\Middleware\TrustProxies->handle()
+#66 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(103): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#67 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(142): Illuminate\Pipeline\Pipeline->then()
+#68 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(111): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter()
+#69 C:\xampp\htdocs\blog\public\index.php(52): Illuminate\Foundation\Http\Kernel->handle()
+#70 C:\xampp\htdocs\blog\server.php(21): require_once('...')
+#71 {main}
+GarbageCollector, 6133598200: 	gc_collect_cycles done. Cleaned memory: 1 Mb
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+APIWrapper, 6133598200:     	Saved session!
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+APIWrapper, 6133598200:     	Saved session!
+PingLoop, 6133598200:       	Ping DC 4.0
+PingLoop, 6133598200:       	Ping DC 2.0
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 2, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 2, 0 left
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 4, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 4, 0 left
+ReadLoop, 6133598200:       	danog\MadelineProto\NothingInTheSocketException in C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Stream\Common\BufferedRawStream.php:172
+Stack trace:
+#0 [internal function]: danog\MadelineProto\Stream\Common\BufferedRawStream->bufferReadGenerator()
+#1 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Coroutine.php(110): Generator->send()
+#2 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Internal\Placeholder.php(149): danog\MadelineProto\Coroutine->danog\MadelineProto\{closure}()
+#3 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Deferred.php(53): Amp\Promise@anonymous->resolve()
+#4 C:\xampp\htdocs\blog\vendor\amphp\byte-stream\lib\ResourceInputStream.php(101): Amp\Deferred->resolve()
+#5 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Loop\NativeDriver.php(327): Amp\ByteStream\ResourceInputStream::Amp\ByteStream\{closure}()
+#6 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Loop\NativeDriver.php(127): Amp\Loop\NativeDriver->selectStreams()
+#7 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Loop\Driver.php(138): Amp\Loop\NativeDriver->dispatch()
+#8 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Loop\Driver.php(72): Amp\Loop\Driver->tick()
+#9 C:\xampp\htdocs\blog\vendor\amphp\amp\lib\Loop.php(95): Amp\Loop\Driver->run()
+#10 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\Tools.php(284): Amp\Loop::run()
+#11 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\AbstractAPIFactory.php(135): danog\MadelineProto\Tools::wait()
+#12 C:\xampp\htdocs\blog\vendor\danog\madelineproto\src\danog\MadelineProto\InternalDoc.php(7939): danog\MadelineProto\AbstractAPIFactory->__call()
+#13 C:\xampp\htdocs\blog\app\Http\Controllers\TelegramController.php(35): danog\MadelineProto\InternalDoc->start()
+#14 [internal function]: App\Http\Controllers\TelegramController->__construct()
+#15 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(917): ReflectionClass->newInstanceArgs()
+#16 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(758): Illuminate\Container\Container->build()
+#17 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Application.php(851): Illuminate\Container\Container->resolve()
+#18 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Container\Container.php(694): Illuminate\Foundation\Application->resolve()
+#19 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Application.php(836): Illuminate\Container\Container->make()
+#20 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(276): Illuminate\Foundation\Application->make()
+#21 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(1080): Illuminate\Routing\Route->getController()
+#22 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Route.php(1023): Illuminate\Routing\Route->controllerMiddleware()
+#23 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(734): Illuminate\Routing\Route->gatherMiddleware()
+#24 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(714): Illuminate\Routing\Router->gatherRouteMiddleware()
+#25 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(698): Illuminate\Routing\Router->runRouteWithinStack()
+#26 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(662): Illuminate\Routing\Router->runRoute()
+#27 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Routing\Router.php(651): Illuminate\Routing\Router->dispatchToRoute()
+#28 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(167): Illuminate\Routing\Router->dispatch()
+#29 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(128): Illuminate\Foundation\Http\Kernel->Illuminate\Foundation\Http\{closure}()
+#30 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#31 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull.php(31): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle()
+#32 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\ConvertEmptyStringsToNull->handle()
+#33 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TransformsRequest.php(21): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#34 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\TrimStrings.php(40): Illuminate\Foundation\Http\Middleware\TransformsRequest->handle()
+#35 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\TrimStrings->handle()
+#36 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\ValidatePostSize.php(27): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#37 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\ValidatePostSize->handle()
+#38 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance.php(86): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#39 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Foundation\Http\Middleware\PreventRequestsDuringMaintenance->handle()
+#40 C:\xampp\htdocs\blog\vendor\fruitcake\laravel-cors\src\HandleCors.php(38): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#41 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Fruitcake\Cors\HandleCors->handle()
+#42 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Http\Middleware\TrustProxies.php(39): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#43 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(167): Illuminate\Http\Middleware\TrustProxies->handle()
+#44 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Pipeline\Pipeline.php(103): Illuminate\Pipeline\Pipeline->Illuminate\Pipeline\{closure}()
+#45 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(142): Illuminate\Pipeline\Pipeline->then()
+#46 C:\xampp\htdocs\blog\vendor\laravel\framework\src\Illuminate\Foundation\Http\Kernel.php(111): Illuminate\Foundation\Http\Kernel->sendRequestThroughRouter()
+#47 C:\xampp\htdocs\blog\public\index.php(52): Illuminate\Foundation\Http\Kernel->handle()
+#48 C:\xampp\htdocs\blog\server.php(21): require_once('...')
+#49 {main}
+ReadLoop, 6133598200:       	Got nothing in the socket in DC 5.0, reconnecting...
+Connection, 6133598200:     	Reconnecting DC 5.0
+Connection, 6133598200:     	Disconnecting from DC 5.0
+Connection, 6133598200:     	Disconnected from DC 5.0
+DataCenter, 6133598200:     	Reconnecting to DC 5 (0) from existing
+DataCenterConnection, 6133598200: 	Trying shared connection via tcp://91.108.56.153:443 main DC 5, via ipv4 using AbridgedStream => BufferedRawStream => DefaultStream (0)
+Connection, 6133598200:     	Connecting to DC 5.0
+Session, 6133598200:        	Resetting session in DC 5.0...
+Connection, 6133598200:     	Connected to DC 5.0!
+DataCenter, 6133598200:     	OK!
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+APIWrapper, 6133598200:     	Saved session!
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+APIWrapper, 6133598200:     	Saved session!
+PingLoop, 6133598200:       	Ping DC 4.0
+PingLoop, 6133598200:       	Ping DC 2.0
+Session, 6133598200:        	Garbage collected 0 outgoing messages in DC 2, 1 left
+Session, 6133598200:        	Garbage collected 0 outgoing messages in DC 4, 1 left
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 2, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 2, 0 left
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 4, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 4, 0 left
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+APIWrapper, 6133598200:     	Saved session!
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+APIWrapper, 6133598200:     	Saved session!
+PingLoop, 6133598200:       	Ping DC 4.0
+PingLoop, 6133598200:       	Ping DC 2.0
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 4, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 4, 0 left
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 2, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 2, 0 left
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+APIWrapper, 6133598200:     	Saved session!
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.safe.php.lock...
+SessionPaths, 6133598200:   	Waiting for exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+SessionPaths, 6133598200:   	Got exclusive lock of C:\xampp\htdocs\blog\public\session.madeline.lightState.php.lock...
+APIWrapper, 6133598200:     	Saved session!
+PingLoop, 6133598200:       	Ping DC 4.0
+PingLoop, 6133598200:       	Ping DC 2.0
+Session, 6133598200:        	Garbage collected 0 outgoing messages in DC 2, 1 left
+Session, 6133598200:        	Garbage collected 0 outgoing messages in DC 4, 1 left
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 4, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 4, 0 left
+Session, 6133598200:        	Garbage collected 1 incoming messages in DC 2, 0 left
+Session, 6133598200:        	Garbage collected 1 outgoing messages in DC 2, 0 left

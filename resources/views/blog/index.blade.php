@@ -3,6 +3,8 @@
 
 @section('content')
     <div class="container">
+        <div id="toast" class="toast">密碼已複製到剪貼簿</div>
+
         <form action="{{ url('blog') }}" method="GET" class="search-form">
             <input type="text" name="search" placeholder="搜尋文章..." value="{{ request()->search }}">
             <button type="submit">搜尋</button>
@@ -28,8 +30,7 @@
                             隱藏圖片
                         </button>
                         <!-- 密碼按鈕和隱藏的輸入框 -->
-                        <button class="password-btn" data-password="{{ $article->password }}"
-                                onclick="copyPassword(this)">
+                        <button class="password-btn" data-password="{{ $article->password }}">
                             密碼：{{ $article->password }}
                         </button>
                         <a href="{{ $article->https_link }}" target="_blank" class="link-btn">連結</a>
@@ -44,98 +45,92 @@
             @endforeach
 
             {{ $articles->appends(request()->query())->links() }}
+
         </form>
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                // 在頁面加載時明確設置每個圖片容器的顯示樣式為 'flex'
+                document.querySelectorAll('.article-images').forEach(imagesDiv => {
+                    imagesDiv.style.display = 'flex';
+                });
+
+                document.querySelectorAll('.toggle-images').forEach(button => {
+                    button.textContent = '隱藏圖片'; // 確保按鈕預設文字是「隱藏圖片」
+
+                    button.addEventListener('click', function () {
+                        const target = document.querySelector(this.getAttribute('data-target'));
+                        console.log('Button clicked, target:', target); // 輸出目標信息
+                        toggleImages(target, this);
+                    });
+                });
+
+                document.querySelectorAll('.article-images img').forEach(img => {
+                    img.addEventListener('click', function () {
+                        const articleContainer = this.closest('.article');
+                        const toggleButton = articleContainer ? articleContainer.querySelector('.toggle-images') : null;
+                        console.log('Image clicked, toggleButton:', toggleButton); // 輸出按鈕信息
+                        if (toggleButton) {
+                            const imagesDiv = articleContainer.querySelector('.article-images');
+                            toggleImages(imagesDiv, toggleButton);
+                        } else {
+                            console.error('ToggleButton not found for image:', this); // 如果按鈕未找到，輸出錯誤信息
+                        }
+                    });
+                });
+
+                function toggleImages(target, button) {
+                    if (target && button) { // 確保目標和按鈕都存在
+                        console.log('Toggling images for target:', target, 'button:', button); // 輸出正在切換的目標和按鈕信息
+                        // 調整判斷邏輯，考慮空字符串的情況也視為 'flex'
+                        if (target.style.display === 'none' || target.style.display === '' || target.style.display === 'flex') {
+                            target.style.display = (target.style.display === 'none' || target.style.display === '') ? 'flex' : 'none';
+                            button.textContent = (target.style.display === 'flex') ? '隱藏圖片' : '顯示圖片';
+                        }
+                    } else {
+                        console.error('toggleImages called with null target or button:', target, button); // 如果目標或按鈕為 null，輸出錯誤信息
+                    }
+                }
+            });
+
+            document.addEventListener('DOMContentLoaded', function () {
+                document.querySelectorAll('.password-btn').forEach(button => {
+                    button.addEventListener('click', function (event) {
+                        event.preventDefault(); // 阻止按鈕的預設行為
+                        const password = this.getAttribute('data-password');
+                        console.log('密碼按鈕被點擊，密碼:', password);
+                        copyPassword(password);
+                    });
+                });
+            });
+
+            function copyPassword(password) {
+                console.log('copyPassword 函數被觸發，密碼:', password);
+                const tempInput = document.createElement('input');
+                document.body.appendChild(tempInput);
+                tempInput.value = password;
+                tempInput.select();
+                try {
+                    const successful = document.execCommand('copy');
+                    console.log('複製密碼' + (successful ? '成功' : '失敗'));
+                    showToast(); // 顯示 Toast 訊息
+                } catch (err) {
+                    console.error('無法複製密碼', err);
+                }
+                document.body.removeChild(tempInput);
+            }
+
+            function showToast() {
+                const toast = document.getElementById('toast');
+                toast.className = "toast show";
+                setTimeout(function () {
+                    toast.className = toast.className.replace("show", "");
+                }, 500);
+            }
+
+
+        </script>
     </div>
 @endsection
 
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // 在頁面加載時明確設置每個圖片容器的顯示樣式為 'flex'
-        document.querySelectorAll('.article-images').forEach(imagesDiv => {
-            imagesDiv.style.display = 'flex';
-        });
-
-        document.querySelectorAll('.toggle-images').forEach(button => {
-            button.textContent = '隱藏圖片'; // 確保按鈕預設文字是「隱藏圖片」
-
-            button.addEventListener('click', function () {
-                const target = document.querySelector(this.getAttribute('data-target'));
-                console.log('Button clicked, target:', target); // 輸出目標信息
-                toggleImages(target, this);
-            });
-        });
-
-        document.querySelectorAll('.article-images img').forEach(img => {
-            img.addEventListener('click', function () {
-                const articleContainer = this.closest('.article');
-                const toggleButton = articleContainer ? articleContainer.querySelector('.toggle-images') : null;
-                console.log('Image clicked, toggleButton:', toggleButton); // 輸出按鈕信息
-                if (toggleButton) {
-                    const imagesDiv = articleContainer.querySelector('.article-images');
-                    toggleImages(imagesDiv, toggleButton);
-                } else {
-                    console.error('ToggleButton not found for image:', this); // 如果按鈕未找到，輸出錯誤信息
-                }
-            });
-        });
-
-        function toggleImages(target, button) {
-            if (target && button) { // 確保目標和按鈕都存在
-                console.log('Toggling images for target:', target, 'button:', button); // 輸出正在切換的目標和按鈕信息
-                // 調整判斷邏輯，考慮空字符串的情況也視為 'flex'
-                if (target.style.display === 'none' || target.style.display === '' || target.style.display === 'flex') {
-                    target.style.display = (target.style.display === 'none' || target.style.display === '') ? 'flex' : 'none';
-                    button.textContent = (target.style.display === 'flex') ? '隱藏圖片' : '顯示圖片';
-                }
-            } else {
-                console.error('toggleImages called with null target or button:', target, button); // 如果目標或按鈕為 null，輸出錯誤信息
-            }
-        }
-    });
-
-    function copyPassword(buttonElement) {
-        const password = buttonElement.getAttribute('data-password');
-        console.log('嘗試複製的密碼:', password);
-
-        // 檢查 navigator.clipboard 是否可用
-        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-            console.log('使用 navigator.clipboard 方法複製');
-            navigator.clipboard.writeText(password).then(() => {
-                console.log('密碼成功複製到剪貼簿');
-                alert('密碼已複製到剪貼簿');
-            }).catch(err => {
-                console.error('使用 navigator.clipboard 複製失敗，錯誤信息:', err);
-                // 如果 navigator.clipboard 失敗，使用後備方案
-                fallbackCopyTextToClipboard(password);
-            });
-        } else {
-            console.log('navigator.clipboard 不可用，使用後備方案');
-            // 如果 navigator.clipboard 不可用，直接使用後備方案
-            fallbackCopyTextToClipboard(password);
-        }
-    }
-
-    function fallbackCopyTextToClipboard(text) {
-        console.log('執行後備方案複製');
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-
-        try {
-            const successful = document.execCommand('copy');
-            const msg = successful ? '成功' : '失敗';
-            console.log('後備方案複製' + msg);
-            alert('密碼複製' + msg);
-        } catch (err) {
-            console.error('後備方案，密碼複製失敗', err);
-        }
-
-        document.body.removeChild(textArea);
-    }
-
-
-</script>
 

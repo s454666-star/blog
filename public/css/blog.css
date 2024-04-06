@@ -392,3 +392,88 @@ body {
     background-color: #0056b3; /* 深藍色，滑鼠懸停時 */
     border-color: #0056b3;
 }
+
+/* 密碼按鈕樣式 */
+.password-btn {
+    background-color: #f44336; /* 紅色背景 */
+    color: white; /* 白色文字 */
+    border: none; /* 無邊框 */
+    padding: 5px 10px; /* 內邊距 */
+    margin-left: 10px; /* 與其他元素的間距 */
+    border-radius: 4px; /* 圓角邊框 */
+    cursor: pointer; /* 手形游標 */
+    font-size: 0.9rem; /* 文字大小 */
+}
+
+/* 連結按鈕樣式 */
+.link-btn {
+    background-color: #4CAF50; /* 綠色背景 */
+    color: white; /* 白色文字 */
+    padding: 5px 10px; /* 內邊距 */
+    margin-left: 10px; /* 與其他元素的間距 */
+    border-radius: 4px; /* 圓角邊框 */
+    text-decoration: none; /* 移除下劃線 */
+    display: inline-block; /* 確保適當顯示 */
+    cursor: pointer; /* 手形游標 */
+    font-size: 0.9rem; /* 文字大小 */
+}
+
+.password-btn:hover, .link-btn:hover {
+    opacity: 0.8; /* 滑鼠懸停時的透明度變化 */
+}
+
+
+.button-group {
+    display: flex; /* 使用 Flexbox 布局 */
+    align-items: center; /* 垂直居中對齊按鈕 */
+    gap: 10px; /* 設定按鈕之間的間隙 */
+    margin-bottom: 15px; /* 與文章內容的間隔 */
+}
+
+/* 按鈕和連結按鈕的共用樣式 */
+.button-group button, .button-group .link-btn {
+    padding: 5px 10px; /* 內邊距 */
+    border: none; /* 無邊框 */
+    border-radius: 4px; /* 圓角邊框 */
+    cursor: pointer; /* 手形游標 */
+    font-size: 0.9rem; /* 文字大小 */
+    text-decoration: none; /* 移除下劃線 */
+    color: white; /* 白色文字 */
+}
+
+/* 按鈕共用樣式 */
+.button-group button, .button-group .link-btn {
+    width: 100px; /* 統一寬度 */
+    height: 40px; /* 統一高度 */
+    line-height: 40px; /* 文字垂直居中 */
+    text-align: center; /* 文字水平居中 */
+    border: none; /* 移除邊框 */
+    border-radius: 5px; /* 圓角邊框 */
+    color: white; /* 文字顏色 */
+    font-size: 14px; /* 文字大小 */
+    cursor: pointer; /* 鼠標指標 */
+    margin: 0 5px; /* 保持按鈕間距 */
+    padding: 0; /* 移除內邊距，以防止影響大小 */
+    display: inline-block; /* 確保正確顯示 */
+}
+
+/* 隱藏圖片按鈕樣式 */
+.toggle-images {
+    background-color: #4CAF50; /* 綠色背景 */
+}
+
+/* 密碼按鈕樣式 */
+.password-btn {
+    background-color: #f44336; /* 紅色背景 */
+    pointer-events: none; /* 禁用點擊事件 */
+}
+
+/* 連結按鈕樣式 */
+.link-btn {
+    background-color: #008CBA; /* 藍色背景 */
+}
+
+/* 按鈕懸浮效果 */
+.button-group button:hover, .button-group .link-btn:hover {
+    opacity: 0.8; /* 添加淡化效果 */
+}

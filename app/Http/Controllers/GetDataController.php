@@ -13,7 +13,7 @@ class GetDataController extends Controller
         $client = new Client();
         $urls   = []; // Initialize an array to hold the extracted URLs
 
-        for ($i = 1; $i <= 100; $i++) {
+        for ($i = 1; $i <= 25; $i++) {
             $url = "https://2a5n.com/f/3/new/{$i}.html";
 
             try {

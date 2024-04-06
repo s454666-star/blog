@@ -72,17 +72,17 @@
         });
 
         function initializePage() {
-            document.querySelectorAll('.article-images img').forEach(img => {
-                img.onload = () => {
-                    if (img.naturalHeight > 3000) {
-                        img.closest('.article-images').classList.add('full-width-image');
-                        img.style.transformOrigin = 'top left';
-                    } else if (img.naturalHeight > 2000) {
-                        img.style.transform = 'scale(2)';
-                        img.style.transformOrigin = 'top left';
-                    }
-                };
-            });
+            // document.querySelectorAll('.article-images img').forEach(img => {
+            //     img.onload = () => {
+            //         if (img.naturalHeight > 3000) {
+            //             img.closest('.article-images').classList.add('full-width-image');
+            //             img.style.transformOrigin = 'top left';
+            //         } else if (img.naturalHeight > 2000) {
+            //             img.style.transform = 'scale(2)';
+            //             img.style.transformOrigin = 'top left';
+            //         }
+            //     };
+            // });
 
             document.querySelectorAll('.toggle-images').forEach(button => {
                 button.addEventListener('click', function () {

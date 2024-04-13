@@ -11,14 +11,15 @@
         </form>
 
         <div class="actions">
-            <form id="action-form" action="{{ url('blog/batch-delete') }}" method="POST" class="action-form">
+            <form id="action-form" action="{{ route('blog.batch-delete') }}" method="POST" class="action-form">
                 @csrf
                 @method('DELETE')
                 <button type="submit" class="custom-btn batch-delete-btn">批次刪除</button>
             </form>
             <!-- 移出 preserve 按鈕的 form 外面 -->
             <button type="button" class="custom-btn preserve-btn">保留</button>
-            <button type="button" class="custom-btn toggle-view-btn" id="toggle-view">{{ $isPreservedView ? '返回博客' : '顯示保留' }}</button>
+            <button type="button" class="custom-btn toggle-view-btn"
+                    id="toggle-view">{{ $isPreservedView ? '返回博客' : '顯示保留' }}</button>
             <form id="preserve-form" action="{{ url('blog/preserve') }}" method="POST" style="display: none;">
                 @csrf
                 <!-- 隱藏的輸入元素將在JavaScript中動態添加 -->
@@ -29,7 +30,7 @@
             <div id="article-{{ $article->article_id }}" class="article">
                 <div class="article-header">
                     <input type="checkbox" name="selected_articles[]" value="{{ $article->article_id }}"
-                           class="article-checkbox">
+                           form="action-form" class="article-checkbox">
                     <h2>{{ $article->title }}</h2>
                 </div>
                 <div class="button-group">
@@ -106,13 +107,13 @@
 
         const showPreservedBtn = document.getElementById('show-preserved');
 
-        showPreservedBtn.addEventListener('click', function() {
+        showPreservedBtn.addEventListener('click', function () {
             window.location.href = '{{ url('blog/show-preserved') }}';  // Laravel生成的URL
         });
 
         const toggleViewBtn = document.getElementById('toggle-view');
 
-        toggleViewBtn.addEventListener('click', function() {
+        toggleViewBtn.addEventListener('click', function () {
             const currentPath = window.location.pathname;
             console.log("Current path:", currentPath); // Debug: Log current path to see what it is.
             if (currentPath.includes('show-preserved')) {
@@ -125,7 +126,7 @@
     document.addEventListener('DOMContentLoaded', function () {
         const toggleViewBtn = document.getElementById('toggle-view');
 
-        toggleViewBtn.addEventListener('click', function() {
+        toggleViewBtn.addEventListener('click', function () {
             const currentPath = window.location.pathname;
             console.log("Current path:", currentPath); // Debug: Log current path to see what it is.
             if (currentPath.includes('show-preserved')) {
@@ -170,9 +171,13 @@
         }, 500);
     }
 
-    document.querySelectorAll('.custom-btn').forEach(button => {
-        button.addEventListener('click', function () {
-            // 確保這裡不修改任何影響布局的CSS屬性
+    document.addEventListener('DOMContentLoaded', function () {
+        // Remove or comment out unnecessary JavaScript to test form submission
+        document.querySelectorAll('.custom-btn').forEach(button => {
+            button.addEventListener('click', function (event) {
+                // Check if the default action is prevented
+                console.log("Button pressed, will it submit?");
+            });
         });
     });
 

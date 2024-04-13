@@ -41,12 +41,11 @@ class BlogController
     public function batchDelete(Request $request)
     {
         $selectedArticles = $request->input('selected_articles', []);
-
         if (count($selectedArticles) > 0) {
             Article::whereIn('article_id', $selectedArticles)->update([ 'is_disabled' => 1 ]);
+            return redirect()->route('blog.index')->with('success', '選中的文章已成功刪除。');
         }
-
-        return redirect()->route('blog.index')->with('success', '選中的文章已成功刪除。');
+        return redirect()->route('blog.index')->with('error', '沒有選擇文章。');
     }
 
     public function preserve(Request $request)
@@ -65,8 +64,8 @@ class BlogController
         $articles = Article::where('is_disabled', 2)->paginate(30);
         // Pass an additional variable to indicate the preserved view status
         return view('blog.index', [
-            'articles' => $articles,
-            'search' => $request->input('search'),
+            'articles'        => $articles,
+            'search'          => $request->input('search'),
             'isPreservedView' => true // Assuming true indicates that it is the preserved view
         ]);
     }

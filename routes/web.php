@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
+use App\Http\Controllers\OCRController;
 use App\Http\Controllers\TelegramController;
 use Illuminate\Support\Facades\Route;
 
@@ -40,6 +41,11 @@ Route::prefix('blog')->group(function () {
 Route::get('/blog-bt', [BlogBtController::class, 'index'])->name('blogBt.index');
 Route::get('/bt', [BlogBtController::class, 'index'])->name('blogBt.index');
 Route::delete('/batch-delete-bt', [BlogBtController::class, 'batchDelete'])->name('blogBt.batch-delete');
+Route::get('/ocr', function () {
+    return view('ocr');
+});
+
+Route::post('/ocr', [OCRController::class, 'recognizeText']);
 
 // 其他自訂頁面
 Route::view('/my-page', 'my')->name('my-page');

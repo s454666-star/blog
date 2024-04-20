@@ -41,6 +41,15 @@ class BuildingAddressExport
             $address = '未找到';
         }
 
+        $pattern = '/建物坐落地號:(.*)/us';
+        preg_match($pattern, $utf8Text, $matches);
+        if (isset($matches[1])) {
+            $locationNumber = substr($matches[1], 3);
+            $locationNumber = str_replace("\n", "", $locationNumber);  // 去掉換行符
+        } else {
+            $locationNumber = '未找到';
+        }
+
         // 設置標題和數據
         $sheet->setCellValue('A1', '建物門牌');
         $sheet->setCellValue('A2', '建物坐落地號');
@@ -64,6 +73,7 @@ class BuildingAddressExport
         $sheet->setCellValue('A20', '其他登記事項2');
 
         $sheet->setCellValue('B1', $address);
+        $sheet->setCellValue('B2', $locationNumber);
 
         // 設置邊框
         $styleArray = [

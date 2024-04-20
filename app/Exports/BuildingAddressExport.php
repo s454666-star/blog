@@ -41,7 +41,7 @@ class BuildingAddressExport
             $address = '未找到';
         }
 
-        $pattern = '/建物坐落地號:(.*)/us';
+        $pattern = '/建物坐落地號(.*)/us';
         preg_match($pattern, $utf8Text, $matches);
         if (isset($matches[1])) {
             $locationNumber = substr($matches[1], 3);

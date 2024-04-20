@@ -23,9 +23,14 @@ class PdfController extends Controller
         $pdfFile = $request->file('pdf');
         $pdfPath = $pdfFile->path();
 
+        // 使用 Spatie PDF 轉換庫提取文本
         $text = (new Pdf())
             ->setPdf($pdfPath)
             ->text();
+
+        // 確保文本中的換行符不被修改（如果 Spatie 库沒有保留，您可以手動處理）
+        // 這裡的假設是文本使用 \n 作為換行符
+        $text = str_replace("\n", "\r\n", $text);
 
         return view('pdf.text', compact('text'));
     }

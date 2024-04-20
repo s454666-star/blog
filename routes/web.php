@@ -38,11 +38,12 @@ Route::prefix('blog')->group(function () {
     Route::delete('/batch-delete', [BlogController::class, 'batchDelete'])->name('blog.batch-delete');
     Route::post('/preserve', [BlogController::class, 'preserve'])->name('blog.preserve');
     Route::get('/show-preserved', [BlogController::class, 'showPreserved'])->name('blog.show-preserved');
+    Route::delete('/batch-delete-bt', [BlogBtController::class, 'batchDelete'])->name('blogBt.batch-delete');
 });
 
 Route::get('/blog-bt', [BlogBtController::class, 'index'])->name('blogBt.index');
 Route::get('/bt', [BlogBtController::class, 'index'])->name('blogBt.index');
-Route::delete('/batch-delete-bt', [BlogBtController::class, 'batchDelete'])->name('blogBt.batch-delete');
+
 Route::get('/ocr', function () {
     return view('ocr');
 });

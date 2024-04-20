@@ -35,13 +35,9 @@ class PdfController2 extends Controller
         }
 
         // 保存文本到文件
-        Storage::put('pdf_output.txt', $process->getOutput());
+//        Storage::put('pdf_output.txt', $process->getOutput());
 
-        // 讀取文件內容
-        $text = Storage::get('pdf_output.txt');
-
-        // 替換換行符以確保格式
-        $text = str_replace("\n", "\r\n", $text);
+        $text = str_replace("\n", "\r\n", $process->getOutput());
 
         return view('pdf.text', compact('text'));  // 確保有一個叫做 'pdf.display' 的視圖
     }

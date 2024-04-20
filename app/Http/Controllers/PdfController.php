@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\BuildingAddressExport;
 use Illuminate\Http\Request;
 use Spatie\PdfToText\Pdf;
 use Maatwebsite\Excel\Facades\Excel;
@@ -33,7 +34,10 @@ class PdfController extends Controller
     // 導出 Excel 文件
     public function exportExcel()
     {
-        $text = session()->get('extracted_text'); // 從 session 中獲取文本
-        return Excel::download(new TextExport($text), 'extracted_text.xlsx');
+        $text = session()->get('extracted_text', '預設文本如果沒有找到session');
+        $exporter = new BuildingAddressExport($text);
+        $fileName = $exporter->export();
+
+        return response()->download($fileName)->deleteFileAfterSend(true);
     }
 }

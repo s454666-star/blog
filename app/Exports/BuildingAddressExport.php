@@ -54,7 +54,7 @@ class BuildingAddressExport
             $parts = explode("\n", $value);
             $value = $parts[0];
             if ($value !== '未找到') {
-                $utf8Text = preg_replace($value, '', $utf8Text); // 移除已匹配內容
+                $utf8Text = preg_replace($regex . $value, '', $utf8Text); // 移除已匹配內容
             }
             $index = array_search($fieldTitle, array_keys($fields)) + 1;
             $sheet->setCellValue('A' . $index, $fieldTitle);

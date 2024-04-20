@@ -33,9 +33,15 @@ class PdfController2 extends Controller
             throw new ProcessFailedException($process);
         }
 
-        // 取得文本並將換行符 \n 替換為 \r\n
-        $text = str_replace("\n", "\r\n", $process->getOutput());
+        $output = $process->getOutput();
+
+        // 手動檢查換行符
+        $text = str_replace("\n", "\r\n", $output);
+
+        // 調試輸出
+        file_put_contents('pdf_output.txt', $text); // 將處理後的文本保存至文件以進行檢查
 
         return view('pdf.text', compact('text'));
     }
+
 }

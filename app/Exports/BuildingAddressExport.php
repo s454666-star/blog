@@ -34,7 +34,7 @@ class BuildingAddressExport
         if (isset($matches[1])) {
             $address = $matches[1];
             // Remove the first character
-            $address = substr($address, 1);
+            $address = substr($address, 2);
             // Split at the newline and take only the first part
             $parts = explode("\n", $address);
             $address = $parts[0];

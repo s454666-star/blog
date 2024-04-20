@@ -3,14 +3,15 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Spatie\PdfToText\Pdf;
+use Symfony\Component\Process\Exception\ProcessFailedException;
+use Symfony\Component\Process\Process;
 
 class PdfController2 extends Controller
 {
     // 顯示上傳表單
     public function showUploadForm()
     {
-        return view('pdf.upload2');
+        return view('upload2');
     }
 
     // 處理PDF文件上傳並提取文字
@@ -23,13 +24,18 @@ class PdfController2 extends Controller
         $pdfFile = $request->file('pdf');
         $pdfPath = $pdfFile->path();
 
-        $text = (new Pdf())
-            ->setPdf($pdfPath)
-            ->text();
+        // 使用 pdftotext 轉換 PDF 文本
+        $process = new Process(['pdftotext', '-layout', $pdfPath, '-']);
+        $process->run();
 
-        // 確保文本中的換行符不被修改
-        $text = str_replace("\n", "\r\n", $text);
+        // 執行過程中發生錯誤
+        if (!$process->isSuccessful()) {
+            throw new ProcessFailedException($process);
+        }
 
-        return view('pdf.text', compact('text'));  // 請確保相應的視圖也已更新或存在
+        // 取得文本並將換行符 \n 替換為 \r\n
+        $text = str_replace("\n", "\r\n", $process->getOutput());
+
+        return view('pdf.text', compact('text'));
     }
 }

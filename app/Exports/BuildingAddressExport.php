@@ -41,9 +41,28 @@ class BuildingAddressExport
             $address = '未找到';
         }
 
+        // 設置標題和數據
         $sheet->setCellValue('A1', '建物門牌');
         $sheet->setCellValue('A2', '建物坐落地號');
-        // ... 其他單元格的設置 ...
+        $sheet->setCellValue('A3', '主要用途');
+        $sheet->setCellValue('A4', '主要建材');
+        $sheet->setCellValue('A5', '層數');
+        $sheet->setCellValue('A6', '層次');
+        $sheet->setCellValue('A7', '建築完成日期');
+        $sheet->setCellValue('A8', '附屬建物用途');
+        $sheet->setCellValue('A9', '其他登記事項');
+        $sheet->setCellValue('A10', '總面積');
+        $sheet->setCellValue('A11', '層次面積');
+        $sheet->setCellValue('A12', '面積');
+        $sheet->setCellValue('A13', '登記日期');
+        $sheet->setCellValue('A14', '原因發生日期');
+        $sheet->setCellValue('A15', '所有權人');
+        $sheet->setCellValue('A16', '統一編號');
+        $sheet->setCellValue('A17', '住址');
+        $sheet->setCellValue('A18', '權利範圍');
+        $sheet->setCellValue('A19', '其他登記事項1');
+        $sheet->setCellValue('A20', '其他登記事項2');
+
         $sheet->setCellValue('B1', $address);
 
         // 設置邊框
@@ -51,11 +70,11 @@ class BuildingAddressExport
             'borders' => [
                 'outline' => [
                     'borderStyle' => Border::BORDER_THICK,
-                    'color'       => [ 'argb' => 'FF000000' ],
+                    'color' => ['argb' => 'FF000000'],
                 ],
-                'inside'  => [
+                'inside' => [
                     'borderStyle' => Border::BORDER_THIN,
-                    'color'       => [ 'argb' => 'FF000000' ],
+                    'color' => ['argb' => 'FF000000'],
                 ],
             ],
         ];

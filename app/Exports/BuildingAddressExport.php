@@ -45,10 +45,21 @@ class BuildingAddressExport
         preg_match($pattern, $utf8Text, $matches);
         if (isset($matches[1])) {
             $locationNumber = substr($matches[1], 3);
-            $locationNumber = explode("\n", "", $locationNumber);  // 去掉換行符
+            $locationNumber = explode("\n", $locationNumber);  // 去掉換行符
             $locationNumber = $locationNumber[0];
         } else {
             $locationNumber = '未找到';
+        }
+
+        // 抓取 "主要用途"
+        $pattern = '/主要用途(.*)/us';
+        preg_match($pattern, $utf8Text, $matches);
+        if (isset($matches[1])) {
+            $mainUse      = substr($matches[1], 3);
+            $mainUseParts = explode("\n", $mainUse);
+            $mainUse      = $mainUseParts[0];
+        } else {
+            $mainUse = '未找到';
         }
 
         // 設置標題和數據
@@ -75,6 +86,7 @@ class BuildingAddressExport
 
         $sheet->setCellValue('B1', $address);
         $sheet->setCellValue('B2', $locationNumber);
+        $sheet->setCellValue('B3', $mainUse);
 
         // 設置邊框
         $styleArray = [

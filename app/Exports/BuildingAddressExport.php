@@ -62,6 +62,17 @@ class BuildingAddressExport
             $mainUse = '未找到';
         }
 
+        // 正則表達式匹配 "主要建材"
+        $pattern = '/主要建材(.*)/us';
+        preg_match($pattern, $utf8Text, $matches);
+        if (isset($matches[1])) {
+            $mainMaterial      = substr($matches[1], 3); // 去掉冒號後的第一個字符
+            $mainMaterialParts = explode("\n", $mainMaterial);
+            $mainMaterial      = $mainMaterialParts[0];
+        } else {
+            $mainMaterial = '未找到';
+        }
+
         // 設置標題和數據
         $sheet->setCellValue('A1', '建物門牌');
         $sheet->setCellValue('A2', '建物坐落地號');
@@ -87,6 +98,8 @@ class BuildingAddressExport
         $sheet->setCellValue('B1', $address);
         $sheet->setCellValue('B2', $locationNumber);
         $sheet->setCellValue('B3', $mainUse);
+        $sheet->setCellValue('B4', $mainMaterial);
+
 
         // 設置邊框
         $styleArray = [

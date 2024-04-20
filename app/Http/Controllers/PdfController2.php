@@ -10,7 +10,7 @@ class PdfController2 extends Controller
     // 顯示上傳表單
     public function showUploadForm()
     {
-        return view('upload2');
+        return view('pdf.upload2');
     }
 
     // 處理PDF文件上傳並提取文字

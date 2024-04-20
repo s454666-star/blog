@@ -51,12 +51,11 @@ class BuildingAddressExport
             $pattern = '/' . $regex . '/us';
             preg_match($pattern, $utf8Text, $matches);
             $value = $matches[1] ?? '未找到';
+            $parts = explode("\n", $value);
+            $value = $parts[0];
             if ($value !== '未找到') {
                 $utf8Text = preg_replace($pattern, '', $utf8Text); // 移除已匹配內容
             }
-            $parts = explode("\n", $value);
-            $value = $parts[0];
-
             $index = array_search($fieldTitle, array_keys($fields)) + 1;
             $sheet->setCellValue('A' . $index, $fieldTitle);
             $sheet->setCellValue('B' . $index, $value);

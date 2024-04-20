@@ -44,7 +44,7 @@ class BuildingAddressExport
             '統一編號'      => '統㆒編號：(.*)',
             '住址'          => '址：(.*)',
             '權利範圍'      => '權利範圍：(.*)',
-            '其他登記事項1' => '其他登記事㊠(.*)',
+            '其他登記事項' => '其他登記事㊠：(.*)',
         ];
 
         foreach ($fields as $fieldTitle => $regex) {

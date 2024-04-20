@@ -81,6 +81,7 @@ class BuildingAddressExport
         $sheet->getStyle('A1:B20')->applyFromArray($styleArray);
 
         // 設置 B 列的寬度
+        $sheet->getColumnDimension('A')->setWidth(15);
         $sheet->getColumnDimension('B')->setWidth(20);
 
         // 創建 Excel 文件

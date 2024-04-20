@@ -45,7 +45,7 @@ class BuildingAddressExport
         preg_match($pattern, $utf8Text, $matches);
         if (isset($matches[1])) {
             $locationNumber = substr($matches[1], 3);
-            $locationNumber = explode("\n", "", $locationNumber);  // 去掉換行符
+            $locationNumber = explode("\n", $locationNumber);  // 去掉換行符
             $locationNumber = $locationNumber[0];
         } else {
             $locationNumber = '未找到';

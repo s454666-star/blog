@@ -43,6 +43,6 @@ class PdfController2 extends Controller
         // 替換換行符以確保格式
         $text = str_replace("\n", "\r\n", $text);
 
-        return view('pdf.display', compact('text'));  // 確保有一個叫做 'pdf.display' 的視圖
+        return view('pdf.text', compact('text'));  // 確保有一個叫做 'pdf.display' 的視圖
     }
 }

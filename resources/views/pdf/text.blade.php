@@ -7,7 +7,7 @@
 <body>
 <div class="container mt-5">
     <h1>Extracted Text</h1>
-    <div class="alert alert-info">{{ $text }}</div>
+    <div class="alert alert-info" style="white-space: pre-wrap;">{{ $text }}</div>
 </div>
 </body>
 </html>

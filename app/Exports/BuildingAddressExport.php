@@ -74,7 +74,7 @@ class BuildingAddressExport
         ];
         $sheet->getStyle('A1:B18')->applyFromArray($styleArray);
         $sheet->getColumnDimension('A')->setWidth(15);
-        $sheet->getColumnDimension('B')->setWidth(20);
+        $sheet->getColumnDimension('B')->setWidth(40);
 
         // 創建和保存 Excel 文件
         $writer   = new Xlsx($spreadsheet);

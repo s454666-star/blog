@@ -72,7 +72,7 @@ class BuildingAddressExport
                 ],
             ],
         ];
-        $sheet->getStyle('A1:B20')->applyFromArray($styleArray);
+        $sheet->getStyle('A1:B18')->applyFromArray($styleArray);
         $sheet->getColumnDimension('A')->setWidth(15);
         $sheet->getColumnDimension('B')->setWidth(20);
 

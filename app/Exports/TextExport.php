@@ -31,6 +31,6 @@ class TextExport implements FromCollection, WithHeadings
 
     public function headings(): array
     {
-        return ['', '建物門牌'];
+        return ['建物門牌', ''];
     }
 }

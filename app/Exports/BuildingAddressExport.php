@@ -28,10 +28,19 @@ class BuildingAddressExport
 
         file_put_contents('utf8_text_output.txt', $utf8Text . "\nEncoding: " . $encodingInfo, FILE_APPEND);
         // 搜索 "建物門牌:" 開始到文本結尾的任何字符，包括中文和換行符
-        $pattern = '/建物門牌:(.*)/us';  // 使用 u 修飾符支持 UTF-8，使用 s 使 . 匹配包括換行符在內的任何字符
+        $pattern = '/建物門牌(.*)/us';  // 使用 u 修飾符支持 UTF-8，使用 s 使 . 匹配包括換行符在內的任何字符
         preg_match($pattern, $utf8Text, $matches);
 
-        $address = trim($matches[1] ?? '未找到');  // 如果沒有找到則返回 '未找到'
+        if (isset($matches[1])) {
+            $address = $matches[1];
+            // Remove the first character
+            $address = substr($address, 1);
+            // Split at the newline and take only the first part
+            $parts = explode("\n", $address);
+            $address = $parts[0];
+        } else {
+            $address = '未找到';  // Default to '未找到' if no match
+        }
 
         // 設置標題和數據
         $sheet->setCellValue('A1', '建物門牌');

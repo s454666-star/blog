@@ -54,6 +54,7 @@ Route::post('/upload-pdf', [PdfController::class, 'extractText'])->name('pdf.ext
 
 Route::get('/upload-pdf2', [PdfController2::class, 'showUploadForm'])->name('pdf2.upload');
 Route::post('/upload-pdf2', [PdfController2::class, 'extractText'])->name('pdf2.extract-text');
+Route::get('/export-excel', [PdfController::class, 'exportExcel'])->name('export_excel');
 
 
 // 其他自訂頁面

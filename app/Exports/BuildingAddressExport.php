@@ -5,7 +5,6 @@ namespace App\Exports;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use PhpOffice\PhpSpreadsheet\Style\Border;
-use PhpOffice\PhpSpreadsheet\Style\Style;
 
 class BuildingAddressExport
 {
@@ -21,87 +20,47 @@ class BuildingAddressExport
         $spreadsheet = new Spreadsheet();
         $sheet       = $spreadsheet->getActiveSheet();
 
-        // 假設原始文本是 Big5 編碼，需要轉換為 UTF-8
-        $utf8Text = $this->text;
-
+        $utf8Text     = $this->text;
         $encoding     = mb_detect_encoding($utf8Text, 'UTF-8, Big5', true);
         $encodingInfo = $encoding ?: 'Unknown';
-
         file_put_contents('utf8_text_output.txt', $utf8Text . "\nEncoding: " . $encodingInfo, FILE_APPEND);
 
-        $pattern = '/建物門牌(.*)/us';
-        preg_match($pattern, $utf8Text, $matches);
+        // 欄位與正則表達式的映射
+        $fields = [
+            '建物門牌'      => '建物門牌(.*)',
+            '建物坐落地號'  => '建物坐落㆞號(.*)',
+            '主要用途'      => '主要用途(.*)',
+            '主要建材'      => '主要建材(.*)',
+            '層數'          => '數(.*)',
+            '層次'          => '次(.*)',
+            '建築完成日期'  => '建築完成㈰期(.*)',
+            '附屬建物用途'  => '附屬建物用途(.*)',
+            '其他登記事項'  => '其他登記事㊠(.*)',  // 如果有多個同名字段，需考慮區分
+            '總面積'        => '總面積(.*)',
+            '層次面積'      => '層次面積(.*)',
+            '面積'          => '面積(.*)',
+            '登記日期'      => '登記㈰期(.*)',
+            '原因發生日期'  => '原因發生㈰期(.*)',
+            '所有權人'      => '所㈲權㆟(.*)',
+            '統一編號'      => '統㆒編號(.*)',
+            '住址'          => '址(.*)',
+            '權利範圍'      => '權利範圍(.*)',
+            '其他登記事項1' => '其他登記事㊠(.*)',
+        ];
 
-        if (isset($matches[1])) {
-            $address = $matches[1];
-            $address = substr($address, 3);
-            $parts   = explode("\n", $address);
-            $address = $parts[0];
-        } else {
-            $address = '未找到';
+        foreach ($fields as $fieldTitle => $regex) {
+            $pattern = '/' . $regex . '/us';
+            preg_match($pattern, $utf8Text, $matches);
+            $value = isset($matches[1]) ? substr($matches[1], 3) : '未找到';
+            $parts = explode("\n", $value);
+            $value = $parts[0];
+
+            $index = array_search($fieldTitle, array_keys($fields)) + 1;
+            $sheet->setCellValue('A' . $index, $fieldTitle);
+            $sheet->setCellValue('B' . $index, $value);
         }
 
-        $pattern = '/建物坐落㆞號(.*)/us';
-        preg_match($pattern, $utf8Text, $matches);
-        if (isset($matches[1])) {
-            $locationNumber = substr($matches[1], 3);
-            $locationNumber = explode("\n", $locationNumber);  // 去掉換行符
-            $locationNumber = $locationNumber[0];
-        } else {
-            $locationNumber = '未找到';
-        }
-
-        // 抓取 "主要用途"
-        $pattern = '/主要用途(.*)/us';
-        preg_match($pattern, $utf8Text, $matches);
-        if (isset($matches[1])) {
-            $mainUse      = substr($matches[1], 3);
-            $mainUseParts = explode("\n", $mainUse);
-            $mainUse      = $mainUseParts[0];
-        } else {
-            $mainUse = '未找到';
-        }
-
-        // 正則表達式匹配 "主要建材"
-        $pattern = '/主要建材(.*)/us';
-        preg_match($pattern, $utf8Text, $matches);
-        if (isset($matches[1])) {
-            $mainMaterial      = substr($matches[1], 3); // 去掉冒號後的第一個字符
-            $mainMaterialParts = explode("\n", $mainMaterial);
-            $mainMaterial      = $mainMaterialParts[0];
-        } else {
-            $mainMaterial = '未找到';
-        }
-
-        // 設置標題和數據
-        $sheet->setCellValue('A1', '建物門牌');
-        $sheet->setCellValue('A2', '建物坐落地號');
-        $sheet->setCellValue('A3', '主要用途');
-        $sheet->setCellValue('A4', '主要建材');
-        $sheet->setCellValue('A5', '層數');
-        $sheet->setCellValue('A6', '層次');
-        $sheet->setCellValue('A7', '建築完成日期');
-        $sheet->setCellValue('A8', '附屬建物用途');
-        $sheet->setCellValue('A9', '其他登記事項');
-        $sheet->setCellValue('A10', '總面積');
-        $sheet->setCellValue('A11', '層次面積');
-        $sheet->setCellValue('A12', '面積');
-        $sheet->setCellValue('A13', '登記日期');
-        $sheet->setCellValue('A14', '原因發生日期');
-        $sheet->setCellValue('A15', '所有權人');
-        $sheet->setCellValue('A16', '統一編號');
-        $sheet->setCellValue('A17', '住址');
-        $sheet->setCellValue('A18', '權利範圍');
-        $sheet->setCellValue('A19', '其他登記事項1');
-        $sheet->setCellValue('A20', '其他登記事項2');
-
-        $sheet->setCellValue('B1', $address);
-        $sheet->setCellValue('B2', $locationNumber);
-        $sheet->setCellValue('B3', $mainUse);
-        $sheet->setCellValue('B4', $mainMaterial);
-
-
-        // 設置邊框
+        // 設置邊框和列寬
         $styleArray = [
             'borders' => [
                 'outline' => [
@@ -115,12 +74,10 @@ class BuildingAddressExport
             ],
         ];
         $sheet->getStyle('A1:B20')->applyFromArray($styleArray);
-
-        // 設置 B 列的寬度
         $sheet->getColumnDimension('A')->setWidth(15);
         $sheet->getColumnDimension('B')->setWidth(20);
 
-        // 創建 Excel 文件
+        // 創建和保存 Excel 文件
         $writer   = new Xlsx($spreadsheet);
         $fileName = 'building_address.xlsx';
         $writer->save($fileName);

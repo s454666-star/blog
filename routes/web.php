@@ -3,6 +3,7 @@
 use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
 use App\Http\Controllers\OCRController;
+use App\Http\Controllers\PdfController;
 use App\Http\Controllers\TelegramController;
 use Illuminate\Support\Facades\Route;
 
@@ -46,6 +47,9 @@ Route::get('/ocr', function () {
 });
 
 Route::post('/ocr', [OCRController::class, 'recognizeText']);
+
+Route::get('/upload-pdf', [PdfController::class, 'showUploadForm'])->name('pdf.upload');
+Route::post('/upload-pdf', [PdfController::class, 'extractText'])->name('pdf.extract-text');
 
 // 其他自訂頁面
 Route::view('/my-page', 'my')->name('my-page');

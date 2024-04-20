@@ -17,8 +17,15 @@ class TextExport implements FromCollection, WithHeadings
 
     public function collection()
     {
+        // 搜索 "建物門牌:" 到 "\r\n" 的文本
+        $pattern = '/建物門牌:(.*?)\r\n/';
+        preg_match($pattern, $this->text, $matches);
+
+        $address = $matches[1] ?? '未找到';  // 如果沒有找到則返回 '未找到'
+
+        // 返回包含提取的建物門牌資訊的集合
         return new Collection([
-            ['content' => $this->text]
+            ['content' => $address]
         ]);
     }
 

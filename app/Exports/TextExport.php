@@ -25,7 +25,7 @@ class TextExport implements FromCollection, WithHeadings
 
         // 返回包含提取的建物門牌資訊的集合
         return new Collection([
-            ['', $address]  // 第一列為空，資料放在第二列
+            [$address,'']  // 第一列為空，資料放在第二列
         ]);
     }
 

@@ -8,10 +8,6 @@
 <div class="container mt-5">
     <h1>Extracted Text</h1>
     <div class="alert alert-info" style="white-space: pre-wrap;">{{ $text }}</div>
-</div>
-<div class="container mt-5">
-    <h1>Extracted Text</h1>
-    <div class="alert alert-info" style="white-space: pre-wrap;">{{ $text }}</div>
     <a href="{{ route('export_excel') }}" class="btn btn-success">匯出 Excel</a>
 </div>
 </body>

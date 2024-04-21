@@ -3,6 +3,7 @@
 use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
 use App\Http\Controllers\ImageController;
+use App\Http\Controllers\ImageFullController;
 use App\Http\Controllers\OCRController;
 use App\Http\Controllers\PdfController;
 use App\Http\Controllers\PdfController2;
@@ -51,13 +52,15 @@ Route::get('/ocr', function () {
 
 Route::post('/ocr', [OCRController::class, 'recognizeText']);
 
-Route::get('/upload-pdf', [PdfController::class, 'showUploadForm'])->name('pdf.upload');
-Route::post('/upload-pdf', [PdfController::class, 'extractText'])->name('pdf.extract-text');
+//Route::get('/upload-pdf', [PdfController::class, 'showUploadForm'])->name('pdf.upload');
+//Route::post('/upload-pdf', [PdfController::class, 'extractText'])->name('pdf.extract-text');
 
-Route::get('/upload-pdf2', [PdfController2::class, 'showUploadForm'])->name('pdf2.upload');
-Route::post('/upload-pdf2', [PdfController2::class, 'extractText'])->name('pdf2.extract-text');
+//Route::get('/upload-pdf2', [PdfController2::class, 'showUploadForm'])->name('pdf2.upload');
+//Route::post('/upload-pdf2', [PdfController2::class, 'extractText'])->name('pdf2.extract-text');
 Route::get('/export-excel', [PdfController::class, 'exportExcel'])->name('export_excel');
 Route::get('/get-img', [ImageController::class, 'getImageBase64']);
+Route::get('/get-full-img', [ImageFullController::class, 'getImages']);
+
 
 // 其他自訂頁面
 Route::view('/my-page', 'my')->name('my-page');

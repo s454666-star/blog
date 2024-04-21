@@ -9,7 +9,7 @@ class ImageController extends Controller
 {
     public function getImageBase64(): JsonResponse
     {
-        $path = 'public/photo_2024-04-20_10-40-56.jpg';  // 圖片的存儲路徑
+        $path = 'public/photo_2024-04-20_10-40-30';  // 圖片的存儲路徑
         if (!Storage::exists($path)) {
             return response()->json([ 'error' => 'File not found.' ], 404);
         }

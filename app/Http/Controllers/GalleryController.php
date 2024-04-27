@@ -34,7 +34,8 @@ class GalleryController extends Controller
         mb_internal_encoding("UTF-8");
 
         Log::info('Loading images with offset: ' . $request->offset);
-        $photoPath = public_path('新整理');
+        $baseDir   = '新整理'; // This should be the directory under 'public'
+        $photoPath = public_path($baseDir);
 
         if (!File::exists($photoPath)) {
             Log::error('Gallery directory not found at path: ' . $photoPath);
@@ -63,8 +64,8 @@ class GalleryController extends Controller
                     break;
                 }
                 if ($file->isFile() && in_array(strtolower($file->getExtension()), [ 'jpg', 'jpeg', 'png', 'gif' ])) {
-                    // Manually constructing the relative path
-                    $relativePath = str_replace(public_path() . '/', '', $file->getRealPath());
+                    // Construct relative path correctly
+                    $relativePath = $baseDir . '/' . File::relativePath($photoPath, $file->getPathname());
                     $imagePaths[] = asset($relativePath);
                     Log::info('Adding image to list: ' . $relativePath);
                 }

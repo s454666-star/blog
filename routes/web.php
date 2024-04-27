@@ -61,7 +61,9 @@ Route::post('/ocr', [OCRController::class, 'recognizeText']);
 Route::get('/export-excel', [PdfController::class, 'exportExcel'])->name('export_excel');
 Route::get('/get-img', [ImageController::class, 'getImageBase64']);
 Route::get('/get-full-img', [ImageFullController::class, 'getImages']);
-Route::get('/gallery', [GalleryController::class, 'index']);
+
+Route::get('/gallery', [GalleryController::class, 'index'])->name('gallery.index');
+Route::get('/gallery/{filename}', [GalleryController::class, 'show'])->name('gallery.show');
 
 
 // 其他自訂頁面

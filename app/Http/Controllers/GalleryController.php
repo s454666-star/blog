@@ -1,49 +1,51 @@
 <?php
-
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Finder\Finder;
-use Illuminate\Support\Facades\Log; // Import Log facade for debugging
+use Illuminate\Support\Facades\Log;
+use Intervention\Image\Image;// Intervention Image library
 
 class GalleryController extends Controller
 {
     public function index()
     {
         $photoPath = config('gallery.photo_path');
-
-        // Debugging: log the path
         Log::info("Photo path: " . $photoPath);
 
         if (!File::exists($photoPath) || !File::isDirectory($photoPath)) {
-            // Log error if directory doesn't exist or is not a directory
             Log::error("Invalid directory: " . $photoPath);
             return abort(404, 'Gallery directory not found.');
         }
 
         $finder = new Finder();
         try {
-            $finder->files()->in($photoPath); // Ensure this is a correct path
+            $finder->files()->in($photoPath);
         } catch (\Exception $e) {
-            // Catch exceptions related to Finder setup
             Log::error("Finder setup error: " . $e->getMessage());
             return abort(500, 'Error setting up file finder.');
         }
 
         $imagePaths = [];
-
         foreach ($finder as $file) {
-            $imagePaths[] = $file->getRelativePathname();
+            $compressedImage = Image::make($file->getRealPath())->resize(320, 240)->encode('jpg', 75);
+            $compressedPath = 'thumbnails/' . $file->getFilename();
+            $compressedImage->save(public_path($compressedPath));
+            $imagePaths[] = $compressedPath;
         }
 
-        if (count($imagePaths) > 50) {
-            $randomKeys = array_rand($imagePaths, 50);
-            $selectedImages = array_intersect_key($imagePaths, array_flip($randomKeys));
-        } else {
-            $selectedImages = $imagePaths;
-        }
+        $selectedImages = array_slice($imagePaths, 0, 50);
 
         return view('gallery.index', compact('selectedImages'));
+    }
+
+    public function show($filename)
+    {
+        $photoPath = config('gallery.photo_path') . '/' . $filename;
+        if (!File::exists($photoPath)) {
+            return abort(404, 'Image not found.');
+        }
+        return response()->file($photoPath);
     }
 }

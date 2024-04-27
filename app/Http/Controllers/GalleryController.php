@@ -41,23 +41,37 @@ class GalleryController extends Controller
             return [];
         }
 
-        $files      = File::allFiles($photoPath);
-        $imagePaths = [];
-        $limit      = 50; // Define how many images to return at once
+        $directories = File::directories($photoPath);
+        if (empty($directories)) {
+            Log::error('No albums found in the gallery directory.');
+            return [];
+        }
 
-        foreach ($files as $file) {
-            if (count($imagePaths) >= $limit) {
-                break;
+        $imagePaths       = [];
+        $limit            = 50;
+        $attempts         = 0;
+        $totalDirectories = count($directories);
+
+        while (count($imagePaths) < $limit && $attempts < $totalDirectories) {
+            $selectedAlbum = $directories[array_rand($directories)];
+            $directories   = array_diff($directories, [ $selectedAlbum ]); // Remove selected album from list to avoid repetition
+            $files         = File::files($selectedAlbum);
+            shuffle($files); // Randomize files to get random images from the album
+
+            foreach ($files as $file) {
+                if (count($imagePaths) >= $limit) {
+                    break;
+                }
+                if ($file->isFile() && in_array(strtolower($file->getExtension()), [ 'jpg', 'jpeg', 'png', 'gif' ])) {
+                    $imagePaths[] = asset('新整理/' . File::relativePath($photoPath, $file->getPathname()));
+                    Log::info('Adding image to list: ' . $file->getRelativePathname());
+                }
             }
-            if ($file->isFile() && in_array(strtolower($file->getExtension()), [ 'jpg', 'jpeg', 'png', 'gif' ])) {
-                $imagePaths[] = asset('新整理/' . $file->getRelativePathname());
-                Log::info('Adding image to list: ' . $file->getRelativePathname());
-            }
+            $attempts++;
         }
 
         return $imagePaths;
     }
-
 
     /**
      * Compresses an image and returns the path to the compressed image if successful.

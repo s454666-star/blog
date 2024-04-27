@@ -43,24 +43,33 @@ class GalleryController extends Controller
             return response()->json([ 'error' => 'Gallery directory not found at path: ' . $photoPath ], 404);
         }
 
-        $offset = $request->offset ?? 0;
-        $limit  = 10; // Load 10 images at a time
+        // Get all directories (albums) from the photo path
+        $directories = File::directories($photoPath);
+        if (empty($directories)) {
+            Log::error('No albums found in the gallery directory.');
+            return response()->json([ 'error' => 'No albums found in the gallery directory.' ], 404);
+        }
 
-        Log::info("Initializing Finder in directory: " . $photoPath);
+        // Randomly select one directory (album)
+        $selectedAlbum = $directories[array_rand($directories)];
+        Log::info("Selected album: " . $selectedAlbum);
 
-        $finder = new Finder();
-        $finder->files()->in($photoPath)->sortByName();
-        $finder->depth('== 0'); // This ensures only files from the current directory are considered
+        // Get all files in the selected directory
+        $files = File::files($selectedAlbum);
+        shuffle($files); // Randomize files to simulate random selection within album
 
         $imagePaths = [];
         $count      = 0;
-        foreach ($finder as $file) {
-            if ($count >= $offset + $limit) {
+        $limit      = 10;
+
+        foreach ($files as $file) {
+            if ($count >= $limit) {
                 break;
             }
-            if ($count >= $offset) {
+            if ($file->isFile() && in_array(strtolower($file->getExtension()), [ 'jpg', 'jpeg', 'png', 'gif' ])) {
                 $path = $file->getRealPath();
-                Log::info('Found file path: ' . $path);
+                Log::info('Processing file: ' . $path);
+
                 $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
                 if ($compressedPath) {
                     $imagePaths[] = asset($compressedPath);
@@ -68,11 +77,11 @@ class GalleryController extends Controller
                 } else {
                     Log::error('Failed to compress image at path: ' . $path);
                 }
+                $count++;
             }
-            $count++;
         }
 
-        Log::info('All images processed successfully.');
+        Log::info('Image loading complete. Number of images processed: ' . $count);
         return response()->json($imagePaths);
     }
 

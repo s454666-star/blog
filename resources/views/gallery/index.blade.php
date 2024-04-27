@@ -16,7 +16,7 @@
             padding: 30px;
             background: #FFF;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-            overflow: visible;
+            overflow: visible; /* Allow the frame to show everything */
             position: relative;
         }
 
@@ -31,9 +31,10 @@
 
         .gallery-item {
             position: relative;
-            overflow: visible;
+            overflow: hidden; /* Hide parts of the image that exceed the item's boundaries */
             cursor: pointer;
             transition: transform 0.3s ease;
+            width: 100%; /* Set width to fill its column */
         }
 
         .gallery-item.enlarged .gallery-image {
@@ -50,8 +51,8 @@
         }
 
         .gallery-image {
-            width: 150%;
-            height: auto;
+            width: 200%; /* Double width as required */
+            height: auto; /* Maintain aspect ratio */
             display: block;
             transition: transform 0.3s ease;
         }

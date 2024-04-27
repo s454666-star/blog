@@ -30,7 +30,6 @@ class GalleryController extends Controller
      */
     public function loadImages(Request $request): JsonResponse
     {
-        // Increase the maximum execution time and memory limit for this script
         ini_set('max_execution_time', 300); // 300 seconds = 5 minutes
         ini_set('memory_limit', '512M');
 
@@ -45,12 +44,15 @@ class GalleryController extends Controller
         $offset = $request->offset ?? 0;
         $limit = 10; // Load 10 images at a time
 
+        Log::info("Initializing Finder in directory: " . $photoPath);
+
         $finder = new Finder();
         try {
             $finder->files()->in($photoPath)->sortByName();
+            Log::info("Finder initialized successfully.");
         } catch (\Exception $e) {
-            Log::error("Error accessing files in directory: " . $e->getMessage());
-            return response()->json(['error' => 'Error processing directory files.'], 500);
+            Log::error("Error initializing Finder: " . $e->getMessage());
+            return response()->json(['error' => 'Error initializing file search.'], 500);
         }
 
         $imagePaths = [];

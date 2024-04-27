@@ -33,11 +33,10 @@
             position: relative;
             overflow: hidden;
             cursor: pointer;
-            z-index: 1;
-            transition: transform 0.6s ease;
+            transition: transform 0.3s ease;
         }
 
-        .gallery-item:hover .gallery-image {
+        .gallery-item.enlarged .gallery-image {
             position: fixed;
             left: 50%;
             top: 50%;
@@ -46,8 +45,7 @@
             max-height: 90vh;
             width: auto;
             height: auto;
-            box-shadow: 0 0 10px rgba(0,0,0,0.8);
-            transition: transform 0.6s ease-in-out;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
             z-index: 1000;
         }
 
@@ -55,10 +53,9 @@
             width: 100%;
             height: auto;
             display: block;
-            transition: transform 0.6s ease-in-out;
+            transition: transform 0.3s ease;
         }
     </style>
-
 @endsection
 
 @section('content')
@@ -108,5 +105,24 @@
                 })
                 .catch(error => console.error('Error:', error));
         }
+
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const galleryItems = document.querySelectorAll('.gallery-item');
+
+            galleryItems.forEach(item => {
+                item.addEventListener('click', function () {
+                    // Remove enlarged class from all items
+                    galleryItems.forEach(otherItem => {
+                        if (otherItem !== this) {
+                            otherItem.classList.remove('enlarged');
+                        }
+                    });
+
+                    // Toggle enlarged class on clicked item
+                    this.classList.toggle('enlarged');
+                });
+            });
+        });
     </script>
 @endsection

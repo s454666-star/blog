@@ -16,7 +16,7 @@
             padding: 30px;
             background: #FFF;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5); /* Shadow for depth */
-            overflow: hidden; /* Keep the frame content managed within its bounds */
+            overflow: visible; /* Allow overflow to be visible */
             position: relative; /* Ensures proper stacking context */
         }
 
@@ -26,13 +26,14 @@
             gap: 5px;
             justify-items: center;
             align-items: center;
+            position: relative;
         }
 
         .gallery-item {
             transition: transform 0.6s ease; /* Smooth transition for transform */
             cursor: pointer; /* Indicates that the item can be interacted with */
             position: relative; /* Ensures proper stacking and positioning */
-            overflow: hidden; /* Keeps the scaled image contained */
+            overflow: visible; /* Changed to visible to allow images to expand on hover */
             z-index: 1; /* Lower z-index for non-hovered items */
         }
 
@@ -43,13 +44,14 @@
 
         .gallery-item:hover .gallery-image {
             transform: translate(-50%, -50%) scale(1.5); /* Center and scale the image */
-            position: absolute;
-            left: 50%;
-            top: 50%;
-            max-width: 90vw; /* Limits the width to 95% of the viewport width */
-            max-height: 90vh; /* Limits the height to 95% of the viewport height */
+            position: fixed; /* Fixed position to keep it relative to the viewport */
+            left: 50%; /* Center horizontally */
+            top: 50%; /* Center vertically */
+            max-width: 90vw; /* Limits the width to 90% of the viewport width */
+            max-height: 90vh; /* Limits the height to 90% of the viewport height */
             width: auto; /* Maintains aspect ratio */
             height: auto; /* Maintains aspect ratio */
+            box-shadow: 0 0 10px rgba(0,0,0,0.8); /* Optional: Adds shadow for better visibility */
         }
 
         .gallery-image {
@@ -59,6 +61,7 @@
             transition: transform 0.3s ease; /* Smooth transition for scaling */
         }
     </style>
+
 
 
 @endsection

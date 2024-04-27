@@ -37,7 +37,7 @@ class GalleryController extends Controller
 
         Log::info('Loading images with offset: ' . $request->offset);
         $baseDir = '/mnt/nas/photo';
-
+        var_dump($baseDir);
         $files = File::files($baseDir);
 
         foreach ($files as $file) {

@@ -32,6 +32,8 @@ class GalleryController extends Controller
     {
         ini_set('max_execution_time', 300); // 300 seconds = 5 minutes
         ini_set('memory_limit', '512M');
+        ini_set('default_charset', 'UTF-8');
+        mb_internal_encoding("UTF-8");
 
         Log::info('Loading images with offset: ' . $request->offset);
         $baseDir = '/mnt/nas/photo';

@@ -29,20 +29,37 @@
 
         .gallery-item {
             transition: transform 0.6s ease; /* Smooth transition for transform */
+            cursor: pointer; /* Indicates that the item can be interacted with */
+            position: relative; /* Ensures proper stacking and positioning */
+            overflow: hidden; /* Keeps the overflowed part of the scaled image hidden */
         }
 
         .gallery-item:hover {
-            transform: none; /* Remove any scaling transformation */
-            z-index: 10;
-            position: relative;
+            z-index: 10; /* Ensures the item is displayed above others */
+            overflow: visible; /* Shows the overflowed part of the image */
+        }
+
+        .gallery-item:hover .gallery-image {
+            transform: scale(1); /* Resets any scaling */
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%); /* Center the image */
+            min-width: 100%; /* Ensures image takes full width of the container */
+            min-height: 100%; /* Ensures image takes full height of the container */
+            width: auto; /* Maintains aspect ratio */
+            height: auto; /* Maintains aspect ratio */
+            max-width: none; /* Removes max-width restriction */
         }
 
         .gallery-image {
             width: 100%; /* Adjusts the width of the image to fit the container */
             height: auto;
             display: block;
+            transition: transform 0.3s ease; /* Smooth transition for scaling */
         }
     </style>
+
 @endsection
 
 @section('content')

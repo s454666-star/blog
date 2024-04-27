@@ -30,6 +30,10 @@ class GalleryController extends Controller
      */
     public function loadImages(Request $request): JsonResponse
     {
+        // Increase the maximum execution time and memory limit for this script
+        ini_set('max_execution_time', 300); // 300 seconds = 5 minutes
+        ini_set('memory_limit', '512M');
+
         Log::info('Loading images with offset: ' . $request->offset);
         $photoPath = config('gallery.photo_path');
 

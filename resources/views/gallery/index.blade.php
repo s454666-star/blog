@@ -1,7 +1,5 @@
 <?php
 
-@foreach ($images as $image)
-    <div>
-        <img src="{{ asset('storage/' . $image->path) }}" onclick="openImage('{{ asset('storage/' . $image->path) }}')">
-    </div>
+@foreach ($finder as $file)
+    <img src="{{ asset($file->getRelativePathname()) }}" alt="{{ $file->getFilename() }}">
 @endforeach

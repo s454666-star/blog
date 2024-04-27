@@ -1,10 +1,10 @@
 <?php
 
-// app/Http/Controllers/GalleryController.php
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
+use Symfony\Component\Finder\Finder; // 引入 Finder
 
 class GalleryController extends Controller
 {
@@ -21,6 +21,10 @@ class GalleryController extends Controller
 
         $images = $images->random(150)->values()->all();
 
-        return view('gallery.index', compact('images'));
+        // 使用 Finder 準備圖片文件
+        $finder = new Finder();
+        $finder->files()->in($photoPath); // 設置要搜索的目錄
+
+        return view('gallery.index', compact('images', 'finder'));
     }
 }

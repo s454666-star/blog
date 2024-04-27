@@ -68,3 +68,7 @@ Route::get('/gallery/load-images', [GalleryController::class, 'loadImages'])->na
 Route::view('/my-page', 'my')->name('my-page');
 Route::view('/product', 'product')->name('product');
 Route::view('/snake', 'snake')->name('snake-game');
+
+Route::get('/phpinfo', function () {
+    phpinfo();
+});

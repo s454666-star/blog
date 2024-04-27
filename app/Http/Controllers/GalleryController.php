@@ -38,9 +38,8 @@ class GalleryController extends Controller
         Log::info('Loading images with offset: ' . $request->offset);
         $photoPath = '/mnt/nas/photo/圖/新整理';
 
-        Log::info("Checking path: " . realpath($photoPath));
         if (!File::exists($photoPath)) {
-            Log::error('Gallery directory not found at path: ' . realpath($photoPath));
+            Log::error('Gallery directory not found at path: ' . $photoPath);
             return response()->json([ 'error' => 'Gallery directory not found at path: ' . $photoPath ], 404);
         }
 
@@ -50,40 +49,27 @@ class GalleryController extends Controller
         Log::info("Initializing Finder in directory: " . $photoPath);
 
         $finder = new Finder();
-        try {
-            $finder->files()->in($photoPath)->sortByName();
-            Log::info("Finder initialized successfully.");
-            Log::info("Number of files found: " . iterator_count($finder));
-        }
-        catch (\Exception $e) {
-            Log::error("Error initializing Finder: " . $e->getMessage());
-            return response()->json([ 'error' => 'Error initializing file search.' ], 500);
-        }
+        $finder->files()->in($photoPath)->sortByName();
+        $finder->depth('== 0'); // This ensures only files from the current directory are considered
 
         $imagePaths = [];
         $count      = 0;
         foreach ($finder as $file) {
-            Log::info("Processing file #" . $count . ": " . $file->getFilename());
-            if ($count++ < $offset) continue;
-            if ($count > $offset + $limit) {
-                Log::info('Reached the limit of images to load: ' . $limit);
+            if ($count >= $offset + $limit) {
                 break;
             }
-
-            // Temporarily comment out the image processing to isolate the problem
-            $path = $file->getRealPath();
-            Log::info('Found file path: ' . $path);
-
-            // Uncomment below when ready to test image processing again
-            /*
-            $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
-            if ($compressedPath) {
-                $imagePaths[] = asset($compressedPath);
-                Log::info('Compressed image saved: ' . $compressedPath);
-            } else {
-                Log::error('Failed to compress image at path: ' . $path);
+            if ($count >= $offset) {
+                $path = $file->getRealPath();
+                Log::info('Found file path: ' . $path);
+                $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
+                if ($compressedPath) {
+                    $imagePaths[] = asset($compressedPath);
+                    Log::info('Compressed image saved: ' . $compressedPath);
+                } else {
+                    Log::error('Failed to compress image at path: ' . $path);
+                }
             }
-            */
+            $count++;
         }
 
         Log::info('All images processed successfully.');

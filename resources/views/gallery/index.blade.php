@@ -21,7 +21,7 @@
         }
 
         .gallery {
-            display: flex; /* Changed to flex to better manage wrapping */
+            display: flex; /* Use flexbox for layout */
             flex-wrap: wrap; /* Allow items to wrap to the next line */
             justify-content: center; /* Center items horizontally */
             align-items: flex-start; /* Align items to the top */
@@ -30,13 +30,12 @@
 
 
         .gallery-item {
-            flex: 1 0 100%; /* Each item can grow to fill the space but starts out taking full width */
-            position: relative;
+            flex: 1 0 calc(10% - 5px); /* Start with 10% of the space minus gap, adjusts to fit 10 items per row */
+            max-width: calc(14% - 5px); /* Max width allows for approximately 7 items per row */
             cursor: pointer;
-            overflow: visible; /* Make overflow visible to allow the image to spill out */
+            overflow: hidden; /* Updated to hidden to prevent images spilling out in normal view */
+            position: relative;
             transition: transform 0.3s ease;
-            width: auto; /* Width auto to allow natural size */
-            min-width: 100px; /* Minimum width to maintain structure */
         }
 
         .gallery-item.enlarged .gallery-image {
@@ -53,8 +52,8 @@
         }
 
         .gallery-image {
-            width: 200%; /* Set width to double */
-            height: auto; /* Keep height auto for aspect ratio */
+            width: 100%; /* Adjust width to fit its container */
+            height: auto; /* Keep height auto to maintain aspect ratio */
             display: block;
         }
     </style>

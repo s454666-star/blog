@@ -50,6 +50,7 @@ class GalleryController extends Controller
         try {
             $finder->files()->in($photoPath)->sortByName();
             Log::info("Finder initialized successfully.");
+            Log::info("Number of files found: " . iterator_count($finder));
         } catch (\Exception $e) {
             Log::error("Error initializing Finder: " . $e->getMessage());
             return response()->json(['error' => 'Error initializing file search.'], 500);
@@ -65,7 +66,12 @@ class GalleryController extends Controller
                 break;
             }
 
+            // Temporarily comment out the image processing to isolate the problem
             $path = $file->getRealPath();
+            Log::info('Found file path: ' . $path);
+
+            // Uncomment below when ready to test image processing again
+            /*
             $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
             if ($compressedPath) {
                 $imagePaths[] = asset($compressedPath);
@@ -73,6 +79,7 @@ class GalleryController extends Controller
             } else {
                 Log::error('Failed to compress image at path: ' . $path);
             }
+            */
         }
 
         Log::info('All images processed successfully.');

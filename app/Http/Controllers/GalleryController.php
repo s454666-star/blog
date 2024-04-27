@@ -39,7 +39,7 @@ class GalleryController extends Controller
         $baseDir = '/mnt/nas/photo';
         var_dump($baseDir);
         $files = File::files($baseDir);
-
+        dd($files);
         foreach ($files as $file) {
             $paths[] = $file->getPathname();
         }

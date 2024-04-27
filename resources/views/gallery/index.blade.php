@@ -9,13 +9,15 @@
         }
 
         .frame {
-            max-width: 90vw; /* Limit the frame width to 90% of the viewport width */
+            max-width: 100vw; /* Allow maximum width of the viewport */
+            width: auto; /* Adjust width based on content size */
             margin: 20px auto; /* Center the frame horizontally */
             border: 10px solid #8B4513; /* Thick solid border to mimic a wooden frame */
             padding: 30px;
             background: #FFF;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5); /* Shadow for depth */
-            overflow: hidden; /* Keeps the expanded image within the frame */
+            overflow: visible; /* Changed to visible to allow images to overlap the frame on hover */
+            position: relative; /* Ensures proper stacking context */
         }
 
         .gallery {
@@ -30,23 +32,23 @@
             transition: transform 0.6s ease; /* Smooth transition for transform */
             cursor: pointer; /* Indicates that the item can be interacted with */
             position: relative; /* Ensures proper stacking and positioning */
-            overflow: hidden; /* Keeps the overflowed part of the scaled image hidden */
+            overflow: visible; /* Changed to visible to allow images to expand on hover */
+            z-index: 1; /* Lower z-index for non-hovered items */
         }
 
         .gallery-item:hover {
-            z-index: 10; /* Ensures the item is displayed above others */
-            overflow: visible; /* Shows the overflowed part of the image */
-            background-color: rgba(0, 0, 0, 0.5); /* Optional: Adds shading around the image */
+            z-index: 1000; /* Very high z-index to ensure the item is displayed above all other content */
+            overflow: visible; /* Ensure the hovered part of the image shows */
         }
 
         .gallery-item:hover .gallery-image {
-            transform: scale(1); /* Resets any scaling */
+            transform: scale(1.5); /* Scale up the image */
             position: absolute;
             left: 50%;
             top: 50%;
-            transform: translate(-50%, -50%); /* Center the image */
-            max-width: 80vw; /* Limits the width to 80% of the viewport width */
-            max-height: 80vh; /* Limits the height to 80% of the viewport height */
+            transform: translate(-50%, -50%) scale(1.5); /* Center and scale the image */
+            max-width: 100vw; /* Max width as the viewport width */
+            max-height: 100vh; /* Max height as the viewport height */
             width: auto; /* Maintains aspect ratio */
             height: auto; /* Maintains aspect ratio */
         }

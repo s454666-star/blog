@@ -39,34 +39,34 @@
 
 @section('scripts')
     <script>
-        let offset = 0;  // Start from the initial batch
-        const limit = 10;  // Adjust based on your backend setup
+        let offset = 0;
+        const limit = 10;  // Update as necessary for your configuration
 
-        document.getElementById('load-more').addEventListener('click', function() {
-            loadImages();
-        });
-
-        // Function to fetch and display images
         function loadImages() {
-            fetch(`/gallery?offset=${offset}`)  // Adjust the API endpoint as needed
+            fetch(`/gallery?offset=${offset}`)
                 .then(response => response.json())
-                .then(data => {
-                    if (data.length > 0) {
-                        data.forEach(imagePath => {
-                            const img = document.createElement('img');
-                            img.src = imagePath;
-                            img.className = 'gallery-image';
-                            document.getElementById('gallery-container').appendChild(img);
-                        });
-                        offset += data.length;  // Update offset based on number of images loaded
-                    } else {
-                        document.getElementById('load-more').remove();  // Remove button if no more images
+                .then(images => {
+                    const container = document.getElementById('gallery-container');
+                    images.forEach(image => {
+                        const img = document.createElement('img');
+                        img.src = image;  // Make sure `image` is the correct path
+                        img.className = 'gallery-image';
+                        container.appendChild(img);
+                    });
+                    offset += images.length;
+                    if (images.length === 0 || images.length < limit) {
+                        document.getElementById('load-more').style.display = 'none';
                     }
                 })
-                .catch(error => console.error('Error loading images:', error));
+                .catch(error => {
+                    console.error('Error:', error);
+                });
         }
 
-        // Initial load
-        loadImages();
+        document.addEventListener('DOMContentLoaded', function() {
+            loadImages();  // Load initial set of images
+        });
+
+        document.getElementById('load-more').addEventListener('click', loadImages);
     </script>
 @endsection

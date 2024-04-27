@@ -32,35 +32,20 @@
 
 @section('content')
     <div class="gallery" id="gallery-container">
-        {{-- Initial images loaded via controller --}}
+        @foreach($imagePaths as $imagePath)
+            <img src="{{ $imagePath }}" class="gallery-image">
+        @endforeach
     </div>
     <button id="load-more">Load More</button>
 @endsection
 
 @section('scripts')
     <script>
-        let offset = 0;
-        const limit = 50; // Number of images to load per request
+        let offset = 50;  // Start from the next batch after initial load
+        const limit = 50;
 
-        document.addEventListener("DOMContentLoaded", function() {
-            loadImages(); // Load initial set of images
-
-            // Add event listeners for image hover effect
-            document.getElementById('gallery-container').addEventListener('mouseover', function(event) {
-                if (event.target.className === 'gallery-image') {
-                    event.target.style.opacity = 0.7;
-                }
-            });
-            document.getElementById('gallery-container').addEventListener('mouseout', function(event) {
-                if (event.target.className === 'gallery-image') {
-                    event.target.style.opacity = 1.0;
-                }
-            });
-
-            // Infinite scroll or button click to load more images
-            document.getElementById('load-more').addEventListener('click', function() {
-                loadImages();
-            });
+        document.getElementById('load-more').addEventListener('click', function() {
+            loadImages();
         });
 
         function loadImages() {
@@ -76,7 +61,7 @@
                         });
                         offset += limit;
                     } else {
-                        document.getElementById('load-more').remove(); // Remove button if no more images
+                        document.getElementById('load-more').remove();  // Remove button if no more images
                     }
                 }).catch(error => console.error('Error loading images:', error));
         }

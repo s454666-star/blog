@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Finder\Finder;
 use Illuminate\Support\Facades\Log;
@@ -10,21 +11,18 @@ class GalleryController extends Controller
 {
     public function index()
     {
-        return view('gallery.index');
+        return $this->loadImages(new Request(['offset' => 0]));
     }
-
-    public function loadImages(Request $request)
+    public function loadImages(Request $request): \Illuminate\Http\JsonResponse
     {
         $photoPath = config('gallery.photo_path');
-        Log::info("Photo path: " . $photoPath);
-
-        if (!File::exists($photoPath) || !File::isDirectory($photoPath)) {
-            Log::error("Invalid directory: " . $photoPath);
-            return response()->json(['error' => 'Gallery directory not found.'], 404);
-        }
-
         $offset = $request->offset ?? 0;
         $limit = 50;  // Load 50 images at a time
+
+        if (!File::exists($photoPath) || !File::isDirectory($photoPath)) {
+            $error = ['error' => 'Gallery directory not found.'];
+            return $request->expectsJson() ? response()->json($error, 404) : abort(404, $error['error']);
+        }
 
         $finder = new Finder();
         $finder->files()->in($photoPath)->sortByName();
@@ -35,11 +33,15 @@ class GalleryController extends Controller
             $path = $file->getRealPath();
             $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
             if ($compressedPath) {
-                $imagePaths[] = $compressedPath;
+                $imagePaths[] = asset($compressedPath); // Use asset() to get the correct URL path
             }
         }
 
-        return response()->json($imagePaths);
+        if ($request->expectsJson()) {
+            return response()->json($imagePaths);
+        } else {
+            return view('gallery.index', compact('imagePaths'));
+        }
     }
 
     protected function compressImage($sourcePath, $destinationPath)

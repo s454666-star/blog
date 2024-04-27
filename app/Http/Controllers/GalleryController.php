@@ -18,7 +18,8 @@ class GalleryController extends Controller
     {
         Log::info('Entering index method.');
         $images = $this->loadImages($request);
-        return view('gallery.index', ['imagePaths' => $images]); // Updated to reference the correct view path
+        Log::info('Image paths:', [ 'paths' => $images ]);
+        return view('gallery.index', [ 'imagePaths' => $images ]); // Updated to reference the correct view path
     }
 
     /**

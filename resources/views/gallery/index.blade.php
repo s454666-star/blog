@@ -26,6 +26,7 @@
             gap: 5px;
             justify-items: center;
             align-items: center;
+            position: relative;
         }
 
         .gallery-item {
@@ -33,10 +34,7 @@
             overflow: hidden;
             cursor: pointer;
             z-index: 1;
-        }
-
-        .gallery-item:hover {
-            z-index: 1000;
+            transition: transform 0.6s ease;
         }
 
         .gallery-item:hover .gallery-image {
@@ -49,16 +47,18 @@
             width: auto;
             height: auto;
             box-shadow: 0 0 10px rgba(0,0,0,0.8);
-            transition: transform 0.6s ease;
+            transition: transform 0.6s ease-in-out;
+            z-index: 1000;
         }
 
         .gallery-image {
             width: 100%;
             height: auto;
             display: block;
-            transition: transform 0.6s ease;
+            transition: transform 0.6s ease-in-out;
         }
     </style>
+
 @endsection
 
 @section('content')

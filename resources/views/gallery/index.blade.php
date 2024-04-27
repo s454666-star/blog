@@ -32,24 +32,23 @@
 
 @section('content')
     <div class="gallery" id="gallery-container">
-        @foreach($imagePaths as $imagePath)
-            <img src="{{ $imagePath }}" class="gallery-image">
-        @endforeach
+
     </div>
     <button id="load-more">Load More</button>
 @endsection
 
 @section('scripts')
     <script>
-        let offset = 50;  // Start from the next batch after initial load
-        const limit = 50;
+        let offset = 0;  // Start from the initial batch
+        const limit = 10;  // Adjust based on your backend setup
 
         document.getElementById('load-more').addEventListener('click', function() {
             loadImages();
         });
 
+        // Function to fetch and display images
         function loadImages() {
-            fetch(`/gallery/load-images?offset=${offset}`)
+            fetch(`/gallery?offset=${offset}`)  // Adjust the API endpoint as needed
                 .then(response => response.json())
                 .then(data => {
                     if (data.length > 0) {
@@ -59,11 +58,15 @@
                             img.className = 'gallery-image';
                             document.getElementById('gallery-container').appendChild(img);
                         });
-                        offset += limit;
+                        offset += data.length;  // Update offset based on number of images loaded
                     } else {
                         document.getElementById('load-more').remove();  // Remove button if no more images
                     }
-                }).catch(error => console.error('Error loading images:', error));
+                })
+                .catch(error => console.error('Error loading images:', error));
         }
+
+        // Initial load
+        loadImages();
     </script>
 @endsection

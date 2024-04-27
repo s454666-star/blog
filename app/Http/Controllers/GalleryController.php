@@ -50,38 +50,44 @@ class GalleryController extends Controller
             return response()->json([ 'error' => 'No albums found in the gallery directory.' ], 404);
         }
 
-        // Randomly select one directory (album)
-        $selectedAlbum = $directories[array_rand($directories)];
-        Log::info("Selected album: " . $selectedAlbum);
-
-        // Get all files in the selected directory
-        $files = File::files($selectedAlbum);
-        shuffle($files); // Randomize files to simulate random selection within album
-
         $imagePaths = [];
-        $count      = 0;
         $limit      = 10;
+        $attempts   = 0;
 
-        foreach ($files as $file) {
-            if ($count >= $limit) {
-                break;
-            }
-            if ($file->isFile() && in_array(strtolower($file->getExtension()), [ 'jpg', 'jpeg', 'png', 'gif' ])) {
-                $path = $file->getRealPath();
-                Log::info('Processing file: ' . $path);
+        while (count($imagePaths) < $limit && $attempts < count($directories)) {
+            $selectedAlbum = $directories[array_rand($directories)];
+            Log::info("Selected album: " . $selectedAlbum);
+            $directories = array_diff($directories, [ $selectedAlbum ]);
+            $files = File::files($selectedAlbum);
+            shuffle($files);
 
-                $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
-                if ($compressedPath) {
-                    $imagePaths[] = asset($compressedPath);
-                    Log::info('Compressed image saved: ' . $compressedPath);
-                } else {
-                    Log::error('Failed to compress image at path: ' . $path);
+            foreach ($files as $file) {
+                if (count($imagePaths) >= $limit) {
+                    break;
                 }
-                $count++;
+                if ($file->isFile() && in_array(strtolower($file->getExtension()), [ 'jpg', 'jpeg', 'png', 'gif' ])) {
+                    $path = $file->getRealPath();
+                    Log::info('Processing file: ' . $path);
+
+                    $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
+                    if ($compressedPath) {
+                        $imagePaths[] = asset($compressedPath);
+                        Log::info('Compressed image saved: ' . $compressedPath);
+                    } else {
+                        Log::error('Failed to compress image at path: ' . $path);
+                    }
+                }
             }
+
+            $attempts++;
         }
 
-        Log::info('Image loading complete. Number of images processed: ' . $count);
+        if (count($imagePaths) < $limit) {
+            Log::info("Not enough images found after checking all albums. Images processed: " . count($imagePaths));
+        } else {
+            Log::info('Image loading complete. Number of images processed: ' . count($imagePaths));
+        }
+
         return response()->json($imagePaths);
     }
 
@@ -113,8 +119,8 @@ class GalleryController extends Controller
         }
 
         list($width, $height) = getimagesize($sourcePath);
-        $newWidth  = 320;
-        $newHeight = 240;
+        $newWidth  = 600;
+        $newHeight = 600;
 
         $thumb = imagecreatetruecolor($newWidth, $newHeight);
         if ($imageType == IMAGETYPE_PNG) {

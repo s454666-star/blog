@@ -12,19 +12,23 @@ class GalleryController extends Controller
     {
         $photoPath = config('gallery.photo_path');
         $finder    = new Finder();
-        $finder->files()->in($photoPath); // Correctly setting up the directory for Finder
+        $finder->files()->in($photoPath); // Setup directory for Finder
 
-        $folders = File::directories($photoPath);
-        $images  = collect();
+        // Create an array to store file paths for the view
+        $imagePaths = [];
 
-        foreach ($folders as $folder) {
-            $files  = File::allFiles($folder);
-            $images = $images->merge($files);
+        foreach ($finder as $file) {
+            $imagePaths[] = $file->getRelativePathname();
         }
 
-        $images = $images->random(150)->values()->all();
+        // Get random selection if necessary, here we simplify to just passing paths
+        if (count($imagePaths) > 150) {
+            $randomKeys     = array_rand($imagePaths, 150);
+            $selectedImages = array_intersect_key($imagePaths, array_flip($randomKeys));
+        } else {
+            $selectedImages = $imagePaths;
+        }
 
-        return view('gallery.index', compact('images', 'finder'));
+        return view('gallery.index', compact('selectedImages'));
     }
 }
-

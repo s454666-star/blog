@@ -86,7 +86,9 @@
         });
 
         function loadImages() {
-            fetch(`/gallery?offset=${offset}`)
+            fetch(`/gallery?offset=${offset}`, { // Ensure this endpoint is correctly set up to handle the request
+                method: 'GET' // Explicitly mention the method if needed for clarity
+            })
                 .then(response => response.json())
                 .then(images => {
                     const container = document.getElementById('gallery-container');
@@ -97,14 +99,17 @@
                         const div = document.createElement('div');
                         div.className = 'gallery-item';
                         div.appendChild(img);
-                        container.appendChild(div);
+                        container.appendChild(div); // Append new images without clearing existing ones
                     });
-                    offset += images.length;
-                    if (images.length < limit) {
-                        document.getElementById('load-more').style.display = 'none';
+                    offset += images.length; // Update offset
+                    if (images.length < 50) {
+                        document.getElementById('load-more').style.display = 'none'; // Hide button if less than limit are loaded
                     }
                 })
-                .catch(error => console.error('Error:', error));
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Failed to load more images'); // Optionally, add error handling for the user
+                });
         }
 
 

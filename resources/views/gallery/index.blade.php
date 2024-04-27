@@ -53,7 +53,7 @@
             @endforeach
         </div>
     </div>
-    @if (count($imagePaths) >= 10)
+    @if (count($imagePaths) >= 50)
         <button id="load-more">Load More</button>
     @endif
 @endsection
@@ -63,7 +63,7 @@
 @section('scripts')
     <script>
         let offset = {{ count($imagePaths) }};
-        const limit = 10;
+        const limit = 50;
 
         document.getElementById('load-more').addEventListener('click', function () {
             loadImages();

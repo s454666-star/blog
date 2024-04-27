@@ -48,7 +48,7 @@ class GalleryController extends Controller
         }
 
         $imagePaths = [];
-        $limit      = 10;
+        $limit      = 50;
         $attempts   = 0;
 
         while (count($imagePaths) < $limit && $attempts < count($directories)) {

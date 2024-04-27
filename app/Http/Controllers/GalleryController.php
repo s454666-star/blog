@@ -1,11 +1,10 @@
 <?php
+
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Finder\Finder;
 use Illuminate\Support\Facades\Log;
-use Intervention\Image\Image;// Intervention Image library
 
 class GalleryController extends Controller
 {
@@ -22,22 +21,42 @@ class GalleryController extends Controller
         $finder = new Finder();
         try {
             $finder->files()->in($photoPath);
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e) {
             Log::error("Finder setup error: " . $e->getMessage());
             return abort(500, 'Error setting up file finder.');
         }
 
         $imagePaths = [];
         foreach ($finder as $file) {
-            $compressedImage = Image::make($file->getRealPath())->resize(320, 240)->encode('jpg', 75);
-            $compressedPath = 'thumbnails/' . $file->getFilename();
-            $compressedImage->save(public_path($compressedPath));
-            $imagePaths[] = $compressedPath;
+            $path           = $file->getRealPath();
+            $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
+            if ($compressedPath) {
+                $imagePaths[] = $compressedPath;
+            }
         }
 
         $selectedImages = array_slice($imagePaths, 0, 50);
 
         return view('gallery.index', compact('selectedImages'));
+    }
+
+    protected function compressImage($sourcePath, $destinationPath)
+    {
+        list($width, $height) = getimagesize($sourcePath);
+        $newWidth  = 320;
+        $newHeight = 240;
+
+        $thumb  = imagecreatetruecolor($newWidth, $newHeight);
+        $source = imagecreatefromjpeg($sourcePath);
+
+        imagecopyresized($thumb, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+        $destinationFullPath = public_path($destinationPath);
+        if (!imagejpeg($thumb, $destinationFullPath, 75)) {
+            return false; // Return false if compression failed
+        }
+        imagedestroy($thumb); // Free up memory
+        return $destinationPath;
     }
 
     public function show($filename)

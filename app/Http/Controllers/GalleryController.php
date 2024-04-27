@@ -37,14 +37,21 @@ class GalleryController extends Controller
 
         Log::info('Loading images with offset: ' . $request->offset);
         $baseDir = '/mnt/nas/photo/圖/新整理';
-        var_dump($baseDir);
-        $files = File::files($baseDir);
-        dd($files);
-        foreach ($files as $file) {
-            $paths[] = $file->getPathname();
+        $directories = File::directories($baseDir);
+        if (empty($directories)) {
+            Log::error("No directories found in base directory.");
+        }
+        $randomDirectory = $directories[array_rand($directories)];
+        Log::info("Selected directory: " . $randomDirectory);
+        $images = File::allFiles($randomDirectory);
+        foreach ($images as $image) {
+            echo $image->getPathname() . "\n";
         }
 
-dd($paths);
+// 如果需要，可以使用 dd() 函數打印完整的圖片陣列
+ dd($images);
+
+
         if ($realPath && file_exists($realPath)) {
             echo "Directory exists!";
         } else {

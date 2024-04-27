@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
+use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
 use App\Http\Controllers\OCRController;
@@ -60,6 +61,7 @@ Route::post('/ocr', [OCRController::class, 'recognizeText']);
 Route::get('/export-excel', [PdfController::class, 'exportExcel'])->name('export_excel');
 Route::get('/get-img', [ImageController::class, 'getImageBase64']);
 Route::get('/get-full-img', [ImageFullController::class, 'getImages']);
+Route::get('/gallery', [GalleryController::class, 'index']);
 
 
 // 其他自訂頁面

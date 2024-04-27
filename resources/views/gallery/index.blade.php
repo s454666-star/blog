@@ -86,7 +86,7 @@
         });
 
         function loadImages() {
-            fetch(`/gallery?offset=${offset}`, { // Ensure this endpoint is correctly set up to handle the request
+            fetch(`/gallery/load-images?offset=${offset}`, { // Ensure this endpoint is correctly set up to handle the request
                 method: 'GET' // Explicitly mention the method if needed for clarity
             })
                 .then(response => response.json())

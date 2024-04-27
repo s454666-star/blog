@@ -21,7 +21,7 @@ class GalleryController extends Controller
         }
 
         $offset = $request->offset ?? 0;
-        $limit = 50;  // Load 50 images at a time
+        $limit = 10;  // Load 50 images at a time
 
         $finder = new Finder();
         $finder->files()->in($photoPath)->sortByName();

@@ -37,8 +37,8 @@ class GalleryController extends Controller
             $imagePaths[] = $file->getRelativePathname();
         }
 
-        if (count($imagePaths) > 150) {
-            $randomKeys = array_rand($imagePaths, 150);
+        if (count($imagePaths) > 50) {
+            $randomKeys = array_rand($imagePaths, 50);
             $selectedImages = array_intersect_key($imagePaths, array_flip($randomKeys));
         } else {
             $selectedImages = $imagePaths;

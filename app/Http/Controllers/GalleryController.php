@@ -34,15 +34,18 @@ class GalleryController extends Controller
         ini_set('memory_limit', '512M');
 
         Log::info('Loading images with offset: ' . $request->offset);
-        $photoPath = '/mnt/nas/photo/' . rawurlencode('圖') . '/' . rawurlencode('新整理') . '/' . rawurlencode('0928_14y');
+        $baseDir = '/mnt/nas/photo';
+        $subDirs = ['圖', '新整理', '0928_14y'];
 
-
-        if (file_exists($photoPath)) {
-            echo "Directory exists!";
-        } else {
-            echo "Directory does not exist!";
+        foreach ($subDirs as $dir) {
+            $baseDir .= '/' . $dir;
+            if (file_exists($baseDir)) {
+                echo "Exists: $baseDir\n";
+            } else {
+                echo "Does not exist: $baseDir\n";
+                break;
+            }
         }
-
 
         Log::info("Checking path: " . realpath($photoPath));
         if (!File::exists($photoPath)) {

@@ -109,18 +109,24 @@ class GalleryController extends Controller
             return false;
         }
 
-        list($width, $height) = getimagesize($sourcePath);
-        $newWidth  = 600;
-        $newHeight = 600;
+        list($originalWidth, $originalHeight) = getimagesize($sourcePath);
+        $maxDimension = 600;  // Maximum dimension
+
+        // Calculate scaling factor
+        $scale = min($maxDimension / $originalWidth, $maxDimension / $originalHeight);
+
+        $newWidth  = (int)($originalWidth * $scale);
+        $newHeight = (int)($originalHeight * $scale);
 
         $thumb = imagecreatetruecolor($newWidth, $newHeight);
         if ($imageType == IMAGETYPE_PNG) {
             imagealphablending($thumb, false);
             imagesavealpha($thumb, true);
         }
-        imagecopyresized($thumb, $imageResource, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
+
+        imagecopyresampled($thumb, $imageResource, 0, 0, 0, 0, $newWidth, $newHeight, $originalWidth, $originalHeight);
         $destinationFullPath = public_path($destinationPath);
-        $directory           = dirname($destinationFullPath);
+        $directory = dirname($destinationFullPath);
 
         if (!File::isDirectory($directory) && !mkdir($directory, 0775, true)) {
             Log::error("Failed to create directory: " . $directory);
@@ -138,9 +144,11 @@ class GalleryController extends Controller
         }
 
         imagedestroy($thumb);
+        imagedestroy($imageResource); // Destroy the original resource to free memory
         Log::info('Successfully compressed and saved image at: ' . $destinationFullPath);
         return $destinationPath;
     }
+
 
     /**
      * Create a new image resource from a file based on its type.

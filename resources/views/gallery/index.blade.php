@@ -9,61 +9,56 @@
         }
 
         .frame {
-            max-width: 100vw; /* Allow maximum width of the viewport */
-            width: auto; /* Adjust width based on content size */
-            margin: 20px auto; /* Center the frame horizontally */
-            border: 10px solid #8B4513; /* Thick solid border to mimic a wooden frame */
+            max-width: 100vw;
+            width: auto;
+            margin: 20px auto;
+            border: 10px solid #8B4513;
             padding: 30px;
             background: #FFF;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5); /* Shadow for depth */
-            overflow: visible; /* Allow overflow to be visible */
-            position: relative; /* Ensures proper stacking context */
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            position: relative;
         }
 
         .gallery {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); /* Responsive grid layout */
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
             gap: 5px;
             justify-items: center;
             align-items: center;
-            position: relative;
         }
 
         .gallery-item {
-            transition: transform 0.6s ease; /* Smooth transition for transform */
-            cursor: pointer; /* Indicates that the item can be interacted with */
-            position: relative; /* Ensures proper stacking and positioning */
-            overflow: visible; /* Changed to visible to allow images to expand on hover */
-            z-index: 1; /* Lower z-index for non-hovered items */
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            z-index: 1;
         }
 
         .gallery-item:hover {
-            z-index: 1000; /* Very high z-index to ensure the item is displayed above all other content */
-            overflow: visible; /* Allow the hovered image to be visible */
+            z-index: 1000;
         }
 
         .gallery-item:hover .gallery-image {
-            transform: translate(-50%, -50%) scale(1.5); /* Center and scale the image */
-            position: fixed; /* Fixed position to keep it relative to the viewport */
-            left: 50%; /* Center horizontally */
-            top: 50%; /* Center vertically */
-            max-width: 90vw; /* Limits the width to 90% of the viewport width */
-            max-height: 90vh; /* Limits the height to 90% of the viewport height */
-            width: auto; /* Maintains aspect ratio */
-            height: auto; /* Maintains aspect ratio */
-            box-shadow: 0 0 10px rgba(0,0,0,0.8); /* Optional: Adds shadow for better visibility */
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%) scale(1.5);
+            max-width: 90vw;
+            max-height: 90vh;
+            width: auto;
+            height: auto;
+            box-shadow: 0 0 10px rgba(0,0,0,0.8);
+            transition: transform 0.6s ease;
         }
 
         .gallery-image {
-            width: 100%; /* Adjusts the width of the image to fit the container */
+            width: 100%;
             height: auto;
             display: block;
-            transition: transform 0.3s ease; /* Smooth transition for scaling */
+            transition: transform 0.6s ease;
         }
     </style>
-
-
-
 @endsection
 
 @section('content')

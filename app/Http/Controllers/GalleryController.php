@@ -36,7 +36,7 @@ class GalleryController extends Controller
         mb_internal_encoding("UTF-8");
 
         Log::info('Loading images with offset: ' . $request->offset);
-        $baseDir = '/mnt/nas/photo/圖/新整理/艾諾茵';
+        $baseDir = '/mnt/nas/photo/圖/新整理';
         var_dump($baseDir);
         $files = File::files($baseDir);
         dd($files);

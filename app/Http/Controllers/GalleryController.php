@@ -10,21 +10,25 @@ class GalleryController extends Controller
 {
     public function index()
     {
+        return view('gallery.index');
+    }
+
+    public function loadImages(Request $request)
+    {
         $photoPath = config('gallery.photo_path');
         Log::info("Photo path: " . $photoPath);
 
         if (!File::exists($photoPath) || !File::isDirectory($photoPath)) {
             Log::error("Invalid directory: " . $photoPath);
-            return abort(404, 'Gallery directory not found.');
+            return response()->json(['error' => 'Gallery directory not found.'], 404);
         }
 
+        $offset = $request->offset ?? 0;
+        $limit = 50;  // Load 50 images at a time
+
         $finder = new Finder();
-        try {
-            $finder->files()->in($photoPath);
-        } catch (\Exception $e) {
-            Log::error("Finder setup error: " . $e->getMessage());
-            return abort(500, 'Error setting up file finder.');
-        }
+        $finder->files()->in($photoPath)->sortByName();
+        $finder->skip($offset)->limit($limit);
 
         $imagePaths = [];
         foreach ($finder as $file) {
@@ -35,8 +39,7 @@ class GalleryController extends Controller
             }
         }
 
-        $selectedImages = array_slice($imagePaths, 0, 50);
-        return view('gallery.index', compact('selectedImages'));
+        return response()->json($imagePaths);
     }
 
     protected function compressImage($sourcePath, $destinationPath)

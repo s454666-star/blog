@@ -62,9 +62,8 @@ Route::get('/export-excel', [PdfController::class, 'exportExcel'])->name('export
 Route::get('/get-img', [ImageController::class, 'getImageBase64']);
 Route::get('/get-full-img', [ImageFullController::class, 'getImages']);
 
-Route::get('/gallery', [GalleryController::class, 'index'])->name('gallery.index');
-Route::get('/gallery/{filename}', [GalleryController::class, 'show'])->name('gallery.show');
-
+Route::get('/gallery', 'GalleryController@index')->name('gallery.index');
+Route::get('/gallery/load-images', 'GalleryController@loadImages')->name('gallery.load-images');
 
 // 其他自訂頁面
 Route::view('/my-page', 'my')->name('my-page');

@@ -31,27 +31,54 @@
 @endsection
 
 @section('content')
-    <div class="gallery">
-        @foreach($selectedImages as $image)
-            <a href="{{ route('gallery.show', basename($image)) }}" class="gallery-item">
-                <img src="{{ asset($image) }}" alt="Gallery Image" class="gallery-image">
-            </a>
-        @endforeach
+    <div class="gallery" id="gallery-container">
+        {{-- Initial images loaded via controller --}}
     </div>
+    <button id="load-more">Load More</button>
 @endsection
 
 @section('scripts')
     <script>
+        let offset = 0;
+        const limit = 50; // Number of images to load per request
+
         document.addEventListener("DOMContentLoaded", function() {
-            const images = document.querySelectorAll('.gallery-image');
-            images.forEach(image => {
-                image.addEventListener('mouseover', () => {
-                    image.style.opacity = 0.7;
-                });
-                image.addEventListener('mouseout', () => {
-                    image.style.opacity = 1.0;
-                });
+            loadImages(); // Load initial set of images
+
+            // Add event listeners for image hover effect
+            document.getElementById('gallery-container').addEventListener('mouseover', function(event) {
+                if (event.target.className === 'gallery-image') {
+                    event.target.style.opacity = 0.7;
+                }
+            });
+            document.getElementById('gallery-container').addEventListener('mouseout', function(event) {
+                if (event.target.className === 'gallery-image') {
+                    event.target.style.opacity = 1.0;
+                }
+            });
+
+            // Infinite scroll or button click to load more images
+            document.getElementById('load-more').addEventListener('click', function() {
+                loadImages();
             });
         });
+
+        function loadImages() {
+            fetch(`/gallery/load-images?offset=${offset}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.length > 0) {
+                        data.forEach(imagePath => {
+                            const img = document.createElement('img');
+                            img.src = imagePath;
+                            img.className = 'gallery-image';
+                            document.getElementById('gallery-container').appendChild(img);
+                        });
+                        offset += limit;
+                    } else {
+                        document.getElementById('load-more').remove(); // Remove button if no more images
+                    }
+                }).catch(error => console.error('Error loading images:', error));
+        }
     </script>
 @endsection

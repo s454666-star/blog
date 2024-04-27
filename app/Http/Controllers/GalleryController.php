@@ -34,7 +34,7 @@ class GalleryController extends Controller
         ini_set('memory_limit', '512M');
 
         Log::info('Loading images with offset: ' . $request->offset);
-        $photoPath = config('gallery.photo_path');
+        $photoPath = '/mnt/nas/photo/圖/新整理/';
 
         Log::info("Checking path: " . realpath($photoPath));
         if (!File::exists($photoPath)) {

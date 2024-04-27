@@ -6,7 +6,6 @@
             background-color: #f4f4f4;
             color: #333;
             font-family: 'Arial', sans-serif;
-            overflow-x: hidden; /* Prevent horizontal scroll */
         }
 
         .frame {
@@ -17,7 +16,7 @@
             padding: 30px;
             background: #FFF;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-            overflow: visible; /* Allow the frame to show overflow content */
+            overflow: visible;
             position: relative;
         }
 
@@ -32,7 +31,7 @@
 
         .gallery-item {
             position: relative;
-            overflow: visible; /* Allow images to overflow the gallery item */
+            overflow: visible;
             cursor: pointer;
             transition: transform 0.3s ease;
         }
@@ -41,9 +40,9 @@
             position: fixed;
             left: 50%;
             top: 50%;
-            transform: translate(-50%, -50%) scale(3); /* Scale to three times the size */
-            max-width: 270vw; /* Maximum width 270% of viewport width to support triple scaling */
-            max-height: 270vh; /* Maximum height 270% of viewport height to support triple scaling */
+            transform: translate(-50%, -50%) scale(1);
+            max-width: 90vw;
+            max-height: 90vh;
             width: auto;
             height: auto;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
@@ -57,7 +56,6 @@
             transition: transform 0.3s ease;
         }
     </style>
-
 @endsection
 
 @section('content')
@@ -111,16 +109,12 @@
 
         document.addEventListener('DOMContentLoaded', function () {
             const galleryItems = document.querySelectorAll('.gallery-item');
-
             galleryItems.forEach(item => {
                 item.addEventListener('click', function () {
                     // Remove enlarged class from all items
                     galleryItems.forEach(otherItem => {
-                        if (otherItem !== this) {
-                            otherItem.classList.remove('enlarged');
-                        }
+                        otherItem.classList.remove('enlarged');
                     });
-
                     // Toggle enlarged class on clicked item
                     this.classList.toggle('enlarged');
                 });

@@ -21,15 +21,14 @@ class GalleryController extends Controller
         $finder = new Finder();
         try {
             $finder->files()->in($photoPath);
-        }
-        catch (\Exception $e) {
+        } catch (\Exception $e) {
             Log::error("Finder setup error: " . $e->getMessage());
             return abort(500, 'Error setting up file finder.');
         }
 
         $imagePaths = [];
         foreach ($finder as $file) {
-            $path           = $file->getRealPath();
+            $path = $file->getRealPath();
             $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
             if ($compressedPath) {
                 $imagePaths[] = $compressedPath;
@@ -37,14 +36,21 @@ class GalleryController extends Controller
         }
 
         $selectedImages = array_slice($imagePaths, 0, 50);
-
         return view('gallery.index', compact('selectedImages'));
     }
 
     protected function compressImage($sourcePath, $destinationPath)
     {
-        // Determine image type from file contents
-        $imageType = exif_imagetype($sourcePath);
+        if (!file_exists($sourcePath) || !is_readable($sourcePath)) {
+            Log::error("File not found or not readable: " . $sourcePath);
+            return false;
+        }
+
+        $imageType = @exif_imagetype($sourcePath);
+        if (!$imageType) {
+            Log::error("Failed to determine image type or unsupported image: " . $sourcePath);
+            return false;
+        }
 
         switch ($imageType) {
             case IMAGETYPE_JPEG:
@@ -58,26 +64,21 @@ class GalleryController extends Controller
                 break;
             default:
                 Log::error("Unsupported image type: " . $sourcePath);
-                return false;  // Exit function if file is not supported
+                return false;
         }
 
         list($width, $height) = getimagesize($sourcePath);
-        $newWidth  = 320;
+        $newWidth = 320;
         $newHeight = 240;
-
         $thumb = imagecreatetruecolor($newWidth, $newHeight);
         if ($imageType == IMAGETYPE_PNG) {
             imagealphablending($thumb, false);
             imagesavealpha($thumb, true);
         }
-
-        // Resize image
         imagecopyresized($thumb, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-
         $destinationFullPath = public_path($destinationPath);
-        $directory           = dirname($destinationFullPath);
+        $directory = dirname($destinationFullPath);
 
-        // Ensure directory exists and is writable
         if (!file_exists($directory) && !mkdir($directory, 0775, true)) {
             Log::error("Failed to create directory: " . $directory);
             return false;
@@ -88,7 +89,6 @@ class GalleryController extends Controller
             return false;
         }
 
-        // Save the resized image based on its type
         switch ($imageType) {
             case IMAGETYPE_JPEG:
                 imagejpeg($thumb, $destinationFullPath, 75);
@@ -101,10 +101,9 @@ class GalleryController extends Controller
                 break;
         }
 
-        imagedestroy($thumb); // Free up memory
+        imagedestroy($thumb);
         return $destinationPath;
     }
-
 
     public function show($filename)
     {

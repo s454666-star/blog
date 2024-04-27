@@ -36,9 +36,9 @@ class GalleryController extends Controller
         Log::info('Loading images with offset: ' . $request->offset);
         $photoPath = config('gallery.photo_path');
 
-        Log::info("Checking path: " . $photoPath);
+        Log::info("Checking path: " . realpath($photoPath));
         if (!File::exists($photoPath)) {
-            Log::error('Gallery directory not found at path: ' . $photoPath);
+            Log::error('Gallery directory not found at path: ' . realpath($photoPath));
             return response()->json(['error' => 'Gallery directory not found at path: ' . $photoPath], 404);
         }
 

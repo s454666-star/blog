@@ -2,10 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
-use Symfony\Component\Finder\Finder;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -126,7 +124,7 @@ class GalleryController extends Controller
 
         imagecopyresampled($thumb, $imageResource, 0, 0, 0, 0, $newWidth, $newHeight, $originalWidth, $originalHeight);
         $destinationFullPath = public_path($destinationPath);
-        $directory = dirname($destinationFullPath);
+        $directory           = dirname($destinationFullPath);
 
         if (!File::isDirectory($directory) && !mkdir($directory, 0775, true)) {
             Log::error("Failed to create directory: " . $directory);

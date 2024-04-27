@@ -1,4 +1,4 @@
-@extends('layouts.app')  {{-- Assuming you have a main layout file --}}
+@extends('layouts.app')
 
 @section('head')
     <style>
@@ -41,7 +41,6 @@
             display: block;
         }
     </style>
-
 @endsection
 
 @section('content')

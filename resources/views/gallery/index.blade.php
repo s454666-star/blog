@@ -21,20 +21,22 @@
         }
 
         .gallery {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-            gap: 5px;
-            justify-items: center;
-            align-items: center;
-            position: relative;
+            display: flex; /* Changed to flex to better manage wrapping */
+            flex-wrap: wrap; /* Allow items to wrap to the next line */
+            justify-content: center; /* Center items horizontally */
+            align-items: flex-start; /* Align items to the top */
+            gap: 5px; /* Maintain spacing between items */
         }
 
+
         .gallery-item {
+            flex: 1 0 100%; /* Each item can grow to fill the space but starts out taking full width */
             position: relative;
-            overflow: hidden; /* Hide parts of the image that exceed the item's boundaries */
             cursor: pointer;
+            overflow: visible; /* Make overflow visible to allow the image to spill out */
             transition: transform 0.3s ease;
-            width: 100%; /* Set width to fill its column */
+            width: auto; /* Width auto to allow natural size */
+            min-width: 100px; /* Minimum width to maintain structure */
         }
 
         .gallery-item.enlarged .gallery-image {
@@ -51,10 +53,9 @@
         }
 
         .gallery-image {
-            width: 200%; /* Double width as required */
-            height: auto; /* Maintain aspect ratio */
+            width: 200%; /* Set width to double */
+            height: auto; /* Keep height auto for aspect ratio */
             display: block;
-            transition: transform 0.3s ease;
         }
     </style>
 @endsection

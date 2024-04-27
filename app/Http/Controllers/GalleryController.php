@@ -26,9 +26,9 @@ class GalleryController extends Controller
      * Load images based on offset and limit.
      *
      * @param Request $request
-     * @return JsonResponse
+     * @return array
      */
-    public function loadImages(Request $request): JsonResponse
+    public function loadImages(Request $request): array
     {
         ini_set('max_execution_time', 300); // 300 seconds = 5 minutes
         ini_set('memory_limit', '512M');
@@ -40,14 +40,13 @@ class GalleryController extends Controller
 
         if (!File::exists($photoPath)) {
             Log::error('Gallery directory not found at path: ' . $photoPath);
-            return response()->json([ 'error' => 'Gallery directory not found at path: ' . $photoPath ], 404);
+            return [];
         }
 
-        // Get all directories (albums) from the photo path
         $directories = File::directories($photoPath);
         if (empty($directories)) {
             Log::error('No albums found in the gallery directory.');
-            return response()->json([ 'error' => 'No albums found in the gallery directory.' ], 404);
+            return [];
         }
 
         $imagePaths = [];
@@ -56,9 +55,8 @@ class GalleryController extends Controller
 
         while (count($imagePaths) < $limit && $attempts < count($directories)) {
             $selectedAlbum = $directories[array_rand($directories)];
-            Log::info("Selected album: " . $selectedAlbum);
-            $directories = array_diff($directories, [ $selectedAlbum ]);
-            $files       = File::files($selectedAlbum);
+            $directories   = array_diff($directories, [ $selectedAlbum ]);
+            $files         = File::files($selectedAlbum);
             shuffle($files);
 
             foreach ($files as $file) {
@@ -68,7 +66,6 @@ class GalleryController extends Controller
                 if ($file->isFile() && in_array(strtolower($file->getExtension()), [ 'jpg', 'jpeg', 'png', 'gif' ])) {
                     $path = $file->getRealPath();
                     Log::info('Processing file: ' . $path);
-
                     $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
                     if ($compressedPath) {
                         $imagePaths[] = asset($compressedPath);
@@ -78,18 +75,12 @@ class GalleryController extends Controller
                     }
                 }
             }
-
             $attempts++;
         }
 
-        if (count($imagePaths) < $limit) {
-            Log::info("Not enough images found after checking all albums. Images processed: " . count($imagePaths));
-        } else {
-            Log::info('Image loading complete. Number of images processed: ' . count($imagePaths));
-        }
-
-        return response()->json($imagePaths);
+        return $imagePaths;
     }
+
 
     /**
      * Compresses an image and returns the path to the compressed image if successful.

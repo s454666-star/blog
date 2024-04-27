@@ -36,6 +36,13 @@ class GalleryController extends Controller
         Log::info('Loading images with offset: ' . $request->offset);
         $photoPath = '/mnt/nas/photo/圖/新整理/0928_14y';
 
+        if (file_exists($photoPath)) {
+            echo "Directory exists!";
+        } else {
+            echo "Directory does not exist!";
+        }
+
+
         Log::info("Checking path: " . realpath($photoPath));
         if (!File::exists($photoPath)) {
             Log::error('Gallery directory not found at path: ' . realpath($photoPath));

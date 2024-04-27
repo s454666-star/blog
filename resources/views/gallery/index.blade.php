@@ -114,19 +114,19 @@
 
 
         document.addEventListener('DOMContentLoaded', function () {
-            const galleryItems = document.querySelectorAll('.gallery-item');
+            const galleryContainer = document.getElementById('gallery-container');
 
-            galleryItems.forEach(item => {
-                item.addEventListener('click', function () {
-                    // Remove enlarged class from all items
-                    galleryItems.forEach(otherItem => {
-                        if (otherItem !== this) {
-                            otherItem.classList.remove('enlarged');
+            galleryContainer.addEventListener('click', function (event) {
+                const target = event.target.closest('.gallery-item');
+                if (target) {
+                    const galleryItems = document.querySelectorAll('.gallery-item');
+                    galleryItems.forEach(item => {
+                        if (item !== target) {
+                            item.classList.remove('enlarged');
                         }
                     });
-                    // Toggle enlarged class on clicked item
-                    this.classList.toggle('enlarged');
-                });
+                    target.classList.toggle('enlarged');
+                }
             });
         });
     </script>

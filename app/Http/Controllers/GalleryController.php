@@ -43,19 +43,41 @@ class GalleryController extends Controller
 
     protected function compressImage($sourcePath, $destinationPath)
     {
+        // Determine image type from file contents
+        $imageType = exif_imagetype($sourcePath);
+
+        switch ($imageType) {
+            case IMAGETYPE_JPEG:
+                $source = imagecreatefromjpeg($sourcePath);
+                break;
+            case IMAGETYPE_PNG:
+                $source = imagecreatefrompng($sourcePath);
+                break;
+            case IMAGETYPE_GIF:
+                $source = imagecreatefromgif($sourcePath);
+                break;
+            default:
+                Log::error("Unsupported image type: " . $sourcePath);
+                return false;  // Exit function if file is not supported
+        }
+
         list($width, $height) = getimagesize($sourcePath);
-        $newWidth = 320;
+        $newWidth  = 320;
         $newHeight = 240;
 
         $thumb = imagecreatetruecolor($newWidth, $newHeight);
-        $source = imagecreatefromjpeg($sourcePath);
+        if ($imageType == IMAGETYPE_PNG) {
+            imagealphablending($thumb, false);
+            imagesavealpha($thumb, true);
+        }
 
+        // Resize image
         imagecopyresized($thumb, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
 
         $destinationFullPath = public_path($destinationPath);
+        $directory           = dirname($destinationFullPath);
 
-        // Check if directory exists and is writable
-        $directory = dirname($destinationFullPath);
+        // Ensure directory exists and is writable
         if (!file_exists($directory) && !mkdir($directory, 0775, true)) {
             Log::error("Failed to create directory: " . $directory);
             return false;
@@ -66,9 +88,17 @@ class GalleryController extends Controller
             return false;
         }
 
-        if (!imagejpeg($thumb, $destinationFullPath, 75)) {
-            Log::error("Failed to save image: " . $destinationFullPath);
-            return false; // Return false if compression failed
+        // Save the resized image based on its type
+        switch ($imageType) {
+            case IMAGETYPE_JPEG:
+                imagejpeg($thumb, $destinationFullPath, 75);
+                break;
+            case IMAGETYPE_PNG:
+                imagepng($thumb, $destinationFullPath);
+                break;
+            case IMAGETYPE_GIF:
+                imagegif($thumb, $destinationFullPath);
+                break;
         }
 
         imagedestroy($thumb); // Free up memory

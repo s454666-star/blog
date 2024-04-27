@@ -15,7 +15,7 @@
             padding: 30px;
             background: #FFF;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5); /* Shadow for depth */
-            overflow: visible;
+            overflow: hidden; /* Keeps the expanded image within the frame */
         }
 
         .gallery {
@@ -24,7 +24,6 @@
             gap: 5px;
             justify-items: center;
             align-items: center;
-            overflow: visible;
         }
 
         .gallery-item {
@@ -37,6 +36,7 @@
         .gallery-item:hover {
             z-index: 10; /* Ensures the item is displayed above others */
             overflow: visible; /* Shows the overflowed part of the image */
+            background-color: rgba(0, 0, 0, 0.5); /* Optional: Adds shading around the image */
         }
 
         .gallery-item:hover .gallery-image {
@@ -45,11 +45,10 @@
             left: 50%;
             top: 50%;
             transform: translate(-50%, -50%); /* Center the image */
-            min-width: 100%; /* Ensures image takes full width of the container */
-            min-height: 100%; /* Ensures image takes full height of the container */
+            max-width: 80vw; /* Limits the width to 80% of the viewport width */
+            max-height: 80vh; /* Limits the height to 80% of the viewport height */
             width: auto; /* Maintains aspect ratio */
             height: auto; /* Maintains aspect ratio */
-            max-width: none; /* Removes max-width restriction */
         }
 
         .gallery-image {

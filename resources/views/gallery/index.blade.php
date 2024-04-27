@@ -16,7 +16,7 @@
             padding: 30px;
             background: #FFF;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5); /* Shadow for depth */
-            overflow: visible; /* Changed to visible to allow images to overlap the frame on hover */
+            overflow: hidden; /* Keep the frame content managed within its bounds */
             position: relative; /* Ensures proper stacking context */
         }
 
@@ -32,23 +32,22 @@
             transition: transform 0.6s ease; /* Smooth transition for transform */
             cursor: pointer; /* Indicates that the item can be interacted with */
             position: relative; /* Ensures proper stacking and positioning */
-            overflow: visible; /* Changed to visible to allow images to expand on hover */
+            overflow: hidden; /* Keeps the scaled image contained */
             z-index: 1; /* Lower z-index for non-hovered items */
         }
 
         .gallery-item:hover {
             z-index: 1000; /* Very high z-index to ensure the item is displayed above all other content */
-            overflow: visible; /* Ensure the hovered part of the image shows */
+            overflow: visible; /* Allow the hovered image to be visible */
         }
 
         .gallery-item:hover .gallery-image {
-            transform: scale(1.5); /* Scale up the image */
+            transform: translate(-50%, -50%) scale(1.5); /* Center and scale the image */
             position: absolute;
             left: 50%;
             top: 50%;
-            transform: translate(-50%, -50%) scale(1.5); /* Center and scale the image */
-            max-width: 100vw; /* Max width as the viewport width */
-            max-height: 100vh; /* Max height as the viewport height */
+            max-width: 90vw; /* Limits the width to 95% of the viewport width */
+            max-height: 90vh; /* Limits the height to 95% of the viewport height */
             width: auto; /* Maintains aspect ratio */
             height: auto; /* Maintains aspect ratio */
         }
@@ -60,6 +59,7 @@
             transition: transform 0.3s ease; /* Smooth transition for scaling */
         }
     </style>
+
 
 @endsection
 

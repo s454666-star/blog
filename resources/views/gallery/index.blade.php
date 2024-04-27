@@ -113,18 +113,5 @@
                 })
                 .catch(error => console.error('Error:', error));
         }
-
-
-        document.querySelectorAll('.gallery-item').forEach(item => {
-            item.addEventListener('mouseover', function () {
-                // Assuming you have a modal or a tooltip element to update
-                document.getElementById('image-preview').src = this.getAttribute('data-original');
-                document.getElementById('image-preview').style.display = 'block';
-            });
-
-            item.addEventListener('mouseout', function () {
-                document.getElementById('image-preview').style.display = 'none';
-            });
-        });
     </script>
 @endsection

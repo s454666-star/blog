@@ -50,7 +50,7 @@
         }
 
         .gallery-image {
-            width: 100%;
+            width: 150%;
             height: auto;
             display: block;
             transition: transform 0.3s ease;
@@ -109,11 +109,14 @@
 
         document.addEventListener('DOMContentLoaded', function () {
             const galleryItems = document.querySelectorAll('.gallery-item');
+
             galleryItems.forEach(item => {
                 item.addEventListener('click', function () {
                     // Remove enlarged class from all items
                     galleryItems.forEach(otherItem => {
-                        otherItem.classList.remove('enlarged');
+                        if (otherItem !== this) {
+                            otherItem.classList.remove('enlarged');
+                        }
                     });
                     // Toggle enlarged class on clicked item
                     this.classList.toggle('enlarged');

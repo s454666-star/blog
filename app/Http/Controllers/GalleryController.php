@@ -13,13 +13,13 @@ class GalleryController extends Controller
 {
     /**
      * Display a listing of the images.
-     *
-     * @return JsonResponse
      */
-    public function index(): JsonResponse
+    public function index(Request $request)
     {
         Log::info('Entering index method.');
-        return $this->loadImages(new Request([ 'offset' => 0 ]));
+        $images = $this->loadImages($request);
+
+        return view('gallery', [ 'imagePaths' => $images ]);
     }
 
     /**
@@ -58,7 +58,7 @@ class GalleryController extends Controller
             $selectedAlbum = $directories[array_rand($directories)];
             Log::info("Selected album: " . $selectedAlbum);
             $directories = array_diff($directories, [ $selectedAlbum ]);
-            $files = File::files($selectedAlbum);
+            $files       = File::files($selectedAlbum);
             shuffle($files);
 
             foreach ($files as $file) {

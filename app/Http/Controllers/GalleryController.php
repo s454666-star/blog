@@ -35,26 +35,22 @@ class GalleryController extends Controller
 
         Log::info('Loading images with offset: ' . $request->offset);
         $baseDir = '/mnt/nas/photo';
-        $subDirs = ['圖', '新整理', '0928_14y'];
-
-        foreach ($subDirs as $dir) {
-            $baseDir .= '/' . $dir;
-            if (file_exists($baseDir)) {
-                echo "Exists: $baseDir\n";
-            } else {
-                echo "Does not exist: $baseDir\n";
-                break;
-            }
+        $photoPath = '/mnt/nas/photo/' . iconv("UTF-8", "UTF-8//IGNORE", '圖');
+        if (file_exists($photoPath)) {
+            echo "Directory exists!";
+        } else {
+            echo "Directory does not exist: $photoPath";
         }
 
+        $photoPath = $baseDir;
         Log::info("Checking path: " . realpath($photoPath));
         if (!File::exists($photoPath)) {
             Log::error('Gallery directory not found at path: ' . realpath($photoPath));
-            return response()->json(['error' => 'Gallery directory not found at path: ' . $photoPath], 404);
+            return response()->json([ 'error' => 'Gallery directory not found at path: ' . $photoPath ], 404);
         }
 
         $offset = $request->offset ?? 0;
-        $limit = 10; // Load 10 images at a time
+        $limit  = 10; // Load 10 images at a time
 
         Log::info("Initializing Finder in directory: " . $photoPath);
 
@@ -63,13 +59,14 @@ class GalleryController extends Controller
             $finder->files()->in($photoPath)->sortByName();
             Log::info("Finder initialized successfully.");
             Log::info("Number of files found: " . iterator_count($finder));
-        } catch (\Exception $e) {
+        }
+        catch (\Exception $e) {
             Log::error("Error initializing Finder: " . $e->getMessage());
-            return response()->json(['error' => 'Error initializing file search.'], 500);
+            return response()->json([ 'error' => 'Error initializing file search.' ], 500);
         }
 
         $imagePaths = [];
-        $count = 0;
+        $count      = 0;
         foreach ($finder as $file) {
             Log::info("Processing file #" . $count . ": " . $file->getFilename());
             if ($count++ < $offset) continue;

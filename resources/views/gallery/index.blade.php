@@ -27,26 +27,20 @@
             overflow: visible;
         }
 
-        .gallery-item:hover {
-            transform: scale(3); /* Enlarge the photo 3 times on hover */
-            z-index: 10; /* Ensure the enlarged image is above others */
-            position: relative; /* Required for proper z-index handling */
+        .gallery-item {
+            transition: transform 0.6s ease; /* Smooth transition for transform */
         }
 
         .gallery-item:hover {
-            transform: scale(1.1); /* Slightly enlarges the photo on hover */
+            transform: none; /* Remove any scaling transformation */
+            z-index: 10;
+            position: relative;
         }
 
         .gallery-image {
+            width: 100%; /* Adjusts the width of the image to fit the container */
+            height: auto;
             display: block;
-            max-width: 100%; /* Ensures the image does not exceed the container's width */
-            height: auto; /* Maintains aspect ratio */
-            object-fit: cover; /* Ensures the image covers the set dimensions */
-        }
-
-        .gallery-item {
-            width: auto;
-            height: 500px; /* Default height to maintain unless the width needs to be >500 */
         }
     </style>
 @endsection
@@ -55,9 +49,8 @@
     <div class="frame">
         <div class="gallery" id="gallery-container">
             @foreach ($imagePaths as $imagePath)
-                <div id="image-preview"
-                     style="display:none; position: fixed; z-index: 100; top: 50%; left: 50%; transform: translate(-50%, -50%);">
-                    <img src="" alt="Image Preview" style="max-width: 90vw; max-height: 90vh;">
+                <div class="gallery-item" data-original="{{ $imagePath }}">
+                    <img src="{{ $imagePath }}" class="gallery-image">
                 </div>
             @endforeach
         </div>
@@ -78,36 +71,7 @@
             loadImages();
         });
 
-        document.addEventListener('DOMContentLoaded', function () {
-            const loadMoreButton = document.getElementById('load-more');
-            if (loadMoreButton) {
-                loadMoreButton.addEventListener('click', function () {
-                    loadImages();
-                });
-            }
-
-            const galleryItems = document.querySelectorAll('.gallery-item');
-            galleryItems.forEach(item => {
-                item.addEventListener('mouseover', function () {
-                    const imagePreview = document.getElementById('image-preview');
-                    if (imagePreview) {
-                        const img = imagePreview.querySelector('img');
-                        img.src = this.getAttribute('data-original');
-                        imagePreview.style.display = 'block';
-                    }
-                });
-
-                item.addEventListener('mouseout', function () {
-                    const imagePreview = document.getElementById('image-preview');
-                    if (imagePreview) {
-                        imagePreview.style.display = 'none';
-                    }
-                });
-            });
-        });
-
         function loadImages() {
-            const offset = parseInt(document.getElementById('gallery-container').getAttribute('data-offset'), 10) || 0;
             fetch(`/gallery?offset=${offset}`)
                 .then(response => response.json())
                 .then(images => {
@@ -121,16 +85,25 @@
                         div.appendChild(img);
                         container.appendChild(div);
                     });
-                    const newOffset = offset + images.length;
-                    container.setAttribute('data-offset', newOffset);
-                    if (images.length < 50) {
-                        const loadMoreButton = document.getElementById('load-more');
-                        if (loadMoreButton) {
-                            loadMoreButton.style.display = 'none';
-                        }
+                    offset += images.length;
+                    if (images.length < limit) {
+                        document.getElementById('load-more').style.display = 'none';
                     }
                 })
                 .catch(error => console.error('Error:', error));
         }
+
+
+        document.querySelectorAll('.gallery-item').forEach(item => {
+            item.addEventListener('mouseover', function () {
+                // Assuming you have a modal or a tooltip element to update
+                document.getElementById('image-preview').src = this.getAttribute('data-original');
+                document.getElementById('image-preview').style.display = 'block';
+            });
+
+            item.addEventListener('mouseout', function () {
+                document.getElementById('image-preview').style.display = 'none';
+            });
+        });
     </script>
 @endsection

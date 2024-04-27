@@ -6,6 +6,7 @@
             background-color: #f4f4f4;
             color: #333;
             font-family: 'Arial', sans-serif;
+            overflow-x: hidden; /* Prevent horizontal scroll */
         }
 
         .frame {
@@ -16,7 +17,7 @@
             padding: 30px;
             background: #FFF;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
-            overflow: hidden;
+            overflow: visible; /* Allow the frame to show overflow content */
             position: relative;
         }
 
@@ -31,7 +32,7 @@
 
         .gallery-item {
             position: relative;
-            overflow: hidden;
+            overflow: visible; /* Allow images to overflow the gallery item */
             cursor: pointer;
             transition: transform 0.3s ease;
         }
@@ -40,9 +41,9 @@
             position: fixed;
             left: 50%;
             top: 50%;
-            transform: translate(-50%, -50%) scale(1.5);
-            max-width: 90vw;
-            max-height: 90vh;
+            transform: translate(-50%, -50%) scale(3); /* Scale to three times the size */
+            max-width: 270vw; /* Maximum width 270% of viewport width to support triple scaling */
+            max-height: 270vh; /* Maximum height 270% of viewport height to support triple scaling */
             width: auto;
             height: auto;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
@@ -56,6 +57,7 @@
             transition: transform 0.3s ease;
         }
     </style>
+
 @endsection
 
 @section('content')

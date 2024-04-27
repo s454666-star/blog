@@ -34,46 +34,25 @@ class GalleryController extends Controller
         mb_internal_encoding("UTF-8");
 
         Log::info('Loading images with offset: ' . $request->offset);
-        $photoPath =  public_path('新整理');
+        $photoPath = public_path('新整理');
 
         if (!File::exists($photoPath)) {
             Log::error('Gallery directory not found at path: ' . $photoPath);
             return [];
         }
 
-        $directories = File::directories($photoPath);
-        if (empty($directories)) {
-            Log::error('No albums found in the gallery directory.');
-            return [];
-        }
-
+        $files      = File::allFiles($photoPath);
         $imagePaths = [];
-        $limit      = 50;
-        $attempts   = 0;
+        $limit      = 50; // Define how many images to return at once
 
-        while (count($imagePaths) < $limit && $attempts < count($directories)) {
-            $selectedAlbum = $directories[array_rand($directories)];
-            $directories   = array_diff($directories, [ $selectedAlbum ]);
-            $files         = File::files($selectedAlbum);
-            shuffle($files);
-
-            foreach ($files as $file) {
-                if (count($imagePaths) >= $limit) {
-                    break;
-                }
-                if ($file->isFile() && in_array(strtolower($file->getExtension()), [ 'jpg', 'jpeg', 'png', 'gif' ])) {
-                    $path = $file->getRealPath();
-                    Log::info('Processing file: ' . $path);
-                    $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
-                    if ($compressedPath) {
-                        $imagePaths[] = asset($compressedPath);
-                        Log::info('Compressed image saved: ' . $compressedPath);
-                    } else {
-                        Log::error('Failed to compress image at path: ' . $path);
-                    }
-                }
+        foreach ($files as $file) {
+            if (count($imagePaths) >= $limit) {
+                break;
             }
-            $attempts++;
+            if ($file->isFile() && in_array(strtolower($file->getExtension()), [ 'jpg', 'jpeg', 'png', 'gif' ])) {
+                $imagePaths[] = asset('新整理/' . $file->getRelativePathname());
+                Log::info('Adding image to list: ' . $file->getRelativePathname());
+            }
         }
 
         return $imagePaths;

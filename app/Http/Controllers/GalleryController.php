@@ -37,9 +37,14 @@ class GalleryController extends Controller
 
         Log::info('Loading images with offset: ' . $request->offset);
         $baseDir = '/mnt/nas/photo';
-        $photoPath = $baseDir . '/' . '圖';
-        $realPath = realpath($photoPath);
 
+        $files = File::files($baseDir);
+
+        foreach ($files as $file) {
+            $paths[] = $file->getPathname();
+        }
+
+dd($paths);
         if ($realPath && file_exists($realPath)) {
             echo "Directory exists!";
         } else {

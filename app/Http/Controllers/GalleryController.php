@@ -35,11 +35,11 @@ class GalleryController extends Controller
 
         if (!File::exists($photoPath) || !File::isDirectory($photoPath)) {
             Log::error('Gallery directory not found at path: ' . $photoPath);
-            return response()->json([ 'error' => 'Gallery directory not found.' ], 404);
+            return response()->json(['error' => 'Gallery directory not found.'], 404);
         }
 
         $offset = $request->offset ?? 0;
-        $limit  = 10; // Load 10 images at a time
+        $limit = 10; // Load 10 images at a time
 
         $finder = new Finder();
         try {
@@ -50,24 +50,26 @@ class GalleryController extends Controller
         }
 
         $imagePaths = [];
-        $count      = 0;
+        $count = 0;
         foreach ($finder as $file) {
+            Log::info("Processing file #" . $count . ": " . $file->getFilename());
             if ($count++ < $offset) continue;
             if ($count > $offset + $limit) {
                 Log::info('Reached the limit of images to load: ' . $limit);
                 break;
             }
 
-            $path           = $file->getRealPath();
+            $path = $file->getRealPath();
             $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
             if ($compressedPath) {
                 $imagePaths[] = asset($compressedPath);
+                Log::info('Compressed image saved: ' . $compressedPath);
             } else {
                 Log::error('Failed to compress image at path: ' . $path);
             }
         }
 
-        Log::info('Images loaded successfully');
+        Log::info('All images processed successfully.');
         return response()->json($imagePaths);
     }
 

@@ -42,14 +42,17 @@ class GalleryController extends Controller
         $limit  = 10; // Load 10 images at a time
 
         $finder = new Finder();
-        $finder->files()->in($photoPath)->sortByName();
+        try {
+            $finder->files()->in($photoPath)->sortByName();
+        } catch (\Exception $e) {
+            Log::error("Error accessing files in directory: " . $e->getMessage());
+            return response()->json(['error' => 'Error processing directory files.'], 500);
+        }
 
         $imagePaths = [];
         $count      = 0;
         foreach ($finder as $file) {
-            if ($count++ < $offset) {
-                continue;
-            }
+            if ($count++ < $offset) continue;
             if ($count > $offset + $limit) {
                 Log::info('Reached the limit of images to load: ' . $limit);
                 break;
@@ -64,6 +67,7 @@ class GalleryController extends Controller
             }
         }
 
+        Log::info('Images loaded successfully');
         return response()->json($imagePaths);
     }
 
@@ -74,8 +78,9 @@ class GalleryController extends Controller
      * @param string $destinationPath
      * @return bool|string
      */
-    protected function compressImage($sourcePath, $destinationPath)
+    protected function compressImage(string $sourcePath, string $destinationPath)
     {
+        Log::info("Starting compression for image at path: $sourcePath");
         if (!file_exists($sourcePath) || !is_readable($sourcePath)) {
             Log::error("File not found or not readable: " . $sourcePath);
             return false;

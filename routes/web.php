@@ -72,3 +72,7 @@ Route::view('/snake', 'snake')->name('snake-game');
 Route::get('/phpinfo', function () {
     phpinfo();
 });
+
+Route::get('/env', function () {
+    dd(env('APP_KEY'), $_ENV, getenv('APP_KEY'));
+});

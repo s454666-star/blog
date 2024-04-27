@@ -12,10 +12,10 @@
             max-width: 90vw; /* Limit the frame width to 90% of the viewport width */
             margin: 20px auto; /* Center the frame horizontally */
             border: 10px solid #8B4513; /* Thick solid border to mimic a wooden frame */
-            padding: 10px;
+            padding: 30px;
             background: #FFF;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.5); /* Shadow for depth */
-            overflow: hidden; /* Ensures no overflow of content outside the frame */
+            overflow: visible;
         }
 
         .gallery {
@@ -24,11 +24,13 @@
             gap: 5px;
             justify-items: center;
             align-items: center;
+            overflow: visible;
         }
 
-        .gallery-item {
-            transition: transform 0.2s ease-in-out;
-            cursor: pointer; /* Indicates the item can be interacted with */
+        .gallery-item:hover {
+            transform: scale(3); /* Enlarge the photo 3 times on hover */
+            z-index: 10; /* Ensure the enlarged image is above others */
+            position: relative; /* Required for proper z-index handling */
         }
 
         .gallery-item:hover {
@@ -47,7 +49,7 @@
     <div class="frame">
         <div class="gallery" id="gallery-container">
             @foreach ($imagePaths as $imagePath)
-                <div class="gallery-item">
+                <div class="gallery-item" data-original="{{ $imagePath }}">
                     <img src="{{ $imagePath }}" class="gallery-image">
                 </div>
             @endforeach
@@ -90,5 +92,18 @@
                 })
                 .catch(error => console.error('Error:', error));
         }
+
+
+        document.querySelectorAll('.gallery-item').forEach(item => {
+            item.addEventListener('mouseover', function () {
+                // Assuming you have a modal or a tooltip element to update
+                document.getElementById('image-preview').src = this.getAttribute('data-original');
+                document.getElementById('image-preview').style.display = 'block';
+            });
+
+            item.addEventListener('mouseout', function () {
+                document.getElementById('image-preview').style.display = 'none';
+            });
+        });
     </script>
 @endsection

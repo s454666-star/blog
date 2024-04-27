@@ -16,20 +16,22 @@ class GalleryController extends Controller
     public function loadImages(Request $request): \Illuminate\Http\JsonResponse
     {
         $photoPath = config('gallery.photo_path');
+        if (!File::exists($photoPath) || !File::isDirectory($photoPath)) {
+            return response()->json(['error' => 'Gallery directory not found.'], 404);
+        }
+
         $offset = $request->offset ?? 0;
         $limit = 50;  // Load 50 images at a time
 
-        if (!File::exists($photoPath) || !File::isDirectory($photoPath)) {
-            $error = ['error' => 'Gallery directory not found.'];
-            return $request->expectsJson() ? response()->json($error, 404) : abort(404, $error['error']);
-        }
-
         $finder = new Finder();
         $finder->files()->in($photoPath)->sortByName();
-        $finder->skip($offset)->limit($limit);
 
         $imagePaths = [];
+        $count = 0;
         foreach ($finder as $file) {
+            if ($count++ < $offset) continue; // Skip files until offset
+            if ($count > $offset + $limit) break; // Stop after reaching limit
+
             $path = $file->getRealPath();
             $compressedPath = $this->compressImage($path, 'thumbnails/' . $file->getFilename());
             if ($compressedPath) {
@@ -37,12 +39,9 @@ class GalleryController extends Controller
             }
         }
 
-        if ($request->expectsJson()) {
-            return response()->json($imagePaths);
-        } else {
-            return view('gallery.index', compact('imagePaths'));
-        }
+        return response()->json($imagePaths);
     }
+
 
     protected function compressImage($sourcePath, $destinationPath)
     {

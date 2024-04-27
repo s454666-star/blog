@@ -63,8 +63,10 @@ class GalleryController extends Controller
                     break;
                 }
                 if ($file->isFile() && in_array(strtolower($file->getExtension()), [ 'jpg', 'jpeg', 'png', 'gif' ])) {
-                    $imagePaths[] = asset('新整理/' . File::relativePath($photoPath, $file->getPathname()));
-                    Log::info('Adding image to list: ' . $file->getRelativePathname());
+                    // Manually constructing the relative path
+                    $relativePath = str_replace(public_path() . '/', '', $file->getRealPath());
+                    $imagePaths[] = asset($relativePath);
+                    Log::info('Adding image to list: ' . $relativePath);
                 }
             }
             $attempts++;
@@ -72,6 +74,7 @@ class GalleryController extends Controller
 
         return $imagePaths;
     }
+
 
     /**
      * Compresses an image and returns the path to the compressed image if successful.

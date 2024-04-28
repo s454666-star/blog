@@ -10,7 +10,7 @@ class VideoController extends Controller
 {
     public function importVideos(): Response
     {
-        $directory = '/mnt/nas/video1/TG/short'; // Base directory for video files
+        $directory = '/mnt/nas/video1'; // Base directory for video files
         $this->importDirectory($directory);
 
         return new Response([ 'message' => 'Video import process completed' ], 200);
@@ -35,7 +35,7 @@ class VideoController extends Controller
     private function importFile($filePath)
     {
         if (preg_match('/\.mp4$/', $filePath)) { // Ensuring it's an MP4 file
-            $webPath = "https://s2.starweb.life/videos/short" . str_replace('/mnt/nas/video1/TG/short', '', $filePath);
+            $webPath = "https://s2.starweb.life/videos" . str_replace('/mnt/nas/video1/TG', '', $filePath);
             $webPath = str_replace(' ', '%20', $webPath);
 
             $exists = DB::table('videos')->whereRaw('path = ?', [ $webPath ])->exists();

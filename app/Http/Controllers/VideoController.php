@@ -35,7 +35,7 @@ class VideoController extends Controller
     private function importFile($filePath)
     {
         if (preg_match('/\.mp4$/', $filePath)) { // Ensuring it's an MP4 file
-            $webPath = "https://s2.starweb.life/videos" . str_replace('/mnt/nas/video1/TG', '', $filePath);
+            $webPath = "https://s2.starweb.life/videos" . str_replace('/mnt/nas/video1', '', $filePath);
             $webPath = str_replace(' ', '%20', $webPath);
 
             $exists = DB::table('videos')->whereRaw('path = ?', [ $webPath ])->exists();

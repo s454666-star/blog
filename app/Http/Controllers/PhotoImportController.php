@@ -20,13 +20,6 @@ class PhotoImportController extends Controller
                 $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
                 if (in_array($extension, $validExtensions)) {  // 檢查是否為有效的圖片格式
                     $webUrl = 'https://s2.starweb.life/' . rawurlencode('新整理') . '/' . rawurlencode($albumName) . '/' . rawurlencode(basename($file));
-                    dd([
-                        'album_name'   => $albumName,
-                        'photo_name'   => basename($file),
-                        'file_path'    => $file,
-                        'web_url'      => $webUrl,
-                        'is_beautiful' => null,
-                    ]);
                     // 確保 webUrl 唯一
                     $exists = DB::table('photos')->where('web_url', $webUrl)->exists();
                     if (!$exists) {

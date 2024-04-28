@@ -28,7 +28,7 @@ class PhotoImportController extends Controller
                             'photo_name'   => basename($file),
                             'file_path'    => $file,
                             'web_url'      => $webUrl,
-                            'is_beautiful' => null,
+                            'is_beauty' => null,
                         ]);
                     }
                 }

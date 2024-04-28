@@ -39,12 +39,6 @@ class VideoController extends Controller
 
             // Check if the video already exists in the database
             if (!Video::where('path', $webPath)->exists()) {
-                dd([
-                    'video_name' => basename($filePath),
-                    'path'       => $webPath,
-                    'tags'       => null,
-                    'rating'     => null
-                ]);
                 Video::create([
                     'video_name' => basename($filePath),
                     'path'       => $webPath,

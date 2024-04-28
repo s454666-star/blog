@@ -22,6 +22,11 @@ class VideoController extends Controller
 
     private function importDirectory($dir)
     {
+        if (!is_dir($dir)) {
+            Log::error("Expected a directory, but found a file: {$dir}");
+            return; // Early return to avoid further processing since it's not a directory
+        }
+
         Log::info("Accessing directory: {$dir}"); // Log when a directory is accessed
         $files = scandir($dir);
 
@@ -36,6 +41,7 @@ class VideoController extends Controller
             }
         }
     }
+
 
     private function importFile($filePath)
     {

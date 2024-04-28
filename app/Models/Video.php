@@ -10,4 +10,6 @@ class Video extends Model
     use HasFactory;
 
     protected $fillable = ['video_name', 'path', 'tags', 'rating'];
+
+    public $timestamps = false;
 }

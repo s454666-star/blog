@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Video;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 
 class VideoController extends Controller
 {
@@ -37,8 +38,8 @@ class VideoController extends Controller
             $webPath = "https://s2.starweb.life/videos/short" . str_replace('/mnt/nas/video1/TG/short', '', $filePath);
             $webPath = str_replace(' ', '%20', $webPath);
 
-            // Check if the video already exists in the database
-            if (!Video::where('path', $webPath)->exists()) {
+            $exists = DB::table('videos')->whereRaw('path = ?', [ $webPath ])->exists();
+            if (!$exists) {
                 Video::create([
                     'video_name' => basename($filePath),
                     'path'       => $webPath,

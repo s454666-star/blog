@@ -15,7 +15,13 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
-        // $schedule->command('inspire')->hourly();
+        $schedule->command('photos:import')
+            ->dailyAt('03:00')
+            ->appendOutputTo(storage_path('logs/schedule.log'));
+
+        $schedule->command('import:videos')
+            ->dailyAt('04:30')
+            ->appendOutputTo(storage_path('logs/schedule.log'));
     }
 
     /**

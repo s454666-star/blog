@@ -16,6 +16,6 @@ class ImportVideos extends Command
         $response   = $controller->importVideos();  // Direct method call
 
         $this->info('Import process completed');
-        $this->info('Response: ' . json_encode($response->getData()));
+        $this->info('Response: ' . json_encode($response));
     }
 }

@@ -44,7 +44,7 @@ class FetchController extends Controller
             $formattedResponse = "商品名稱: " . $productTitle .
                 "\n商品價格: " . $productPrice .
                 "\n商品說明: " . $productDescription .
-                "\n梱包重量: " . ($packageWeight ?: "無資訊") . "\n\n" . $html;
+                "\n梱包重量: " . ($packageWeight ?: "無資訊") . "\n\n" ;
             return $formattedResponse;
         }
         catch (\Exception $e) {

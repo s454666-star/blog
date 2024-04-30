@@ -75,4 +75,73 @@ class CrawlerProductService
             return ''; // 如果元素未找到或其他錯誤，返回空字符串
         }
     }
+
+    public function getProductColors($html)
+    {
+        try {
+            $crawler = new Crawler($html);
+            // 使用过滤器筛选包含特定 title 的 li 元素
+            $colorElements = $crawler->filter('#twisterContainer li[title*="Click to select"] img');
+
+            $colors = [];
+            foreach ($colorElements as $element) {
+                $imgCrawler = new Crawler($element);
+                $altText    = $imgCrawler->attr('alt'); // 获取 img 标签的 alt 属性作为颜色名称
+                if (!empty(trim($altText))) { // 确保 alt 文本不为空
+                    $colors[] = trim($altText);
+                }
+            }
+
+            if (!empty($colors)) {
+                return "商品顏色: " . implode(", ", $colors);
+            } else {
+                return "商品顏色: 無資訊";
+            }
+        }
+        catch (\Exception $e) {
+            return "商品顏色: 無資訊"; // 如果出现异常，则返回无信息
+        }
+    }
+
+    public function getProductStyles($html)
+    {
+        try {
+            $crawler = new Crawler($html);
+            // 定位到包含商品样式的所有选项
+            $styleElements = $crawler->filter('#variation_style_name .a-button-text');
+
+            $styles = [];
+            foreach ($styleElements as $element) {
+                $styleCrawler = new Crawler($element);
+                $styleText    = $styleCrawler->filter('.twisterTextDiv.text p')->text(); // 从结构中提取样式名称
+                if (!empty(trim($styleText))) { // 确保样式文本不为空
+                    $styles[] = trim($styleText);
+                }
+            }
+
+            if (!empty($styles)) {
+                return "商品樣式: " . implode(", ", $styles);
+            } else {
+                return "商品樣式: 無資訊";
+            }
+        }
+        catch (\Exception $e) {
+            return "商品樣式: 無資訊"; // 如果出现异常，则返回无信息
+        }
+    }
+    public function getProductImage($html)
+    {
+        try {
+            $crawler = new Crawler($html);
+            // 定位到含有商品主图的 img 标签
+            $imageElement = $crawler->filter('#imgTagWrapperId img')->first();
+            $imageUrl = $imageElement->attr('src'); // 获取图片的 src 属性，即图片 URL
+
+            return $imageUrl ? trim($imageUrl) : "無商品圖片資訊";
+        } catch (\Exception $e) {
+            return "錯誤：無法處理商品圖片"; // 如果出现异常，则返回错误信息
+        }
+    }
+
+
 }

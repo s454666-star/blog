@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
+use App\Http\Controllers\FetchController;
 use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
@@ -76,3 +77,6 @@ Route::get('/phpinfo', function () {
 Route::get('/env', function () {
     dd(env('APP_KEY'), $_ENV, getenv('APP_KEY'));
 });
+
+Route::view('/product-import', 'fetch-url');
+Route::post('/fetch', [FetchController::class, 'fetchData']);

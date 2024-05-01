@@ -143,11 +143,15 @@ class CrawlerProductService
             if (strpos($tag->nodeValue, 'colorImages') !== false) {
                 preg_match_all('/"large":"([^"]+)"/', $tag->nodeValue, $matches);
                 if (!empty($matches[1])) {
+                    // Add only new images to array, preventing duplicates immediately
                     $images = array_merge($images, $matches[1]);
                 }
             }
         }
-        return implode(", ", $images); // Returns all large image URLs as a single string
+        // Remove duplicates from the array
+        $images = array_unique($images);
+        // Return all unique large image URLs as a single string
+        return implode(", ", $images);
     }
 
 

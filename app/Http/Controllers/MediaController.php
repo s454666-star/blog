@@ -20,7 +20,7 @@ class MediaController extends Controller
             $query->where('rating', $request->rating);
         }
 
-        $count = $request->input('counts', 50);  // Default to 50 if 'counts' not provided
+        $count = $request->input('counts', 1);  // Default to 50 if 'counts' not provided
 
         if (!$request->filled('offset')) {
             $totalRows = Video::count();                                           // Get total number of rows in the table

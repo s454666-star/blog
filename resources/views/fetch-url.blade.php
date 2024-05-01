@@ -14,20 +14,39 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: linear-gradient(120deg, #a1c4fd, #c2e9fb);
+            background: linear-gradient(120deg, #a1c4fd, #c2e9fb, #fbc2eb);
+            animation: gradientBG 15s ease infinite;
+        }
+
+        @keyframes gradientBG {
+            0%, 100% {
+                background-position: 0% 50%;
+            }
+            50% {
+                background-position: 100% 50%;
+            }
         }
 
         .container {
             width: 70%;
             height: 70%;
-            background-color: rgba(255, 255, 255, 0.9);
+            background-color: rgba(255, 255, 255, 0.8);
             padding: 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            overflow: auto;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            border: 2px solid rgba(0, 123, 255, 0.5);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            overflow: hidden; /* 限制動畫在容器內 */
+            position: relative;
+            animation: pulse 5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+            }
+            50% {
+                box-shadow: 0 0 40px rgba(0, 123, 255, 0.5);
+            }
         }
 
         .title {
@@ -45,6 +64,7 @@
             border: 1px solid #007BFF;
             border-radius: 5px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s; /* 添加過渡效果 */
         }
 
         input[type="text"]:focus, textarea:focus {
@@ -73,15 +93,10 @@
             box-shadow: 0 0 12px #ff4500;
         }
 
-        @keyframes blinker {
-            50% {
-                opacity: 0.5;
-            }
-        }
-
         textarea {
             height: calc(20em + 3000px); /* 將原始高度增加 60px 以容納更多行 */
         }
+
     </style>
 </head>
 <body>
@@ -124,6 +139,12 @@
                 button.disabled = false;
             });
     }
+
+    document.body.onmousemove = function(e) {
+        var x = e.clientX;
+        var y = e.clientY;
+        document.body.style.backgroundImage = `radial-gradient(circle at ${x}px ${y}px, #a1c4fd, #c2e9fb, #fbc2eb)`;
+    };
 </script>
 </body>
 </html>

@@ -19,3 +19,4 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 });
 
 Route::get('/photos', 'App\Http\Controllers\PhotoController@index');
+Route::get('/videos', 'App\Http\Controllers\MediaController@index');

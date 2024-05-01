@@ -29,7 +29,7 @@
 
         .container {
             width: 70%;
-            height: 70%;
+            height: 100%;
             background-color: rgba(255, 255, 255, 0.8);
             padding: 20px;
             border: 2px solid rgba(0, 123, 255, 0.5);

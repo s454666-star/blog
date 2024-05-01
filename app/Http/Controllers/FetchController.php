@@ -14,7 +14,7 @@ class FetchController extends Controller
     public function __construct(CrawlerProductService $crawler)
     {
         $this->crawler = $crawler;
-        $this->client  = new Client(); // 初始化 GuzzleHttp Client
+        $this->client  = new Client(); // Initialize GuzzleHttp Client
     }
 
     public function fetchData(Request $request): string
@@ -48,9 +48,14 @@ class FetchController extends Controller
                 "\n商品說明: " . $productDescription .
                 "\n梱包重量: " . ($packageWeight ?: "無資訊") .
                 "\n" . $productColors .
-                "\n" . $productStyles . // 添加商品样式信息
+                "\n" . $productStyles . // Add product styles information
                 "\n商品圖片: " . $productImage;
-//                "\n\n" . $html;
+
+            // Check if the request is coming from localhost
+            if ($request->server('REMOTE_ADDR') == '127.0.0.1') {
+                $formattedResponse .= "\n\n" . $html;
+            }
+
             return $formattedResponse;
         }
         catch (\Exception $e) {

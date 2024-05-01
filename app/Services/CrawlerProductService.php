@@ -2,11 +2,12 @@
 
 namespace App\Services;
 
+use DOMDocument;
 use Symfony\Component\DomCrawler\Crawler;
 
 class CrawlerProductService
 {
-    public function getProductTitle($html)
+    public function getProductTitle($html): string
     {
         try {
             $crawler = new Crawler($html);
@@ -18,7 +19,7 @@ class CrawlerProductService
         }
     }
 
-    public function getProductPrice($html)
+    public function getProductPrice($html): string
     {
         try {
             $crawler   = new Crawler($html);
@@ -31,7 +32,7 @@ class CrawlerProductService
         }
     }
 
-    public function getProductDescription($html)
+    public function getProductDescription($html): string
     {
         try {
             $crawler      = new Crawler($html);
@@ -64,7 +65,7 @@ class CrawlerProductService
         }
     }
 
-    public function getPackageWeight($html)
+    public function getPackageWeight($html): string
     {
         try {
             $crawler = new Crawler($html);
@@ -76,7 +77,7 @@ class CrawlerProductService
         }
     }
 
-    public function getProductColors($html)
+    public function getProductColors($html): string
     {
         try {
             $crawler = new Crawler($html);
@@ -103,7 +104,7 @@ class CrawlerProductService
         }
     }
 
-    public function getProductStyles($html)
+    public function getProductStyles($html): string
     {
         try {
             $crawler = new Crawler($html);
@@ -129,18 +130,24 @@ class CrawlerProductService
             return "商品樣式: 無資訊"; // 如果出现异常，则返回无信息
         }
     }
-    public function getProductImage($html)
-    {
-        try {
-            $crawler = new Crawler($html);
-            // 定位到含有商品主图的 img 标签
-            $imageElement = $crawler->filter('#imgTagWrapperId img')->first();
-            $imageUrl = $imageElement->attr('src'); // 获取图片的 src 属性，即图片 URL
 
-            return $imageUrl ? trim($imageUrl) : "無商品圖片資訊";
-        } catch (\Exception $e) {
-            return "錯誤：無法處理商品圖片"; // 如果出现异常，则返回错误信息
+    public function getProductImage($html): string
+    {
+        $doc = new DOMDocument();
+        libxml_use_internal_errors(true);
+        $doc->loadHTML($html);
+        libxml_clear_errors();
+        $scriptTags = $doc->getElementsByTagName('script');
+        $images     = [];
+        foreach ($scriptTags as $tag) {
+            if (strpos($tag->nodeValue, 'colorImages') !== false) {
+                preg_match_all('/"large":"([^"]+)"/', $tag->nodeValue, $matches);
+                if (!empty($matches[1])) {
+                    $images = array_merge($images, $matches[1]);
+                }
+            }
         }
+        return implode(", ", $images); // Returns all large image URLs as a single string
     }
 
 

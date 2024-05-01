@@ -18,12 +18,12 @@
         }
 
         .container {
-            width: 70%; /* Set width to 65% of the viewport */
-            height: 70%; /* Set height to 65% of the viewport */
+            width: 70%;
+            height: 70%;
             background-color: rgba(255, 255, 255, 0.9);
             padding: 20px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            overflow: auto; /* Allow scrolling if content exceeds the size */
+            overflow: auto;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -39,7 +39,7 @@
         }
 
         input[type="text"], textarea {
-            width: 70%; /* Set the width to 70% of the container */
+            width: 70%;
             padding: 10px;
             margin: 10px 0;
             border: 1px solid #007BFF;
@@ -65,6 +65,23 @@
         button:hover {
             background-color: #0056b3;
         }
+
+        button.disabled {
+            background-color: #ff4500; /* 橙紅色 */
+            animation: blinker 1s linear infinite;
+            cursor: not-allowed;
+            box-shadow: 0 0 12px #ff4500;
+        }
+
+        @keyframes blinker {
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        textarea {
+            height: calc(20em + 3000px); /* 將原始高度增加 60px 以容納更多行 */
+        }
     </style>
 </head>
 <body>
@@ -72,12 +89,19 @@
     <div class="title">商品上架程式</div>
     <input type="text" id="url" placeholder="請輸入URL">
     <button onclick="fetchData()">抓取資料</button>
-    <textarea id="data" rows="2000" placeholder="顯示資料..."></textarea>
+    <textarea id="data" placeholder="顯示資料..."></textarea>
 </div>
 
 <script>
     function fetchData() {
         const url = document.getElementById('url').value;
+        const button = document.querySelector('button');
+        const dataTextarea = document.getElementById('data');
+
+        button.textContent = '抓取中...';
+        button.classList.add('disabled');
+        button.disabled = true;
+
         fetch('/fetch', {
             method: 'POST',
             headers: {
@@ -88,9 +112,17 @@
         })
             .then(response => response.text())
             .then(html => {
-                document.getElementById('data').value = html;
+                dataTextarea.value = html;
+                button.textContent = '抓取資料';
+                button.classList.remove('disabled');
+                button.disabled = false;
             })
-            .catch(error => console.error('Error:', error));
+            .catch(error => {
+                console.error('Error:', error);
+                button.textContent = '抓取資料';
+                button.classList.remove('disabled');
+                button.disabled = false;
+            });
     }
 </script>
 </body>

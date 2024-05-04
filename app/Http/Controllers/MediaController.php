@@ -20,6 +20,10 @@ class MediaController extends Controller
             $query->where('rating', $request->rating);
         }
 
+        if ($request->has('video_id')) {
+            $query->where('id', $request->video_id);
+        }
+
         $count = $request->input('counts', 1);  // Default to 50 if 'counts' not provided
 
         if (!$request->filled('offset')) {

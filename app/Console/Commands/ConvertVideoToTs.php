@@ -74,14 +74,31 @@ class ConvertVideoToTs extends Command
 
         while ($directories) {
             $dir = array_shift($directories);
-            $files = $disk->files($dir);
+            try {
+                $files = $disk->files($dir);
 
-            foreach ($files as $file) {
-                yield $file;
+                foreach ($files as $file) {
+                    // 檢查是否為符號連結
+                    if (is_link($disk->path($file))) {
+                        Log::warning("Skipping link: {$file}");
+                        continue;
+                    }
+                    yield $file;
+                }
+
+                $subdirectories = $disk->directories($dir);
+                foreach ($subdirectories as $subdir) {
+                    if (!is_link($disk->path($subdir))) {
+                        $directories[] = $subdir;
+                    } else {
+                        Log::warning("Skipping link in directories: {$subdir}");
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::error("Failed to access directory: {$dir} with error: " . $e->getMessage());
+                continue;
             }
-
-            $subdirectories = $disk->directories($dir);
-            $directories = array_merge($directories, $subdirectories);
         }
     }
+
 }

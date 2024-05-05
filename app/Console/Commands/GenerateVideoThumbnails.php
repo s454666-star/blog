@@ -63,12 +63,23 @@ class GenerateVideoThumbnails extends Command
     {
         $frameCount = 20;
         $interval   = $duration / $frameCount;
-        $rows       = 5;
         $cols       = 4;
-        $width      = 200;  // Width of each thumbnail
-        $height     = 800;  // Height of each thumbnail
+        $maxWidth   = 500;  // Maximum width of each thumbnail
+        $maxHeight  = 500;  // Maximum height of each thumbnail
 
-        $montageImage = imagecreatetruecolor($width * $cols, $height * $rows);
+        // Get the video dimensions to maintain aspect ratio
+        $videoDimensions = $video->getStreams()->videos()->first()->getDimensions();
+        $originalWidth   = $videoDimensions->getWidth();
+        $originalHeight  = $videoDimensions->getHeight();
+
+        // Calculate the scaling factor and final thumbnail dimensions
+        $scale       = min($maxWidth / $originalWidth, $maxHeight / $originalHeight);
+        $thumbWidth  = (int)($originalWidth * $scale);
+        $thumbHeight = (int)($originalHeight * $scale);
+
+        // Calculate the total height required for all rows
+        $rows         = ceil($frameCount / $cols);
+        $montageImage = imagecreatetruecolor($thumbWidth * $cols, $thumbHeight * $rows);
 
         for ($i = 0; $i < $frameCount; $i++) {
             $currentSeconds = $i * $interval;  // Calculate current seconds for this frame
@@ -88,9 +99,9 @@ class GenerateVideoThumbnails extends Command
             }
 
             $frameImage = imagecreatefromjpeg($tempPath);
-            $x          = ($i % $cols) * $width;
-            $y          = floor($i / $cols) * $height;
-            imagecopyresampled($montageImage, $frameImage, $x, $y, 0, 0, $width, $height, imagesx($frameImage), imagesy($frameImage));
+            $x          = ($i % $cols) * $thumbWidth;
+            $y          = floor($i / $cols) * $thumbHeight;
+            imagecopyresampled($montageImage, $frameImage, $x, $y, 0, 0, $thumbWidth, $thumbHeight, imagesx($frameImage), imagesy($frameImage));
             imagedestroy($frameImage);
             unlink($tempPath);
         }

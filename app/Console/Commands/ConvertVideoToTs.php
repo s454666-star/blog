@@ -73,6 +73,7 @@ class ConvertVideoToTs extends Command
             catch (\Exception $e) {
                 DB::rollBack();
                 Log::error("轉換文件出錯: {$file} 錯誤信息: " . $e->getMessage());
+                Log::error("追蹤: " . $e->getTraceAsString());
                 continue;
             }
         }

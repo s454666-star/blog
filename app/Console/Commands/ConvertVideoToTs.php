@@ -30,6 +30,7 @@ class ConvertVideoToTs extends Command
                 $segments("{$name}-{$format->getKiloBitrate()}-{$key}-%03d.ts");
                 $playlist("{$name}-{$format->getKiloBitrate()}-{$key}.m3u8");
             })
+            ->toDisk('converted_videos')
             ->save('stream.m3u8');
 
 

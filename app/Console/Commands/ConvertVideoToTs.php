@@ -28,44 +28,48 @@ class ConvertVideoToTs extends Command
 
     private function convertDirectory($sourceDisk, $destinationDisk, $directory)
     {
-        // 生成器函數來逐個處理檔案
         foreach ($this->allFilesGenerator($sourceDisk, $directory) as $file) {
-            Log::info("Processing file: {$file}");  // 添加日誌記錄處理文件
-            DB::beginTransaction();                 // 開始事務
+            $existingPath = DB::table('processed_videos')->where('path', $file)->exists();
+
+            if ($existingPath) {
+                Log::info("Skipping already processed file: {$file}");
+                continue;  // Skip this file as it has already been processed
+            }
+
+            Log::info("Processing file: {$file}");
+            DB::beginTransaction();
             try {
                 $extension = pathinfo($file, PATHINFO_EXTENSION);
-                if (in_array($extension, [ 'mp4', 'mov' ])) {
+                if (in_array($extension, ['mp4', 'mov'])) {
                     $destinationPath = preg_replace('/\.(mp4|mov)$/', '.ts', $file);
-                    $video           = FFMpeg::fromDisk('videos')
-                        ->open($file);
+                    $video = FFMpeg::fromDisk('videos')->open($file);
 
-                    $videoDuration = $video->getDurationInSeconds();        // 獲取視頻長度
-                    Log::info("Video duration: {$videoDuration} seconds");  // 日誌記錄視頻長度
+                    $videoDuration = $video->getDurationInSeconds();
+                    Log::info("Video duration: {$videoDuration} seconds");
 
                     $video->export()
                         ->toDisk('converted_videos')
                         ->inFormat(new \FFMpeg\Format\Video\X264('libmp3lame', 'libx264'))
                         ->save($destinationPath);
 
-                    // 寫入數據庫
-                    DB::table('videos_ts')->insert([
+                    // Insert record into database
+                    DB::table('processed_videos')->insert([
                         'video_name' => basename($destinationPath),
-                        'path'       => 'https://s2.starweb.life/video-ts/' . $destinationPath,
+                        'path' => $destinationPath,
                         'video_time' => $videoDuration,
-                        'tags'       => null,
-                        'rating'     => null,
+                        'tags' => null,
+                        'rating' => null,
                     ]);
 
-                    DB::commit();                                            // 提交事務
-                    Log::info("Successfully converted and saved: {$file}");  // 成功日誌
+                    DB::commit();
+                    Log::info("Successfully converted and saved: {$file}");
                 } else {
                     Log::warning("Unsupported file type: {$file}");
                 }
-            }
-            catch (\Exception $e) {
-                DB::rollBack();                                                                // 回滾事務
-                Log::error("Error converting file: {$file} with error: " . $e->getMessage());  // 錯誤日誌
-                continue;                                                                      // 繼續處理下一個檔案
+            } catch (\Exception $e) {
+                DB::rollBack();
+                Log::error("Error converting file: {$file} with error: " . $e->getMessage());
+                continue;
             }
         }
     }

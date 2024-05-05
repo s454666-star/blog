@@ -7,12 +7,12 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use ProtoneMedia\LaravelFFMpeg\Support\FFMpeg;
-use ProtoneMedia\LaravelFFMpeg\Exporters\EncodingException;
 use FFMpeg\Format\Video\X264;
+use ProtoneMedia\LaravelFFMpeg\Filesystem\Media;
 
 class ConvertVideoToTs extends Command
 {
-    protected $signature   = 'video:convert';
+    protected $signature = 'video:convert';
     protected $description = '將視頻轉換為.ts格式，生成.m3u8播放列表，包括子目錄中的文件，並將詳細日誌寫入數據庫';
 
     public function __construct()
@@ -22,7 +22,7 @@ class ConvertVideoToTs extends Command
 
     public function handle()
     {
-        $sourceDisk      = Storage::disk('videos');
+        $sourceDisk = Storage::disk('videos');
         $destinationDisk = Storage::disk('converted_videos');
 
         $this->convertDirectory($sourceDisk, $destinationDisk, '');
@@ -39,36 +39,39 @@ class ConvertVideoToTs extends Command
             }
 
             $fileNameWithoutExt = pathinfo($file, PATHINFO_FILENAME);
-            $folderPath         = "{$fileNameWithoutExt}/" . md5($file);
+            $folderPath = "{$fileNameWithoutExt}/" . md5($file);
 
             Log::info("處理檔案: {$file}");
             DB::beginTransaction();
             try {
                 $extension = pathinfo($file, PATHINFO_EXTENSION);
-                if (in_array($extension, [ 'mp4', 'mov' ])) {
-                    $video         = FFMpeg::fromDisk('videos')->open($file);
+                if (in_array($extension, ['mp4', 'mov'])) {
+                    $video = FFMpeg::fromDisk('videos')->open($file);
                     $videoDuration = $video->getDurationInSeconds();
                     Log::info("視頻時長: {$videoDuration} 秒");
 
                     $destinationPath = "{$folderPath}/stream.m3u8";
 
                     $format = new X264('aac', 'libx264');
-                    $format->setKiloBitrate(1000);
-                    $format->setAudioChannels(2);
-                    $format->setAudioKiloBitrate(256);  // 正確的方法是 setAudioKiloBitrate
+                    $format->setKiloBitrate(1000)
+                        ->setAudioChannels(2)
+                        ->setAudioKiloBitrate(256);
 
+                    // 使用 AdvancedMedia 來處理 HLS
                     $video->exportForHLS()
-                        ->toDisk('converted_videos')
                         ->setSegmentLength(10)
-                        ->addFormat($format)
+                        ->addFormat($format, function ($media) {
+
+                        })
+                        ->toDisk('converted_videos')
                         ->save($destinationPath);
 
                     DB::table('videos_ts')->insert([
                         'video_name' => basename($file),
-                        'path'       => $destinationDisk->path($destinationPath),
+                        'path' => $destinationDisk->path($destinationPath),
                         'video_time' => $videoDuration,
-                        'tags'       => null,
-                        'rating'     => null,
+                        'tags' => null,
+                        'rating' => null,
                     ]);
 
                     DB::commit();
@@ -76,8 +79,7 @@ class ConvertVideoToTs extends Command
                 } else {
                     Log::warning("不支持的文件類型: {$file}");
                 }
-            }
-            catch (EncodingException $e) {
+            } catch (\Exception $e) {
                 DB::rollBack();
                 Log::error("轉換文件出錯: {$file} 錯誤信息: " . $e->getMessage());
                 Log::error("追蹤: " . $e->getTraceAsString());
@@ -89,10 +91,11 @@ class ConvertVideoToTs extends Command
     private function allFilesGenerator($disk, $directory): \Generator
     {
         $directories = [$directory];
+        Log::info("開始從目錄生成檔案: {$directory}");
 
         while ($directories) {
             $dir = array_shift($directories);
-
+            Log::info("處理目錄: {$dir}");
             try {
                 $files = $disk->files($dir);
                 foreach ($files as $file) {
@@ -101,6 +104,7 @@ class ConvertVideoToTs extends Command
                         Log::warning("跳過連接: {$file}");
                         continue;
                     }
+                    Log::info("生成檔案: {$file}");
                     yield $file;
                 }
 
@@ -108,13 +112,13 @@ class ConvertVideoToTs extends Command
                 foreach ($subdirectories as $subdir) {
                     $subFullPath = $disk->path($subdir);
                     if (!is_link($subFullPath)) {
+                        Log::info("加入子目錄進行處理: {$subdir}");
                         $directories[] = $subdir;
                     } else {
                         Log::warning("跳過目錄中的連接: {$subdir}");
                     }
                 }
-            }
-            catch (\Exception $e) {
+            } catch (\Exception $e) {
                 Log::error("訪問目錄失敗: {$dir} 錯誤信息: " . $e->getMessage());
                 continue;
             }

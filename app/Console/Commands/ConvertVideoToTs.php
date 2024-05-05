@@ -29,7 +29,7 @@ class ConvertVideoToTs extends Command
     private function convertDirectory($sourceDisk, $destinationDisk, $directory)
     {
         foreach ($this->allFilesGenerator($sourceDisk, $directory) as $file) {
-            $existingPath = DB::table('processed_videos')->where('path', $file)->exists();
+            $existingPath = DB::table('videos_ts')->where('path', $file)->exists();
 
             if ($existingPath) {
                 Log::info("Skipping already processed file: {$file}");
@@ -53,7 +53,7 @@ class ConvertVideoToTs extends Command
                         ->save($destinationPath);
 
                     // Insert record into database
-                    DB::table('processed_videos')->insert([
+                    DB::table('videos_ts')->insert([
                         'video_name' => basename($destinationPath),
                         'path'       => $destinationPath,
                         'video_time' => $videoDuration,

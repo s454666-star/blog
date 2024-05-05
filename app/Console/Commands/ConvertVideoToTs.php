@@ -55,7 +55,7 @@ class ConvertVideoToTs extends Command
                         ->addFormat(new \FFMpeg\Format\Video\X264(), function($media) {
                             $media->addFilter(function ($filters) {
                                 $filters->custom("segment_time", 10); // 每段10秒
-                            });
+                            }, $media::ADVANCED_FILTERS); // 使用 ADVANCED_FILTERS
                         })
                         ->save($destinationPath);
 

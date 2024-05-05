@@ -6,9 +6,9 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use ProtoneMedia\LaravelFFMpeg\Support\FFMpeg;
 use FFMpeg\Format\Video\X264;
 use ProtoneMedia\LaravelFFMpeg\Filesystem\Media;
+use ProtoneMedia\LaravelFFMpeg\Support\FFMpeg;
 
 class ConvertVideoToTs extends Command
 {
@@ -56,9 +56,13 @@ class ConvertVideoToTs extends Command
                     $highBitrate = (new X264)->setKiloBitrate(1000);
                     $video->exportForHLS()
                         ->setSegmentLength(10)
-//                        ->toDisk('converted_videos')
-                        ->addFormat($highBitrate)
-                        ->save('adaptive_steve.m3u8');
+                        ->toDisk('converted_videos')
+                        ->addFormat($highBitrate, function ($media) {
+                            $media->addFilter(function ($filters, $in, $out) {
+                                $filters->custom($in, 'scale=1920:1280', $out); // $in, $parameters, $out
+                            });
+                        })
+                        ->save($destinationPath);
 
                     DB::table('videos_ts')->insert([
                         'video_name' => basename($file),

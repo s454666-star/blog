@@ -32,7 +32,7 @@ class GenerateVideoThumbnails extends Command
         $ffmpeg     = FFMpeg\FFMpeg::create();
         $video      = $ffmpeg->open($url);
         $duration   = $video->getFFProbe()->format($url)->get('duration');
-        $frameCount = 36;
+        $frameCount = 16;
         $interval   = $duration / $frameCount;
         $rows       = 9;
         $cols       = 4;

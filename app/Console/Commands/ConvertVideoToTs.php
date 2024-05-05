@@ -98,7 +98,7 @@ class ConvertVideoToTs extends Command
                     }
                 }
             } catch (\Exception $e) {
-                Log::error("Failed to access directory: {$dir} with error: " . e->getMessage());
+                Log::error("Failed to access directory: {$dir} with error: " . $e->getMessage());
                 continue;
             }
         }

@@ -56,10 +56,9 @@ class ConvertVideoToTs extends Command
                     $highBitrate = (new X264)->setKiloBitrate(1000);
                     $video->exportForHLS()
                         ->setSegmentLength(10)
-                        ->addFormat($highBitrate)
                         ->toDisk('converted_videos')
-                        ->inFormat(new \FFMpeg\Format\Video\X264)
-                        ->save($destinationPath);
+                        ->addFormat($highBitrate)
+                        ->save('adaptive_steve.m3u8');
 
                     DB::table('videos_ts')->insert([
                         'video_name' => basename($file),

@@ -22,21 +22,21 @@ class ConvertVideoToTs extends Command
 
     public function handle()
     {
-        $highBitrate = (new X264)->setKiloBitrate(1000);
-        FFMpeg::fromDisk('videos')
-            ->open('00 (2).mp4')
-            ->exportForHLS()
-            ->setSegmentLength(10)
-            ->useSegmentFilenameGenerator(function ($name, $format, $key, callable $segments, callable $playlist) {
-                $segments("{$name}-{$format->getKiloBitrate()}-{$key}-%03d.ts");
-                $playlist("{$name}-{$format->getKiloBitrate()}-{$key}.m3u8");
-            })
-            ->addFormat($highBitrate)
-            ->toDisk('converted_videos')
-            ->save('stream.m3u8');
-
-
-        dd('success');
+//        $highBitrate = (new X264)->setKiloBitrate(1000);
+//        FFMpeg::fromDisk('videos')
+//            ->open('00 (2).mp4')
+//            ->exportForHLS()
+//            ->setSegmentLength(10)
+//            ->useSegmentFilenameGenerator(function ($name, $format, $key, callable $segments, callable $playlist) {
+//                $segments("{$name}-{$format->getKiloBitrate()}-{$key}-%03d.ts");
+//                $playlist("{$name}-{$format->getKiloBitrate()}-{$key}.m3u8");
+//            })
+//            ->addFormat($highBitrate)
+//            ->toDisk('converted_videos')
+//            ->save('stream.m3u8');
+//
+//
+//        dd('success');
         $sourceDisk      = Storage::disk('videos');
         $destinationDisk = Storage::disk('converted_videos');
 
@@ -76,7 +76,10 @@ class ConvertVideoToTs extends Command
                             $segments("{$name}-{$format->getKiloBitrate()}-{$key}-%03d.ts");
                             $playlist("{$name}-{$format->getKiloBitrate()}-{$key}.m3u8");
                         })
+                        ->addFormat($highBitrate)
                         ->save($destinationPath);
+
+                    $destinationDisk->chmod($destinationPath, 0644);
 
                     DB::table('videos_ts')->insert([
                         'video_name' => basename($file),

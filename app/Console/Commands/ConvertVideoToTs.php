@@ -22,6 +22,18 @@ class ConvertVideoToTs extends Command
 
     public function handle()
     {
+        FFMpeg::fromDisk('videos')
+            ->open('00 (2).mp4')
+            ->exportForHLS()
+            ->setSegmentLength(10)
+            ->useSegmentFilenameGenerator(function ($name, $format, $key, callable $segments, callable $playlist) {
+                $segments("{$name}-{$format->getKiloBitrate()}-{$key}-%03d.ts");
+                $playlist("{$name}-{$format->getKiloBitrate()}-{$key}.m3u8");
+            })
+            ->save('stream.m3u8');
+
+
+        dd('success');
         $sourceDisk      = Storage::disk('videos');
         $destinationDisk = Storage::disk('converted_videos');
 

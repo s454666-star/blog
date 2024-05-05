@@ -56,7 +56,7 @@ class ConvertVideoToTs extends Command
                     $highBitrate = (new X264)->setKiloBitrate(1000);
                     $video->exportForHLS()
                         ->setSegmentLength(10)
-                        ->toDisk('converted_videos')
+//                        ->toDisk('converted_videos')
                         ->addFormat($highBitrate)
                         ->save('adaptive_steve.m3u8');
 

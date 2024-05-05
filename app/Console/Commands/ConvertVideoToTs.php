@@ -37,14 +37,14 @@ class ConvertVideoToTs extends Command
             }
 
             $fileNameWithoutExt = pathinfo($file, PATHINFO_FILENAME);
-            $folderPath = "{$fileNameWithoutExt}/" . md5($file);
+            $folderPath         = "{$fileNameWithoutExt}/" . md5($file);
 
             Log::info("處理檔案: {$file}");
             DB::beginTransaction();
             try {
                 $extension = pathinfo($file, PATHINFO_EXTENSION);
-                if (in_array($extension, ['mp4', 'mov'])) {
-                    $video = FFMpeg::fromDisk('videos')->open($file);
+                if (in_array($extension, [ 'mp4', 'mov' ])) {
+                    $video         = FFMpeg::fromDisk('videos')->open($file);
                     $videoDuration = $video->getDurationInSeconds();
                     Log::info("視頻時長: {$videoDuration} 秒");
 
@@ -52,8 +52,10 @@ class ConvertVideoToTs extends Command
 
                     $video->exportForHLS()
                         ->toDisk('converted_videos')
-                        ->addFormat(new \FFMpeg\Format\Video\X264(), function($media) {
-                            $media->addFilter('-segment_time', '10');
+                        ->addFormat(new \FFMpeg\Format\Video\X264(), function ($media) {
+                            $media->addFilter(function ($filters) {
+                                $filters->customFilter("segment_time", 10);
+                            });
                         })
                         ->save($destinationPath);
 
@@ -72,7 +74,8 @@ class ConvertVideoToTs extends Command
                 } else {
                     Log::warning("不支持的文件類型: {$file}");
                 }
-            } catch (\Exception $e) {
+            }
+            catch (\Exception $e) {
                 DB::rollBack();
                 Log::error("轉換文件出錯: {$file} 錯誤信息: " . $e->getMessage());
                 continue;
@@ -82,7 +85,7 @@ class ConvertVideoToTs extends Command
 
     private function allFilesGenerator($disk, $directory): \Generator
     {
-        $directories = [$directory];
+        $directories = [ $directory ];
         Log::info("開始從目錄生成檔案: {$directory}");
 
         while ($directories) {
@@ -110,7 +113,8 @@ class ConvertVideoToTs extends Command
                         Log::warning("跳過目錄中的連接: {$subdir}");
                     }
                 }
-            } catch (\Exception $e) {
+            }
+            catch (\Exception $e) {
                 Log::error("訪問目錄失敗: {$dir} 錯誤信息: " . $e->getMessage());
                 continue;
             }

@@ -57,10 +57,9 @@ class ConvertVideoToTs extends Command
                     $video->exportForHLS()
                         ->setSegmentLength(10)
                         ->toDisk('converted_videos')
-                        ->addFormat($highBitrate, function ($media) {
-                            $media->addFilter(function ($filters, $in, $out) {
-                                $filters->custom($in, 'scale=1920:1280', $out); // $in, $parameters, $out
-                            });
+                        ->useSegmentFilenameGenerator(function ($name, $format, $key, callable $segments, callable $playlist) {
+                            $segments("{$name}-{$format->getKiloBitrate()}-{$key}-%03d.ts");
+                            $playlist("{$name}-{$format->getKiloBitrate()}-{$key}.m3u8");
                         })
                         ->save($destinationPath);
 

@@ -20,6 +20,7 @@
         "laravel/sanctum": "^2.11",
         "laravel/tinker": "^2.5",
         "maatwebsite/excel": "^3.1",
+        "pbmedia/laravel-ffmpeg": "^7.8",
         "phpoffice/phpspreadsheet": "^1.29",
         "spatie/pdf-to-text": "^1.52",
         "symfony/dom-crawler": "*",

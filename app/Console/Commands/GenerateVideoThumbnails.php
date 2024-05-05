@@ -71,9 +71,22 @@ class GenerateVideoThumbnails extends Command
         $montageImage = imagecreatetruecolor($width * $cols, $height * $rows);
 
         for ($i = 0; $i < $frameCount; $i++) {
-            $frame    = $video->frame(FFMpeg\Coordinate\TimeCode::fromSeconds($i * $interval));
-            $tempPath = tempnam(sys_get_temp_dir(), 'frame') . '.jpg';
-            $frame->save($tempPath);
+            $currentSeconds = $i * $interval;  // Calculate current seconds for this frame
+            $frame          = $video->frame(FFMpeg\Coordinate\TimeCode::fromSeconds($currentSeconds));
+            $tempPath       = tempnam(sys_get_temp_dir(), 'frame') . '.jpg';
+
+            if (!$frame->save($tempPath)) {
+                // Log error if the frame cannot be saved
+                \Log::error("Failed to save frame at {$currentSeconds} seconds to path {$tempPath}");
+                continue;  // Skip this frame if save failed
+            }
+
+            if (!file_exists($tempPath)) {
+                // Log error if the file does not exist
+                \Log::error("File does not exist after saving: {$tempPath}");
+                continue;  // Skip this frame if the file doesn't exist
+            }
+
             $frameImage = imagecreatefromjpeg($tempPath);
             $x          = ($i % $cols) * $width;
             $y          = floor($i / $cols) * $height;
@@ -85,4 +98,6 @@ class GenerateVideoThumbnails extends Command
         imagejpeg($montageImage, $outputPath, 100);
         imagedestroy($montageImage);
     }
+
+
 }

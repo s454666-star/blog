@@ -56,7 +56,7 @@ class ConvertVideoToTs extends Command
                 continue;
             }
             Log::info("處理檔案: {$file}");
-            DB::beginTransaction();
+//            DB::beginTransaction();
             try {
                 $extension = pathinfo($file, PATHINFO_EXTENSION);
                 if (in_array($extension, [ 'mp4', 'mov' ])) {
@@ -91,7 +91,7 @@ class ConvertVideoToTs extends Command
                         'rating'     => null,
                     ]);
 
-                    DB::commit();
+//                    DB::commit();
                     Log::info("成功轉換並保存: {$file}");
                 } else {
                     Log::warning("不支持的文件類型: {$file}");

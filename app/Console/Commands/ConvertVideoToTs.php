@@ -87,7 +87,7 @@ class ConvertVideoToTs extends Command
             try {
                 $files = $disk->files($dir);
                 foreach ($files as $file) {
-                    $fullPath = $disk->path($file); // 獲得完整路徑
+                    $fullPath = $disk->path($file);
                     if (is_link($fullPath)) {
                         Log::warning("Skipping link: {$file}");
                         continue;
@@ -98,7 +98,7 @@ class ConvertVideoToTs extends Command
 
                 $subdirectories = $disk->directories($dir);
                 foreach ($subdirectories as $subdir) {
-                    $subFullPath = $disk->path($subdir); // 獲得子目錄的完整路徑
+                    $subFullPath = $disk->path($subdir);
                     if (!is_link($subFullPath)) {
                         Log::info("Adding subdirectory to process: {$subdir}");
                         $directories[] = $subdir;
@@ -114,6 +114,7 @@ class ConvertVideoToTs extends Command
 
         Log::info("Finished processing all directories.");
     }
+
 
 
 }

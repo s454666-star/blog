@@ -77,7 +77,7 @@ class ConvertVideoToTs extends Command
                         })
                         ->addFormat($highBitrate)
                         ->toDisk('converted_videos')
-                        ->save($destinationPath);
+                        ->save('stream.m3u8');
 
                     $destinationDisk->chmod($destinationPath, 0644);
 

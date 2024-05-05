@@ -52,14 +52,8 @@ class ConvertVideoToTs extends Command
 
                     $video->exportForHLS()
                         ->toDisk('converted_videos')
-                        ->addFormat(new \FFMpeg\Format\Video\X264(), function ($media) {
-                            $media->addFilter(function ($filters) {
-                                // 正確使用 HLS 過濾器
-                                $filters->custom('segment_time', 10);
-                            });
-                        })
+                        ->setSegmentLength(10) // 設置每個片段長度為10秒
                         ->save($destinationPath);
-
 
                     // 插入數據庫記錄
                     DB::table('videos_ts')->insert([

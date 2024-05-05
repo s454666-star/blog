@@ -21,34 +21,45 @@ class GenerateVideoThumbnails extends Command
         $videos = DB::table('videos_ts')->whereNull('preview_image')->orWhereNull('video_screenshot')->get();
 
         foreach ($videos as $video) {
-            $ffmpeg    = FFMpeg\FFMpeg::create();
-            $videoFile = $ffmpeg->open($video->path);
-            $duration  = $videoFile->getFFProbe()->format($video->path)->get('duration');
+            $localPath     = $this->transformUrlToPath($video->path);
+            $ffmpeg        = FFMpeg\FFMpeg::create();
+            $videoFile     = $ffmpeg->open($localPath);
+            $duration      = $videoFile->getFFProbe()->format($localPath)->get('duration');
+            $directoryPath = dirname($localPath);
 
             if (is_null($video->preview_image)) {
-                $previewImage = $this->generatePreviewImage($videoFile);
-                DB::table('videos_ts')->where('id', $video->id)->update([ 'preview_image' => $previewImage ]);
+                $previewImagePath = $directoryPath . '/preview_image.jpg';
+                $this->generatePreviewImage($videoFile, $previewImagePath);
+                $webPreviewUrl = $this->transformPathToUrl($previewImagePath);
+                DB::table('videos_ts')->where('id', $video->id)->update([ 'preview_image' => $webPreviewUrl ]);
             }
 
             if (is_null($video->video_screenshot)) {
-                $videoScreenshot = $this->generateVideoScreenshot($videoFile, $duration);
-                DB::table('videos_ts')->where('id', $video->id)->update([ 'video_screenshot' => $videoScreenshot ]);
+                $videoScreenshotPath = $directoryPath . '/video_screenshot.jpg';
+                $this->generateVideoScreenshot($videoFile, $duration, $videoScreenshotPath);
+                $webScreenshotUrl = $this->transformPathToUrl($videoScreenshotPath);
+                DB::table('videos_ts')->where('id', $video->id)->update([ 'video_screenshot' => $webScreenshotUrl ]);
             }
         }
     }
 
-    private function generatePreviewImage($video)
+    private function transformUrlToPath($url)
     {
-        $frame    = $video->frame(FFMpeg\Coordinate\TimeCode::fromSeconds(0));
-        $tempPath = tempnam(sys_get_temp_dir(), 'preview') . '.jpg';
-        $frame->save($tempPath);
-        $imageData = file_get_contents($tempPath);
-        unlink($tempPath);
-
-        return base64_encode($imageData);
+        return str_replace('https://s2.starweb.life', '/mnt/nas', $url);
     }
 
-    private function generateVideoScreenshot($video, $duration)
+    private function transformPathToUrl($path)
+    {
+        return str_replace('/mnt/nas', 'https://s2.starweb.life', $path);
+    }
+
+    private function generatePreviewImage($video, $outputPath)
+    {
+        $frame = $video->frame(FFMpeg\Coordinate\TimeCode::fromSeconds(0));
+        $frame->save($outputPath);
+    }
+
+    private function generateVideoScreenshot($video, $duration, $outputPath)
     {
         $frameCount = 20;
         $interval   = $duration / $frameCount;
@@ -71,12 +82,7 @@ class GenerateVideoThumbnails extends Command
             unlink($tempPath);
         }
 
-        $finalPath = tempnam(sys_get_temp_dir(), 'montage') . '.jpg';
-        imagejpeg($montageImage, $finalPath, 100);
+        imagejpeg($montageImage, $outputPath, 100);
         imagedestroy($montageImage);
-        $finalImageData = file_get_contents($finalPath);
-        unlink($finalPath);
-
-        return base64_encode($finalImageData);
     }
 }

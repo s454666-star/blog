@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-//use FFMpeg;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
@@ -29,10 +28,8 @@ class ConvertVideoToTs extends Command
 
     private function convertDirectory($sourceDisk, $destinationDisk, $directory)
     {
-        // 使用 lazy 方法逐個處理檔案
-        $files = $sourceDisk->allFiles($directory);
-
-        foreach ($files as $file) {
+        // 生成器函數來逐個處理檔案
+        foreach ($this->allFilesGenerator($sourceDisk, $directory) as $file) {
             Log::info("Processing file: {$file}");  // 添加日誌記錄處理文件
             DB::beginTransaction();                 // 開始事務
             try {
@@ -67,6 +64,24 @@ class ConvertVideoToTs extends Command
                 DB::rollBack();                                                                // 回滾事務
                 Log::error("Error converting file: {$file} with error: " . $e->getMessage());  // 錯誤日誌
             }
+        }
+    }
+
+    // 生成器函數，用於逐個獲取檔案
+    private function allFilesGenerator($disk, $directory)
+    {
+        $directories = [$directory];
+
+        while ($directories) {
+            $dir = array_shift($directories);
+            $files = $disk->files($dir);
+
+            foreach ($files as $file) {
+                yield $file;
+            }
+
+            $subdirectories = $disk->directories($dir);
+            $directories = array_merge($directories, $subdirectories);
         }
     }
 }

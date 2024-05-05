@@ -7,7 +7,6 @@
     "require": {
         "php": "^7.3|^8.0",
         "ext-dom": "*",
-        "ext-http": "*",
         "ext-json": "*",
         "danog/madelineproto": "v7.x-dev",
         "flobee/spss": "^5.0",

@@ -47,16 +47,14 @@ class ConvertVideoToTs extends Command
     {
         $baseUrl = 'https://s2.starweb.life/video-ts';
         foreach ($this->allFilesGenerator($sourceDisk, $directory) as $file) {
-            $existingPath = DB::table('videos_ts')->where('path', $file)->exists();
-
+            $fileNameWithoutExt = pathinfo($file, PATHINFO_FILENAME);
+            $folderPath         = "{$fileNameWithoutExt}/" . md5($file);
+            $webPath            = $baseUrl . '/' . $folderPath . '/stream.m3u8';
+            $existingPath       = DB::table('videos_ts')->where('path', $webPath)->exists();
             if ($existingPath) {
                 Log::info("跳過已處理的檔案: {$file}");
                 continue;
             }
-
-            $fileNameWithoutExt = pathinfo($file, PATHINFO_FILENAME);
-            $folderPath         = "{$fileNameWithoutExt}/" . md5($file);
-
             Log::info("處理檔案: {$file}");
             DB::beginTransaction();
             try {

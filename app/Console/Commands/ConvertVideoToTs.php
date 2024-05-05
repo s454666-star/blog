@@ -11,7 +11,7 @@ use ProtoneMedia\LaravelFFMpeg\Support\FFMpeg;
 class ConvertVideoToTs extends Command
 {
     protected $signature   = 'video:convert';
-    protected $description = 'Converts videos to .ts format, including in subdirectories and writes them to the database with detailed logging';
+    protected $description = 'Converts videos to .ts format and generates an .m3u8 playlist, including in subdirectories and writes them to the database with detailed logging';
 
     public function __construct()
     {
@@ -33,29 +33,35 @@ class ConvertVideoToTs extends Command
 
             if ($existingPath) {
                 Log::info("Skipping already processed file: {$file}");
-                continue;  // Skip this file as it has already been processed
+                continue;
             }
+
+            $fileNameWithoutExt = pathinfo($file, PATHINFO_FILENAME);
+            $folderPath = "{$fileNameWithoutExt}/" . md5($file);
 
             Log::info("Processing file: {$file}");
             DB::beginTransaction();
             try {
                 $extension = pathinfo($file, PATHINFO_EXTENSION);
-                if (in_array($extension, [ 'mp4', 'mov' ])) {
-                    $destinationPath = preg_replace('/\.(mp4|mov)$/', '.ts', $file);
-                    $video           = FFMpeg::fromDisk('videos')->open($file);
-
+                if (in_array($extension, ['mp4', 'mov'])) {
+                    $video = FFMpeg::fromDisk('videos')->open($file);
                     $videoDuration = $video->getDurationInSeconds();
                     Log::info("Video duration: {$videoDuration} seconds");
 
-                    $video->export()
+                    $destinationPath = "{$folderPath}/stream.m3u8"; // Update path for m3u8 file
+
+                    $video->exportForHLS()
                         ->toDisk('converted_videos')
-                        ->inFormat(new \FFMpeg\Format\Video\X264('libmp3lame', 'libx264'))
+                        ->addFormat(new \FFMpeg\Format\Video\X264(), function($media) {
+                            $media->addFilter('segment_time', 10); // Each segment of 10 seconds
+                        })
+                        ->setTsSubDirectory('segments') // Define TS segments subdirectory
                         ->save($destinationPath);
 
                     // Insert record into database
                     DB::table('videos_ts')->insert([
-                        'video_name' => basename($destinationPath),
-                        'path'       => $destinationPath,
+                        'video_name' => basename($file),
+                        'path'       => $destinationDisk->path($destinationPath),
                         'video_time' => $videoDuration,
                         'tags'       => null,
                         'rating'     => null,
@@ -66,8 +72,7 @@ class ConvertVideoToTs extends Command
                 } else {
                     Log::warning("Unsupported file type: {$file}");
                 }
-            }
-            catch (\Exception $e) {
+            } catch (\Exception $e) {
                 DB::rollBack();
                 Log::error("Error converting file: {$file} with error: " . $e->getMessage());
                 continue;
@@ -75,7 +80,6 @@ class ConvertVideoToTs extends Command
         }
     }
 
-    // 生成器函數，用於逐個獲取檔案
     private function allFilesGenerator($disk, $directory): \Generator
     {
         $directories = [$directory];
@@ -114,7 +118,4 @@ class ConvertVideoToTs extends Command
 
         Log::info("Finished processing all directories.");
     }
-
-
-
 }

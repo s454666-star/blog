@@ -22,6 +22,7 @@ class ConvertVideoToTs extends Command
 
     public function handle()
     {
+        $highBitrate = (new X264)->setKiloBitrate(1000);
         FFMpeg::fromDisk('videos')
             ->open('00 (2).mp4')
             ->exportForHLS()
@@ -30,6 +31,7 @@ class ConvertVideoToTs extends Command
                 $segments("{$name}-{$format->getKiloBitrate()}-{$key}-%03d.ts");
                 $playlist("{$name}-{$format->getKiloBitrate()}-{$key}.m3u8");
             })
+            ->addFormat($highBitrate)
             ->toDisk('converted_videos')
             ->save('stream.m3u8');
 

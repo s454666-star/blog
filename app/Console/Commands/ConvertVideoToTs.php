@@ -69,7 +69,10 @@ class ConvertVideoToTs extends Command
                     Log::info("destinationPath: " . $destinationPath);
 
                     $highBitrate = (new X264)->setKiloBitrate(1000);
-                    $video->exportForHLS()
+
+                    FFMpeg::fromDisk('videos')
+                        ->open($file)
+                        ->exportForHLS()
                         ->setSegmentLength(10)
                         ->useSegmentFilenameGenerator(function ($name, $format, $key, callable $segments, callable $playlist) {
                             $segments("{$name}-{$format->getKiloBitrate()}-{$key}-%03d.ts");
@@ -77,7 +80,7 @@ class ConvertVideoToTs extends Command
                         })
                         ->addFormat($highBitrate)
                         ->toDisk('converted_videos')
-                        ->save('stream.m3u8');
+                        ->save($destinationPath);
 
                     $destinationDisk->chmod($destinationPath, 0644);
 

@@ -35,6 +35,15 @@ return [
             'root' => storage_path('app'),
         ],
 
+        'videos' => [
+            'driver' => 'local',
+            'root' => '/mnt/nas/video1',
+        ],
+        'converted_videos' => [
+            'driver' => 'local',
+            'root' => '/mnt/nas/video-ts',
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

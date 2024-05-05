@@ -82,7 +82,7 @@ class ConvertVideoToTs extends Command
                         ->toDisk('converted_videos')
                         ->save($destinationPath);
 
-                    $destinationDisk->chmod($destinationPath, 0644);
+                    chmod($destinationDisk->path($destinationPath), 0644);
 
                     DB::table('videos_ts')->insert([
                         'video_name' => basename($file),

@@ -12,6 +12,7 @@
         "danog/madelineproto": "v7.x-dev",
         "flobee/spss": "^5.0",
         "fruitcake/laravel-cors": "^2.0",
+        "google/cloud-storage": "^1.41",
         "google/cloud-vision": "^1.9",
         "guzzlehttp/guzzle": "^7.0.1",
         "intervention/image": "^3.6",

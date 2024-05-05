@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "stellar-day-420712",
+  "private_key_id": "6f0877060cef3b4508943543c4491388b2bc81ca",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCLSEhHkJw2BDny\n/8Qrh45RPkt4nFKrcCjD48eYcr6bmtVSBpvq8H0IBfOLPp9kqvcSp74iZI6Tg5x7\nm9yDqFP0elyzxgfR096MbYbFOZR74qWOioDoKnPvQsBEv0SrFhCTKBgtTNIoxI2y\nzpSeHmba9HKfhO3666vKCoNIZSRS4yBMRoRlFDicq5Z0MmUT6P1kU7n3LpP5ZvyU\nEYhjIZaJy4CNQqZvVz1Vx2piCO2swYCrdyS05xxzjGq1Bf3UV3DV4o/NRvJGzDfW\nQnU0vW82aoQQr5IWPKJjzXQYYPvqtfWi4U/jfo+YnOu6l1ALZrlcmi51lu3Y6p5S\nICYNF9eTAgMBAAECggEAItcaaXhlcuecvUm4PvFCKtVr2Ig177d3IwUT1PEC9/aD\nnOiVUPAGPp8KfE7WXT6c3jhCieTge0rlNlBXGUHeel2vWbLUGusmFLeDCkusdk7L\n/ftsYmbYKEXoxWmY2jkDPWQ+o/o+6b68+TjOmTzemq+iCoAcbXNNPhViIJZYPzk9\nznqXT4lG9XoUM1m5kD/xaFoaAO9B1M9z+G2sFQ0an2TCMyhjzGmMpU5kuPXhSlCD\nIA0cRjrRvkpBb4iS7gSWUDMrZ1A7d0fOhmoTtvj1vCcnyHQxYfphSs2Xssh+Nx8t\nSukuQpCaONkW0HDQZ/emmhhDb34Zg4WCwSKAUS1paQKBgQC+hDPNL8oh20/zC5zO\nTeWk5MVtMx5pRRCv5hB+vbyaujzG8spahyNQ8ie9l35m4xrkYfnu1InB4V2j/2ZY\n/OQQaRYo31o+SKR2y0MjwTQ0naAeo58R5scbLNJ2kBGmkApdLMd6I7Wn30cu8EMi\ngcGtRUsv7TRrd2VNJd5JNIAcCwKBgQC7J+zlqeJuKV4MV0p0RTxvZPo1U2XY7DTe\nhNSUM+8UneKSyJEYZqPDjkMwZ5bN9k7FkRujDswWPeNLAtQlMgfdDyZfKSVedszB\nVBIQJwfi91jMi1IbGcex7+gAWGOuVwCSMK4/CSyPyJY6kYoYJbGn8TEw1eTdAZV1\nrEHXCr1fmQKBgH1hziG80N+FUVGYE+OmWnsx4Eikut/3BytsUvDGeCiwZq1cPhZk\nF7b/F25sFFEsJ5ekb3NhxyOk6Ra0UCxCiunN7zqI/AA/mJVh4lbWoT/7eNSRRG/o\nnKLi1cQXvrYK1/dIMCPO+o93n4Zhsx0znj4le30YNEaBtlaWlHtDJQjPAoGAUxWo\nX1SJxunqbIQb834BFFq5kQ7S+ffyiI5jaN+dVYO53/vWHgUC0n/HaCe0lP6xfZer\nszmQdJdI3jYFQ/Xv870UBc7YXhVTVMgjtLP/Fk1ESJnY+1r4gg/E6NJUfkL1Z/Dg\nie9irvoXZyzRJ2MkeS/j7JAoJ8zaMwEjwXltFJECgYBDjt+5/yIzCeRgnq3KP9eB\nEKgX0GcDeG8B0LOw5rcn0gr8efdjZN+DNzS3Qt1u5uUkgYsLBaCR56cG4JhGBZMV\nR8C0Pwhh1CeaSQFkNrdelGp1d6SRPZs4Dxkc/GLxyODfzaq7kIC8pYvaG/6RpmtR\nDBBu3U+MN2KvoDYRzM/ulQ==\n-----END PRIVATE KEY-----\n",
+  "client_email": "s4546664234@stellar-day-420712.iam.gserviceaccount.com",
+  "client_id": "110237154661508127928",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/s4546664234%40stellar-day-420712.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

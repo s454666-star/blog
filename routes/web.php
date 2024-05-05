@@ -10,6 +10,7 @@ use App\Http\Controllers\OCRController;
 use App\Http\Controllers\PdfController;
 use App\Http\Controllers\PdfController2;
 use App\Http\Controllers\TelegramController;
+use App\Http\Controllers\UploadStorageController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -69,6 +70,12 @@ Route::get('/gallery/load-images', [GalleryController::class, 'loadImages'])->na
 Route::view('/my-page', 'my')->name('my-page');
 Route::view('/product', 'product')->name('product');
 Route::view('/snake', 'snake')->name('snake-game');
+Route::get('/upload', function () {
+    return view('upload');
+});
+
+Route::post('/upload', [UploadStorageController::class, 'upload']);
+
 
 Route::get('/phpinfo', function () {
     phpinfo();

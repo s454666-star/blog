@@ -45,6 +45,7 @@ class ConvertVideoToTs extends Command
 
     private function convertDirectory($sourceDisk, $destinationDisk, $directory)
     {
+        $baseUrl = 'https://s2.starweb.life/video-ts';
         foreach ($this->allFilesGenerator($sourceDisk, $directory) as $file) {
             $existingPath = DB::table('videos_ts')->where('path', $file)->exists();
 
@@ -83,10 +84,10 @@ class ConvertVideoToTs extends Command
                         ->save($destinationPath);
 
                     chmod($destinationDisk->path($destinationPath), 0644);
-
+                    $webPath = $baseUrl . '/' . $folderPath . '/stream.m3u8';
                     DB::table('videos_ts')->insert([
                         'video_name' => basename($file),
-                        'path'       => $destinationDisk->path($destinationPath),
+                        'path'       => $webPath,
                         'video_time' => $videoDuration,
                         'tags'       => null,
                         'rating'     => null,

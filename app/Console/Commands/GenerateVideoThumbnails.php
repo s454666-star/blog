@@ -19,25 +19,43 @@ class GenerateVideoThumbnails extends Command
     public function handle()
     {
         $videos = DB::table('videos_ts')->whereNull('preview_image')->orWhereNull('video_screenshot')->get();
+
         foreach ($videos as $video) {
+            $ffmpeg    = FFMpeg\FFMpeg::create();
+            $videoFile = $ffmpeg->open($video->path);
+            $duration  = $videoFile->getFFProbe()->format($video->path)->get('duration');
+
             if (is_null($video->preview_image)) {
-                $previewImage = $this->generatePreviewImage($video->path);
+                $previewImage = $this->generatePreviewImage($videoFile);
                 DB::table('videos_ts')->where('id', $video->id)->update([ 'preview_image' => $previewImage ]);
+            }
+
+            if (is_null($video->video_screenshot)) {
+                $videoScreenshot = $this->generateVideoScreenshot($videoFile, $duration);
+                DB::table('videos_ts')->where('id', $video->id)->update([ 'video_screenshot' => $videoScreenshot ]);
             }
         }
     }
 
-    private function generatePreviewImage($url)
+    private function generatePreviewImage($video)
     {
-        $ffmpeg     = FFMpeg\FFMpeg::create();
-        $video      = $ffmpeg->open($url);
-        $duration   = $video->getFFProbe()->format($url)->get('duration');
-        $frameCount = 16;
+        $frame    = $video->frame(FFMpeg\Coordinate\TimeCode::fromSeconds(0));
+        $tempPath = tempnam(sys_get_temp_dir(), 'preview') . '.jpg';
+        $frame->save($tempPath);
+        $imageData = file_get_contents($tempPath);
+        unlink($tempPath);
+
+        return base64_encode($imageData);
+    }
+
+    private function generateVideoScreenshot($video, $duration)
+    {
+        $frameCount = 20;
         $interval   = $duration / $frameCount;
-        $rows       = 9;
+        $rows       = 5;
         $cols       = 4;
-        $width      = 320;  // Width of each thumbnail
-        $height     = 180;  // Height of each thumbnail
+        $width      = 200;  // Width of each thumbnail
+        $height     = 800;  // Height of each thumbnail
 
         $montageImage = imagecreatetruecolor($width * $cols, $height * $rows);
 
@@ -48,7 +66,7 @@ class GenerateVideoThumbnails extends Command
             $frameImage = imagecreatefromjpeg($tempPath);
             $x          = ($i % $cols) * $width;
             $y          = floor($i / $cols) * $height;
-            imagecopy($montageImage, $frameImage, $x, $y, 0, 0, $width, $height);
+            imagecopyresampled($montageImage, $frameImage, $x, $y, 0, 0, $width, $height, imagesx($frameImage), imagesy($frameImage));
             imagedestroy($frameImage);
             unlink($tempPath);
         }

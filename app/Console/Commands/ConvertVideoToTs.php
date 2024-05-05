@@ -58,11 +58,14 @@ class ConvertVideoToTs extends Command
 
                     DB::commit();                                            // 提交事務
                     Log::info("Successfully converted and saved: {$file}");  // 成功日誌
+                } else {
+                    Log::warning("Unsupported file type: {$file}");
                 }
             }
             catch (\Exception $e) {
                 DB::rollBack();                                                                // 回滾事務
                 Log::error("Error converting file: {$file} with error: " . $e->getMessage());  // 錯誤日誌
+                continue;                                                                      // 繼續處理下一個檔案
             }
         }
     }
@@ -95,10 +98,9 @@ class ConvertVideoToTs extends Command
                     }
                 }
             } catch (\Exception $e) {
-                Log::error("Failed to access directory: {$dir} with error: " . $e->getMessage());
+                Log::error("Failed to access directory: {$dir} with error: " . e->getMessage());
                 continue;
             }
         }
     }
-
 }

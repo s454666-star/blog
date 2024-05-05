@@ -7,8 +7,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use ProtoneMedia\LaravelFFMpeg\Support\FFMpeg;
-use ProtoneMedia\LaravelFFMpeg\Support\ServiceProvider;
-use FFMpeg\Coordinate\TimeCode;
+use ProtoneMedia\LaravelFFMpeg\Exporters\EncodingException;
 use FFMpeg\Format\Video\X264;
 
 class ConvertVideoToTs extends Command
@@ -42,39 +41,43 @@ class ConvertVideoToTs extends Command
             $fileNameWithoutExt = pathinfo($file, PATHINFO_FILENAME);
             $folderPath         = "{$fileNameWithoutExt}/" . md5($file);
 
+            Log::info("處理檔案: {$file}");
+            DB::beginTransaction();
             try {
-                $video         = FFMpeg::fromDisk('videos')->open($file);
-                $videoDuration = $video->getDurationInSeconds();
-                Log::info("視頻時長: {$videoDuration} 秒");
+                $extension = pathinfo($file, PATHINFO_EXTENSION);
+                if (in_array($extension, [ 'mp4', 'mov' ])) {
+                    $video         = FFMpeg::fromDisk('videos')->open($file);
+                    $videoDuration = $video->getDurationInSeconds();
+                    Log::info("視頻時長: {$videoDuration} 秒");
 
-                $destinationPath = "{$folderPath}/stream.m3u8";
+                    $destinationPath = "{$folderPath}/stream.m3u8";
 
-                $format = new X264('aac', 'libx264');
-                $format->setKiloBitrate(1000)->setAudioChannels(2)->setAudioKbps(256);
+                    $format = new X264('aac', 'libx264');
+                    $format->setKiloBitrate(1000);
+                    $format->setAudioChannels(2);
+                    $format->setAudioKiloBitrate(256);  // 正確的方法是 setAudioKiloBitrate
 
-                DB::beginTransaction();
+                    $video->exportForHLS()
+                        ->toDisk('converted_videos')
+                        ->setSegmentLength(10)
+                        ->addFormat($format)
+                        ->save($destinationPath);
 
-                $video->exportForHLS()
-                    ->toDisk('converted_videos')
-                    ->setSegmentLength(10) // 設置每個片段長度為10秒
-                    ->addFormat($format)
-                    ->onProgress(function ($percentage) {
-                        Log::info("轉換進度: {$percentage}%");
-                    })
-                    ->save($destinationPath);
+                    DB::table('videos_ts')->insert([
+                        'video_name' => basename($file),
+                        'path'       => $destinationDisk->path($destinationPath),
+                        'video_time' => $videoDuration,
+                        'tags'       => null,
+                        'rating'     => null,
+                    ]);
 
-                DB::table('videos_ts')->insert([
-                    'video_name' => basename($file),
-                    'path'       => $destinationDisk->path($destinationPath),
-                    'video_time' => $videoDuration,
-                    'tags'       => null,
-                    'rating'     => null,
-                ]);
-
-                DB::commit();
-                Log::info("成功轉換並保存: {$file}");
+                    DB::commit();
+                    Log::info("成功轉換並保存: {$file}");
+                } else {
+                    Log::warning("不支持的文件類型: {$file}");
+                }
             }
-            catch (\Exception $e) {
+            catch (EncodingException $e) {
                 DB::rollBack();
                 Log::error("轉換文件出錯: {$file} 錯誤信息: " . $e->getMessage());
                 Log::error("追蹤: " . $e->getTraceAsString());
@@ -85,22 +88,38 @@ class ConvertVideoToTs extends Command
 
     private function allFilesGenerator($disk, $directory): \Generator
     {
-        $directories = [ $directory ];
+        $directories = [$directory];
+
         while ($directories) {
-            $dir   = array_shift($directories);
-            $files = $disk->files($dir);
-            foreach ($files as $file) {
-                if (!is_link($disk->path($file))) {
+            $dir = array_shift($directories);
+
+            try {
+                $files = $disk->files($dir);
+                foreach ($files as $file) {
+                    $fullPath = $disk->path($file);
+                    if (is_link($fullPath)) {
+                        Log::warning("跳過連接: {$file}");
+                        continue;
+                    }
                     yield $file;
                 }
-            }
 
-            $subdirectories = $disk->directories($dir);
-            foreach ($subdirectories as $subdir) {
-                if (!is_link($disk->path($subdir))) {
-                    $directories[] = $subdir;
+                $subdirectories = $disk->directories($dir);
+                foreach ($subdirectories as $subdir) {
+                    $subFullPath = $disk->path($subdir);
+                    if (!is_link($subFullPath)) {
+                        $directories[] = $subdir;
+                    } else {
+                        Log::warning("跳過目錄中的連接: {$subdir}");
+                    }
                 }
             }
+            catch (\Exception $e) {
+                Log::error("訪問目錄失敗: {$dir} 錯誤信息: " . $e->getMessage());
+                continue;
+            }
         }
+
+        Log::info("完成所有目錄的處理。");
     }
 }

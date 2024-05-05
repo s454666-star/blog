@@ -40,9 +40,9 @@ class ConvertVideoToTs extends Command
             DB::beginTransaction();
             try {
                 $extension = pathinfo($file, PATHINFO_EXTENSION);
-                if (in_array($extension, ['mp4', 'mov'])) {
+                if (in_array($extension, [ 'mp4', 'mov' ])) {
                     $destinationPath = preg_replace('/\.(mp4|mov)$/', '.ts', $file);
-                    $video = FFMpeg::fromDisk('videos')->open($file);
+                    $video           = FFMpeg::fromDisk('videos')->open($file);
 
                     $videoDuration = $video->getDurationInSeconds();
                     Log::info("Video duration: {$videoDuration} seconds");
@@ -55,10 +55,10 @@ class ConvertVideoToTs extends Command
                     // Insert record into database
                     DB::table('processed_videos')->insert([
                         'video_name' => basename($destinationPath),
-                        'path' => $destinationPath,
+                        'path'       => $destinationPath,
                         'video_time' => $videoDuration,
-                        'tags' => null,
-                        'rating' => null,
+                        'tags'       => null,
+                        'rating'     => null,
                     ]);
 
                     DB::commit();
@@ -66,7 +66,8 @@ class ConvertVideoToTs extends Command
                 } else {
                     Log::warning("Unsupported file type: {$file}");
                 }
-            } catch (\Exception $e) {
+            }
+            catch (\Exception $e) {
                 DB::rollBack();
                 Log::error("Error converting file: {$file} with error: " . $e->getMessage());
                 continue;
@@ -77,16 +78,15 @@ class ConvertVideoToTs extends Command
     // 生成器函數，用於逐個獲取檔案
     private function allFilesGenerator($disk, $directory)
     {
-        $directories = [$directory];
+        $directories = [ $directory ];
 
         while ($directories) {
             $dir = array_shift($directories);
             try {
                 $files = $disk->files($dir);
-
                 foreach ($files as $file) {
-                    // 檢查是否為符號連結
-                    if (is_link($disk->path($file))) {
+                    $fullPath = $disk->path($file); // 獲得完整路徑
+                    if (is_link($fullPath)) {
                         Log::warning("Skipping link: {$file}");
                         continue;
                     }
@@ -95,16 +95,19 @@ class ConvertVideoToTs extends Command
 
                 $subdirectories = $disk->directories($dir);
                 foreach ($subdirectories as $subdir) {
-                    if (!is_link($disk->path($subdir))) {
+                    $subFullPath = $disk->path($subdir); // 獲得子目錄的完整路徑
+                    if (!is_link($subFullPath)) {
                         $directories[] = $subdir;
                     } else {
                         Log::warning("Skipping link in directories: {$subdir}");
                     }
                 }
-            } catch (\Exception $e) {
+            }
+            catch (\Exception $e) {
                 Log::error("Failed to access directory: {$dir} with error: " . $e->getMessage());
                 continue;
             }
         }
     }
+
 }

@@ -71,12 +71,12 @@ class ConvertVideoToTs extends Command
                     $highBitrate = (new X264)->setKiloBitrate(1000);
                     $video->exportForHLS()
                         ->setSegmentLength(10)
-                        ->toDisk('converted_videos')
                         ->useSegmentFilenameGenerator(function ($name, $format, $key, callable $segments, callable $playlist) {
                             $segments("{$name}-{$format->getKiloBitrate()}-{$key}-%03d.ts");
                             $playlist("{$name}-{$format->getKiloBitrate()}-{$key}.m3u8");
                         })
                         ->addFormat($highBitrate)
+                        ->toDisk('converted_videos')
                         ->save($destinationPath);
 
                     $destinationDisk->chmod($destinationPath, 0644);

@@ -76,12 +76,14 @@ class ConvertVideoToTs extends Command
     }
 
     // 生成器函數，用於逐個獲取檔案
-    private function allFilesGenerator($disk, $directory)
+    private function allFilesGenerator($disk, $directory): \Generator
     {
-        $directories = [ $directory ];
+        $directories = [$directory];
+        Log::info("Starting file generation from directory: {$directory}");
 
         while ($directories) {
             $dir = array_shift($directories);
+            Log::info("Processing directory: {$dir}");
             try {
                 $files = $disk->files($dir);
                 foreach ($files as $file) {
@@ -90,6 +92,7 @@ class ConvertVideoToTs extends Command
                         Log::warning("Skipping link: {$file}");
                         continue;
                     }
+                    Log::info("Yielding file: {$file}");
                     yield $file;
                 }
 
@@ -97,17 +100,20 @@ class ConvertVideoToTs extends Command
                 foreach ($subdirectories as $subdir) {
                     $subFullPath = $disk->path($subdir); // 獲得子目錄的完整路徑
                     if (!is_link($subFullPath)) {
+                        Log::info("Adding subdirectory to process: {$subdir}");
                         $directories[] = $subdir;
                     } else {
                         Log::warning("Skipping link in directories: {$subdir}");
                     }
                 }
-            }
-            catch (\Exception $e) {
+            } catch (\Exception $e) {
                 Log::error("Failed to access directory: {$dir} with error: " . $e->getMessage());
                 continue;
             }
         }
+
+        Log::info("Finished processing all directories.");
     }
+
 
 }

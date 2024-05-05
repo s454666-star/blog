@@ -58,6 +58,7 @@ class ConvertVideoToTs extends Command
                         ->setSegmentLength(10)
                         ->addFormat($highBitrate)
                         ->toDisk('converted_videos')
+                        ->inFormat(new \FFMpeg\Format\Video\X264)
                         ->save($destinationPath);
 
                     DB::table('videos_ts')->insert([

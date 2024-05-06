@@ -7,7 +7,7 @@
     <!-- Include Font Awesome and Bootstrap CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body {
             font-family: 'Arial', sans-serif;
@@ -116,6 +116,35 @@
             border: 4px solid #8a2be2;
             border-radius: 8px;
         }
+
+        #videoOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+
+        td.play-icon {
+            text-align: center; /* Centers the icon horizontally */
+            vertical-align: middle; /* Centers the icon vertically */
+        }
+
+        /* Custom style for the play icon to increase size and cursor appearance */
+        .play-icon i {
+            font-size: 32px; /* Increase the font size to make the icon larger */
+            cursor: pointer; /* Ensures the cursor changes to a pointer when hovering over the icon */
+            color: #6a0dad; /* Deep violet color for the icon */
+            transition: color 0.3s ease; /* Smooth transition for color change on hover */
+        }
+
+        .play-icon i:hover {
+            color: #9b30ff; /* Lighter violet color when hovering */
+        }
     </style>
 
     <script>
@@ -143,6 +172,30 @@
                 overlay.style.display = 'flex'; // Show the overlay
             }
         }
+
+        function playVideo(path) {
+            var video = document.getElementById('videoPlayer');
+            if (Hls.isSupported()) {
+                var hls = new Hls();
+                hls.loadSource(path);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    video.play();
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = path;
+                video.addEventListener('loadedmetadata', function() {
+                    video.play();
+                });
+            }
+            document.getElementById('videoOverlay').style.display = 'flex'; // Show the overlay
+        }
+
+        function closePlayer() {
+            const player = document.getElementById('videoPlayer');
+            player.pause(); // Pause the video
+            document.getElementById('videoOverlay').style.display = 'none'; // Hide the overlay
+        }
     </script>
 </head>
 <body>
@@ -163,6 +216,7 @@
                     Time (seconds)</a></th>
             <th>Preview Image</th>
             <th>Video Screenshot</th>
+            <th>Play Video</th>
         </tr>
         </thead>
         <tbody>
@@ -176,6 +230,8 @@
                          onclick="toggleImagePopup('{{ $video->preview_image }}')"></td>
                 <td><img src="{{ $video->video_screenshot }}" alt="Screenshot" width="100"
                          onclick="toggleImagePopup('{{ $video->video_screenshot }}')"></td>
+                <td class="play-icon"><i class="fas fa-play-circle" style="font-size:24px; cursor:pointer;"
+                       onclick="playVideo('{{ $video->path }}')"></i></td>
             </tr>
         @endforeach
         </tbody>
@@ -189,6 +245,9 @@
 <!-- Image overlay for pop-up -->
 <div id="imageOverlay" class="overlay" onclick="hidePopupImage()">
     <img src="" alt="Full Screenshot">
+</div>
+<div id="videoOverlay" class="overlay" onclick="closePlayer()">
+    <video id="videoPlayer" controls style="width:90%; height:80%;"></video>
 </div>
 </body>
 </html>

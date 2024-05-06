@@ -21,9 +21,17 @@ class GenerateVideoThumbnails extends Command
         $videos = DB::table('videos_ts')->whereNull('preview_image')->orWhereNull('video_screenshot')->get();
 
         foreach ($videos as $video) {
-            $localPath     = $this->transformUrlToPath($video->path);
+            $localPath = $this->transformUrlToPath($video->path);
+            if (strpos($localPath, '.m3u8') !== false) {
+                continue;
+            }
             $ffmpeg        = FFMpeg\FFMpeg::create();
-            $videoFile     = $ffmpeg->open($localPath);
+            try {
+                $videoFile = $ffmpeg->open($localPath);
+            } catch (FFMpeg\Exception\RuntimeException $e) {
+                \Log::error("Unable to open video file: {$localPath}");
+                continue;
+            }
             $duration      = $videoFile->getFFProbe()->format($localPath)->get('duration');
             $directoryPath = dirname($localPath);
 

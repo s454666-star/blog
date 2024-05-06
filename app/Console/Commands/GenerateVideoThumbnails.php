@@ -22,9 +22,6 @@ class GenerateVideoThumbnails extends Command
 
         foreach ($videos as $video) {
             $localPath = $this->transformUrlToPath($video->path);
-            if (strpos($localPath, '.m3u8') !== false) {
-                continue;
-            }
             $ffmpeg        = FFMpeg\FFMpeg::create();
             try {
                 $videoFile = $ffmpeg->open($localPath);

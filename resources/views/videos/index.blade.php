@@ -130,21 +130,26 @@
             align-items: center;
         }
 
-        td.play-icon {
-            text-align: center; /* Centers the icon horizontally */
-            vertical-align: middle; /* Centers the icon vertically */
+        .play-icon {
+            text-align: center;
+            vertical-align: middle;
+            /* Ensuring the icon container is large enough */
+            width: 100%;
+            height: 100px; /* Set an appropriate height */
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
 
-        /* Custom style for the play icon to increase size and cursor appearance */
         .play-icon i {
-            font-size: 32px; /* Increase the font size to make the icon larger */
-            cursor: pointer; /* Ensures the cursor changes to a pointer when hovering over the icon */
-            color: #6a0dad; /* Deep violet color for the icon */
-            transition: color 0.3s ease; /* Smooth transition for color change on hover */
+            font-size: 48px; /* Adjust font size to make the icon larger */
+            cursor: pointer;
+            color: #6a0dad;
+            transition: color 0.3s ease;
         }
 
         .play-icon i:hover {
-            color: #9b30ff; /* Lighter violet color when hovering */
+            color: #9b30ff;
         }
 
         .thumbnail-capture-btn button {

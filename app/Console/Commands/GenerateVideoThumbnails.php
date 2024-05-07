@@ -66,7 +66,7 @@ class GenerateVideoThumbnails extends Command
 
     private function generateVideoScreenshot($video, $duration, $outputPath)
     {
-        $frameCount = 20;
+        $frameCount = 24;
         $interval   = $duration / $frameCount;
         $cols       = 4;
         $maxWidth   = 500;  // Maximum width of each thumbnail

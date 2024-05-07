@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 
 use App\Models\VideoTs;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 
 class LibraryController extends Controller
 {
@@ -19,6 +20,12 @@ class LibraryController extends Controller
 
         // Pass sorting data back to the view for persistent sorting links
         return view('videos.index', compact('videos', 'sort', 'direction'));
+    }
+
+    public function generateThumbnails(): \Illuminate\Http\JsonResponse
+    {
+        Artisan::call('video:generate-thumbnails');
+        return response()->json(['message' => 'Thumbnail generation started.']);
     }
 }
 

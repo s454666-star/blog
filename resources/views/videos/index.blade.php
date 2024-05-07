@@ -145,6 +145,22 @@
         .play-icon i:hover {
             color: #9b30ff; /* Lighter violet color when hovering */
         }
+
+        .thumbnail-capture-btn button {
+            background-color: #8a2be2; /* Amethyst color */
+            color: #ffffff;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.2s;
+        }
+
+        .thumbnail-capture-btn button:hover {
+            background-color: #9b59b6;
+            transform: scale(1.05);
+        }
     </style>
 
     <script>
@@ -196,10 +212,31 @@
             player.pause(); // Pause the video
             document.getElementById('videoOverlay').style.display = 'none'; // Hide the overlay
         }
+
+        function generateThumbnails() {
+            fetch("{{ route('generate-thumbnails') }}", {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Success:', data);
+                    alert('Thumbnails generation initiated.');
+                })
+                .catch((error) => {
+                    console.error('Error:', error);
+                    alert('Error generating thumbnails.');
+                });
+        }
     </script>
 </head>
 <body>
 <h1>Amethyst Video Library</h1>
+<div class="thumbnail-capture-btn">
+    <button onclick="generateThumbnails()">影片擷取</button>
+</div>
 <form method="GET" action="{{ route('videos.index') }}">
     <table>
         <thead>

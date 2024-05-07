@@ -6,6 +6,7 @@ use App\Http\Controllers\FetchController;
 use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
+use App\Http\Controllers\LibraryController;
 use App\Http\Controllers\OCRController;
 use App\Http\Controllers\PdfController;
 use App\Http\Controllers\PdfController2;
@@ -78,7 +79,7 @@ Route::post('/upload', [ UploadStorageController::class, 'upload' ]);
 
 // routes/web.php
 Route::get('/videos-management', [ App\Http\Controllers\LibraryController::class, 'index' ])->name('videos.index');
-
+Route::post('/generate-thumbnails', [LibraryController::class, 'generateThumbnails'])->name('generate-thumbnails');
 
 Route::get('/phpinfo', function () {
     phpinfo();

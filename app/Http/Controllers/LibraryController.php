@@ -24,8 +24,14 @@ class LibraryController extends Controller
 
     public function generateThumbnails(): \Illuminate\Http\JsonResponse
     {
-        Artisan::call('video:generate-thumbnails');
-        return response()->json(['message' => 'Thumbnail generation started.']);
+        try {
+            Artisan::call('video:generate-thumbnails');
+            return response()->json(['message' => 'Thumbnail generation started.']);
+        } catch (\Exception $e) {
+            \Log::error('Failed to generate thumbnails: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to generate thumbnails', 'error' => $e->getMessage()], 500);
+        }
     }
+
 }
 

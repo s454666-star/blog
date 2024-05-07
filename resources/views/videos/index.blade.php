@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Amethyst Video Library</title>
     <!-- Include Font Awesome and Bootstrap CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
@@ -214,13 +215,21 @@
         }
 
         function generateThumbnails() {
+            const token = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
             fetch("{{ route('generate-thumbnails') }}", {
                 method: 'POST',
                 headers: {
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                }
+                    'X-CSRF-TOKEN': token,
+                    'Content-Type': 'application/json'
+                },
             })
-                .then(response => response.json())
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    }
+                    throw new Error('Network response was not ok.');
+                })
                 .then(data => {
                     console.log('Success:', data);
                     alert('Thumbnails generation initiated.');
@@ -231,6 +240,8 @@
                 });
         }
     </script>
+
+
 </head>
 <body>
 <h1>Amethyst Video Library</h1>

@@ -23,8 +23,8 @@ class Kernel extends ConsoleKernel
             ->dailyAt('04:30')
             ->appendOutputTo(storage_path('logs/schedule.log'));
 
-        $schedule->command('import:videos')
-            ->dailyAt('04:30')
+        $schedule->command('video:generate-thumbnails')
+            ->everyThirtyMinutes()
             ->appendOutputTo(storage_path('logs/schedule.log'));
     }
 

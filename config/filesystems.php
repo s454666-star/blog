@@ -35,6 +35,16 @@ return [
             'root' => storage_path('app'),
         ],
 
+        'local-sh' => [
+            'driver' => 'local',
+            'root' => 'Y:/TG/short',
+        ],
+
+        'local-d-sh' => [
+            'driver' => 'local',
+            'root' => 'D:/video-ts',
+        ],
+
         'videos' => [
             'driver' => 'local',
             'root' => '/mnt/nas/video1',

@@ -130,6 +130,8 @@
             align-items: center;
         }
 
+
+
         .play-icon {
             text-align: center;
             vertical-align: middle;
@@ -283,8 +285,9 @@
                          onclick="toggleImagePopup('{{ $video->preview_image }}')"></td>
                 <td><img src="{{ $video->video_screenshot }}" alt="Screenshot" width="100"
                          onclick="toggleImagePopup('{{ $video->video_screenshot }}')"></td>
-                <td class="play-icon"><i class="fas fa-play-circle" style="font-size:24px; cursor:pointer;"
-                       onclick="playVideo('{{ $video->path }}')"></i></td>
+                <td style="text-align: center; vertical-align: middle;">
+                    <i class="fas fa-play-circle" style="font-size: 60px; cursor: pointer;" onclick="playVideo('{{ $video->path }}')"></i>
+                </td>
             </tr>
         @endforeach
         </tbody>

@@ -67,7 +67,11 @@ class ConvertVideoToTs extends Command
                     $destinationPath = "{$folderPath}/stream.m3u8";
                     Log::info("destinationPath: " . $destinationPath);
 
-                    $highBitrate = (new X264)->setKiloBitrate(3000);
+                    $videoStream = $video->getVideoStream();
+                    $dimensions  = $videoStream->getDimensions(); // Gets the Dimensions object
+                    $height      = $dimensions->getHeight();
+                    $bitrate     = $height > 1080 ? 3500 : 2000;
+                    $highBitrate = (new X264)->setKiloBitrate($bitrate);
 
                     FFMpeg::fromDisk('videos')
                         ->open($file)

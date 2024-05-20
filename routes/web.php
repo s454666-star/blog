@@ -89,5 +89,5 @@ Route::get('/env', function () {
     dd(env('APP_KEY'), $_ENV, getenv('APP_KEY'));
 });
 
-Route::view('/product-import', 'fetch-url');
+Route::view('/product-import2', 'fetch-url');
 Route::post('/fetch', [ FetchController::class, 'fetchData' ]);

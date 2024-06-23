@@ -22,7 +22,7 @@ class GenerateVideoThumbnails extends Command
 
         foreach ($videos as $video) {
             $localPath = $this->transformUrlToPath($video->path);
-            $ffmpeg        = FFMpeg\FFMpeg::create();
+            $ffmpeg    = FFMpeg\FFMpeg::create();
             try {
                 $videoFile = $ffmpeg->open($localPath);
             } catch (FFMpeg\Exception\RuntimeException $e) {
@@ -34,16 +34,26 @@ class GenerateVideoThumbnails extends Command
 
             if (is_null($video->preview_image)) {
                 $previewImagePath = $directoryPath . '/preview_image.jpg';
-                $this->generatePreviewImage($videoFile, $previewImagePath);
-                $webPreviewUrl = $this->transformPathToUrl($previewImagePath);
-                DB::table('videos_ts')->where('id', $video->id)->update([ 'preview_image' => $webPreviewUrl ]);
+                try {
+                    $this->generatePreviewImage($videoFile, $previewImagePath);
+                    $webPreviewUrl = $this->transformPathToUrl($previewImagePath);
+                    DB::table('videos_ts')->where('id', $video->id)->update(['preview_image' => $webPreviewUrl]);
+                } catch (FFMpeg\Exception\RuntimeException $e) {
+                    \Log::error("Unable to generate preview image for video: {$localPath}");
+                    continue;
+                }
             }
 
             if (is_null($video->video_screenshot)) {
                 $videoScreenshotPath = $directoryPath . '/video_screenshot.jpg';
-                $this->generateVideoScreenshot($videoFile, $duration, $videoScreenshotPath);
-                $webScreenshotUrl = $this->transformPathToUrl($videoScreenshotPath);
-                DB::table('videos_ts')->where('id', $video->id)->update([ 'video_screenshot' => $webScreenshotUrl ]);
+                try {
+                    $this->generateVideoScreenshot($videoFile, $duration, $videoScreenshotPath);
+                    $webScreenshotUrl = $this->transformPathToUrl($videoScreenshotPath);
+                    DB::table('videos_ts')->where('id', $video->id)->update(['video_screenshot' => $webScreenshotUrl]);
+                } catch (FFMpeg\Exception\RuntimeException $e) {
+                    \Log::error("Unable to generate video screenshot for video: {$localPath}");
+                    continue;
+                }
             }
         }
     }
@@ -91,16 +101,16 @@ class GenerateVideoThumbnails extends Command
             $frame          = $video->frame(FFMpeg\Coordinate\TimeCode::fromSeconds($currentSeconds));
             $tempPath       = tempnam(sys_get_temp_dir(), 'frame') . '.jpg';
 
-            if (!$frame->save($tempPath)) {
-                // Log error if the frame cannot be saved
+            try {
+                $frame->save($tempPath);
+            } catch (FFMpeg\Exception\RuntimeException $e) {
                 \Log::error("Failed to save frame at {$currentSeconds} seconds to path {$tempPath}");
-                continue;  // Skip this frame if save failed
+                continue;
             }
 
             if (!file_exists($tempPath)) {
-                // Log error if the file does not exist
                 \Log::error("File does not exist after saving: {$tempPath}");
-                continue;  // Skip this frame if the file doesn't exist
+                continue;
             }
 
             $frameImage = imagecreatefromjpeg($tempPath);
@@ -114,6 +124,4 @@ class GenerateVideoThumbnails extends Command
         imagejpeg($montageImage, $outputPath, 100);
         imagedestroy($montageImage);
     }
-
-
 }

@@ -22,7 +22,7 @@ class GetBtDataController
         $client  = new Client();
         $baseUrl = 'https://sukebei.nyaa.si';
 
-        for ($page = 1; $page <= 1; $page++) {
+        for ($page = 1; $page <= 3; $page++) {
             try {
                 $response = $client->request('GET', "{$baseUrl}/?f=0&c=0_0&q=%22%2B%2B%2B+FC%22&p={$page}", [
                     'verify' => false,

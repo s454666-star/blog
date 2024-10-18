@@ -46,6 +46,7 @@ class Kernel extends HttpKernel
             \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
             \App\Http\Middleware\RemoveContentRangeHeader::class,
+            \Fruitcake\Cors\HandleCors::class,
         ],
     ];
 

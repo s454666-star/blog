@@ -23,3 +23,4 @@ Route::get('/photos', 'App\Http\Controllers\PhotoController@index');
 Route::get('/videos', 'App\Http\Controllers\MediaController@index');
 Route::get('/videos-random', 'App\Http\Controllers\VideosRandomController@index');
 Route::apiResource('users', UserController::class);
+Route::post('/login', [UserController::class, 'login']);

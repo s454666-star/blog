@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class RemoveContentRangeHeader
 {
@@ -16,6 +17,7 @@ class RemoveContentRangeHeader
      */
     public function handle(Request $request, Closure $next)
     {
+        Log::info('Removing Content-Range header from response.');
         $response = $next($request);
         $response->headers->remove('Content-Range');
         return $response;

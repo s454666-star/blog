@@ -11,22 +11,27 @@ class UserController extends Controller
     // 查詢所有使用者
     public function index(Request $request)
     {
-        $page = $request->input('page', 1);
-        $perPage = $request->input('perPage', 10);
+        // 解析前端傳來的 `range` 參數
+        $range = $request->input('range', [0, 49]);  // 預設返回0到49筆
+        $sort = $request->input('sort', ['id', 'ASC']);  // 預設按ID升序排列
+        $from = $range[0];  // 起始行
+        $to = $range[1];  // 結束行
 
-        // 假設您的資料來自 User 模型
-        $query = User::query();
-        $total = $query->count();
+        // 計算總筆數
+        $total = User::count();
 
-        $users = $query->skip(($page - 1) * $perPage)
-            ->take($perPage)
+        // 查詢數據並按照指定範圍和排序返回
+        $users = User::orderBy($sort[0], $sort[1])
+            ->skip($from)
+            ->take($to - $from + 1)
             ->get();
 
-        // 添加 Content-Range header
+        // 返回資料並添加 Content-Range header
         return response()->json($users, 200)
-            ->header('Content-Range', "users " . ($page - 1) * $perPage . "-" . (($page - 1) * $perPage + $users->count() - 1) . "/$total")
+            ->header('Content-Range', "users $from-$to/$total")
             ->header('Access-Control-Expose-Headers', 'Content-Range');
     }
+
 
 
     // 查詢單一使用者

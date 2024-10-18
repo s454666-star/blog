@@ -13,18 +13,26 @@ class UserController extends Controller
     {
         // 解析前端傳來的 `range` 參數
         $range = $request->input('range', [0, 49]);  // 預設返回 0 到 49 筆
+        if (is_string($range)) {
+            $range = json_decode($range, true);
+        }
         $from = $range[0];  // 起始行
-        $to = $range[1];  // 結束行
+        $to = $range[1];    // 結束行
 
         // 解析前端傳來的 `sort` 參數
         $sort = $request->input('sort', ['id', 'asc']);
+        if (is_string($sort)) {
+            $sort = json_decode($sort, true);
+        }
+
+        // 檢查是否解析成功並為陣列
+        if (!is_array($sort) || count($sort) < 2) {
+            return response()->json(['message' => 'Invalid sort parameter format.'], 400);
+        }
 
         // 檢查並取得排序欄位與方向
         $sortField = $sort[0];  // 排序欄位 (如 "id")
         $sortDirection = isset($sort[1]) ? strtolower($sort[1]) : 'asc';  // 排序方向，轉換成小寫 ("asc" 或 "desc")
-
-        // 日誌輸出，確認前端傳遞的排序欄位和方向
-        \Log::info("Sorting by $sortField in $sortDirection order.");
 
         // 檢查排序方向是否為 "asc" 或 "desc"
         if (!in_array($sortDirection, ['asc', 'desc'])) {

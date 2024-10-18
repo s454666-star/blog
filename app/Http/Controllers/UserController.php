@@ -13,7 +13,14 @@ class UserController extends Controller
     {
         // 解析前端傳來的 `range` 參數
         $range = $request->input('range', [0, 49]);  // 預設返回0到49筆
-        $sort = $request->input('sort', ['id', 'ASC']);  // 預設按ID升序排列
+        $sort = $request->input('sort', ['id', 'asc']);  // 預設按ID升序排列
+
+        // 檢查排序方向是否為 "asc" 或 "desc"
+        $sortDirection = strtolower($sort[1]);
+        if (!in_array($sortDirection, ['asc', 'desc'])) {
+            return response()->json(['message' => 'Invalid sort direction. Must be "asc" or "desc".'], 400);
+        }
+
         $from = $range[0];  // 起始行
         $to = $range[1];  // 結束行
 
@@ -21,7 +28,7 @@ class UserController extends Controller
         $total = User::count();
 
         // 查詢數據並按照指定範圍和排序返回
-        $users = User::orderBy($sort[0], $sort[1])
+        $users = User::orderBy($sort[0], $sortDirection)
             ->skip($from)
             ->take($to - $from + 1)
             ->get();

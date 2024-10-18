@@ -9,10 +9,25 @@ use Illuminate\Support\Facades\Hash;
 class UserController extends Controller
 {
     // 查詢所有使用者
-    public function index()
+    public function index(Request $request)
     {
-        return response()->json(User::all(), 200);
+        $page = $request->input('page', 1);
+        $perPage = $request->input('perPage', 10);
+
+        // 假設您的資料來自 User 模型
+        $query = User::query();
+        $total = $query->count();
+
+        $users = $query->skip(($page - 1) * $perPage)
+            ->take($perPage)
+            ->get();
+
+        // 添加 Content-Range header
+        return response()->json($users, 200)
+            ->header('Content-Range', "users " . ($page - 1) * $perPage . "-" . (($page - 1) * $perPage + $users->count() - 1) . "/$total")
+            ->header('Access-Control-Expose-Headers', 'Content-Range');
     }
+
 
     // 查詢單一使用者
     public function show($id)

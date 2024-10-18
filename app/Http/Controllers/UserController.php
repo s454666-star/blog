@@ -12,23 +12,27 @@ class UserController extends Controller
     public function index(Request $request)
     {
         // 解析前端傳來的 `range` 參數
-        $range = $request->input('range', [0, 49]);  // 預設返回0到49筆
-        $sort = $request->input('sort', ['id', 'asc']);  // 預設按ID升序排列
+        $range = $request->input('range', [ 0, 49 ]);                                                                                                                                                                                                                                                                                                              // 預設返回 0 到 49 筆
+        $from  = $range[0];                                                                                                                                                                                                                                                                                                                                        // 起始行
+        $to    = $range[1];                                                                                                                                                                                                                                                                                                                                        // 結束行
+
+        // 解析前端傳來的 `sort` 參數
+        $sort = $request->input('sort', [ 'id', 'ASC' ]);
+
+        // 取得排序欄位和排序方向
+        $sortField     = $sort[0];                                                                                                                                                                                                                                                                                                                                     // 排序欄位 (如 "id")
+        $sortDirection = strtolower($sort[1]);                                                                                                                                                                                                                                                                                                                     // 排序方向，轉換成小寫 ("asc" 或 "desc")
 
         // 檢查排序方向是否為 "asc" 或 "desc"
-        $sortDirection = strtolower($sort[1]);
-        if (!in_array($sortDirection, ['asc', 'desc'])) {
-            return response()->json(['message' => 'Invalid sort direction. Must be "asc" or "desc".'], 400);
+        if (!in_array($sortDirection, [ 'asc', 'desc' ])) {
+            return response()->json([ 'message' => 'Invalid sort direction. Must be "asc" or "desc".' ], 400);
         }
-
-        $from = $range[0];  // 起始行
-        $to = $range[1];  // 結束行
 
         // 計算總筆數
         $total = User::count();
 
         // 查詢數據並按照指定範圍和排序返回
-        $users = User::orderBy($sort[0], $sortDirection)
+        $users = User::orderBy($sortField, $sortDirection)
             ->skip($from)
             ->take($to - $from + 1)
             ->get();
@@ -40,13 +44,12 @@ class UserController extends Controller
     }
 
 
-
     // 查詢單一使用者
     public function show($id)
     {
         $user = User::find($id);
         if (!$user) {
-            return response()->json(['message' => 'User not found'], 404);
+            return response()->json([ 'message' => 'User not found' ], 404);
         }
         return response()->json($user, 200);
     }
@@ -55,16 +58,16 @@ class UserController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'username' => 'required|string|unique:users,username',
-            'password' => 'required|string|min:6',
-            'name' => 'required|string',
-            'email' => 'required|email|unique:users,email',
-            'phone' => 'nullable|string',
-            'address' => 'nullable|string',
-            'gender' => 'nullable|in:male,female,other',
-            'birthdate' => 'nullable|date',
+            'username'    => 'required|string|unique:users,username',
+            'password'    => 'required|string|min:6',
+            'name'        => 'required|string',
+            'email'       => 'required|email|unique:users,email',
+            'phone'       => 'nullable|string',
+            'address'     => 'nullable|string',
+            'gender'      => 'nullable|in:male,female,other',
+            'birthdate'   => 'nullable|date',
             'nationality' => 'nullable|string',
-            'role' => 'nullable|in:admin,user,guest',
+            'role'        => 'nullable|in:admin,user,guest',
         ]);
 
         $validated['password'] = Hash::make($request->password);
@@ -79,20 +82,20 @@ class UserController extends Controller
     {
         $user = User::find($id);
         if (!$user) {
-            return response()->json(['message' => 'User not found'], 404);
+            return response()->json([ 'message' => 'User not found' ], 404);
         }
 
         $validated = $request->validate([
-            'username' => 'nullable|string|unique:users,username,' . $id,
-            'password' => 'nullable|string|min:6',
-            'name' => 'nullable|string',
-            'email' => 'nullable|email|unique:users,email,' . $id,
-            'phone' => 'nullable|string',
-            'address' => 'nullable|string',
-            'gender' => 'nullable|in:male,female,other',
-            'birthdate' => 'nullable|date',
+            'username'    => 'nullable|string|unique:users,username,' . $id,
+            'password'    => 'nullable|string|min:6',
+            'name'        => 'nullable|string',
+            'email'       => 'nullable|email|unique:users,email,' . $id,
+            'phone'       => 'nullable|string',
+            'address'     => 'nullable|string',
+            'gender'      => 'nullable|in:male,female,other',
+            'birthdate'   => 'nullable|date',
             'nationality' => 'nullable|string',
-            'role' => 'nullable|in:admin,user,guest',
+            'role'        => 'nullable|in:admin,user,guest',
         ]);
 
         if ($request->password) {
@@ -109,12 +112,12 @@ class UserController extends Controller
     {
         $user = User::find($id);
         if (!$user) {
-            return response()->json(['message' => 'User not found'], 404);
+            return response()->json([ 'message' => 'User not found' ], 404);
         }
 
         $user->delete();
 
-        return response()->json(['message' => 'User deleted'], 200);
+        return response()->json([ 'message' => 'User deleted' ], 200);
     }
 
     public function login(Request $request)
@@ -129,24 +132,24 @@ class UserController extends Controller
 
         // 如果找不到使用者
         if (!$user) {
-            return response()->json(['message' => 'User not found'], 404);
+            return response()->json([ 'message' => 'User not found' ], 404);
         }
 
         // 檢查帳號是否啟用
         if ($user->status !== 'active') {
-            return response()->json(['message' => 'Account is not active'], 403);
+            return response()->json([ 'message' => 'Account is not active' ], 403);
         }
 
         // 檢查密碼是否正確
         if (!Hash::check($validated['password'], $user->password)) {
-            return response()->json(['message' => 'Invalid credentials'], 401);
+            return response()->json([ 'message' => 'Invalid credentials' ], 401);
         }
 
         // 登入成功，返回使用者資料或 JWT Token 等
         // 假設此處只是返回使用者資料，您可以自行加入 JWT 或 Laravel Passport 來實現 token 驗證
         return response()->json([
             'message' => 'Login successful',
-            'user' => $user
+            'user'    => $user
         ], 200);
     }
 }

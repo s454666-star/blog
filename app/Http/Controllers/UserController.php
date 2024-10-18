@@ -67,7 +67,8 @@ class UserController extends Controller
         // 返回資料並添加 X-Total-Count 標頭
         return response()->json($users, 200)
             ->header('X-Total-Count', $total)
-            ->header('Access-Control-Expose-Headers', 'X-Total-Count');
+            ->header('Content-Range', "items {$from}-{$to}/{$total}")
+            ->header('Access-Control-Expose-Headers', 'X-Total-Count, Content-Range');
     }
 
     // 查詢單一使用者

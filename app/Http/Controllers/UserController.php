@@ -12,20 +12,23 @@ class UserController extends Controller
     public function index(Request $request)
     {
         // 解析前端傳來的 `range` 參數
-        $range = $request->input('range', [ 0, 49 ]);                                                                                                                                                                                                                                                                                                              // 預設返回 0 到 49 筆
-        $from  = $range[0];                                                                                                                                                                                                                                                                                                                                        // 起始行
-        $to    = $range[1];                                                                                                                                                                                                                                                                                                                                        // 結束行
+        $range = $request->input('range', [0, 49]);  // 預設返回 0 到 49 筆
+        $from = $range[0];  // 起始行
+        $to = $range[1];  // 結束行
 
         // 解析前端傳來的 `sort` 參數
-        $sort = $request->input('sort', [ 'id', 'ASC' ]);
+        $sort = $request->input('sort', ['id', 'asc']);
 
-        // 取得排序欄位和排序方向
-        $sortField     = $sort[0];                                                                                                                                                                                                                                                                                                                                     // 排序欄位 (如 "id")
-        $sortDirection = strtolower($sort[1]);                                                                                                                                                                                                                                                                                                                     // 排序方向，轉換成小寫 ("asc" 或 "desc")
+        // 檢查並取得排序欄位與方向
+        $sortField = $sort[0];  // 排序欄位 (如 "id")
+        $sortDirection = isset($sort[1]) ? strtolower($sort[1]) : 'asc';  // 排序方向，轉換成小寫 ("asc" 或 "desc")
+
+        // 日誌輸出，確認前端傳遞的排序欄位和方向
+        \Log::info("Sorting by $sortField in $sortDirection order.");
 
         // 檢查排序方向是否為 "asc" 或 "desc"
-        if (!in_array($sortDirection, [ 'asc', 'desc' ])) {
-            return response()->json([ 'message' => 'Invalid sort direction. Must be "asc" or "desc".' ], 400);
+        if (!in_array($sortDirection, ['asc', 'desc'])) {
+            return response()->json(['message' => 'Invalid sort direction. Must be "asc" or "desc".'], 400);
         }
 
         // 計算總筆數
@@ -42,7 +45,6 @@ class UserController extends Controller
             ->header('Content-Range', "users $from-$to/$total")
             ->header('Access-Control-Expose-Headers', 'Content-Range');
     }
-
 
     // 查詢單一使用者
     public function show($id)

@@ -2,16 +2,27 @@
 
 namespace App\Models;
 
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable;
+    use HasApiTokens, HasFactory, Notifiable;
+
+    // 如果您移除了 'email_verified' 並添加了 'email_verified_at'
+    protected $dates = [
+        'email_verified_at',
+        'last_login',
+        'birthdate',
+    ];
 
     /**
-     * 定義可填充的欄位 (Mass Assignable)
+     * The attributes that are mass assignable.
+     *
+     * @var array<int, string>
      */
     protected $fillable = [
         'username',
@@ -25,34 +36,30 @@ class User extends Authenticatable
         'nationality',
         'role',
         'status',
-        'email_verified',
+        'email_verified_at',
         'last_login',
+        'remember_token', // 確保這裡包含 remember_token
     ];
 
     /**
-     * 隱藏的屬性 (如不想在 API 返回中顯示)
+     * The attributes that should be hidden for serialization.
+     *
+     * @var array<int, string>
      */
     protected $hidden = [
         'password',
         'remember_token',
+        // 如果有其他敏感欄位
     ];
 
     /**
-     * 自動轉換為日期格式的欄位
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
      */
     protected $casts = [
-        'email_verified' => 'boolean',
-        'birthdate' => 'date',
+        'email_verified_at' => 'datetime',
         'last_login' => 'datetime',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime',
+        'birthdate' => 'date',
     ];
-
-    /**
-     * 密碼加密處理
-     */
-    public function setPasswordAttribute($password)
-    {
-        $this->attributes['password'] = bcrypt($password);
-    }
 }

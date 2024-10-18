@@ -148,34 +148,24 @@ class UserController extends Controller
 
     public function login(Request $request)
     {
-        $validated = $request->validate([
-            'username' => 'required|string',
-            'password' => 'required|string',
+        $credentials = $request->validate([
+            'username' => ['required'],
+            'password' => ['required'],
         ]);
 
-        // 根據 username 找出使用者
-        $user = User::where('username', $validated['username'])->first();
+        $user = User::where('username', $credentials['username'])->first();
 
-        // 如果找不到使用者
-        if (!$user) {
-            return response()->json([ 'message' => 'User not found' ], 404);
+        if (!$user || !Hash::check($credentials['password'], $user->password)) {
+            return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
-        // 檢查帳號是否啟用
-        if ($user->status !== 'active') {
-            return response()->json([ 'message' => 'Account is not active' ], 403);
-        }
+        // 發放 Sanctum token
+        $token = $user->createToken('auth_token')->plainTextToken;
 
-        // 檢查密碼是否正確
-        if (!Hash::check($validated['password'], $user->password)) {
-            return response()->json([ 'message' => 'Invalid credentials' ], 401);
-        }
-
-        // 登入成功，返回使用者資料或 JWT Token 等
-        // 假設此處只是返回使用者資料，您可以自行加入 JWT 或 Laravel Passport 來實現 token 驗證
         return response()->json([
-            'message' => 'Login successful',
-            'user'    => $user
-        ], 200);
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+            'user' => $user,
+        ]);
     }
 }

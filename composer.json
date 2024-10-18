@@ -17,7 +17,7 @@
         "intervention/image": "^3.6",
         "killworm737/qrcode": "^1.0",
         "laravel/framework": "^8.75",
-        "laravel/sanctum": "^2.11",
+        "laravel/sanctum": "^2.15",
         "laravel/tinker": "^2.5",
         "maatwebsite/excel": "^3.1",
         "pbmedia/laravel-ffmpeg": "^7.8",

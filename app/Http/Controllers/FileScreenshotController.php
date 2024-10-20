@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\FileScreenshot;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 
 class FileScreenshotController extends Controller
 {
@@ -20,7 +21,12 @@ class FileScreenshotController extends Controller
         // 篩選評分，僅在 rating 有傳入值且不為 'all' 時篩選
         if ($request->has('rating') && $request->input('rating') !== '' && $request->input('rating') !== 'all') {
             if ($request->input('rating') == 'unrated') {
+                // 根據實際情況選擇使用哪種方式來篩選未評分
+                // 如果未評分是 null
                 $query->whereNull('rating');
+
+                // 如果未評分是 0，請取消下一行的註解
+                // $query->where('rating', 0);
             } else {
                 $query->where('rating', $request->input('rating'));
             }
@@ -39,6 +45,10 @@ class FileScreenshotController extends Controller
         if (in_array($sortBy, $allowedSortColumns)) {
             $query->orderBy($sortBy, $sortDirection === 'desc' ? 'desc' : 'asc');
         }
+
+        // 日誌記錄查詢的 SQL 以便調試
+        Log::info('SQL Query: ' . $query->toSql());
+        Log::info('Query Bindings: ' . json_encode($query->getBindings()));
 
         // 回傳分頁結果
         $screenshots = $query->paginate($perPage);

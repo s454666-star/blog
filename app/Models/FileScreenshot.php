@@ -12,5 +12,7 @@ class FileScreenshot extends Model
         'file_name',
         'file_path',
         'screenshot_paths',
+        'rating',
+        'notes',
     ];
 }

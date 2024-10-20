@@ -17,8 +17,8 @@ class FileScreenshotController extends Controller
         // 篩選條件：評分和備註
         $query = FileScreenshot::query();
 
-        // 篩選評分，僅在 rating 有傳入值時篩選
-        if ($request->has('rating') && $request->input('rating') !== '') {
+        // 篩選評分，僅在 rating 有傳入值且不為 'all' 時篩選
+        if ($request->has('rating') && $request->input('rating') !== '' && $request->input('rating') !== 'all') {
             if ($request->input('rating') == 'unrated') {
                 $query->whereNull('rating');
             } else {
@@ -31,9 +31,13 @@ class FileScreenshotController extends Controller
             $query->where('notes', 'like', '%' . $request->input('notes') . '%');
         }
 
-        // 排序條件：依據評分排序，默認為升序
-        if ($request->has('sort_by_rating')) {
-            $query->orderBy('rating', $request->input('sort_by_rating') === 'desc' ? 'desc' : 'asc');
+        // 排序條件：依據傳入的欄位和方向排序，默認為依評分升序
+        $sortBy = $request->input('sort_by', 'rating');
+        $sortDirection = $request->input('sort_direction', 'asc');
+        $allowedSortColumns = ['id', 'file_name', 'rating']; // 可排序的欄位
+
+        if (in_array($sortBy, $allowedSortColumns)) {
+            $query->orderBy($sortBy, $sortDirection === 'desc' ? 'desc' : 'asc');
         }
 
         // 回傳分頁結果
@@ -42,19 +46,18 @@ class FileScreenshotController extends Controller
         return response()->json($screenshots);
     }
 
-
     // 更新評分
     public function updateRating(Request $request, $id)
     {
         $request->validate([
-            'rating' => 'required|integer',
+            'rating' => 'required|integer|min:1|max:5', // 假設評分為1到5
         ]);
 
         $fileScreenshot = FileScreenshot::findOrFail($id);
         $fileScreenshot->rating = $request->input('rating');
         $fileScreenshot->save();
 
-        return response()->json(['message' => 'Rating updated successfully']);
+        return response()->json(['message' => '評分已成功更新']);
     }
 
     // 更新備註
@@ -68,7 +71,7 @@ class FileScreenshotController extends Controller
         $fileScreenshot->notes = $request->input('notes');
         $fileScreenshot->save();
 
-        return response()->json(['message' => 'Notes updated successfully']);
+        return response()->json(['message' => '備註已成功更新']);
     }
 
     // 刪除某個檔案及對應資料
@@ -92,7 +95,7 @@ class FileScreenshotController extends Controller
         // 刪除資料表中的資料
         $fileScreenshot->delete();
 
-        return response()->json(['message' => 'File and related screenshots deleted successfully']);
+        return response()->json(['message' => '檔案及相關截圖已成功刪除']);
     }
 
     // 刪除某些截圖，並重組截圖的資料
@@ -119,6 +122,6 @@ class FileScreenshotController extends Controller
         $fileScreenshot->screenshot_paths = implode(',', $remainingScreenshots);
         $fileScreenshot->save();
 
-        return response()->json(['message' => 'Screenshots deleted and paths updated successfully']);
+        return response()->json(['message' => '截圖已成功刪除並更新路徑']);
     }
 }

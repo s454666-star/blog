@@ -50,7 +50,7 @@ class FileScreenshotController extends Controller
     public function updateRating(Request $request, $id)
     {
         $request->validate([
-            'rating' => 'required|integer|min:1|max:5', // 假設評分為1到5
+            'rating' => 'required|integer|min:1|max:10', // 調整評分範圍為1到10
         ]);
 
         $fileScreenshot = FileScreenshot::findOrFail($id);

@@ -9,11 +9,39 @@ use Illuminate\Support\Facades\File;
 class FileScreenshotController extends Controller
 {
     // 列出所有的檔案資料
-    public function index()
+    public function index(Request $request)
     {
-        $screenshots = FileScreenshot::all();
+        // 分頁，每頁20筆資料
+        $perPage = 20;
+
+        // 篩選條件：評分和備註
+        $query = FileScreenshot::query();
+
+        // 篩選評分
+        if ($request->has('rating')) {
+            if ($request->input('rating') == 'unrated') {
+                $query->whereNull('rating');
+            } else {
+                $query->where('rating', $request->input('rating'));
+            }
+        }
+
+        // 篩選備註
+        if ($request->has('notes')) {
+            $query->where('notes', 'like', '%' . $request->input('notes') . '%');
+        }
+
+        // 排序條件：依據評分排序，默認為升序
+        if ($request->has('sort_by_rating')) {
+            $query->orderBy('rating', $request->input('sort_by_rating') === 'desc' ? 'desc' : 'asc');
+        }
+
+        // 回傳分頁結果
+        $screenshots = $query->paginate($perPage);
+
         return response()->json($screenshots);
     }
+
 
     // 更新評分
     public function updateRating(Request $request, $id)

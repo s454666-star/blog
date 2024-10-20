@@ -6,12 +6,12 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use FFMpeg\FFMpeg;
 use FFMpeg\Coordinate\TimeCode;
-use App\Models\FileScreenshot; // 假設你有一個對應的資料表模型
+use App\Models\FileScreenshot;
 
 class ListNasFiles extends Command
 {
     protected $signature = 'nas:latest-mp4-screenshots';
-    protected $description = 'Retrieve the last two .mp4 files in Z:\\FC2-2024\\精選 directory, create folders with their names, and capture 60 screenshots from each video.';
+    protected $description = 'Retrieve all .mp4 files in Z:\\FC2-2024\\精選 directory, create folders with their names, and capture 60 screenshots from each video if not already in the database.';
 
     public function __construct()
     {
@@ -21,7 +21,7 @@ class ListNasFiles extends Command
     public function handle()
     {
         $directory = 'Z:\\FC2-2024\\精選';
-        $domain = 'https://' . env('DOMAIN', 'mystar.monster'); // 確保使用 https 開頭的域名
+        $domain = 'https://' . env('DOMAIN', 'mystar.monster');
 
         // 檢查資料夾是否存在
         if (!File::exists($directory)) {
@@ -42,12 +42,8 @@ class ListNasFiles extends Command
             return 0;
         }
 
-        // 按建立時間排序並取得最新的兩個 .mp4 檔案
-        $lastTwoFiles = collect($mp4Files)->sortByDesc(function ($file) {
-            return $file->getCTime(); // 檔案建立時間
-        })->take(2);
-
-        foreach ($lastTwoFiles as $file) {
+        // 逐一處理每個 .mp4 檔案
+        foreach ($mp4Files as $file) {
             $fileName = pathinfo($file->getFilename(), PATHINFO_FILENAME);
             $filePath = $file->getRealPath();
 
@@ -56,7 +52,7 @@ class ListNasFiles extends Command
 
             if ($existingFile) {
                 $this->info('File already exists in database: ' . $fileName);
-                continue;
+                continue; // 如果已存在，跳過這個檔案
             }
 
             // 依照檔案名稱建立新資料夾
@@ -83,7 +79,7 @@ class ListNasFiles extends Command
             FileScreenshot::create([
                 'file_name' => $fileName,
                 'file_path' => $urlFilePath,
-                'screenshot_paths' => implode(',', $screenshotPaths), // 將多個圖片路徑串接起來
+                'screenshot_paths' => implode(',', $screenshotPaths),
             ]);
 
             $this->info('File and screenshots saved to database: ' . $fileName);

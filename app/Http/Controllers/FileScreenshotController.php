@@ -17,8 +17,8 @@ class FileScreenshotController extends Controller
         // 篩選條件：評分和備註
         $query = FileScreenshot::query();
 
-        // 篩選評分
-        if ($request->has('rating')) {
+        // 篩選評分，僅在 rating 有傳入值時篩選
+        if ($request->has('rating') && $request->input('rating') !== '') {
             if ($request->input('rating') == 'unrated') {
                 $query->whereNull('rating');
             } else {
@@ -26,8 +26,8 @@ class FileScreenshotController extends Controller
             }
         }
 
-        // 篩選備註
-        if ($request->has('notes')) {
+        // 篩選備註，僅在 notes 有傳入值時篩選
+        if ($request->has('notes') && $request->input('notes') !== '') {
             $query->where('notes', 'like', '%' . $request->input('notes') . '%');
         }
 

@@ -17,14 +17,17 @@ class FileScreenshotController extends Controller
         // 建立查詢
         $query = FileScreenshot::query();
 
+        // 取得 rating 參數
+        $rating = $request->input('rating');
+
         // 如果提供了 rating 並且不是 'all'，則進行篩選
-        if ($request->filled('rating') && $request->input('rating') !== 'all') {
-            if ($request->input('rating') === 'unrated') {
+        if ($request->filled('rating') && $rating !== 'all') {
+            if ($rating === 'unrated') {
                 // 選取 rating 為 NULL 的記錄
                 $query->whereNull('rating');
             } else {
                 // 選取指定 rating 的記錄
-                $query->where('rating', $request->input('rating'));
+                $query->where('rating', $rating);
             }
         }
 
@@ -40,13 +43,13 @@ class FileScreenshotController extends Controller
 
         if (in_array($sortBy, $allowedSortColumns)) {
             if ($sortBy === 'rating') {
-                // 使用 CASE WHEN 來處理 NULL 排序
+                // 使用 CASE WHEN 來處理 NULL 排序，但不影響記錄的包含
                 if ($sortDirection === 'ASC') {
-                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 0 ELSE 1 END ASC");
-                    $query->orderBy('rating', 'ASC');
+                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 0 ELSE 1 END ASC")
+                        ->orderBy('rating', 'ASC');
                 } else {
-                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 1 ELSE 0 END DESC");
-                    $query->orderBy('rating', 'DESC');
+                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 1 ELSE 0 END DESC")
+                        ->orderBy('rating', 'DESC');
                 }
             } else {
                 // 其他欄位的標準排序

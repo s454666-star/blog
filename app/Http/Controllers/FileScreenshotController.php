@@ -11,55 +11,54 @@ class FileScreenshotController extends Controller
 {
     public function index(Request $request)
     {
-        // Pagination: default to 20 items per page
+        // 分頁：預設每頁 20 筆資料
         $perPage = $request->input('per_page', 20);
 
-        // Build the query
+        // 建立查詢
         $query = FileScreenshot::query();
 
-        // Filter by rating if provided and not 'all'
-        if ($request->has('rating') && $request->input('rating') !== '' && $request->input('rating') !== 'all') {
-            if ($request->input('rating') == 'unrated') {
-                // Select records where rating is null
+        // 如果提供了 rating 並且不是 'all'，則進行篩選
+        if ($request->filled('rating') && $request->input('rating') !== 'all') {
+            if ($request->input('rating') === 'unrated') {
+                // 選取 rating 為 NULL 的記錄
                 $query->whereNull('rating');
             } else {
-                // Select records with the specified rating
+                // 選取指定 rating 的記錄
                 $query->where('rating', $request->input('rating'));
             }
         }
 
-        // Filter by notes if provided
-        if ($request->has('notes') && $request->input('notes') !== '') {
+        // 如果提供了 notes，則進行篩選
+        if ($request->filled('notes')) {
             $query->where('notes', 'like', '%' . $request->input('notes') . '%');
         }
 
-        // Sorting parameters
+        // 排序參數
         $sortBy = $request->input('sort_by', 'rating');
-        $sortDirection = $request->input('sort_direction', 'asc');
+        $sortDirection = strtolower($request->input('sort_direction', 'asc')) === 'desc' ? 'DESC' : 'ASC';
         $allowedSortColumns = ['id', 'file_name', 'rating'];
 
         if (in_array($sortBy, $allowedSortColumns)) {
-            $sortDirection = $sortDirection === 'desc' ? 'DESC' : 'ASC';
-
-            if ($sortBy == 'rating') {
-                // Adjust sorting to include null ratings
-                // Place null ratings at the beginning if ascending, at the end if descending
+            if ($sortBy === 'rating') {
+                // 使用 CASE WHEN 來處理 NULL 排序
                 if ($sortDirection === 'ASC') {
-                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 0 ELSE 1 END, rating ASC");
+                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 0 ELSE 1 END ASC");
+                    $query->orderBy('rating', 'ASC');
                 } else {
-                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 1 ELSE 0 END, rating DESC");
+                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 1 ELSE 0 END DESC");
+                    $query->orderBy('rating', 'DESC');
                 }
             } else {
-                // Standard ordering for other columns
+                // 其他欄位的標準排序
                 $query->orderBy($sortBy, $sortDirection);
             }
         }
 
-        // Log the SQL query for debugging purposes
+        // 記錄 SQL 查詢以便除錯
         Log::info('SQL Query: ' . $query->toSql());
         Log::info('Query Bindings: ' . json_encode($query->getBindings()));
 
-        // Get paginated results
+        // 取得分頁結果
         $screenshots = $query->paginate($perPage);
 
         return response()->json($screenshots);

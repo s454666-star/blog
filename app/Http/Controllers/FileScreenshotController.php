@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Log;
 
 class FileScreenshotController extends Controller
 {
-    // 列出所有的檔案資料
     public function index(Request $request)
     {
         // 分頁，每頁20筆資料

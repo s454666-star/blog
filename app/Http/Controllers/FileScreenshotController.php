@@ -19,16 +19,15 @@ class FileScreenshotController extends Controller
         $query = FileScreenshot::query();
 
         // 篩選評分，僅在 rating 有傳入值且不為 'all' 時篩選
-        if ($request->has('rating') && $request->input('rating') !== '') {
+        if ($request->has('rating') && $request->input('rating') !== '' && $request->input('rating') !== 'all') {
             if ($request->input('rating') === 'unrated') {
-                // 篩選未評分的檔案，根據實際情況選擇使用哪種方式來篩選未評分
                 // 如果未評分是 null
                 $query->whereNull('rating');
 
                 // 如果未評分是 0，請取消下一行的註解
                 // $query->where('rating', 0);
-            } elseif ($request->input('rating') !== 'all') {
-                // 如果評分不是 'all'，則進行評分篩選
+            } else {
+                // 如果傳入了特定評分值，則篩選該評分
                 $query->where('rating', $request->input('rating'));
             }
         }

@@ -11,46 +11,55 @@ class FileScreenshotController extends Controller
 {
     public function index(Request $request)
     {
-        // 分頁，每頁20筆資料
-        $perPage = $request->input('per_page', 20); // 可自定義每頁資料數
+        // Pagination: default to 20 items per page
+        $perPage = $request->input('per_page', 20);
 
-        // 篩選條件：評分和備註
+        // Build the query
         $query = FileScreenshot::query();
 
-        // 只有當 rating 有傳入值且不為 'all' 時才進行篩選
-        if ($request->has('rating') && $request->input('rating') !== '') {
-            if ($request->input('rating') === 'unrated') {
-                // 篩選未評分的檔案，根據實際情況選擇使用哪種方式來篩選未評分
-                // 如果未評分是 null
+        // Filter by rating if provided and not 'all'
+        if ($request->has('rating') && $request->input('rating') !== '' && $request->input('rating') !== 'all') {
+            if ($request->input('rating') == 'unrated') {
+                // Select records where rating is null
                 $query->whereNull('rating');
-
-                // 如果未評分是 0，請取消下一行的註解
-                // $query->where('rating', 0);
-            } elseif ($request->input('rating') !== 'all') {
-                // 如果評分不是 'all'，則進行評分篩選
+            } else {
+                // Select records with the specified rating
                 $query->where('rating', $request->input('rating'));
             }
         }
 
-        // 篩選備註，僅在 notes 有傳入值時篩選
+        // Filter by notes if provided
         if ($request->has('notes') && $request->input('notes') !== '') {
             $query->where('notes', 'like', '%' . $request->input('notes') . '%');
         }
 
-        // 排序條件：依據傳入的欄位和方向排序，默認為依評分升序
+        // Sorting parameters
         $sortBy = $request->input('sort_by', 'rating');
         $sortDirection = $request->input('sort_direction', 'asc');
-        $allowedSortColumns = ['id', 'file_name', 'rating']; // 可排序的欄位
+        $allowedSortColumns = ['id', 'file_name', 'rating'];
 
         if (in_array($sortBy, $allowedSortColumns)) {
-            $query->orderBy($sortBy, $sortDirection === 'desc' ? 'desc' : 'asc');
+            $sortDirection = $sortDirection === 'desc' ? 'DESC' : 'ASC';
+
+            if ($sortBy == 'rating') {
+                // Adjust sorting to include null ratings
+                // Place null ratings at the beginning if ascending, at the end if descending
+                if ($sortDirection === 'ASC') {
+                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 0 ELSE 1 END, rating ASC");
+                } else {
+                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 1 ELSE 0 END, rating DESC");
+                }
+            } else {
+                // Standard ordering for other columns
+                $query->orderBy($sortBy, $sortDirection);
+            }
         }
 
-        // 日誌記錄查詢的 SQL 以便調試
+        // Log the SQL query for debugging purposes
         Log::info('SQL Query: ' . $query->toSql());
         Log::info('Query Bindings: ' . json_encode($query->getBindings()));
 
-        // 回傳分頁結果
+        // Get paginated results
         $screenshots = $query->paginate($perPage);
 
         return response()->json($screenshots);

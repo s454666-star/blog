@@ -72,6 +72,7 @@ class Kernel extends HttpKernel
     {
         // 每分鐘執行一次指令
         $schedule->command('command:get-data')->everyMinute()->appendOutputTo(storage_path('logs/crawler.log'));
+        $schedule->command('article:extract-number')->dailyAt('02:00');
     }
 
 }

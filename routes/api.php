@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\FileScreenshotController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -30,3 +31,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('users', UserController::class);
     // 可以在這裡添加更多受保護的路由
 });
+
+Route::get('/screenshots', [FileScreenshotController::class, 'index']);  // 列出所有的檔案資料
+Route::put('/screenshots/{id}/rating', [FileScreenshotController::class, 'updateRating']);  // 更新評分
+Route::put('/screenshots/{id}/notes', [FileScreenshotController::class, 'updateNotes']);    // 更新備註
+Route::delete('/screenshots/{id}', [FileScreenshotController::class, 'deleteFile']);        // 刪除檔案和對應資料
+Route::delete('/screenshots/{id}/delete-screenshots', [FileScreenshotController::class, 'deleteScreenshots']); // 刪除某些截圖

@@ -12,7 +12,7 @@ class FileScreenshotController extends Controller
     public function index(Request $request)
     {
         // 分頁，每頁20筆資料
-        $perPage = 20;
+        $perPage = $request->input('per_page', 20); // 可自定義每頁資料數
 
         // 篩選條件：評分和備註
         $query = FileScreenshot::query();

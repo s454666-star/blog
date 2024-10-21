@@ -1,7 +1,8 @@
 <?php
 
 use App\Http\Controllers\FileScreenshotController;
-use App\Http\Controllers\UserController;
+    use App\Http\Controllers\ProductCategoryController;
+    use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -37,3 +38,9 @@ Route::put('/screenshots/{id}/rating', [FileScreenshotController::class, 'update
 Route::put('/screenshots/{id}/notes', [FileScreenshotController::class, 'updateNotes']);    // 更新備註
 Route::delete('/screenshots/{id}', [FileScreenshotController::class, 'deleteFile']);        // 刪除檔案和對應資料
 Route::delete('/screenshots/{id}/delete-screenshots', [FileScreenshotController::class, 'deleteScreenshots']); // 刪除某些截圖
+
+Route::get('/product-categories', [ProductCategoryController::class, 'index']);        // 列出所有類別
+Route::get('/product-categories/{id}', [ProductCategoryController::class, 'show']);    // 根據ID獲取類別
+Route::post('/product-categories', [ProductCategoryController::class, 'store']);       // 創建新類別
+Route::put('/product-categories/{id}', [ProductCategoryController::class, 'update']);  // 更新類別
+Route::delete('/product-categories/{id}', [ProductCategoryController::class, 'destroy']); // 刪除類別

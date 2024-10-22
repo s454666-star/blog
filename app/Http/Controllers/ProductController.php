@@ -88,6 +88,19 @@
             return response()->json($product, 201);
         }
 
+        // 根據ID顯示單一商品
+        public function show($id)
+        {
+            $product = Product::find($id);
+
+            if (!$product) {
+                return response()->json(['message' => 'Product not found'], 404);
+            }
+
+            return response()->json($product);
+        }
+
+
         // 更新商品
         public function update(Request $request, $id)
         {

@@ -10,7 +10,7 @@ use App\Models\FileScreenshot;
 
 class ListNasFiles extends Command
 {
-    protected $signature = 'nas:latest-mp4-screenshots';
+    protected $signature   = 'nas:latest-mp4-screenshots';
     protected $description = 'Retrieve all .mp4 files in Z:\\FC2-2024\\精選 directory, create folders with their names, and capture 60 screenshots from each video if not already in the database.';
 
     public function __construct()
@@ -20,8 +20,8 @@ class ListNasFiles extends Command
 
     public function handle()
     {
-        $directory = 'Z:\\FC2-2024\\精選';
-        $domain = 'https://' . env('DOMAIN', 'mystar.monster');
+        $directory = 'Z:\\FC2-2023\\精選';
+        $domain    = 'https://' . env('DOMAIN', 'mystar.monster');
 
         // 檢查資料夾是否存在
         if (!File::exists($directory)) {
@@ -70,15 +70,16 @@ class ListNasFiles extends Command
 
             // 轉換本地路徑為 URL 格式
             $urlFilePath = str_replace(
-                ['Z:\\FC2-2024\\精選', '\\'],
-                [$domain . '/fhd/FC2-2024/%E7%B2%BE%E9%81%B8', '/'],
+                [ 'Z:\\FC2-2024\\精選', '\\' ],
+                [ $domain . '/fhd/FC2-2024/%E7%B2%BE%E9%81%B8', '/' ],
                 $filePath
             );
 
             // 將檔案資訊寫入資料表
             FileScreenshot::create([
-                'file_name' => $fileName,
-                'file_path' => $urlFilePath,
+                'file_name'        => $fileName,
+                'file_path'        => $urlFilePath,
+                'type'             => '2',
                 'screenshot_paths' => implode(',', $screenshotPaths),
             ]);
 
@@ -91,7 +92,7 @@ class ListNasFiles extends Command
     private function captureScreenshots($filePath, $outputDirectory, $domain, $fileName)
     {
         $ffmpeg = FFMpeg::create();
-        $video = $ffmpeg->open($filePath);
+        $video  = $ffmpeg->open($filePath);
 
         // 取得影片總長度
         $duration = $video->getFFProbe()->format($filePath)->get('duration');
@@ -102,7 +103,7 @@ class ListNasFiles extends Command
         $screenshotPaths = [];
 
         for ($i = 0; $i < 60; $i++) {
-            $time = $i * $interval;
+            $time           = $i * $interval;
             $screenshotPath = $outputDirectory . '\\screenshot_' . $i . '.jpg';
 
             // 擷取當前時間點的畫面

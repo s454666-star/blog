@@ -70,8 +70,8 @@ class ListNasFiles extends Command
 
             // 轉換本地路徑為 URL 格式
             $urlFilePath = str_replace(
-                [ 'Z:\\FC2-2024\\精選', '\\' ],
-                [ $domain . '/fhd/FC2-2024/%E7%B2%BE%E9%81%B8', '/' ],
+                [ 'Z:\\FC2-2023\\精選', '\\' ],
+                [ $domain . '/fhd/FC2-2023/%E7%B2%BE%E9%81%B8', '/' ],
                 $filePath
             );
 
@@ -111,7 +111,7 @@ class ListNasFiles extends Command
                 ->save($screenshotPath);
 
             // 將本地圖片路徑轉換成 URL
-            $urlScreenshotPath = $domain . '/fhd/FC2-2024/%E7%B2%BE%E9%81%B8/' . $fileName . '/screenshot_' . $i . '.jpg';
+            $urlScreenshotPath = $domain . '/fhd/FC2-2023/%E7%B2%BE%E9%81%B8/' . $fileName . '/screenshot_' . $i . '.jpg';
 
             $screenshotPaths[] = $urlScreenshotPath;
             $this->info('Screenshot saved: ' . $urlScreenshotPath);

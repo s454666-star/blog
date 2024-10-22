@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\FileScreenshotController;
     use App\Http\Controllers\ProductCategoryController;
+    use App\Http\Controllers\ProductController;
     use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -30,7 +31,7 @@ Route::post('/login', [UserController::class, 'login']);
 // 受保護的路由，需要通過認證
 Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('users', UserController::class);
-    // 可以在這裡添加更多受保護的路由
+    Route::apiResource('products', ProductController::class);
 });
 
 Route::get('/screenshots', [FileScreenshotController::class, 'index']);  // 列出所有的檔案資料

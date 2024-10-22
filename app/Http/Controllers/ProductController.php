@@ -75,14 +75,17 @@
         // 創建新商品
         public function store(Request $request)
         {
+            // 驗證輸入數據
             $validatedData = $request->validate([
                                                     'category_id' => 'required|integer',
                                                     'product_name' => 'required|string|max:255',
                                                     'price' => 'required|numeric',
                                                     'stock_quantity' => 'required|integer',
                                                     'status' => 'required|in:available,out_of_stock,discontinued',
+                                                    'image_base64' => 'nullable|string', // 驗證 Base64 圖片
                                                 ]);
 
+            // 創建商品數據
             $product = Product::create($validatedData);
 
             return response()->json($product, 201);
@@ -110,14 +113,17 @@
                 return response()->json(['message' => 'Product not found'], 404);
             }
 
+            // 驗證輸入數據
             $validatedData = $request->validate([
                                                     'category_id' => 'integer',
                                                     'product_name' => 'string|max:255',
                                                     'price' => 'numeric',
                                                     'stock_quantity' => 'integer',
                                                     'status' => 'in:available,out_of_stock,discontinued',
+                                                    'image_base64' => 'nullable|string', // 驗證 Base64 圖片
                                                 ]);
 
+            // 更新商品數據
             $product->update($validatedData);
 
             return response()->json($product);

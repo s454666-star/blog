@@ -1,6 +1,9 @@
 <?php
 
-use App\Http\Controllers\FileScreenshotController;
+    use App\Http\Controllers\ActorController;
+    use App\Http\Controllers\AlbumController;
+    use App\Http\Controllers\AlbumPhotoController;
+    use App\Http\Controllers\FileScreenshotController;
     use App\Http\Controllers\ProductCategoryController;
     use App\Http\Controllers\ProductController;
     use App\Http\Controllers\UserController;
@@ -45,3 +48,10 @@ Route::get('/product-categories/{id}', [ProductCategoryController::class, 'show'
 Route::post('/product-categories', [ProductCategoryController::class, 'store']);       // 創建新類別
 Route::put('/product-categories/{id}', [ProductCategoryController::class, 'update']);  // 更新類別
 Route::delete('/product-categories/{id}', [ProductCategoryController::class, 'destroy']); // 刪除類別
+
+
+Route::get('actors', [ActorController::class, 'index']);
+Route::get('albums', [AlbumController::class, 'index']);
+Route::get('album-photos', [AlbumPhotoController::class, 'index']);
+
+

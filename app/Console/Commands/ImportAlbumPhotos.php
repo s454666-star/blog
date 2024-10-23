@@ -14,7 +14,7 @@
         protected $signature = 'import:album-photos';
 
         // Command description
-        protected $description = 'Import album photos from NAS (limit to 5 records)';
+        protected $description = 'Import album photos from NAS (process all records)';
 
         public function handle()
         {
@@ -34,11 +34,8 @@
                 return;
             }
 
-            // 掃描資料夾
+            // 掃描所有資料夾
             $folders = File::directories($targetDir);
-
-            // 只處理前5個資料夾
-            $folders = array_slice($folders, 0, 5);
 
             foreach ($folders as $folder) {
                 // 抓取資料夾名稱作為套圖名稱
@@ -47,9 +44,6 @@
                 // 掃描資料夾內的檔案
                 $files = File::files($folder);
                 $indexSort = 1;
-
-                // 只處理前5個檔案
-                $files = array_slice($files, 0, 5);
 
                 // 確保有檔案才創建套圖
                 if (!empty($files)) {
@@ -94,6 +88,6 @@
                 }
             }
 
-            $this->info('Import completed successfully with a 5-record limit per album and cover set as first file!');
+            $this->info('Import completed successfully with all records processed!');
         }
     }

@@ -11,7 +11,7 @@ class AlbumPhoto extends Model
     protected $table = 'album_photos';
 
     // 可以批量賦值的欄位
-    protected $fillable = ['album_id', 'photo_path'];
+    protected $fillable = ['album_id', 'photo_path', 'index_sort'];
 
     // 定義與套圖的關聯 (多對一)
     public function album(): BelongsTo

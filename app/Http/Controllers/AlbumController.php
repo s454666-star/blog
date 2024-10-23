@@ -49,4 +49,13 @@
                 ->header('Content-Range', "items {$from}-{$to}/{$total}")
                 ->header('Access-Control-Expose-Headers', 'X-Total-Count, Content-Range');
         }
+
+        public function show($id)
+        {
+            $album = Album::find($id);
+            if (!$album) {
+                return response()->json(['message' => 'Album not found'], 404);
+            }
+            return response()->json($album);
+        }
     }

@@ -53,5 +53,5 @@ Route::delete('/product-categories/{id}', [ProductCategoryController::class, 'de
 Route::get('/actors', [ActorController::class, 'index']);
 Route::get('/albums', [AlbumController::class, 'index']);
 Route::get('/album-photos', [AlbumPhotoController::class, 'index']);
-
+Route::get('/albums/{id}', [AlbumController::class, 'show']);
 

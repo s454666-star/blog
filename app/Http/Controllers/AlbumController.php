@@ -16,18 +16,16 @@
         public function index(Request $request)
         {
             // 檢查前端是否傳遞了 per_page，否則預設為 20
-            $perPage = $request->has('per_page') ? $request->input('per_page') : 20;
+            $perPage = $request->has('per_page') ? (int) $request->input('per_page') : 20;
             $page = $request->input('page', 1);
             $offset = ($page - 1) * $perPage;
 
             // 檢查是否有篩選條件 (依照演員篩選)
-            $actorName = $request->input('actor');
+            $actorId = $request->input('actor'); // 確認使用 'actor' 而非 'actor_id'
 
-            // 如果有傳入演員名稱，就進行篩選
-            if ($actorName) {
-                $query = Album::whereHas('actor', function ($query) use ($actorName) {
-                    $query->where('actor_name', 'like', '%' . $actorName . '%');
-                });
+            // 如果有傳入演員 ID，就進行篩選
+            if ($actorId) {
+                $query = Album::where('actor_id', $actorId); // 假設 Album 模型有 'actor_id' 欄位
             } else {
                 // 沒有篩選條件時，回傳所有相簿
                 $query = Album::query();

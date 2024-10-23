@@ -50,8 +50,8 @@ Route::put('/product-categories/{id}', [ProductCategoryController::class, 'updat
 Route::delete('/product-categories/{id}', [ProductCategoryController::class, 'destroy']); // 刪除類別
 
 
-Route::get('actors', [ActorController::class, 'index']);
-Route::get('albums', [AlbumController::class, 'index']);
-Route::get('album-photos', [AlbumPhotoController::class, 'index']);
+Route::get('/actors', [ActorController::class, 'index']);
+Route::get('/albums', [AlbumController::class, 'index']);
+Route::get('/album-photos', [AlbumPhotoController::class, 'index']);
 
 

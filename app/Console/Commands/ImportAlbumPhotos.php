@@ -47,19 +47,26 @@
 
                 // 確保有檔案才創建套圖
                 if (!empty($files)) {
-                    // 抓取第一個檔案作為封面
-                    $firstFile = $files[0];
-                    $firstFileExtension = strtolower($firstFile->getExtension());
+                    $coverPath = null;
 
-                    // 只選取符合條件的檔案作為封面
-                    if (in_array($firstFileExtension, ['jpg', 'jpeg', 'mp4', 'mov'])) {
-                        $coverPath = str_replace('/mnt/nas', '', $firstFile->getPathname());
+                    // 找到第一個符合條件的圖片作為封面
+                    foreach ($files as $file) {
+                        $fileExtension = strtolower($file->getExtension());
 
+                        // 只選取 jpg, jpeg 圖片作為封面
+                        if (in_array($fileExtension, ['jpg', 'jpeg'])) {
+                            $coverPath = str_replace('/mnt/nas', '', $file->getPathname());
+                            break;
+                        }
+                    }
+
+                    // 如果找到圖片才創建專輯
+                    if ($coverPath) {
                         // 創建套圖，並設定封面路徑
                         $album = Album::create([
                                                    'name' => $albumName,
                                                    'content' => '',
-                                                   'cover_path' => $coverPath, // 設定封面路徑為第一筆檔案
+                                                   'cover_path' => $coverPath, // 設定封面路徑
                                                    'actor_id' => $actor->id
                                                ]);
 
@@ -84,6 +91,8 @@
                                 $this->info("File added: $relativePath");
                             }
                         }
+                    } else {
+                        $this->error("No image found for album: $albumName");
                     }
                 }
             }

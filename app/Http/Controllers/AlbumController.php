@@ -8,7 +8,7 @@
     class AlbumController extends Controller
     {
         /**
-         * Display a listing of albums with pagination and optional filtering by actor.
+         * Display a listing of albums with pagination and optional filtering by actor and deleted status.
          *
          * @param Request $request
          * @return \Illuminate\Http\JsonResponse
@@ -23,12 +23,15 @@
             // 檢查是否有篩選條件 (依照演員篩選)
             $actorId = $request->input('actor'); // 'actor' 參數代表演員 ID
 
+            // 檢查是否有傳入 deleted 篩選條件，預設為 0
+            $deleted = $request->input('deleted', 0);
+
+            // 建立查詢對象
+            $query = Album::where('deleted', $deleted);
+
             // 如果有傳入演員 ID，就進行篩選
             if ($actorId) {
-                $query = Album::where('actor_id', $actorId);
-            } else {
-                // 沒有篩選條件時，回傳所有相簿
-                $query = Album::query();
+                $query->where('actor_id', $actorId);
             }
 
             // 總數量
@@ -56,4 +59,28 @@
             }
             return response()->json($album);
         }
+
+        /**
+         * Update the deleted status of multiple albums.
+         *
+         * @param Request $request
+         * @return \Illuminate\Http\JsonResponse
+         */
+        public function updateDeleted(Request $request)
+        {
+            // 從請求中取得要更新的相簿 ID 和 deleted 狀態
+            $albumIds = $request->input('album_ids', []); // 相簿的 ID 列表
+            $deleted = $request->input('deleted', 0);     // 要更新的 deleted 狀態 (預設為 0)
+
+            // 檢查是否有提供 ID 列表
+            if (empty($albumIds)) {
+                return response()->json(['message' => 'No album IDs provided'], 400);
+            }
+
+            // 更新指定的相簿 deleted 狀態
+            Album::whereIn('id', $albumIds)->update(['deleted' => $deleted]);
+
+            return response()->json(['message' => 'Albums updated successfully']);
+        }
+
     }

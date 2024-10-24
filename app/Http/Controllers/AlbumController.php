@@ -21,11 +21,11 @@
             $offset = ($page - 1) * $perPage;
 
             // 檢查是否有篩選條件 (依照演員篩選)
-            $actorId = $request->input('actor'); // 確認使用 'actor' 而非 'actor_id'
+            $actorId = $request->input('actor'); // 'actor' 參數代表演員 ID
 
             // 如果有傳入演員 ID，就進行篩選
             if ($actorId) {
-                $query = Album::where('actor_id', $actorId); // 假設 Album 模型有 'actor_id' 欄位
+                $query = Album::where('actor_id', $actorId);
             } else {
                 // 沒有篩選條件時，回傳所有相簿
                 $query = Album::query();

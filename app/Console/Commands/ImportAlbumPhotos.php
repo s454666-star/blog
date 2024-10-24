@@ -19,14 +19,14 @@
         public function handle()
         {
             // 固定演員名稱
-            $actorName = 'JVID';
+            $actorName = '猫九酱';
 
             // 如果演員不存在，則創建
             $actor = Actor::firstOrCreate(['actor_name' => $actorName], ['secondary_actor_name' => '']);
             $this->info('Actor found or created: ' . $actor->actor_name);
 
             // 目標資料夾
-            $targetDir = '/mnt/nas/b2/套圖專區/JVID';
+            $targetDir = '/mnt/nas/b2/套圖專區/猫九酱';
 
             // 檢查資料夾是否存在
             if (!File::exists($targetDir)) {

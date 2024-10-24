@@ -12,7 +12,7 @@ class Album extends Model
     protected $table = 'albums';
 
     // 可以批量賦值的欄位
-    protected $fillable = ['name', 'content', 'cover_path', 'actor_id'];
+    protected $fillable = ['name', 'content', 'cover_path', 'actor_id', 'deleted'];
 
     // 定義與演員的關聯 (多對一)
     public function actor(): BelongsTo

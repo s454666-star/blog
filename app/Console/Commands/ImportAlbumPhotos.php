@@ -19,14 +19,14 @@
         public function handle()
         {
             // 固定演員名稱
-            $actorName = '六味帝皇酱';
+            $actorName = '爆机少女喵小吉';
 
             // 如果演員不存在，則創建
             $actor = Actor::firstOrCreate(['actor_name' => $actorName], ['secondary_actor_name' => '']);
             $this->info('Actor found or created: ' . $actor->actor_name);
 
             // 目標資料夾
-            $targetDir = '/mnt/nas/b2/套圖專區/六味帝皇酱';
+            $targetDir = '/mnt/nas/b2/套圖專區/爆机少女喵小吉';
 
             // 檢查資料夾是否存在
             if (!File::exists($targetDir)) {

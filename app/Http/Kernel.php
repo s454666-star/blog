@@ -70,7 +70,7 @@ class Kernel extends HttpKernel
 
     protected function schedule(Schedule $schedule)
     {
-        $schedule->command('command:get-bt')->dailyAt('11:20')->onSuccess(function () {
+        $schedule->command('command:get-bt')->dailyAt('11:25')->onSuccess(function () {
             \Log::info('Command get-bt executed successfully');
         })->onFailure(function () {
             \Log::error('Command get-bt failed');

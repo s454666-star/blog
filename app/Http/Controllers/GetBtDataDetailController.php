@@ -48,7 +48,7 @@ class GetBtDataDetailController
             $titleNode = $xpath->query('//h3[@class="panel-title"]')->item(0);
             $title     = $titleNode ? trim($titleNode->nodeValue) : '';
 
-            $timeNode = $xpath->query('//div[@class="article-date"]')->item(0); // 修改 XPath 路徑
+            $timeNode = $xpath->query('//div[@class="row"]/div[@class="col-md-1" and text()="Date:"]/following-sibling::div[@class="col-md-5"]')->item(0);
             $articleTime = $timeNode ? trim($timeNode->nodeValue) : '';
 
 //            $existingArticle = Article::where('title', $title)->first();

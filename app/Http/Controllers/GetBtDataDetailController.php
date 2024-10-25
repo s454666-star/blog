@@ -51,12 +51,12 @@ class GetBtDataDetailController
             $dateNode = $xpath->query('//span[@class="post-date"]')->item(0); // 修改此處XPath表達式根據實際HTML結構
             $articleDate = $dateNode ? trim($dateNode->nodeValue) : '';
 
-            $existingArticle = Article::where('title', $title)->first();
-            if ($existingArticle) {
-                echo "文章已存在，跳過儲存。" . "\r\n";
-                DB::commit();
-                return;
-            }
+//            $existingArticle = Article::where('title', $title)->first();
+//            if ($existingArticle) {
+//                echo "文章已存在，跳過儲存。" . "\r\n";
+//                DB::commit();
+//                return;
+//            }
 
 
             $magnetLinkNode = $xpath->query('//a[contains(@href,"magnet:?xt=")]')->item(0);

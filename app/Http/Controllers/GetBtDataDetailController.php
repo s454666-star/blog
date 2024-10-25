@@ -42,7 +42,7 @@ class GetBtDataDetailController
             var_dump($detailPageUrl);
             $response    = $this->client->request('GET', $detailPageUrl, [ 'verify' => false ]);
             $htmlContent = $response->getBody()->getContents();
-
+            dd($htmlContent);
             $dom = new DOMDocument();
             @$dom->loadHTML($htmlContent);
             $xpath = new DOMXPath($dom);

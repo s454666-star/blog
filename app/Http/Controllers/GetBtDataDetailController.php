@@ -43,12 +43,13 @@
                 $htmlContent = $response->getBody()->getContents();
                 $dom         = new DOMDocument();
                 @$dom->loadHTML($htmlContent);
-                $xpath           = new DOMXPath($dom);
-                $titleNode       = $xpath->query('//h3[@class="panel-title"]')->item(0);
-                $title           = $titleNode ? trim($titleNode->nodeValue) : '';
-                $timeNode        = $xpath->query('//div[@class="row"]/div[@class="col-md-1" and text()="Date:"]/following-sibling::div[@class="col-md-5"]')->item(0);
-                $articleTime     = $timeNode ? trim($timeNode->nodeValue) : '';
-                $articleTime     = str_replace(" UTC", "", $articleTime);
+                $xpath                  = new DOMXPath($dom);
+                $titleNode              = $xpath->query('//h3[@class="panel-title"]')->item(0);
+                $title                  = $titleNode ? trim($titleNode->nodeValue) : '';
+                $timeNode               = $xpath->query('//div[@class="row"]/div[@class="col-md-1" and text()="Date:"]/following-sibling::div[@class="col-md-5"]')->item(0);
+                $articleTime            = $timeNode ? trim($timeNode->nodeValue) : '';
+                $articleTime            = str_replace(" UTC", "", $articleTime);
+                $articleTimeWithSeconds = Carbon::createFromFormat('Y-m-d H:i', $articleTime)->format('Y-m-d H:i:s');
                 $existingArticle = Article::where('title', $title)->first();
 
                 if ($existingArticle) {
@@ -62,19 +63,19 @@
                 $downloadLinkNode = $xpath->query('//div[@class="panel-footer clearfix"]/a[contains(@href,"/download/")]')->item(0);
                 $baseUrl          = parse_url($detailPageUrl, PHP_URL_SCHEME) . '://' . parse_url($detailPageUrl, PHP_URL_HOST);
                 $downloadLink     = $downloadLinkNode ? $baseUrl . trim($downloadLinkNode->getAttribute('href')) : '';
-dd([
-       'title'        => $title,
-       'password'     => $magnetLink,
-       'https_link'   => $downloadLink,
-       'article_time' => $articleTime,
-       'source_type'  => 2,
-       'is_disabled'  => 0,
-   ]);
+                dd([
+                       'title'        => $title,
+                       'password'     => $magnetLink,
+                       'https_link'   => $downloadLink,
+                       'article_time' => $articleTimeWithSeconds,
+                       'source_type'  => 2,
+                       'is_disabled'  => 0,
+                   ]);
                 $article = Article::create([
                                                'title'        => $title,
                                                'password'     => $magnetLink,
                                                'https_link'   => $downloadLink,
-                                               'article_time' => $articleTime,
+                                               'article_time' => $articleTimeWithSeconds,
                                                'source_type'  => 2,
                                                'is_disabled'  => 0,
                                            ]);

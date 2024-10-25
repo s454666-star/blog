@@ -67,7 +67,7 @@
                                                'title'        => $title,
                                                'password'     => $magnetLink,
                                                'https_link'   => $downloadLink,
-                                               'article_date' => $articleTime,
+                                               'article_time' => $articleTime,
                                                'source_type'  => 2,
                                                'is_disabled'  => 0,
                                            ]);

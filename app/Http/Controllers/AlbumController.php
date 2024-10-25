@@ -83,4 +83,29 @@
             return response()->json(['message' => 'Albums updated successfully']);
         }
 
+        /**
+         * Update the is_viewed status of an album.
+         *
+         * @param Request $request
+         * @param int $id
+         * @return \Illuminate\Http\JsonResponse
+         */
+        public function updateIsViewed(Request $request, $id)
+        {
+            // 找到指定的相簿
+            $album = Album::find($id);
+
+            if (!$album) {
+                return response()->json(['message' => 'Album not found'], 404);
+            }
+
+            // 從請求中取得 is_viewed 的狀態，預設為 false
+            $isViewed = $request->input('is_viewed', false);
+
+            // 更新相簿的 is_viewed 欄位
+            $album->is_viewed = $isViewed;
+            $album->save();
+
+            return response()->json(['message' => 'Album is_viewed status updated successfully']);
+        }
     }

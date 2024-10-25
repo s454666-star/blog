@@ -55,3 +55,4 @@ Route::get('/albums', [AlbumController::class, 'index']);
 Route::get('/album-photos', [AlbumPhotoController::class, 'index']);
 Route::get('/albums/{id}', [AlbumController::class, 'show']);
 Route::put('/albums/updateDeleted', [AlbumController::class, 'updateDeleted']);
+Route::put('/albums/{id}/updateIsViewed', [AlbumController::class, 'updateIsViewed']);

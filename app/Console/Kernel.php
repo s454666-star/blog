@@ -15,17 +15,25 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
-        $schedule->command('photos:import')
-            ->dailyAt('03:00')
-            ->appendOutputTo(storage_path('logs/schedule.log'));
+        $schedule->command('command:get-bt')->dailyAt('11:30')->onSuccess(function () {
+            \Log::info('Command get-bt executed successfully');
+        })->onFailure(function () {
+            \Log::error('Command get-bt failed');
+        });
 
-        $schedule->command('import:videos')
-            ->dailyAt('04:30')
-            ->appendOutputTo(storage_path('logs/schedule.log'));
+//        $schedule->command('photos:import')
+//            ->dailyAt('03:00')
+//            ->appendOutputTo(storage_path('logs/schedule.log'));
+//
+//        $schedule->command('import:videos')
+//            ->dailyAt('04:30')
+//            ->appendOutputTo(storage_path('logs/schedule.log'));
+//
+//        $schedule->command('video:generate-thumbnails')
+//            ->everyFiveMinutes()
+//            ->appendOutputTo(storage_path('logs/schedule.log'));
+//
 
-        $schedule->command('video:generate-thumbnails')
-            ->everyFiveMinutes()
-            ->appendOutputTo(storage_path('logs/schedule.log'));
     }
 
     /**

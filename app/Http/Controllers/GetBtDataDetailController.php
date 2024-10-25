@@ -8,6 +8,7 @@
     use GuzzleHttp\Exception\GuzzleException;
     use DOMDocument;
     use DOMXPath;
+    use Illuminate\Support\Carbon;
     use Illuminate\Support\Facades\DB;
     use Illuminate\Support\Facades\Log;
 

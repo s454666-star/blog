@@ -37,6 +37,13 @@ class CrawlerBtCommand extends Command
      */
     public function handle(GetBtDataController $getBtDataController)
     {
-        $getBtDataController->fetchData();
+        \Log::info('Command get-bt started');
+
+        try {
+            $getBtDataController->fetchData();
+            \Log::info('Command get-bt executed successfully');
+        } catch (\Exception $e) {
+            \Log::error('Command get-bt failed: ' . $e->getMessage());
+        }
     }
 }

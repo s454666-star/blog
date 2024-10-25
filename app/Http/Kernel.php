@@ -70,8 +70,12 @@ class Kernel extends HttpKernel
 
     protected function schedule(Schedule $schedule)
     {
-        // 每分鐘執行一次指令
-//        $schedule->command('command:get-data')->everyMinute()->appendOutputTo(storage_path('logs/crawler.log'));
+        $schedule->command('command:get-bt')->dailyAt('11:20')->onSuccess(function () {
+            \Log::info('Command get-bt executed successfully');
+        })->onFailure(function () {
+            \Log::error('Command get-bt failed');
+        });
+
         $schedule->command('command:get-bt')->dailyAt('01:00');
         $schedule->command('article:extract-number')->dailyAt('02:00');
     }

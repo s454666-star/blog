@@ -39,16 +39,17 @@ class GetBtDataDetailController
     {
         DB::beginTransaction(); // 開始一個新的數據庫事務
         try {
-            var_dump($detailPageUrl);
             $response    = $this->client->request('GET', $detailPageUrl, [ 'verify' => false ]);
             $htmlContent = $response->getBody()->getContents();
-            dd($htmlContent);
             $dom = new DOMDocument();
             @$dom->loadHTML($htmlContent);
             $xpath = new DOMXPath($dom);
 
             $titleNode = $xpath->query('//h3[@class="panel-title"]')->item(0);
             $title     = $titleNode ? trim($titleNode->nodeValue) : '';
+
+            $dateNode = $xpath->query('//span[@class="post-date"]')->item(0); // 修改此處XPath表達式根據實際HTML結構
+            $articleDate = $dateNode ? trim($dateNode->nodeValue) : '';
 
             $existingArticle = Article::where('title', $title)->first();
             if ($existingArticle) {
@@ -64,11 +65,19 @@ class GetBtDataDetailController
             $downloadLinkNode = $xpath->query('//div[@class="panel-footer clearfix"]/a[contains(@href,"/download/")]')->item(0);
             $baseUrl          = parse_url($detailPageUrl, PHP_URL_SCHEME) . '://' . parse_url($detailPageUrl, PHP_URL_HOST);
             $downloadLink     = $downloadLinkNode ? $baseUrl . trim($downloadLinkNode->getAttribute('href')) : '';
-
+dd([
+       'title'       => $title,
+       'password'    => $magnetLink,
+       'https_link'  => $downloadLink,
+       'article_date'  => $articleDate,
+       'source_type' => 2,
+       'is_disabled' => 0,
+   ]);
             $article = Article::create([
                 'title'       => $title,
                 'password'    => $magnetLink,
                 'https_link'  => $downloadLink,
+                'article_date'  => $articleDate,
                 'source_type' => 2,
                 'is_disabled' => 0,
             ]);

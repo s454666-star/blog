@@ -62,7 +62,14 @@
                 $downloadLinkNode = $xpath->query('//div[@class="panel-footer clearfix"]/a[contains(@href,"/download/")]')->item(0);
                 $baseUrl          = parse_url($detailPageUrl, PHP_URL_SCHEME) . '://' . parse_url($detailPageUrl, PHP_URL_HOST);
                 $downloadLink     = $downloadLinkNode ? $baseUrl . trim($downloadLinkNode->getAttribute('href')) : '';
-
+dd([
+       'title'        => $title,
+       'password'     => $magnetLink,
+       'https_link'   => $downloadLink,
+       'article_time' => $articleTime,
+       'source_type'  => 2,
+       'is_disabled'  => 0,
+   ]);
                 $article = Article::create([
                                                'title'        => $title,
                                                'password'     => $magnetLink,

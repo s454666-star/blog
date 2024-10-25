@@ -19,7 +19,7 @@
         public function handle()
         {
             // 固定主演員名稱
-            $mainActorName = '西瓜少女';
+            $mainActorName = '紧急企划';
 
             // 如果主演員不存在，則創建
             $mainActor = Actor::firstOrCreate(
@@ -29,7 +29,7 @@
             $this->info('Main Actor found or created: ' . $mainActor->actor_name);
 
             // 目標資料夾
-            $targetDir = '/mnt/nas/b2/套圖專區/西瓜少女';
+            $targetDir = '/mnt/nas/b2/套圖專區/紧急企划';
 
             // 檢查資料夾是否存在
             if (!File::exists($targetDir)) {

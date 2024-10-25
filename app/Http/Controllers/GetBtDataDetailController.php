@@ -50,7 +50,7 @@ class GetBtDataDetailController
 
             $timeNode = $xpath->query('//div[@class="row"]/div[@class="col-md-1" and text()="Date:"]/following-sibling::div[@class="col-md-5"]')->item(0);
             $articleTime = $timeNode ? trim($timeNode->nodeValue) : '';
-
+            $articleTime = str_replace(" UTC", "", $articleTime);
 //            $existingArticle = Article::where('title', $title)->first();
 //            if ($existingArticle) {
 //                echo "文章已存在，跳過儲存。" . "\r\n";

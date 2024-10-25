@@ -48,8 +48,8 @@ class GetBtDataDetailController
             $titleNode = $xpath->query('//h3[@class="panel-title"]')->item(0);
             $title     = $titleNode ? trim($titleNode->nodeValue) : '';
 
-            $dateNode = $xpath->query('//span[@class="post-date"]')->item(0); // 修改此處XPath表達式根據實際HTML結構
-            $articleDate = $dateNode ? trim($dateNode->nodeValue) : '';
+            $timeNode = $xpath->query('//div[@class="article-date"]')->item(0); // 修改 XPath 路徑
+            $articleTime = $timeNode ? trim($timeNode->nodeValue) : '';
 
 //            $existingArticle = Article::where('title', $title)->first();
 //            if ($existingArticle) {
@@ -69,7 +69,7 @@ dd([
        'title'       => $title,
        'password'    => $magnetLink,
        'https_link'  => $downloadLink,
-       'article_date'  => $articleDate,
+       'article_date'  => $articleTime,
        'source_type' => 2,
        'is_disabled' => 0,
    ]);

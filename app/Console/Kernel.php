@@ -15,7 +15,7 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule)
     {
-        $schedule->command('command:get-bt')->everyMinute()->onSuccess(function () {
+        $schedule->command('command:get-bt')->dailyAt('00:00')->onSuccess(function () {
             \Log::info('Command get-bt executed successfully');
         })->onFailure(function () {
             \Log::error('Command get-bt failed');

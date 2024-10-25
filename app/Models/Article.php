@@ -14,6 +14,7 @@ class Article extends Model
         'password',
         'https_link',
         'source_type',
+        'article_time',
     ];
 
     public function images()

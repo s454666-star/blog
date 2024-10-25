@@ -50,7 +50,7 @@
                 $timeNode               = $xpath->query('//div[@class="row"]/div[@class="col-md-1" and text()="Date:"]/following-sibling::div[@class="col-md-5"]')->item(0);
                 $articleTime            = $timeNode ? trim($timeNode->nodeValue) : '';
                 $articleTime            = str_replace(" UTC", "", $articleTime);
-                $articleTimeWithSeconds = Carbon::createFromFormat('Y-m-d H:i', $articleTime)->format('Y-m-d H:i:s');
+                $articleTimeWithSeconds = Carbon::createFromFormat('Y-m-d H:i', $articleTime, 'Asia/Taipei')->format('Y-m-d H:i:s');
                 $existingArticle = Article::where('title', $title)->first();
 
                 if ($existingArticle) {

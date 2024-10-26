@@ -12,6 +12,7 @@
             'file_name',
             'file_path',
             'screenshot_paths',
+            'cover_image',
             'rating',
             'notes',
             'type',  // 新增的 type 欄位

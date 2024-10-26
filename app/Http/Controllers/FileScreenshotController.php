@@ -53,13 +53,30 @@
                 });
 
             return response()->json([
-                'data' => $fileScreenshots,
+                'data'  => $fileScreenshots,
                 'total' => $total
             ], 200)
                 ->header('X-Total-Count', $total)
                 ->header('Content-Range', "items {$from}-{$to}/{$total}")
                 ->header('Access-Control-Expose-Headers', 'X-Total-Count, Content-Range');
         }
+
+        public function updateCoverImage(Request $request, $id)
+        {
+            $fileScreenshot = FileScreenshot::find($id);
+            if (!$fileScreenshot) {
+                return response()->json(['message' => 'File screenshot not found'], 404);
+            }
+
+            $validated = $request->validate([
+                'cover_image' => 'required|string',
+            ]);
+
+            $fileScreenshot->update(['cover_image' => $validated['cover_image']]);
+
+            return response()->json($fileScreenshot, 200);
+        }
+
 
         // 查詢單筆截圖資料
         public function show($id)

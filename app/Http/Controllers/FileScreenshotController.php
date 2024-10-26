@@ -1,148 +1,123 @@
 <?php
 
-namespace App\Http\Controllers;
+    namespace App\Http\Controllers;
 
-use App\Models\FileScreenshot;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Log;
+    use App\Models\FileScreenshot;
+    use Illuminate\Http\Request;
 
-class FileScreenshotController extends Controller
-{
-    public function index(Request $request)
+    class FileScreenshotController extends Controller
     {
-        // 分頁：預設每頁 20 筆資料
-        $perPage = $request->input('per_page', 20);
-
-        // 建立查詢
-        $query = FileScreenshot::query();
-
-        // 取得 rating 參數
-        $rating = $request->input('rating');
-
-        // 如果提供了 rating 並且不是 'all'，則進行篩選
-        if ($request->filled('rating') && $rating !== 'all') {
-            if ($rating === 'unrated') {
-                // 選取 rating 為 NULL 的記錄
-                $query->whereNull('rating');
-            } else {
-                // 選取指定 rating 的記錄
-                $query->where('rating', $rating);
+        // 查詢所有截圖資料
+        public function index(Request $request)
+        {
+            // 解析 range 參數
+            $range = $request->input('range', [0, 49]);
+            if (is_string($range)) {
+                $range = json_decode($range, true);
             }
-        }
+            $from = $range[0];
+            $to   = $range[1];
 
-        // 如果提供了 notes，則進行篩選
-        if ($request->filled('notes')) {
-            $query->where('notes', 'like', '%' . $request->input('notes') . '%');
-        }
+            // 解析 sort 參數
+            $sort = $request->input('sort', ['id', 'asc']);
+            if (is_string($sort)) {
+                $sort = json_decode($sort, true);
+            }
+            $sortField     = $sort[0];
+            $sortDirection = strtolower($sort[1] ?? 'asc');
 
-        // 排序參數
-        $sortBy = $request->input('sort_by', 'rating');
-        $sortDirection = strtolower($request->input('sort_direction', 'asc')) === 'desc' ? 'DESC' : 'ASC';
-        $allowedSortColumns = ['id', 'file_name', 'rating'];
+            // 解析篩選條件
+            $filters = $request->input('filter', []);
+            $query   = FileScreenshot::query();
 
-        if (in_array($sortBy, $allowedSortColumns)) {
-            if ($sortBy === 'rating') {
-                // 使用 CASE WHEN 來處理 NULL 排序，但不影響記錄的包含
-                if ($sortDirection === 'ASC') {
-                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 0 ELSE 1 END ASC")
-                        ->orderBy('rating', 'ASC');
-                } else {
-                    $query->orderByRaw("CASE WHEN rating IS NULL THEN 1 ELSE 0 END DESC")
-                        ->orderBy('rating', 'DESC');
+            if (!empty($filters)) {
+                if (isset($filters['q'])) {
+                    $q = $filters['q'];
+                    $query->where(function ($subQuery) use ($q) {
+                        $subQuery->where('file_name', 'like', "%{$q}%")
+                            ->orWhere('notes', 'like', "%{$q}%");
+                    });
                 }
-            } else {
-                // 其他欄位的標準排序
-                $query->orderBy($sortBy, $sortDirection);
+                if (isset($filters['type'])) {
+                    $query->where('type', $filters['type']);
+                }
             }
+
+            // 總筆數
+            $total = $query->count();
+
+            // 查詢並排序
+            $fileScreenshots = $query->orderBy($sortField, $sortDirection)
+                ->skip($from)
+                ->take($to - $from + 1)
+                ->get();
+
+            // 返回 JSON 資料
+            return response()->json($fileScreenshots, 200)
+                ->header('X-Total-Count', $total)
+                ->header('Content-Range', "items {$from}-{$to}/{$total}")
+                ->header('Access-Control-Expose-Headers', 'X-Total-Count, Content-Range');
         }
 
-        // 記錄 SQL 查詢以便除錯
-        Log::info('SQL Query: ' . $query->toSql());
-        Log::info('Query Bindings: ' . json_encode($query->getBindings()));
-
-        // 取得分頁結果
-        $screenshots = $query->paginate($perPage);
-
-        return response()->json($screenshots);
-    }
-
-    // 更新評分
-    public function updateRating(Request $request, $id)
-    {
-        $request->validate([
-            'rating' => 'required|integer|min:1|max:10', // 調整評分範圍為1到10
-        ]);
-
-        $fileScreenshot = FileScreenshot::findOrFail($id);
-        $fileScreenshot->rating = $request->input('rating');
-        $fileScreenshot->save();
-
-        return response()->json(['message' => '評分已成功更新']);
-    }
-
-    // 更新備註
-    public function updateNotes(Request $request, $id)
-    {
-        $request->validate([
-            'notes' => 'required|string',
-        ]);
-
-        $fileScreenshot = FileScreenshot::findOrFail($id);
-        $fileScreenshot->notes = $request->input('notes');
-        $fileScreenshot->save();
-
-        return response()->json(['message' => '備註已成功更新']);
-    }
-
-    // 刪除某個檔案及對應資料
-    public function deleteFile($id)
-    {
-        $fileScreenshot = FileScreenshot::findOrFail($id);
-
-        // 刪除對應的檔案
-        if (File::exists($fileScreenshot->file_path)) {
-            File::delete($fileScreenshot->file_path);
-        }
-
-        // 刪除截圖
-        $screenshots = explode(',', $fileScreenshot->screenshot_paths);
-        foreach ($screenshots as $screenshot) {
-            if (File::exists($screenshot)) {
-                File::delete($screenshot);
+        // 查詢單筆截圖資料
+        public function show($id)
+        {
+            $fileScreenshot = FileScreenshot::find($id);
+            if (!$fileScreenshot) {
+                return response()->json(['message' => 'File screenshot not found'], 404);
             }
+            return response()->json($fileScreenshot, 200);
         }
 
-        // 刪除資料表中的資料
-        $fileScreenshot->delete();
+        // 新增截圖資料
+        public function store(Request $request)
+        {
+            $validated = $request->validate([
+                'file_name'        => 'required|string',
+                'file_path'        => 'required|string',
+                'screenshot_paths' => 'nullable|string',
+                'rating'           => 'nullable|numeric|min:0|max:5',
+                'notes'            => 'nullable|string',
+                'type'             => 'nullable|string',
+            ]);
 
-        return response()->json(['message' => '檔案及相關截圖已成功刪除']);
-    }
+            $fileScreenshot = FileScreenshot::create($validated);
 
-    // 刪除某些截圖，並重組截圖的資料
-    public function deleteScreenshots(Request $request, $id)
-    {
-        $request->validate([
-            'screenshots' => 'required|array',
-        ]);
+            return response()->json($fileScreenshot, 201);
+        }
 
-        $fileScreenshot = FileScreenshot::findOrFail($id);
-        $currentScreenshots = explode(',', $fileScreenshot->screenshot_paths);
-
-        // 過濾出不需刪除的截圖
-        $remainingScreenshots = array_diff($currentScreenshots, $request->input('screenshots'));
-
-        // 刪除選擇的截圖
-        foreach ($request->input('screenshots') as $screenshot) {
-            if (File::exists($screenshot)) {
-                File::delete($screenshot);
+        // 更新截圖資料
+        public function update(Request $request, $id)
+        {
+            $fileScreenshot = FileScreenshot::find($id);
+            if (!$fileScreenshot) {
+                return response()->json(['message' => 'File screenshot not found'], 404);
             }
+
+            $validated = $request->validate([
+                'file_name'        => 'nullable|string',
+                'file_path'        => 'nullable|string',
+                'screenshot_paths' => 'nullable|string',
+                'rating'           => 'nullable|numeric|min:0|max:5',
+                'notes'            => 'nullable|string',
+                'type'             => 'nullable|string',
+            ]);
+
+            $fileScreenshot->update($validated);
+
+            return response()->json($fileScreenshot, 200);
         }
 
-        // 更新資料表中的截圖路徑
-        $fileScreenshot->screenshot_paths = implode(',', $remainingScreenshots);
-        $fileScreenshot->save();
+        // 刪除截圖資料
+        public function destroy($id)
+        {
+            $fileScreenshot = FileScreenshot::find($id);
+            if (!$fileScreenshot) {
+                return response()->json(['message' => 'File screenshot not found'], 404);
+            }
 
-        return response()->json(['message' => '截圖已成功刪除並更新路徑']);
+            $fileScreenshot->delete();
+
+            return response()->json(['message' => 'File screenshot deleted'], 200);
+        }
     }
-}

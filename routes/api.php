@@ -56,3 +56,9 @@ Route::get('/album-photos', [AlbumPhotoController::class, 'index']);
 Route::get('/albums/{id}', [AlbumController::class, 'show']);
 Route::put('/albums/updateDeleted', [AlbumController::class, 'updateDeleted']);
 Route::put('/albums/{id}/updateIsViewed', [AlbumController::class, 'updateIsViewed']);
+
+Route::get('/file-screenshots', [FileScreenshotController::class, 'index']);
+Route::get('/file-screenshots/{id}', [FileScreenshotController::class, 'show']);
+Route::post('/file-screenshots', [FileScreenshotController::class, 'store']);
+Route::put('/file-screenshots/{id}', [FileScreenshotController::class, 'update']);
+Route::delete('/file-screenshots/{id}', [FileScreenshotController::class, 'destroy']);

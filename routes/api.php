@@ -64,3 +64,4 @@ Route::put('/file-screenshots/{id}', [FileScreenshotController::class, 'update']
 Route::delete('/file-screenshots/{id}', [FileScreenshotController::class, 'destroy']);
 Route::put('/file-screenshots/{id}/cover-image', [FileScreenshotController::class, 'updateCoverImage']);
 Route::put('/file-screenshots/{id}/is-view', [FileScreenshotController::class, 'updateIsView']);
+Route::put('/file-screenshots/{id}/rating', [FileScreenshotController::class, 'updateRating']);

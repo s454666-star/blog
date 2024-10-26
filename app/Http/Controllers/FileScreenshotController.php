@@ -155,4 +155,20 @@
 
             return response()->json(['is_view' => $validated['is_view']], 200);
         }
+
+        public function updateRating(Request $request, $id)
+        {
+            $fileScreenshot = FileScreenshot::find($id);
+            if (!$fileScreenshot) {
+                return response()->json(['message' => 'File screenshot not found'], 404);
+            }
+
+            $validated = $request->validate([
+                'rating' => 'required|numeric|min:0|max:10', // 根據您的要求，可設定為 10 分制
+            ]);
+
+            $fileScreenshot->update(['rating' => $validated['rating']]);
+
+            return response()->json(['rating' => $validated['rating']], 200);
+        }
     }

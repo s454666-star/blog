@@ -139,4 +139,20 @@
 
             return response()->json(['message' => 'File screenshot deleted'], 200);
         }
+
+        public function updateIsView(Request $request, $id)
+        {
+            $fileScreenshot = FileScreenshot::find($id);
+            if (!$fileScreenshot) {
+                return response()->json(['message' => 'File screenshot not found'], 404);
+            }
+
+            $validated = $request->validate([
+                'is_view' => 'required|boolean',
+            ]);
+
+            $fileScreenshot->update(['is_view' => $validated['is_view']]);
+
+            return response()->json(['is_view' => $validated['is_view']], 200);
+        }
     }

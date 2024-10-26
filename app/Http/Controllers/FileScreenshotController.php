@@ -48,7 +48,7 @@
                 ->get()
                 ->map(function ($fileScreenshot) {
                     $screenshots                 = explode(',', $fileScreenshot->screenshot_paths);
-                    $fileScreenshot->cover_image = $screenshots[5] ?? null;
+                    $fileScreenshot->cover_image = $fileScreenshot->cover_image ?? ($screenshots[5] ?? null);
                     return $fileScreenshot;
                 });
 

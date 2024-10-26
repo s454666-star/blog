@@ -74,7 +74,7 @@
 
             $fileScreenshot->update(['cover_image' => $validated['cover_image']]);
 
-            return response()->json($fileScreenshot, 200);
+            return response()->json(['cover_image' => $validated['cover_image']], 200);
         }
 
 

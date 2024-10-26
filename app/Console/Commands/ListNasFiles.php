@@ -10,8 +10,8 @@ use App\Models\FileScreenshot;
 
 class ListNasFiles extends Command
 {
-    protected $signature   = 'nas:latest-mp4-screenshots';
-    protected $description = 'Retrieve all .mp4 files in Z:\\FC2-2024\\精選 directory, create folders with their names, and capture 60 screenshots from each video if not already in the database.';
+    protected $signature = 'nas:latest-mp4-screenshots';
+    protected $description = '從 R:\\FC2-2024\\精選 資料夾中擷取所有 .mp4 檔案，建立其名稱的資料夾，並每分鐘從影片中擷取一張截圖，如果資料庫中尚無紀錄。';
 
     public function __construct()
     {
@@ -20,12 +20,12 @@ class ListNasFiles extends Command
 
     public function handle()
     {
-        $directory = 'Z:\\FC2-2023\\精選';
-        $domain    = 'https://' . env('DOMAIN', 'mystar.monster');
+        $directory = 'R:\FC2-2024\精選';
+        $domain = 'https://' . env('DOMAIN', 'mystar.monster');
 
         // 檢查資料夾是否存在
         if (!File::exists($directory)) {
-            $this->error('Directory does not exist: ' . $directory);
+            $this->error('資料夾不存在：' . $directory);
             return 1;
         }
 
@@ -38,7 +38,7 @@ class ListNasFiles extends Command
         });
 
         if (empty($mp4Files)) {
-            $this->info('No .mp4 files found in directory.');
+            $this->info('資料夾中沒有找到 .mp4 檔案。');
             return 0;
         }
 
@@ -48,10 +48,8 @@ class ListNasFiles extends Command
             $filePath = $file->getRealPath();
 
             // 檢查檔案是否已存在於資料表中
-            $existingFile = FileScreenshot::where('file_name', $fileName)->first();
-
-            if ($existingFile) {
-                $this->info('File already exists in database: ' . $fileName);
+            if (FileScreenshot::where('file_name', $fileName)->exists()) {
+                $this->info('檔案已存在於資料庫中：' . $fileName);
                 continue; // 如果已存在，跳過這個檔案
             }
 
@@ -60,30 +58,30 @@ class ListNasFiles extends Command
 
             if (!File::exists($newDirectory)) {
                 File::makeDirectory($newDirectory);
-                $this->info('Directory created: ' . $newDirectory);
+                $this->info('已建立資料夾：' . $newDirectory);
             } else {
-                $this->info('Directory already exists: ' . $newDirectory);
+                $this->info('資料夾已存在：' . $newDirectory);
             }
 
-            // 使用 FFMpeg 擷取影片中的 60 張圖片
+            // 使用 FFMpeg 擷取影片中的每分鐘圖片
             $screenshotPaths = $this->captureScreenshots($filePath, $newDirectory, $domain, $fileName);
 
             // 轉換本地路徑為 URL 格式
             $urlFilePath = str_replace(
-                [ 'Z:\\FC2-2023\\精選', '\\' ],
-                [ $domain . '/fhd/FC2-2023/%E7%B2%BE%E9%81%B8', '/' ],
+                ['R:\FC2-2024\精選', '\\'],
+                [$domain . '/fhd/FC2-2024/%E7%B2%BE%E9%81%B8', '/'],
                 $filePath
             );
 
             // 將檔案資訊寫入資料表
             FileScreenshot::create([
-                'file_name'        => $fileName,
-                'file_path'        => $urlFilePath,
-                'type'             => '2',
+                'file_name' => $fileName,
+                'file_path' => $urlFilePath,
+                'type' => '2',
                 'screenshot_paths' => implode(',', $screenshotPaths),
             ]);
 
-            $this->info('File and screenshots saved to database: ' . $fileName);
+            $this->info('檔案和截圖已儲存到資料庫：' . $fileName);
         }
 
         return 0;
@@ -92,29 +90,35 @@ class ListNasFiles extends Command
     private function captureScreenshots($filePath, $outputDirectory, $domain, $fileName)
     {
         $ffmpeg = FFMpeg::create();
-        $video  = $ffmpeg->open($filePath);
+        $video = $ffmpeg->open($filePath);
 
-        // 取得影片總長度
+        // 取得影片總長度（以秒為單位）
         $duration = $video->getFFProbe()->format($filePath)->get('duration');
 
-        // 計算擷取圖片的時間點間隔
-        $interval = $duration / 60;
+        // 計算影片總分鐘數，並確定擷取的張數
+        $totalMinutes = ceil($duration / 60);
 
         $screenshotPaths = [];
 
-        for ($i = 0; $i < 60; $i++) {
-            $time           = $i * $interval;
+        for ($i = 0; $i < $totalMinutes; $i++) {
+            $time = $i * 60; // 每分鐘擷取一次
             $screenshotPath = $outputDirectory . '\\screenshot_' . $i . '.jpg';
 
-            // 擷取當前時間點的畫面
-            $video->frame(TimeCode::fromSeconds($time))
-                ->save($screenshotPath);
+            try {
+                // 擷取當前時間點的畫面
+                $video->frame(TimeCode::fromSeconds($time))
+                    ->save($screenshotPath);
 
-            // 將本地圖片路徑轉換成 URL
-            $urlScreenshotPath = $domain . '/fhd/FC2-2023/%E7%B2%BE%E9%81%B8/' . $fileName . '/screenshot_' . $i . '.jpg';
+                // 將本地圖片路徑轉換成 URL
+                $urlScreenshotPath = $domain . '/fhd/FC2-2024/%E7%B2%BE%E9%81%B8/' . $fileName . '/screenshot_' . $i . '.jpg';
 
-            $screenshotPaths[] = $urlScreenshotPath;
-            $this->info('Screenshot saved: ' . $urlScreenshotPath);
+                $screenshotPaths[] = $urlScreenshotPath;
+                $this->info('截圖已儲存：' . $urlScreenshotPath);
+
+            } catch (\Exception $e) {
+                $this->error('擷取截圖失敗，跳過此時間點：' . $time . ' 秒，錯誤訊息：' . $e->getMessage());
+                continue; // 跳過這張截圖，繼續處理下一張
+            }
         }
 
         return $screenshotPaths;

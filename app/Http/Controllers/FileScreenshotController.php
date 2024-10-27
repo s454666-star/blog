@@ -10,23 +10,26 @@
         // 查詢所有截圖資料
         public function index(Request $request)
         {
-            $range = $request->input('range', [0, 19]);
-            if (is_string($range)) {
-                $range = json_decode($range, true);
-            }
-            $from = $range[0];
-            $to   = $range[1];
+            // 獲取分頁參數
+            $perPage = $request->input('perPage', 20);
+            $page    = $request->input('page', 1);
+            $from    = ($page - 1) * $perPage;
+            $to      = $page * $perPage - 1;
 
+            // 獲取排序參數
             $sort = $request->input('sort', ['id', 'asc']);
             if (is_string($sort)) {
                 $sort = json_decode($sort, true);
             }
-            $sortField     = $sort[0];
+            $sortField     = $sort[0] ?? 'id';
             $sortDirection = strtolower($sort[1] ?? 'asc');
 
-            $filters = $request->input('filter', []);
-            $query   = FileScreenshot::query();
+            // 初始化查詢
+            $query = FileScreenshot::query();
 
+            // 處理過濾參數
+            // 如果前端使用 'filter' 陣列，則保留以下代碼
+            $filters = $request->input('filter', []);
             if (!empty($filters)) {
                 if (isset($filters['q'])) {
                     $q = $filters['q'];
@@ -40,11 +43,24 @@
                 }
             }
 
+            // 處理 'rating' 和 'is_view' 作為頂層參數
+            if ($request->has('rating')) {
+                $rating = floatval($request->input('rating'));
+                $query->where('rating', $rating);
+            }
+
+            if ($request->has('is_view')) {
+                $is_view = intval($request->input('is_view'));
+                $query->where('is_view', $is_view);
+            }
+
+            // 計算總數
             $total = $query->count();
 
+            // 獲取分頁數據
             $fileScreenshots = $query->orderBy($sortField, $sortDirection)
                 ->skip($from)
-                ->take($to - $from + 1)
+                ->take($perPage)
                 ->get()
                 ->map(function ($fileScreenshot) {
                     $screenshots                 = explode(',', $fileScreenshot->screenshot_paths);
@@ -52,6 +68,7 @@
                     return $fileScreenshot;
                 });
 
+            // 返回 JSON 響應
             return response()->json([
                 'data'  => $fileScreenshots,
                 'total' => $total
@@ -76,7 +93,6 @@
 
             return response()->json(['cover_image' => $validated['cover_image']], 200);
         }
-
 
         // 查詢單筆截圖資料
         public function show($id)

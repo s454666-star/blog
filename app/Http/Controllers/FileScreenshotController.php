@@ -43,6 +43,12 @@
                 }
             }
 
+            // 新增：處理頂層的 'type' 參數
+            if ($request->has('type')) {
+                $type = $request->input('type');
+                $query->where('type', $type);
+            }
+
             // 處理 'rating' 和 'is_view' 作為頂層參數
             if ($request->has('rating')) {
                 $rating = floatval($request->input('rating'));

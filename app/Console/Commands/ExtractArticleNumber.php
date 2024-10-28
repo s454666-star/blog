@@ -21,7 +21,7 @@ class ExtractArticleNumber extends Command
         $articles = DB::table('articles')
             ->whereNull('description')
             ->orderBy('created_at', 'desc')
-            ->limit(30)
+            ->limit(60)
             ->get();
 
         foreach ($articles as $article) {

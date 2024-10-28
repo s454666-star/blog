@@ -21,6 +21,8 @@ class Kernel extends ConsoleKernel
             \Log::error('Command get-bt failed');
         });
 
+        $schedule->command('article:extract-number')->dailyAt('02:00');
+
 //        $schedule->command('photos:import')
 //            ->dailyAt('03:00')
 //            ->appendOutputTo(storage_path('logs/schedule.log'));

@@ -7,10 +7,10 @@
 
     class ProductController extends Controller
     {
-        // 根據ID獲取商品
+        // 獲取商品列表
         public function index(Request $request)
         {
-            // 解析前端傳來的 `range` 參數，預設為[0, 49]
+            // 解析前端傳來的 `range` 參數，預設為 [0, 49]
             $range = $request->input('range', [0, 49]);
             if (is_string($range)) {
                 $range = json_decode($range, true);
@@ -36,6 +36,9 @@
 
             // 解析過濾參數
             $filters = $request->input('filter', []);
+            if (is_string($filters)) {
+                $filters = json_decode($filters, true);
+            }
             if (!empty($filters)) {
                 if (isset($filters['q'])) {
                     $q = $filters['q'];
@@ -71,7 +74,6 @@
                 ->header('Access-Control-Expose-Headers', 'X-Total-Count, Content-Range');
         }
 
-
         // 創建新商品
         public function store(Request $request)
         {
@@ -79,9 +81,9 @@
             $validatedData = $request->validate([
                                                     'category_id' => 'required|integer',
                                                     'product_name' => 'required|string|max:255',
-                                                    'price' => 'required|numeric',
+                                                    'price'       => 'required|numeric',
                                                     'stock_quantity' => 'required|integer',
-                                                    'status' => 'required|in:available,out_of_stock,discontinued',
+                                                    'status'      => 'required|in:available,out_of_stock,discontinued',
                                                     'image_base64' => 'nullable|string', // 驗證 Base64 圖片
                                                 ]);
 
@@ -91,7 +93,7 @@
             return response()->json($product, 201);
         }
 
-        // 根據ID顯示單一商品
+        // 顯示單一商品
         public function show($id)
         {
             $product = Product::find($id);
@@ -102,7 +104,6 @@
 
             return response()->json($product);
         }
-
 
         // 更新商品
         public function update(Request $request, $id)
@@ -117,9 +118,9 @@
             $validatedData = $request->validate([
                                                     'category_id' => 'integer',
                                                     'product_name' => 'string|max:255',
-                                                    'price' => 'numeric',
+                                                    'price'       => 'numeric',
                                                     'stock_quantity' => 'integer',
-                                                    'status' => 'in:available,out_of_stock,discontinued',
+                                                    'status'      => 'in:available,out_of_stock,discontinued',
                                                     'image_base64' => 'nullable|string', // 驗證 Base64 圖片
                                                 ]);
 

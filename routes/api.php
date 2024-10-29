@@ -65,3 +65,8 @@ Route::delete('/file-screenshots/{id}', [FileScreenshotController::class, 'destr
 Route::put('/file-screenshots/{id}/cover-image', [FileScreenshotController::class, 'updateCoverImage']);
 Route::put('/file-screenshots/{id}/is-view', [FileScreenshotController::class, 'updateIsView']);
 Route::put('/file-screenshots/{id}/rating', [FileScreenshotController::class, 'updateRating']);
+
+Route::post('/register', [MemberController::class, 'register']);
+Route::get('/verify-email/{token}', [MemberController::class, 'verifyEmail']);
+Route::post('/check-member-exists', [MemberController::class, 'checkMemberExists']);
+Route::post('/check-email-verified', [MemberController::class, 'checkEmailVerified']);

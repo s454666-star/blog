@@ -34,9 +34,9 @@ Route::post('/login', [UserController::class, 'login']);
 // 受保護的路由，需要通過認證
 Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('users', UserController::class);
-    Route::apiResource('products', ProductController::class);
-});
 
+});
+Route::apiResource('products', ProductController::class);
 Route::get('/screenshots', [FileScreenshotController::class, 'index']);  // 列出所有的檔案資料
 Route::put('/screenshots/{id}/rating', [FileScreenshotController::class, 'updateRating']);  // 更新評分
 Route::put('/screenshots/{id}/notes', [FileScreenshotController::class, 'updateNotes']);    // 更新備註

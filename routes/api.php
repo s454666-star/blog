@@ -4,6 +4,7 @@
     use App\Http\Controllers\AlbumController;
     use App\Http\Controllers\AlbumPhotoController;
     use App\Http\Controllers\FileScreenshotController;
+    use App\Http\Controllers\MemberController;
     use App\Http\Controllers\ProductCategoryController;
     use App\Http\Controllers\ProductController;
     use App\Http\Controllers\UserController;

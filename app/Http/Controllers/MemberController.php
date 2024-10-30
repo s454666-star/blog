@@ -13,28 +13,42 @@
         // 會員註冊
         public function register(Request $request)
         {
-            $request->validate([
-                                   'username' => 'required|unique:members',
-                                   'password' => 'required|min:6',
-                                   'name'     => 'required',
-                                   'email'    => 'required|email|unique:members',
-                               ]);
+            \Log::info('Starting registration process.');
 
-            $member = Member::create([
-                                         'username'                 => $request->username,
-                                         'password'                 => Hash::make($request->password),
-                                         'name'                     => $request->name,
-                                         'phone'                    => $request->phone,
-                                         'email'                    => $request->email,
-                                         'address'                  => $request->address,
-                                         'email_verification_token' => Str::random(60),
-                                     ]);
+            $validatedData = $request->validate([
+                                                    'username' => 'required|unique:members',
+                                                    'password' => 'required|min:6',
+                                                    'name'     => 'required',
+                                                    'email'    => 'required|email|unique:members',
+                                                ]);
 
-            // 寄送驗證郵件
-            Mail::send('emails.verify', ['member' => $member], function($message) use ($member) {
-                $message->to($member->email);
-                $message->subject('請驗證您的電子郵件地址');
-            });
+            \Log::info('Validation passed for registration data.');
+
+            try {
+                $member = Member::create([
+                                             'username'                 => $request->username,
+                                             'password'                 => Hash::make($request->password),
+                                             'name'                     => $request->name,
+                                             'phone'                    => $request->phone,
+                                             'email'                    => $request->email,
+                                             'address'                  => $request->address,
+                                             'email_verification_token' => Str::random(60),
+                                         ]);
+
+                \Log::info('Member created successfully with ID: ' . $member->id);
+
+                // 寄送驗證郵件
+                Mail::send('emails.verify', ['member' => $member], function($message) use ($member) {
+                    $message->to($member->email);
+                    $message->subject('請驗證您的電子郵件地址');
+                });
+
+                \Log::info('Verification email sent to: ' . $member->email);
+
+            } catch (\Exception $e) {
+                \Log::error('Error during registration or email sending: ' . $e->getMessage());
+                return response()->json(['message' => '註冊失敗，請稍後再試。'], 500);
+            }
 
             return response()->json(['message' => '註冊成功，請檢查您的電子郵件以完成驗證。']);
         }

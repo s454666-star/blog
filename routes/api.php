@@ -71,3 +71,4 @@ Route::post('/register', [MemberController::class, 'register']);
 Route::get('/verify-email/{token}', [MemberController::class, 'verifyEmail']);
 Route::post('/check-member-exists', [MemberController::class, 'checkMemberExists']);
 Route::post('/check-email-verified', [MemberController::class, 'checkEmailVerified']);
+Route::get('/verify-success', [MemberController::class, 'showVerificationSuccess']);

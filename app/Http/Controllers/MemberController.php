@@ -53,6 +53,11 @@
             return response()->json(['message' => '註冊成功，請檢查您的電子郵件以完成驗證。']);
         }
 
+        public function showVerificationSuccess()
+        {
+            return view('verify_success');
+        }
+
         // 電子郵件驗證
         public function verifyEmail($token)
         {
@@ -66,7 +71,7 @@
             $member->email_verification_token = null;
             $member->save();
 
-            return redirect('/')->with('success', '電子郵件驗證成功！');
+            return redirect('/verify-success')->with('success', '電子郵件驗證成功！');
         }
 
         // 檢查會員是否存在

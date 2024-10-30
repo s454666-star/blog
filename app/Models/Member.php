@@ -16,6 +16,7 @@
             'phone',
             'email',
             'email_verified',
+            'email_verification_token',
             'address',
             'status',
         ];

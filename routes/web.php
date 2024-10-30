@@ -93,3 +93,5 @@ Route::get('/env', function () {
 Route::view('/product-import2', 'fetch-url');
 Route::post('/fetch', [ FetchController::class, 'fetchData' ]);
 Route::get('/verify-success', [MemberController::class, 'showVerificationSuccess'])->name('verify.success');
+Route::get('/already-verified', [MemberController::class, 'showAlreadyVerified'])->name('verify.already');
+

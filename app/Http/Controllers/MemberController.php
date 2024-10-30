@@ -71,6 +71,12 @@
                 return redirect('/')->with('error', '無效的驗證連結。');
             }
 
+            // 檢查是否已經驗證
+            if ($member->email_verified) {
+                return redirect()->route('verify.already')->with('info', '此帳號已經驗證過了。');
+            }
+
+            // 完成驗證過程
             $member->email_verified = 1;
             $member->email_verification_token = null;
             $member->save();
@@ -78,6 +84,11 @@
             return redirect()->route('verify.success')->with('success', '電子郵件驗證成功！');
         }
 
+        public function showAlreadyVerified()
+        {
+            return view('already_verified');
+        }
+        
         // 檢查會員是否存在
         public function checkMemberExists(Request $request)
         {

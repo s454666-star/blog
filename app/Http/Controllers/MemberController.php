@@ -78,7 +78,6 @@
 
             // 完成驗證過程
             $member->email_verified = 1;
-            $member->email_verification_token = null;
             $member->save();
 
             return redirect()->route('verify.success')->with('success', '電子郵件驗證成功！');
@@ -88,7 +87,7 @@
         {
             return view('already_verified');
         }
-        
+
         // 檢查會員是否存在
         public function checkMemberExists(Request $request)
         {

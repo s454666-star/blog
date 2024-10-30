@@ -67,8 +67,14 @@ Route::put('/file-screenshots/{id}/cover-image', [FileScreenshotController::clas
 Route::put('/file-screenshots/{id}/is-view', [FileScreenshotController::class, 'updateIsView']);
 Route::put('/file-screenshots/{id}/rating', [FileScreenshotController::class, 'updateRating']);
 
+
 Route::post('/register', [MemberController::class, 'register']);
 Route::get('/verify-email/{token}', [MemberController::class, 'verifyEmail']);
 Route::post('/check-member-exists', [MemberController::class, 'checkMemberExists']);
 Route::post('/check-email-verified', [MemberController::class, 'checkEmailVerified']);
+
+Route::post('/login', [MemberController::class, 'login']);
+Route::middleware('auth:sanctum')->post('/logout', [MemberController::class, 'logout']);
+Route::middleware('auth:sanctum')->get('/me', [MemberController::class, 'me']);
+
 Route::get('/verify-success', [MemberController::class, 'showVerificationSuccess']);

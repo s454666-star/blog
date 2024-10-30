@@ -68,7 +68,7 @@
             }
 
             $member->email_verified = 1;
-            $member->email_verification_token = null;
+//            $member->email_verification_token = null;
             $member->save();
 
             return redirect('/verify-success')->with('success', '電子郵件驗證成功！');

@@ -71,8 +71,10 @@
 //            $member->email_verification_token = null;
             $member->save();
 
-            return redirect('/verify-success')->with('success', '電子郵件驗證成功！');
+            // 使用命名路由進行重導
+            return redirect()->route('verify.success')->with('success', '電子郵件驗證成功！');
         }
+
 
         // 檢查會員是否存在
         public function checkMemberExists(Request $request)

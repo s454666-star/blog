@@ -7,7 +7,8 @@ use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
 use App\Http\Controllers\LibraryController;
-use App\Http\Controllers\OCRController;
+    use App\Http\Controllers\MemberController;
+    use App\Http\Controllers\OCRController;
 use App\Http\Controllers\PdfController;
 use App\Http\Controllers\PdfController2;
 use App\Http\Controllers\TelegramController;
@@ -91,3 +92,4 @@ Route::get('/env', function () {
 
 Route::view('/product-import2', 'fetch-url');
 Route::post('/fetch', [ FetchController::class, 'fetchData' ]);
+Route::get('/verify-success', [MemberController::class, 'showVerificationSuccess'])->name('verify.success');

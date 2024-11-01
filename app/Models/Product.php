@@ -34,4 +34,9 @@
         {
             return $this->belongsTo(ProductCategory::class, 'category_id');
         }
+
+        public function orderItems()
+        {
+            return $this->hasMany(OrderItem::class);
+        }
     }

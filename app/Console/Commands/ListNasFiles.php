@@ -11,7 +11,7 @@ use App\Models\FileScreenshot;
 class ListNasFiles extends Command
 {
     protected $signature = 'nas:latest-mp4-screenshots';
-    protected $description = '從 R:\\FC2-2024\\精選 資料夾中擷取所有 .mp4 檔案，建立其名稱的資料夾，並每分鐘從影片中擷取一張截圖，如果資料庫中尚無紀錄。';
+    protected $description = '從 R:\\FC2-2023\\精選 資料夾中擷取所有 .mp4 檔案，建立其名稱的資料夾，並每分鐘從影片中擷取一張截圖，如果資料庫中尚無紀錄。';
 
     public function __construct()
     {
@@ -20,7 +20,7 @@ class ListNasFiles extends Command
 
     public function handle()
     {
-        $directory = 'R:\FC2-2024\精選';
+        $directory = 'R:\FC2-2023\精選';
         $domain = 'https://' . env('DOMAIN', 'mystar.monster');
 
         // 檢查資料夾是否存在
@@ -68,8 +68,8 @@ class ListNasFiles extends Command
 
             // 轉換本地路徑為 URL 格式
             $urlFilePath = str_replace(
-                ['R:\FC2-2024\精選', '\\'],
-                [$domain . '/fhd/FC2-2024/%E7%B2%BE%E9%81%B8', '/'],
+                ['R:\FC2-2023\精選', '\\'],
+                [$domain . '/fhd/FC2-2023/%E7%B2%BE%E9%81%B8', '/'],
                 $filePath
             );
 
@@ -110,7 +110,7 @@ class ListNasFiles extends Command
                     ->save($screenshotPath);
 
                 // 將本地圖片路徑轉換成 URL
-                $urlScreenshotPath = $domain . '/fhd/FC2-2024/%E7%B2%BE%E9%81%B8/' . $fileName . '/screenshot_' . $i . '.jpg';
+                $urlScreenshotPath = $domain . '/fhd/FC2-2023/%E7%B2%BE%E9%81%B8/' . $fileName . '/screenshot_' . $i . '.jpg';
 
                 $screenshotPaths[] = $urlScreenshotPath;
                 $this->info('截圖已儲存：' . $urlScreenshotPath);

@@ -26,4 +26,19 @@
             'password',
             'remember_token',
         ];
+
+        public function deliveryAddresses()
+        {
+            return $this->hasMany(DeliveryAddress::class);
+        }
+
+        public function creditCards()
+        {
+            return $this->hasMany(CreditCard::class);
+        }
+
+        public function orders()
+        {
+            return $this->hasMany(Order::class);
+        }
     }

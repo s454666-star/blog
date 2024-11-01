@@ -54,7 +54,6 @@
         {
             $data = $request->validate([
                 'member_id'           => 'required|integer|exists:members,id',
-                'order_number'        => 'required|string|unique:orders,order_number',
                 'status'              => 'required|in:pending,processing,shipped,completed,cancelled',
                 'total_amount'        => 'required|numeric',
                 'payment_method'      => 'required|in:credit_card,bank_transfer,cash_on_delivery',
@@ -63,7 +62,20 @@
                 'credit_card_id'      => 'nullable|integer|exists:credit_cards,id'
             ]);
 
+            // 產生訂單號碼
+            $today     = now()->format('Ymd');  // 格式為 YYYYMMDD
+            $lastOrder = Order::whereDate('created_at', now()->toDateString())
+                ->orderBy('id', 'desc')
+                ->first();
+
+            // 如果今天有訂單，取得最新的訂單並取流水號部分；若無則從00001開始
+            $sequence    = $lastOrder ? intval(substr($lastOrder->order_number, -5)) + 1 : 1;
+            $orderNumber = 'O' . $today . str_pad($sequence, 5, '0', STR_PAD_LEFT);
+
+            $data['order_number'] = $orderNumber;
+
             $order = Order::create($data);
+
             return response()->json($order, 201);
         }
 

@@ -54,27 +54,37 @@
         {
             $data = $request->validate([
                                            'member_id'           => 'required|integer|exists:members,id',
-                                           'status'              => 'required|in:pending,processing,shipped,completed,cancelled',
-                                           'total_amount'        => 'required|numeric',
-                                           'payment_method'      => 'required|in:credit_card,bank_transfer,cash_on_delivery',
-                                           'shipping_fee'        => 'nullable|numeric',
-                                           'delivery_address_id' => 'required|integer|exists:delivery_addresses,id',
-                                           'credit_card_id'      => 'nullable|integer|exists:credit_cards,id',
-                                           'items'               => 'array' // 預期接收的品項資料
+                                           'product_id' => 'required|integer|exists:products,id',
+                                           'quantity'   => 'required|integer|min:1',
+                                           'price'      => 'required|numeric',
                                        ]);
 
-            // 先檢查會員是否已有 pending 狀態的訂單
+            // 檢查會員是否已有 pending 狀態的訂單
             $pendingOrder = Order::where('member_id', $data['member_id'])
                 ->where('status', 'pending')
                 ->first();
 
             if ($pendingOrder) {
-                // 如果有 pending 訂單，則將品項加入到該訂單
-                if (isset($data['items']) && is_array($data['items'])) {
-                    foreach ($data['items'] as $itemData) {
-                        $pendingOrder->orderItems()->create($itemData);
-                    }
+                // 檢查該產品是否已存在於訂單中
+                $orderItem = $pendingOrder->orderItems()->where('product_id', $data['product_id'])->first();
+
+                if ($orderItem) {
+                    // 增加數量
+                    $orderItem->quantity += $data['quantity'];
+                    $orderItem->save();
+                } else {
+                    // 新增品項
+                    $pendingOrder->orderItems()->create([
+                                                            'product_id' => $data['product_id'],
+                                                            'quantity'   => $data['quantity'],
+                                                            'price'      => $data['price'],
+                                                        ]);
                 }
+
+                // 更新訂單總金額
+                $pendingOrder->total_amount += $data['price'] * $data['quantity'];
+                $pendingOrder->save();
+
                 return response()->json($pendingOrder->load('orderItems'), 200);
             }
 
@@ -87,18 +97,50 @@
             $sequence    = $lastOrder ? intval(substr($lastOrder->order_number, -5)) + 1 : 1;
             $orderNumber = 'O' . $today . str_pad($sequence, 5, '0', STR_PAD_LEFT);
             $data['order_number'] = $orderNumber;
+            $data['status'] = 'pending';
+            $data['total_amount'] = $data['price'] * $data['quantity'];
+            $data['payment_method'] = 'cash_on_delivery'; // 預設付款方式，可根據需求調整
+            $data['shipping_fee'] = 0.00;                 // 預設運費，可根據需求調整
+            $data['delivery_address_id'] = 1;             // 預設地址ID，需根據實際情況調整
 
             $order = Order::create($data);
 
             // 將品項加入新建立的訂單
-            if (isset($data['items']) && is_array($data['items'])) {
-                foreach ($data['items'] as $itemData) {
-                    $order->orderItems()->create($itemData);
-                }
-            }
+            $order->orderItems()->create([
+                                             'product_id' => $data['product_id'],
+                                             'quantity'   => $data['quantity'],
+                                             'price'      => $data['price'],
+                                         ]);
 
             return response()->json($order->load('orderItems'), 201);
         }
+
+        public function updateItemQuantity(Request $request, $orderId, $itemId)
+        {
+            $data = $request->validate([
+                                           'quantity' => 'required|integer|min:1',
+                                       ]);
+
+            $order = Order::where('id', $orderId)
+                ->where('status', 'pending')
+                ->firstOrFail();
+
+            $orderItem = $order->orderItems()->where('id', $itemId)->firstOrFail();
+
+            // 計算金額差異
+            $quantityDifference = $data['quantity'] - $orderItem->quantity;
+            $order->total_amount += $orderItem->price * $quantityDifference;
+
+            // 更新數量
+            $orderItem->quantity = $data['quantity'];
+            $orderItem->save();
+
+            // 更新訂單總金額
+            $order->save();
+
+            return response()->json($order->load('orderItems'), 200);
+        }
+
 
         public function update(Request $request, $id)
         {

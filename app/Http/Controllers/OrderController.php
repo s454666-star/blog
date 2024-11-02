@@ -7,10 +7,10 @@
 
     class OrderController extends Controller
     {
-        // 確保使用 auth middleware
+        // 確保使用 Sanctum auth middleware
         public function __construct()
         {
-            $this->middleware('auth:api');
+            $this->middleware('auth:sanctum');
         }
 
         /**
@@ -42,6 +42,9 @@
                 if (isset($filters['q'])) {
                     $q = $filters['q'];
                     $query->where('order_number', 'like', "%{$q}%");
+                }
+                if (isset($filters['status'])) {
+                    $query->where('status', $filters['status']);
                 }
                 // 其他過濾條件可以在這裡添加
             }

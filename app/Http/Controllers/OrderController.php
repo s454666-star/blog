@@ -56,19 +56,15 @@
         public function store(Request $request)
         {
             $data = $request->validate([
-                                           'member_id'      => 'required|integer|exists:members,id',
-                                           'product_id'     => 'required|integer|exists:products,id',
-                                           'quantity'       => 'required|integer|min:1',
-                                           'price'          => 'required|numeric',
+                                           'product_id' => 'required|integer|exists:products,id',
+                                           'quantity'   => 'required|integer|min:1',
+                                           'price'      => 'required|numeric',
                                        ]);
 
-            // 確保使用者只能操作自己的訂單
-            if ($data['member_id'] !== $request->user()->id) {
-                return response()->json(['message' => '無法操作其他使用者的訂單'], 403);
-            }
+            $user = $request->user(); // 獲取當前授權的使用者 ID
 
             // 檢查是否已有 pending 訂單
-            $pendingOrder = Order::where('member_id', $data['member_id'])
+            $pendingOrder = Order::where('member_id', $user->id)
                 ->where('status', 'pending')
                 ->first();
 
@@ -110,6 +106,7 @@
             $data['payment_method'] = 'cash_on_delivery'; // 預設付款方式，可根據需求調整
             $data['shipping_fee'] = 0.00; // 預設運費，可根據需求調整
             $data['delivery_address_id'] = 1; // 預設地址ID，需根據實際情況調整
+            $data['member_id'] = $user->id; // 設置為當前用戶的 ID
 
             $order = Order::create($data);
 
@@ -122,6 +119,7 @@
 
             return response()->json($order->load(['orderItems.product']), 201);
         }
+
 
         /**
          * 更新訂單品項的數量

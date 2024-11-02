@@ -9,6 +9,8 @@
     {
         public function index(Request $request)
         {
+            $user = $request->user(); // 獲取當前授權的使用者
+
             $range = $request->input('range', [0, 49]);
             if (is_string($range)) {
                 $range = json_decode($range, true);
@@ -23,12 +25,16 @@
             $sortField     = $sort[0];
             $sortDirection = strtolower($sort[1] ?? 'asc');
 
-            $query = Order::query();
+            // 僅查詢當前用戶的訂單
+            $query = Order::where('member_id', $user->id);
 
             $filters = $request->input('filter', []);
-            if (!empty($filters) && isset($filters['q'])) {
-                $q = $filters['q'];
-                $query->where('order_number', 'like', "%{$q}%");
+            if (!empty($filters)) {
+                if (isset($filters['q'])) {
+                    $q = $filters['q'];
+                    $query->where('order_number', 'like', "%{$q}%");
+                }
+                // 其他過濾條件可以在這裡添加
             }
 
             $total = $query->count();
@@ -105,7 +111,7 @@
             $data['total_amount'] = $data['price'] * $data['quantity'];
             $data['payment_method'] = 'cash_on_delivery'; // 預設付款方式，可根據需求調整
             $data['shipping_fee'] = 0.00; // 預設運費，可根據需求調整
-            $data['delivery_address_id'] = 1; // 預設地址ID，需根據實際情況調整
+            $data['delivery_address_id'] = null; // 允許 NULL，因為 pending 訂單不需要地址
             $data['member_id'] = $user->id; // 設置為當前用戶的 ID
 
             $order = Order::create($data);

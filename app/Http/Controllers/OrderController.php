@@ -50,16 +50,24 @@
             return response()->json($order, 200);
         }
 
+        /**
+         * 新增或更新購物車（pending 訂單）
+         */
         public function store(Request $request)
         {
             $data = $request->validate([
-                                           'member_id'           => 'required|integer|exists:members,id',
-                                           'product_id' => 'required|integer|exists:products,id',
-                                           'quantity'   => 'required|integer|min:1',
-                                           'price'      => 'required|numeric',
+                                           'member_id'      => 'required|integer|exists:members,id',
+                                           'product_id'     => 'required|integer|exists:products,id',
+                                           'quantity'       => 'required|integer|min:1',
+                                           'price'          => 'required|numeric',
                                        ]);
 
-            // 檢查會員是否已有 pending 狀態的訂單
+            // 確保使用者只能操作自己的訂單
+            if ($data['member_id'] !== $request->user()->id) {
+                return response()->json(['message' => '無法操作其他使用者的訂單'], 403);
+            }
+
+            // 檢查是否已有 pending 訂單
             $pendingOrder = Order::where('member_id', $data['member_id'])
                 ->where('status', 'pending')
                 ->first();
@@ -85,7 +93,7 @@
                 $pendingOrder->total_amount += $data['price'] * $data['quantity'];
                 $pendingOrder->save();
 
-                return response()->json($pendingOrder->load('orderItems'), 200);
+                return response()->json($pendingOrder->load(['orderItems.product']), 200);
             }
 
             // 如果沒有 pending 訂單，則新增一張新的 pending 訂單
@@ -100,8 +108,8 @@
             $data['status'] = 'pending';
             $data['total_amount'] = $data['price'] * $data['quantity'];
             $data['payment_method'] = 'cash_on_delivery'; // 預設付款方式，可根據需求調整
-            $data['shipping_fee'] = 0.00;                 // 預設運費，可根據需求調整
-            $data['delivery_address_id'] = 1;             // 預設地址ID，需根據實際情況調整
+            $data['shipping_fee'] = 0.00; // 預設運費，可根據需求調整
+            $data['delivery_address_id'] = 1; // 預設地址ID，需根據實際情況調整
 
             $order = Order::create($data);
 
@@ -112,16 +120,22 @@
                                              'price'      => $data['price'],
                                          ]);
 
-            return response()->json($order->load('orderItems'), 201);
+            return response()->json($order->load(['orderItems.product']), 201);
         }
 
+        /**
+         * 更新訂單品項的數量
+         */
         public function updateItemQuantity(Request $request, $orderId, $itemId)
         {
             $data = $request->validate([
                                            'quantity' => 'required|integer|min:1',
                                        ]);
 
+            $user = $request->user();
+
             $order = Order::where('id', $orderId)
+                ->where('member_id', $user->id)
                 ->where('status', 'pending')
                 ->firstOrFail();
 
@@ -138,12 +152,18 @@
             // 更新訂單總金額
             $order->save();
 
-            return response()->json($order->load('orderItems'), 200);
+            return response()->json($order->load(['orderItems.product']), 200);
         }
 
-        public function deleteItem($orderId, $itemId)
+        /**
+         * 刪除訂單品項
+         */
+        public function deleteItem(Request $request, $orderId, $itemId)
         {
+            $user = $request->user();
+
             $order = Order::where('id', $orderId)
+                ->where('member_id', $user->id)
                 ->where('status', 'pending')
                 ->firstOrFail();
 
@@ -152,9 +172,8 @@
             $orderItem->delete();
             $order->save();
 
-            return response()->json($order->load('orderItems'), 200);
+            return response()->json($order->load(['orderItems.product']), 200);
         }
-
 
         public function update(Request $request, $id)
         {

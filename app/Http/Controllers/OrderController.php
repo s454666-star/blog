@@ -7,6 +7,15 @@
 
     class OrderController extends Controller
     {
+        // 確保使用 auth middleware
+        public function __construct()
+        {
+            $this->middleware('auth:api');
+        }
+
+        /**
+         * 獲取訂單列表，根據過濾條件
+         */
         public function index(Request $request)
         {
             $user = $request->user(); // 獲取當前授權的使用者
@@ -50,9 +59,17 @@
                 ->header('Access-Control-Expose-Headers', 'X-Total-Count, Content-Range');
         }
 
-        public function show($id)
+        /**
+         * 顯示指定訂單
+         */
+        public function show(Request $request, $id)
         {
-            $order = Order::findOrFail($id);
+            $user = $request->user();
+
+            $order = Order::where('id', $id)
+                ->where('member_id', $user->id)
+                ->firstOrFail();
+
             return response()->json($order, 200);
         }
 
@@ -126,7 +143,6 @@
             return response()->json($order->load(['orderItems.product']), 201);
         }
 
-
         /**
          * 更新訂單品項的數量
          */
@@ -179,34 +195,57 @@
             return response()->json($order->load(['orderItems.product']), 200);
         }
 
+        /**
+         * 更新訂單
+         */
         public function update(Request $request, $id)
         {
-            $order = Order::findOrFail($id);
+            $user = $request->user();
+
+            $order = Order::where('id', $id)
+                ->where('member_id', $user->id)
+                ->firstOrFail();
 
             $data = $request->validate([
-                'status'              => 'in:pending,processing,shipped,completed,cancelled',
-                'total_amount'        => 'numeric',
-                'payment_method'      => 'in:credit_card,bank_transfer,cash_on_delivery',
-                'shipping_fee'        => 'numeric',
-                'delivery_address_id' => 'integer|exists:delivery_addresses,id',
-                'credit_card_id'      => 'integer|exists:credit_cards,id'
-            ]);
+                                           'status'              => 'in:pending,processing,shipped,completed,cancelled',
+                                           'total_amount'        => 'numeric',
+                                           'payment_method'      => 'in:credit_card,bank_transfer,cash_on_delivery',
+                                           'shipping_fee'        => 'numeric',
+                                           'delivery_address_id' => 'nullable|integer|exists:delivery_addresses,id',
+                                           'credit_card_id'      => 'nullable|integer|exists:credit_cards,id'
+                                       ]);
 
             $order->update($data);
             return response()->json($order, 200);
         }
 
-        public function destroy($id)
+        /**
+         * 刪除訂單
+         */
+        public function destroy(Request $request, $id)
         {
-            $order = Order::findOrFail($id);
+            $user = $request->user();
+
+            $order = Order::where('id', $id)
+                ->where('member_id', $user->id)
+                ->firstOrFail();
+
             $order->delete();
             return response()->json(['message' => 'Order deleted successfully'], 200);
         }
 
-        public function processOrder($id)
+        /**
+         * 處理訂單（將狀態從 pending 更新為 processing）
+         */
+        public function processOrder(Request $request, $id)
         {
+            $user = $request->user();
+
             // 查找指定的 pending 訂單
-            $order = Order::where('id', $id)->where('status', 'pending')->firstOrFail();
+            $order = Order::where('id', $id)
+                ->where('member_id', $user->id)
+                ->where('status', 'pending')
+                ->firstOrFail();
 
             // 將訂單狀態更新為 processing
             $order->update(['status' => 'processing']);

@@ -14,7 +14,7 @@
         }
 
         /**
-         * 獲取訂單列表，根據過濾條件
+         * 獲取訂單列表，根據過濾條件，包含訂單明細及產品資料
          */
         public function index(Request $request)
         {
@@ -34,8 +34,9 @@
             $sortField     = $sort[0];
             $sortDirection = strtolower($sort[1] ?? 'asc');
 
-            // 僅查詢當前用戶的訂單
-            $query = Order::where('member_id', $user->id);
+            // 僅查詢當前用戶的訂單，並載入訂單明細及產品資料
+            $query = Order::where('member_id', $user->id)
+                ->with(['orderItems.product']);
 
             $filters = $request->input('filter', []);
             if (!empty($filters)) {
@@ -63,7 +64,7 @@
         }
 
         /**
-         * 顯示指定訂單
+         * 顯示指定訂單，包含訂單明細及產品資料
          */
         public function show(Request $request, $id)
         {
@@ -71,6 +72,7 @@
 
             $order = Order::where('id', $id)
                 ->where('member_id', $user->id)
+                ->with(['orderItems.product'])
                 ->firstOrFail();
 
             return response()->json($order, 200);
@@ -219,7 +221,7 @@
                                        ]);
 
             $order->update($data);
-            return response()->json($order, 200);
+            return response()->json($order->load(['orderItems.product']), 200);
         }
 
         /**
@@ -253,6 +255,6 @@
             // 將訂單狀態更新為 processing
             $order->update(['status' => 'processing']);
 
-            return response()->json($order, 200);
+            return response()->json($order->load(['orderItems.product']), 200);
         }
     }

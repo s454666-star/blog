@@ -53,30 +53,51 @@
         public function store(Request $request)
         {
             $data = $request->validate([
-                'member_id'           => 'required|integer|exists:members,id',
-                'status'              => 'required|in:pending,processing,shipped,completed,cancelled',
-                'total_amount'        => 'required|numeric',
-                'payment_method'      => 'required|in:credit_card,bank_transfer,cash_on_delivery',
-                'shipping_fee'        => 'nullable|numeric',
-                'delivery_address_id' => 'required|integer|exists:delivery_addresses,id',
-                'credit_card_id'      => 'nullable|integer|exists:credit_cards,id'
-            ]);
+                                           'member_id'           => 'required|integer|exists:members,id',
+                                           'status'              => 'required|in:pending,processing,shipped,completed,cancelled',
+                                           'total_amount'        => 'required|numeric',
+                                           'payment_method'      => 'required|in:credit_card,bank_transfer,cash_on_delivery',
+                                           'shipping_fee'        => 'nullable|numeric',
+                                           'delivery_address_id' => 'required|integer|exists:delivery_addresses,id',
+                                           'credit_card_id'      => 'nullable|integer|exists:credit_cards,id',
+                                           'items'               => 'array' // 預期接收的品項資料
+                                       ]);
 
-            // 產生訂單號碼
-            $today     = now()->format('Ymd');  // 格式為 YYYYMMDD
+            // 先檢查會員是否已有 pending 狀態的訂單
+            $pendingOrder = Order::where('member_id', $data['member_id'])
+                ->where('status', 'pending')
+                ->first();
+
+            if ($pendingOrder) {
+                // 如果有 pending 訂單，則將品項加入到該訂單
+                if (isset($data['items']) && is_array($data['items'])) {
+                    foreach ($data['items'] as $itemData) {
+                        $pendingOrder->orderItems()->create($itemData);
+                    }
+                }
+                return response()->json($pendingOrder->load('orderItems'), 200);
+            }
+
+            // 如果沒有 pending 訂單，則新增一張新的 pending 訂單
+            $today = now()->format('Ymd');
             $lastOrder = Order::whereDate('created_at', now()->toDateString())
                 ->orderBy('id', 'desc')
                 ->first();
 
-            // 如果今天有訂單，取得最新的訂單並取流水號部分；若無則從00001開始
             $sequence    = $lastOrder ? intval(substr($lastOrder->order_number, -5)) + 1 : 1;
             $orderNumber = 'O' . $today . str_pad($sequence, 5, '0', STR_PAD_LEFT);
-
             $data['order_number'] = $orderNumber;
 
             $order = Order::create($data);
 
-            return response()->json($order, 201);
+            // 將品項加入新建立的訂單
+            if (isset($data['items']) && is_array($data['items'])) {
+                foreach ($data['items'] as $itemData) {
+                    $order->orderItems()->create($itemData);
+                }
+            }
+
+            return response()->json($order->load('orderItems'), 201);
         }
 
         public function update(Request $request, $id)
@@ -101,5 +122,16 @@
             $order = Order::findOrFail($id);
             $order->delete();
             return response()->json(['message' => 'Order deleted successfully'], 200);
+        }
+
+        public function processOrder($id)
+        {
+            // 查找指定的 pending 訂單
+            $order = Order::where('id', $id)->where('status', 'pending')->firstOrFail();
+
+            // 將訂單狀態更新為 processing
+            $order->update(['status' => 'processing']);
+
+            return response()->json($order, 200);
         }
     }

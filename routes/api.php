@@ -88,4 +88,5 @@
         Route::apiResource('delivery-addresses', DeliveryAddressController::class);
         Route::post('/orders/{id}/process', [OrderController::class, 'processOrder']);
         Route::put('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateItemQuantity']);
+        Route::delete('/orders/{orderId}/items/{itemId}', [OrderController::class, 'deleteItem']);
     });

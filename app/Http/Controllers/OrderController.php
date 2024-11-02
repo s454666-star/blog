@@ -141,6 +141,20 @@
             return response()->json($order->load('orderItems'), 200);
         }
 
+        public function deleteItem($orderId, $itemId)
+        {
+            $order = Order::where('id', $orderId)
+                ->where('status', 'pending')
+                ->firstOrFail();
+
+            $orderItem = $order->orderItems()->where('id', $itemId)->firstOrFail();
+            $order->total_amount -= $orderItem->price * $orderItem->quantity;
+            $orderItem->delete();
+            $order->save();
+
+            return response()->json($order->load('orderItems'), 200);
+        }
+
 
         public function update(Request $request, $id)
         {

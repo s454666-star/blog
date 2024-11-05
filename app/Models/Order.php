@@ -3,34 +3,40 @@
     namespace App\Models;
 
     use Illuminate\Database\Eloquent\Model;
-    use Illuminate\Database\Eloquent\Factories\HasFactory;
 
     class Order extends Model
     {
-        use HasFactory;
-
-        protected $table = 'orders';
-
         protected $fillable = [
-            'member_id', 'order_number', 'status', 'total_amount',
-            'payment_method', 'shipping_fee', 'delivery_address_id', 'credit_card_id'
+            'member_id',
+            'order_number',
+            'order_date',
+            'status',
+            'total_amount',
+            'payment_method',
+            'shipping_fee',
+            'delivery_address_id',
+            'credit_card_id',
         ];
 
+        // 訂單屬於一個會員
         public function member()
         {
-            return $this->belongsTo(Member::class);
+            return $this->belongsTo(Member::class, 'member_id');
         }
 
+        // 訂單屬於一個配送地址
         public function deliveryAddress()
         {
-            return $this->belongsTo(DeliveryAddress::class);
+            return $this->belongsTo(DeliveryAddress::class, 'delivery_address_id');
         }
 
+        // 訂單屬於一個信用卡（如果適用）
         public function creditCard()
         {
-            return $this->belongsTo(CreditCard::class);
+            return $this->belongsTo(CreditCard::class, 'credit_card_id');
         }
 
+        // 訂單有多個訂單品項
         public function orderItems()
         {
             return $this->hasMany(OrderItem::class);

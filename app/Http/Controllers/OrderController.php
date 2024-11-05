@@ -41,11 +41,21 @@
             // 判斷用戶角色
             if ($user->role === 'admin') {
                 // 管理員可以查看所有訂單
-                $query = Order::with(['orderItems.product']);
+                $query = Order::with([
+                                         'orderItems.product',
+                                         'member',
+                                         'deliveryAddress',
+                                         'creditCard',
+                                     ]);
             } else {
                 // 一般用戶僅查看自己的訂單
                 $query = Order::where('member_id', $user->id)
-                    ->with(['orderItems.product']);
+                    ->with([
+                               'orderItems.product',
+                               'member',
+                               'deliveryAddress',
+                               'creditCard',
+                           ]);
             }
 
             // 處理過濾
@@ -84,14 +94,22 @@
         {
             $user = $request->user();
 
-            $query = Order::where('id', $id)
-                ->with(['orderItems.product']);
-
-
-            $order = $query->first();
+            $order = Order::where('id', $id)
+                ->with([
+                           'orderItems.product',
+                           'member',
+                           'deliveryAddress',
+                           'creditCard',
+                       ])
+                ->first();
 
             if (!$order) {
                 return response()->json(['message' => 'Order not found'], 404);
+            }
+
+            // 如果用戶不是管理員，且訂單不屬於該用戶，則拒絕訪問
+            if ($user->role !== 'admin' && $order->member_id !== $user->id) {
+                return response()->json(['message' => 'Unauthorized'], 403);
             }
 
             return response()->json($order, 200);
@@ -106,6 +124,7 @@
                                            'product_id' => 'required|integer|exists:products,id',
                                            'quantity'   => 'required|integer|min:1',
                                            'price'      => 'required|numeric',
+                                           'delivery_address_id' => 'nullable|integer|exists:delivery_addresses,id',
                                        ]);
 
             $user = $request->user(); // 獲取當前授權的使用者 ID
@@ -136,7 +155,12 @@
                 $pendingOrder->total_amount += $data['price'] * $data['quantity'];
                 $pendingOrder->save();
 
-                return response()->json($pendingOrder->load(['orderItems.product']), 200);
+                return response()->json($pendingOrder->load([
+                                                                'orderItems.product',
+                                                                'member',
+                                                                'deliveryAddress',
+                                                                'creditCard',
+                                                            ]), 200);
             }
 
             // 如果沒有 pending 訂單，則新增一張新的 pending 訂單
@@ -152,7 +176,7 @@
             $data['total_amount'] = $data['price'] * $data['quantity'];
             $data['payment_method'] = 'cash_on_delivery'; // 預設付款方式，可根據需求調整
             $data['shipping_fee'] = 0.00; // 預設運費，可根據需求調整
-            $data['delivery_address_id'] = null; // 允許 NULL，因為 pending 訂單不需要地址
+            $data['delivery_address_id'] = $data['delivery_address_id'] ?? null; // 使用傳入的配送地址或 null
             $data['member_id'] = $user->id; // 設置為當前用戶的 ID
 
             $order = Order::create($data);
@@ -164,7 +188,12 @@
                                              'price'      => $data['price'],
                                          ]);
 
-            return response()->json($order->load(['orderItems.product']), 201);
+            return response()->json($order->load([
+                                                     'orderItems.product',
+                                                     'member',
+                                                     'deliveryAddress',
+                                                     'creditCard',
+                                                 ]), 201);
         }
 
         /**
@@ -196,7 +225,12 @@
             // 更新訂單總金額
             $order->save();
 
-            return response()->json($order->load(['orderItems.product']), 200);
+            return response()->json($order->load([
+                                                     'orderItems.product',
+                                                     'member',
+                                                     'deliveryAddress',
+                                                     'creditCard',
+                                                 ]), 200);
         }
 
         /**
@@ -216,7 +250,12 @@
             $orderItem->delete();
             $order->save();
 
-            return response()->json($order->load(['orderItems.product']), 200);
+            return response()->json($order->load([
+                                                     'orderItems.product',
+                                                     'member',
+                                                     'deliveryAddress',
+                                                     'creditCard',
+                                                 ]), 200);
         }
 
         /**
@@ -226,8 +265,12 @@
         {
             $user = $request->user();
 
-
             $order = Order::findOrFail($id);
+
+            // 如果用戶不是管理員，且訂單不屬於該用戶，則拒絕訪問
+            if ($user->role !== 'admin' && $order->member_id !== $user->id) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
 
             $data = $request->validate([
                                            'status'              => 'in:pending,processing,shipped,completed,cancelled',
@@ -235,11 +278,17 @@
                                            'payment_method'      => 'in:credit_card,bank_transfer,cash_on_delivery',
                                            'shipping_fee'        => 'numeric',
                                            'delivery_address_id' => 'nullable|integer|exists:delivery_addresses,id',
-                                           'credit_card_id'      => 'nullable|integer|exists:credit_cards,id'
+                                           'credit_card_id'      => 'nullable|integer|exists:credit_cards,id',
                                        ]);
 
             $order->update($data);
-            return response()->json($order->load(['orderItems.product']), 200);
+
+            return response()->json($order->load([
+                                                     'orderItems.product',
+                                                     'member',
+                                                     'deliveryAddress',
+                                                     'creditCard',
+                                                 ]), 200);
         }
 
         /**
@@ -249,8 +298,13 @@
         {
             $user = $request->user();
 
-
             $order = Order::findOrFail($id);
+
+            // 如果用戶不是管理員，且訂單不屬於該用戶，則拒絕刪除
+            if ($user->role !== 'admin' && $order->member_id !== $user->id) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+
             $order->delete();
 
             return response()->json(['message' => 'Order deleted successfully'], 200);
@@ -263,15 +317,24 @@
         {
             $user = $request->user();
 
-
             // 查找指定的 pending 訂單
             $order = Order::where('id', $id)
                 ->where('status', 'pending')
                 ->firstOrFail();
 
+            // 如果用戶不是管理員，且訂單不屬於該用戶，則拒絕處理
+            if ($user->role !== 'admin' && $order->member_id !== $user->id) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+
             // 將訂單狀態更新為 processing
             $order->update(['status' => 'processing']);
 
-            return response()->json($order->load(['orderItems.product']), 200);
+            return response()->json($order->load([
+                                                     'orderItems.product',
+                                                     'member',
+                                                     'deliveryAddress',
+                                                     'creditCard',
+                                                 ]), 200);
         }
     }

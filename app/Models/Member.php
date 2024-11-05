@@ -2,14 +2,10 @@
 
     namespace App\Models;
 
-    use Illuminate\Foundation\Auth\User as Authenticatable;
-    use Illuminate\Notifications\Notifiable;
-    use Laravel\Sanctum\HasApiTokens; // 引入 Sanctum 套件
+    use Illuminate\Database\Eloquent\Model;
 
-    class Member extends Authenticatable
+    class Member extends Model
     {
-        use Notifiable, HasApiTokens;
-
         protected $fillable = [
             'username',
             'password',
@@ -17,28 +13,20 @@
             'phone',
             'email',
             'email_verified',
-            'email_verification_token',
             'address',
+            'email_verification_token',
             'status',
         ];
 
-        protected $hidden = [
-            'password',
-            'remember_token',
-        ];
-
-        public function deliveryAddresses()
-        {
-            return $this->hasMany(DeliveryAddress::class);
-        }
-
-        public function creditCards()
-        {
-            return $this->hasMany(CreditCard::class);
-        }
-
+        // 會員有多個訂單
         public function orders()
         {
-            return $this->hasMany(Order::class);
+            return $this->hasMany(Order::class, 'member_id');
+        }
+
+        // 會員有多個配送地址
+        public function deliveryAddresses()
+        {
+            return $this->hasMany(DeliveryAddress::class, 'member_id');
         }
     }

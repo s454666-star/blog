@@ -17,7 +17,6 @@
             $this->middleware('auth:sanctum')->except(['register', 'login', 'verifyEmail', 'checkMemberExists', 'checkEmailVerified']);
         }
 
-        // 現有功能保持不變
         // 會員註冊
         public function register(Request $request)
         {
@@ -43,7 +42,6 @@
                                              'email_verification_token' => Str::random(60),
                                              'email_verified'           => false,
                                              'status'                   => 'active',
-                                             'is_admin'                 => false, // 預設為非管理員
                                          ]);
 
                 \Log::info('Member created successfully with ID: ' . $member->id);
@@ -85,7 +83,7 @@
             }
 
             // 完成驗證過程
-            $member->email_verified = 1;
+            $member->email_verified = true;
             $member->save();
 
             return redirect()->route('verify.success')->with('success', '電子郵件驗證成功！');
@@ -146,7 +144,6 @@
                                             'username'       => $member->username,
                                             'email'          => $member->email,
                                             'email_verified' => $member->email_verified,
-                                            'is_admin'       => $member->is_admin,
                                         ],
                                     ]);
         }
@@ -167,21 +164,17 @@
                                         'username'       => $request->user()->username,
                                         'email'          => $request->user()->email,
                                         'email_verified' => $request->user()->email_verified,
-                                        'is_admin'       => $request->user()->is_admin,
                                     ]);
         }
 
         /**
-         * 管理員 - 獲取所有會員，支援篩選、排序和分頁
+         * 獲取會員列表
+         * - 管理員：獲取所有會員
+         * - 非管理員：只能獲取自己的會員資訊
          */
-        public function adminIndex(Request $request)
+        public function index(Request $request)
         {
-            $user = $request->user();
-
-            // 檢查是否為管理員
-            if (!$user->is_admin) {
-                return response()->json(['message' => 'Unauthorized.'], 403);
-            }
+            $user = $request->user(); // 獲取當前授權的使用者
 
             // 解析範圍
             $range = $request->input('range', [0, 49]);
@@ -199,7 +192,15 @@
             $sortField     = $sort[0];
             $sortDirection = strtolower($sort[1] ?? 'asc');
 
-            $query = Member::query();
+            // 判斷用戶角色
+            if ($user->role === 'admin') {
+                // 管理員可以查看所有會員
+                $query = Member::with(['deliveryAddresses']);
+            } else {
+                // 非管理員只能查看自己的會員資訊
+                $query = Member::where('id', $user->member_id)
+                    ->with(['deliveryAddresses']);
+            }
 
             // 處理過濾
             $filters = $request->input('filter', []);
@@ -232,14 +233,38 @@
         }
 
         /**
-         * 管理員 - 創建會員
+         * 顯示指定會員資訊
+         * - 管理員：可以查看任何會員
+         * - 非管理員：只能查看自己的會員資訊
          */
-        public function adminStore(Request $request)
+        public function show(Request $request, $id)
+        {
+            $user = $request->user();
+
+            $member = Member::with(['deliveryAddresses'])->find($id);
+
+            if (!$member) {
+                return response()->json(['message' => 'Member not found'], 404);
+            }
+
+            // 如果用戶不是管理員，且會員ID不匹配，則拒絕訪問
+            if ($user->role !== 'admin' && $member->id !== $user->member_id) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+
+            return response()->json($member, 200);
+        }
+
+        /**
+         * 創建會員
+         * - 只有管理員可以創建會員
+         */
+        public function store(Request $request)
         {
             $user = $request->user();
 
             // 檢查是否為管理員
-            if (!$user->is_admin) {
+            if ($user->role !== 'admin') {
                 return response()->json(['message' => 'Unauthorized.'], 403);
             }
 
@@ -250,7 +275,6 @@
                                            'email'    => 'required|email|unique:members',
                                            'phone'    => 'nullable|string',
                                            'address'  => 'nullable|string',
-                                           'is_admin' => 'boolean',
                                            'status'   => 'in:active,inactive',
                                        ]);
 
@@ -260,39 +284,34 @@
 
             $member = Member::create($data);
 
+            // 可選：寄送驗證郵件
+            Mail::send('emails.verify', ['member' => $member], function($message) use ($member) {
+                $message->to($member->email);
+                $message->subject('請驗證您的電子郵件地址');
+            });
+
             return response()->json($member, 201);
         }
 
         /**
-         * 管理員 - 顯示指定會員
+         * 更新會員資訊
+         * - 管理員可以更新任何會員
+         * - 非管理員只能更新自己的會員資訊
          */
-        public function adminShow(Request $request, $id)
+        public function update(Request $request, $id)
         {
             $user = $request->user();
 
-            // 檢查是否為管理員
-            if (!$user->is_admin) {
-                return response()->json(['message' => 'Unauthorized.'], 403);
+            $member = Member::find($id);
+
+            if (!$member) {
+                return response()->json(['message' => 'Member not found'], 404);
             }
 
-            $member = Member::findOrFail($id);
-
-            return response()->json($member, 200);
-        }
-
-        /**
-         * 管理員 - 更新會員
-         */
-        public function adminUpdate(Request $request, $id)
-        {
-            $user = $request->user();
-
-            // 檢查是否為管理員
-            if (!$user->is_admin) {
-                return response()->json(['message' => 'Unauthorized.'], 403);
+            // 如果用戶不是管理員，且會員ID不匹配，則拒絕訪問
+            if ($user->role !== 'admin' && $member->id !== $user->member_id) {
+                return response()->json(['message' => 'Unauthorized'], 403);
             }
-
-            $member = Member::findOrFail($id);
 
             $data = $request->validate([
                                            'username' => 'sometimes|required|unique:members,username,' . $member->id,
@@ -301,7 +320,6 @@
                                            'email'    => 'sometimes|required|email|unique:members,email,' . $member->id,
                                            'phone'    => 'nullable|string',
                                            'address'  => 'nullable|string',
-                                           'is_admin' => 'boolean',
                                            'status'   => 'in:active,inactive',
                                        ]);
 
@@ -315,18 +333,24 @@
         }
 
         /**
-         * 管理員 - 刪除會員
+         * 刪除會員
+         * - 只有管理員可以刪除會員
          */
-        public function adminDestroy(Request $request, $id)
+        public function destroy(Request $request, $id)
         {
             $user = $request->user();
 
             // 檢查是否為管理員
-            if (!$user->is_admin) {
+            if ($user->role !== 'admin') {
                 return response()->json(['message' => 'Unauthorized.'], 403);
             }
 
-            $member = Member::findOrFail($id);
+            $member = Member::find($id);
+
+            if (!$member) {
+                return response()->json(['message' => 'Member not found'], 404);
+            }
+
             $member->delete();
 
             return response()->json(['message' => 'Member deleted successfully'], 200);

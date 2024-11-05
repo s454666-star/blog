@@ -14,12 +14,15 @@
         }
 
         /**
-         * 獲取訂單列表，根據過濾條件，包含訂單明細及產品資料
+         * 獲取訂單列表，根據用戶角色顯示不同的數據
+         * - 管理員：獲取所有訂單
+         * - 一般用戶：僅獲取自己的訂單
          */
         public function index(Request $request)
         {
             $user = $request->user(); // 獲取當前授權的使用者
 
+            // 解析範圍
             $range = $request->input('range', [0, 49]);
             if (is_string($range)) {
                 $range = json_decode($range, true);
@@ -27,6 +30,7 @@
             $from = $range[0];
             $to   = $range[1];
 
+            // 解析排序
             $sort = $request->input('sort', ['id', 'asc']);
             if (is_string($sort)) {
                 $sort = json_decode($sort, true);
@@ -34,10 +38,17 @@
             $sortField     = $sort[0];
             $sortDirection = strtolower($sort[1] ?? 'asc');
 
-            // 僅查詢當前用戶的訂單，並載入訂單明細及產品資料
-            $query = Order::where('member_id', $user->id)
-                ->with(['orderItems.product']);
+            // 判斷用戶角色
+            if ($user->is_admin) {
+                // 管理員可以查看所有訂單
+                $query = Order::with(['orderItems.product']);
+            } else {
+                // 一般用戶僅查看自己的訂單
+                $query = Order::where('member_id', $user->id)
+                    ->with(['orderItems.product']);
+            }
 
+            // 處理過濾
             $filters = $request->input('filter', []);
             if (!empty($filters)) {
                 if (isset($filters['q'])) {
@@ -47,7 +58,10 @@
                 if (isset($filters['status'])) {
                     $query->where('status', $filters['status']);
                 }
-                // 其他過濾條件可以在這裡添加
+                if (isset($filters['member_id']) && $user->is_admin) {
+                    $query->where('member_id', $filters['member_id']);
+                }
+                // 可以在此處添加更多的過濾條件
             }
 
             $total = $query->count();
@@ -70,10 +84,15 @@
         {
             $user = $request->user();
 
-            $order = Order::where('id', $id)
-                ->where('member_id', $user->id)
-                ->with(['orderItems.product'])
-                ->firstOrFail();
+            $query = Order::where('id', $id)
+                ->with(['orderItems.product']);
+
+
+            $order = $query->first();
+
+            if (!$order) {
+                return response()->json(['message' => 'Order not found'], 404);
+            }
 
             return response()->json($order, 200);
         }
@@ -207,9 +226,8 @@
         {
             $user = $request->user();
 
-            $order = Order::where('id', $id)
-                ->where('member_id', $user->id)
-                ->firstOrFail();
+
+            $order = Order::findOrFail($id);
 
             $data = $request->validate([
                                            'status'              => 'in:pending,processing,shipped,completed,cancelled',
@@ -231,11 +249,10 @@
         {
             $user = $request->user();
 
-            $order = Order::where('id', $id)
-                ->where('member_id', $user->id)
-                ->firstOrFail();
 
+            $order = Order::findOrFail($id);
             $order->delete();
+
             return response()->json(['message' => 'Order deleted successfully'], 200);
         }
 
@@ -246,9 +263,9 @@
         {
             $user = $request->user();
 
+
             // 查找指定的 pending 訂單
             $order = Order::where('id', $id)
-                ->where('member_id', $user->id)
                 ->where('status', 'pending')
                 ->firstOrFail();
 

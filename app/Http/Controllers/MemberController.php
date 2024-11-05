@@ -11,6 +11,13 @@
 
     class MemberController extends Controller
     {
+        // 會員註冊、登入等功能
+        public function __construct()
+        {
+            $this->middleware('auth:sanctum')->except(['register', 'login', 'verifyEmail', 'checkMemberExists', 'checkEmailVerified']);
+        }
+
+        // 現有功能保持不變
         // 會員註冊
         public function register(Request $request)
         {
@@ -36,6 +43,7 @@
                                              'email_verification_token' => Str::random(60),
                                              'email_verified'           => false,
                                              'status'                   => 'active',
+                                             'is_admin'                 => false, // 預設為非管理員
                                          ]);
 
                 \Log::info('Member created successfully with ID: ' . $member->id);
@@ -138,6 +146,7 @@
                                             'username'       => $member->username,
                                             'email'          => $member->email,
                                             'email_verified' => $member->email_verified,
+                                            'is_admin'       => $member->is_admin,
                                         ],
                                     ]);
         }
@@ -158,6 +167,168 @@
                                         'username'       => $request->user()->username,
                                         'email'          => $request->user()->email,
                                         'email_verified' => $request->user()->email_verified,
+                                        'is_admin'       => $request->user()->is_admin,
                                     ]);
+        }
+
+        /**
+         * 管理員 - 獲取所有會員，支援篩選、排序和分頁
+         */
+        public function adminIndex(Request $request)
+        {
+            $user = $request->user();
+
+            // 檢查是否為管理員
+            if (!$user->is_admin) {
+                return response()->json(['message' => 'Unauthorized.'], 403);
+            }
+
+            // 解析範圍
+            $range = $request->input('range', [0, 49]);
+            if (is_string($range)) {
+                $range = json_decode($range, true);
+            }
+            $from = $range[0];
+            $to   = $range[1];
+
+            // 解析排序
+            $sort = $request->input('sort', ['id', 'asc']);
+            if (is_string($sort)) {
+                $sort = json_decode($sort, true);
+            }
+            $sortField     = $sort[0];
+            $sortDirection = strtolower($sort[1] ?? 'asc');
+
+            $query = Member::query();
+
+            // 處理過濾
+            $filters = $request->input('filter', []);
+            if (!empty($filters)) {
+                if (isset($filters['q'])) {
+                    $q = $filters['q'];
+                    $query->where(function($subQuery) use ($q) {
+                        $subQuery->where('username', 'like', "%{$q}%")
+                            ->orWhere('name', 'like', "%{$q}%")
+                            ->orWhere('email', 'like', "%{$q}%");
+                    });
+                }
+                if (isset($filters['status'])) {
+                    $query->where('status', $filters['status']);
+                }
+                // 可以在此處添加更多的過濾條件
+            }
+
+            $total = $query->count();
+
+            $members = $query->orderBy($sortField, $sortDirection)
+                ->skip($from)
+                ->take($to - $from + 1)
+                ->get();
+
+            return response()->json($members, 200)
+                ->header('X-Total-Count', $total)
+                ->header('Content-Range', "items {$from}-{$to}/{$total}")
+                ->header('Access-Control-Expose-Headers', 'X-Total-Count, Content-Range');
+        }
+
+        /**
+         * 管理員 - 創建會員
+         */
+        public function adminStore(Request $request)
+        {
+            $user = $request->user();
+
+            // 檢查是否為管理員
+            if (!$user->is_admin) {
+                return response()->json(['message' => 'Unauthorized.'], 403);
+            }
+
+            $data = $request->validate([
+                                           'username' => 'required|unique:members',
+                                           'password' => 'required|min:6',
+                                           'name'     => 'required',
+                                           'email'    => 'required|email|unique:members',
+                                           'phone'    => 'nullable|string',
+                                           'address'  => 'nullable|string',
+                                           'is_admin' => 'boolean',
+                                           'status'   => 'in:active,inactive',
+                                       ]);
+
+            $data['password'] = Hash::make($data['password']);
+            $data['email_verification_token'] = Str::random(60);
+            $data['email_verified'] = false;
+
+            $member = Member::create($data);
+
+            return response()->json($member, 201);
+        }
+
+        /**
+         * 管理員 - 顯示指定會員
+         */
+        public function adminShow(Request $request, $id)
+        {
+            $user = $request->user();
+
+            // 檢查是否為管理員
+            if (!$user->is_admin) {
+                return response()->json(['message' => 'Unauthorized.'], 403);
+            }
+
+            $member = Member::findOrFail($id);
+
+            return response()->json($member, 200);
+        }
+
+        /**
+         * 管理員 - 更新會員
+         */
+        public function adminUpdate(Request $request, $id)
+        {
+            $user = $request->user();
+
+            // 檢查是否為管理員
+            if (!$user->is_admin) {
+                return response()->json(['message' => 'Unauthorized.'], 403);
+            }
+
+            $member = Member::findOrFail($id);
+
+            $data = $request->validate([
+                                           'username' => 'sometimes|required|unique:members,username,' . $member->id,
+                                           'password' => 'sometimes|required|min:6',
+                                           'name'     => 'sometimes|required',
+                                           'email'    => 'sometimes|required|email|unique:members,email,' . $member->id,
+                                           'phone'    => 'nullable|string',
+                                           'address'  => 'nullable|string',
+                                           'is_admin' => 'boolean',
+                                           'status'   => 'in:active,inactive',
+                                       ]);
+
+            if (isset($data['password'])) {
+                $data['password'] = Hash::make($data['password']);
+            }
+
+            $member->update($data);
+
+            return response()->json($member, 200);
+        }
+
+        /**
+         * 管理員 - 刪除會員
+         */
+        public function adminDestroy(Request $request, $id)
+        {
+            $user = $request->user();
+
+            // 檢查是否為管理員
+            if (!$user->is_admin) {
+                return response()->json(['message' => 'Unauthorized.'], 403);
+            }
+
+            $member = Member::findOrFail($id);
+            $member->delete();
+
+            return response()->json(['message' => 'Member deleted successfully'], 200);
         }
     }

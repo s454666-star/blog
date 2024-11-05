@@ -17,6 +17,7 @@
          * 獲取訂單列表，根據用戶角色顯示不同的數據
          * - 管理員：獲取所有訂單
          * - 一般用戶：僅獲取自己的訂單
+         * 並帶出配送地址
          */
         public function index(Request $request)
         {
@@ -44,8 +45,9 @@
                 $query = Order::with([
                                          'orderItems.product',
                                          'member',
-                                         'deliveryAddress',
                                          'creditCard',
+                                         'deliveryAddress',
+                                         'member.defaultDeliveryAddress',
                                      ]);
             } else {
                 // 一般用戶僅查看自己的訂單
@@ -53,8 +55,9 @@
                     ->with([
                                'orderItems.product',
                                'member',
-                               'deliveryAddress',
                                'creditCard',
+                               'deliveryAddress',
+                               'member.defaultDeliveryAddress',
                            ]);
             }
 
@@ -81,6 +84,18 @@
                 ->take($to - $from + 1)
                 ->get();
 
+            // 處理每個訂單的配送地址
+            $orders->map(function ($order) use ($user) {
+                if (!$order->deliveryAddress) {
+                    // 如果訂單沒有指定配送地址，使用會員的默認地址
+                    $defaultAddress = $order->member->defaultDeliveryAddress;
+                    if ($defaultAddress) {
+                        $order->deliveryAddress = $defaultAddress;
+                    }
+                }
+                return $order;
+            });
+
             return response()->json($orders, 200)
                 ->header('X-Total-Count', $total)
                 ->header('Content-Range', "items {$from}-{$to}/{$total}")
@@ -100,6 +115,7 @@
                            'member',
                            'deliveryAddress',
                            'creditCard',
+                           'member.defaultDeliveryAddress',
                        ])
                 ->first();
 
@@ -112,6 +128,14 @@
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
+            // 處理配送地址
+            if (!$order->deliveryAddress) {
+                $defaultAddress = $order->member->defaultDeliveryAddress;
+                if ($defaultAddress) {
+                    $order->deliveryAddress = $defaultAddress;
+                }
+            }
+
             return response()->json($order, 200);
         }
 
@@ -121,10 +145,10 @@
         public function store(Request $request)
         {
             $data = $request->validate([
-                                           'product_id' => 'required|integer|exists:products,id',
-                                           'quantity'   => 'required|integer|min:1',
-                                           'price'      => 'required|numeric',
-                                           'delivery_address_id' => 'nullable|integer|exists:delivery_addresses,id',
+                                           'product_id'           => 'required|integer|exists:products,id',
+                                           'quantity'             => 'required|integer|min:1',
+                                           'price'                => 'required|numeric',
+                                           'delivery_address_id'  => 'nullable|integer|exists:delivery_addresses,id',
                                        ]);
 
             $user = $request->user(); // 獲取當前授權的使用者 ID
@@ -153,6 +177,10 @@
 
                 // 更新訂單總金額
                 $pendingOrder->total_amount += $data['price'] * $data['quantity'];
+                // 更新配送地址
+                if (isset($data['delivery_address_id'])) {
+                    $pendingOrder->delivery_address_id = $data['delivery_address_id'];
+                }
                 $pendingOrder->save();
 
                 return response()->json($pendingOrder->load([
@@ -171,13 +199,13 @@
 
             $sequence    = $lastOrder ? intval(substr($lastOrder->order_number, -5)) + 1 : 1;
             $orderNumber = 'O' . $today . str_pad($sequence, 5, '0', STR_PAD_LEFT);
-            $data['order_number'] = $orderNumber;
-            $data['status'] = 'pending';
-            $data['total_amount'] = $data['price'] * $data['quantity'];
-            $data['payment_method'] = 'cash_on_delivery'; // 預設付款方式，可根據需求調整
-            $data['shipping_fee'] = 0.00; // 預設運費，可根據需求調整
+            $data['order_number']     = $orderNumber;
+            $data['status']           = 'pending';
+            $data['total_amount']     = $data['price'] * $data['quantity'];
+            $data['payment_method']   = 'cash_on_delivery'; // 預設付款方式，可根據需求調整
+            $data['shipping_fee']     = 0.00; // 預設運費，可根據需求調整
             $data['delivery_address_id'] = $data['delivery_address_id'] ?? null; // 使用傳入的配送地址或 null
-            $data['member_id'] = $user->id; // 設置為當前用戶的 ID
+            $data['member_id']        = $user->id; // 設置為當前用戶的 ID
 
             $order = Order::create($data);
 

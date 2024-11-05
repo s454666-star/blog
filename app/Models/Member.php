@@ -32,4 +32,9 @@
         {
             return $this->hasMany(DeliveryAddress::class, 'member_id');
         }
+
+        public function defaultDeliveryAddress()
+        {
+            return $this->hasOne(DeliveryAddress::class, 'member_id')->where('is_default', 1);
+        }
     }

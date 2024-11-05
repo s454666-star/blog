@@ -39,7 +39,7 @@
             $sortDirection = strtolower($sort[1] ?? 'asc');
 
             // 判斷用戶角色
-            if ($user->is_admin) {
+            if ($user->role === 'admin') {
                 // 管理員可以查看所有訂單
                 $query = Order::with(['orderItems.product']);
             } else {
@@ -58,7 +58,7 @@
                 if (isset($filters['status'])) {
                     $query->where('status', $filters['status']);
                 }
-                if (isset($filters['member_id']) && $user->is_admin) {
+                if (isset($filters['member_id']) && $user->role === 'admin') {
                     $query->where('member_id', $filters['member_id']);
                 }
                 // 可以在此處添加更多的過濾條件

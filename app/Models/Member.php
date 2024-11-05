@@ -2,10 +2,14 @@
 
     namespace App\Models;
 
-    use Illuminate\Database\Eloquent\Model;
+    use Illuminate\Foundation\Auth\User as Authenticatable; // Extend Authenticatable
+    use Illuminate\Notifications\Notifiable;
+    use Laravel\Sanctum\HasApiTokens; // Import the HasApiTokens trait
 
-    class Member extends Model
+    class Member extends Authenticatable
     {
+        use HasApiTokens, Notifiable; // Use the trait
+
         protected $fillable = [
             'username',
             'password',
@@ -18,13 +22,12 @@
             'status',
         ];
 
-        // 會員有多個訂單
+        // Define relationships
         public function orders()
         {
             return $this->hasMany(Order::class, 'member_id');
         }
 
-        // 會員有多個配送地址
         public function deliveryAddresses()
         {
             return $this->hasMany(DeliveryAddress::class, 'member_id');

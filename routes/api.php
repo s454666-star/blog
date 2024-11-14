@@ -33,7 +33,7 @@
     Route::get('/videos', 'App\Http\Controllers\MediaController@index');
     Route::get('/videos-random', 'App\Http\Controllers\VideosRandomController@index');
 // 登入路由，無需驗證
-    Route::post('/login', [UserController::class, 'login']);
+    Route::post('/admin-login', [UserController::class, 'login']);
 
 // 受保護的路由，需要通過認證
     Route::middleware('auth:sanctum')->group(function () {

@@ -167,6 +167,6 @@ class UserController extends Controller
             'access_token' => $token,
             'token_type' => 'Bearer',
             'user' => $user,
-        ]);
+        ])->withCookie(cookie('XSRF-TOKEN', csrf_token(), 0, '/', '.mystar.monster', true, true));
     }
 }

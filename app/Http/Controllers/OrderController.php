@@ -43,22 +43,22 @@
             if ($user->role === 'admin') {
                 // 管理員可以查看所有訂單
                 $query = Order::with([
-                                         'orderItems.product',
-                                         'member',
-                                         'creditCard',
-                                         'deliveryAddress',
-                                         'member.defaultDeliveryAddress',
-                                     ]);
+                    'orderItems.product',
+                    'member',
+                    'creditCard',
+                    'deliveryAddress',
+                    'member.defaultDeliveryAddress',
+                ]);
             } else {
                 // 一般用戶僅查看自己的訂單
                 $query = Order::where('member_id', $user->id)
                     ->with([
-                               'orderItems.product',
-                               'member',
-                               'creditCard',
-                               'deliveryAddress',
-                               'member.defaultDeliveryAddress',
-                           ]);
+                        'orderItems.product',
+                        'member',
+                        'creditCard',
+                        'deliveryAddress',
+                        'member.defaultDeliveryAddress',
+                    ]);
             }
 
             // 處理過濾
@@ -111,12 +111,12 @@
 
             $order = Order::where('id', $id)
                 ->with([
-                           'orderItems.product',
-                           'member',
-                           'deliveryAddress',
-                           'creditCard',
-                           'member.defaultDeliveryAddress',
-                       ])
+                    'orderItems.product',
+                    'member',
+                    'deliveryAddress',
+                    'creditCard',
+                    'member.defaultDeliveryAddress',
+                ])
                 ->first();
 
             if (!$order) {
@@ -145,11 +145,11 @@
         public function store(Request $request)
         {
             $data = $request->validate([
-                                           'product_id'           => 'required|integer|exists:products,id',
-                                           'quantity'             => 'required|integer|min:1',
-                                           'price'                => 'required|numeric',
-                                           'delivery_address_id'  => 'nullable|integer|exists:delivery_addresses,id',
-                                       ]);
+                'product_id'           => 'required|integer|exists:products,id',
+                'quantity'             => 'required|integer|min:1',
+                'price'                => 'required|numeric',
+                'delivery_address_id'  => 'nullable|integer|exists:delivery_addresses,id',
+            ]);
 
             $user = $request->user(); // 獲取當前授權的使用者 ID
 
@@ -169,10 +169,10 @@
                 } else {
                     // 新增品項
                     $pendingOrder->orderItems()->create([
-                                                            'product_id' => $data['product_id'],
-                                                            'quantity'   => $data['quantity'],
-                                                            'price'      => $data['price'],
-                                                        ]);
+                        'product_id' => $data['product_id'],
+                        'quantity'   => $data['quantity'],
+                        'price'      => $data['price'],
+                    ]);
                 }
 
                 // 更新訂單總金額
@@ -184,11 +184,11 @@
                 $pendingOrder->save();
 
                 return response()->json($pendingOrder->load([
-                                                                'orderItems.product',
-                                                                'member',
-                                                                'deliveryAddress',
-                                                                'creditCard',
-                                                            ]), 200);
+                    'orderItems.product',
+                    'member',
+                    'deliveryAddress',
+                    'creditCard',
+                ]), 200);
             }
 
             // 如果沒有 pending 訂單，則新增一張新的 pending 訂單
@@ -211,17 +211,17 @@
 
             // 將品項加入新建立的訂單
             $order->orderItems()->create([
-                                             'product_id' => $data['product_id'],
-                                             'quantity'   => $data['quantity'],
-                                             'price'      => $data['price'],
-                                         ]);
+                'product_id' => $data['product_id'],
+                'quantity'   => $data['quantity'],
+                'price'      => $data['price'],
+            ]);
 
             return response()->json($order->load([
-                                                     'orderItems.product',
-                                                     'member',
-                                                     'deliveryAddress',
-                                                     'creditCard',
-                                                 ]), 201);
+                'orderItems.product',
+                'member',
+                'deliveryAddress',
+                'creditCard',
+            ]), 201);
         }
 
         /**
@@ -230,8 +230,8 @@
         public function updateItemQuantity(Request $request, $orderId, $itemId)
         {
             $data = $request->validate([
-                                           'quantity' => 'required|integer|min:1',
-                                       ]);
+                'quantity' => 'required|integer|min:1',
+            ]);
 
             $user = $request->user();
 
@@ -254,11 +254,11 @@
             $order->save();
 
             return response()->json($order->load([
-                                                     'orderItems.product',
-                                                     'member',
-                                                     'deliveryAddress',
-                                                     'creditCard',
-                                                 ]), 200);
+                'orderItems.product',
+                'member',
+                'deliveryAddress',
+                'creditCard',
+            ]), 200);
         }
 
         /**
@@ -279,11 +279,11 @@
             $order->save();
 
             return response()->json($order->load([
-                                                     'orderItems.product',
-                                                     'member',
-                                                     'deliveryAddress',
-                                                     'creditCard',
-                                                 ]), 200);
+                'orderItems.product',
+                'member',
+                'deliveryAddress',
+                'creditCard',
+            ]), 200);
         }
 
         /**
@@ -301,22 +301,22 @@
             }
 
             $data = $request->validate([
-                                           'status'              => 'in:pending,processing,shipped,completed,cancelled',
-                                           'total_amount'        => 'numeric',
-                                           'payment_method'      => 'in:credit_card,bank_transfer,cash_on_delivery',
-                                           'shipping_fee'        => 'numeric',
-                                           'delivery_address_id' => 'nullable|integer|exists:delivery_addresses,id',
-                                           'credit_card_id'      => 'nullable|integer|exists:credit_cards,id',
-                                       ]);
+                'status'              => 'in:pending,processing,shipped,completed,cancelled',
+                'total_amount'        => 'numeric',
+                'payment_method'      => 'in:credit_card,bank_transfer,cash_on_delivery',
+                'shipping_fee'        => 'numeric',
+                'delivery_address_id' => 'nullable|integer|exists:delivery_addresses,id',
+                'credit_card_id'      => 'nullable|integer|exists:credit_cards,id',
+            ]);
 
             $order->update($data);
 
             return response()->json($order->load([
-                                                     'orderItems.product',
-                                                     'member',
-                                                     'deliveryAddress',
-                                                     'creditCard',
-                                                 ]), 200);
+                'orderItems.product',
+                'member',
+                'deliveryAddress',
+                'creditCard',
+            ]), 200);
         }
 
         /**
@@ -341,28 +341,23 @@
         /**
          * 處理訂單（將狀態從 pending 更新為 processing）
          */
-        public function processOrder(Request $request, $id)
+        public function processOrder(Request $request)
         {
             $user = $request->user();
 
             // 查找指定的 pending 訂單
-            $order = Order::where('id', $id)
+            $order = Order::where('member_id', $user->id)
                 ->where('status', 'pending')
                 ->firstOrFail();
-
-            // 如果用戶不是管理員，且訂單不屬於該用戶，則拒絕處理
-            if ($user->role !== 'admin' && $order->member_id !== $user->id) {
-                return response()->json(['message' => 'Unauthorized'], 403);
-            }
 
             // 將訂單狀態更新為 processing
             $order->update(['status' => 'processing']);
 
             return response()->json($order->load([
-                                                     'orderItems.product',
-                                                     'member',
-                                                     'deliveryAddress',
-                                                     'creditCard',
-                                                 ]), 200);
+                'orderItems.product',
+                'member',
+                'deliveryAddress',
+                'creditCard',
+            ]), 200);
         }
     }

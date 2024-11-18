@@ -64,6 +64,10 @@ return [
             'driver' => 'eloquent',
             'model' => App\Models\User::class,
         ],
+        'members' => [ // 新增的 members 提供者
+                       'driver' => 'eloquent',
+                       'model' => App\Models\Member::class,
+        ],
 
         // 'users' => [
         //     'driver' => 'database',

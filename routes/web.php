@@ -21,7 +21,9 @@ use App\Http\Controllers\UploadStorageController;
 | Web Routes
 |--------------------------------------------------------------------------
 */
-Route::post('/admin-login', [UserController::class, 'login']);
+
+Route::middleware('web')->post('/admin-login', [UserController::class, 'login']);
+
 // 靜態頁面和身份驗證頁面
 Route::get('/', function () {
     return view('welcome');

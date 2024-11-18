@@ -1,4 +1,5 @@
 <?php
+// app/Http/Controllers/OrderController.php
 
     namespace App\Http\Controllers;
 
@@ -95,28 +96,8 @@
          */
         public function show(Request $request, $id)
         {
-            $user = $request->user();
-
-            $order = Order::where('id', $id)
-                ->with([
-                    'orderItems.product',
-                    'member.defaultDeliveryAddress',
-                    'member',
-                    'creditCard',
-                    'deliveryAddressRelation',
-                ])
-                ->first();
-
-            if (!$order) {
-                return response()->json(['message' => 'Order not found'], 404);
-            }
-
-            // 如果用戶不是管理員，且訂單不屬於該用戶，則拒絕訪問
-            if ($user->role !== 'admin' && $order->member_id !== $user->id) {
-                return response()->json(['message' => 'Unauthorized'], 403);
-            }
-
-            return response()->json($order, 200);
+            // 移除顯示詳情功能
+            return response()->json(['message' => 'Not Found'], 404);
         }
 
         /**
@@ -273,8 +254,6 @@
         /**
          * 更新訂單
          */
-        // app/Http/Controllers/OrderController.php
-
         public function update(Request $request, $id)
         {
             $user = $request->user();
@@ -307,7 +286,7 @@
         }
 
         /**
-         * 刪除訂單
+         * 刪除訂單（修改為僅更新狀態為取消）
          */
         public function destroy(Request $request, $id)
         {
@@ -315,14 +294,16 @@
 
             $order = Order::findOrFail($id);
 
-            // 如果用戶不是管理員，且訂單不屬於該用戶，則拒絕刪除
+            // 如果用戶不是管理員，且訂單不屬於該用戶，則拒絕訪問
             if ($user->role !== 'admin' && $order->member_id !== $user->id) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
-            $order->delete();
+            // 將訂單狀態更新為取消
+            $order->status = 'cancelled';
+            $order->save();
 
-            return response()->json(['message' => 'Order deleted successfully'], 200);
+            return response()->json(['message' => 'Order status set to cancelled'], 200);
         }
 
         /**

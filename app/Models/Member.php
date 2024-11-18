@@ -22,7 +22,7 @@
             'status',
         ];
 
-        // Define relationships
+        // 定義關聯
         public function orders()
         {
             return $this->hasMany(Order::class, 'member_id');
@@ -33,8 +33,9 @@
             return $this->hasMany(DeliveryAddress::class, 'member_id');
         }
 
-        public function defaultDeliveryAddress()
+        // 調整 defaultDeliveryAddress 方法
+        public function getDefaultDeliveryAddressAttribute()
         {
-            return $this->hasOne(DeliveryAddress::class, 'member_id', 'id')->where('is_default', 1);
+            return $this->deliveryAddresses()->where('is_default', 1)->first() ?: $this->deliveryAddresses()->first();
         }
     }

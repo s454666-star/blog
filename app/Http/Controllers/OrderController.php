@@ -45,6 +45,7 @@
                 $query = Order::with([
                     'orderItems.product',
                     'member.defaultDeliveryAddress',
+                    'member.deliveryAddresses',
                     'creditCard',
                     'deliveryAddressRelation',
                     'member',
@@ -55,6 +56,7 @@
                     ->with([
                         'orderItems.product',
                         'member.defaultDeliveryAddress',
+                        'member.deliveryAddresses',
                         'creditCard',
                         'deliveryAddressRelation',
                         'member',
@@ -101,9 +103,10 @@
                 ->with([
                     'orderItems.product',
                     'member.defaultDeliveryAddress',
+                    'member.deliveryAddresses',
                     'member',
                     'creditCard',
-                    'deliveryAddress',
+                    'deliveryAddressRelation',
                 ])
                 ->first();
 

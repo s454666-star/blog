@@ -18,6 +18,8 @@
             'credit_card_id',
         ];
 
+        protected $appends = ['delivery_address'];
+
         // 訂單屬於一個會員
         public function member()
         {

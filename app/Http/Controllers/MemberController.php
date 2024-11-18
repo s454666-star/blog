@@ -23,26 +23,26 @@
             \Log::info('Starting registration process.');
 
             $validatedData = $request->validate([
-                                                    'username' => 'required|unique:members',
-                                                    'password' => 'required|min:6',
-                                                    'name'     => 'required',
-                                                    'email'    => 'required|email|unique:members',
-                                                ]);
+                'username' => 'required|unique:members',
+                'password' => 'required|min:6',
+                'name'     => 'required',
+                'email'    => 'required|email|unique:members',
+            ]);
 
             \Log::info('Validation passed for registration data.');
 
             try {
                 $member = Member::create([
-                                             'username'                 => $request->username,
-                                             'password'                 => Hash::make($request->password),
-                                             'name'                     => $request->name,
-                                             'phone'                    => $request->phone,
-                                             'email'                    => $request->email,
-                                             'address'                  => $request->address,
-                                             'email_verification_token' => Str::random(60),
-                                             'email_verified'           => false,
-                                             'status'                   => 'active',
-                                         ]);
+                    'username'                 => $request->username,
+                    'password'                 => Hash::make($request->password),
+                    'name'                     => $request->name,
+                    'phone'                    => $request->phone,
+                    'email'                    => $request->email,
+                    'address'                  => $request->address,
+                    'email_verification_token' => Str::random(60),
+                    'email_verified'           => false,
+                    'status'                   => 'active',
+                ]);
 
                 \Log::info('Member created successfully with ID: ' . $member->id);
 
@@ -117,16 +117,16 @@
         public function login(Request $request)
         {
             $request->validate([
-                                   'email'    => 'required|email',
-                                   'password' => 'required',
-                               ]);
+                'email'    => 'required|email',
+                'password' => 'required',
+            ]);
 
             $member = Member::where('email', $request->email)->first();
 
             if (!$member || !Hash::check($request->password, $member->password)) {
                 throw ValidationException::withMessages([
-                                                            'email' => ['提供的認證資料不正確。'],
-                                                        ]);
+                    'email' => ['提供的認證資料不正確。'],
+                ]);
             }
 
             // 檢查是否已驗證郵件
@@ -138,14 +138,14 @@
             $token = $member->createToken('auth_token')->plainTextToken;
 
             return response()->json([
-                                        'access_token' => $token,
-                                        'token_type'   => 'Bearer',
-                                        'user'         => [
-                                            'username'       => $member->username,
-                                            'email'          => $member->email,
-                                            'email_verified' => $member->email_verified,
-                                        ],
-                                    ]);
+                'access_token' => $token,
+                'token_type'   => 'Bearer',
+                'user'         => [
+                    'username'       => $member->username,
+                    'email'          => $member->email,
+                    'email_verified' => $member->email_verified,
+                ],
+            ]);
         }
 
         // 會員登出
@@ -161,10 +161,10 @@
         public function me(Request $request)
         {
             return response()->json([
-                                        'username'       => $request->user()->username,
-                                        'email'          => $request->user()->email,
-                                        'email_verified' => $request->user()->email_verified,
-                                    ]);
+                'username'       => $request->user()->username,
+                'email'          => $request->user()->email,
+                'email_verified' => $request->user()->email_verified,
+            ]);
         }
 
         /**
@@ -198,7 +198,7 @@
                 $query = Member::with(['deliveryAddresses']);
             } else {
                 // 非管理員只能查看自己的會員資訊
-                $query = Member::where('id', $user->member_id)
+                $query = Member::where('id', $user->id)
                     ->with(['deliveryAddresses']);
             }
 
@@ -248,7 +248,7 @@
             }
 
             // 如果用戶不是管理員，且會員ID不匹配，則拒絕訪問
-            if ($user->role !== 'admin' && $member->id !== $user->member_id) {
+            if ($user->role !== 'admin' && $member->id !== $user->id) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
@@ -269,14 +269,14 @@
             }
 
             $data = $request->validate([
-                                           'username' => 'required|unique:members',
-                                           'password' => 'required|min:6',
-                                           'name'     => 'required',
-                                           'email'    => 'required|email|unique:members',
-                                           'phone'    => 'nullable|string',
-                                           'address'  => 'nullable|string',
-                                           'status'   => 'in:active,inactive',
-                                       ]);
+                'username' => 'required|unique:members',
+                'password' => 'required|min:6',
+                'name'     => 'required',
+                'email'    => 'required|email|unique:members',
+                'phone'    => 'nullable|string',
+                'address'  => 'nullable|string',
+                'status'   => 'in:active,inactive',
+            ]);
 
             $data['password'] = Hash::make($data['password']);
             $data['email_verification_token'] = Str::random(60);
@@ -309,19 +309,19 @@
             }
 
             // 如果用戶不是管理員，且會員ID不匹配，則拒絕訪問
-            if ($user->role !== 'admin' && $member->id !== $user->member_id) {
+            if ($user->role !== 'admin' && $member->id !== $user->id) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
             $data = $request->validate([
-                                           'username' => 'sometimes|required|unique:members,username,' . $member->id,
-                                           'password' => 'sometimes|required|min:6',
-                                           'name'     => 'sometimes|required',
-                                           'email'    => 'sometimes|required|email|unique:members,email,' . $member->id,
-                                           'phone'    => 'nullable|string',
-                                           'address'  => 'nullable|string',
-                                           'status'   => 'in:active,inactive',
-                                       ]);
+                'username' => 'sometimes|required|unique:members,username,' . $member->id,
+                'password' => 'sometimes|required|min:6',
+                'name'     => 'sometimes|required',
+                'email'    => 'sometimes|required|email|unique:members,email,' . $member->id,
+                'phone'    => 'nullable|string',
+                'address'  => 'nullable|string',
+                'status'   => 'in:active,inactive',
+            ]);
 
             if (isset($data['password'])) {
                 $data['password'] = Hash::make($data['password']);

@@ -41,4 +41,10 @@
         {
             return $this->hasMany(OrderItem::class);
         }
+
+        // 確保 delivery_address 屬性總是存在
+        public function getDeliveryAddressAttribute()
+        {
+            return $this->deliveryAddress ?? $this->member->defaultDeliveryAddress;
+        }
     }

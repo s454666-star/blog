@@ -44,20 +44,20 @@
                 // 管理員可以查看所有訂單
                 $query = Order::with([
                     'orderItems.product',
-                    'member',
+                    'member.defaultDeliveryAddress',
                     'creditCard',
                     'deliveryAddress',
-                    'member.defaultDeliveryAddress',
+                    'member',
                 ]);
             } else {
                 // 一般用戶僅查看自己的訂單
                 $query = Order::where('member_id', $user->id)
                     ->with([
                         'orderItems.product',
-                        'member',
+                        'member.defaultDeliveryAddress',
                         'creditCard',
                         'deliveryAddress',
-                        'member.defaultDeliveryAddress',
+                        'member',
                     ]);
             }
 
@@ -84,18 +84,6 @@
                 ->take($to - $from + 1)
                 ->get();
 
-            // 處理每個訂單的配送地址
-            $orders->map(function ($order) use ($user) {
-                if (!$order->deliveryAddress) {
-                    // 如果訂單沒有指定配送地址，使用會員的默認地址
-                    $defaultAddress = $order->member->defaultDeliveryAddress;
-                    if ($defaultAddress) {
-                        $order->deliveryAddress = $defaultAddress;
-                    }
-                }
-                return $order;
-            });
-
             return response()->json($orders, 200)
                 ->header('X-Total-Count', $total)
                 ->header('Content-Range', "items {$from}-{$to}/{$total}")
@@ -112,10 +100,10 @@
             $order = Order::where('id', $id)
                 ->with([
                     'orderItems.product',
-                    'member',
-                    'deliveryAddress',
-                    'creditCard',
                     'member.defaultDeliveryAddress',
+                    'member',
+                    'creditCard',
+                    'deliveryAddress',
                 ])
                 ->first();
 
@@ -126,14 +114,6 @@
             // 如果用戶不是管理員，且訂單不屬於該用戶，則拒絕訪問
             if ($user->role !== 'admin' && $order->member_id !== $user->id) {
                 return response()->json(['message' => 'Unauthorized'], 403);
-            }
-
-            // 處理配送地址
-            if (!$order->deliveryAddress) {
-                $defaultAddress = $order->member->defaultDeliveryAddress;
-                if ($defaultAddress) {
-                    $order->deliveryAddress = $defaultAddress;
-                }
             }
 
             return response()->json($order, 200);
@@ -185,9 +165,10 @@
 
                 return response()->json($pendingOrder->load([
                     'orderItems.product',
+                    'member.defaultDeliveryAddress',
                     'member',
-                    'deliveryAddress',
                     'creditCard',
+                    'deliveryAddress',
                 ]), 200);
             }
 
@@ -218,9 +199,10 @@
 
             return response()->json($order->load([
                 'orderItems.product',
+                'member.defaultDeliveryAddress',
                 'member',
-                'deliveryAddress',
                 'creditCard',
+                'deliveryAddress',
             ]), 201);
         }
 
@@ -255,9 +237,10 @@
 
             return response()->json($order->load([
                 'orderItems.product',
+                'member.defaultDeliveryAddress',
                 'member',
-                'deliveryAddress',
                 'creditCard',
+                'deliveryAddress',
             ]), 200);
         }
 
@@ -280,9 +263,10 @@
 
             return response()->json($order->load([
                 'orderItems.product',
+                'member.defaultDeliveryAddress',
                 'member',
-                'deliveryAddress',
                 'creditCard',
+                'deliveryAddress',
             ]), 200);
         }
 
@@ -313,9 +297,10 @@
 
             return response()->json($order->load([
                 'orderItems.product',
+                'member.defaultDeliveryAddress',
                 'member',
-                'deliveryAddress',
                 'creditCard',
+                'deliveryAddress',
             ]), 200);
         }
 
@@ -355,9 +340,10 @@
 
             return response()->json($order->load([
                 'orderItems.product',
+                'member.defaultDeliveryAddress',
                 'member',
-                'deliveryAddress',
                 'creditCard',
+                'deliveryAddress',
             ]), 200);
         }
     }

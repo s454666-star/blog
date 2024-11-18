@@ -273,6 +273,8 @@
         /**
          * 更新訂單
          */
+        // app/Http/Controllers/OrderController.php
+
         public function update(Request $request, $id)
         {
             $user = $request->user();

@@ -35,6 +35,6 @@
 
         public function defaultDeliveryAddress()
         {
-            return $this->hasOne(DeliveryAddress::class, 'member_id')->where('is_default', 1);
+            return $this->hasOne(DeliveryAddress::class, 'member_id', 'id')->where('is_default', 1);
         }
     }

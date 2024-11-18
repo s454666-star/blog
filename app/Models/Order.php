@@ -27,7 +27,7 @@
         }
 
         // 訂單屬於一個配送地址
-        public function deliveryAddress()
+        public function deliveryAddressRelation()
         {
             return $this->belongsTo(DeliveryAddress::class, 'delivery_address_id');
         }
@@ -47,6 +47,6 @@
         // 確保 delivery_address 屬性總是存在
         public function getDeliveryAddressAttribute()
         {
-            return $this->deliveryAddress ?? $this->member->defaultDeliveryAddress;
+            return $this->deliveryAddressRelation ?? $this->member->defaultDeliveryAddress;
         }
     }

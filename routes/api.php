@@ -84,7 +84,7 @@
         Route::apiResource('orders', OrderController::class);
         Route::apiResource('credit-cards', CreditCardController::class);
         Route::apiResource('delivery-addresses', DeliveryAddressController::class);
-        Route::post('/orders/{id}/process', [OrderController::class, 'processOrder']);
+        Route::post('/orders/process', [OrderController::class, 'processOrder']);
         Route::put('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateItemQuantity']);
         Route::delete('/orders/{orderId}/items/{itemId}', [OrderController::class, 'deleteItem']);
     });

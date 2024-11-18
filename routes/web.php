@@ -13,14 +13,15 @@ use App\Http\Controllers\PdfController;
 use App\Http\Controllers\PdfController2;
 use App\Http\Controllers\TelegramController;
 use App\Http\Controllers\UploadStorageController;
-use Illuminate\Support\Facades\Route;
+    use App\Http\Controllers\UserController;
+    use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
 | Web Routes
 |--------------------------------------------------------------------------
 */
-
+Route::post('/admin-login', [UserController::class, 'login']);
 // 靜態頁面和身份驗證頁面
 Route::get('/', function () {
     return view('welcome');

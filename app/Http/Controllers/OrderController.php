@@ -274,6 +274,12 @@
                 'credit_card_id'      => 'nullable|integer|exists:credit_cards,id',
             ]);
 
+            // 確保 status 被正確更新
+            if (isset($data['status'])) {
+                $order->status = $data['status'];
+            }
+
+            // 更新其他可選字段
             $order->update($data);
 
             return response()->json($order->load([

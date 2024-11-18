@@ -50,4 +50,9 @@
         {
             return $this->deliveryAddressRelation ?? $this->member->defaultDeliveryAddress ?? $this->member->deliveryAddresses()->first();
         }
+
+        public function deliveryAddress()
+        {
+            return $this->belongsTo(DeliveryAddress::class, 'delivery_address_id');
+        }
     }

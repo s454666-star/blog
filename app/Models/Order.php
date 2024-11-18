@@ -47,6 +47,6 @@
         // 確保 delivery_address 屬性總是存在
         public function getDeliveryAddressAttribute()
         {
-            return $this->deliveryAddressRelation ?? $this->member->defaultDeliveryAddress;
+            return $this->deliveryAddressRelation ?? $this->member->defaultDeliveryAddress ?? $this->member->deliveryAddresses()->first();
         }
     }

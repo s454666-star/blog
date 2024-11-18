@@ -33,9 +33,9 @@
             return $this->hasMany(DeliveryAddress::class, 'member_id');
         }
 
-        // 調整 defaultDeliveryAddress 方法
-        public function getDefaultDeliveryAddressAttribute()
+        // 將 defaultDeliveryAddress 定義為關聯關係
+        public function defaultDeliveryAddress()
         {
-            return $this->deliveryAddresses()->where('is_default', 1)->first() ?: $this->deliveryAddresses()->first();
+            return $this->hasOne(DeliveryAddress::class, 'member_id')->where('is_default', 1);
         }
     }

@@ -36,7 +36,7 @@
                     'orderItems.product',
                     'member.defaultDeliveryAddress',
                     'creditCard',
-                    'deliveryAddress',
+                    'deliveryAddressRelation',
                     'member',
                 ]);
             } else {
@@ -45,7 +45,7 @@
                         'orderItems.product',
                         'member.defaultDeliveryAddress',
                         'creditCard',
-                        'deliveryAddress',
+                        'deliveryAddressRelation',
                         'member',
                     ]);
             }

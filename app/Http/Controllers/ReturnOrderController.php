@@ -31,9 +31,9 @@
 
             $user = $request->user();
 
-            $orderItem = OrderItem::where('id', $request->order_item_id)
-                ->where('order_id', $request->order_id)
-                ->where('order.member_id', $user->id)
+            $orderItem = OrderItem::where('order_items.id', $request->order_item_id)
+                ->where('order_items.order_id', $request->order_id)
+                ->where('orders.member_id', $user->id)
                 ->join('orders', 'order_items.order_id', '=', 'orders.id')
                 ->first();
 

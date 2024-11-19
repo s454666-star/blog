@@ -63,16 +63,17 @@
             return response()->json($returnOrder, 201);
         }
 
-        /**
-         * 取得會員的所有退貨單
-         */
         public function index(Request $request)
         {
             $user = $request->user();
 
-            $returnOrders = ReturnOrder::where('member_id', $user->id)
-                ->with(['order', 'orderItem.product'])
-                ->get();
+            if ($user->role === 'admin') {
+                $returnOrders = ReturnOrder::with(['order', 'orderItem.product'])->get();
+            } else {
+                $returnOrders = ReturnOrder::where('member_id', $user->id)
+                    ->with(['order', 'orderItem.product'])
+                    ->get();
+            }
 
             return response()->json($returnOrders, 200);
         }

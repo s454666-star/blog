@@ -4,6 +4,7 @@
     namespace App\Models;
 
     use Illuminate\Database\Eloquent\Model;
+    use Carbon\Carbon;
 
     class Order extends Model
     {
@@ -55,4 +56,8 @@
         {
             return $this->belongsTo(DeliveryAddress::class, 'delivery_address_id');
         }
+
+        protected $dates = [
+            'order_date',
+        ];
     }

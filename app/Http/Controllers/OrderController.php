@@ -5,6 +5,7 @@
 
     use App\Models\Order;
     use Illuminate\Http\Request;
+    use Carbon\Carbon;
 
     class OrderController extends Controller
     {
@@ -230,10 +231,15 @@
                 'shipping_fee'        => 'numeric',
                 'delivery_address_id' => 'nullable|integer|exists:delivery_addresses,id',
                 'credit_card_id'      => 'nullable|integer|exists:credit_cards,id',
+                'order_date'          => 'nullable|date',
             ]);
 
             if (isset($data['status'])) {
                 $order->status = $data['status'];
+            }
+
+            if (isset($data['order_date'])) {
+                $order->order_date = Carbon::parse($data['order_date']);
             }
 
             $order->update($data);
@@ -271,7 +277,10 @@
                 ->where('status', 'pending')
                 ->firstOrFail();
 
-            $order->update(['status' => 'processing']);
+            $order->update([
+                'status' => 'processing',
+                'order_date' => Carbon::now(),
+            ]);
 
             return response()->json($order->load([
                 'orderItems.product',

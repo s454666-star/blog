@@ -21,6 +21,8 @@
             'status',
         ];
 
+        protected $appends = ['address'];
+
         /**
          * 會員擁有多個訂單
          */

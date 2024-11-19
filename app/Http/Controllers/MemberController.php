@@ -164,6 +164,7 @@
                 'username'       => $request->user()->username,
                 'email'          => $request->user()->email,
                 'email_verified' => $request->user()->email_verified,
+                'address'        => $request->user()->address,
             ]);
         }
 
@@ -195,11 +196,11 @@
             // 判斷用戶角色
             if ($user->role === 'admin') {
                 // 管理員可以查看所有會員
-                $query = Member::with(['deliveryAddresses']);
+                $query = Member::with(['deliveryAddresses', 'defaultDeliveryAddress']);
             } else {
                 // 非管理員只能查看自己的會員資訊
                 $query = Member::where('id', $user->id)
-                    ->with(['deliveryAddresses']);
+                    ->with(['deliveryAddresses', 'defaultDeliveryAddress']);
             }
 
             // 處理過濾
@@ -241,7 +242,7 @@
         {
             $user = $request->user();
 
-            $member = Member::with(['deliveryAddresses'])->find($id);
+            $member = Member::with(['deliveryAddresses', 'defaultDeliveryAddress'])->find($id);
 
             if (!$member) {
                 return response()->json(['message' => 'Member not found'], 404);

@@ -57,14 +57,14 @@
         public function store(Request $request)
         {
             $data = $request->validate([
-                                           'recipient'   => 'required|string',
-                                           'phone'       => 'required|string',
-                                           'address'     => 'required|string',
-                                           'postal_code' => 'required|string',
-                                           'country'     => 'required|string',
-                                           'city'        => 'required|string',
-                                           'is_default'  => 'boolean'
-                                       ]);
+                'recipient'   => 'required|string',
+                'phone'       => 'required|string',
+                'address'     => 'required|string',
+                'postal_code' => 'required|string',
+                'country'     => 'required|string',
+                'city'        => 'required|string',
+                'is_default'  => 'boolean'
+            ]);
 
             $user              = $request->user();
             $data['member_id'] = $user->id;
@@ -84,14 +84,14 @@
             $address = DeliveryAddress::where('id', $id)->where('member_id', $user->id)->firstOrFail();
 
             $data = $request->validate([
-                                           'recipient'   => 'string',
-                                           'phone'       => 'string',
-                                           'address'     => 'string',
-                                           'postal_code' => 'string',
-                                           'country'     => 'string',
-                                           'city'        => 'string',
-                                           'is_default'  => 'boolean'
-                                       ]);
+                'recipient'   => 'string',
+                'phone'       => 'string',
+                'address'     => 'string',
+                'postal_code' => 'string',
+                'country'     => 'string',
+                'city'        => 'string',
+                'is_default'  => 'boolean'
+            ]);
 
             if (isset($data['is_default']) && $data['is_default']) {
                 DeliveryAddress::where('member_id', $user->id)->update(['is_default' => false]);

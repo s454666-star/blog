@@ -52,4 +52,12 @@
         {
             return $this->hasMany(ReturnOrder::class, 'member_id');
         }
+
+        /**
+         * 取得會員地址，優先使用默認配送地址
+         */
+        public function getAddressAttribute()
+        {
+            return $this->defaultDeliveryAddress ? $this->defaultDeliveryAddress->address : $this->attributes['address'];
+        }
     }

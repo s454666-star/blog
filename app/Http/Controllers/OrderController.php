@@ -38,7 +38,8 @@
                     'creditCard',
                     'deliveryAddressRelation',
                     'member',
-                    'returnOrders',
+                    'returnOrders.orderItem.product',
+                    'returnOrders.order.delivery_address',
                 ]);
             } else {
                 $query = Order::where('member_id', $user->id)
@@ -48,7 +49,8 @@
                         'creditCard',
                         'deliveryAddressRelation',
                         'member',
-                        'returnOrders',
+                        'returnOrders.orderItem.product',
+                        'returnOrders.order.delivery_address',
                     ]);
             }
 
@@ -95,7 +97,8 @@
                     'creditCard',
                     'deliveryAddressRelation',
                     'member',
-                    'returnOrders',
+                    'returnOrders.orderItem.product',
+                    'returnOrders.order.delivery_address',
                 ])
                 ->first();
 
@@ -147,7 +150,8 @@
                     'member',
                     'creditCard',
                     'deliveryAddress',
-                    'returnOrders',
+                    'returnOrders.orderItem.product',
+                    'returnOrders.order.delivery_address',
                 ]), 200);
             }
 
@@ -180,7 +184,8 @@
                 'member',
                 'creditCard',
                 'deliveryAddress',
-                'returnOrders',
+                'returnOrders.orderItem.product',
+                'returnOrders.order.delivery_address',
             ]), 201);
         }
 
@@ -213,7 +218,8 @@
                 'member',
                 'creditCard',
                 'deliveryAddress',
-                'returnOrders',
+                'returnOrders.orderItem.product',
+                'returnOrders.order.delivery_address',
             ]), 200);
         }
 
@@ -237,7 +243,8 @@
                 'member',
                 'creditCard',
                 'deliveryAddress',
-                'returnOrders',
+                'returnOrders.orderItem.product',
+                'returnOrders.order.delivery_address',
             ]), 200);
         }
 
@@ -245,10 +252,24 @@
         {
             $user = $request->user();
 
-            $order = Order::findOrFail($id);
+            $query = Order::with([
+                'orderItems.product',
+                'member.defaultDeliveryAddress',
+                'creditCard',
+                'deliveryAddressRelation',
+                'member',
+                'returnOrders.orderItem.product',
+                'returnOrders.order.delivery_address',
+            ]);
 
-            if ($user->role !== 'admin' && $order->member_id !== $user->id) {
-                return response()->json(['message' => 'Unauthorized'], 403);
+            if ($user->role !== 'admin') {
+                $query->where('member_id', $user->id);
+            }
+
+            $order = $query->where('id', $id)->first();
+
+            if (!$order) {
+                return response()->json(['message' => '訂單不存在'], 404);
             }
 
             $data = $request->validate([
@@ -277,7 +298,8 @@
                 'member',
                 'creditCard',
                 'deliveryAddress',
-                'returnOrders',
+                'returnOrders.orderItem.product',
+                'returnOrders.order.delivery_address',
             ]), 200);
         }
 
@@ -316,7 +338,8 @@
                 'member',
                 'creditCard',
                 'deliveryAddress',
-                'returnOrders',
+                'returnOrders.orderItem.product',
+                'returnOrders.order.delivery_address',
             ]), 200);
         }
     }

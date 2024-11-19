@@ -60,7 +60,7 @@
             $orderItem->return_quantity += $request->return_quantity;
             $orderItem->save();
 
-            return response()->json($returnOrder, 201);
+            return response()->json(ReturnOrder::with(['order.delivery_address', 'orderItem.product', 'member'])->find($returnOrder->id), 201);
         }
 
         public function index(Request $request)
@@ -68,10 +68,10 @@
             $user = $request->user();
 
             if ($user->role === 'admin') {
-                $returnOrders = ReturnOrder::with(['order', 'orderItem.product'])->get();
+                $returnOrders = ReturnOrder::with(['order.delivery_address', 'orderItem.product', 'member'])->get();
             } else {
                 $returnOrders = ReturnOrder::where('member_id', $user->id)
-                    ->with(['order', 'orderItem.product'])
+                    ->with(['order.delivery_address', 'orderItem.product', 'member'])
                     ->get();
             }
 
@@ -85,10 +85,13 @@
         {
             $user = $request->user();
 
-            $returnOrder = ReturnOrder::where('id', $id)
-                ->where('member_id', $user->id)
-                ->with(['order', 'orderItem.product'])
-                ->first();
+            $query = ReturnOrder::with(['order.delivery_address', 'orderItem.product', 'member']);
+
+            if ($user->role !== 'admin') {
+                $query->where('member_id', $user->id);
+            }
+
+            $returnOrder = $query->where('id', $id)->first();
 
             if (!$returnOrder) {
                 return response()->json(['message' => '退貨單不存在'], 404);
@@ -104,9 +107,13 @@
         {
             $user = $request->user();
 
-            $returnOrder = ReturnOrder::where('id', $id)
-                ->where('member_id', $user->id)
-                ->first();
+            $query = ReturnOrder::with(['order.delivery_address', 'orderItem.product', 'member']);
+
+            if ($user->role !== 'admin') {
+                $query->where('member_id', $user->id);
+            }
+
+            $returnOrder = $query->where('id', $id)->first();
 
             if (!$returnOrder) {
                 return response()->json(['message' => '退貨單不存在'], 404);
@@ -135,6 +142,7 @@
 
             $returnOrder = ReturnOrder::where('id', $id)
                 ->where('member_id', $user->id)
+                ->with(['orderItem'])
                 ->first();
 
             if (!$returnOrder) {

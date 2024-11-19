@@ -31,7 +31,7 @@
         /**
          * 訂單屬於一個配送地址
          */
-        public function deliveryAddressRelation()
+        public function deliveryAddress()
         {
             return $this->belongsTo(DeliveryAddress::class, 'delivery_address_id');
         }
@@ -65,7 +65,7 @@
          */
         public function getDeliveryAddressAttribute()
         {
-            return $this->deliveryAddressRelation ?? $this->member->defaultDeliveryAddress ?? $this->member->deliveryAddresses()->first();
+            return $this->deliveryAddress ?? $this->member->defaultDeliveryAddress ?? $this->member->deliveryAddresses()->first();
         }
 
         protected $dates = [

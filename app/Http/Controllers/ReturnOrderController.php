@@ -60,7 +60,7 @@
             $orderItem->return_quantity += $request->return_quantity;
             $orderItem->save();
 
-            return response()->json(ReturnOrder::with(['order.deliveryAddressRelation', 'orderItem.product', 'member'])->find($returnOrder->id), 201);
+            return response()->json(ReturnOrder::with(['order.deliveryAddress', 'orderItem.product', 'member'])->find($returnOrder->id), 201);
         }
 
         /**
@@ -71,10 +71,10 @@
             $user = $request->user();
 
             if ($user->role === 'admin') {
-                $returnOrders = ReturnOrder::with(['order.deliveryAddressRelation', 'orderItem.product', 'member'])->get();
+                $returnOrders = ReturnOrder::with(['order.deliveryAddress', 'orderItem.product', 'member'])->get();
             } else {
                 $returnOrders = ReturnOrder::where('member_id', $user->id)
-                    ->with(['order.deliveryAddressRelation', 'orderItem.product', 'member'])
+                    ->with(['order.deliveryAddress', 'orderItem.product', 'member'])
                     ->get();
             }
 
@@ -90,7 +90,7 @@
 
             $returnOrder = ReturnOrder::where('id', $id)
                 ->where('member_id', $user->id)
-                ->with(['order.deliveryAddressRelation', 'orderItem.product', 'member'])
+                ->with(['order.deliveryAddress', 'orderItem.product', 'member'])
                 ->first();
 
             if (!$returnOrder) {
@@ -126,7 +126,7 @@
             $returnOrder->status = $request->status;
             $returnOrder->save();
 
-            return response()->json(ReturnOrder::with(['order.deliveryAddressRelation', 'orderItem.product', 'member'])->find($returnOrder->id), 200);
+            return response()->json(ReturnOrder::with(['order.deliveryAddress', 'orderItem.product', 'member'])->find($returnOrder->id), 200);
         }
 
         /**

@@ -60,18 +60,21 @@
             $orderItem->return_quantity += $request->return_quantity;
             $orderItem->save();
 
-            return response()->json(ReturnOrder::with(['order.delivery_address', 'orderItem.product', 'member'])->find($returnOrder->id), 201);
+            return response()->json(ReturnOrder::with(['order.deliveryAddressRelation', 'orderItem.product', 'member'])->find($returnOrder->id), 201);
         }
 
+        /**
+         * 顯示退貨單列表
+         */
         public function index(Request $request)
         {
             $user = $request->user();
 
             if ($user->role === 'admin') {
-                $returnOrders = ReturnOrder::with(['order.delivery_address', 'orderItem.product', 'member'])->get();
+                $returnOrders = ReturnOrder::with(['order.deliveryAddressRelation', 'orderItem.product', 'member'])->get();
             } else {
                 $returnOrders = ReturnOrder::where('member_id', $user->id)
-                    ->with(['order.delivery_address', 'orderItem.product', 'member'])
+                    ->with(['order.deliveryAddressRelation', 'orderItem.product', 'member'])
                     ->get();
             }
 
@@ -85,13 +88,10 @@
         {
             $user = $request->user();
 
-            $query = ReturnOrder::with(['order.delivery_address', 'orderItem.product', 'member']);
-
-            if ($user->role !== 'admin') {
-                $query->where('member_id', $user->id);
-            }
-
-            $returnOrder = $query->where('id', $id)->first();
+            $returnOrder = ReturnOrder::where('id', $id)
+                ->where('member_id', $user->id)
+                ->with(['order.deliveryAddressRelation', 'orderItem.product', 'member'])
+                ->first();
 
             if (!$returnOrder) {
                 return response()->json(['message' => '退貨單不存在'], 404);
@@ -107,13 +107,9 @@
         {
             $user = $request->user();
 
-            $query = ReturnOrder::with(['order.delivery_address', 'orderItem.product', 'member']);
-
-            if ($user->role !== 'admin') {
-                $query->where('member_id', $user->id);
-            }
-
-            $returnOrder = $query->where('id', $id)->first();
+            $returnOrder = ReturnOrder::where('id', $id)
+                ->where('member_id', $user->id)
+                ->first();
 
             if (!$returnOrder) {
                 return response()->json(['message' => '退貨單不存在'], 404);
@@ -130,7 +126,7 @@
             $returnOrder->status = $request->status;
             $returnOrder->save();
 
-            return response()->json($returnOrder, 200);
+            return response()->json(ReturnOrder::with(['order.deliveryAddressRelation', 'orderItem.product', 'member'])->find($returnOrder->id), 200);
         }
 
         /**

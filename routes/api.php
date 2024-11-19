@@ -10,6 +10,7 @@
     use App\Http\Controllers\OrderController;
     use App\Http\Controllers\ProductCategoryController;
     use App\Http\Controllers\ProductController;
+    use App\Http\Controllers\ReturnOrderController;
     use App\Http\Controllers\UserController;
     use Illuminate\Http\Request;
     use Illuminate\Support\Facades\Route;
@@ -84,6 +85,7 @@
         Route::apiResource('orders', OrderController::class);
         Route::apiResource('credit-cards', CreditCardController::class);
         Route::apiResource('delivery-addresses', DeliveryAddressController::class);
+        Route::apiResource('return-orders', ReturnOrderController::class);
         Route::post('/orders/process', [OrderController::class, 'processOrder']);
         Route::put('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateItemQuantity']);
         Route::delete('/orders/{orderId}/items/{itemId}', [OrderController::class, 'deleteItem']);

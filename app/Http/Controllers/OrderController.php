@@ -1,9 +1,8 @@
 <?php
-// app/Http/Controllers/OrderController.php
-
     namespace App\Http\Controllers;
 
     use App\Models\Order;
+    use App\Models\OrderItem;
     use Illuminate\Http\Request;
     use Carbon\Carbon;
 
@@ -39,6 +38,7 @@
                     'creditCard',
                     'deliveryAddressRelation',
                     'member',
+                    'returnOrders',
                 ]);
             } else {
                 $query = Order::where('member_id', $user->id)
@@ -48,6 +48,7 @@
                         'creditCard',
                         'deliveryAddressRelation',
                         'member',
+                        'returnOrders',
                     ]);
             }
 
@@ -80,7 +81,29 @@
 
         public function show(Request $request, $id)
         {
-            return response()->json(['message' => 'Not Found'], 404);
+            $user = $request->user();
+
+            $order = Order::where('id', $id)
+                ->where(function($query) use ($user) {
+                    if ($user->role !== 'admin') {
+                        $query->where('member_id', $user->id);
+                    }
+                })
+                ->with([
+                    'orderItems.product',
+                    'member.defaultDeliveryAddress',
+                    'creditCard',
+                    'deliveryAddressRelation',
+                    'member',
+                    'returnOrders',
+                ])
+                ->first();
+
+            if (!$order) {
+                return response()->json(['message' => '訂單不存在'], 404);
+            }
+
+            return response()->json($order, 200);
         }
 
         public function store(Request $request)
@@ -124,6 +147,7 @@
                     'member',
                     'creditCard',
                     'deliveryAddress',
+                    'returnOrders',
                 ]), 200);
             }
 
@@ -156,6 +180,7 @@
                 'member',
                 'creditCard',
                 'deliveryAddress',
+                'returnOrders',
             ]), 201);
         }
 
@@ -188,6 +213,7 @@
                 'member',
                 'creditCard',
                 'deliveryAddress',
+                'returnOrders',
             ]), 200);
         }
 
@@ -211,6 +237,7 @@
                 'member',
                 'creditCard',
                 'deliveryAddress',
+                'returnOrders',
             ]), 200);
         }
 
@@ -250,6 +277,7 @@
                 'member',
                 'creditCard',
                 'deliveryAddress',
+                'returnOrders',
             ]), 200);
         }
 
@@ -288,6 +316,7 @@
                 'member',
                 'creditCard',
                 'deliveryAddress',
+                'returnOrders',
             ]), 200);
         }
     }

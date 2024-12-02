@@ -36,10 +36,10 @@
                     'orderItems.product',
                     'member.defaultDeliveryAddress',
                     'creditCard',
-                    'deliveryAddressRelation',
+                    'deliveryAddress', // 修改此處
                     'member',
                     'returnOrders.orderItem.product',
-                    'returnOrders.order.delivery_address',
+                    'returnOrders.order.deliveryAddress', // 修改此處
                 ]);
             } else {
                 $query = Order::where('member_id', $user->id)
@@ -47,10 +47,10 @@
                         'orderItems.product',
                         'member.defaultDeliveryAddress',
                         'creditCard',
-                        'deliveryAddressRelation',
+                        'deliveryAddress', // 修改此處
                         'member',
                         'returnOrders.orderItem.product',
-                        'returnOrders.order.delivery_address',
+                        'returnOrders.order.deliveryAddress', // 修改此處
                     ]);
             }
 
@@ -95,10 +95,10 @@
                     'orderItems.product',
                     'member.defaultDeliveryAddress',
                     'creditCard',
-                    'deliveryAddressRelation',
+                    'deliveryAddress', // 修改此處
                     'member',
                     'returnOrders.orderItem.product',
-                    'returnOrders.order.delivery_address',
+                    'returnOrders.order.deliveryAddress', // 修改此處
                 ])
                 ->first();
 
@@ -149,9 +149,9 @@
                     'member.defaultDeliveryAddress',
                     'member',
                     'creditCard',
-                    'deliveryAddress',
+                    'deliveryAddress', // 修改此處
                     'returnOrders.orderItem.product',
-                    'returnOrders.order.delivery_address',
+                    'returnOrders.order.deliveryAddress', // 修改此處
                 ]), 200);
             }
 
@@ -183,9 +183,9 @@
                 'member.defaultDeliveryAddress',
                 'member',
                 'creditCard',
-                'deliveryAddress',
+                'deliveryAddress', // 修改此處
                 'returnOrders.orderItem.product',
-                'returnOrders.order.delivery_address',
+                'returnOrders.order.deliveryAddress', // 修改此處
             ]), 201);
         }
 
@@ -217,9 +217,9 @@
                 'member.defaultDeliveryAddress',
                 'member',
                 'creditCard',
-                'deliveryAddress',
+                'deliveryAddress', // 修改此處
                 'returnOrders.orderItem.product',
-                'returnOrders.order.delivery_address',
+                'returnOrders.order.deliveryAddress', // 修改此處
             ]), 200);
         }
 
@@ -242,9 +242,9 @@
                 'member.defaultDeliveryAddress',
                 'member',
                 'creditCard',
-                'deliveryAddress',
+                'deliveryAddress', // 修改此處
                 'returnOrders.orderItem.product',
-                'returnOrders.order.delivery_address',
+                'returnOrders.order.deliveryAddress', // 修改此處
             ]), 200);
         }
 
@@ -256,10 +256,10 @@
                 'orderItems.product',
                 'member.defaultDeliveryAddress',
                 'creditCard',
-                'deliveryAddressRelation',
+                'deliveryAddress', // 修改此處
                 'member',
                 'returnOrders.orderItem.product',
-                'returnOrders.order.delivery_address',
+                'returnOrders.order.deliveryAddress', // 修改此處
             ]);
 
             if ($user->role !== 'admin') {
@@ -297,9 +297,9 @@
                 'member.defaultDeliveryAddress',
                 'member',
                 'creditCard',
-                'deliveryAddress',
+                'deliveryAddress', // 修改此處
                 'returnOrders.orderItem.product',
-                'returnOrders.order.delivery_address',
+                'returnOrders.order.deliveryAddress', // 修改此處
             ]), 200);
         }
 
@@ -337,9 +337,9 @@
                 'member.defaultDeliveryAddress',
                 'member',
                 'creditCard',
-                'deliveryAddress',
+                'deliveryAddress', // 修改此處
                 'returnOrders.orderItem.product',
-                'returnOrders.order.delivery_address',
+                'returnOrders.order.deliveryAddress', // 修改此處
             ]), 200);
         }
     }

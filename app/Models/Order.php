@@ -68,10 +68,6 @@
             return $this->deliveryAddress ?? $this->member->defaultDeliveryAddress ?? $this->member->deliveryAddresses()->first();
         }
 
-        public function deliveryAddressRelation()
-        {
-            return $this->belongsTo(DeliveryAddress::class, 'delivery_address_id');
-        }
 
         protected $dates = [
             'order_date',

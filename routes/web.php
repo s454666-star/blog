@@ -14,6 +14,7 @@ use App\Http\Controllers\PdfController2;
 use App\Http\Controllers\TelegramController;
 use App\Http\Controllers\UploadStorageController;
     use App\Http\Controllers\UserController;
+    use App\Http\Controllers\VideosController;
     use Illuminate\Support\Facades\Route;
 
 /*
@@ -21,6 +22,11 @@ use App\Http\Controllers\UploadStorageController;
 | Web Routes
 |--------------------------------------------------------------------------
 */
+Route::get('/videos', [VideosController::class, 'index'])->name('video.index');
+Route::get('/videos/load-more', [VideosController::class, 'loadMore'])->name('video.loadMore');
+Route::post('/videos/upload', [VideosController::class, 'upload'])->name('video.upload');
+Route::post('/videos/deleteSelected', [VideosController::class, 'deleteSelected'])->name('video.deleteSelected');
+Route::post('/videos', [VideosController::class, 'store'])->name('video.store');
 
 Route::middleware('web')->post('/admin-login', [UserController::class, 'login']);
 

@@ -203,8 +203,13 @@
             }
 
             DB::transaction(function() use ($face) {
+                // 取得相關影片的 VideoMaster ID
+                $videoMasterId = $face->videoScreenshot->videoMaster->id;
+
                 // 將同影片的其他人臉設為非主面
-                VideoFaceScreenshot::where('video_screenshot_id', $face->video_screenshot_id)
+                VideoFaceScreenshot::whereHas('videoScreenshot.videoMaster', function($query) use ($videoMasterId) {
+                    $query->where('id', $videoMasterId);
+                })
                     ->update(['is_master' => 0]);
 
                 // 將選定的人臉設為主面

@@ -602,31 +602,6 @@
         // 禁用選取文字以避免拖曳時的選取問題
         $("#videos-list").disableSelection();
 
-        // 設定預設聚焦最後一筆（id最大）
-        function focusMaxIdVideo() {
-            let maxId = -Infinity;
-            let maxIdElement = null;
-            $('.video-row').each(function () {
-                let currentId = parseInt($(this).data('id'));
-                if (currentId > maxId) {
-                    maxId = currentId;
-                    maxIdElement = $(this);
-                }
-            });
-            if (maxIdElement) {
-                $('.video-row').removeClass('focused');
-                maxIdElement.addClass('focused');
-                let videoId = maxIdElement.data('id');
-                focusMasterFace(videoId);
-                $('html, body').animate({
-                    scrollTop: maxIdElement.offset().top - 100
-                }, 500);
-            }
-        }
-
-        // 呼叫聚焦函式
-        focusMaxIdVideo();
-
         // 雙擊設定主面人臉
         $(document).on('dblclick', '.face-screenshot', function (e) {
             e.stopPropagation();
@@ -714,6 +689,33 @@
         function removeMasterFaceFocus() {
             $('.master-face-img').removeClass('focused');
         }
+
+        // 設定預設聚焦最後一筆（id最大）
+        function focusMaxIdVideo() {
+            let maxId = -Infinity;
+            let maxIdElement = null;
+            $('.video-row').each(function () {
+                let currentId = parseInt($(this).data('id'));
+                if (currentId > maxId) {
+                    maxId = currentId;
+                    maxIdElement = $(this);
+                }
+            });
+            if (maxIdElement) {
+                $('.video-row').removeClass('focused');
+                maxIdElement.addClass('focused');
+                let videoId = maxIdElement.data('id');
+                focusMasterFace(videoId);
+                $('html, body').animate({
+                    scrollTop: maxIdElement.offset().top - 100
+                }, 500);
+            }
+        }
+
+        // 呼叫聚焦函式在全部頁面載入後
+        $(window).on('load', function() {
+            focusMaxIdVideo();
+        });
     });
 </script>
 </body>

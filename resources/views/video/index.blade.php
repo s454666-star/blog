@@ -41,7 +41,7 @@
             height: 56px;
             object-fit: cover;
             margin: 5px;
-            transition: transform 0.3s;
+            transition: transform 0.3s, border 0.3s, box-shadow 0.3s;
         }
         .face-screenshot.master {
             border: 3px solid #ff0000;
@@ -181,10 +181,16 @@
             cursor: pointer;
             border: 2px solid transparent;
             border-radius: 5px;
-            transition: border-color 0.3s;
+            transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s;
         }
         .master-face-img:hover {
             border-color: #007bff;
+            transform: scale(1.05);
+        }
+        .master-face-img.focused {
+            border-color: #28a745;
+            box-shadow: 0 0 15px rgba(40, 167, 69, 0.7);
+            transform: scale(1.1);
         }
         .container {
             margin-left: 30%; /* 調整主面板左邊距為30% */
@@ -474,9 +480,9 @@
                             let template = $('#video-row-template').html();
                             let screenshotImages = '';
                             let faceScreenshotImages = '';
-                            response.data.screenshots.forEach(function(screenshot) {
+                            response.data.screenshots.forEach(function (screenshot) {
                                 screenshotImages += `<img src="https://video.test/${screenshot.screenshot_path}" alt="截圖" class="screenshot hover-zoom">`;
-                                screenshot.face_screenshots.forEach(function(face) {
+                                screenshot.face_screenshots.forEach(function (face) {
                                     let masterClass = face.is_master ? 'face-screenshot hover-zoom master' : 'face-screenshot hover-zoom';
                                     faceScreenshotImages += `<img src="https://video.test/${face.face_image_path}" alt="人臉截圖" class="${masterClass}" data-id="${face.id}" data-video-id="${response.data.id}">`;
                                 });
@@ -514,10 +520,15 @@
             if (isFocused) {
                 // 如果已聚焦，則取消聚焦
                 $(this).removeClass('focused');
+                removeMasterFaceFocus();
             } else {
                 // 如果未聚焦，移除其他聚焦並設為聚焦
                 $('.video-row').removeClass('focused');
                 $(this).addClass('focused');
+
+                // 聚焦對應的主面人臉
+                let videoId = $(this).data('id');
+                focusMasterFace(videoId);
             }
 
             // 更新最後選取的索引
@@ -549,6 +560,7 @@
                     if (response.success) {
                         focusedRow.remove();
                         showMessage('success', response.message);
+                        removeMasterFaceFocus();
                     } else {
                         showMessage('error', response.message);
                     }
@@ -594,7 +606,7 @@
         function focusMaxIdVideo() {
             let maxId = -Infinity;
             let maxIdElement = null;
-            $('.video-row').each(function() {
+            $('.video-row').each(function () {
                 let currentId = parseInt($(this).data('id'));
                 if (currentId > maxId) {
                     maxId = currentId;
@@ -604,6 +616,8 @@
             if (maxIdElement) {
                 $('.video-row').removeClass('focused');
                 maxIdElement.addClass('focused');
+                let videoId = maxIdElement.data('id');
+                focusMasterFace(videoId);
                 $('html, body').animate({
                     scrollTop: maxIdElement.offset().top - 100
                 }, 500);
@@ -626,8 +640,8 @@
                     face_id: faceId,
                     _token: '{{ csrf_token() }}'
                 },
-                success: function(response) {
-                    if(response.success) {
+                success: function (response) {
+                    if (response.success) {
                         // 移除所有master類別
                         $(`.face-screenshot[data-video-id="${videoId}"]`).removeClass('master');
                         // 添加master類別到當前圖片
@@ -649,9 +663,10 @@
         $(document).on('click', '.master-face-img', function () {
             let videoId = $(this).data('video-id');
             let targetRow = $(`.video-row[data-id="${videoId}"]`);
-            if(targetRow.length) {
+            if (targetRow.length) {
                 $('.video-row').removeClass('focused');
                 targetRow.addClass('focused');
+                focusMasterFace(videoId);
                 $('html, body').animate({
                     scrollTop: targetRow.offset().top - 100
                 }, 500);
@@ -663,10 +678,10 @@
             $.ajax({
                 url: "{{ route('video.loadMasterFaces') }}",
                 method: 'GET',
-                success: function(response) {
-                    if(response.success) {
+                success: function (response) {
+                    if (response.success) {
                         let masterFacesHtml = '<h5>主面人臉</h5><div class="master-face-images">';
-                        response.data.forEach(function(face) {
+                        response.data.forEach(function (face) {
                             masterFacesHtml += `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img" data-video-id="${face.video_master_id}">`;
                         });
                         masterFacesHtml += '</div>';
@@ -677,6 +692,27 @@
                     showMessage('error', '無法加載主面人臉。');
                 }
             });
+        }
+
+        // 聚焦對應的主面人臉
+        function focusMasterFace(videoId) {
+            // 移除其他聚焦
+            $('.master-face-img').removeClass('focused');
+
+            // 找到對應的主面人臉
+            let targetFace = $(`.master-face-img[data-video-id="${videoId}"]`);
+            if (targetFace.length) {
+                targetFace.addClass('focused');
+                // 滾動到該主面人臉
+                $('.master-faces').animate({
+                    scrollTop: targetFace.position().top + $('.master-faces').scrollTop() - 30
+                }, 500);
+            }
+        }
+
+        // 移除主面人臉的聚焦
+        function removeMasterFaceFocus() {
+            $('.master-face-img').removeClass('focused');
         }
     });
 </script>

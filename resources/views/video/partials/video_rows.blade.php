@@ -1,3 +1,5 @@
+<!-- resources/views/videos/video_rows.blade.php -->
+
 @foreach($videos as $video)
     <div class="video-row" data-id="{{ $video->id }}">
         <div class="video-container">
@@ -14,7 +16,7 @@
                 <h5>影片截圖</h5>
                 <div class="d-flex flex-wrap">
                     @foreach($video->screenshots as $screenshot)
-                        <img src="https://video.test/{{ $screenshot->screenshot_path }}" alt="截圖" class="screenshot">
+                        <img src="https://video.test/{{ $screenshot->screenshot_path }}" alt="截圖" class="screenshot hover-zoom">
                     @endforeach
                 </div>
             </div>
@@ -23,7 +25,7 @@
                 <div class="d-flex flex-wrap">
                     @foreach($video->screenshots as $screenshot)
                         @foreach($screenshot->faceScreenshots as $face)
-                            <img src="https://video.test/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot">
+                            <img src="https://video.test/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
                         @endforeach
                     @endforeach
                 </div>

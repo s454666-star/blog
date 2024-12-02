@@ -15,6 +15,7 @@
         protected $fillable = [
             'video_screenshot_id',
             'face_image_path',
+            'is_master',
             'created_at',
             'updated_at',
         ];

@@ -2,10 +2,12 @@
 
     namespace App\Http\Controllers;
 
+    use App\Models\VideoFaceScreenshot;
     use App\Models\VideoMaster;
     use Illuminate\Http\Request;
     use Illuminate\Support\Facades\Storage;
     use Illuminate\Support\Facades\File;
+    use Illuminate\Support\Facades\DB;
 
     class VideosController extends Controller
     {
@@ -21,7 +23,9 @@
                 ->orderBy('duration', 'asc')
                 ->paginate(300);
 
-            return view('video.index', compact('videos'));
+            $masterFaces = VideoFaceScreenshot::where('is_master', 1)->with('videoScreenshot.videoMaster')->get();
+
+            return view('video.index', compact('videos', 'masterFaces'));
         }
 
         /**
@@ -170,6 +174,10 @@
                     'duration' => $duration,
                 ]);
 
+                // 假設截圖和人臉截圖的生成在此處進行，並回傳相關資料
+                // 這裡簡化為返回空陣列
+                $video->screenshots = []; // 請根據實際情況填充
+
                 return response()->json([
                     'success' => true,
                     'data' => $video,
@@ -180,6 +188,43 @@
                 'success' => false,
                 'message' => '檔案上傳失敗。',
             ], 500);
+        }
+
+        public function setMasterFace(Request $request): \Illuminate\Http\JsonResponse
+        {
+            $faceId = $request->input('face_id');
+
+            $face = VideoFaceScreenshot::find($faceId);
+            if(!$face){
+                return response()->json([
+                    'success' => false,
+                    'message' => '人臉截圖不存在。'
+                ]);
+            }
+
+            DB::transaction(function() use ($face) {
+                // 將同影片的其他人臉設為非主面
+                VideoFaceScreenshot::where('video_screenshot_id', $face->video_screenshot_id)
+                    ->update(['is_master' => 0]);
+
+                // 將選定的人臉設為主面
+                $face->is_master = 1;
+                $face->save();
+            });
+
+            return response()->json([
+                'success' => true
+            ]);
+        }
+
+        public function loadMasterFaces(): \Illuminate\Http\JsonResponse
+        {
+            $masterFaces = VideoFaceScreenshot::where('is_master', 1)->with('videoScreenshot.videoMaster')->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $masterFaces
+            ]);
         }
 
         /**

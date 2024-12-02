@@ -1,3 +1,5 @@
+<!-- resources/views/videos/index.blade.php -->
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -27,19 +29,22 @@
             background-color: #e6ffe6;
         }
         .video-container {
-            width: 25%;
+            width: 70%;
             padding-right: 10px;
         }
         .images-container {
-            width: 75%;
+            width: 30%;
             padding-left: 10px;
         }
         .screenshot, .face-screenshot {
-            width: 200px;
-            height: 112px;
+            width: 100px;
+            height: 56px;
             object-fit: cover;
             margin: 5px;
             transition: transform 0.3s;
+        }
+        .face-screenshot.master {
+            border: 3px solid #ff0000;
         }
         /* 移除:hover效果以避免抖動 */
         /* 放大圖片不再直接影響原圖 */
@@ -71,7 +76,7 @@
         .controls {
             position: fixed;
             bottom: 0;
-            left: 0;
+            left: 30%; /* 調整為30%以避免遮住左側主面人臉 */
             right: 0;
             background: #fff;
             padding: 10px 20px;
@@ -125,15 +130,108 @@
                 width: 100px;
                 height: 56px;
             }
+            .controls {
+                left: 0;
+            }
+            .master-faces {
+                width: 100%; /* 全寬以適應小螢幕 */
+                height: auto;
+                position: relative;
+                border-right: none;
+                border-bottom: 1px solid #ddd;
+            }
+            .container {
+                margin-left: 0; /* 移除左邊距 */
+            }
+        }
+        /* 左側主面板樣式 */
+        .master-faces {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 30%; /* 調整寬度為30% */
+            height: 100%;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            border-right: 1px solid #ddd;
+            padding: 10px;
+            box-sizing: border-box;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .master-faces h5 {
+            text-align: center;
+            width: 100%;
+        }
+        .master-face-images {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .master-face-img {
+            width: 30%; /* 一行三張 */
+            height: auto;
+            margin: 5px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            border-radius: 5px;
+            transition: border-color 0.3s;
+        }
+        .master-face-img:hover {
+            border-color: #007bff;
+        }
+        .container {
+            margin-left: 30%; /* 調整主面板左邊距為30% */
+            padding-top: 20px;
+            padding-bottom: 80px;
+        }
+        /* 消息提示樣式 */
+        .message-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 3000;
+        }
+        .message {
+            padding: 10px 20px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            color: #fff;
+            opacity: 0.9;
+            animation: fadeOut 1s forwards;
+        }
+        .message.success {
+            background-color: #28a745;
+        }
+        .message.error {
+            background-color: #dc3545;
+        }
+        @keyframes fadeOut {
+            0% { opacity: 0.9; }
+            100% { opacity: 0; }
         }
     </style>
 </head>
 <body>
-<div class="container mt-4 mb-80">
+<div class="master-faces">
+    <h5>主面人臉</h5>
+    <div class="master-face-images">
+        @foreach($masterFaces as $masterFace)
+            <img src="https://video.test/{{ $masterFace->face_image_path }}" alt="主面人臉" class="master-face-img" data-video-id="{{ $masterFace->videoScreenshot->videoMaster->id }}">
+        @endforeach
+    </div>
+</div>
+<div class="container mt-4">
     <!-- 上傳區 -->
     {{--    <div class="upload-area" id="upload-area">--}}
     {{--        將影片檔案拖曳到此處上傳--}}
     {{--    </div>--}}
+
+    <!-- 消息提示 -->
+    <div class="message-container" id="message-container">
+    </div>
 
     <!-- 影片列表 -->
     <div id="videos-list">
@@ -162,7 +260,7 @@
                         <div class="d-flex flex-wrap">
                             @foreach($video->screenshots as $screenshot)
                                 @foreach($screenshot->faceScreenshots as $face)
-                                    <img src="https://video.test/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom">
+                                    <img src="https://video.test/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
                                 @endforeach
                             @endforeach
                         </div>
@@ -236,6 +334,17 @@
     let nextPage = {{ $videos->currentPage() + 1 }};
     let loading = false;
 
+    function showMessage(type, text) {
+        const messageContainer = $('#message-container');
+        const message = $('<div class="message"></div>').addClass(type === 'success' ? 'success' : 'error').text(text);
+        messageContainer.append(message);
+        setTimeout(() => {
+            message.fadeOut(500, () => {
+                message.remove();
+            });
+        }, 1000);
+    }
+
     function loadMoreVideos() {
         if (loading) return;
         loading = true;
@@ -259,7 +368,7 @@
             },
             error: function() {
                 $('#load-more-btn').text('載入更多');
-                alert('載入失敗，請稍後再試。');
+                showMessage('error', '載入失敗，請稍後再試。');
                 loading = false;
             }
         });
@@ -362,8 +471,9 @@
                             let faceScreenshotImages = '';
                             response.data.screenshots.forEach(function(screenshot) {
                                 screenshotImages += `<img src="https://video.test/${screenshot.screenshot_path}" alt="截圖" class="screenshot hover-zoom">`;
-                                screenshot.faceScreenshots.forEach(function(face) {
-                                    faceScreenshotImages += `<img src="https://video.test/${face.face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom">`;
+                                screenshot.face_screenshots.forEach(function(face) {
+                                    let masterClass = face.is_master ? 'face-screenshot hover-zoom master' : 'face-screenshot hover-zoom';
+                                    faceScreenshotImages += `<img src="https://video.test/${face.face_image_path}" alt="人臉截圖" class="${masterClass}" data-id="${face.id}" data-video-id="${response.data.id}">`;
                                 });
                             });
                             let newRow = template
@@ -373,16 +483,16 @@
                                 .replace('{face_screenshot_images}', faceScreenshotImages);
                             $('#videos-list').prepend(newRow);
                             $("#videos-list").sortable("refresh");
-                            alert('影片上傳成功！');
+                            showMessage('success', '影片上傳成功！');
                         } else {
-                            alert(response.message);
+                            showMessage('error', response.message);
                         }
                     },
                     error: function (xhr) {
                         if (xhr.status === 409) {
-                            alert(xhr.responseJSON.message);
+                            showMessage('error', xhr.responseJSON.message);
                         } else {
-                            alert('上傳失敗，請稍後再試。');
+                            showMessage('error', '上傳失敗，請稍後再試。');
                         }
                     }
                 });
@@ -413,7 +523,7 @@
         $('#delete-focused-btn').on('click', function () {
             let focusedRow = $('.video-row.focused');
             if (focusedRow.length === 0) {
-                alert('沒有聚焦的影片。');
+                showMessage('error', '沒有聚焦的影片。');
                 return;
             }
 
@@ -433,13 +543,13 @@
                 success: function (response) {
                     if (response.success) {
                         focusedRow.remove();
-                        alert(response.message);
+                        showMessage('success', response.message);
                     } else {
-                        alert(response.message);
+                        showMessage('error', response.message);
                     }
                 },
                 error: function () {
-                    alert('刪除失敗，請稍後再試。');
+                    showMessage('error', '刪除失敗，請稍後再試。');
                 }
             });
         });
@@ -497,6 +607,72 @@
 
         // 呼叫聚焦函式
         focusMaxIdVideo();
+
+        // 雙擊設定主面人臉
+        $(document).on('dblclick', '.face-screenshot', function (e) {
+            e.stopPropagation();
+            let faceId = $(this).data('id');
+            let videoId = $(this).data('video-id');
+
+            $.ajax({
+                url: "{{ route('video.setMasterFace') }}",
+                method: 'POST',
+                data: {
+                    face_id: faceId,
+                    _token: '{{ csrf_token() }}'
+                },
+                success: function(response) {
+                    if(response.success) {
+                        // 移除所有master類別
+                        $(`.face-screenshot[data-video-id="${videoId}"]`).removeClass('master');
+                        // 添加master類別到當前圖片
+                        $(`.face-screenshot[data-id="${faceId}"]`).addClass('master');
+                        // 更新左側主面人臉
+                        loadMasterFaces();
+                        showMessage('success', '主面人臉已更新。');
+                    } else {
+                        showMessage('error', response.message);
+                    }
+                },
+                error: function () {
+                    showMessage('error', '更新失敗，請稍後再試。');
+                }
+            });
+        });
+
+        // 點擊左側主面人臉導航
+        $(document).on('click', '.master-face-img', function () {
+            let videoId = $(this).data('video-id');
+            let targetRow = $(`.video-row[data-id="${videoId}"]`);
+            if(targetRow.length) {
+                $('.video-row').removeClass('focused');
+                targetRow.addClass('focused');
+                $('html, body').animate({
+                    scrollTop: targetRow.offset().top - 100
+                }, 500);
+            }
+        });
+
+        // 加載左側主面人臉
+        function loadMasterFaces() {
+            $.ajax({
+                url: "{{ route('video.loadMasterFaces') }}",
+                method: 'GET',
+                success: function(response) {
+                    if(response.success) {
+                        let masterFacesHtml = '<h5>主面人臉</h5><div class="master-face-images">';
+                        response.data.forEach(function(face) {
+                            masterFacesHtml += `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img" data-video-id="${face.video_master_id}">`;
+                        });
+                        masterFacesHtml += '</div>';
+                        $('.master-faces').html(masterFacesHtml);
+                    }
+                },
+                error: function () {
+                    showMessage('error', '無法加載主面人臉。');
+                }
+            });
+        }
     });
 </script>
 </body>

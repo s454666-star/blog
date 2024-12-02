@@ -143,6 +143,10 @@
             .container {
                 margin-left: 0; /* 移除左邊距 */
             }
+            .master-face-img {
+                width: 23%; /* 保持四張一行 */
+                margin: 5px;
+            }
         }
         /* 左側主面板樣式 */
         .master-faces {
@@ -171,7 +175,7 @@
             justify-content: center;
         }
         .master-face-img {
-            width: 30%; /* 一行三張 */
+            width: 23%; /* 一行四張 */
             height: auto;
             margin: 5px;
             cursor: pointer;
@@ -187,6 +191,7 @@
             padding-top: 20px;
             padding-bottom: 80px;
         }
+
         /* 消息提示樣式 */
         .message-container {
             position: fixed;

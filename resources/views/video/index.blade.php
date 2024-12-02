@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <title>影片列表</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css">
+    <!-- 引入 jQuery UI CSS -->
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
     <style>
         /* 自訂樣式 */
         .video-row {
@@ -107,6 +109,13 @@
             border-color: #0056b3;
             color: #0056b3;
         }
+        /* 新增 jQuery UI sortable 的 placeholder 樣式 */
+        .ui-state-highlight {
+            height: 120px; /* 根據 .video-row 的高度調整 */
+            border: 2px dashed #ccc;
+            background-color: #f9f9f9;
+            margin-bottom: 20px;
+        }
         @media (max-width: 768px) {
             .video-container, .images-container {
                 width: 100%;
@@ -122,9 +131,9 @@
 <body>
 <div class="container mt-4 mb-80">
     <!-- 上傳區 -->
-{{--    <div class="upload-area" id="upload-area">--}}
-{{--        將影片檔案拖曳到此處上傳--}}
-{{--    </div>--}}
+    {{--    <div class="upload-area" id="upload-area">--}}
+    {{--        將影片檔案拖曳到此處上傳--}}
+    {{--    </div>--}}
 
     <!-- 影片列表 -->
     <div id="videos-list">
@@ -221,6 +230,8 @@
 
 <!-- 載入更多影片的JS -->
 <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+<!-- 引入 jQuery UI JS -->
+<script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
 <script>
     let nextPage = {{ $videos->currentPage() + 1 }};
     let loading = false;
@@ -240,6 +251,8 @@
                     nextPage = response.next_page;
                     loading = false;
                     $('#load-more-btn').text('載入更多');
+                    // Refresh sortable to include new items
+                    $("#videos-list").sortable("refresh");
                 } else {
                     $('#load-more').html('<p>沒有更多資料了。</p>');
                 }
@@ -359,6 +372,7 @@
                                 .replace('{screenshot_images}', screenshotImages)
                                 .replace('{face_screenshot_images}', faceScreenshotImages);
                             $('#videos-list').prepend(newRow);
+                            $("#videos-list").sortable("refresh");
                             alert('影片上傳成功！');
                         } else {
                             alert(response.message);
@@ -446,6 +460,43 @@
             imageModal.removeClass('active');
             modalImg.attr('src', '');
         });
+
+        // 初始化 Sortable 功能
+        $("#videos-list").sortable({
+            placeholder: "ui-state-highlight",
+            // 可選：啟用拖曳手柄（如果需要）
+            // handle: ".video-wrapper",
+            // 可選：設置拖曳延遲，避免誤觸
+            delay: 150,
+            // 可選：禁用拖曳時的選取文字
+            cancel: "video, .fullscreen-btn, img, button"
+        });
+
+        // 禁用選取文字以避免拖曳時的選取問題
+        $("#videos-list").disableSelection();
+
+        // 設定預設聚焦最後一筆（id最大）
+        function focusMaxIdVideo() {
+            let maxId = -Infinity;
+            let maxIdElement = null;
+            $('.video-row').each(function() {
+                let currentId = parseInt($(this).data('id'));
+                if (currentId > maxId) {
+                    maxId = currentId;
+                    maxIdElement = $(this);
+                }
+            });
+            if (maxIdElement) {
+                $('.video-row').removeClass('focused');
+                maxIdElement.addClass('focused');
+                $('html, body').animate({
+                    scrollTop: maxIdElement.offset().top - 100
+                }, 500);
+            }
+        }
+
+        // 呼叫聚焦函式
+        focusMaxIdVideo();
     });
 </script>
 </body>

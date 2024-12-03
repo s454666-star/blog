@@ -141,9 +141,11 @@
             .container {
                 margin-left: 0; /* 移除左邊距 */
             }
+            .master-face-images {
+                grid-template-columns: repeat(4, 1fr);
+            }
             .master-face-img {
-                width: 23%; /* 保持四張一行 */
-                margin: 5px;
+                height: auto;
             }
         }
         /* 左側主面板樣式 */
@@ -168,18 +170,25 @@
             width: 100%;
         }
         .master-face-images {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-auto-rows: 1fr;
+            grid-gap: 10px;
+            width: 100%;
         }
         .master-face-img {
-            width: 23%; /* 一行四張 */
+            width: 100%;
             height: auto;
-            margin: 5px;
+            aspect-ratio: 1 / 1; /* 確保縱橫比 */
+            object-fit: cover;
             cursor: pointer;
             border: 2px solid transparent;
             border-radius: 5px;
             transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s;
+        }
+        .master-face-img.landscape {
+            grid-column: span 2;
+            aspect-ratio: 2 / 1; /* 橫向圖片的縱橫比 */
         }
         .master-face-img:hover {
             border-color: #007bff;
@@ -252,7 +261,20 @@
     <h5>主面人臉</h5>
     <div class="master-face-images">
         @foreach($masterFaces as $masterFace)
-            <img src="https://video.test/{{ $masterFace->face_image_path }}" alt="主面人臉" class="master-face-img" data-video-id="{{ $masterFace->videoScreenshot->videoMaster->id }}">
+            @php
+                // 獲取圖像的絕對路徑
+                $imagePath = public_path($masterFace->face_image_path);
+                $orientation = '';
+                if (file_exists($imagePath)) {
+                    // 獲取圖像尺寸
+                    list($width, $height) = getimagesize($imagePath);
+                    // 判斷寬度是否大於等於高度
+                    if ($width >= $height) {
+                        $orientation = 'landscape';
+                    }
+                }
+            @endphp
+            <img src="https://video.test/{{ $masterFace->face_image_path }}" alt="主面人臉" class="master-face-img {{ $orientation }}" data-video-id="{{ $masterFace->videoScreenshot->videoMaster->id }}">
         @endforeach
     </div>
 </div>
@@ -490,77 +512,6 @@
             video.currentTime = percent * video.duration;
         });
 
-        // 拖曳上傳
-        const uploadArea = $('#upload-area');
-
-        uploadArea.on('dragover', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            $(this).addClass('dragover');
-        });
-
-        uploadArea.on('dragleave', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            $(this).removeClass('dragover');
-        });
-
-        uploadArea.on('drop', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            $(this).removeClass('dragover');
-
-            let files = e.originalEvent.dataTransfer.files;
-            if (files.length > 0) {
-                let formData = new FormData();
-                formData.append('video_file', files[0]);
-
-                $.ajax({
-                    url: "{{ route('video.upload') }}",
-                    method: 'POST',
-                    data: formData,
-                    contentType: false,
-                    processData: false,
-                    headers: {
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                    },
-                    success: function (response) {
-                        if (response.success) {
-                            // 使用模板新增影片
-                            let template = $('#video-row-template').html();
-                            let screenshotImages = '';
-                            let faceScreenshotImages = '';
-                            response.data.screenshots.forEach(function (screenshot) {
-                                screenshotImages += `<div class="screenshot-container"><img src="https://video.test/${screenshot.screenshot_path}" alt="截圖" class="screenshot hover-zoom" data-id="${screenshot.id}" data-type="screenshot"><button class="delete-icon" data-id="${screenshot.id}" data-type="screenshot">&times;</button></div>`;
-                                screenshot.face_screenshots.forEach(function (face) {
-                                    let masterClass = face.is_master ? 'master' : '';
-                                    faceScreenshotImages += `<div class="face-screenshot-container"><img src="https://video.test/${face.face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom ${masterClass}" data-id="${face.id}" data-video-id="${response.data.id}"><button class="delete-icon" data-id="${face.id}" data-type="face-screenshot">&times;</button></div>`;
-                                });
-                            });
-                            let newRow = template
-                                .replace('{id}', response.data.id)
-                                .replace('{video_path}', response.data.video_path)
-                                .replace('{screenshot_images}', screenshotImages)
-                                .replace('{face_screenshot_images}', faceScreenshotImages)
-                                .replace(/{video_id}/g, response.data.id);
-                            $('#videos-list').prepend(newRow);
-                            $("#videos-list").sortable("refresh");
-                            showMessage('success', '影片上傳成功！');
-                        } else {
-                            showMessage('error', response.message);
-                        }
-                    },
-                    error: function (xhr) {
-                        if (xhr.status === 409) {
-                            showMessage('error', xhr.responseJSON.message);
-                        } else {
-                            showMessage('error', '上傳失敗，請稍後再試。');
-                        }
-                    }
-                });
-            }
-        });
-
         // 選取影片 - 點擊選取或聚焦
         let lastSelectedIndex = null;
 
@@ -708,7 +659,12 @@
                     if (response.success) {
                         let masterFacesHtml = '<h5>主面人臉</h5><div class="master-face-images">';
                         response.data.forEach(function (face) {
-                            masterFacesHtml += `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img" data-video-id="${face.videoScreenshot.videoMaster.id}">`;
+                            // 檢查圖片方向
+                            let orientation = '';
+                            if (face.width >= face.height) {
+                                orientation = 'landscape';
+                            }
+                            masterFacesHtml += `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${face.videoScreenshot.videoMaster.id}">`;
                         });
                         masterFacesHtml += '</div>';
                         $('.master-faces').html(masterFacesHtml);

@@ -223,6 +223,30 @@
             0% { opacity: 0.9; }
             100% { opacity: 0; }
         }
+        /* 新增刪除圖示 */
+        .delete-icon {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(220,53,69,0.8);
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            text-align: center;
+            line-height: 18px;
+            cursor: pointer;
+            display: none;
+        }
+        .screenshot-container, .face-screenshot-container {
+            position: relative;
+            display: inline-block;
+        }
+        .screenshot-container:hover .delete-icon,
+        .face-screenshot-container:hover .delete-icon {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -262,18 +286,27 @@
                         <h5>影片截圖</h5>
                         <div class="d-flex flex-wrap">
                             @foreach($video->screenshots as $screenshot)
-                                <img src="https://video.test/{{ $screenshot->screenshot_path }}" alt="截圖" class="screenshot hover-zoom">
+                                <div class="screenshot-container">
+                                    <img src="https://video.test/{{ $screenshot->screenshot_path }}" alt="截圖" class="screenshot hover-zoom" data-id="{{ $screenshot->id }}" data-type="screenshot">
+                                    <button class="delete-icon" data-id="{{ $screenshot->id }}" data-type="screenshot">&times;</button>
+                                </div>
                             @endforeach
                         </div>
                     </div>
                     <div class="face-screenshot-images">
                         <h5>人臉截圖</h5>
-                        <div class="d-flex flex-wrap">
+                        <div class="d-flex flex-wrap face-upload-area" data-video-id="{{ $video->id }}" style="position: relative; border: 2px dashed #007bff; border-radius: 5px; padding: 10px; min-height: 120px;">
                             @foreach($video->screenshots as $screenshot)
                                 @foreach($screenshot->faceScreenshots as $face)
-                                    <img src="https://video.test/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
+                                    <div class="face-screenshot-container">
+                                        <img src="https://video.test/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
+                                        <button class="delete-icon" data-id="{{ $face->id }}" data-type="face-screenshot">&times;</button>
+                                    </div>
                                 @endforeach
                             @endforeach
+                            <div class="upload-instructions" style="width: 100%; text-align: center; color: #aaa; margin-top: 10px;">
+                                拖曳圖片到此處上傳
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -324,11 +357,30 @@
             </div>
             <div class="face-screenshot-images">
                 <h5>人臉截圖</h5>
-                <div class="d-flex flex-wrap">
+                <div class="d-flex flex-wrap face-upload-area" data-video-id="{video_id}" style="position: relative; border: 2px dashed #007bff; border-radius: 5px; padding: 10px; min-height: 120px;">
                     {face_screenshot_images}
+                    <div class="upload-instructions" style="width: 100%; text-align: center; color: #aaa; margin-top: 10px;">
+                        拖曳圖片到此處上傳
+                    </div>
                 </div>
             </div>
         </div>
+    </div>
+</template>
+
+<!-- 模板：截圖圖片 -->
+<template id="screenshot-template">
+    <div class="screenshot-container">
+        <img src="https://video.test/{screenshot_path}" alt="截圖" class="screenshot hover-zoom" data-id="{screenshot_id}" data-type="screenshot">
+        <button class="delete-icon" data-id="{screenshot_id}" data-type="screenshot">&times;</button>
+    </div>
+</template>
+
+<!-- 模板：人臉截圖圖片 -->
+<template id="face-screenshot-template">
+    <div class="face-screenshot-container">
+        <img src="https://video.test/{face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom {master_class}" data-id="{face_id}" data-video-id="{video_id}">
+        <button class="delete-icon" data-id="{face_id}" data-type="face-screenshot">&times;</button>
     </div>
 </template>
 
@@ -481,17 +533,18 @@
                             let screenshotImages = '';
                             let faceScreenshotImages = '';
                             response.data.screenshots.forEach(function (screenshot) {
-                                screenshotImages += `<img src="https://video.test/${screenshot.screenshot_path}" alt="截圖" class="screenshot hover-zoom">`;
+                                screenshotImages += `<div class="screenshot-container"><img src="https://video.test/${screenshot.screenshot_path}" alt="截圖" class="screenshot hover-zoom" data-id="${screenshot.id}" data-type="screenshot"><button class="delete-icon" data-id="${screenshot.id}" data-type="screenshot">&times;</button></div>`;
                                 screenshot.face_screenshots.forEach(function (face) {
-                                    let masterClass = face.is_master ? 'face-screenshot hover-zoom master' : 'face-screenshot hover-zoom';
-                                    faceScreenshotImages += `<img src="https://video.test/${face.face_image_path}" alt="人臉截圖" class="${masterClass}" data-id="${face.id}" data-video-id="${response.data.id}">`;
+                                    let masterClass = face.is_master ? 'master' : '';
+                                    faceScreenshotImages += `<div class="face-screenshot-container"><img src="https://video.test/${face.face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom ${masterClass}" data-id="${face.id}" data-video-id="${response.data.id}"><button class="delete-icon" data-id="${face.id}" data-type="face-screenshot">&times;</button></div>`;
                                 });
                             });
                             let newRow = template
                                 .replace('{id}', response.data.id)
                                 .replace('{video_path}', response.data.video_path)
                                 .replace('{screenshot_images}', screenshotImages)
-                                .replace('{face_screenshot_images}', faceScreenshotImages);
+                                .replace('{face_screenshot_images}', faceScreenshotImages)
+                                .replace('{video_id}', response.data.id);
                             $('#videos-list').prepend(newRow);
                             $("#videos-list").sortable("refresh");
                             showMessage('success', '影片上傳成功！');
@@ -657,7 +710,7 @@
                     if (response.success) {
                         let masterFacesHtml = '<h5>主面人臉</h5><div class="master-face-images">';
                         response.data.forEach(function (face) {
-                            masterFacesHtml += `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img" data-video-id="${face.video_master_id}">`;
+                            masterFacesHtml += `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img" data-video-id="${face.videoMaster.id}">`;
                         });
                         masterFacesHtml += '</div>';
                         $('.master-faces').html(masterFacesHtml);
@@ -715,6 +768,96 @@
         // 呼叫聚焦函式在全部頁面載入後
         $(window).on('load', function() {
             focusMaxIdVideo();
+        });
+
+        // 刪除圖片
+        $(document).on('click', '.delete-icon', function(e) {
+            e.stopPropagation();
+            let id = $(this).data('id');
+            let type = $(this).data('type');
+
+            $.ajax({
+                url: "{{ route('video.deleteScreenshot') }}",
+                method: 'POST',
+                data: {
+                    id: id,
+                    type: type,
+                    _token: '{{ csrf_token() }}'
+                },
+                success: function(response) {
+                    if(response.success) {
+                        if(type === 'screenshot') {
+                            $(`img[data-id="${id}"][data-type="screenshot"]`).closest('.screenshot-container').remove();
+                        } else if(type === 'face-screenshot') {
+                            $(`img[data-id="${id}"][data-type="face-screenshot"]`).closest('.face-screenshot-container').remove();
+                        }
+                        showMessage('success', '圖片刪除成功。');
+                    } else {
+                        showMessage('error', response.message);
+                    }
+                },
+                error: function() {
+                    showMessage('error', '刪除失敗，請稍後再試。');
+                }
+            });
+        });
+
+        // 拖曳上傳人臉截圖
+        $(document).on('dragover', '.face-upload-area', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $(this).addClass('dragover');
+        });
+
+        $(document).on('dragleave', '.face-upload-area', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $(this).removeClass('dragover');
+        });
+
+        $(document).on('drop', '.face-upload-area', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $(this).removeClass('dragover');
+
+            let files = e.originalEvent.dataTransfer.files;
+            if (files.length > 0) {
+                let videoId = $(this).data('video-id');
+                let formData = new FormData();
+                formData.append('face_images[]', files[0]);
+                formData.append('video_id', videoId);
+
+                $.ajax({
+                    url: "{{ route('video.uploadFaceScreenshot') }}",
+                    method: 'POST',
+                    data: formData,
+                    contentType: false,
+                    processData: false,
+                    headers: {
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                    },
+                    success: function(response) {
+                        if(response.success) {
+                            let template = $('#face-screenshot-template').html();
+                            response.data.forEach(function(face) {
+                                let masterClass = face.is_master ? 'master' : '';
+                                let newFace = template
+                                    .replace('{face_image_path}', face.face_image_path)
+                                    .replace('{master_class}', masterClass)
+                                    .replace('{face_id}', face.id)
+                                    .replace('{video_id}', videoId);
+                                $(`.face-upload-area[data-video-id="${videoId}"]`).prepend(newFace);
+                            });
+                            showMessage('success', '人臉截圖上傳成功！');
+                        } else {
+                            showMessage('error', response.message);
+                        }
+                    },
+                    error: function() {
+                        showMessage('error', '上傳失敗，請稍後再試。');
+                    }
+                });
+            }
         });
     });
 </script>

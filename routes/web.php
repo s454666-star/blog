@@ -26,6 +26,8 @@ Route::get('/videos', [VideosController::class, 'index'])->name('video.index');
 Route::get('/videos/load-more', [VideosController::class, 'loadMore'])->name('video.loadMore');
 Route::post('/videos/upload', [VideosController::class, 'upload'])->name('video.upload');
 Route::post('/videos/deleteSelected', [VideosController::class, 'deleteSelected'])->name('video.deleteSelected');
+Route::post('/videos/delete-screenshot', [VideosController::class, 'deleteScreenshot'])->name('video.deleteScreenshot');
+Route::post('/videos/upload-face-screenshot', [VideosController::class, 'uploadFaceScreenshot'])->name('video.uploadFaceScreenshot');
 Route::post('/videos/set-master-face', [VideosController::class, 'setMasterFace'])->name('video.setMasterFace');
 Route::get('/videos/load-master-faces', [VideosController::class, 'loadMasterFaces'])->name('video.loadMasterFaces');
 Route::post('/videos', [VideosController::class, 'store'])->name('video.store');

@@ -30,4 +30,13 @@
         {
             return $this->hasMany(VideoScreenshot::class, 'video_master_id', 'id');
         }
+
+        /**
+         * Get the master face screenshots for the video.
+         */
+        public function masterFaces()
+        {
+            return $this->hasManyThrough(VideoFaceScreenshot::class, VideoScreenshot::class, 'video_master_id', 'video_screenshot_id', 'id', 'id')
+                ->where('is_master', 1);
+        }
     }

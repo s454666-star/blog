@@ -4,6 +4,7 @@
 
     use App\Models\VideoFaceScreenshot;
     use App\Models\VideoMaster;
+    use App\Models\VideoScreenshot;
     use Illuminate\Http\Request;
     use Illuminate\Support\Facades\Storage;
     use Illuminate\Support\Facades\File;
@@ -50,7 +51,7 @@
             }
 
             // 回傳HTML片段
-            $html = view('video.partials.video_rows', compact('videos'))->render();
+            $html = view('videos.video_rows', compact('videos'))->render();
 
             return response()->json([
                 'success' => true,
@@ -160,23 +161,42 @@
 
             if ($request->hasFile('video_file')) {
                 $file = $request->file('video_file');
+                $videoName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+                $videoFolder = "F:/video/{$videoName}";
+
+                // 確保目錄存在
+                if (!File::exists($videoFolder)) {
+                    File::makeDirectory($videoFolder, 0755, true);
+                }
+
                 $filename = time() . '_' . $file->getClientOriginalName();
-                $destinationPath = 'F:/video/';
-                $file->move($destinationPath, $filename);
+                $file->move($videoFolder, $filename);
 
                 // 取得影片時長
-                $duration = $this->getVideoDuration($destinationPath . $filename);
+                $duration = $this->getVideoDuration("{$videoFolder}/{$filename}");
 
                 // 儲存到資料庫
                 $video = VideoMaster::create([
-                    'video_name' => pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME),
-                    'video_path' => $filename,
+                    'video_name' => $videoName,
+                    'video_path' => "{$videoName}/{$filename}",
                     'duration' => $duration,
                 ]);
 
-                // 假設截圖和人臉截圖的生成在此處進行，並回傳相關資料
-                // 這裡簡化為返回空陣列
-                $video->screenshots = []; // 請根據實際情況填充
+                // 創建第一筆截圖
+                $screenshotFilename = "screenshot_1.jpg"; // 假設的截圖檔名
+                $screenshotPath = "{$videoFolder}/{$screenshotFilename}";
+
+                // 假設截圖已生成並儲存至指定路徑
+                // 這裡僅模擬生成一個空檔案
+                File::put($screenshotPath, '');
+
+                $screenshot = VideoScreenshot::create([
+                    'video_master_id' => $video->id,
+                    'screenshot_path' => "{$videoName}/{$screenshotFilename}",
+                ]);
+
+                // 回傳相關資料
+                $video->screenshots = [$screenshot];
 
                 return response()->json([
                     'success' => true,
@@ -188,6 +208,156 @@
                 'success' => false,
                 'message' => '檔案上傳失敗。',
             ], 500);
+        }
+
+        /**
+         * 刪除截圖或人臉截圖。
+         *
+         * @param  \Illuminate\Http\Request  $request
+         * @return \Illuminate\Http\JsonResponse
+         */
+        public function deleteScreenshot(Request $request)
+        {
+            $id = $request->input('id');
+            $type = $request->input('type');
+
+            if ($type === 'screenshot') {
+                $screenshot = VideoScreenshot::find($id);
+                if (!$screenshot) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '截圖不存在。',
+                    ], 404);
+                }
+
+                // 刪除截圖檔案
+                $screenshotFile = 'F:/video/' . $screenshot->screenshot_path;
+                if (File::exists($screenshotFile)) {
+                    File::delete($screenshotFile);
+                }
+
+                // 刪除相關人臉截圖檔案
+                foreach ($screenshot->faceScreenshots as $face) {
+                    $faceFile = 'F:/video/' . $face->face_image_path;
+                    if (File::exists($faceFile)) {
+                        File::delete($faceFile);
+                    }
+                    $face->delete();
+                }
+
+                // 刪除截圖資料庫紀錄
+                $screenshot->delete();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => '截圖已成功刪除。',
+                ]);
+            } elseif ($type === 'face-screenshot') {
+                $face = VideoFaceScreenshot::find($id);
+                if (!$face) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '人臉截圖不存在。',
+                    ], 404);
+                }
+
+                // 刪除人臉截圖檔案
+                $faceFile = 'F:/video/' . $face->face_image_path;
+                if (File::exists($faceFile)) {
+                    File::delete($faceFile);
+                }
+
+                // 如果是主面人臉，需更新其他人臉
+                if ($face->is_master) {
+                    $face->videoScreenshot->videoMaster->faceScreenshots()->where('id', '!=', $face->id)->update(['is_master' => 0]);
+                }
+
+                // 刪除人臉截圖資料庫紀錄
+                $face->delete();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => '人臉截圖已成功刪除。',
+                ]);
+            } else {
+                return response()->json([
+                    'success' => false,
+                    'message' => '無效的刪除類型。',
+                ], 400);
+            }
+        }
+
+        /**
+         * 上傳人臉截圖。
+         *
+         * @param  \Illuminate\Http\Request  $request
+         * @return \Illuminate\Http\JsonResponse
+         */
+        public function uploadFaceScreenshot(Request $request)
+        {
+            $validated = $request->validate([
+                'face_images.*' => 'required|image|mimes:jpeg,png,jpg,gif|max:5120', // 最大5MB
+                'video_id' => 'required|exists:video_master,id',
+            ]);
+
+            if ($request->hasFile('face_images')) {
+                $files = $request->file('face_images');
+                $videoId = $request->input('video_id');
+                $video = VideoMaster::find($videoId);
+
+                if (!$video) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '對應的影片不存在。',
+                    ], 404);
+                }
+
+                // 獲取第一筆截圖
+                $firstScreenshot = $video->screenshots()->first();
+                if (!$firstScreenshot) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '該影片沒有截圖，無法上傳人臉截圖。',
+                    ], 400);
+                }
+
+                $uploadedFaces = [];
+
+                foreach ($files as $file) {
+                    // 生成檔案名稱
+                    $faceCount = VideoFaceScreenshot::where('video_screenshot_id', $firstScreenshot->id)->count() + 1;
+                    $filename = "face_{$faceCount}." . $file->getClientOriginalExtension();
+                    $videoFolder = "F:/video/{$video->video_name}";
+
+                    // 確保目錄存在
+                    if (!File::exists($videoFolder)) {
+                        File::makeDirectory($videoFolder, 0755, true);
+                    }
+
+                    // 移動檔案到正確的資料夾
+                    $file->move($videoFolder, $filename);
+                    $facePath = "{$video->video_name}/{$filename}";
+
+                    // 儲存到資料庫，設定 video_screenshot_id 為第一筆截圖
+                    $face = VideoFaceScreenshot::create([
+                        'video_screenshot_id' => $firstScreenshot->id,
+                        'face_image_path' => $facePath,
+                        'is_master' => 0,
+                    ]);
+
+                    $uploadedFaces[] = $face;
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $uploadedFaces,
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => '沒有檔案上傳。',
+            ], 400);
         }
 
         public function setMasterFace(Request $request): \Illuminate\Http\JsonResponse

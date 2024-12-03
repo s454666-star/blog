@@ -29,4 +29,12 @@
         {
             return $this->belongsTo(VideoScreenshot::class, 'video_screenshot_id', 'id');
         }
+
+        /**
+         * Get the video master through the screenshot.
+         */
+        public function videoMaster()
+        {
+            return $this->hasOneThrough(VideoMaster::class, VideoScreenshot::class, 'id', 'id', 'video_screenshot_id', 'video_master_id');
+        }
     }

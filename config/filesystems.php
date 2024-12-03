@@ -29,7 +29,12 @@ return [
     */
 
     'disks' => [
-
+        'videos' => [
+            'driver' => 'local',
+            'root' => 'F:\video', // Windows 系統下的絕對路徑
+            'url' => 'https://video.test/', // 對應的基礎 URL
+            'visibility' => 'public',
+        ],
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app'),
@@ -45,10 +50,10 @@ return [
             'root' => 'D:/video-ts',
         ],
 
-        'videos' => [
-            'driver' => 'local',
-            'root' => '/mnt/nas/video1',
-        ],
+//        'videos' => [
+//            'driver' => 'local',
+//            'root' => '/mnt/nas/video1',
+//        ],
         'converted_videos' => [
             'driver' => 'local',
             'root' => '/mnt/nas/video-ts',

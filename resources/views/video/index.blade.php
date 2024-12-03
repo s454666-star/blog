@@ -46,9 +46,7 @@
         .face-screenshot.master {
             border: 3px solid #ff0000;
         }
-        /* 移除:hover效果以避免抖動 */
-        /* 放大圖片不再直接影響原圖 */
-        /* 新增的放大圖片樣式 */
+        /* 放大圖片樣式 */
         .image-modal {
             display: none; /* 隱藏 */
             position: fixed;
@@ -544,7 +542,7 @@
                                 .replace('{video_path}', response.data.video_path)
                                 .replace('{screenshot_images}', screenshotImages)
                                 .replace('{face_screenshot_images}', faceScreenshotImages)
-                                .replace('{video_id}', response.data.id);
+                                .replace(/{video_id}/g, response.data.id);
                             $('#videos-list').prepend(newRow);
                             $("#videos-list").sortable("refresh");
                             showMessage('success', '影片上傳成功！');
@@ -710,7 +708,7 @@
                     if (response.success) {
                         let masterFacesHtml = '<h5>主面人臉</h5><div class="master-face-images">';
                         response.data.forEach(function (face) {
-                            masterFacesHtml += `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img" data-video-id="${face.videoMaster.id}">`;
+                            masterFacesHtml += `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img" data-video-id="${face.videoScreenshot.videoMaster.id}">`;
                         });
                         masterFacesHtml += '</div>';
                         $('.master-faces').html(masterFacesHtml);
@@ -766,12 +764,12 @@
         }
 
         // 呼叫聚焦函式在全部頁面載入後
-        $(window).on('load', function() {
+        $(window).on('load', function () {
             focusMaxIdVideo();
         });
 
         // 刪除圖片
-        $(document).on('click', '.delete-icon', function(e) {
+        $(document).on('click', '.delete-icon', function (e) {
             e.stopPropagation();
             let id = $(this).data('id');
             let type = $(this).data('type');
@@ -784,11 +782,11 @@
                     type: type,
                     _token: '{{ csrf_token() }}'
                 },
-                success: function(response) {
-                    if(response.success) {
-                        if(type === 'screenshot') {
+                success: function (response) {
+                    if (response.success) {
+                        if (type === 'screenshot') {
                             $(`img[data-id="${id}"][data-type="screenshot"]`).closest('.screenshot-container').remove();
-                        } else if(type === 'face-screenshot') {
+                        } else if (type === 'face-screenshot') {
                             $(`img[data-id="${id}"][data-type="face-screenshot"]`).closest('.face-screenshot-container').remove();
                         }
                         showMessage('success', '圖片刪除成功。');
@@ -796,26 +794,26 @@
                         showMessage('error', response.message);
                     }
                 },
-                error: function() {
+                error: function () {
                     showMessage('error', '刪除失敗，請稍後再試。');
                 }
             });
         });
 
         // 拖曳上傳人臉截圖
-        $(document).on('dragover', '.face-upload-area', function(e) {
+        $(document).on('dragover', '.face-upload-area', function (e) {
             e.preventDefault();
             e.stopPropagation();
             $(this).addClass('dragover');
         });
 
-        $(document).on('dragleave', '.face-upload-area', function(e) {
+        $(document).on('dragleave', '.face-upload-area', function (e) {
             e.preventDefault();
             e.stopPropagation();
             $(this).removeClass('dragover');
         });
 
-        $(document).on('drop', '.face-upload-area', function(e) {
+        $(document).on('drop', '.face-upload-area', function (e) {
             e.preventDefault();
             e.stopPropagation();
             $(this).removeClass('dragover');
@@ -836,10 +834,10 @@
                     headers: {
                         'X-CSRF-TOKEN': '{{ csrf_token() }}'
                     },
-                    success: function(response) {
-                        if(response.success) {
+                    success: function (response) {
+                        if (response.success) {
                             let template = $('#face-screenshot-template').html();
-                            response.data.forEach(function(face) {
+                            response.data.forEach(function (face) {
                                 let masterClass = face.is_master ? 'master' : '';
                                 let newFace = template
                                     .replace('{face_image_path}', face.face_image_path)
@@ -853,12 +851,12 @@
                             showMessage('error', response.message);
                         }
                     },
-                    error: function() {
+                    error: function () {
                         showMessage('error', '上傳失敗，請稍後再試。');
                     }
                 });
             }
-        });
+        })
     });
 </script>
 </body>

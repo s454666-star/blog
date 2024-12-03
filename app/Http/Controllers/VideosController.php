@@ -117,20 +117,20 @@
 
             foreach ($videos as $video) {
                 // 刪除影片檔案
-                $videoFile = 'F:/video/' . $video->video_path;
+                $videoFile = "F:/video/" . $video->video_path; // Windows 路徑使用正斜杠或雙反斜杠
                 if (File::exists($videoFile)) {
                     File::delete($videoFile);
                 }
 
                 // 刪除相關截圖檔案
                 foreach ($video->screenshots as $screenshot) {
-                    $screenshotFile = 'F:/video/' . $screenshot->screenshot_path;
+                    $screenshotFile = "F:/video/" . $screenshot->screenshot_path;
                     if (File::exists($screenshotFile)) {
                         File::delete($screenshotFile);
                     }
 
                     foreach ($screenshot->faceScreenshots as $face) {
-                        $faceFile = 'F:/video/' . $face->face_image_path;
+                        $faceFile = "F:/video/" . $face->face_image_path;
                         if (File::exists($faceFile)) {
                             File::delete($faceFile);
                         }
@@ -162,23 +162,23 @@
             if ($request->hasFile('video_file')) {
                 $file = $request->file('video_file');
                 $videoName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
-                $videoFolder = "F:/video/{$videoName}";
+                $videoFolder = "{$videoName}"; // 例如 '自拍'
 
                 // 確保目錄存在
-                if (!File::exists($videoFolder)) {
-                    File::makeDirectory($videoFolder, 0755, true);
+                if (!Storage::disk('videos')->exists($videoFolder)) {
+                    Storage::disk('videos')->makeDirectory($videoFolder, 0755, true);
                 }
 
                 $filename = time() . '_' . $file->getClientOriginalName();
-                $file->move($videoFolder, $filename);
+                Storage::disk('videos')->putFileAs($videoFolder, $file, $filename);
 
                 // 取得影片時長
-                $duration = $this->getVideoDuration("{$videoFolder}/{$filename}");
+                $duration = $this->getVideoDuration("F:/video/{$videoFolder}/{$filename}");
 
                 // 儲存到資料庫
                 $video = VideoMaster::create([
                     'video_name' => $videoName,
-                    'video_path' => "{$videoName}/{$filename}",
+                    'video_path' => "{$videoFolder}/{$filename}",
                     'duration' => $duration,
                 ]);
 
@@ -188,11 +188,11 @@
 
                 // 假設截圖已生成並儲存至指定路徑
                 // 這裡僅模擬生成一個空檔案
-                File::put($screenshotPath, '');
+                Storage::disk('videos')->put($screenshotPath, '');
 
                 $screenshot = VideoScreenshot::create([
                     'video_master_id' => $video->id,
-                    'screenshot_path' => "{$videoName}/{$screenshotFilename}",
+                    'screenshot_path' => "{$videoFolder}/{$screenshotFilename}",
                 ]);
 
                 // 回傳相關資料
@@ -231,14 +231,14 @@
                 }
 
                 // 刪除截圖檔案
-                $screenshotFile = 'F:/video/' . $screenshot->screenshot_path;
+                $screenshotFile = "F:/video/" . $screenshot->screenshot_path;
                 if (File::exists($screenshotFile)) {
                     File::delete($screenshotFile);
                 }
 
                 // 刪除相關人臉截圖檔案
                 foreach ($screenshot->faceScreenshots as $face) {
-                    $faceFile = 'F:/video/' . $face->face_image_path;
+                    $faceFile = "F:/video/" . $face->face_image_path;
                     if (File::exists($faceFile)) {
                         File::delete($faceFile);
                     }
@@ -262,7 +262,7 @@
                 }
 
                 // 刪除人臉截圖檔案
-                $faceFile = 'F:/video/' . $face->face_image_path;
+                $faceFile = "F:/video/" . $face->face_image_path;
                 if (File::exists($faceFile)) {
                     File::delete($faceFile);
                 }
@@ -312,6 +312,18 @@
                     ], 404);
                 }
 
+                // 標準化影片路徑
+                $videoPath = ltrim(str_replace('\\', '/', $video->video_path), '/');
+
+                // 獲取影片的資料夾名稱和基礎名稱
+                $videoFolder = pathinfo($videoPath, PATHINFO_DIRNAME); // e.g., '自拍'
+                $videoBaseName = pathinfo($videoPath, PATHINFO_FILENAME); // e.g., '自拍'
+
+                // 處理 pathinfo 可能返回 '.' 或 ''
+                if ($videoFolder === '.' || $videoFolder === '') {
+                    $videoFolder = '';
+                }
+
                 // 獲取第一筆截圖
                 $firstScreenshot = $video->screenshots()->first();
                 if (!$firstScreenshot) {
@@ -326,17 +338,16 @@
                 foreach ($files as $file) {
                     // 生成檔案名稱
                     $faceCount = VideoFaceScreenshot::where('video_screenshot_id', $firstScreenshot->id)->count() + 1;
-                    $filename = "face_{$faceCount}." . $file->getClientOriginalExtension();
-                    $videoFolder = "F:/video/{$video->video_name}";
+                    $filename = "{$videoBaseName}_face_{$faceCount}." . $file->getClientOriginalExtension();
 
-                    // 確保目錄存在
-                    if (!File::exists($videoFolder)) {
-                        File::makeDirectory($videoFolder, 0755, true);
-                    }
+                    // 構建儲存路徑
+                    $storagePath = $videoFolder ? "{$videoFolder}/{$filename}" : $filename;
 
                     // 移動檔案到正確的資料夾
-                    $file->move($videoFolder, $filename);
-                    $facePath = "{$video->video_name}/{$filename}";
+                    Storage::disk('videos')->putFileAs($videoFolder, $file, $filename);
+
+                    // 確保路徑使用正斜杠
+                    $facePath = '/' . ltrim(str_replace('\\', '/', $storagePath), '/');
 
                     // 儲存到資料庫，設定 video_screenshot_id 為第一筆截圖
                     $face = VideoFaceScreenshot::create([

@@ -403,7 +403,7 @@
 <template id="screenshot-template">
     <div class="screenshot-container">
         <img src="https://video.test/{screenshot_path}" alt="截圖" class="screenshot hover-zoom" data-id="{screenshot_id}" data-type="screenshot">
-        <button class="delete-icon" data-id="{screenshot_id}" data-type="screenshot">&times;</button>
+        <button class="delete-icon" data-id="{{ screenshot_id }}" data-type="screenshot">&times;</button>
     </div>
 </template>
 
@@ -411,8 +411,8 @@
 <template id="face-screenshot-template">
     <div class="face-screenshot-container">
         <img src="https://video.test/{face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom {master_class}" data-id="{face_id}" data-video-id="{video_id}">
-        <button class="set-master-btn" data-id="{face_id}" data-video-id="{video_id}">★</button>
-        <button class="delete-icon" data-id="{face_id}" data-type="face-screenshot">&times;</button>
+        <button class="set-master-btn" data-id="{{ face_id }}" data-video-id="{{ video_id }}">★</button>
+        <button class="delete-icon" data-id="{{ face_id }}" data-type="face-screenshot">&times;</button>
     </div>
 </template>
 
@@ -575,6 +575,8 @@
                         focusedRow.remove();
                         showMessage('success', response.message);
                         removeMasterFaceFocus();
+                        // Reload master faces after deletion
+                        loadMasterFaces();
                     } else {
                         showMessage('error', response.message);
                     }
@@ -638,6 +640,18 @@
                         // 更新左側主面人臉
                         loadMasterFaces();
                         showMessage('success', '主面人臉已更新。');
+                        // 移動到剛剛設定的主面人臉位置
+                        setTimeout(() => {
+                            let newMasterFace = $(`.master-face-img[data-video-id="${videoId}"]`);
+                            if (newMasterFace.length) {
+                                $('.master-face-img').removeClass('focused');
+                                newMasterFace.addClass('focused');
+                                // 滾動到該主面人臉
+                                $('.master-faces').animate({
+                                    scrollTop: newMasterFace.position().top + $('.master-faces').scrollTop() - 30
+                                }, 500);
+                            }
+                        }, 100);
                     } else {
                         showMessage('error', response.message);
                     }
@@ -680,6 +694,7 @@
                         });
                         masterFacesHtml += '</div>';
                         $('.master-faces').html(masterFacesHtml);
+                        // Optional: Reattach event listeners if necessary
                     }
                 },
                 error: function () {
@@ -756,6 +771,8 @@
                             $(`img[data-id="${id}"][data-type="screenshot"]`).closest('.screenshot-container').remove();
                         } else if (type === 'face-screenshot') {
                             $(`img[data-id="${id}"][data-type="face-screenshot"]`).closest('.face-screenshot-container').remove();
+                            // If the deleted face was master, reload master faces
+                            loadMasterFaces();
                         }
                         showMessage('success', '圖片刪除成功。');
                     } else {
@@ -790,6 +807,18 @@
                         // 更新左側主面人臉
                         loadMasterFaces();
                         showMessage('success', '主面人臉已更新。');
+                        // 移動到剛剛設定的主面人臉位置
+                        setTimeout(() => {
+                            let newMasterFace = $(`.master-face-img[data-video-id="${videoId}"]`);
+                            if (newMasterFace.length) {
+                                $('.master-face-img').removeClass('focused');
+                                newMasterFace.addClass('focused');
+                                // 滾動到該主面人臉
+                                $('.master-faces').animate({
+                                    scrollTop: newMasterFace.position().top + $('.master-faces').scrollTop() - 30
+                                }, 500);
+                            }
+                        }, 100);
                     } else {
                         showMessage('error', response.message);
                     }

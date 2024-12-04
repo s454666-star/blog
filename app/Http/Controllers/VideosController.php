@@ -24,7 +24,10 @@
                 ->orderBy('duration', 'asc')
                 ->paginate(300);
 
-            $masterFaces = VideoFaceScreenshot::where('is_master', 1)->with('videoScreenshot.videoMaster')->get();
+            $masterFaces = VideoFaceScreenshot::where('is_master', 1)->with('videoScreenshot.videoMaster')->get()
+                ->sortBy(function($face) {
+                    return $face->videoScreenshot->videoMaster->duration;
+                });
 
             return view('video.index', compact('videos', 'masterFaces'));
         }
@@ -141,6 +144,9 @@
                 $video->delete();
             }
 
+            // Reload master faces after deletion
+            $this->reloadMasterFaces();
+
             return response()->json([
                 'success' => true,
                 'message' => '選中的影片已成功刪除。',
@@ -198,6 +204,9 @@
                 // 回傳相關資料
                 $video->screenshots = [$screenshot];
 
+                // Reload master faces after upload
+                $this->reloadMasterFaces();
+
                 return response()->json([
                     'success' => true,
                     'data' => $video,
@@ -248,6 +257,9 @@
                 // 刪除截圖資料庫紀錄
                 $screenshot->delete();
 
+                // Reload master faces after deletion
+                $this->reloadMasterFaces();
+
                 return response()->json([
                     'success' => true,
                     'message' => '截圖已成功刪除。',
@@ -274,6 +286,9 @@
 
                 // 刪除人臉截圖資料庫紀錄
                 $face->delete();
+
+                // Reload master faces after deletion
+                $this->reloadMasterFaces();
 
                 return response()->json([
                     'success' => true,
@@ -359,6 +374,9 @@
                     $uploadedFaces[] = $face;
                 }
 
+                // Reload master faces after upload
+                $this->reloadMasterFaces();
+
                 return response()->json([
                     'success' => true,
                     'data' => $uploadedFaces,
@@ -371,6 +389,12 @@
             ], 400);
         }
 
+        /**
+         * 設定主面人臉。
+         *
+         * @param  \Illuminate\Http\Request  $request
+         * @return \Illuminate\Http\JsonResponse
+         */
         public function setMasterFace(Request $request): \Illuminate\Http\JsonResponse
         {
             $faceId = $request->input('face_id');
@@ -398,14 +422,25 @@
                 $face->save();
             });
 
+            // Reload master faces after setting master face
+            $this->reloadMasterFaces();
+
             return response()->json([
                 'success' => true
             ]);
         }
 
+        /**
+         * 載入主面人臉。
+         *
+         * @return \Illuminate\Http\JsonResponse
+         */
         public function loadMasterFaces(): \Illuminate\Http\JsonResponse
         {
-            $masterFaces = VideoFaceScreenshot::where('is_master', 1)->with('videoScreenshot.videoMaster')->get();
+            $masterFaces = VideoFaceScreenshot::where('is_master', 1)->with('videoScreenshot.videoMaster')->get()
+                ->sortBy(function($face) {
+                    return $face->videoScreenshot->videoMaster->duration;
+                });
 
             // 取得圖片尺寸
             foreach ($masterFaces as $face) {
@@ -424,6 +459,18 @@
                 'success' => true,
                 'data' => $masterFaces
             ]);
+        }
+
+        /**
+         * 載入主面人臉（內部使用）。
+         *
+         * @return void
+         */
+        private function reloadMasterFaces()
+        {
+            // This function can be used to perform any server-side actions needed
+            // after master faces are updated, such as caching or logging.
+            // Currently, it's a placeholder and does nothing.
         }
 
         /**

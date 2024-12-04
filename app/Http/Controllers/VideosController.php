@@ -40,7 +40,7 @@
             $page = $request->input('page', 1);
 
             $videos = VideoMaster::with(['screenshots.faceScreenshots'])
-                ->orderBy('duration', 'desc')
+                ->orderBy('duration', 'asc')
                 ->paginate(300, ['*'], 'page', $page);
 
             if ($videos->isEmpty()) {
@@ -406,6 +406,19 @@
         public function loadMasterFaces(): \Illuminate\Http\JsonResponse
         {
             $masterFaces = VideoFaceScreenshot::where('is_master', 1)->with('videoScreenshot.videoMaster')->get();
+
+            // 取得圖片尺寸
+            foreach ($masterFaces as $face) {
+                $imagePath = public_path($face->face_image_path);
+                if (file_exists($imagePath)) {
+                    list($width, $height) = getimagesize($imagePath);
+                    $face->width = $width;
+                    $face->height = $height;
+                } else {
+                    $face->width = 0;
+                    $face->height = 0;
+                }
+            }
 
             return response()->json([
                 'success' => true,

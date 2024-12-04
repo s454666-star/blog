@@ -268,7 +268,9 @@
 <div class="master-faces">
     <h5>主面人臉</h5>
     <div class="master-face-images">
-        @foreach($masterFaces as $masterFace)
+        @foreach($masterFaces->sortBy(function($face) {
+            return $face->videoScreenshot->videoMaster->duration;
+        }) as $masterFace)
             @php
                 // 獲取圖像的絕對路徑
                 $imagePath = public_path($masterFace->face_image_path);
@@ -668,7 +670,7 @@
                 success: function (response) {
                     if (response.success) {
                         let masterFacesHtml = '<h5>主面人臉</h5><div class="master-face-images">';
-                        response.data.forEach(function (face) {
+                        response.data.sort((a, b) => a.videoScreenshot.videoMaster.duration - b.videoScreenshot.videoMaster.duration).forEach(function (face) {
                             // 檢查圖片方向
                             let orientation = '';
                             if (face.width >= face.height) {

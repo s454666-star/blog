@@ -37,6 +37,7 @@
         public function masterFaces()
         {
             return $this->hasManyThrough(VideoFaceScreenshot::class, VideoScreenshot::class, 'video_master_id', 'video_screenshot_id', 'id', 'id')
-                ->where('is_master', 1);
+                ->where('is_master', 1)
+                ->orderBy('video_master.duration', 'asc');
         }
     }

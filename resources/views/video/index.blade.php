@@ -268,9 +268,7 @@
 <div class="master-faces">
     <h5>主面人臉</h5>
     <div class="master-face-images">
-        @foreach($masterFaces->sortBy(function($face) {
-            return $face->videoScreenshot->videoMaster->duration;
-        }) as $masterFace)
+        @foreach($masterFaces as $masterFace)
             @php
                 // 獲取圖像的絕對路徑
                 $imagePath = public_path($masterFace->face_image_path);
@@ -403,7 +401,7 @@
 <template id="screenshot-template">
     <div class="screenshot-container">
         <img src="https://video.test/{screenshot_path}" alt="截圖" class="screenshot hover-zoom" data-id="{screenshot_id}" data-type="screenshot">
-        <button class="delete-icon" data-id="{{ screenshot_id }}" data-type="screenshot">&times;</button>
+        <button class="delete-icon" data-id="{screenshot_id}" data-type="screenshot">&times;</button>
     </div>
 </template>
 
@@ -411,8 +409,8 @@
 <template id="face-screenshot-template">
     <div class="face-screenshot-container">
         <img src="https://video.test/{face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom {master_class}" data-id="{face_id}" data-video-id="{video_id}">
-        <button class="set-master-btn" data-id="{{ face_id }}" data-video-id="{{ video_id }}">★</button>
-        <button class="delete-icon" data-id="{{ face_id }}" data-type="face-screenshot">&times;</button>
+        <button class="set-master-btn" data-id="{face_id}" data-video-id="{video_id}">★</button>
+        <button class="delete-icon" data-id="{face_id}" data-type="face-screenshot">&times;</button>
     </div>
 </template>
 

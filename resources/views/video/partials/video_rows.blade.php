@@ -5,7 +5,7 @@
         <div class="video-container">
             <div class="video-wrapper">
                 <video width="100%" controls>
-                    <source src="https://video.test/{{ $video->video_path }}" type="video/mp4">
+                    <source src="{{ config('app.video_base_url') }}/{{ $video->video_path }}" type="video/mp4">
                     您的瀏覽器不支援影片播放。
                 </video>
                 <button class="fullscreen-btn">全螢幕</button>
@@ -17,7 +17,7 @@
                 <div class="d-flex flex-wrap">
                     @foreach($video->screenshots as $screenshot)
                         <div class="screenshot-container">
-                            <img src="https://video.test/{{ $screenshot->screenshot_path }}" alt="截圖" class="screenshot hover-zoom" data-id="{{ $screenshot->id }}" data-type="screenshot">
+                            <img src="{{ config('app.video_base_url') }}/{{ $screenshot->screenshot_path }}" alt="截圖" class="screenshot hover-zoom" data-id="{{ $screenshot->id }}" data-type="screenshot">
                             <button class="delete-icon" data-id="{{ $screenshot->id }}" data-type="screenshot">&times;</button>
                         </div>
                     @endforeach
@@ -29,7 +29,7 @@
                     @foreach($video->screenshots as $screenshot)
                         @foreach($screenshot->faceScreenshots as $face)
                             <div class="face-screenshot-container">
-                                <img src="https://video.test/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
+                                <img src="{{ config('app.video_base_url') }}/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
                                 <button class="set-master-btn" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">★</button>
                                 <button class="delete-icon" data-id="{{ $face->id }}" data-type="face-screenshot">&times;</button>
                             </div>

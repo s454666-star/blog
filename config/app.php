@@ -2,6 +2,8 @@
 
 return [
 
+    'video_base_url' => env('VIDEO_BASE_URL', ''),
+
     /*
     |--------------------------------------------------------------------------
     | Application Name

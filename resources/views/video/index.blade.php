@@ -299,7 +299,7 @@
                     }
                 }
             @endphp
-            <img src="https://video.test/{{ $masterFace->face_image_path }}" alt="主面人臉" class="master-face-img {{ $orientation }}" data-video-id="{{ $masterFace->videoScreenshot->videoMaster->id }}" data-duration="{{ $masterFace->videoScreenshot->videoMaster->duration }}">
+            <img src="{{ config('app.video_base_url') }}/{{ $masterFace->face_image_path }}" alt="主面人臉" class="master-face-img {{ $orientation }}" data-video-id="{{ $masterFace->videoScreenshot->videoMaster->id }}" data-duration="{{ $masterFace->videoScreenshot->videoMaster->duration }}">
         @endforeach
     </div>
 </div>
@@ -320,7 +320,7 @@
                 <div class="video-container">
                     <div class="video-wrapper">
                         <video width="100%" controls>
-                            <source src="https://video.test/{{ $video->video_path }}" type="video/mp4">
+                            <source src="{{ config('app.video_base_url') }}/{{ $video->video_path }}" type="video/mp4">
                             您的瀏覽器不支援影片播放。
                         </video>
                         <button class="fullscreen-btn">全螢幕</button>
@@ -332,7 +332,7 @@
                         <div class="d-flex flex-wrap">
                             @foreach($video->screenshots as $screenshot)
                                 <div class="screenshot-container">
-                                    <img src="https://video.test/{{ $screenshot->screenshot_path }}" alt="截圖" class="screenshot hover-zoom" data-id="{{ $screenshot->id }}" data-type="screenshot">
+                                    <img src="{{ config('app.video_base_url') }}/{{ $screenshot->screenshot_path }}" alt="截圖" class="screenshot hover-zoom" data-id="{{ $screenshot->id }}" data-type="screenshot">
                                     <button class="delete-icon" data-id="{{ $screenshot->id }}" data-type="screenshot">&times;</button>
                                 </div>
                             @endforeach
@@ -344,7 +344,7 @@
                             @foreach($video->screenshots as $screenshot)
                                 @foreach($screenshot->faceScreenshots as $face)
                                     <div class="face-screenshot-container">
-                                        <img src="https://video.test/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
+                                        <img src="{{ config('app.video_base_url') }}/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
                                         <button class="set-master-btn" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">★</button>
                                         <button class="delete-icon" data-id="{{ $face->id }}" data-type="face-screenshot">&times;</button>
                                     </div>
@@ -399,7 +399,7 @@
         <div class="video-container">
             <div class="video-wrapper">
                 <video width="100%" controls>
-                    <source src="https://video.test/{video_path}" type="video/mp4">
+                    <source src="{{ config('app.video_base_url') }}/{video_path}" type="video/mp4">
                     您的瀏覽器不支援影片播放。
                 </video>
                 <button class="fullscreen-btn">全螢幕</button>
@@ -428,7 +428,7 @@
 <!-- 模板：截圖圖片 -->
 <template id="screenshot-template">
     <div class="screenshot-container">
-        <img src="https://video.test/{screenshot_path}" alt="截圖" class="screenshot hover-zoom" data-id="{screenshot_id}" data-type="screenshot">
+        <img src="{{ config('app.video_base_url') }}/{screenshot_path}" alt="截圖" class="screenshot hover-zoom" data-id="{screenshot_id}" data-type="screenshot">
         <button class="delete-icon" data-id="{screenshot_id}" data-type="screenshot">&times;</button>
     </div>
 </template>
@@ -436,7 +436,7 @@
 <!-- 模板：人臉截圖圖片 -->
 <template id="face-screenshot-template">
     <div class="face-screenshot-container">
-        <img src="https://video.test/{face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom {master_class}" data-id="{face_id}" data-video-id="{video_id}">
+        <img src="{{ config('app.video_base_url') }}/{face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom {master_class}" data-id="{face_id}" data-video-id="{video_id}">
         <button class="set-master-btn" data-id="{face_id}" data-video-id="{video_id}">★</button>
         <button class="delete-icon" data-id="{face_id}" data-type="face-screenshot">&times;</button>
     </div>
@@ -724,7 +724,7 @@
                             if (face.width && face.height && parseInt(face.width) >= parseInt(face.height)) {
                                 orientation = 'landscape';
                             }
-                            masterFacesHtml += `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${face.video_screenshot.video_master.id}" data-duration="${face.video_screenshot.video_master.duration}">`;
+                            masterFacesHtml += `<img src="{{ config('app.video_base_url') }}/${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${face.video_screenshot.video_master.id}" data-duration="${face.video_screenshot.video_master.duration}">`;
                         });
                         masterFacesHtml += '</div>';
                         $('.master-faces').html(masterFacesHtml);
@@ -746,11 +746,11 @@
             let masterFaceImg = $(`.master-face-img[data-video-id="${videoId}"]`);
             if (masterFaceImg.length) {
                 // 更新現有的主面人臉
-                masterFaceImg.attr('src', 'https://video.test/' + face.face_image_path);
+                masterFaceImg.attr('src', '{{ config('app.video_base_url') }}/' + face.face_image_path);
                 masterFaceImg.removeClass('landscape').addClass(orientation);
             } else {
                 // 新增主面人臉
-                let newMasterFaceHtml = `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${videoId}" data-duration="${face.video_screenshot.video_master.duration}">`;
+                let newMasterFaceHtml = `<img src="{{ config('app.video_base_url') }}/${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${videoId}" data-duration="${face.video_screenshot.video_master.duration}">`;
                 // 插入到正確的位置（根據duration排序）
                 let inserted = false;
                 $('.master-face-images img').each(function () {
@@ -938,6 +938,7 @@
                             response.data.forEach(function (face) {
                                 let masterClass = face.is_master ? 'master' : '';
                                 let newFace = template
+                                    .replace('{{ config("app.video_base_url") }}', '{{ config("app.video_base_url") }}')
                                     .replace('{face_image_path}', face.face_image_path)
                                     .replace('{master_class}', masterClass)
                                     .replace(/{face_id}/g, face.id)

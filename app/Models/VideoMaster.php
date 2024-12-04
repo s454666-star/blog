@@ -17,6 +17,7 @@
             'video_name',
             'video_path',
             'duration',
+            'video_type',
             'created_at',
             'updated_at',
         ];

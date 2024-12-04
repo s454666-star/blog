@@ -78,13 +78,24 @@
             left: 30%; /* 調整為30%以避免遮住左側主面人臉 */
             right: 0;
             background: #fff;
-            padding: 10px 20px;
+            padding: 20px 30px;
             border-top: 1px solid #ddd;
             box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
             z-index: 1000;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
         }
         .controls .control-group {
-            margin-right: 20px;
+            margin-right: 30px;
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .controls label {
+            margin-right: 10px;
+            font-weight: bold;
+            white-space: nowrap;
         }
         .video-wrapper {
             position: relative;
@@ -131,6 +142,12 @@
             }
             .controls {
                 left: 0;
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .controls .control-group {
+                margin-right: 0;
+                margin-bottom: 10px;
             }
             .master-faces {
                 width: 100%; /* 全寬以適應小螢幕 */
@@ -351,18 +368,29 @@
 
 <!-- 控制條 -->
 <div class="controls d-flex justify-content-between align-items-center">
-    <div class="control-group">
-        <label for="video-size">影片大小:</label>
-        <input type="range" id="video-size" min="10" max="50" value="25">
-    </div>
-    <div class="control-group">
-        <label for="image-size">截圖大小:</label>
-        <input type="range" id="image-size" min="100" max="300" value="200">
-    </div>
-    <div class="control-group">
-        <!-- 移除刪除選取的影片按鈕 -->
-        <button id="delete-focused-btn" class="btn btn-warning">刪除聚焦的影片</button>
-    </div>
+    <form id="controls-form" class="d-flex flex-wrap w-100">
+        <div class="control-group flex-grow-1">
+            <label for="video-size">影片大小:</label>
+            <input type="range" id="video-size" name="video_size" min="10" max="50" value="{{ request('video_size', 25) }}">
+        </div>
+        <div class="control-group flex-grow-1">
+            <label for="image-size">截圖大小:</label>
+            <input type="range" id="image-size" name="image_size" min="100" max="300" value="{{ request('image_size', 200) }}">
+        </div>
+        <div class="control-group flex-grow-1">
+            <label for="video-type">影片類別:</label>
+            <select id="video-type" name="video_type" class="form-control">
+                <option value="1" {{ request('video_type', '1') == '1' ? 'selected' : '' }}>1</option>
+                <option value="2" {{ request('video_type') == '2' ? 'selected' : '' }}>2</option>
+                <option value="3" {{ request('video_type') == '3' ? 'selected' : '' }}>3</option>
+                <option value="4" {{ request('video_type') == '4' ? 'selected' : '' }}>4</option>
+            </select>
+        </div>
+        <div class="control-group flex-grow-1">
+            <!-- 移除刪除選取的影片按鈕 -->
+            <button id="delete-focused-btn" class="btn btn-warning">刪除聚焦的影片</button>
+        </div>
+    </form>
 </div>
 
 <!-- 模板：影片列 -->
@@ -446,7 +474,7 @@
         $.ajax({
             url: "{{ route('video.loadMore') }}",
             method: 'GET',
-            data: { page: nextPage },
+            data: { page: nextPage, video_type: '{{ request('video_type', '1') }}' },
             success: function(response) {
                 if(response.success) {
                     $('#videos-list').append(response.data);
@@ -482,6 +510,10 @@
                 'width': imageSize + 'px',
                 'height': (imageSize * 0.56) + 'px' // 保持16:9比例
             });
+        });
+
+        $('#video-type').on('change', function () {
+            $('#controls-form').submit();
         });
 
         // 初始化控制條狀態
@@ -714,14 +746,14 @@
             let masterFaceImg = $(`.master-face-img[data-video-id="${videoId}"]`);
             if (masterFaceImg.length) {
                 // 更新現有的主面人臉
-                masterFaceImg.attr('src', 'https://video.test' + face.face_image_path);
+                masterFaceImg.attr('src', 'https://video.test/' + face.face_image_path);
                 masterFaceImg.removeClass('landscape').addClass(orientation);
             } else {
                 // 新增主面人臉
-                let newMasterFaceHtml = `<img src="https://video.test${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${videoId}" data-duration="${face.video_screenshot.video_master.duration}">`;
+                let newMasterFaceHtml = `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${videoId}" data-duration="${face.video_screenshot.video_master.duration}">`;
                 // 插入到正確的位置（根據duration排序）
                 let inserted = false;
-                $('.master-face-images img').each(function() {
+                $('.master-face-images img').each(function () {
                     let currentDuration = parseFloat($(this).data('duration'));
                     if (face.video_screenshot.video_master.duration < currentDuration) {
                         $(this).before(newMasterFaceHtml);
@@ -886,7 +918,9 @@
             if (files.length > 0) {
                 let videoId = $(this).data('video-id');
                 let formData = new FormData();
-                formData.append('face_images[]', files[0]);
+                for (let i = 0; i < files.length; i++) {
+                    formData.append('face_images[]', files[i]);
+                }
                 formData.append('video_id', videoId);
 
                 $.ajax({
@@ -920,7 +954,16 @@
                     }
                 });
             }
-        })
+        });
+
+        // 提交控制條表單
+        $('#controls-form').on('submit', function (e) {
+            e.preventDefault();
+            let videoSize = $('#video-size').val();
+            let imageSize = $('#image-size').val();
+            let videoType = $('#video-type').val();
+            window.location.href = "{{ route('video.index') }}" + "?video_size=" + videoSize + "&image_size=" + imageSize + "&video_type=" + videoType;
+        });
     });
 </script>
 </body>

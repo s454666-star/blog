@@ -15,16 +15,25 @@
         /**
          * 顯示影片列表的主頁面。
          *
+         * @param  \Illuminate\Http\Request  $request
          * @return \Illuminate\View\View
          */
-        public function index()
+        public function index(Request $request)
         {
-            // 初始載入300筆資料，按時長排序
+            $videoType = $request->input('video_type', '1');
+
+            // 初始載入300筆資料，按時長排序並根據影片類別篩選
             $videos = VideoMaster::with(['screenshots.faceScreenshots'])
+                ->where('video_type', $videoType)
                 ->orderBy('duration', 'asc')
                 ->paginate(300);
 
-            $masterFaces = VideoFaceScreenshot::where('is_master', 1)->with('videoScreenshot.videoMaster')->get()
+            $masterFaces = VideoFaceScreenshot::where('is_master', 1)
+                ->whereHas('videoScreenshot.videoMaster', function($query) use ($videoType) {
+                    $query->where('video_type', $videoType);
+                })
+                ->with('videoScreenshot.videoMaster')
+                ->get()
                 ->sortBy(function($face) {
                     return $face->videoScreenshot->videoMaster->duration;
                 });
@@ -41,8 +50,10 @@
         public function loadMore(Request $request)
         {
             $page = $request->input('page', 1);
+            $videoType = $request->input('video_type', '1');
 
             $videos = VideoMaster::with(['screenshots.faceScreenshots'])
+                ->where('video_type', $videoType)
                 ->orderBy('duration', 'asc')
                 ->paginate(300, ['*'], 'page', $page);
 
@@ -76,6 +87,7 @@
                 'video_name' => 'required|string|max:255',
                 'video_path' => 'required|string|max:500',
                 'duration' => 'required|numeric',
+                'video_type' => 'required|in:1,2,3,4',
             ]);
 
             // 檢查是否有重複匯入
@@ -160,6 +172,7 @@
         {
             $validated = $request->validate([
                 'video_file' => 'required|mimes:mp4,mov,avi,wmv|max:204800', // 最大200MB
+                'video_type' => 'required|in:1,2,3,4',
             ]);
 
             if ($request->hasFile('video_file')) {
@@ -183,6 +196,7 @@
                     'video_name' => $videoName,
                     'video_path' => "{$videoFolder}/{$filename}",
                     'duration' => $duration,
+                    'video_type' => $validated['video_type'],
                 ]);
 
                 // 創建第一筆截圖
@@ -425,11 +439,19 @@
         /**
          * 載入主面人臉。
          *
+         * @param  \Illuminate\Http\Request  $request
          * @return \Illuminate\Http\JsonResponse
          */
-        public function loadMasterFaces(): \Illuminate\Http\JsonResponse
+        public function loadMasterFaces(Request $request): \Illuminate\Http\JsonResponse
         {
-            $masterFaces = VideoFaceScreenshot::where('is_master', 1)->with('videoScreenshot.videoMaster')->get()
+            $videoType = $request->input('video_type', '1');
+
+            $masterFaces = VideoFaceScreenshot::where('is_master', 1)
+                ->whereHas('videoScreenshot.videoMaster', function($query) use ($videoType) {
+                    $query->where('video_type', $videoType);
+                })
+                ->with('videoScreenshot.videoMaster')
+                ->get()
                 ->sortBy(function($face) {
                     return $face->videoScreenshot->videoMaster->duration;
                 });

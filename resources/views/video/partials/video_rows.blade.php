@@ -30,6 +30,7 @@
                         @foreach($screenshot->faceScreenshots as $face)
                             <div class="face-screenshot-container">
                                 <img src="https://video.test/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
+                                <button class="set-master-btn" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">★</button>
                                 <button class="delete-icon" data-id="{{ $face->id }}" data-type="face-screenshot">&times;</button>
                             </div>
                         @endforeach

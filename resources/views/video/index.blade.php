@@ -19,6 +19,7 @@
             cursor: pointer;
             user-select: none;
             transition: background-color 0.3s, border-color 0.3s;
+            position: relative;
         }
         .video-row.selected {
             border-color: #007bff;
@@ -230,8 +231,8 @@
             0% { opacity: 0.9; }
             100% { opacity: 0; }
         }
-        /* 新增刪除圖示 */
-        .delete-icon {
+        /* 新增刪除圖示及設定主面圖示 */
+        .delete-icon, .set-master-btn {
             position: absolute;
             top: 5px;
             right: 5px;
@@ -245,13 +246,20 @@
             line-height: 18px;
             cursor: pointer;
             display: none;
+            font-size: 14px;
+            padding: 0;
+        }
+        .set-master-btn {
+            right: 30px;
+            background: rgba(40, 167, 69, 0.8);
         }
         .screenshot-container, .face-screenshot-container {
             position: relative;
             display: inline-block;
         }
         .screenshot-container:hover .delete-icon,
-        .face-screenshot-container:hover .delete-icon {
+        .face-screenshot-container:hover .delete-icon,
+        .face-screenshot-container:hover .set-master-btn {
             display: block;
         }
     </style>
@@ -320,6 +328,7 @@
                                 @foreach($screenshot->faceScreenshots as $face)
                                     <div class="face-screenshot-container">
                                         <img src="https://video.test/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
+                                        <button class="set-master-btn" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">★</button>
                                         <button class="delete-icon" data-id="{{ $face->id }}" data-type="face-screenshot">&times;</button>
                                     </div>
                                 @endforeach
@@ -400,6 +409,7 @@
 <template id="face-screenshot-template">
     <div class="face-screenshot-container">
         <img src="https://video.test/{face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom {master_class}" data-id="{face_id}" data-video-id="{video_id}">
+        <button class="set-master-btn" data-id="{face_id}" data-video-id="{video_id}">★</button>
         <button class="delete-icon" data-id="{face_id}" data-type="face-screenshot">&times;</button>
     </div>
 </template>
@@ -756,6 +766,38 @@
             });
         });
 
+        // 設定主面人臉
+        $(document).on('click', '.set-master-btn', function (e) {
+            e.stopPropagation();
+            let faceId = $(this).data('id');
+            let videoId = $(this).data('video-id');
+
+            $.ajax({
+                url: "{{ route('video.setMasterFace') }}",
+                method: 'POST',
+                data: {
+                    face_id: faceId,
+                    _token: '{{ csrf_token() }}'
+                },
+                success: function (response) {
+                    if (response.success) {
+                        // 移除所有master類別
+                        $(`.face-screenshot[data-video-id="${videoId}"]`).removeClass('master');
+                        // 添加master類別到當前圖片
+                        $(`.face-screenshot[data-id="${faceId}"]`).addClass('master');
+                        // 更新左側主面人臉
+                        loadMasterFaces();
+                        showMessage('success', '主面人臉已更新。');
+                    } else {
+                        showMessage('error', response.message);
+                    }
+                },
+                error: function () {
+                    showMessage('error', '更新失敗，請稍後再試。');
+                }
+            });
+        });
+
         // 拖曳上傳人臉截圖
         $(document).on('dragover', '.face-upload-area', function (e) {
             e.preventDefault();
@@ -798,7 +840,7 @@
                                 let newFace = template
                                     .replace('{face_image_path}', face.face_image_path)
                                     .replace('{master_class}', masterClass)
-                                    .replace('{face_id}', face.id)
+                                    .replace(/{face_id}/g, face.id)
                                     .replace('{video_id}', videoId);
                                 $(`.face-upload-area[data-video-id="${videoId}"]`).prepend(newFace);
                             });

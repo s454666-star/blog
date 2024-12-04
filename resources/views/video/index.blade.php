@@ -282,7 +282,7 @@
                     }
                 }
             @endphp
-            <img src="https://video.test/{{ $masterFace->face_image_path }}" alt="主面人臉" class="master-face-img {{ $orientation }}" data-video-id="{{ $masterFace->videoScreenshot->videoMaster->id }}">
+            <img src="https://video.test/{{ $masterFace->face_image_path }}" alt="主面人臉" class="master-face-img {{ $orientation }}" data-video-id="{{ $masterFace->videoScreenshot->videoMaster->id }}" data-duration="{{ $masterFace->videoScreenshot->videoMaster->duration }}">
         @endforeach
     </div>
 </div>
@@ -635,9 +635,12 @@
                         $(`.face-screenshot[data-video-id="${videoId}"]`).removeClass('master');
                         // 添加master類別到當前圖片
                         $(`.face-screenshot[data-id="${faceId}"]`).addClass('master');
+
                         // 更新左側主面人臉
-                        loadMasterFaces();
+                        updateMasterFace(response.data);
+
                         showMessage('success', '主面人臉已更新。');
+
                         // 移動到剛剛設定的主面人臉位置
                         setTimeout(() => {
                             let newMasterFace = $(`.master-face-img[data-video-id="${videoId}"]`);
@@ -679,26 +682,57 @@
             $.ajax({
                 url: "{{ route('video.loadMasterFaces') }}",
                 method: 'GET',
+                cache: false,
                 success: function (response) {
                     if (response.success) {
                         let masterFacesHtml = '<h5>主面人臉</h5><div class="master-face-images">';
-                        response.data.sort((a, b) => a.videoScreenshot.videoMaster.duration - b.videoScreenshot.videoMaster.duration).forEach(function (face) {
+                        response.data.sort((a, b) => a.video_screenshot.video_master.duration - b.video_screenshot.video_master.duration).forEach(function (face) {
                             // 檢查圖片方向
                             let orientation = '';
-                            if (face.width >= face.height) {
+                            if (face.width && face.height && parseInt(face.width) >= parseInt(face.height)) {
                                 orientation = 'landscape';
                             }
-                            masterFacesHtml += `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${face.videoScreenshot.videoMaster.id}">`;
+                            masterFacesHtml += `<img src="https://video.test/${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${face.video_screenshot.video_master.id}" data-duration="${face.video_screenshot.video_master.duration}">`;
                         });
                         masterFacesHtml += '</div>';
                         $('.master-faces').html(masterFacesHtml);
-                        // Optional: Reattach event listeners if necessary
                     }
                 },
                 error: function () {
                     showMessage('error', '無法加載主面人臉。');
                 }
             });
+        }
+
+        // 更新左側主面人臉
+        function updateMasterFace(face) {
+            let orientation = '';
+            if (face.width && face.height && parseInt(face.width) >= parseInt(face.height)) {
+                orientation = 'landscape';
+            }
+            let videoId = face.video_screenshot.video_master.id;
+            let masterFaceImg = $(`.master-face-img[data-video-id="${videoId}"]`);
+            if (masterFaceImg.length) {
+                // 更新現有的主面人臉
+                masterFaceImg.attr('src', 'https://video.test' + face.face_image_path);
+                masterFaceImg.removeClass('landscape').addClass(orientation);
+            } else {
+                // 新增主面人臉
+                let newMasterFaceHtml = `<img src="https://video.test${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${videoId}" data-duration="${face.video_screenshot.video_master.duration}">`;
+                // 插入到正確的位置（根據duration排序）
+                let inserted = false;
+                $('.master-face-images img').each(function() {
+                    let currentDuration = parseFloat($(this).data('duration'));
+                    if (face.video_screenshot.video_master.duration < currentDuration) {
+                        $(this).before(newMasterFaceHtml);
+                        inserted = true;
+                        return false; // break loop
+                    }
+                });
+                if (!inserted) {
+                    $('.master-face-images').append(newMasterFaceHtml);
+                }
+            }
         }
 
         // 聚焦對應的主面人臉
@@ -802,9 +836,12 @@
                         $(`.face-screenshot[data-video-id="${videoId}"]`).removeClass('master');
                         // 添加master類別到當前圖片
                         $(`.face-screenshot[data-id="${faceId}"]`).addClass('master');
+
                         // 更新左側主面人臉
-                        loadMasterFaces();
+                        updateMasterFace(response.data);
+
                         showMessage('success', '主面人臉已更新。');
+
                         // 移動到剛剛設定的主面人臉位置
                         setTimeout(() => {
                             let newMasterFace = $(`.master-face-img[data-video-id="${videoId}"]`);

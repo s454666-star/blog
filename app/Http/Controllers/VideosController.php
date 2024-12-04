@@ -144,9 +144,6 @@
                 $video->delete();
             }
 
-            // Reload master faces after deletion
-            $this->reloadMasterFaces();
-
             return response()->json([
                 'success' => true,
                 'message' => '選中的影片已成功刪除。',
@@ -204,9 +201,6 @@
                 // 回傳相關資料
                 $video->screenshots = [$screenshot];
 
-                // Reload master faces after upload
-                $this->reloadMasterFaces();
-
                 return response()->json([
                     'success' => true,
                     'data' => $video,
@@ -257,9 +251,6 @@
                 // 刪除截圖資料庫紀錄
                 $screenshot->delete();
 
-                // Reload master faces after deletion
-                $this->reloadMasterFaces();
-
                 return response()->json([
                     'success' => true,
                     'message' => '截圖已成功刪除。',
@@ -279,16 +270,8 @@
                     File::delete($faceFile);
                 }
 
-                // 如果是主面人臉，需更新其他人臉
-                if ($face->is_master) {
-                    $face->videoScreenshot->videoMaster->faceScreenshots()->where('id', '!=', $face->id)->update(['is_master' => 0]);
-                }
-
                 // 刪除人臉截圖資料庫紀錄
                 $face->delete();
-
-                // Reload master faces after deletion
-                $this->reloadMasterFaces();
 
                 return response()->json([
                     'success' => true,
@@ -374,9 +357,6 @@
                     $uploadedFaces[] = $face;
                 }
 
-                // Reload master faces after upload
-                $this->reloadMasterFaces();
-
                 return response()->json([
                     'success' => true,
                     'data' => $uploadedFaces,
@@ -422,11 +402,23 @@
                 $face->save();
             });
 
-            // Reload master faces after setting master face
-            $this->reloadMasterFaces();
+            // 取得更新後的 master face data
+            $updatedFace = VideoFaceScreenshot::with(['videoScreenshot.videoMaster'])->find($faceId);
+
+            // 取得圖片尺寸
+            $imagePath = public_path($updatedFace->face_image_path);
+            if (file_exists($imagePath)) {
+                list($width, $height) = getimagesize($imagePath);
+                $updatedFace->width = $width;
+                $updatedFace->height = $height;
+            } else {
+                $updatedFace->width = 0;
+                $updatedFace->height = 0;
+            }
 
             return response()->json([
-                'success' => true
+                'success' => true,
+                'data' => $updatedFace->toArray()
             ]);
         }
 
@@ -457,20 +449,8 @@
 
             return response()->json([
                 'success' => true,
-                'data' => $masterFaces
+                'data' => $masterFaces->toArray()
             ]);
-        }
-
-        /**
-         * 載入主面人臉（內部使用）。
-         *
-         * @return void
-         */
-        private function reloadMasterFaces()
-        {
-            // This function can be used to perform any server-side actions needed
-            // after master faces are updated, such as caching or logging.
-            // Currently, it's a placeholder and does nothing.
         }
 
         /**

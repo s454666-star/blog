@@ -82,23 +82,23 @@ class FaceExtractorApp:
         self.detector = MTCNN()
 
         # 初始化資料庫連線
-        """
-        try:
-            self.db_connection = mysql.connector.connect(
-                host="mysql.mystar.monster",
-                port=3306,
-                user="s454666",
-                password="i06180318",
-                database="star"
-            )
-            self.db_cursor = self.db_connection.cursor()
-            print("成功連接到資料庫")
-        except mysql.connector.Error as err:
-            print(f"資料庫連線錯誤: {err}")
-            messagebox.showerror("資料庫錯誤", f"無法連接到資料庫: {err}")
-            self.db_connection = None
-            self.db_cursor = None
-        """
+        # """
+        # try:
+        #     self.db_connection = mysql.connector.connect(
+        #         host="mysql.mystar.monster",
+        #         port=3306,
+        #         user="s454666",
+        #         password="i06180318",
+        #         database="star"
+        #     )
+        #     self.db_cursor = self.db_connection.cursor()
+        #     print("成功連接到資料庫")
+        # except mysql.connector.Error as err:
+        #     print(f"資料庫連線錯誤: {err}")
+        #     messagebox.showerror("資料庫錯誤", f"無法連接到資料庫: {err}")
+        #     self.db_connection = None
+        #     self.db_cursor = None
+        # """
 
     def sanitize_filename(self, filename):
         """移除檔名中的非法字符"""
@@ -211,23 +211,21 @@ class FaceExtractorApp:
             video_type = self.video_type_var.get() if self.video_type_var.get() else "1"
 
             # 插入 video_master 資料
-            """
-            video_master_id = None
-            if self.db_cursor:
-                try:
-                    insert_video = """
-                        INSERT INTO video_master (video_name, video_path, duration, video_type)
-                        VALUES (%s, %s, %s, %s)
-                    """
-                    relative_video_path = f"\\{os.path.basename(output_dir)}\\{video_name}"
-                    self.db_cursor.execute(insert_video, (video_name, relative_video_path, round(duration, 2), video_type))
-                    self.db_connection.commit()
-                    video_master_id = self.db_cursor.lastrowid
-                    print(f"已插入 video_master, ID: {video_master_id}")
-                except mysql.connector.Error as err:
-                    print(f"插入 video_master 時發生錯誤: {err}")
-                    traceback.print_exc()
-            """
+            # video_master_id = None
+            # if self.db_cursor:
+            #     try:
+            #         insert_video = """
+            #             INSERT INTO video_master (video_name, video_path, duration, video_type)
+            #             VALUES (%s, %s, %s, %s)
+            #         """
+            #         relative_video_path = f"\\{os.path.basename(output_dir)}\\{video_name}"
+            #         self.db_cursor.execute(insert_video, (video_name, relative_video_path, round(duration, 2), video_type))
+            #         self.db_connection.commit()
+            #         video_master_id = self.db_cursor.lastrowid
+            #         print(f"已插入 video_master, ID: {video_master_id}")
+            #     except mysql.connector.Error as err:
+            #         print(f"插入 video_master 時發生錯誤: {err}")
+            #         traceback.print_exc()
 
             while cap.isOpened() and self.is_running and saved < self.frame_count:
                 ret, frame = cap.read()
@@ -255,24 +253,22 @@ class FaceExtractorApp:
                             continue
 
                         # 插入 video_screenshots 資料
-                        """
-                        screenshot_relative_path = os.path.relpath(frame_path, os.path.dirname(video_path))
-                        screenshot_id = None
-                        if self.db_cursor and video_master_id:
-                            try:
-                                insert_screenshot = """
-                                    INSERT INTO video_screenshots (video_master_id, screenshot_path)
-                                    VALUES (%s, %s)
-                                """
-                                screenshot_db_path = f"\\{os.path.basename(output_dir)}\\{frame_filename}"
-                                self.db_cursor.execute(insert_screenshot, (video_master_id, screenshot_db_path))
-                                self.db_connection.commit()
-                                screenshot_id = self.db_cursor.lastrowid
-                                print(f"已插入 video_screenshots, ID: {screenshot_id}")
-                            except mysql.connector.Error as err:
-                                print(f"插入 video_screenshots 時發生錯誤: {err}")
-                                traceback.print_exc()
-                        """
+                        # screenshot_relative_path = os.path.relpath(frame_path, os.path.dirname(video_path))
+                        # screenshot_id = None
+                        # if self.db_cursor and video_master_id:
+                        #     try:
+                        #         insert_screenshot = """
+                        #             INSERT INTO video_screenshots (video_master_id, screenshot_path)
+                        #             VALUES (%s, %s)
+                        #         """
+                        #         screenshot_db_path = f"\\{os.path.basename(output_dir)}\\{frame_filename}"
+                        #         self.db_cursor.execute(insert_screenshot, (video_master_id, screenshot_db_path))
+                        #         self.db_connection.commit()
+                        #         screenshot_id = self.db_cursor.lastrowid
+                        #         print(f"已插入 video_screenshots, ID: {screenshot_id}")
+                        #     except mysql.connector.Error as err:
+                        #         print(f"插入 video_screenshots 時發生錯誤: {err}")
+                        #         traceback.print_exc()
 
                         saved += 1
 
@@ -302,21 +298,19 @@ class FaceExtractorApp:
                                         continue
 
                                     # 插入 video_face_screenshots 資料
-                                    """
-                                    if self.db_cursor and screenshot_id:
-                                        try:
-                                            insert_face = """
-                                                INSERT INTO video_face_screenshots (video_screenshot_id, face_image_path)
-                                                VALUES (%s, %s)
-                                            """
-                                            face_db_path = f"\\{os.path.basename(output_dir)}\\{face_filename}"
-                                            self.db_cursor.execute(insert_face, (screenshot_id, face_db_path))
-                                            self.db_connection.commit()
-                                            print(f"已插入 video_face_screenshots")
-                                        except mysql.connector.Error as err:
-                                            print(f"插入 video_face_screenshots 時發生錯誤: {err}")
-                                            traceback.print_exc()
-                                    """
+                                    # if self.db_cursor and screenshot_id:
+                                    #     try:
+                                    #         insert_face = """
+                                    #             INSERT INTO video_face_screenshots (video_screenshot_id, face_image_path)
+                                    #             VALUES (%s, %s)
+                                    #         """
+                                    #         face_db_path = f"\\{os.path.basename(output_dir)}\\{face_filename}"
+                                    #         self.db_cursor.execute(insert_face, (screenshot_id, face_db_path))
+                                    #         self.db_connection.commit()
+                                    #         print(f"已插入 video_face_screenshots")
+                                    #     except mysql.connector.Error as err:
+                                    #         print(f"插入 video_face_screenshots 時發生錯誤: {err}")
+                                    #         traceback.print_exc()
 
                     # 更新進度條
                     progress = saved / self.frame_count
@@ -483,12 +477,12 @@ class FaceExtractorApp:
         self.stop_button.configure(state='disabled')
 
     def __del__(self):
-        """
-        if hasattr(self, 'db_connection') and self.db_connection and self.db_connection.is_connected():
-            self.db_cursor.close()
-            self.db_connection.close()
-            print("資料庫連線已關閉")
-        """
+        # """
+        # if hasattr(self, 'db_connection') and self.db_connection and self.db_connection.is_connected():
+        #     self.db_cursor.close()
+        #     self.db_connection.close()
+        #     print("資料庫連線已關閉")
+        # """
         pass
 
 if __name__ == "__main__":

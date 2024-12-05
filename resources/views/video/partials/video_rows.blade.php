@@ -29,7 +29,7 @@
                     @foreach($video->screenshots as $screenshot)
                         @foreach($screenshot->faceScreenshots as $face)
                             <div class="face-screenshot-container">
-                                <img src="{{ config('app.video_base_url') }}/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
+                                <img src="{{ config('app.video_base_url') }}/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}" data-type="face-screenshot">
                                 <button class="set-master-btn" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">★</button>
                                 <button class="delete-icon" data-id="{{ $face->id }}" data-type="face-screenshot">&times;</button>
                             </div>

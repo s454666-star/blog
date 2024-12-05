@@ -109,6 +109,11 @@
             padding: 5px;
             cursor: pointer;
         }
+        /* 調整播放模式開關樣式 */
+        #play-mode {
+            width: 50px;
+            height: 10px;
+        }
         /* 拖曳上傳區域 */
         .upload-area {
             border: 2px dashed #007bff;
@@ -279,6 +284,55 @@
         .face-screenshot-container:hover .set-master-btn {
             display: block;
         }
+        /* 全螢幕模式時，隱藏頁面元素 */
+        .fullscreen-mode .controls,
+        .fullscreen-mode .master-faces,
+        .fullscreen-mode .container {
+            display: none;
+        }
+        /* 全螢幕控制按鈕 */
+        .fullscreen-controls {
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 2000;
+            display: none;
+        }
+
+        .fullscreen-controls.show {
+            display: block;
+        }
+
+        .fullscreen-controls .prev-video-btn,
+        .fullscreen-controls .next-video-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.5);
+            border: none;
+            color: #fff;
+            padding: 20px;
+            font-size: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .fullscreen-controls .prev-video-btn {
+            left: 20px;
+        }
+
+        .fullscreen-controls .next-video-btn {
+            right: 20px;
+        }
+
+        .fullscreen-controls .prev-video-btn.show,
+        .fullscreen-controls .next-video-btn.show {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -287,13 +341,10 @@
     <div class="master-face-images">
         @foreach($masterFaces as $masterFace)
             @php
-                // 獲取圖像的絕對路徑
                 $imagePath = public_path($masterFace->face_image_path);
                 $orientation = '';
                 if (file_exists($imagePath)) {
-                    // 獲取圖像尺寸
                     list($width, $height) = getimagesize($imagePath);
-                    // 判斷寬度是否大於等於高度
                     if ($width >= $height) {
                         $orientation = 'landscape';
                     }
@@ -304,11 +355,6 @@
     </div>
 </div>
 <div class="container mt-4">
-    <!-- 上傳區 -->
-    {{--    <div class="upload-area" id="upload-area">--}}
-    {{--        將影片檔案拖曳到此處上傳--}}
-    {{--    </div>--}}
-
     <!-- 消息提示 -->
     <div class="message-container" id="message-container">
     </div>
@@ -344,7 +390,7 @@
                             @foreach($video->screenshots as $screenshot)
                                 @foreach($screenshot->faceScreenshots as $face)
                                     <div class="face-screenshot-container">
-                                        <img src="{{ config('app.video_base_url') }}/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">
+                                        <img src="{{ config('app.video_base_url') }}/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}" data-type="face-screenshot">
                                         <button class="set-master-btn" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">★</button>
                                         <button class="delete-icon" data-id="{{ $face->id }}" data-type="face-screenshot">&times;</button>
                                     </div>
@@ -364,6 +410,12 @@
     <div id="load-more" class="text-center my-4">
         <button id="load-more-btn" class="btn btn-primary">載入更多</button>
     </div>
+</div>
+
+<!-- 全螢幕控制按鈕 -->
+<div class="fullscreen-controls" id="fullscreen-controls">
+    <button class="prev-video-btn" id="prev-video-btn">❮</button>
+    <button class="next-video-btn" id="next-video-btn">❯</button>
 </div>
 
 <!-- 控制條 -->
@@ -387,7 +439,11 @@
             </select>
         </div>
         <div class="control-group flex-grow-1">
-            <!-- 移除刪除選取的影片按鈕 -->
+            <label for="play-mode">播放模式:</label>
+            <input type="range" id="play-mode" name="play_mode" min="0" max="1" value="{{ request('play_mode', '0') }}" step="1">
+            <span id="play-mode-label">{{ request('play_mode', '0') == '0' ? '循環' : '自動' }}</span>
+        </div>
+        <div class="control-group flex-grow-1">
             <button id="delete-focused-btn" class="btn btn-warning">刪除聚焦的影片</button>
         </div>
     </form>
@@ -436,7 +492,7 @@
 <!-- 模板：人臉截圖圖片 -->
 <template id="face-screenshot-template">
     <div class="face-screenshot-container">
-        <img src="{{ config('app.video_base_url') }}/{face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom {master_class}" data-id="{face_id}" data-video-id="{video_id}">
+        <img src="{{ config('app.video_base_url') }}/{face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom {master_class}" data-id="{face_id}" data-video-id="{video_id}" data-type="face-screenshot">
         <button class="set-master-btn" data-id="{face_id}" data-video-id="{video_id}">★</button>
         <button class="delete-icon" data-id="{face_id}" data-type="face-screenshot">&times;</button>
     </div>
@@ -454,6 +510,9 @@
 <script>
     let nextPage = {{ $videos->currentPage() + 1 }};
     let loading = false;
+    let videoList = [];
+    let currentVideoIndex = 0;
+    let playMode = {{ request('play_mode') ? '1' : '0' }}; // 0: 循環, 1: 自動
 
     function showMessage(type, text) {
         const messageContainer = $('#message-container');
@@ -476,13 +535,14 @@
             method: 'GET',
             data: { page: nextPage, video_type: '{{ request('video_type', '1') }}' },
             success: function(response) {
-                if(response.success) {
+                if(response && response.success) {
                     $('#videos-list').append(response.data);
                     nextPage = response.next_page;
                     loading = false;
                     $('#load-more-btn').text('載入更多');
                     // Refresh sortable to include new items
                     $("#videos-list").sortable("refresh");
+                    buildVideoList();
                 } else {
                     $('#load-more').html('<p>沒有更多資料了。</p>');
                 }
@@ -492,6 +552,19 @@
                 showMessage('error', '載入失敗，請稍後再試。');
                 loading = false;
             }
+        });
+    }
+
+    function buildVideoList() {
+        videoList = [];
+        $('.video-row').each(function(index) {
+            let videoId = $(this).data('id');
+            let videoElement = $(this).find('video')[0];
+            videoList.push({
+                id: videoId,
+                videoElement: videoElement,
+                videoRow: $(this)
+            });
         });
     }
 
@@ -516,9 +589,16 @@
             $('#controls-form').submit();
         });
 
+        // 播放模式切換
+        $('#play-mode').on('input', function() {
+            playMode = $(this).val();
+            $('#play-mode-label').text(playMode === '0' ? '循環' : '自動');
+        });
+
         // 初始化控制條狀態
         $('#video-size').trigger('input');
         $('#image-size').trigger('input');
+        $('#play-mode').trigger('input');
 
         // 載入更多按鈕
         $('#load-more-btn').on('click', function () {
@@ -536,22 +616,48 @@
         $(document).on('click', '.fullscreen-btn', function (e) {
             e.stopPropagation(); // 防止觸發選取
             let video = $(this).siblings('video')[0];
-            if (video.requestFullscreen) {
-                video.requestFullscreen();
-            } else if (video.webkitRequestFullscreen) { /* Safari */
-                video.webkitRequestFullscreen();
-            } else if (video.msRequestFullscreen) { /* IE11 */
-                video.msRequestFullscreen();
-            }
+            enterFullScreen(video);
         });
 
-        // 滑鼠移動控制進度條
+        function enterFullScreen(video) {
+            try {
+                if (video.requestFullscreen) {
+                    video.requestFullscreen().then(() => {
+                        $('body').addClass('fullscreen-mode');
+                    }).catch((err) => {
+                        console.error(err);
+                    });
+                } else if (video.webkitRequestFullscreen) { /* Safari */
+                    video.webkitRequestFullscreen();
+                    $('body').addClass('fullscreen-mode');
+                } else if (video.msRequestFullscreen) { /* IE11 */
+                    video.msRequestFullscreen();
+                    $('body').addClass('fullscreen-mode');
+                } else {
+                    $('body').addClass('fullscreen-mode');
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function exitFullScreen() {
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            }
+            $('body').removeClass('fullscreen-mode');
+        }
+
+        // 滑鼠移動控制進度條（非全螢幕時）
         $(document).on('mousemove', 'video', function (e) {
             let video = this;
-            let rect = video.getBoundingClientRect();
-            let x = e.clientX - rect.left; // 滑鼠在影片上的X位置
-            let percent = x / rect.width;
-            video.currentTime = percent * video.duration;
+            let isFullScreen = document.fullscreenElement === video || document.webkitFullscreenElement === video || document.mozFullScreenElement === video || document.msFullscreenElement === video;
+            if (!isFullScreen) {
+                let rect = video.getBoundingClientRect();
+                let x = e.clientX - rect.left; // 滑鼠在影片上的X位置
+                let percent = x / rect.width;
+                video.currentTime = percent * video.duration;
+            }
         });
 
         // 選取影片 - 點擊選取或聚焦
@@ -601,12 +707,13 @@
                     _token: '{{ csrf_token() }}'
                 },
                 success: function (response) {
-                    if (response.success) {
+                    if (response && response.success) {
                         focusedRow.remove();
                         showMessage('success', response.message);
                         removeMasterFaceFocus();
                         // Reload master faces after deletion
                         loadMasterFaces();
+                        buildVideoList();
                     } else {
                         showMessage('error', response.message);
                     }
@@ -637,11 +744,7 @@
         // 初始化 Sortable 功能
         $("#videos-list").sortable({
             placeholder: "ui-state-highlight",
-            // 可選：啟用拖曳手柄（如果需要）
-            // handle: ".video-wrapper",
-            // 可選：設置拖曳延遲，避免誤觸
             delay: 150,
-            // 可選：禁用拖曳時的選取文字
             cancel: "video, .fullscreen-btn, img, button"
         });
 
@@ -662,7 +765,7 @@
                     _token: '{{ csrf_token() }}'
                 },
                 success: function (response) {
-                    if (response.success) {
+                    if (response && response.success) {
                         // 移除所有master類別
                         $(`.face-screenshot[data-video-id="${videoId}"]`).removeClass('master');
                         // 添加master類別到當前圖片
@@ -716,10 +819,9 @@
                 method: 'GET',
                 cache: false,
                 success: function (response) {
-                    if (response.success) {
+                    if (response && response.success) {
                         let masterFacesHtml = '<h5>主面人臉</h5><div class="master-face-images">';
                         response.data.sort((a, b) => a.video_screenshot.video_master.duration - b.video_screenshot.video_master.duration).forEach(function (face) {
-                            // 檢查圖片方向
                             let orientation = '';
                             if (face.width && face.height && parseInt(face.width) >= parseInt(face.height)) {
                                 orientation = 'landscape';
@@ -813,6 +915,7 @@
         // 呼叫聚焦函式在全部頁面載入後
         $(window).on('load', function () {
             focusMaxIdVideo();
+            buildVideoList();
         });
 
         // 刪除圖片
@@ -830,7 +933,7 @@
                     _token: '{{ csrf_token() }}'
                 },
                 success: function (response) {
-                    if (response.success) {
+                    if (response && response.success) {
                         if (type === 'screenshot') {
                             $(`img[data-id="${id}"][data-type="screenshot"]`).closest('.screenshot-container').remove();
                         } else if (type === 'face-screenshot') {
@@ -863,7 +966,7 @@
                     _token: '{{ csrf_token() }}'
                 },
                 success: function (response) {
-                    if (response.success) {
+                    if (response && response.success) {
                         // 移除所有master類別
                         $(`.face-screenshot[data-video-id="${videoId}"]`).removeClass('master');
                         // 添加master類別到當前圖片
@@ -933,7 +1036,7 @@
                         'X-CSRF-TOKEN': '{{ csrf_token() }}'
                     },
                     success: function (response) {
-                        if (response.success) {
+                        if (response && response.success) {
                             let template = $('#face-screenshot-template').html();
                             response.data.forEach(function (face) {
                                 let masterClass = face.is_master ? 'master' : '';
@@ -963,8 +1066,296 @@
             let videoSize = $('#video-size').val();
             let imageSize = $('#image-size').val();
             let videoType = $('#video-type').val();
-            window.location.href = "{{ route('video.index') }}" + "?video_size=" + videoSize + "&image_size=" + imageSize + "&video_type=" + videoType;
+            let playModeValue = $('#play-mode').val();
+            window.location.href = "{{ route('video.index') }}" + "?video_size=" + videoSize + "&image_size=" + imageSize + "&video_type=" + videoType + "&play_mode=" + playModeValue;
         });
+
+        // 處理全螢幕變化事件
+        function onFullScreenChange(e) {
+            let fsElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+            if (fsElement && $(fsElement).is('video')) {
+                // Video has entered full-screen
+                $(fsElement).addClass('is-fullscreen');
+
+                // Set currentVideoIndex
+                let videoElement = fsElement;
+                for (let i = 0; i < videoList.length; i++) {
+                    if (videoList[i].videoElement === videoElement) {
+                        currentVideoIndex = i;
+                        break;
+                    }
+                }
+
+                // Add 'ended' event listener
+                videoElement.addEventListener('ended', onVideoEnded);
+
+                // Initialize loop state
+                videoElement.loop = playMode === '0' ? true : false;
+
+                // Add mousemove event listener
+                videoElement.addEventListener('mousemove', onVideoMouseMove);
+
+                // Add touch event listeners
+                videoElement.addEventListener('touchstart', onTouchStart, {passive: true});
+                videoElement.addEventListener('touchend', onTouchEnd, {passive: true});
+
+                // Show controls initially
+                showFullscreenControls();
+
+            } else {
+                // Video has exited full-screen
+                $('video.is-fullscreen').removeClass('is-fullscreen');
+                $('body').removeClass('fullscreen-mode');
+
+                // Remove 'ended' event listener
+                $('video').each(function() {
+                    this.removeEventListener('ended', onVideoEnded);
+                    this.removeEventListener('mousemove', onVideoMouseMove);
+                    this.removeEventListener('touchstart', onTouchStart);
+                    this.removeEventListener('touchend', onTouchEnd);
+                });
+
+                // Exit fullscreen disables loop
+                $('video').prop('loop', false);
+
+                // Hide controls
+                hideFullscreenControls();
+            }
+        }
+
+        document.addEventListener('fullscreenchange', onFullScreenChange);
+        document.addEventListener('webkitfullscreenchange', onFullScreenChange);
+        document.addEventListener('mozfullscreenchange', onFullScreenChange);
+        document.addEventListener('msfullscreenchange', onFullScreenChange);
+
+        // 全螢幕控制按鈕功能
+        $('#prev-video-btn').on('click', function() {
+            playPreviousVideo();
+        });
+
+        $('#next-video-btn').on('click', function() {
+            playNextVideo();
+        });
+
+        // 隱藏控制按鈕的定時器
+        let controlsTimeout;
+        let controlsVisible = false;
+        let prevButtonVisible = false;
+        let nextButtonVisible = false;
+
+        function showFullscreenControls() {
+            $('#fullscreen-controls').addClass('show');
+            controlsVisible = true;
+        }
+
+        function hideFullscreenControls() {
+            $('#fullscreen-controls').removeClass('show');
+            controlsVisible = false;
+        }
+
+        function onVideoMouseMove(e) {
+            let video = e.currentTarget;
+            let rect = video.getBoundingClientRect();
+            let x = e.clientX - rect.left; // Mouse X position within the video element
+            let y = e.clientY - rect.top;  // Mouse Y position within the video element
+
+            let edgeThreshold = 50; // pixels
+
+            if (x < edgeThreshold) {
+                // Near the left edge
+                if (!prevButtonVisible) {
+                    $('.prev-video-btn').addClass('show');
+                    prevButtonVisible = true;
+                }
+            } else {
+                if (prevButtonVisible) {
+                    $('.prev-video-btn').removeClass('show');
+                    prevButtonVisible = false;
+                }
+            }
+
+            if (x > rect.width - edgeThreshold) {
+                // Near the right edge
+                if (!nextButtonVisible) {
+                    $('.next-video-btn').addClass('show');
+                    nextButtonVisible = true;
+                }
+            } else {
+                if (nextButtonVisible) {
+                    $('.next-video-btn').removeClass('show');
+                    nextButtonVisible = false;
+                }
+            }
+
+            // Show controls if not already visible
+            if (!controlsVisible) {
+                showFullscreenControls();
+            }
+
+            // Hide controls after a timeout
+            clearTimeout(controlsTimeout);
+            controlsTimeout = setTimeout(function() {
+                hideFullscreenControls();
+                $('.prev-video-btn').removeClass('show');
+                $('.next-video-btn').removeClass('show');
+                prevButtonVisible = false;
+                nextButtonVisible = false;
+            }, 3000);
+        }
+
+        // 處理觸控事件
+        let touchStartX = null;
+        let touchStartY = null;
+
+        function onTouchStart(e) {
+            touchStartX = e.changedTouches[0].clientX;
+            touchStartY = e.changedTouches[0].clientY;
+        }
+
+        function onTouchEnd(e) {
+            let touchEndX = e.changedTouches[0].clientX;
+            let touchEndY = e.changedTouches[0].clientY;
+
+            let deltaX = touchEndX - touchStartX;
+            let deltaY = touchEndY - touchStartY;
+
+            if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                // Horizontal swipe
+                if (deltaX > 50) {
+                    // Swipe right, next video
+                    playNextVideo();
+                } else if (deltaX < -50) {
+                    // Swipe left, previous video
+                    playPreviousVideo();
+                }
+            } else {
+                // Vertical swipe
+                if (deltaY > 50) {
+                    // Swipe down, toggle loop
+                    toggleLoopPlay();
+                } else if (deltaY < -50) {
+                    // Swipe up, random play
+                    playRandomVideo();
+                }
+            }
+        }
+
+        function playPreviousVideo() {
+            if (currentVideoIndex > 0) {
+                playVideoAtIndex(currentVideoIndex - 1);
+            } else {
+                showMessage('error', '已經是第一部影片');
+            }
+        }
+
+        function playNextVideo() {
+            if (currentVideoIndex < videoList.length - 1) {
+                playVideoAtIndex(currentVideoIndex + 1);
+            } else {
+                showMessage('error', '已經是最後一部影片');
+            }
+        }
+
+        function playRandomVideo() {
+            let randomIndex = Math.floor(Math.random() * videoList.length);
+            if (randomIndex === currentVideoIndex) {
+                randomIndex = (randomIndex + 1) % videoList.length;
+            }
+            playVideoAtIndex(randomIndex);
+        }
+
+        function toggleLoopPlay() {
+            let videoElement = videoList[currentVideoIndex].videoElement;
+            videoElement.loop = !videoElement.loop;
+            if (videoElement.loop) {
+                showMessage('success', '單部循環已開啟');
+            } else {
+                showMessage('success', '單部循環已關閉');
+            }
+        }
+
+        function playVideoAtIndex(index) {
+            if (index < 0 || index >= videoList.length) {
+                showMessage('error', '影片索引超出範圍');
+                return;
+            }
+
+            let currentVideoData = videoList[currentVideoIndex];
+            let nextVideoData = videoList[index];
+
+            // Pause current video
+            currentVideoData.videoElement.pause();
+
+            // Update currentVideoIndex
+            currentVideoIndex = index;
+
+            // Scroll to the next video
+            $('html, body').animate({
+                scrollTop: nextVideoData.videoRow.offset().top - 100
+            }, 500);
+
+            let isFullScreen = document.fullscreenElement === currentVideoData.videoElement || document.webkitFullscreenElement === currentVideoData.videoElement || document.mozFullScreenElement === currentVideoData.videoElement || document.msFullscreenElement === currentVideoData.videoElement;
+
+            if (isFullScreen) {
+                let videoElement = currentVideoData.videoElement;
+                let sourceElement = videoElement.querySelector('source');
+
+                if (sourceElement) {
+                    sourceElement.src = nextVideoData.videoElement.querySelector('source').src;
+
+                    // Load the new video
+                    videoElement.load();
+
+                    videoElement.currentTime = 0;
+                    videoElement.play();
+
+                    // Update loop state
+                    videoElement.loop = playMode === '0' ? true : false;
+
+                    // Update event listeners
+                    videoElement.removeEventListener('ended', onVideoEnded);
+                    videoElement.addEventListener('ended', onVideoEnded);
+
+                    // Update videoRow reference
+                    currentVideoData.videoRow = nextVideoData.videoRow;
+                } else {
+                    // Fallback in case no source element
+                    videoElement.src = nextVideoData.videoElement.src;
+                    videoElement.currentTime = 0;
+                    videoElement.play();
+                }
+            } else {
+                // Play next video
+                nextVideoData.videoElement.currentTime = 0;
+                nextVideoData.videoElement.play();
+
+                // Only try to enter fullscreen if not already in fullscreen
+                if (!isFullScreen) {
+                    enterFullScreen(nextVideoData.videoElement);
+                } else {
+                    // Cannot change fullscreen element without user interaction
+                    showMessage('info', '自動播放下一部影片，但無法自動進入全螢幕');
+                }
+            }
+        }
+
+        function onVideoEnded(e) {
+            let videoElement = e.target;
+            let videoDataIndex = videoList.findIndex(v => v.videoElement === videoElement);
+            if (videoDataIndex === -1) return;
+
+            if (videoElement.loop) {
+                // 單部循環已開啟，自動重播
+                videoElement.play();
+            } else if (playMode === '1') {
+                // 自動播放下一部
+                if (currentVideoIndex < videoList.length - 1) {
+                    playVideoAtIndex(currentVideoIndex + 1);
+                } else {
+                    showMessage('info', '已經是最後一部影片');
+                }
+            }
+        }
     });
 </script>
 </body>

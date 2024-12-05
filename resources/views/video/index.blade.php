@@ -513,6 +513,7 @@
     let videoList = [];
     let currentVideoIndex = 0;
     let playMode = {{ request('play_mode') ? '1' : '0' }}; // 0: 循環, 1: 自動
+    let currentFullScreenVideoElement = null;
 
     function showMessage(type, text) {
         const messageContainer = $('#message-container');
@@ -767,9 +768,9 @@
                 success: function (response) {
                     if (response && response.success) {
                         // 移除所有master類別
-                        $(`.face-screenshot[data-video-id="${videoId}"]`).removeClass('master');
+                        $('.face-screenshot[data-video-id="' + videoId + '"]').removeClass('master');
                         // 添加master類別到當前圖片
-                        $(`.face-screenshot[data-id="${faceId}"]`).addClass('master');
+                        $('.face-screenshot[data-id="' + faceId + '"]').addClass('master');
 
                         // 更新左側主面人臉
                         updateMasterFace(response.data);
@@ -778,7 +779,7 @@
 
                         // 移動到剛剛設定的主面人臉位置
                         setTimeout(() => {
-                            let newMasterFace = $(`.master-face-img[data-video-id="${videoId}"]`);
+                            let newMasterFace = $('.master-face-img[data-video-id="' + videoId + '"]');
                             if (newMasterFace.length) {
                                 $('.master-face-img').removeClass('focused');
                                 newMasterFace.addClass('focused');
@@ -801,7 +802,7 @@
         // 點擊左側主面人臉導航
         $(document).on('click', '.master-face-img', function () {
             let videoId = $(this).data('video-id');
-            let targetRow = $(`.video-row[data-id="${videoId}"]`);
+            let targetRow = $('.video-row[data-id="' + videoId + '"]');
             if (targetRow.length) {
                 $('.video-row').removeClass('focused');
                 targetRow.addClass('focused');
@@ -826,7 +827,7 @@
                             if (face.width && face.height && parseInt(face.width) >= parseInt(face.height)) {
                                 orientation = 'landscape';
                             }
-                            masterFacesHtml += `<img src="{{ config('app.video_base_url') }}/${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${face.video_screenshot.video_master.id}" data-duration="${face.video_screenshot.video_master.duration}">`;
+                            masterFacesHtml += '<img src="{{ config('app.video_base_url') }}/' + face.face_image_path + '" alt="主面人臉" class="master-face-img ' + orientation + '" data-video-id="' + face.video_screenshot.video_master.id + '" data-duration="' + face.video_screenshot.video_master.duration + '">';
                         });
                         masterFacesHtml += '</div>';
                         $('.master-faces').html(masterFacesHtml);
@@ -845,14 +846,14 @@
                 orientation = 'landscape';
             }
             let videoId = face.video_screenshot.video_master.id;
-            let masterFaceImg = $(`.master-face-img[data-video-id="${videoId}"]`);
+            let masterFaceImg = $('.master-face-img[data-video-id="' + videoId + '"]');
             if (masterFaceImg.length) {
                 // 更新現有的主面人臉
                 masterFaceImg.attr('src', '{{ config('app.video_base_url') }}/' + face.face_image_path);
                 masterFaceImg.removeClass('landscape').addClass(orientation);
             } else {
                 // 新增主面人臉
-                let newMasterFaceHtml = `<img src="{{ config('app.video_base_url') }}/${face.face_image_path}" alt="主面人臉" class="master-face-img ${orientation}" data-video-id="${videoId}" data-duration="${face.video_screenshot.video_master.duration}">`;
+                let newMasterFaceHtml = '<img src="{{ config('app.video_base_url') }}/' + face.face_image_path + '" alt="主面人臉" class="master-face-img ' + orientation + '" data-video-id="' + videoId + '" data-duration="' + face.video_screenshot.video_master.duration + '">';
                 // 插入到正確的位置（根據duration排序）
                 let inserted = false;
                 $('.master-face-images img').each(function () {
@@ -875,7 +876,7 @@
             $('.master-face-img').removeClass('focused');
 
             // 找到對應的主面人臉
-            let targetFace = $(`.master-face-img[data-video-id="${videoId}"]`);
+            let targetFace = $('.master-face-img[data-video-id="' + videoId + '"]');
             if (targetFace.length) {
                 targetFace.addClass('focused');
                 // 滾動到該主面人臉
@@ -935,9 +936,9 @@
                 success: function (response) {
                     if (response && response.success) {
                         if (type === 'screenshot') {
-                            $(`img[data-id="${id}"][data-type="screenshot"]`).closest('.screenshot-container').remove();
+                            $('img[data-id="' + id + '"][data-type="screenshot"]').closest('.screenshot-container').remove();
                         } else if (type === 'face-screenshot') {
-                            $(`img[data-id="${id}"][data-type="face-screenshot"]`).closest('.face-screenshot-container').remove();
+                            $('img[data-id="' + id + '"][data-type="face-screenshot"]').closest('.face-screenshot-container').remove();
                             // If the deleted face was master, reload master faces
                             loadMasterFaces();
                         }
@@ -968,9 +969,9 @@
                 success: function (response) {
                     if (response && response.success) {
                         // 移除所有master類別
-                        $(`.face-screenshot[data-video-id="${videoId}"]`).removeClass('master');
+                        $('.face-screenshot[data-video-id="' + videoId + '"]').removeClass('master');
                         // 添加master類別到當前圖片
-                        $(`.face-screenshot[data-id="${faceId}"]`).addClass('master');
+                        $('.face-screenshot[data-id="' + faceId + '"]').addClass('master');
 
                         // 更新左側主面人臉
                         updateMasterFace(response.data);
@@ -979,7 +980,7 @@
 
                         // 移動到剛剛設定的主面人臉位置
                         setTimeout(() => {
-                            let newMasterFace = $(`.master-face-img[data-video-id="${videoId}"]`);
+                            let newMasterFace = $('.master-face-img[data-video-id="' + videoId + '"]');
                             if (newMasterFace.length) {
                                 $('.master-face-img').removeClass('focused');
                                 newMasterFace.addClass('focused');
@@ -1046,7 +1047,7 @@
                                     .replace('{master_class}', masterClass)
                                     .replace(/{face_id}/g, face.id)
                                     .replace('{video_id}', videoId);
-                                $(`.face-upload-area[data-video-id="${videoId}"]`).prepend(newFace);
+                                $('.face-upload-area[data-video-id="' + videoId + '"]').prepend(newFace);
                             });
                             showMessage('success', '人臉截圖上傳成功！');
                         } else {
@@ -1075,29 +1076,29 @@
             let fsElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
             if (fsElement && $(fsElement).is('video')) {
                 // Video has entered full-screen
+                currentFullScreenVideoElement = fsElement;
                 $(fsElement).addClass('is-fullscreen');
 
                 // Set currentVideoIndex
-                let videoElement = fsElement;
                 for (let i = 0; i < videoList.length; i++) {
-                    if (videoList[i].videoElement === videoElement) {
+                    if (videoList[i].videoElement === fsElement) {
                         currentVideoIndex = i;
                         break;
                     }
                 }
 
                 // Add 'ended' event listener
-                videoElement.addEventListener('ended', onVideoEnded);
+                fsElement.addEventListener('ended', onVideoEnded);
 
                 // Initialize loop state
-                videoElement.loop = playMode === '0' ? true : false;
+                fsElement.loop = playMode === '0' ? true : false;
 
                 // Add mousemove event listener
-                videoElement.addEventListener('mousemove', onVideoMouseMove);
+                fsElement.addEventListener('mousemove', onVideoMouseMove);
 
                 // Add touch event listeners
-                videoElement.addEventListener('touchstart', onTouchStart, {passive: true});
-                videoElement.addEventListener('touchend', onTouchEnd, {passive: true});
+                fsElement.addEventListener('touchstart', onTouchStart, {passive: true});
+                fsElement.addEventListener('touchend', onTouchEnd, {passive: true});
 
                 // Show controls initially
                 showFullscreenControls();
@@ -1107,16 +1108,15 @@
                 $('video.is-fullscreen').removeClass('is-fullscreen');
                 $('body').removeClass('fullscreen-mode');
 
-                // Remove 'ended' event listener
-                $('video').each(function() {
-                    this.removeEventListener('ended', onVideoEnded);
-                    this.removeEventListener('mousemove', onVideoMouseMove);
-                    this.removeEventListener('touchstart', onTouchStart);
-                    this.removeEventListener('touchend', onTouchEnd);
-                });
-
-                // Exit fullscreen disables loop
-                $('video').prop('loop', false);
+                // Remove event listeners from previous full-screen video
+                if (currentFullScreenVideoElement) {
+                    currentFullScreenVideoElement.removeEventListener('ended', onVideoEnded);
+                    currentFullScreenVideoElement.removeEventListener('mousemove', onVideoMouseMove);
+                    currentFullScreenVideoElement.removeEventListener('touchstart', onTouchStart);
+                    currentFullScreenVideoElement.removeEventListener('touchend', onTouchEnd);
+                    currentFullScreenVideoElement.loop = false;
+                    currentFullScreenVideoElement = null;
+                }
 
                 // Hide controls
                 hideFullscreenControls();
@@ -1265,12 +1265,13 @@
         }
 
         function toggleLoopPlay() {
-            let videoElement = videoList[currentVideoIndex].videoElement;
-            videoElement.loop = !videoElement.loop;
-            if (videoElement.loop) {
-                showMessage('success', '單部循環已開啟');
-            } else {
-                showMessage('success', '單部循環已關閉');
+            if (currentFullScreenVideoElement) {
+                currentFullScreenVideoElement.loop = !currentFullScreenVideoElement.loop;
+                if (currentFullScreenVideoElement.loop) {
+                    showMessage('success', '單部循環已開啟');
+                } else {
+                    showMessage('success', '單部循環已關閉');
+                }
             }
         }
 
@@ -1280,11 +1281,7 @@
                 return;
             }
 
-            let currentVideoData = videoList[currentVideoIndex];
             let nextVideoData = videoList[index];
-
-            // Pause current video
-            currentVideoData.videoElement.pause();
 
             // Update currentVideoIndex
             currentVideoIndex = index;
@@ -1294,14 +1291,19 @@
                 scrollTop: nextVideoData.videoRow.offset().top - 100
             }, 500);
 
-            let isFullScreen = document.fullscreenElement === currentVideoData.videoElement || document.webkitFullscreenElement === currentVideoData.videoElement || document.mozFullScreenElement === currentVideoData.videoElement || document.msFullscreenElement === currentVideoData.videoElement;
+            let isFullScreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
 
             if (isFullScreen) {
-                let videoElement = currentVideoData.videoElement;
-                let sourceElement = videoElement.querySelector('source');
+                let videoElement = currentFullScreenVideoElement;
 
-                if (sourceElement) {
-                    sourceElement.src = nextVideoData.videoElement.querySelector('source').src;
+                if (videoElement) {
+                    // Update the video source
+                    let sourceElement = videoElement.querySelector('source');
+                    if (sourceElement) {
+                        sourceElement.src = nextVideoData.videoElement.querySelector('source').src;
+                    } else {
+                        videoElement.src = nextVideoData.videoElement.src;
+                    }
 
                     // Load the new video
                     videoElement.load();
@@ -1315,35 +1317,20 @@
                     // Update event listeners
                     videoElement.removeEventListener('ended', onVideoEnded);
                     videoElement.addEventListener('ended', onVideoEnded);
-
-                    // Update videoRow reference
-                    currentVideoData.videoRow = nextVideoData.videoRow;
-                } else {
-                    // Fallback in case no source element
-                    videoElement.src = nextVideoData.videoElement.src;
-                    videoElement.currentTime = 0;
-                    videoElement.play();
                 }
+
             } else {
                 // Play next video
                 nextVideoData.videoElement.currentTime = 0;
                 nextVideoData.videoElement.play();
 
-                // Only try to enter fullscreen if not already in fullscreen
-                if (!isFullScreen) {
-                    enterFullScreen(nextVideoData.videoElement);
-                } else {
-                    // Cannot change fullscreen element without user interaction
-                    showMessage('info', '自動播放下一部影片，但無法自動進入全螢幕');
-                }
+                // Enter full-screen with next video element
+                enterFullScreen(nextVideoData.videoElement);
             }
         }
 
         function onVideoEnded(e) {
             let videoElement = e.target;
-            let videoDataIndex = videoList.findIndex(v => v.videoElement === videoElement);
-            if (videoDataIndex === -1) return;
-
             if (videoElement.loop) {
                 // 單部循環已開啟，自動重播
                 videoElement.play();

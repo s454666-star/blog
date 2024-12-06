@@ -1,4 +1,4 @@
-<!-- resources/views/videos/index.blade.php -->
+<!-- resources/views/video/index.blade.php -->
 
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -361,54 +361,12 @@
 
     <!-- 影片列表 -->
     <div id="videos-list">
-        @foreach($videos as $video)
-            <div class="video-row" data-id="{{ $video->id }}">
-                <div class="video-container">
-                    <div class="video-wrapper">
-                        <video width="100%" controls>
-                            <source src="{{ config('app.video_base_url') }}/{{ $video->video_path }}" type="video/mp4">
-                            您的瀏覽器不支援影片播放。
-                        </video>
-                        <button class="fullscreen-btn">全螢幕</button>
-                    </div>
-                </div>
-                <div class="images-container">
-                    <div class="screenshot-images mb-2">
-                        <h5>影片截圖</h5>
-                        <div class="d-flex flex-wrap">
-                            @foreach($video->screenshots as $screenshot)
-                                <div class="screenshot-container">
-                                    <img src="{{ config('app.video_base_url') }}/{{ $screenshot->screenshot_path }}" alt="截圖" class="screenshot hover-zoom" data-id="{{ $screenshot->id }}" data-type="screenshot">
-                                    <button class="delete-icon" data-id="{{ $screenshot->id }}" data-type="screenshot">&times;</button>
-                                </div>
-                            @endforeach
-                        </div>
-                    </div>
-                    <div class="face-screenshot-images">
-                        <h5>人臉截圖</h5>
-                        <div class="d-flex flex-wrap face-upload-area" data-video-id="{{ $video->id }}" style="position: relative; border: 2px dashed #007bff; border-radius: 5px; padding: 10px; min-height: 120px;">
-                            @foreach($video->screenshots as $screenshot)
-                                @foreach($screenshot->faceScreenshots as $face)
-                                    <div class="face-screenshot-container">
-                                        <img src="{{ config('app.video_base_url') }}/{{ $face->face_image_path }}" alt="人臉截圖" class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}" data-type="face-screenshot">
-                                        <button class="set-master-btn" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">★</button>
-                                        <button class="delete-icon" data-id="{{ $face->id }}" data-type="face-screenshot">&times;</button>
-                                    </div>
-                                @endforeach
-                            @endforeach
-                            <div class="upload-instructions" style="width: 100%; text-align: center; color: #aaa; margin-top: 10px;">
-                                拖曳圖片到此處上傳
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        @endforeach
+        @include('video.partials.video_rows', ['videos' => $videos])
     </div>
 
-    <!-- 載入更多按鈕或提示 -->
-    <div id="load-more" class="text-center my-4">
-        <button id="load-more-btn" class="btn btn-primary">載入更多</button>
+    <!-- 載入更多提示 -->
+    <div id="load-more" class="text-center my-4" style="display: none;">
+        <p>正在載入更多影片...</p>
     </div>
 </div>
 
@@ -484,17 +442,17 @@
 <!-- 模板：截圖圖片 -->
 <template id="screenshot-template">
     <div class="screenshot-container">
-        <img src="{{ config('app.video_base_url') }}/{screenshot_path}" alt="截圖" class="screenshot hover-zoom" data-id="{screenshot_id}" data-type="screenshot">
-        <button class="delete-icon" data-id="{screenshot_id}" data-type="screenshot">&times;</button>
+        <img src="{{ config('app.video_base_url') }}/{{ '{screenshot_path}' }}" alt="截圖" class="screenshot hover-zoom" data-id="{{ '{screenshot_id}' }}" data-type="screenshot">
+        <button class="delete-icon" data-id="{{ '{screenshot_id}' }}" data-type="screenshot">&times;</button>
     </div>
 </template>
 
 <!-- 模板：人臉截圖圖片 -->
 <template id="face-screenshot-template">
     <div class="face-screenshot-container">
-        <img src="{{ config('app.video_base_url') }}/{face_image_path}" alt="人臉截圖" class="face-screenshot hover-zoom {master_class}" data-id="{face_id}" data-video-id="{video_id}" data-type="face-screenshot">
-        <button class="set-master-btn" data-id="{face_id}" data-video-id="{video_id}">★</button>
-        <button class="delete-icon" data-id="{face_id}" data-type="face-screenshot">&times;</button>
+        <img src="{{ config('app.video_base_url') }}/{{ '{face_image_path}' }}" alt="人臉截圖" class="face-screenshot hover-zoom {master_class}" data-id="{{ '{face_id}' }}" data-video-id="{{ '{video_id}' }}" data-type="face-screenshot">
+        <button class="set-master-btn" data-id="{{ '{face_id}' }}" data-video-id="{{ '{video_id}' }}">★</button>
+        <button class="delete-icon" data-id="{{ '{face_id}' }}" data-type="face-screenshot">&times;</button>
     </div>
 </template>
 
@@ -509,11 +467,15 @@
 <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
 <script>
     let nextPage = {{ $videos->currentPage() + 1 }};
+    let prevPage = {{ $videos->currentPage() - 1 }};
     let loading = false;
     let videoList = [];
     let currentVideoIndex = 0;
     let playMode = {{ request('play_mode') ? '1' : '0' }}; // 0: 循環, 1: 自動
     let currentFullScreenVideoElement = null;
+    let videoSize = {{ request('video_size', 25) }};
+    let imageSize = {{ request('image_size', 200) }};
+    let videoType = '{{ request('video_type', '1') }}';
 
     function showMessage(type, text) {
         const messageContainer = $('#message-container');
@@ -526,30 +488,52 @@
         }, 1000);
     }
 
-    function loadMoreVideos() {
-        if (loading) return;
+    function loadMoreVideos(direction = 'down') {
+        if (loading || (direction === 'down' && !nextPage) || (direction === 'up' && !prevPage)) return;
         loading = true;
-        $('#load-more-btn').text('載入中...');
+        if(direction === 'down') {
+            $('#load-more').show();
+        } else {
+            $('#load-more').show();
+        }
+
+        let data = { video_type: videoType };
+        if(direction === 'down') {
+            data.page = nextPage;
+        } else {
+            data.page = prevPage;
+        }
 
         $.ajax({
             url: "{{ route('video.loadMore') }}",
             method: 'GET',
-            data: { page: nextPage, video_type: '{{ request('video_type', '1') }}' },
+            data: data,
             success: function(response) {
-                if(response && response.success) {
-                    $('#videos-list').append(response.data);
-                    nextPage = response.next_page;
+                if(response && response.success && response.data.trim() !== '') {
+                    if(direction === 'down') {
+                        $('#videos-list').append(response.data);
+                        nextPage = response.next_page;
+                    } else {
+                        $('#videos-list').prepend(response.data);
+                        prevPage = response.prev_page;
+                    }
                     loading = false;
-                    $('#load-more-btn').text('載入更多');
+                    $('#load-more').hide();
                     // Refresh sortable to include new items
                     $("#videos-list").sortable("refresh");
                     buildVideoList();
+                    applyVideoSize();
                 } else {
+                    if(direction === 'down') {
+                        nextPage = null;
+                    } else {
+                        prevPage = null;
+                    }
                     $('#load-more').html('<p>沒有更多資料了。</p>');
                 }
             },
             error: function() {
-                $('#load-more-btn').text('載入更多');
+                $('#load-more').hide();
                 showMessage('error', '載入失敗，請稍後再試。');
                 loading = false;
             }
@@ -569,17 +553,26 @@
         });
     }
 
+    function applyVideoSize() {
+        $('.video-container').css('width', videoSize + '%');
+        $('.images-container').css('width', (100 - videoSize) + '%');
+        $('.screenshot, .face-screenshot').css({
+            'width': imageSize + 'px',
+            'height': (imageSize * 0.56) + 'px' // 保持16:9比例
+        });
+    }
+
     $(document).ready(function() {
         // 控制條調整
         $('#video-size').on('input', function () {
-            let videoWidthPercent = $(this).val();
-            let imagesWidthPercent = 100 - videoWidthPercent;
-            $('.video-container').css('width', videoWidthPercent + '%');
+            videoSize = $(this).val();
+            let imagesWidthPercent = 100 - videoSize;
+            $('.video-container').css('width', videoSize + '%');
             $('.images-container').css('width', imagesWidthPercent + '%');
         });
 
         $('#image-size').on('input', function () {
-            let imageSize = $(this).val();
+            imageSize = $(this).val();
             $('.screenshot, .face-screenshot').css({
                 'width': imageSize + 'px',
                 'height': (imageSize * 0.56) + 'px' // 保持16:9比例
@@ -601,15 +594,13 @@
         $('#image-size').trigger('input');
         $('#play-mode').trigger('input');
 
-        // 載入更多按鈕
-        $('#load-more-btn').on('click', function () {
-            loadMoreVideos();
-        });
-
-        // 滾動到最底部自動載入
+        // 滾動自動載入
         $(window).scroll(function () {
-            if ($(window).scrollTop() + $(window).height() >= $(document).height() - 100) {
-                loadMoreVideos();
+            if ($(window).scrollTop() <= 100) { // 滾動到頂部
+                loadMoreVideos('up');
+            }
+            if ($(window).scrollTop() + $(window).height() >= $(document).height() - 100) { // 滾動到底部
+                loadMoreVideos('down');
             }
         });
 
@@ -810,6 +801,51 @@
                 $('html, body').animate({
                     scrollTop: targetRow.offset().top - 100
                 }, 500);
+            } else {
+                // 找出該影片位於第幾頁
+                $.ajax({
+                    url: "{{ route('video.findPage') }}",
+                    method: 'GET',
+                    data: { video_id: videoId, video_type: videoType },
+                    success: function(response) {
+                        if(response && response.success && response.page) {
+                            // 載入該頁資料
+                            $.ajax({
+                                url: "{{ route('video.loadMore') }}",
+                                method: 'GET',
+                                data: { page: response.page, video_type: videoType },
+                                success: function(loadResponse) {
+                                    if(loadResponse && loadResponse.success && loadResponse.data.trim() !== '') {
+                                        $('#videos-list').prepend(loadResponse.data);
+                                        prevPage = loadResponse.prev_page;
+                                        buildVideoList();
+                                        applyVideoSize();
+                                        // 聚焦該影片
+                                        let targetRow = $('.video-row[data-id="' + videoId + '"]');
+                                        if(targetRow.length) {
+                                            $('.video-row').removeClass('focused');
+                                            targetRow.addClass('focused');
+                                            focusMasterFace(videoId);
+                                            $('html, body').animate({
+                                                scrollTop: targetRow.offset().top - 100
+                                            }, 500);
+                                        }
+                                    } else {
+                                        showMessage('error', '無法載入該頁資料。');
+                                    }
+                                },
+                                error: function() {
+                                    showMessage('error', '載入失敗，請稍後再試。');
+                                }
+                            });
+                        } else {
+                            showMessage('error', '找不到該影片所在的頁面。');
+                        }
+                    },
+                    error: function() {
+                        showMessage('error', '查詢失敗，請稍後再試。');
+                    }
+                });
             }
         });
 
@@ -818,6 +854,7 @@
             $.ajax({
                 url: "{{ route('video.loadMasterFaces') }}",
                 method: 'GET',
+                data: { video_type: videoType },
                 cache: false,
                 success: function (response) {
                     if (response && response.success) {
@@ -831,6 +868,7 @@
                         });
                         masterFacesHtml += '</div>';
                         $('.master-faces').html(masterFacesHtml);
+                        applyVideoSize(); // 確保新載入的圖片大小正確
                     }
                 },
                 error: function () {
@@ -868,6 +906,7 @@
                     $('.master-face-images').append(newMasterFaceHtml);
                 }
             }
+            applyVideoSize(); // 確保新載入的圖片大小正確
         }
 
         // 聚焦對應的主面人臉
@@ -917,6 +956,7 @@
         $(window).on('load', function () {
             focusMaxIdVideo();
             buildVideoList();
+            applyVideoSize();
         });
 
         // 刪除圖片
@@ -939,10 +979,11 @@
                             $('img[data-id="' + id + '"][data-type="screenshot"]').closest('.screenshot-container').remove();
                         } else if (type === 'face-screenshot') {
                             $('img[data-id="' + id + '"][data-type="face-screenshot"]').closest('.face-screenshot-container').remove();
-                            // If the deleted face was master, reload master faces
+                            // 如果刪除的是主面人臉，重新載入主面人臉
                             loadMasterFaces();
                         }
                         showMessage('success', '圖片刪除成功。');
+                        applyVideoSize(); // 確保刪除後的影片大小正確
                     } else {
                         showMessage('error', response.message);
                     }
@@ -1043,13 +1084,14 @@
                                 let masterClass = face.is_master ? 'master' : '';
                                 let newFace = template
                                     .replace('{{ config("app.video_base_url") }}', '{{ config("app.video_base_url") }}')
-                                    .replace('{face_image_path}', face.face_image_path)
+                                    .replace('{{ "{face_image_path}" }}', face.face_image_path)
                                     .replace('{master_class}', masterClass)
                                     .replace(/{face_id}/g, face.id)
                                     .replace('{video_id}', videoId);
                                 $('.face-upload-area[data-video-id="' + videoId + '"]').prepend(newFace);
                             });
                             showMessage('success', '人臉截圖上傳成功！');
+                            applyVideoSize(); // 確保新加入的影片大小正確
                         } else {
                             showMessage('error', response.message);
                         }
@@ -1064,11 +1106,11 @@
         // 提交控制條表單
         $('#controls-form').on('submit', function (e) {
             e.preventDefault();
-            let videoSize = $('#video-size').val();
-            let imageSize = $('#image-size').val();
-            let videoType = $('#video-type').val();
+            let videoSizeVal = $('#video-size').val();
+            let imageSizeVal = $('#image-size').val();
+            let videoTypeVal = $('#video-type').val();
             let playModeValue = $('#play-mode').val();
-            window.location.href = "{{ route('video.index') }}" + "?video_size=" + videoSize + "&image_size=" + imageSize + "&video_type=" + videoType + "&play_mode=" + playModeValue;
+            window.location.href = "{{ route('video.index') }}" + "?video_size=" + videoSizeVal + "&image_size=" + imageSizeVal + "&video_type=" + videoTypeVal + "&play_mode=" + playModeValue;
         });
 
         // 處理全螢幕變化事件
@@ -1291,7 +1333,7 @@
                 scrollTop: nextVideoData.videoRow.offset().top - 100
             }, 500);
 
-            let isFullScreen = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+            let isFullScreen = document.fullscreenElement === nextVideoData.videoElement || document.webkitFullscreenElement === nextVideoData.videoElement || document.mozFullScreenElement === nextVideoData.videoElement || document.msFullscreenElement === nextVideoData.videoElement;
 
             if (isFullScreen) {
                 let videoElement = currentFullScreenVideoElement;
@@ -1343,6 +1385,16 @@
                 }
             }
         }
+
+        // 初始化 Sortable 和載入更多功能
+        buildVideoList();
+
+        // 設定預設聚焦最後一筆（id最大）
+        $(window).on('load', function () {
+            focusMaxIdVideo();
+            buildVideoList();
+            applyVideoSize();
+        });
     });
 </script>
 </body>

@@ -22,11 +22,36 @@
         {
             $videoType = $request->input('video_type', '1');
 
-            // 初始載入1000筆資料，按時長排序並根據影片類別篩選
+            // 獲取影片總數
+            $total = VideoMaster::where('video_type', $videoType)->count();
+            $perPage = 10;
+            $lastPage = ceil($total / $perPage);
+
+            // 取得ID最大的影片
+            $maxIdVideo = VideoMaster::where('video_type', $videoType)->orderBy('id', 'desc')->first();
+
+            if ($maxIdVideo) {
+                // 找出該影片所在的頁數
+                $position = VideoMaster::where('video_type', $videoType)
+                    ->where('duration', '<=', $maxIdVideo->duration)
+                    ->orderBy('duration', 'asc')
+                    ->count();
+
+                $page = ceil($position / $perPage);
+            } else {
+                $page = 1;
+            }
+
+            // 初始載入10筆資料，按時長排序並根據影片類別篩選
             $videos = VideoMaster::with(['screenshots.faceScreenshots'])
                 ->where('video_type', $videoType)
                 ->orderBy('duration', 'asc')
-                ->paginate(1000);
+                ->paginate($perPage, ['*'], 'page', $page);
+
+            // 計算前一頁
+            $prev_page = $page > 1 ? $page - 1 : null;
+            // 計算下一頁
+            $next_page = $page < $lastPage ? $page + 1 : null;
 
             $masterFaces = VideoFaceScreenshot::where('is_master', 1)
                 ->whereHas('videoScreenshot.videoMaster', function($query) use ($videoType) {
@@ -38,7 +63,7 @@
                     return $face->videoScreenshot->videoMaster->duration;
                 });
 
-            return view('video.index', compact('videos', 'masterFaces'));
+            return view('video.index', compact('videos', 'masterFaces', 'next_page', 'prev_page'));
         }
 
         /**
@@ -55,7 +80,7 @@
             $videos = VideoMaster::with(['screenshots.faceScreenshots'])
                 ->where('video_type', $videoType)
                 ->orderBy('duration', 'asc')
-                ->paginate(300, ['*'], 'page', $page);
+                ->paginate(10, ['*'], 'page', $page);
 
             if ($videos->isEmpty()) {
                 return response()->json([
@@ -64,13 +89,55 @@
                 ], 204);
             }
 
+            // 計算前一頁和下一頁
+            $prev_page = $videos->currentPage() > 1 ? $videos->currentPage() - 1 : null;
+            $next_page = $videos->currentPage() < $videos->lastPage() ? $videos->currentPage() + 1 : null;
+
             // 回傳HTML片段
-            $html = view('videos.video_rows', compact('videos'))->render();
+            $html = view('video.partials.video_rows', compact('videos'))->render();
 
             return response()->json([
                 'success' => true,
                 'data' => $html,
-                'next_page' => $videos->currentPage() + 1,
+                'next_page' => $next_page,
+                'prev_page' => $prev_page,
+            ]);
+        }
+
+        /**
+         * 找出影片所在的頁數。
+         *
+         * @param  \Illuminate\Http\Request  $request
+         * @return \Illuminate\Http\JsonResponse
+         */
+        public function findPage(Request $request)
+        {
+            $videoId = $request->input('video_id');
+            $videoType = $request->input('video_type', '1');
+
+            $video = VideoMaster::where('id', $videoId)
+                ->where('video_type', $videoType)
+                ->first();
+
+            if (!$video) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '找不到該影片。',
+                ], 404);
+            }
+
+            // 計算該影片在排序後的位置
+            $position = VideoMaster::where('video_type', $videoType)
+                ->where('duration', '<=', $video->duration)
+                ->orderBy('duration', 'asc')
+                ->count();
+
+            $perPage = 10;
+            $page = ceil($position / $perPage);
+
+            return response()->json([
+                'success' => true,
+                'page' => $page,
             ]);
         }
 
@@ -324,17 +391,9 @@
                     ], 404);
                 }
 
-                // 標準化影片路徑
-                $videoPath = ltrim(str_replace('\\', '/', $video->video_path), '/');
-
                 // 獲取影片的資料夾名稱和基礎名稱
-                $videoFolder = pathinfo($videoPath, PATHINFO_DIRNAME); // e.g., '自拍'
-                $videoBaseName = pathinfo($videoPath, PATHINFO_FILENAME); // e.g., '自拍'
-
-                // 處理 pathinfo 可能返回 '.' 或 ''
-                if ($videoFolder === '.' || $videoFolder === '') {
-                    $videoFolder = '';
-                }
+                $videoFolder = pathinfo($video->video_path, PATHINFO_DIRNAME); // e.g., '自拍'
+                $videoBaseName = pathinfo($video->video_path, PATHINFO_FILENAME); // e.g., '自拍'
 
                 // 獲取第一筆截圖
                 $firstScreenshot = $video->screenshots()->first();
@@ -359,7 +418,7 @@
                     Storage::disk('videos')->putFileAs($videoFolder, $file, $filename);
 
                     // 確保路徑使用正斜杠
-                    $facePath = '/' . ltrim(str_replace('\\', '/', $storagePath), '/');
+                    $facePath = ltrim(str_replace('\\', '/', $storagePath), '/');
 
                     // 儲存到資料庫，設定 video_screenshot_id 為第一筆截圖
                     $face = VideoFaceScreenshot::create([

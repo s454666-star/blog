@@ -1,4 +1,4 @@
-<!-- resources/views/videos/video_rows.blade.php -->
+<!-- resources/views/video/partials/video_rows.blade.php -->
 
 @foreach($videos as $video)
     <div class="video-row" data-id="{{ $video->id }}">

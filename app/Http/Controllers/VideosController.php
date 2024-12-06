@@ -22,11 +22,11 @@
         {
             $videoType = $request->input('video_type', '1');
 
-            // 初始載入300筆資料，按時長排序並根據影片類別篩選
+            // 初始載入1000筆資料，按時長排序並根據影片類別篩選
             $videos = VideoMaster::with(['screenshots.faceScreenshots'])
                 ->where('video_type', $videoType)
                 ->orderBy('duration', 'asc')
-                ->paginate(300);
+                ->paginate(1000);
 
             $masterFaces = VideoFaceScreenshot::where('is_master', 1)
                 ->whereHas('videoScreenshot.videoMaster', function($query) use ($videoType) {

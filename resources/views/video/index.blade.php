@@ -416,7 +416,7 @@
                     <source src="{{ config('app.video_base_url') }}/{video_path}" type="video/mp4">
                     您的瀏覽器不支援影片播放。
                 </video>
-                <button class="fullscreen-btn">全螢幕</button>
+{{--                <button class="fullscreen-btn">全螢幕</button>--}}
             </div>
         </div>
         <div class="images-container">

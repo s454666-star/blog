@@ -36,6 +36,8 @@
         .images-container {
             width: 30%;
             padding-left: 10px;
+            overflow-y: hidden;
+            overflow-x: hidden; /* 避免水平滾動條 */
         }
         .screenshot, .face-screenshot {
             width: 100px;
@@ -333,6 +335,21 @@
         .fullscreen-controls .next-video-btn.show {
             opacity: 1;
         }
+
+        /* 限制截圖區域的顯示行數，超過則產生捲動條 */
+        .screenshot-images .d-flex,
+        .face-screenshot-images .d-flex {
+            max-height: 250px; /* 顯示約兩行 */
+            overflow-y: auto;
+        }
+
+        /* 原有的註解恢復 */
+        /* 參考: _guide */
+        @media (min-width: 1200px) {
+            .container, .container-lg, .container-md, .container-sm, .container-xl {
+                max-width: 1440px; /* 使用1440px讓寬度剛剛好 */
+            }
+        }
     </style>
 </head>
 <body>
@@ -416,7 +433,7 @@
                     <source src="{{ config('app.video_base_url') }}/{video_path}" type="video/mp4">
                     您的瀏覽器不支援影片播放。
                 </video>
-{{--                <button class="fullscreen-btn">全螢幕</button>--}}
+                {{--                <button class="fullscreen-btn">全螢幕</button>--}}
             </div>
         </div>
         <div class="images-container">
@@ -519,7 +536,6 @@
                     }
                     loading = false;
                     $('#load-more').hide();
-                    // Refresh sortable to include new items
                     $("#videos-list").sortable("refresh");
                     buildVideoList();
                     applyVideoSize();
@@ -563,7 +579,6 @@
     }
 
     $(document).ready(function() {
-        // 控制條調整
         $('#video-size').on('input', function () {
             videoSize = $(this).val();
             let imagesWidthPercent = 100 - videoSize;
@@ -575,7 +590,7 @@
             imageSize = $(this).val();
             $('.screenshot, .face-screenshot').css({
                 'width': imageSize + 'px',
-                'height': (imageSize * 0.56) + 'px' // 保持16:9比例
+                'height': (imageSize * 0.56) + 'px'
             });
         });
 
@@ -583,30 +598,26 @@
             $('#controls-form').submit();
         });
 
-        // 播放模式切換
         $('#play-mode').on('input', function() {
             playMode = $(this).val();
             $('#play-mode-label').text(playMode === '0' ? '循環' : '自動');
         });
 
-        // 初始化控制條狀態
         $('#video-size').trigger('input');
         $('#image-size').trigger('input');
         $('#play-mode').trigger('input');
 
-        // 滾動自動載入
         $(window).scroll(function () {
-            if ($(window).scrollTop() <= 100) { // 滾動到頂部
+            if ($(window).scrollTop() <= 100) {
                 loadMoreVideos('up');
             }
-            if ($(window).scrollTop() + $(window).height() >= $(document).height() - 100) { // 滾動到底部
+            if ($(window).scrollTop() + $(window).height() >= $(document).height() - 100) {
                 loadMoreVideos('down');
             }
         });
 
-        // 全螢幕按鈕
         $(document).on('click', '.fullscreen-btn', function (e) {
-            e.stopPropagation(); // 防止觸發選取
+            e.stopPropagation();
             let video = $(this).siblings('video')[0];
             enterFullScreen(video);
         });
@@ -619,10 +630,10 @@
                     }).catch((err) => {
                         console.error(err);
                     });
-                } else if (video.webkitRequestFullscreen) { /* Safari */
+                } else if (video.webkitRequestFullscreen) {
                     video.webkitRequestFullscreen();
                     $('body').addClass('fullscreen-mode');
-                } else if (video.msRequestFullscreen) { /* IE11 */
+                } else if (video.msRequestFullscreen) {
                     video.msRequestFullscreen();
                     $('body').addClass('fullscreen-mode');
                 } else {
@@ -640,44 +651,35 @@
             $('body').removeClass('fullscreen-mode');
         }
 
-        // 滑鼠移動控制進度條（非全螢幕時）
         $(document).on('mousemove', 'video', function (e) {
             let video = this;
             let isFullScreen = document.fullscreenElement === video || document.webkitFullscreenElement === video || document.mozFullScreenElement === video || document.msFullscreenElement === video;
             if (!isFullScreen) {
                 let rect = video.getBoundingClientRect();
-                let x = e.clientX - rect.left; // 滑鼠在影片上的X位置
+                let x = e.clientX - rect.left;
                 let percent = x / rect.width;
                 video.currentTime = percent * video.duration;
             }
         });
 
-        // 選取影片 - 點擊選取或聚焦
         let lastSelectedIndex = null;
 
-        // 點擊影片行
         $(document).on('click', '.video-row', function (e) {
             let isFocused = $(this).hasClass('focused');
 
             if (isFocused) {
-                // 如果已聚焦，則取消聚焦
                 $(this).removeClass('focused');
                 removeMasterFaceFocus();
             } else {
-                // 如果未聚焦，移除其他聚焦並設為聚焦
                 $('.video-row').removeClass('focused');
                 $(this).addClass('focused');
-
-                // 聚焦對應的主面人臉
                 let videoId = $(this).data('id');
                 focusMasterFace(videoId);
             }
 
-            // 更新最後選取的索引
             lastSelectedIndex = $('.video-row').index(this);
         });
 
-        // 刪除聚焦的影片
         $('#delete-focused-btn').on('click', function () {
             let focusedRow = $('.video-row.focused');
             if (focusedRow.length === 0) {
@@ -703,7 +705,6 @@
                         focusedRow.remove();
                         showMessage('success', response.message);
                         removeMasterFaceFocus();
-                        // Reload master faces after deletion
                         loadMasterFaces();
                         buildVideoList();
                     } else {
@@ -716,34 +717,28 @@
             });
         });
 
-        // 放大圖片功能
         const imageModal = $('#image-modal');
         const modalImg = $('#image-modal img');
 
-        // 當滑鼠移入圖片時顯示放大圖
         $(document).on('mouseenter', '.hover-zoom', function () {
             let src = $(this).attr('src');
             modalImg.attr('src', src);
             imageModal.addClass('active');
         });
 
-        // 當滑鼠移出圖片時隱藏放大圖
         $(document).on('mouseleave', '.hover-zoom', function () {
             imageModal.removeClass('active');
             modalImg.attr('src', '');
         });
 
-        // 初始化 Sortable 功能
         $("#videos-list").sortable({
             placeholder: "ui-state-highlight",
             delay: 150,
             cancel: "video, .fullscreen-btn, img, button"
         });
 
-        // 禁用選取文字以避免拖曳時的選取問題
         $("#videos-list").disableSelection();
 
-        // 雙擊設定主面人臉
         $(document).on('dblclick', '.face-screenshot', function (e) {
             e.stopPropagation();
             let faceId = $(this).data('id');
@@ -758,23 +753,17 @@
                 },
                 success: function (response) {
                     if (response && response.success) {
-                        // 移除所有master類別
                         $('.face-screenshot[data-video-id="' + videoId + '"]').removeClass('master');
-                        // 添加master類別到當前圖片
                         $('.face-screenshot[data-id="' + faceId + '"]').addClass('master');
 
-                        // 更新左側主面人臉
                         updateMasterFace(response.data);
-
                         showMessage('success', '主面人臉已更新。');
 
-                        // 移動到剛剛設定的主面人臉位置
                         setTimeout(() => {
                             let newMasterFace = $('.master-face-img[data-video-id="' + videoId + '"]');
                             if (newMasterFace.length) {
                                 $('.master-face-img').removeClass('focused');
                                 newMasterFace.addClass('focused');
-                                // 滾動到該主面人臉
                                 $('.master-faces').animate({
                                     scrollTop: newMasterFace.position().top + $('.master-faces').scrollTop() - 30
                                 }, 500);
@@ -790,7 +779,6 @@
             });
         });
 
-        // 點擊左側主面人臉導航
         $(document).on('click', '.master-face-img', function () {
             let videoId = $(this).data('video-id');
             let targetRow = $('.video-row[data-id="' + videoId + '"]');
@@ -802,14 +790,12 @@
                     scrollTop: targetRow.offset().top - 100
                 }, 500);
             } else {
-                // 找出該影片位於第幾頁
                 $.ajax({
                     url: "{{ route('video.findPage') }}",
                     method: 'GET',
                     data: { video_id: videoId, video_type: videoType },
                     success: function(response) {
                         if(response && response.success && response.page) {
-                            // 載入該頁資料
                             $.ajax({
                                 url: "{{ route('video.loadMore') }}",
                                 method: 'GET',
@@ -820,7 +806,6 @@
                                         prevPage = loadResponse.prev_page;
                                         buildVideoList();
                                         applyVideoSize();
-                                        // 聚焦該影片
                                         let targetRow = $('.video-row[data-id="' + videoId + '"]');
                                         if(targetRow.length) {
                                             $('.video-row').removeClass('focused');
@@ -849,7 +834,6 @@
             }
         });
 
-        // 加載左側主面人臉
         function loadMasterFaces() {
             $.ajax({
                 url: "{{ route('video.loadMasterFaces') }}",
@@ -868,7 +852,7 @@
                         });
                         masterFacesHtml += '</div>';
                         $('.master-faces').html(masterFacesHtml);
-                        applyVideoSize(); // 確保新載入的圖片大小正確
+                        applyVideoSize();
                     }
                 },
                 error: function () {
@@ -877,7 +861,6 @@
             });
         }
 
-        // 更新左側主面人臉
         function updateMasterFace(face) {
             let orientation = '';
             if (face.width && face.height && parseInt(face.width) >= parseInt(face.height)) {
@@ -886,51 +869,41 @@
             let videoId = face.video_screenshot.video_master.id;
             let masterFaceImg = $('.master-face-img[data-video-id="' + videoId + '"]');
             if (masterFaceImg.length) {
-                // 更新現有的主面人臉
-                masterFaceImg.attr('src', '{{ config('app.video_base_url') }}/' + face.face_image_path);
+                masterFaceImg.attr('src', '{{ config("app.video_base_url") }}/' + face.face_image_path);
                 masterFaceImg.removeClass('landscape').addClass(orientation);
             } else {
-                // 新增主面人臉
                 let newMasterFaceHtml = '<img src="{{ config('app.video_base_url') }}/' + face.face_image_path + '" alt="主面人臉" class="master-face-img ' + orientation + '" data-video-id="' + videoId + '" data-duration="' + face.video_screenshot.video_master.duration + '">';
-                // 插入到正確的位置（根據duration排序）
                 let inserted = false;
                 $('.master-face-images img').each(function () {
                     let currentDuration = parseFloat($(this).data('duration'));
                     if (face.video_screenshot.video_master.duration < currentDuration) {
                         $(this).before(newMasterFaceHtml);
                         inserted = true;
-                        return false; // break loop
+                        return false;
                     }
                 });
                 if (!inserted) {
                     $('.master-face-images').append(newMasterFaceHtml);
                 }
             }
-            applyVideoSize(); // 確保新載入的圖片大小正確
+            applyVideoSize();
         }
 
-        // 聚焦對應的主面人臉
         function focusMasterFace(videoId) {
-            // 移除其他聚焦
             $('.master-face-img').removeClass('focused');
-
-            // 找到對應的主面人臉
             let targetFace = $('.master-face-img[data-video-id="' + videoId + '"]');
             if (targetFace.length) {
                 targetFace.addClass('focused');
-                // 滾動到該主面人臉
                 $('.master-faces').animate({
                     scrollTop: targetFace.position().top + $('.master-faces').scrollTop() - 30
                 }, 500);
             }
         }
 
-        // 移除主面人臉的聚焦
         function removeMasterFaceFocus() {
             $('.master-face-img').removeClass('focused');
         }
 
-        // 設定預設聚焦最後一筆（id最大）
         function focusMaxIdVideo() {
             let maxId = -Infinity;
             let maxIdElement = null;
@@ -952,14 +925,12 @@
             }
         }
 
-        // 呼叫聚焦函式在全部頁面載入後
         $(window).on('load', function () {
             focusMaxIdVideo();
             buildVideoList();
             applyVideoSize();
         });
 
-        // 刪除圖片
         $(document).on('click', '.delete-icon', function (e) {
             e.stopPropagation();
             let id = $(this).data('id');
@@ -979,11 +950,10 @@
                             $('img[data-id="' + id + '"][data-type="screenshot"]').closest('.screenshot-container').remove();
                         } else if (type === 'face-screenshot') {
                             $('img[data-id="' + id + '"][data-type="face-screenshot"]').closest('.face-screenshot-container').remove();
-                            // 如果刪除的是主面人臉，重新載入主面人臉
                             loadMasterFaces();
                         }
                         showMessage('success', '圖片刪除成功。');
-                        applyVideoSize(); // 確保刪除後的影片大小正確
+                        applyVideoSize();
                     } else {
                         showMessage('error', response.message);
                     }
@@ -994,7 +964,6 @@
             });
         });
 
-        // 設定主面人臉
         $(document).on('click', '.set-master-btn', function (e) {
             e.stopPropagation();
             let faceId = $(this).data('id');
@@ -1009,23 +978,17 @@
                 },
                 success: function (response) {
                     if (response && response.success) {
-                        // 移除所有master類別
                         $('.face-screenshot[data-video-id="' + videoId + '"]').removeClass('master');
-                        // 添加master類別到當前圖片
                         $('.face-screenshot[data-id="' + faceId + '"]').addClass('master');
 
-                        // 更新左側主面人臉
                         updateMasterFace(response.data);
-
                         showMessage('success', '主面人臉已更新。');
 
-                        // 移動到剛剛設定的主面人臉位置
                         setTimeout(() => {
                             let newMasterFace = $('.master-face-img[data-video-id="' + videoId + '"]');
                             if (newMasterFace.length) {
                                 $('.master-face-img').removeClass('focused');
                                 newMasterFace.addClass('focused');
-                                // 滾動到該主面人臉
                                 $('.master-faces').animate({
                                     scrollTop: newMasterFace.position().top + $('.master-faces').scrollTop() - 30
                                 }, 500);
@@ -1041,7 +1004,6 @@
             });
         });
 
-        // 拖曳上傳人臉截圖
         $(document).on('dragover', '.face-upload-area', function (e) {
             e.preventDefault();
             e.stopPropagation();
@@ -1091,7 +1053,7 @@
                                 $('.face-upload-area[data-video-id="' + videoId + '"]').prepend(newFace);
                             });
                             showMessage('success', '人臉截圖上傳成功！');
-                            applyVideoSize(); // 確保新加入的影片大小正確
+                            applyVideoSize();
                         } else {
                             showMessage('error', response.message);
                         }
@@ -1103,7 +1065,6 @@
             }
         });
 
-        // 提交控制條表單
         $('#controls-form').on('submit', function (e) {
             e.preventDefault();
             let videoSizeVal = $('#video-size').val();
@@ -1113,55 +1074,16 @@
             window.location.href = "{{ route('video.index') }}" + "?video_size=" + videoSizeVal + "&image_size=" + imageSizeVal + "&video_type=" + videoTypeVal + "&play_mode=" + playModeValue;
         });
 
-        // 處理全螢幕變化事件
-        function onFullScreenChange(e) {
-            let fsElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
-            if (fsElement && $(fsElement).is('video')) {
-                // Video has entered full-screen
-                currentFullScreenVideoElement = fsElement;
-                $(fsElement).addClass('is-fullscreen');
-
-                // Set currentVideoIndex
-                for (let i = 0; i < videoList.length; i++) {
-                    if (videoList[i].videoElement === fsElement) {
-                        currentVideoIndex = i;
-                        break;
-                    }
+        function onVideoEnded(e) {
+            let videoElement = e.target;
+            if (videoElement.loop) {
+                videoElement.play();
+            } else if (playMode === '1') {
+                if (currentVideoIndex < videoList.length - 1) {
+                    playVideoAtIndex(currentVideoIndex + 1);
+                } else {
+                    showMessage('info', '已經是最後一部影片');
                 }
-
-                // Add 'ended' event listener
-                fsElement.addEventListener('ended', onVideoEnded);
-
-                // Initialize loop state
-                fsElement.loop = playMode === '0' ? true : false;
-
-                // Add mousemove event listener
-                fsElement.addEventListener('mousemove', onVideoMouseMove);
-
-                // Add touch event listeners
-                fsElement.addEventListener('touchstart', onTouchStart, {passive: true});
-                fsElement.addEventListener('touchend', onTouchEnd, {passive: true});
-
-                // Show controls initially
-                showFullscreenControls();
-
-            } else {
-                // Video has exited full-screen
-                $('video.is-fullscreen').removeClass('is-fullscreen');
-                $('body').removeClass('fullscreen-mode');
-
-                // Remove event listeners from previous full-screen video
-                if (currentFullScreenVideoElement) {
-                    currentFullScreenVideoElement.removeEventListener('ended', onVideoEnded);
-                    currentFullScreenVideoElement.removeEventListener('mousemove', onVideoMouseMove);
-                    currentFullScreenVideoElement.removeEventListener('touchstart', onTouchStart);
-                    currentFullScreenVideoElement.removeEventListener('touchend', onTouchEnd);
-                    currentFullScreenVideoElement.loop = false;
-                    currentFullScreenVideoElement = null;
-                }
-
-                // Hide controls
-                hideFullscreenControls();
             }
         }
 
@@ -1170,7 +1092,6 @@
         document.addEventListener('mozfullscreenchange', onFullScreenChange);
         document.addEventListener('msfullscreenchange', onFullScreenChange);
 
-        // 全螢幕控制按鈕功能
         $('#prev-video-btn').on('click', function() {
             playPreviousVideo();
         });
@@ -1179,7 +1100,6 @@
             playNextVideo();
         });
 
-        // 隱藏控制按鈕的定時器
         let controlsTimeout;
         let controlsVisible = false;
         let prevButtonVisible = false;
@@ -1198,13 +1118,12 @@
         function onVideoMouseMove(e) {
             let video = e.currentTarget;
             let rect = video.getBoundingClientRect();
-            let x = e.clientX - rect.left; // Mouse X position within the video element
-            let y = e.clientY - rect.top;  // Mouse Y position within the video element
+            let x = e.clientX - rect.left;
+            let y = e.clientY - rect.top;
 
-            let edgeThreshold = 50; // pixels
+            let edgeThreshold = 50;
 
             if (x < edgeThreshold) {
-                // Near the left edge
                 if (!prevButtonVisible) {
                     $('.prev-video-btn').addClass('show');
                     prevButtonVisible = true;
@@ -1217,7 +1136,6 @@
             }
 
             if (x > rect.width - edgeThreshold) {
-                // Near the right edge
                 if (!nextButtonVisible) {
                     $('.next-video-btn').addClass('show');
                     nextButtonVisible = true;
@@ -1229,12 +1147,10 @@
                 }
             }
 
-            // Show controls if not already visible
             if (!controlsVisible) {
                 showFullscreenControls();
             }
 
-            // Hide controls after a timeout
             clearTimeout(controlsTimeout);
             controlsTimeout = setTimeout(function() {
                 hideFullscreenControls();
@@ -1245,7 +1161,6 @@
             }, 3000);
         }
 
-        // 處理觸控事件
         let touchStartX = null;
         let touchStartY = null;
 
@@ -1262,21 +1177,15 @@
             let deltaY = touchEndY - touchStartY;
 
             if (Math.abs(deltaX) > Math.abs(deltaY)) {
-                // Horizontal swipe
                 if (deltaX > 50) {
-                    // Swipe right, next video
                     playNextVideo();
                 } else if (deltaX < -50) {
-                    // Swipe left, previous video
                     playPreviousVideo();
                 }
             } else {
-                // Vertical swipe
                 if (deltaY > 50) {
-                    // Swipe down, toggle loop
                     toggleLoopPlay();
                 } else if (deltaY < -50) {
-                    // Swipe up, random play
                     playRandomVideo();
                 }
             }
@@ -1324,11 +1233,8 @@
             }
 
             let nextVideoData = videoList[index];
-
-            // Update currentVideoIndex
             currentVideoIndex = index;
 
-            // Scroll to the next video
             $('html, body').animate({
                 scrollTop: nextVideoData.videoRow.offset().top - 100
             }, 500);
@@ -1339,7 +1245,6 @@
                 let videoElement = currentFullScreenVideoElement;
 
                 if (videoElement) {
-                    // Update the video source
                     let sourceElement = videoElement.querySelector('source');
                     if (sourceElement) {
                         sourceElement.src = nextVideoData.videoElement.querySelector('source').src;
@@ -1347,26 +1252,20 @@
                         videoElement.src = nextVideoData.videoElement.src;
                     }
 
-                    // Load the new video
                     videoElement.load();
 
                     videoElement.currentTime = 0;
                     videoElement.play();
 
-                    // Update loop state
                     videoElement.loop = playMode === '0' ? true : false;
 
-                    // Update event listeners
                     videoElement.removeEventListener('ended', onVideoEnded);
                     videoElement.addEventListener('ended', onVideoEnded);
                 }
 
             } else {
-                // Play next video
                 nextVideoData.videoElement.currentTime = 0;
                 nextVideoData.videoElement.play();
-
-                // Enter full-screen with next video element
                 enterFullScreen(nextVideoData.videoElement);
             }
         }
@@ -1374,10 +1273,8 @@
         function onVideoEnded(e) {
             let videoElement = e.target;
             if (videoElement.loop) {
-                // 單部循環已開啟，自動重播
                 videoElement.play();
             } else if (playMode === '1') {
-                // 自動播放下一部
                 if (currentVideoIndex < videoList.length - 1) {
                     playVideoAtIndex(currentVideoIndex + 1);
                 } else {
@@ -1386,15 +1283,44 @@
             }
         }
 
-        // 初始化 Sortable 和載入更多功能
-        buildVideoList();
+        function onFullScreenChange(e) {
+            let fsElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozfullscreenElement || document.msfullscreenElement;
+            if (fsElement && $(fsElement).is('video')) {
+                currentFullScreenVideoElement = fsElement;
+                $(fsElement).addClass('is-fullscreen');
 
-        // 設定預設聚焦最後一筆（id最大）
-        $(window).on('load', function () {
-            focusMaxIdVideo();
-            buildVideoList();
-            applyVideoSize();
-        });
+                for (let i = 0; i < videoList.length; i++) {
+                    if (videoList[i].videoElement === fsElement) {
+                        currentVideoIndex = i;
+                        break;
+                    }
+                }
+
+                fsElement.addEventListener('ended', onVideoEnded);
+                fsElement.loop = playMode === '0' ? true : false;
+                fsElement.addEventListener('mousemove', onVideoMouseMove);
+                fsElement.addEventListener('touchstart', onTouchStart, {passive: true});
+                fsElement.addEventListener('touchend', onTouchEnd, {passive: true});
+                showFullscreenControls();
+
+            } else {
+                $('video.is-fullscreen').removeClass('is-fullscreen');
+                $('body').removeClass('fullscreen-mode');
+
+                if (currentFullScreenVideoElement) {
+                    currentFullScreenVideoElement.removeEventListener('ended', onVideoEnded);
+                    currentFullScreenVideoElement.removeEventListener('mousemove', onVideoMouseMove);
+                    currentFullScreenVideoElement.removeEventListener('touchstart', onTouchStart);
+                    currentFullScreenVideoElement.removeEventListener('touchend', onTouchEnd);
+                    currentFullScreenVideoElement.loop = false;
+                    currentFullScreenVideoElement = null;
+                }
+
+                hideFullscreenControls();
+            }
+        }
+
+        buildVideoList();
     });
 </script>
 </body>

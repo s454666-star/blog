@@ -103,6 +103,11 @@
             border: 1px solid #ddd;
             border-radius: 5px;
             position: relative;
+            cursor: pointer;
+        }
+
+        .file-list li:hover {
+            background: #f1f1f1;
         }
 
         .file-list li form {
@@ -131,6 +136,19 @@
 
         .details li {
             margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .details li form {
+            display: inline;
+        }
+
+        .details li button {
+            padding: 5px 10px;
+            font-size: 0.9rem;
+            margin-left: 5px;
         }
     </style>
 </head>
@@ -167,13 +185,13 @@
     <h2>加密後的資料夾清單</h2>
     <ul>
         @foreach ($encryptedFolders as $folder => $details)
-            <li>
+            <li onclick="toggleDetails('{{ $folder }}')">
                 {{ $folder }}
-                <form action="{{ route('download.folder', ['folder' => $folder]) }}" method="POST">
+                <form action="{{ route('download.folder', ['folder' => $folder]) }}" method="POST" style="display: inline;">
                     @csrf
                     <button type="submit">下載整批</button>
                 </form>
-                <form action="{{ route('delete.folder', ['folder' => $folder]) }}" method="POST">
+                <form action="{{ route('delete.folder', ['folder' => $folder]) }}" method="POST" style="display: inline;">
                     @csrf
                     @method('DELETE')
                     <button type="submit" style="background-color: red; color: white;">刪除整批</button>
@@ -181,7 +199,13 @@
                 <div class="details" id="details-{{ $folder }}">
                     <ul>
                         @foreach ($details as $file)
-                            <li>{{ $file }}</li>
+                            <li>
+                                {{ $file }}
+                                <form action="{{ route('download.chunk', ['folder' => $folder, 'file' => $file]) }}" method="POST">
+                                    @csrf
+                                    <button type="submit">下載</button>
+                                </form>
+                            </li>
                         @endforeach
                     </ul>
                 </div>

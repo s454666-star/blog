@@ -43,7 +43,7 @@ Route::post('/download-folder/{folder}', [EncryptionController::class, 'download
 Route::post('/download-file/{file}', [EncryptionController::class, 'downloadFile'])->name('download.file');
 Route::delete('/delete-folder/{folder}', [EncryptionController::class, 'deleteFolder'])->name('delete.folder');
 Route::delete('/delete-file/{file}', [EncryptionController::class, 'deleteFile'])->name('delete.file');
-
+Route::post('/download-chunk/{folder}/{file}', [EncryptionController::class, 'downloadChunk'])->name('download.chunk');
 
 // 靜態頁面和身份驗證頁面
 Route::get('/', function () {

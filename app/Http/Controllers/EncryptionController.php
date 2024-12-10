@@ -73,7 +73,6 @@
             return response()->download($filePath);
         }
 
-
         /**
          * 加密與分割檔案
          */
@@ -159,4 +158,16 @@
             return back()->with('error', "檔案不存在：{$file}");
         }
 
+        /**
+         * 下載單一分割檔案
+         */
+        public function downloadChunk(Request $request, $folder, $file)
+        {
+            $filePath = storage_path("app/{$folder}/{$file}");
+            if (!file_exists($filePath)) {
+                return back()->with('error', '檔案不存在');
+            }
+
+            return response()->download($filePath);
+        }
     }

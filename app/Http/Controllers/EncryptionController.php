@@ -138,4 +138,25 @@
 
             return back()->with('success', '檔案還原成功，已存回：' . $restoredPath);
         }
+
+        public function deleteFolder(Request $request, $folder)
+        {
+            $folderPath = storage_path("app/{$folder}");
+            if (is_dir($folderPath)) {
+                \File::deleteDirectory($folderPath);
+                return back()->with('success', "已刪除整批資料夾：{$folder}");
+            }
+            return back()->with('error', "資料夾不存在：{$folder}");
+        }
+
+        public function deleteFile(Request $request, $file)
+        {
+            $filePath = storage_path("app/{$file}");
+            if (is_file($filePath)) {
+                \File::delete($filePath);
+                return back()->with('success', "已刪除檔案：{$file}");
+            }
+            return back()->with('error', "檔案不存在：{$file}");
+        }
+
     }

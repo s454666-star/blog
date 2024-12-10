@@ -41,6 +41,8 @@ Route::post('/encrypt', [EncryptionController::class, 'encrypt'])->name('encrypt
 Route::post('/decrypt', [EncryptionController::class, 'decrypt'])->name('decrypt.folder');
 Route::post('/download-folder/{folder}', [EncryptionController::class, 'downloadFolder'])->name('download.folder');
 Route::post('/download-file/{file}', [EncryptionController::class, 'downloadFile'])->name('download.file');
+Route::delete('/delete-folder/{folder}', [EncryptionController::class, 'deleteFolder'])->name('delete.folder');
+Route::delete('/delete-file/{file}', [EncryptionController::class, 'deleteFile'])->name('delete.file');
 
 
 // 靜態頁面和身份驗證頁面

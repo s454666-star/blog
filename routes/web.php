@@ -2,7 +2,8 @@
 
 use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
-use App\Http\Controllers\FetchController;
+    use App\Http\Controllers\EncryptionController;
+    use App\Http\Controllers\FetchController;
 use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
@@ -34,6 +35,13 @@ Route::get('/videos/findPage', [VideosController::class, 'findPage'])->name('vid
 Route::post('/videos', [VideosController::class, 'store'])->name('video.store');
 
 Route::middleware('web')->post('/admin-login', [UserController::class, 'login']);
+
+Route::get('/encrypt', [EncryptionController::class, 'index'])->name('encrypt.index');
+Route::post('/encrypt', [EncryptionController::class, 'encrypt'])->name('encrypt.file');
+Route::post('/decrypt', [EncryptionController::class, 'decrypt'])->name('decrypt.folder');
+Route::post('/download-folder/{folder}', [EncryptionController::class, 'downloadFolder'])->name('download.folder');
+Route::post('/download-file/{file}', [EncryptionController::class, 'downloadFile'])->name('download.file');
+
 
 // 靜態頁面和身份驗證頁面
 Route::get('/', function () {

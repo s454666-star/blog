@@ -32,6 +32,54 @@
             margin-bottom: 15px;
         }
 
+        .container {
+            background: #ffffff;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            width: 80%;
+            max-width: 800px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 30px;
+        }
+
+        .block {
+            width: 45%;
+            text-align: center;
+        }
+
+        button {
+            background: #4a90e2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 1rem;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            transition: transform 0.2s, background 0.3s;
+        }
+
+        button:hover {
+            background: #357ab8;
+            transform: translateY(-3px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        input[type="file"], input[type="text"] {
+            width: 80%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+
         .file-list {
             margin-top: 20px;
             width: 80%;
@@ -89,12 +137,37 @@
 <body>
 <h1>碎形加密儲存系統</h1>
 
+<!-- 功能區 -->
+<div class="container">
+    <!-- 加密檔案 -->
+    <div class="block">
+        <h2>加密檔案</h2>
+        <form action="{{ route('encrypt.file') }}" method="POST" enctype="multipart/form-data">
+            @csrf
+            <input type="file" name="file" required>
+            <br>
+            <button type="submit">加密並分割</button>
+        </form>
+    </div>
+
+    <!-- 還原檔案 -->
+    <div class="block">
+        <h2>還原檔案</h2>
+        <form action="{{ route('decrypt.folder') }}" method="POST">
+            @csrf
+            <input type="text" name="folder" placeholder="輸入資料夾名稱" required>
+            <br>
+            <button type="submit">還原檔案</button>
+        </form>
+    </div>
+</div>
+
 <!-- 檔案清單 -->
 <div class="file-list">
     <h2>加密後的資料夾清單</h2>
     <ul>
         @foreach ($encryptedFolders as $folder => $details)
-            <li onclick="toggleDetails('{{ $folder }}')">
+            <li>
                 {{ $folder }}
                 <form action="{{ route('download.folder', ['folder' => $folder]) }}" method="POST">
                     @csrf
@@ -120,7 +193,7 @@
     <ul>
         @foreach ($restoredFiles as $file)
             <li>
-                <span>{{ $file }}</span>
+                {{ $file }}
                 <form action="{{ route('download.file', ['file' => $file]) }}" method="POST">
                     @csrf
                     <button type="submit">下載檢查</button>

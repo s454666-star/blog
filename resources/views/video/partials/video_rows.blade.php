@@ -1,14 +1,13 @@
 <!-- resources/views/video/partials/video_rows.blade.php -->
 
 @foreach($videos as $video)
-    <div class="video-row" data-id="{{ $video->id }}">
+    <div class="video-row" data-id="{{ $video->id }}" data-duration="{{ $video->duration }}">
         <div class="video-container">
             <div class="video-wrapper">
                 <video width="100%" controls>
                     <source src="{{ config('app.video_base_url') }}/{{ $video->video_path }}" type="video/mp4">
                     您的瀏覽器不支援影片播放。
                 </video>
-                {{--                <button class="fullscreen-btn">全螢幕</button>--}}
             </div>
         </div>
         <div class="images-container">

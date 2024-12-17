@@ -12,26 +12,17 @@
 
     class VideosController extends Controller
     {
-        /**
-         * 顯示影片列表的主頁面。
-         *
-         * @param  \Illuminate\Http\Request  $request
-         * @return \Illuminate\View\View
-         */
         public function index(Request $request)
         {
             $videoType = $request->input('video_type', '1');
 
-            // 獲取影片總數
             $total = VideoMaster::where('video_type', $videoType)->count();
             $perPage = 10;
             $lastPage = ceil($total / $perPage);
 
-            // 取得ID最大的影片
             $maxIdVideo = VideoMaster::where('video_type', $videoType)->orderBy('id', 'desc')->first();
 
             if ($maxIdVideo) {
-                // 找出該影片所在的頁數
                 $position = VideoMaster::where('video_type', $videoType)
                     ->where('duration', '<=', $maxIdVideo->duration)
                     ->orderBy('duration', 'asc')
@@ -42,15 +33,12 @@
                 $page = 1;
             }
 
-            // 初始載入10筆資料，按時長排序並根據影片類別篩選
             $videos = VideoMaster::with(['screenshots.faceScreenshots'])
                 ->where('video_type', $videoType)
                 ->orderBy('duration', 'asc')
                 ->paginate($perPage, ['*'], 'page', $page);
 
-            // 計算前一頁
             $prev_page = $page > 1 ? $page - 1 : null;
-            // 計算下一頁
             $next_page = $page < $lastPage ? $page + 1 : null;
 
             $masterFaces = VideoFaceScreenshot::where('is_master', 1)
@@ -63,15 +51,10 @@
                     return $face->videoScreenshot->videoMaster->duration;
                 });
 
-            return view('video.index', compact('videos', 'masterFaces', 'next_page', 'prev_page'));
+            // 將 lastPage 傳到前端
+            return view('video.index', compact('videos', 'masterFaces', 'next_page', 'prev_page', 'lastPage'));
         }
 
-        /**
-         * 載入更多影片資料 (AJAX請求)。
-         *
-         * @param  \Illuminate\Http\Request  $request
-         * @return \Illuminate\Http\JsonResponse
-         */
         public function loadMore(Request $request)
         {
             $page = $request->input('page', 1);
@@ -89,11 +72,9 @@
                 ], 204);
             }
 
-            // 計算前一頁和下一頁
             $prev_page = $videos->currentPage() > 1 ? $videos->currentPage() - 1 : null;
             $next_page = $videos->currentPage() < $videos->lastPage() ? $videos->currentPage() + 1 : null;
 
-            // 回傳HTML片段
             $html = view('video.partials.video_rows', compact('videos'))->render();
 
             return response()->json([
@@ -101,15 +82,11 @@
                 'data' => $html,
                 'next_page' => $next_page,
                 'prev_page' => $prev_page,
+                'last_page' => $videos->lastPage(),
+                'current_page' => $videos->currentPage()
             ]);
         }
 
-        /**
-         * 找出影片所在的頁數。
-         *
-         * @param  \Illuminate\Http\Request  $request
-         * @return \Illuminate\Http\JsonResponse
-         */
         public function findPage(Request $request)
         {
             $videoId = $request->input('video_id');
@@ -126,7 +103,6 @@
                 ], 404);
             }
 
-            // 計算該影片在排序後的位置
             $position = VideoMaster::where('video_type', $videoType)
                 ->where('duration', '<=', $video->duration)
                 ->orderBy('duration', 'asc')
@@ -141,15 +117,8 @@
             ]);
         }
 
-        /**
-         * 儲存新的影片資料。
-         *
-         * @param  \Illuminate\Http\Request  $request
-         * @return \Illuminate\Http\JsonResponse
-         */
         public function store(Request $request)
         {
-            // 驗證輸入資料
             $validated = $request->validate([
                 'video_name' => 'required|string|max:255',
                 'video_path' => 'required|string|max:500',
@@ -157,7 +126,6 @@
                 'video_type' => 'required|in:1,2,3,4',
             ]);
 
-            // 檢查是否有重複匯入
             $duplicate = VideoMaster::where('video_path', $validated['video_path'])
                 ->where('duration', $validated['duration'])
                 ->exists();
@@ -169,7 +137,6 @@
                 ], 409);
             }
 
-            // 創建新影片
             $video = VideoMaster::create($validated);
 
             return response()->json([
@@ -178,12 +145,6 @@
             ], 201);
         }
 
-        /**
-         * 刪除選中的影片資料及檔案。
-         *
-         * @param  \Illuminate\Http\Request  $request
-         * @return \Illuminate\Http\JsonResponse
-         */
         public function deleteSelected(Request $request)
         {
             $ids = $request->input('ids', []);
@@ -198,13 +159,11 @@
             $videos = VideoMaster::whereIn('id', $ids)->get();
 
             foreach ($videos as $video) {
-                // 刪除影片檔案
-                $videoFile = "F:/video/" . $video->video_path; // Windows 路徑使用正斜杠或雙反斜杠
+                $videoFile = "F:/video/" . $video->video_path;
                 if (File::exists($videoFile)) {
                     File::delete($videoFile);
                 }
 
-                // 刪除相關截圖檔案
                 foreach ($video->screenshots as $screenshot) {
                     $screenshotFile = "F:/video/" . $screenshot->screenshot_path;
                     if (File::exists($screenshotFile)) {
@@ -219,7 +178,6 @@
                     }
                 }
 
-                // 刪除資料庫紀錄
                 $video->delete();
             }
 
@@ -229,25 +187,18 @@
             ]);
         }
 
-        /**
-         * 上傳新的影片檔案。
-         *
-         * @param  \Illuminate\Http\Request  $request
-         * @return \Illuminate\Http\JsonResponse
-         */
         public function upload(Request $request)
         {
             $validated = $request->validate([
-                'video_file' => 'required|mimes:mp4,mov,avi,wmv|max:204800', // 最大200MB
+                'video_file' => 'required|mimes:mp4,mov,avi,wmv|max:204800',
                 'video_type' => 'required|in:1,2,3,4',
             ]);
 
             if ($request->hasFile('video_file')) {
                 $file = $request->file('video_file');
                 $videoName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
-                $videoFolder = "{$videoName}"; // 例如 '自拍'
+                $videoFolder = "{$videoName}";
 
-                // 確保目錄存在
                 if (!Storage::disk('videos')->exists($videoFolder)) {
                     Storage::disk('videos')->makeDirectory($videoFolder, 0755, true);
                 }
@@ -255,10 +206,8 @@
                 $filename = time() . '_' . $file->getClientOriginalName();
                 Storage::disk('videos')->putFileAs($videoFolder, $file, $filename);
 
-                // 取得影片時長
                 $duration = $this->getVideoDuration("F:/video/{$videoFolder}/{$filename}");
 
-                // 儲存到資料庫
                 $video = VideoMaster::create([
                     'video_name' => $videoName,
                     'video_path' => "{$videoFolder}/{$filename}",
@@ -266,12 +215,8 @@
                     'video_type' => $validated['video_type'],
                 ]);
 
-                // 創建第一筆截圖
-                $screenshotFilename = "screenshot_1.jpg"; // 假設的截圖檔名
+                $screenshotFilename = "screenshot_1.jpg";
                 $screenshotPath = "{$videoFolder}/{$screenshotFilename}";
-
-                // 假設截圖已生成並儲存至指定路徑
-                // 這裡僅模擬生成一個空檔案
                 Storage::disk('videos')->put($screenshotPath, '');
 
                 $screenshot = VideoScreenshot::create([
@@ -279,7 +224,6 @@
                     'screenshot_path' => "{$videoFolder}/{$screenshotFilename}",
                 ]);
 
-                // 回傳相關資料
                 $video->screenshots = [$screenshot];
 
                 return response()->json([
@@ -294,12 +238,6 @@
             ], 500);
         }
 
-        /**
-         * 刪除截圖或人臉截圖。
-         *
-         * @param  \Illuminate\Http\Request  $request
-         * @return \Illuminate\Http\JsonResponse
-         */
         public function deleteScreenshot(Request $request)
         {
             $id = $request->input('id');
@@ -314,13 +252,11 @@
                     ], 404);
                 }
 
-                // 刪除截圖檔案
                 $screenshotFile = "F:/video/" . $screenshot->screenshot_path;
                 if (File::exists($screenshotFile)) {
                     File::delete($screenshotFile);
                 }
 
-                // 刪除相關人臉截圖檔案
                 foreach ($screenshot->faceScreenshots as $face) {
                     $faceFile = "F:/video/" . $face->face_image_path;
                     if (File::exists($faceFile)) {
@@ -329,7 +265,6 @@
                     $face->delete();
                 }
 
-                // 刪除截圖資料庫紀錄
                 $screenshot->delete();
 
                 return response()->json([
@@ -345,13 +280,11 @@
                     ], 404);
                 }
 
-                // 刪除人臉截圖檔案
                 $faceFile = "F:/video/" . $face->face_image_path;
                 if (File::exists($faceFile)) {
                     File::delete($faceFile);
                 }
 
-                // 刪除人臉截圖資料庫紀錄
                 $face->delete();
 
                 return response()->json([
@@ -366,16 +299,10 @@
             }
         }
 
-        /**
-         * 上傳人臉截圖。
-         *
-         * @param  \Illuminate\Http\Request  $request
-         * @return \Illuminate\Http\JsonResponse
-         */
         public function uploadFaceScreenshot(Request $request)
         {
             $validated = $request->validate([
-                'face_images.*' => 'required|image|mimes:jpeg,png,jpg,gif|max:5120', // 最大5MB
+                'face_images.*' => 'required|image|mimes:jpeg,png,jpg,gif|max:5120',
                 'video_id' => 'required|exists:video_master,id',
             ]);
 
@@ -391,11 +318,9 @@
                     ], 404);
                 }
 
-                // 獲取影片的資料夾名稱和基礎名稱
-                $videoFolder = pathinfo($video->video_path, PATHINFO_DIRNAME); // e.g., '自拍'
-                $videoBaseName = pathinfo($video->video_path, PATHINFO_FILENAME); // e.g., '自拍'
+                $videoFolder = pathinfo($video->video_path, PATHINFO_DIRNAME);
+                $videoBaseName = pathinfo($video->video_path, PATHINFO_FILENAME);
 
-                // 獲取第一筆截圖
                 $firstScreenshot = $video->screenshots()->first();
                 if (!$firstScreenshot) {
                     return response()->json([
@@ -407,20 +332,14 @@
                 $uploadedFaces = [];
 
                 foreach ($files as $file) {
-                    // 生成檔案名稱
                     $faceCount = VideoFaceScreenshot::where('video_screenshot_id', $firstScreenshot->id)->count() + 1;
                     $filename = "{$videoBaseName}_face_{$faceCount}." . $file->getClientOriginalExtension();
-
-                    // 構建儲存路徑
                     $storagePath = $videoFolder ? "{$videoFolder}/{$filename}" : $filename;
 
-                    // 移動檔案到正確的資料夾
                     Storage::disk('videos')->putFileAs($videoFolder, $file, $filename);
 
-                    // 確保路徑使用正斜杠
                     $facePath = ltrim(str_replace('\\', '/', $storagePath), '/');
 
-                    // 儲存到資料庫，設定 video_screenshot_id 為第一筆截圖
                     $face = VideoFaceScreenshot::create([
                         'video_screenshot_id' => $firstScreenshot->id,
                         'face_image_path' => $facePath,
@@ -442,12 +361,6 @@
             ], 400);
         }
 
-        /**
-         * 設定主面人臉。
-         *
-         * @param  \Illuminate\Http\Request  $request
-         * @return \Illuminate\Http\JsonResponse
-         */
         public function setMasterFace(Request $request): \Illuminate\Http\JsonResponse
         {
             $faceId = $request->input('face_id');
@@ -461,24 +374,19 @@
             }
 
             DB::transaction(function() use ($face) {
-                // 取得相關影片的 VideoMaster ID
                 $videoMasterId = $face->videoScreenshot->videoMaster->id;
 
-                // 將同影片的其他人臉設為非主面
                 VideoFaceScreenshot::whereHas('videoScreenshot.videoMaster', function($query) use ($videoMasterId) {
                     $query->where('id', $videoMasterId);
                 })
                     ->update(['is_master' => 0]);
 
-                // 將選定的人臉設為主面
                 $face->is_master = 1;
                 $face->save();
             });
 
-            // 取得更新後的 master face data
             $updatedFace = VideoFaceScreenshot::with(['videoScreenshot.videoMaster'])->find($faceId);
 
-            // 取得圖片尺寸
             $imagePath = public_path($updatedFace->face_image_path);
             if (file_exists($imagePath)) {
                 list($width, $height) = getimagesize($imagePath);
@@ -495,12 +403,6 @@
             ]);
         }
 
-        /**
-         * 載入主面人臉。
-         *
-         * @param  \Illuminate\Http\Request  $request
-         * @return \Illuminate\Http\JsonResponse
-         */
         public function loadMasterFaces(Request $request): \Illuminate\Http\JsonResponse
         {
             $videoType = $request->input('video_type', '1');
@@ -515,7 +417,6 @@
                     return $face->videoScreenshot->videoMaster->duration;
                 });
 
-            // 取得圖片尺寸
             foreach ($masterFaces as $face) {
                 $imagePath = public_path($face->face_image_path);
                 if (file_exists($imagePath)) {
@@ -534,18 +435,27 @@
             ]);
         }
 
-        /**
-         * 取得影片時長（秒）
-         *
-         * @param string $filePath
-         * @return float
-         */
         private function getVideoDuration($filePath)
         {
-            // 使用FFmpeg或其他方法取得影片時長
-            // 這裡假設使用FFmpeg並已安裝
             $cmd = "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{$filePath}\"";
             $output = shell_exec($cmd);
             return round(floatval($output), 2);
+        }
+
+        public function getRandomVideos(): \Illuminate\Http\JsonResponse
+        {
+            $serverUrl = "http://10.0.0.19:8000";
+
+            $videos = VideoMaster::inRandomOrder()
+                ->limit(100)
+                ->pluck('video_path')
+                ->map(function ($path) use ($serverUrl) {
+                    return "{$serverUrl}/video/{$path}";
+                });
+
+            return response()->json([
+                'success' => true,
+                'data' => $videos,
+            ]);
         }
     }

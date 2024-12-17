@@ -111,12 +111,10 @@
             padding: 5px;
             cursor: pointer;
         }
-        /* 調整播放模式開關樣式 */
         #play-mode {
             width: 50px;
             height: 10px;
         }
-        /* 拖曳上傳區域 */
         .upload-area {
             border: 2px dashed #007bff;
             border-radius: 5px;
@@ -131,9 +129,8 @@
             border-color: #0056b3;
             color: #0056b3;
         }
-        /* 新增 jQuery UI sortable 的 placeholder 樣式 */
         .ui-state-highlight {
-            height: 120px; /* 根據 .video-row 的高度調整 */
+            height: 120px;
             border: 2px dashed #ccc;
             background-color: #f9f9f9;
             margin-bottom: 20px;
@@ -157,14 +154,14 @@
                 margin-bottom: 10px;
             }
             .master-faces {
-                width: 100%; /* 全寬以適應小螢幕 */
+                width: 100%;
                 height: auto;
                 position: relative;
                 border-right: none;
                 border-bottom: 1px solid #ddd;
             }
             .container {
-                margin-left: 0; /* 移除左邊距 */
+                margin-left: 0;
             }
             .master-face-images {
                 grid-template-columns: repeat(4, 1fr);
@@ -173,12 +170,11 @@
                 height: auto;
             }
         }
-        /* 左側主面板樣式 */
         .master-faces {
             position: fixed;
             top: 0;
             left: 0;
-            width: 30%; /* 調整寬度為30% */
+            width: 30%;
             height: 100%;
             overflow-y: auto;
             background-color: #f8f9fa;
@@ -204,7 +200,7 @@
         .master-face-img {
             width: 100%;
             height: auto;
-            aspect-ratio: 1 / 1; /* 確保縱橫比 */
+            aspect-ratio: 1 / 1;
             object-fit: cover;
             cursor: pointer;
             border: 2px solid transparent;
@@ -213,7 +209,7 @@
         }
         .master-face-img.landscape {
             grid-column: span 2;
-            aspect-ratio: 2 / 1; /* 橫向圖片的縱橫比 */
+            aspect-ratio: 2 / 1;
         }
         .master-face-img:hover {
             border-color: #007bff;
@@ -225,12 +221,10 @@
             transform: scale(1.1);
         }
         .container {
-            margin-left: 30%; /* 調整主面板左邊距為30% */
+            margin-left: 30%;
             padding-top: 20px;
             padding-bottom: 80px;
         }
-
-        /* 消息提示樣式 */
         .message-container {
             position: fixed;
             top: 20px;
@@ -255,7 +249,6 @@
             0% { opacity: 0.9; }
             100% { opacity: 0; }
         }
-        /* 新增刪除圖示及設定主面圖示 */
         .delete-icon, .set-master-btn {
             position: absolute;
             top: 5px;
@@ -286,13 +279,11 @@
         .face-screenshot-container:hover .set-master-btn {
             display: block;
         }
-        /* 全螢幕模式時，隱藏頁面元素 */
         .fullscreen-mode .controls,
         .fullscreen-mode .master-faces,
         .fullscreen-mode .container {
             display: none;
         }
-        /* 全螢幕控制按鈕 */
         .fullscreen-controls {
             position: fixed;
             top: 0;
@@ -302,11 +293,9 @@
             z-index: 2000;
             display: none;
         }
-
         .fullscreen-controls.show {
             display: block;
         }
-
         .fullscreen-controls .prev-video-btn,
         .fullscreen-controls .next-video-btn {
             position: absolute;
@@ -322,38 +311,30 @@
             opacity: 0;
             transition: opacity 0.3s;
         }
-
         .fullscreen-controls .prev-video-btn {
             left: 20px;
         }
-
         .fullscreen-controls .next-video-btn {
             right: 20px;
         }
-
         .fullscreen-controls .prev-video-btn.show,
         .fullscreen-controls .next-video-btn.show {
             opacity: 1;
         }
-
-        /* 限制截圖區域的顯示行數，超過則產生捲動條 */
         .screenshot-images .d-flex,
         .face-screenshot-images .d-flex {
-            max-height: 250px; /* 顯示約兩行 */
+            max-height: 250px;
             overflow-y: auto;
         }
-
-        /* 原有的註解恢復 */
-        /* 參考: _guide */
         @media (min-width: 1200px) {
             .container, .container-lg, .container-md, .container-sm, .container-xl {
-                max-width: 1440px; /* 使用1440px讓寬度剛剛好 */
+                max-width: 1750px;
             }
         }
     </style>
 </head>
 <body>
-<div class="master-faces">
+<<div class="master-faces">
     <h5>主面人臉</h5>
     <div class="master-face-images">
         @foreach($masterFaces as $masterFace)
@@ -372,28 +353,20 @@
     </div>
 </div>
 <div class="container mt-4">
-    <!-- 消息提示 -->
-    <div class="message-container" id="message-container">
-    </div>
-
-    <!-- 影片列表 -->
+    <div class="message-container" id="message-container"></div>
     <div id="videos-list">
         @include('video.partials.video_rows', ['videos' => $videos])
     </div>
-
-    <!-- 載入更多提示 -->
     <div id="load-more" class="text-center my-4" style="display: none;">
         <p>正在載入更多影片...</p>
     </div>
 </div>
 
-<!-- 全螢幕控制按鈕 -->
 <div class="fullscreen-controls" id="fullscreen-controls">
     <button class="prev-video-btn" id="prev-video-btn">❮</button>
     <button class="next-video-btn" id="next-video-btn">❯</button>
 </div>
 
-<!-- 控制條 -->
 <div class="controls d-flex justify-content-between align-items-center">
     <form id="controls-form" class="d-flex flex-wrap w-100">
         <div class="control-group flex-grow-1">
@@ -426,14 +399,13 @@
 
 <!-- 模板：影片列 -->
 <template id="video-row-template">
-    <div class="video-row" data-id="{id}">
+    <div class="video-row" data-id="{id}" data-duration="{duration}">
         <div class="video-container">
             <div class="video-wrapper">
                 <video width="100%" controls>
                     <source src="{{ config('app.video_base_url') }}/{video_path}" type="video/mp4">
                     您的瀏覽器不支援影片播放。
                 </video>
-                {{--                <button class="fullscreen-btn">全螢幕</button>--}}
             </div>
         </div>
         <div class="images-container">
@@ -483,12 +455,17 @@
 <!-- 引入 jQuery UI JS -->
 <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
 <script>
-    let nextPage = {{ $videos->currentPage() + 1 }};
-    let prevPage = {{ $videos->currentPage() - 1 }};
+    // 將 Controller 回傳的 lastPage 載入
+    let lastPage = {{ $lastPage ?? 1 }};
+    // 將目前頁面也加入 loadedPages
+    let loadedPages = [{{ $videos->currentPage() }}];
+
+    let nextPage = {{ $next_page ?? 'null' }};
+    let prevPage = {{ $prev_page ?? 'null' }};
     let loading = false;
     let videoList = [];
     let currentVideoIndex = 0;
-    let playMode = {{ request('play_mode') ? '1' : '0' }}; // 0: 循環, 1: 自動
+    let playMode = {{ request('play_mode') ? '1' : '0' }};
     let currentFullScreenVideoElement = null;
     let videoSize = {{ request('video_size', 25) }};
     let imageSize = {{ request('image_size', 200) }};
@@ -505,20 +482,34 @@
         }, 1000);
     }
 
-    function loadMoreVideos(direction = 'down') {
-        if (loading || (direction === 'down' && !nextPage) || (direction === 'up' && !prevPage)) return;
-        loading = true;
-        if(direction === 'down') {
-            $('#load-more').show();
-        } else {
-            $('#load-more').show();
+    // 載入更多影片後重新計算 prevPage 與 nextPage
+    function recalculatePages() {
+        let minPage = Math.min.apply(null, loadedPages);
+        let maxPage = Math.max.apply(null, loadedPages);
+
+        prevPage = (minPage > 1) ? (minPage - 1) : null;
+        nextPage = (maxPage < lastPage) ? (maxPage + 1) : null;
+    }
+
+    function loadMoreVideos(direction = 'down', targetPage = null) {
+        if (loading) return;
+        if (!targetPage) {
+            if (direction === 'down' && !nextPage) return;
+            if (direction === 'up' && !prevPage) return;
         }
 
+        loading = true;
+        $('#load-more').show();
+
         let data = { video_type: videoType };
-        if(direction === 'down') {
-            data.page = nextPage;
+        if (targetPage) {
+            data.page = targetPage;
         } else {
-            data.page = prevPage;
+            if(direction === 'down') {
+                data.page = nextPage;
+            } else {
+                data.page = prevPage;
+            }
         }
 
         $.ajax({
@@ -527,23 +518,29 @@
             data: data,
             success: function(response) {
                 if(response && response.success && response.data.trim() !== '') {
-                    if(direction === 'down') {
-                        $('#videos-list').append(response.data);
-                        nextPage = response.next_page;
-                    } else {
-                        $('#videos-list').prepend(response.data);
-                        prevPage = response.prev_page;
+                    let tempContainer = $('<div></div>').html(response.data);
+                    $('#videos-list').append(tempContainer.children());
+
+                    // 將當前載入的頁面加入 loadedPages
+                    let current_page = response.current_page;
+                    if (loadedPages.indexOf(current_page) === -1) {
+                        loadedPages.push(current_page);
                     }
+
+                    // 更新 lastPage（若需要）
+                    lastPage = response.last_page || lastPage;
+
+                    rebuildAndSortVideoList();
+
                     loading = false;
                     $('#load-more').hide();
-                    $("#videos-list").sortable("refresh");
-                    buildVideoList();
-                    applyVideoSize();
                 } else {
-                    if(direction === 'down') {
-                        nextPage = null;
-                    } else {
-                        prevPage = null;
+                    if(!targetPage) {
+                        if(direction === 'down') {
+                            nextPage = null;
+                        } else {
+                            prevPage = null;
+                        }
                     }
                     $('#load-more').html('<p>沒有更多資料了。</p>');
                 }
@@ -554,6 +551,78 @@
                 loading = false;
             }
         });
+    }
+
+    function loadPageAndFocus(videoId, page) {
+        if(!page) {
+            showMessage('error', '找不到該影片所在的頁面。');
+            return;
+        }
+        loading = true;
+        $('#load-more').show();
+
+        $.ajax({
+            url: "{{ route('video.loadMore') }}",
+            method: 'GET',
+            data: { page: page, video_type: videoType },
+            success: function(loadResponse) {
+                if(loadResponse && loadResponse.success && loadResponse.data.trim() !== '') {
+                    let tempContainer = $('<div></div>').html(loadResponse.data);
+                    $('#videos-list').append(tempContainer.children());
+
+                    let current_page = loadResponse.current_page;
+                    if (loadedPages.indexOf(current_page) === -1) {
+                        loadedPages.push(current_page);
+                    }
+
+                    lastPage = loadResponse.last_page || lastPage;
+
+                    rebuildAndSortVideoList();
+
+                    let targetRow = $('.video-row[data-id="' + videoId + '"]');
+                    if(targetRow.length) {
+                        $('.video-row').removeClass('focused');
+                        targetRow.addClass('focused');
+                        focusMasterFace(videoId);
+                        $('html, body').animate({
+                            scrollTop: targetRow.offset().top - 100
+                        }, 500);
+                    }
+                    loading = false;
+                    $('#load-more').hide();
+                } else {
+                    showMessage('error', '無法載入該頁資料。');
+                    loading = false;
+                    $('#load-more').hide();
+                }
+            },
+            error: function() {
+                showMessage('error', '載入失敗，請稍後再試。');
+                loading = false;
+                $('#load-more').hide();
+            }
+        });
+    }
+
+    function rebuildAndSortVideoList() {
+        let videoRows = $('.video-row').get();
+
+        videoRows.sort(function(a, b) {
+            let durationA = parseFloat($(a).data('duration'));
+            let durationB = parseFloat($(b).data('duration'));
+            return durationA - durationB;
+        });
+
+        $('#videos-list').empty();
+        for (let i = 0; i < videoRows.length; i++) {
+            $('#videos-list').append(videoRows[i]);
+        }
+
+        buildVideoList();
+        applyVideoSize();
+
+        // 每次重建排序後重新計算上下頁
+        recalculatePages();
     }
 
     function buildVideoList() {
@@ -574,7 +643,7 @@
         $('.images-container').css('width', (100 - videoSize) + '%');
         $('.screenshot, .face-screenshot').css({
             'width': imageSize + 'px',
-            'height': (imageSize * 0.56) + 'px' // 保持16:9比例
+            'height': (imageSize * 0.56) + 'px'
         });
     }
 
@@ -608,9 +677,11 @@
         $('#play-mode').trigger('input');
 
         $(window).scroll(function () {
+            // 向上載入
             if ($(window).scrollTop() <= 100) {
                 loadMoreVideos('up');
             }
+            // 向下載入
             if ($(window).scrollTop() + $(window).height() >= $(document).height() - 100) {
                 loadMoreVideos('down');
             }
@@ -706,7 +777,7 @@
                         showMessage('success', response.message);
                         removeMasterFaceFocus();
                         loadMasterFaces();
-                        buildVideoList();
+                        rebuildAndSortVideoList();
                     } else {
                         showMessage('error', response.message);
                     }
@@ -790,39 +861,14 @@
                     scrollTop: targetRow.offset().top - 100
                 }, 500);
             } else {
+                // 找不到該影片在目前列表中，透過 findPage 取得頁數再載入
                 $.ajax({
                     url: "{{ route('video.findPage') }}",
                     method: 'GET',
                     data: { video_id: videoId, video_type: videoType },
                     success: function(response) {
                         if(response && response.success && response.page) {
-                            $.ajax({
-                                url: "{{ route('video.loadMore') }}",
-                                method: 'GET',
-                                data: { page: response.page, video_type: videoType },
-                                success: function(loadResponse) {
-                                    if(loadResponse && loadResponse.success && loadResponse.data.trim() !== '') {
-                                        $('#videos-list').prepend(loadResponse.data);
-                                        prevPage = loadResponse.prev_page;
-                                        buildVideoList();
-                                        applyVideoSize();
-                                        let targetRow = $('.video-row[data-id="' + videoId + '"]');
-                                        if(targetRow.length) {
-                                            $('.video-row').removeClass('focused');
-                                            targetRow.addClass('focused');
-                                            focusMasterFace(videoId);
-                                            $('html, body').animate({
-                                                scrollTop: targetRow.offset().top - 100
-                                            }, 500);
-                                        }
-                                    } else {
-                                        showMessage('error', '無法載入該頁資料。');
-                                    }
-                                },
-                                error: function() {
-                                    showMessage('error', '載入失敗，請稍後再試。');
-                                }
-                            });
+                            loadPageAndFocus(videoId, response.page);
                         } else {
                             showMessage('error', '找不到該影片所在的頁面。');
                         }
@@ -1267,19 +1313,6 @@
                 nextVideoData.videoElement.currentTime = 0;
                 nextVideoData.videoElement.play();
                 enterFullScreen(nextVideoData.videoElement);
-            }
-        }
-
-        function onVideoEnded(e) {
-            let videoElement = e.target;
-            if (videoElement.loop) {
-                videoElement.play();
-            } else if (playMode === '1') {
-                if (currentVideoIndex < videoList.length - 1) {
-                    playVideoAtIndex(currentVideoIndex + 1);
-                } else {
-                    showMessage('info', '已經是最後一部影片');
-                }
             }
         }
 

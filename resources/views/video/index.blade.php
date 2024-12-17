@@ -334,7 +334,7 @@
     </style>
 </head>
 <body>
-<<div class="master-faces">
+<div class="master-faces">
     <h5>主面人臉</h5>
     <div class="master-face-images">
         @foreach($masterFaces as $masterFace)
@@ -406,6 +406,7 @@
                     <source src="{{ config('app.video_base_url') }}/{video_path}" type="video/mp4">
                     您的瀏覽器不支援影片播放。
                 </video>
+                <button class="fullscreen-btn">⤢</button>
             </div>
         </div>
         <div class="images-container">
@@ -519,7 +520,11 @@
             success: function(response) {
                 if(response && response.success && response.data.trim() !== '') {
                     let tempContainer = $('<div></div>').html(response.data);
-                    $('#videos-list').append(tempContainer.children());
+                    if(direction === 'down') {
+                        $('#videos-list').append(tempContainer.children());
+                    } else {
+                        $('#videos-list').prepend(tempContainer.children());
+                    }
 
                     // 將當前載入的頁面加入 loadedPages
                     let current_page = response.current_page;
@@ -584,9 +589,8 @@
                         $('.video-row').removeClass('focused');
                         targetRow.addClass('focused');
                         focusMasterFace(videoId);
-                        $('html, body').animate({
-                            scrollTop: targetRow.offset().top - 100
-                        }, 500);
+                        // 使用 scrollIntoView 來確保滾動至聚焦影片
+                        targetRow[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
                     loading = false;
                     $('#load-more').hide();
@@ -746,6 +750,8 @@
                 $(this).addClass('focused');
                 let videoId = $(this).data('id');
                 focusMasterFace(videoId);
+                // 滾動至聚焦的影片
+                this.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
 
             lastSelectedIndex = $('.video-row').index(this);
@@ -778,6 +784,14 @@
                         removeMasterFaceFocus();
                         loadMasterFaces();
                         rebuildAndSortVideoList();
+                        // 如果刪除後還有影片，聚焦第一個
+                        if ($('.video-row').length > 0) {
+                            let firstRow = $('.video-row').first();
+                            firstRow.addClass('focused');
+                            let videoId = firstRow.data('id');
+                            focusMasterFace(videoId);
+                            firstRow[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
                     } else {
                         showMessage('error', response.message);
                     }
@@ -838,6 +852,8 @@
                                 $('.master-faces').animate({
                                     scrollTop: newMasterFace.position().top + $('.master-faces').scrollTop() - 30
                                 }, 500);
+                                // 滾動至新的主面人臉
+                                newMasterFace[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
                             }
                         }, 100);
                     } else {
@@ -857,9 +873,8 @@
                 $('.video-row').removeClass('focused');
                 targetRow.addClass('focused');
                 focusMasterFace(videoId);
-                $('html, body').animate({
-                    scrollTop: targetRow.offset().top - 100
-                }, 500);
+                // 滾動至聚焦的影片
+                targetRow[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
             } else {
                 // 找不到該影片在目前列表中，透過 findPage 取得頁數再載入
                 $.ajax({
@@ -918,7 +933,7 @@
                 masterFaceImg.attr('src', '{{ config("app.video_base_url") }}/' + face.face_image_path);
                 masterFaceImg.removeClass('landscape').addClass(orientation);
             } else {
-                let newMasterFaceHtml = '<img src="{{ config('app.video_base_url') }}/' + face.face_image_path + '" alt="主面人臉" class="master-face-img ' + orientation + '" data-video-id="' + videoId + '" data-duration="' + face.video_screenshot.video_master.duration + '">';
+                let newMasterFaceHtml = '<img src="{{ config("app.video_base_url") }}/' + face.face_image_path + '" alt="主面人臉" class="master-face-img ' + orientation + '" data-video-id="' + videoId + '" data-duration="' + face.video_screenshot.video_master.duration + '">';
                 let inserted = false;
                 $('.master-face-images img').each(function () {
                     let currentDuration = parseFloat($(this).data('duration'));
@@ -943,6 +958,8 @@
                 $('.master-faces').animate({
                     scrollTop: targetFace.position().top + $('.master-faces').scrollTop() - 30
                 }, 500);
+                // 使用 scrollIntoView 確保聚焦的人臉圖像可見
+                targetFace[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }
 
@@ -965,9 +982,8 @@
                 maxIdElement.addClass('focused');
                 let videoId = maxIdElement.data('id');
                 focusMasterFace(videoId);
-                $('html, body').animate({
-                    scrollTop: maxIdElement.offset().top - 100
-                }, 500);
+                // 使用 scrollIntoView 確保聚焦的影片可見
+                maxIdElement[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
         }
 
@@ -1038,6 +1054,8 @@
                                 $('.master-faces').animate({
                                     scrollTop: newMasterFace.position().top + $('.master-faces').scrollTop() - 30
                                 }, 500);
+                                // 使用 scrollIntoView 確保聚焦的人臉圖像可見
+                                newMasterFace[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
                             }
                         }, 100);
                     } else {
@@ -1128,7 +1146,7 @@
                 if (currentVideoIndex < videoList.length - 1) {
                     playVideoAtIndex(currentVideoIndex + 1);
                 } else {
-                    showMessage('info', '已經是最後一部影片');
+                    showMessage('error', '已經是最後一部影片');
                 }
             }
         }
@@ -1165,7 +1183,7 @@
             let video = e.currentTarget;
             let rect = video.getBoundingClientRect();
             let x = e.clientX - rect.left;
-            let y = e.clientY - rect.top;
+            let percent = x / rect.width;
 
             let edgeThreshold = 50;
 

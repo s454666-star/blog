@@ -458,4 +458,61 @@
                 'data' => $videos,
             ]);
         }
+
+        public function getTest(): \Illuminate\Http\JsonResponse
+        {
+            $serverUrl = "http://10.0.0.19:8000";
+
+            $videos = VideoMaster::inRandomOrder()
+                ->where('id','1260')
+                ->limit(100)
+                ->pluck('m3u8_path')
+                ->map(function ($path) use ($serverUrl) {
+                    return "{$serverUrl}/video/{$path}";
+                });
+
+
+            return response()->json([
+                'success' => true,
+                'data' => $videos,
+            ]);
+        }
+
+        /**
+         * Display the video player page.
+         *
+         * @return \Illuminate\View\View
+         */
+        public function player()
+        {
+            return view('video.player');
+        }
+
+        /**
+         * Fetch a random video with video_type = 3.
+         *
+         * @param \Illuminate\Http\Request $request
+         * @return \Illuminate\Http\JsonResponse
+         */
+        public function getRandomVideoType3(Request $request)
+        {
+            $video = VideoMaster::where('video_type', 3)
+                ->inRandomOrder()
+                ->first();
+
+            if (!$video) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No videos found.',
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'video_path' => $video->video_path,
+                    'video_name' => $video->video_name,
+                ],
+            ]);
+        }
     }

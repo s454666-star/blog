@@ -481,22 +481,28 @@
         /**
          * Display the video player page.
          *
+         * @param \Illuminate\Http\Request $request
          * @return \Illuminate\View\View
          */
-        public function player()
+        public function player(Request $request)
         {
-            return view('video.player');
+            // Get video_type from query parameters, default to 3
+            $videoType = $request->query('video_type', 3);
+            return view('video.player', compact('videoType'));
         }
 
         /**
-         * Fetch a random video with video_type = 3.
+         * Fetch a random video based on video_type.
          *
          * @param \Illuminate\Http\Request $request
          * @return \Illuminate\Http\JsonResponse
          */
-        public function getRandomVideoType3(Request $request)
+        public function getRandomVideoType(Request $request)
         {
-            $video = VideoMaster::where('video_type', 3)
+            // Get video_type from query parameters, default to 3
+            $videoType = $request->query('video_type', 3);
+
+            $video = VideoMaster::where('video_type', $videoType)
                 ->inRandomOrder()
                 ->first();
 

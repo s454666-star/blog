@@ -47,7 +47,7 @@ Route::post('/download-chunk/{folder}/{file}', [EncryptionController::class, 'do
 Route::get('/videos/random', [VideosController::class, 'getRandomVideos'])->name('videos.random');
 Route::get('/videos/test', [VideosController::class, 'getTest'])->name('videos.test');
 Route::get('/video-player', [VideosController::class, 'player'])->name('videos.player');
-Route::get('/api/videos/random-type3', [VideosController::class, 'getRandomVideoType3'])->name('videos.api.random_type3');
+Route::get('/api/videos/random-type', [VideosController::class, 'getRandomVideoType'])->name('videos.api.random_type');
 
 // 靜態頁面和身份驗證頁面
 Route::get('/', function () {

@@ -12,8 +12,9 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
+            padding: 20px;
         }
         video {
             max-width: 100%;
@@ -25,6 +26,21 @@
         .video-info {
             margin-top: 15px;
             text-align: center;
+        }
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        .controls a {
+            padding: 10px 20px;
+            background-color: #1db954;
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        .controls a:hover {
+            background-color: #1ed760;
         }
     </style>
 </head>
@@ -38,22 +54,38 @@
     Loading video...
 </div>
 
+<div class="controls">
+    <a href="{{ route('videos.player') }}" id="refreshLink">Refresh Video Type</a>
+</div>
+
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const videoPlayer = document.getElementById('videoPlayer');
         const videoInfo = document.getElementById('videoInfo');
+        const refreshLink = document.getElementById('refreshLink');
+
+        // Get videoType from Blade variable
+        const videoType = "{{ $videoType }}";
+
+        // Update the refresh link to retain the current video_type
+        refreshLink.href = `{{ route('videos.player') }}?video_type=${videoType}`;
+
         const baseUrl = 'https://video.test/'; // Static resource base URL
 
         /**
-         * Fetch a random video with video_type = 3 from the server.
+         * Fetch a random video based on video_type from the server.
          */
         async function fetchRandomVideo() {
             try {
                 videoInfo.textContent = 'Loading video...';
-                const response = await fetch('{{ route('videos.api.random_type3') }}');
+                const response = await fetch(`{{ route('videos.api.random_type') }}?video_type=${videoType}`);
 
                 if (!response.ok) {
-                    throw new Error('No more videos available.');
+                    if (response.status === 404) {
+                        throw new Error('No more videos available.');
+                    } else {
+                        throw new Error('Failed to fetch video.');
+                    }
                 }
 
                 const data = await response.json();

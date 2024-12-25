@@ -987,6 +987,12 @@
             }
         }
 
+        function focusRandomVideo() {
+            if (videoList.length === 0) return;
+            let randomIndex = Math.floor(Math.random() * videoList.length);
+            playVideoAtIndex(randomIndex);
+        }
+
         $(window).on('load', function () {
             focusMaxIdVideo();
             buildVideoList();
@@ -1372,6 +1378,32 @@
         }
 
         buildVideoList();
+
+        function focusMaxIdVideo() {
+            let maxId = -Infinity;
+            let maxIdElement = null;
+            $('.video-row').each(function () {
+                let currentId = parseInt($(this).data('id'));
+                if (currentId > maxId) {
+                    maxId = currentId;
+                    maxIdElement = $(this);
+                }
+            });
+            if (maxIdElement) {
+                $('.video-row').removeClass('focused');
+                maxIdElement.addClass('focused');
+                let videoId = maxIdElement.data('id');
+                focusMasterFace(videoId);
+                // 使用 scrollIntoView 確保聚焦的影片可見
+                maxIdElement[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        $(window).on('load', function () {
+            focusMaxIdVideo();
+            buildVideoList();
+            applyVideoSize();
+        });
     });
 </script>
 </body>

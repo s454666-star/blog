@@ -15,6 +15,7 @@ use App\Http\Controllers\PdfController2;
 use App\Http\Controllers\TelegramController;
 use App\Http\Controllers\UploadStorageController;
     use App\Http\Controllers\UserController;
+    use App\Http\Controllers\VideoPlayerController;
     use App\Http\Controllers\VideosController;
     use Illuminate\Support\Facades\Route;
 
@@ -48,6 +49,10 @@ Route::get('/videos/random', [VideosController::class, 'getRandomVideos'])->name
 Route::get('/videos/test', [VideosController::class, 'getTest'])->name('videos.test');
 Route::get('/video-player', [VideosController::class, 'player'])->name('videos.player');
 Route::get('/api/videos/random-type', [VideosController::class, 'getRandomVideoType'])->name('videos.api.random_type');
+Route::get('/videoplayer-list', [VideoPlayerController::class, 'getVideoPlayerList'])
+        ->name('videos.api.videoplayer_list');
+Route::get('/videos/search', [VideosController::class, 'search'])->name('videos.search');
+Route::delete('/videos/{id}', [VideosController::class, 'destroy'])->name('videos.destroy');
 
 // 靜態頁面和身份驗證頁面
 Route::get('/', function () {

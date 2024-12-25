@@ -6,6 +6,7 @@
     use App\Models\VideoMaster;
     use App\Models\VideoScreenshot;
     use Illuminate\Http\Request;
+    use Illuminate\Pagination\LengthAwarePaginator;
     use Illuminate\Support\Facades\Storage;
     use Illuminate\Support\Facades\File;
     use Illuminate\Support\Facades\DB;
@@ -498,6 +499,7 @@
          * @return \Illuminate\Http\JsonResponse
          */
         public function getRandomVideoType(Request $request)
+
         {
             // Get video_type from query parameters, default to 3
             $videoType = $request->query('video_type', 3);
@@ -520,5 +522,115 @@
                     'video_name' => $video->video_name,
                 ],
             ]);
+        }
+
+        /**
+         * 處理影片搜尋請求
+         *
+         * @param  \Illuminate\Http\Request  $request
+         * @return \Illuminate\View\View|\Illuminate\Http\JsonResponse
+         */
+        public function search(Request $request)
+        {
+            $keyword = $request->input('keyword');
+
+            if ($keyword) {
+                // 將關鍵字以逗號分割成陣列並去除前後空白
+                $keywords = array_map('trim', explode(',', $keyword));
+
+                // 根據每個關鍵字進行模糊搜尋
+                $videos = VideoMaster::where(function ($query) use ($keywords) {
+                    foreach ($keywords as $key) {
+                        $query->orWhere('video_name', 'LIKE', "%{$key}%");
+                    }
+                })->paginate(20);
+            } else {
+                // 沒有關鍵字時返回空的分頁結果
+                $videos = new LengthAwarePaginator([], 0, 20);
+            }
+
+            if ($request->ajax()) {
+                // 如果是 AJAX 請求，返回只包含影片列表和分頁的部分視圖
+                return view('partials.video_list', compact('videos'))->render();
+            }
+
+            // 如果不是 AJAX 請求，返回完整的搜尋頁面
+            return view('search', compact('videos', 'keyword'));
+        }
+
+        /**
+         * 刪除指定的影片及相關檔案和資料庫紀錄
+         *
+         * @param int $id 影片的ID
+         * @return \Illuminate\Http\JsonResponse
+         */
+        public function destroy($id)
+        {
+            // 查找影片
+            $video = VideoMaster::find($id);
+
+            if (!$video) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '找不到該影片。',
+                ], 404);
+            }
+
+            // 取得影片資料夾名稱，例如 \自拍_1\自拍.mp4 取得 自拍_1
+            $videoPath = $video->video_path;
+            $videoFolder = pathinfo($videoPath, PATHINFO_DIRNAME);
+
+            // 定義影片資料夾的完整路徑
+            $folderPath = 'F:/video/' . $videoFolder;
+
+            // 開始資料庫交易
+            DB::beginTransaction();
+
+            try {
+                // 刪除相關的人臉截圖檔案及資料庫紀錄
+                foreach ($video->screenshots as $screenshot) {
+                    foreach ($screenshot->faceScreenshots as $face) {
+                        // 刪除人臉截圖檔案
+                        $faceFile = "F:/video/" . $face->face_image_path;
+                        if (File::exists($faceFile)) {
+                            File::delete($faceFile);
+                        }
+                        // 刪除人臉截圖資料庫紀錄
+                        $face->delete();
+                    }
+
+                    // 刪除截圖檔案
+                    $screenshotFile = "F:/video/" . $screenshot->screenshot_path;
+                    if (File::exists($screenshotFile)) {
+                        File::delete($screenshotFile);
+                    }
+                    // 刪除截圖資料庫紀錄
+                    $screenshot->delete();
+                }
+
+                // 刪除影片資料庫紀錄
+                $video->delete();
+
+                // 刪除影片資料夾及其所有檔案
+                if (File::exists($folderPath)) {
+                    File::deleteDirectory($folderPath);
+                }
+
+                // 提交交易
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => '影片已成功刪除。',
+                ]);
+            } catch (\Exception $e) {
+                // 回滾交易
+                DB::rollBack();
+
+                return response()->json([
+                    'success' => false,
+                    'message' => '刪除影片時發生錯誤，請稍後再試。',
+                ], 500);
+            }
         }
     }

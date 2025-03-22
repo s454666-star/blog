@@ -24,7 +24,8 @@
 
             // 取得本次請求的 domain + scheme，例如 https://public.test
             // 這樣就可以自動適應不同部署環境
-            $serverUrl = $request->getSchemeAndHttpHost();
+//            $serverUrl = $request->getSchemeAndHttpHost();
+            $serverUrl =  'https://video.test';
             // 如果您確定永遠只會是 https://public.test，也可以直接寫死 $serverUrl = 'https://public.test';
 
             if ($videos->isEmpty()) {
@@ -37,7 +38,7 @@
             // 把 DB 的 video_path 轉成完整的可播放連結
             // e.g. https://public.test/video/ + $video->video_path
             $videoUrls = $videos->map(function ($video) use ($serverUrl) {
-                return $serverUrl . '/video/' . ltrim($video->video_path, '/');
+                return $serverUrl . ltrim($video->video_path, '/');
             });
 
             return response()->json([

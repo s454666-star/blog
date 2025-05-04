@@ -23,6 +23,10 @@
         .screenshot,.face-screenshot{width:100px;height:56px;object-fit:cover;margin:5px;transition:transform .3s,border .3s,box-shadow .3s}
         .face-screenshot.master{border:3px solid #f00}
 
+        /* === 新增：截圖清單捲軸 === */
+        .screenshot-images .d-flex,
+        .face-screenshot-images .d-flex{max-height:250px;overflow-y:auto;overflow-x:hidden}
+
         /* === 放大圖片 (hover) === */
         .image-modal{display:none;position:fixed;z-index:2000;inset:0;overflow:hidden;background:rgba(0,0,0,.8);justify-content:center;align-items:center;pointer-events:none}
         .image-modal img{max-width:90%;max-height:90%;border:5px solid #fff;border-radius:5px;pointer-events:none}
@@ -375,17 +379,31 @@
      * 全螢幕播放
      * -------------------------------------------------- */
     function enterFullScreen(video){
+        /* ------- 全螢幕時一律循環 ------- */
+        video.loop = true;                 // JS 屬性
+        video.setAttribute('loop', '');    // HTML 屬性，兼容所有瀏覽器
+
         try{
-            if(video.requestFullscreen){
-                video.requestFullscreen().then(()=>{$('body').addClass('fullscreen-mode');});
+            if (video.requestFullscreen){
+                video.requestFullscreen().then(()=>{
+                    $('body').addClass('fullscreen-mode');
+                    video.play();          // 重新播放，確保 loop 生效
+                });
             }else if(video.webkitRequestFullscreen){
-                video.webkitRequestFullscreen();$('body').addClass('fullscreen-mode');
+                video.webkitRequestFullscreen();
+                $('body').addClass('fullscreen-mode');
+                video.play();
             }else if(video.msRequestFullscreen){
-                video.msRequestFullscreen();$('body').addClass('fullscreen-mode');
+                video.msRequestFullscreen();
+                $('body').addClass('fullscreen-mode');
+                video.play();
             }else{
                 $('body').addClass('fullscreen-mode');
+                video.play();
             }
-        }catch(err){console.error(err);}
+        }catch(err){
+            console.error(err);
+        }
     }
     function exitFullScreen(){
         if(document.fullscreenElement) document.exitFullscreen();
@@ -464,14 +482,28 @@
         });
 
         /* --- 全螢幕變動 --- */
-        document.addEventListener('fullscreenchange',()=>{
-            const fs=document.fullscreenElement;
-            if(fs&&$(fs).is('video')){
-                currentFSVideo=fs;
-                fs.addEventListener('ended',onVideoEnded);
-                fs.loop=playMode==='0';
-            }else{
-                currentFSVideo=null;
+        document.addEventListener('fullscreenchange', () => {
+            const fs = document.fullscreenElement;
+
+            if (fs && $(fs).is('video')) {             // 進入全螢幕
+                currentFSVideo = fs;
+                fs.addEventListener('ended', onVideoEnded);
+
+                /* ------- 全螢幕一定循環 ------- */
+                fs.loop = true;
+                fs.setAttribute('loop', '');
+
+            } else if (currentFSVideo) {               // 離開全螢幕
+                /* ------- 恢復 playMode (0=循環、1=自動下一部) ------- */
+                const shouldLoop = (playMode === '0');
+                currentFSVideo.loop = shouldLoop;
+                if (shouldLoop) {
+                    currentFSVideo.setAttribute('loop', '');
+                } else {
+                    currentFSVideo.removeAttribute('loop');
+                }
+
+                currentFSVideo = null;
             }
         });
 
@@ -643,6 +675,24 @@
         }
         applySizes();
     }
+
+
+    /* === 取代原有對 video mousemove 的綁定，加入快轉邏輯 === */
+    $(document).off('mousemove','video');
+    $(document).on('mousemove','video',function(e){
+        // 全螢幕時維持原控制條邏輯
+        if(document.fullscreenElement===this){
+            onVideoMouseMove(e);
+            return;
+        }
+        // 非全螢幕：左右移動即時快轉
+        const rect=this.getBoundingClientRect();
+        const x=e.clientX-rect.left;
+        const percent=x/rect.width;
+        if(percent>=0&&percent<=1&&this.duration){
+            this.currentTime=percent*this.duration;
+        }
+    });
 </script>
 </body>
 </html>

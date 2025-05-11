@@ -13,7 +13,8 @@ use App\Http\Controllers\LibraryController;
 use App\Http\Controllers\PdfController;
 use App\Http\Controllers\PdfController2;
 use App\Http\Controllers\TelegramController;
-use App\Http\Controllers\UploadStorageController;
+    use App\Http\Controllers\TestImageController;
+    use App\Http\Controllers\UploadStorageController;
     use App\Http\Controllers\UserController;
     use App\Http\Controllers\VideoPlayerController;
     use App\Http\Controllers\VideosController;
@@ -128,3 +129,4 @@ Route::post('/fetch', [ FetchController::class, 'fetchData' ]);
 Route::get('/verify-success', [MemberController::class, 'showVerificationSuccess'])->name('verify.success');
 Route::get('/already-verified', [MemberController::class, 'showAlreadyVerified'])->name('verify.already');
 
+Route::get('/test-img', [TestImageController::class, 'show']);

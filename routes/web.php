@@ -130,3 +130,4 @@ Route::get('/verify-success', [MemberController::class, 'showVerificationSuccess
 Route::get('/already-verified', [MemberController::class, 'showAlreadyVerified'])->name('verify.already');
 
 Route::get('/test-img', [TestImageController::class, 'show']);
+Route::get('/proxy-image', [TestImageController::class, 'proxy']);

@@ -7,7 +7,7 @@
 <body>
 <h1>圖片預覽</h1>
 @if (!empty($imageUrl))
-    <img src="{{ $imageUrl }}" alt="測試圖片" style="max-width: 100%;">
+    <img src="{{ url('/proxy-image') }}" alt="測試圖片">
 @else
     <p>圖片載入失敗</p>
 @endif

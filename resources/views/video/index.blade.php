@@ -10,12 +10,138 @@
 
     <!-- ===== 樣式 (依功能分區) ===== -->
     <style>
-        :root { --video-width: 70%; }
 
-        /* === 影片列 === */
+        :root{ --video-width:70%; }
+
+        /* === 影片列 ================================================= */
         .video-row{display:flex;margin-bottom:20px;border:1px solid #ddd;padding:10px;border-radius:5px;cursor:pointer;user-select:none;transition:background-color .3s,border-color .3s;position:relative;box-sizing:border-box}
         .video-row.selected{border-color:#007bff;background:#e7f1ff}
         .video-row.focused{border-color:#28a745;background:#e6ffe6}
+
+        /* === 影片標題動畫 =========================================== */
+        .video-title{font-size:1.1rem;font-weight:700;margin-bottom:6px;overflow:hidden;position:relative;
+            background:linear-gradient(90deg,#007bff 0%,#00d4ff 50%,#007bff 100%);
+            background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;color:transparent;
+            animation:shine 3s linear infinite,slideIn .6s cubic-bezier(.25,.8,.25,1) forwards;
+            opacity:0;transform:translateY(-10px);}
+        @keyframes shine{to{background-position:-200% center;}}
+        @keyframes slideIn{to{opacity:1;transform:translateY(0);}}
+        .video-path{font-size:.85em;color:#666;font-weight:400;}
+
+        /* 讓路徑字體稍微小一點、變灰色，不跟著流光 */
+        .video-path{
+            font-size:.85em;
+            color:#666;
+            font-weight:400;
+        }
+
+        /* === 小節標題美化：漸層滑動底線 + 微動畫 ===================== */
+        .screenshot-images h5,
+        .face-screenshot-images h5{
+            position:relative;
+            margin-bottom:8px;
+            font-size:1rem;
+            font-weight:700;
+            letter-spacing:1px;
+            color:#333;
+        }
+        .screenshot-images h5::after,
+        .face-screenshot-images h5::after{
+            content:'';
+            position:absolute;
+            left:0;
+            bottom:-2px;
+            width:100%;
+            height:3px;
+            background:linear-gradient(90deg,#007bff 0%,#00d4ff 100%);
+            border-radius:2px;
+
+            /* 底線左右流動動畫 */
+            background-size:200% auto;
+            animation:slideBar 3s linear infinite;
+        }
+
+        @keyframes slideBar{
+            0%  {background-position:0   0;}
+            100%{background-position:-200% 0;}
+        }
+
+        /* === 上傳提示美化：藍色字 + 左側雲端上傳圖示 =============== */
+        .upload-instructions{
+            font-size:.9rem;
+            font-weight:600;
+            color:#007bff;
+            letter-spacing:.5px;
+            position:relative;
+            padding-left:26px;          /* 預留圖示空間 */
+        }
+
+        /* 加入 SVG 圖示（純 CSS，不需額外檔案） */
+        .upload-instructions::before{
+            content:'';
+            position:absolute;
+            left:3px;
+            top:50%;
+            width:18px;
+            height:18px;
+            transform:translateY(-50%);
+            background:url('data:image/svg+xml;utf8,\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox=\"0 0 24 24\" fill=\"%23007bff\">\
+<path d=\"M12 16v-6m0 0l-3 3m3-3l3 3m6 1v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4m16-4h-3.586a1 1 0 01-.707-.293l-3.414-3.414a2 2 0 00-2.828 0L6.707 11.707a1 1 0 01-.707.293H4\"/>\
+</svg>') center/18px 18px no-repeat;
+            opacity:.85;
+        }
+
+        /* === 主面人臉縮圖：常態柔光 + Hover 漸層光環 =================== */
+        .master-face-img{
+            position:relative;
+            border-radius:6px;
+            overflow:hidden;
+        }
+
+        /* 1. 常態：薄白框（用內凹 box‑shadow） */
+        .master-face-img::after{
+            content:'';
+            position:absolute;
+            inset:0;
+            border-radius:inherit;
+            box-shadow:0 0 0 2px rgba(255,255,255,.35) inset;
+            transition:opacity .4s;
+            pointer-events:none;
+            z-index:1;                       /* 避免被下方 :before 蓋掉 */
+        }
+
+        /* 2. Hover：漸層流動光環（放在 :before，避免蓋到白框） */
+        .master-face-img::before{
+            content:'';
+            position:absolute;
+            inset:-2px;                      /* 稍微蓋出邊界，光環更顯眼 */
+            border-radius:inherit;
+            background:linear-gradient(135deg,#00d4ff 0%,#007bff 50%,#00d4ff 100%);
+            background-size:300% 300%;
+            opacity:0;
+            transition:opacity .4s;
+            pointer-events:none;
+            z-index:0;
+        }
+
+        /* 啟動畫面：滑入才點亮並流動 */
+        .master-face-img:hover::before{
+            opacity:1;
+            animation:borderFlow 3s linear infinite;
+        }
+
+        /* 已聚焦（.focused）的永遠保持亮光 */
+        .master-face-img.focused::before{
+            opacity:1;
+            animation:borderFlow 3s linear infinite;
+        }
+
+        /* 流動關鍵影格 */
+        @keyframes borderFlow{
+            0%  {background-position:0% 50%;}
+            100%{background-position:200% 50%;}
+        }
 
         /* === 影片與截圖容器 === */
         .video-container{width:var(--video-width);padding-right:10px}
@@ -168,6 +294,10 @@
     <div class="video-row" data-id="{id}" data-duration="{duration}">
         <div class="video-container">
             <div class="video-wrapper">
+                <div class="video-title">
+                    @{{video_name}}
+                    <span class="video-path">(@{{video_path}})</span>
+                </div>
                 <video width="100%" controls>
                     <source src="{{ config('app.video_base_url') }}/{video_path}" type="video/mp4">
                     您的瀏覽器不支援影片播放。

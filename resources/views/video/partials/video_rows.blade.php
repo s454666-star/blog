@@ -4,6 +4,10 @@
     <div class="video-row" data-id="{{ $video->id }}" data-duration="{{ $video->duration }}">
         <div class="video-container">
             <div class="video-wrapper">
+                <div class="video-title">
+                    {{ e($video->video_name) }}
+                    <span class="video-path">({{ e($video->video_path) }})</span>
+                </div>
                 <video width="100%" controls>
                     <source src="{{ config('app.video_base_url') }}/{{ $video->video_path }}" type="video/mp4">
                     您的瀏覽器不支援影片播放。

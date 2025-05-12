@@ -5,10 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>文字過濾與存儲</title>
 
-    <!-- Bootstrap & Animate.css -->
+    <!-- Bootstrap -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
 
     <style>
         body {
@@ -22,6 +20,7 @@
             border: none;
             border-radius: 1rem;
             box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            animation: fadeInDown 0.5s ease-out;
         }
         .btn-custom {
             background: linear-gradient(45deg, #f093fb, #f5576c);
@@ -36,12 +35,26 @@
             border-radius: .5rem;
             padding: 1rem;
             resize: vertical;
+            height: 70vh;
+            overflow-y: auto;
+        }
+
+        /* 自訂的淡入動畫 */
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
     </style>
 </head>
 <body>
 <div class="container py-5" style="max-width: 800px;">
-    <div class="card animate__animated animate__fadeInDown">
+    <div class="card">
         <div class="card-body">
             <h3 class="text-center mb-4">文字過濾與存儲</h3>
             <form id="filterForm" method="post" action="{{ route('extract.process') }}">
@@ -49,20 +62,20 @@
                 <div class="mb-3">
             <textarea name="text"
                       id="inputText"
-                      class="form-control textarea-custom animate__animated animate__pulse animate__infinite"
-                      rows="6"
+                      class="form-control textarea-custom"
+                      rows="250"
                       placeholder="請貼上含目標字串的文字後按下「開始掃描」或 Enter"
             ></textarea>
                 </div>
                 <div class="d-flex justify-content-center gap-3">
                     <button type="submit"
-                            class="btn btn-custom animate__animated animate__bounce animate__infinite">
+                            class="btn btn-custom">
                         開始掃描
                     </button>
                     <button type="button"
                             id="clearBtn"
                             class="btn btn-secondary">
-                        清除結果
+                        清除
                     </button>
                 </div>
             </form>
@@ -70,7 +83,7 @@
     </div>
 
     @if(!empty($codes))
-        <div class="card mt-4 animate__animated animate__zoomIn">
+        <div class="card mt-4" style="animation: zoomIn 0.4s ease-out;">
             <div class="card-body">
                 <h5>掃描結果：</h5>
                 <textarea id="resultText"
@@ -89,21 +102,25 @@
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
-    // Enter 送出
+    // 按 Enter 即送出（不含 Shift+Enter）
     $('#inputText').on('keypress', function(e){
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             $('#filterForm').submit();
         }
     });
-    // 複製
+    // 複製結果
     $('#copyBtn').click(function(){
         const el = document.getElementById('resultText');
         el.select();
         document.execCommand('copy');
     });
-    // 清除結果區
-    $('#clearResultBtn, #clearBtn').click(function(){
+    // 清除結果區與輸入框
+    $('#clearResultBtn').click(function(){
+        $('#resultText').val('');
+    });
+    $('#clearBtn').click(function(){
+        $('#inputText').val('');
         $('#resultText').val('');
     });
 </script>

@@ -8,7 +8,6 @@ class StaticProxyController extends Controller
 {
     public function proxy($path)
     {
-        // 為路徑中每段進行 urlencode（避免空格或特殊字元造成來源主機 400）
         $segments = explode('/', $path);
         $encodedSegments = array_map('rawurlencode', $segments);
         $encodedPath = implode('/', $encodedSegments);
@@ -16,10 +15,20 @@ class StaticProxyController extends Controller
         $remoteUrl = 'https://10.147.18.147/video/' . $encodedPath;
 
         try {
+            // 取得 Range 標頭
+            $range = request()->header('Range');
+
+            $headers = [
+                'User-Agent: Laravel',
+            ];
+            if ($range) {
+                $headers[] = "Range: $range";
+            }
+
             $context = stream_context_create([
                 'http' => [
-                    'method' => "GET",
-                    'header' => "User-Agent: Laravel\r\n",
+                    'method' => 'GET',
+                    'header' => implode("\r\n", $headers),
                     'ignore_errors' => true,
                 ],
                 'ssl' => [
@@ -30,31 +39,34 @@ class StaticProxyController extends Controller
 
             $handle = fopen($remoteUrl, 'rb', false, $context);
             if (!$handle) {
-                return response("無法開啟遠端檔案", 500);
+                return response("Can't open remote file", 500);
             }
 
-            // 從來源 HTTP 回應標頭中提取需要的 header
+            // 回傳來源的標頭
             foreach ($http_response_header as $header) {
-                if (stripos($header, 'Content-Type:') !== false) {
-                    header($header);
-                }
-                if (stripos($header, 'Content-Length:') !== false) {
-                    header($header);
-                }
-                if (stripos($header, 'Accept-Ranges:') !== false) {
+                if (stripos($header, 'Content-Type:') !== false ||
+                    stripos($header, 'Content-Length:') !== false ||
+                    stripos($header, 'Accept-Ranges:') !== false ||
+                    stripos($header, 'Content-Range:') !== false
+                ) {
                     header($header);
                 }
             }
 
-            // 影片類型建議加上此標頭
             header('Content-Disposition: inline');
 
-            // 傳送檔案資料串流
+            // 若有 Content-Range，就回傳 206 Partial Content，否則 200 OK
+            $httpCode = collect($http_response_header)
+                ->first(fn($h) => str_starts_with($h, 'HTTP/'));
+            if (strpos($httpCode, '206') !== false) {
+                http_response_code(206);
+            }
+
             fpassthru($handle);
             fclose($handle);
             exit;
         } catch (\Exception $e) {
-            return response('串流錯誤', 500);
+            return response('Error streaming with range', 500);
         }
     }
 }

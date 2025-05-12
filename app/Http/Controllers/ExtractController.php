@@ -22,31 +22,28 @@ class ExtractController extends Controller
     {
         $text = $request->input('text', '');
 
-        // 1. 去除中文
+        // 1. 去除所有中文
         $cleanText = preg_replace('/[\p{Han}]+/u', '', $text);
 
-        // 2. 統一用一個 pattern，同時接受 _、數字與可選後綴
+        // 2. 一次完成前綴、底線、可選後綴的擷取
         $pattern = '/\b(?:vi_|pk_|p_|d_|showfilesbot_|[vVpPdD]_datapanbot_|[vVpPdD]_)[A-Za-z0-9_]+(?:=_grp|=_mda)?\b/u';
-
-        // 3. 擷取所有符合的碼
         preg_match_all($pattern, $cleanText, $m);
-        $codes = array_unique($m[0] ?? []);
+        $allCodes = array_unique($m[0] ?? []);
 
-        // 4. 如果有新的，才存 DB
-        if (!empty($codes)) {
-            $existing = ExtractedCode::whereIn('code', $codes)
-                ->pluck('code')
-                ->all();
+        // 3. 先找出已存在的，然後只留下新碼
+        $existing = ExtractedCode::whereIn('code', $allCodes)
+            ->pluck('code')
+            ->all();
+        $newCodes = array_values(array_diff($allCodes, $existing));
 
-            $toInsert = array_diff($codes, $existing);
-            foreach ($toInsert as $code) {
-                ExtractedCode::create(['code' => $code]);
-            }
+        // 4. 新碼存入 DB
+        foreach ($newCodes as $code) {
+            ExtractedCode::create(['code' => $code]);
         }
 
-        // 5. 一定要帶回 codes（哪怕是空陣列也要帶）
+        // 5. 傳給 Blade 的，只是「新碼」陣列
         return view('extract', [
-            'codes' => $codes,
+            'codes' => $newCodes,
         ]);
     }
 }

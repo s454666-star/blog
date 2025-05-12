@@ -22,28 +22,39 @@ class ExtractController extends Controller
     {
         $text = $request->input('text', '');
 
-        // 1. 去除所有中文
+        // 去除所有中文
         $cleanText = preg_replace('/[\p{Han}]+/u', '', $text);
 
-        // 2. 一支 pattern：同時匹配 @filepan_bot:xxx、filepan_bot:xxx 及其他各種前綴＋可選後綴
-        $pattern = '/@?filepan_bot:[A-Za-z0-9_]+|\b(?:vi_|pk_|p_|d_|showfilesbot_|[vVpPdD]_datapanbot_|[vVpPdD]_)[A-Za-z0-9_]+(?:=_grp|=_mda)?\b/u';
+        // 最終合併所有 prefix 的 pattern：
+        $pattern = '/
+            @?filepan_bot:[A-Za-z0-9_]+(?:=_grp|=_mda)?     # @filepan_bot:xxx 或 filepan_bot:xxx
+            |
+            \blink:\s*[A-Za-z0-9_]+(?:=_grp|=_mda)?\b       # link: xxx
+            |
+            \b
+            (?:vi_|pk_|p_|d_|showfilesbot_|[vVpPdD]_        # 既有各種前綴
+            |[vVpPdD]_datapanbot_)
+            [A-Za-z0-9_]+
+            (?:=_grp|=_mda)?
+            \b
+        /xu';  // x = allow comments/whitespace, u = unicode
 
-        // 3. 擷取所有符合的碼
+        // 擷取
         preg_match_all($pattern, $cleanText, $m);
         $allCodes = array_unique($m[0] ?? []);
 
-        // 4. 過濾出資料庫裡還沒有的
+        // 過濾資料庫已存在的
         $existing = ExtractedCode::whereIn('code', $allCodes)
             ->pluck('code')
             ->all();
         $newCodes = array_values(array_diff($allCodes, $existing));
 
-        // 5. 將新碼存進 DB
+        // 存入新碼
         foreach ($newCodes as $code) {
             ExtractedCode::create(['code' => $code]);
         }
 
-        // 6. 回傳給前端的，只有「新碼」
+        // 回傳給 Blade 的只包含「新碼」
         return view('extract', [
             'codes' => $newCodes,
         ]);

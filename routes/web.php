@@ -12,6 +12,7 @@ use App\Http\Controllers\LibraryController;
     use App\Http\Controllers\OCRController;
 use App\Http\Controllers\PdfController;
 use App\Http\Controllers\PdfController2;
+use App\Http\Controllers\StaticProxyController;
 use App\Http\Controllers\TelegramController;
     use App\Http\Controllers\TestImageController;
     use App\Http\Controllers\UploadStorageController;

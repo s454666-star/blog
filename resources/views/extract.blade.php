@@ -63,7 +63,6 @@
             <textarea name="text"
                       id="inputText"
                       class="form-control textarea-custom"
-                      rows="250"
                       placeholder="請貼上含目標字串的文字後按下「開始掃描」或 Enter"
             ></textarea>
                 </div>

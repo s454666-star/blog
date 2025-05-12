@@ -129,5 +129,6 @@ Route::post('/fetch', [ FetchController::class, 'fetchData' ]);
 Route::get('/verify-success', [MemberController::class, 'showVerificationSuccess'])->name('verify.success');
 Route::get('/already-verified', [MemberController::class, 'showAlreadyVerified'])->name('verify.already');
 
-//Route::get('/test-img', [TestImageController::class, 'show']);
+Route::get('/data/{path}', [StaticProxyController::class, 'proxy'])
+    ->where('path', '.*');
 Route::get('/proxy-image', [TestImageController::class, 'proxy']);

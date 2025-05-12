@@ -27,17 +27,21 @@ class ExtractController extends Controller
 
         // 最終合併所有 prefix 的 pattern：
         $pattern = '/
-            @?filepan_bot:[A-Za-z0-9_]+(?:=_grp|=_mda)?     # @filepan_bot:xxx 或 filepan_bot:xxx
-            |
-            \blink:\s*[A-Za-z0-9_]+(?:=_grp|=_mda)?\b       # link: xxx
-            |
+            (?:                                         # 第一大群：有前綴的情況
+                @?filepan_bot:                          #   @filepan_bot: 或 filepan_bot:
+              | link:\s*                                #   link:
+              | (?:vi_|pk_|p_|d_|showfilesbot_|         #   vi_、pk_、p_、d_、showfilesbot_
+                   [vVpPdD]_|
+                   [vVpPdD]_datapanbot_)
+            )
+            [A-Za-z0-9_+]+                              # 主體：英數底線加號
+            (?:=_grp|=_mda)?                            # 可選後綴
+          |
+            \b                                          # 第二大群：**沒有**前綴，只看結尾
+            [A-Za-z0-9_+]+                              # 任意英數底線加號
+            (?:=_grp|=_mda)                             # 必須有 =_grp 或 =_mda
             \b
-            (?:vi_|pk_|p_|d_|showfilesbot_|[vVpPdD]_        # 既有各種前綴
-            |[vVpPdD]_datapanbot_)
-            [A-Za-z0-9_]+
-            (?:=_grp|=_mda)?
-            \b
-        /xu';  // x = allow comments/whitespace, u = unicode
+        /xu';
 
         // 擷取
         preg_match_all($pattern, $cleanText, $m);

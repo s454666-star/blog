@@ -9,20 +9,48 @@ class StaticProxyController extends Controller
 {
     public function proxy($path)
     {
-        // 將 /data/* 對應到實體來源主機的 /video/*
-        $targetUrl = 'https://10.147.18.147/video/' . $path;
+        $remoteUrl = 'https://10.147.18.147/video/' . $path;
 
         try {
-            $response = Http::withOptions(['verify' => false])->get($targetUrl);
+            $context = stream_context_create([
+                'http' => [
+                    'method' => "GET",
+                    'header' => "User-Agent: Laravel\r\n",
+                    'ignore_errors' => true,
+                ],
+                'ssl' => [
+                    'verify_peer' => false,
+                    'verify_peer_name' => false,
+                ]
+            ]);
 
-            if ($response->successful()) {
-                return response($response->body(), 200)
-                    ->header('Content-Type', $response->header('Content-Type'));
+            $handle = fopen($remoteUrl, 'rb', false, $context);
+            if (!$handle) {
+                return response("Can't open remote file", 500);
             }
 
-            return response('資源未找到', 404);
+            // 取得 Content-Type
+            foreach ($http_response_header as $header) {
+                if (stripos($header, 'Content-Type:') !== false) {
+                    header($header); // 直接傳回原始 Content-Type
+                }
+                if (stripos($header, 'Content-Length:') !== false) {
+                    header($header);
+                }
+                if (stripos($header, 'Accept-Ranges:') !== false) {
+                    header($header);
+                }
+            }
+
+            // 若是 video/mp4，建議加上這個
+            header('Content-Disposition: inline');
+
+            // 傳送影片串流資料
+            fpassthru($handle);
+            fclose($handle);
+            exit;
         } catch (\Exception $e) {
-            return response('載入錯誤', 500);
+            return response('Error streaming file', 500);
         }
     }
 }

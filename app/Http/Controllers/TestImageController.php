@@ -9,7 +9,7 @@
     {
         public function proxy(Request $request)
         {
-            // 你可以之後改成從 query string 帶入 URL
+            // test url
             $imageUrl = 'https://10.147.18.147/video/o3ik.o%20(@o3ik.o)/o3ik.o%20(@o3ik.o)_1.jpg';
 
             try {

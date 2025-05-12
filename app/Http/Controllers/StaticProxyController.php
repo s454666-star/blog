@@ -3,13 +3,17 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 
 class StaticProxyController extends Controller
 {
     public function proxy($path)
     {
-        $remoteUrl = 'https://10.147.18.147/video/' . $path;
+        // 為路徑中每段進行 urlencode（避免空格或特殊字元造成來源主機 400）
+        $segments = explode('/', $path);
+        $encodedSegments = array_map('rawurlencode', $segments);
+        $encodedPath = implode('/', $encodedSegments);
+
+        $remoteUrl = 'https://10.147.18.147/video/' . $encodedPath;
 
         try {
             $context = stream_context_create([
@@ -26,13 +30,13 @@ class StaticProxyController extends Controller
 
             $handle = fopen($remoteUrl, 'rb', false, $context);
             if (!$handle) {
-                return response("Can't open remote file", 500);
+                return response("無法開啟遠端檔案", 500);
             }
 
-            // 取得 Content-Type
+            // 從來源 HTTP 回應標頭中提取需要的 header
             foreach ($http_response_header as $header) {
                 if (stripos($header, 'Content-Type:') !== false) {
-                    header($header); // 直接傳回原始 Content-Type
+                    header($header);
                 }
                 if (stripos($header, 'Content-Length:') !== false) {
                     header($header);
@@ -42,15 +46,15 @@ class StaticProxyController extends Controller
                 }
             }
 
-            // 若是 video/mp4，建議加上這個
+            // 影片類型建議加上此標頭
             header('Content-Disposition: inline');
 
-            // 傳送影片串流資料
+            // 傳送檔案資料串流
             fpassthru($handle);
             fclose($handle);
             exit;
         } catch (\Exception $e) {
-            return response('Error streaming file', 500);
+            return response('串流錯誤', 500);
         }
     }
 }

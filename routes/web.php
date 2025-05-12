@@ -131,5 +131,5 @@ Route::get('/verify-success', [MemberController::class, 'showVerificationSuccess
 Route::get('/already-verified', [MemberController::class, 'showAlreadyVerified'])->name('verify.already');
 
 Route::get('/data/{path}', [StaticProxyController::class, 'proxy'])
-    ->where('path', '.*');
+    ->where('path', '.*'); // 支援多層目錄
 Route::get('/proxy-image', [TestImageController::class, 'proxy']);

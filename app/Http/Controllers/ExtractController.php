@@ -22,34 +22,31 @@ class ExtractController extends Controller
     {
         $text = $request->input('text', '');
 
-        // 去除所有中文（含繁簡）、其他非英數底線等符號
+        // 1. 去除中文
         $cleanText = preg_replace('/[\p{Han}]+/u', '', $text);
 
-        // 定義前綴 & 後綴正規
-        $prefixPattern = '/\b(?:vi_|pk_|p_|d_|showfilesbot_|[vVpPdD]_datapanbot_|[vVpPdD]_)[A-Za-z0-9]+\b/u';
-        $suffixPattern = '/\b[A-Za-z0-9]+(?:=_grp|=_mda)\b/u';
+        // 2. 統一用一個 pattern，同時接受 _、數字與可選後綴
+        $pattern = '/\b(?:vi_|pk_|p_|d_|showfilesbot_|[vVpPdD]_datapanbot_|[vVpPdD]_)[A-Za-z0-9_]+(?:=_grp|=_mda)?\b/u';
 
-        preg_match_all($prefixPattern, $cleanText, $preMatches);
-        preg_match_all($suffixPattern, $cleanText, $sufMatches);
+        // 3. 擷取所有符合的碼
+        preg_match_all($pattern, $cleanText, $m);
+        $codes = array_unique($m[0] ?? []);
 
-        // 合併、去重
-        $matches = array_unique(array_merge($preMatches[0], $sufMatches[0]));
-
-        if (!empty($matches)) {
-            // 已在 DB 的 code
-            $existing = ExtractedCode::whereIn('code', $matches)
+        // 4. 如果有新的，才存 DB
+        if (!empty($codes)) {
+            $existing = ExtractedCode::whereIn('code', $codes)
                 ->pluck('code')
                 ->all();
 
-            // 需新插入的
-            $toInsert = array_diff($matches, $existing);
+            $toInsert = array_diff($codes, $existing);
             foreach ($toInsert as $code) {
                 ExtractedCode::create(['code' => $code]);
             }
         }
 
+        // 5. 一定要帶回 codes（哪怕是空陣列也要帶）
         return view('extract', [
-            'codes' => $matches,
+            'codes' => $codes,
         ]);
     }
 }

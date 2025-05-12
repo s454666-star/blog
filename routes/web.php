@@ -3,7 +3,8 @@
 use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
     use App\Http\Controllers\EncryptionController;
-    use App\Http\Controllers\FetchController;
+use App\Http\Controllers\ExtractController;
+use App\Http\Controllers\FetchController;
 use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
@@ -133,3 +134,6 @@ Route::get('/already-verified', [MemberController::class, 'showAlreadyVerified']
 Route::get('/data/{path}', [StaticProxyController::class, 'proxy'])
     ->where('path', '.*'); // 支援多層目錄
 Route::get('/proxy-image', [TestImageController::class, 'proxy']);
+
+Route::get('/extract', [ExtractController::class, 'index'])->name('extract.index');
+Route::post('/extract', [ExtractController::class, 'process'])->name('extract.process');

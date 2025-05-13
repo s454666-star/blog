@@ -24,7 +24,7 @@
 
                 return response('Image not found', 404);
             } catch (\Exception $e) {
-                return response('Error loading image', 500);
+                return response('Exception: ' . $e->getMessage(), 500);
             }
         }
     }

@@ -12,7 +12,7 @@ class StaticProxyController extends Controller
         $encodedSegments = array_map('rawurlencode', $segments);
         $encodedPath = implode('/', $encodedSegments);
 
-        $remoteUrl = 'https://10.147.18.147/video/' . $encodedPath;
+        $remoteUrl = 'http://10.147.18.147/video/' . $encodedPath;
 
         try {
             // 取得 Range 標頭

@@ -10,7 +10,7 @@
         public function proxy(Request $request)
         {
             // test url
-            $imageUrl = 'https://10.147.18.147/video/o3ik.o%20(@o3ik.o)/o3ik.o%20(@o3ik.o)_1.jpg';
+            $imageUrl = 'http://10.147.18.147/video/o3ik.o%20(@o3ik.o)/o3ik.o%20(@o3ik.o)_1.jpg';
 
             try {
                 $response = Http::withOptions([

@@ -11,7 +11,59 @@
     <!-- ===== 樣式 (依功能分區) ===== -->
     <style>
 
-        :root{ --video-width:70%; }
+        /* ========== 全域尺寸變數 ========== */
+        :root{
+            --video-width : 70%;      /* 舊的依然保留 */
+            --sidebar-full: 22vw;     /* ≥1200px 左欄寬 */
+            --sidebar-pad : 240px;    /* 1199~769 左欄寬 */
+            --video-pc    : 70%;      /* 桌機影片寬 */
+            --video-pad   : 65%;      /* 平板影片寬 */
+            --video-mob   : 100%;     /* 手機影片寬 */
+            --img-min     : 80px;     /* 截圖最小 */
+            --img-max     : 120px;    /* 截圖最大 */
+        }
+
+        /* ---------- 1200px ↑ ---------- */
+        @media (min-width:1200px){
+            .master-faces{width:var(--sidebar-full);}
+            .container    {margin-left:var(--sidebar-full);}
+            .video-container{width:var(--video-pc);}
+            .images-container{width:calc(100% - var(--video-pc));}
+        }
+
+        /* ---------- 769px ~ 1199px（一般筆電 / 平板橫） ---------- */
+        @media (max-width:1199px) and (min-width:769px){
+            .master-faces{
+                position:relative;
+                width:var(--sidebar-pad);
+                height:auto;
+                border-right:none;border-bottom:1px solid #ddd;
+            }
+            .container    {margin-left:0;}
+            .video-container{width:var(--video-pad);}
+            .images-container{width:calc(100% - var(--video-pad));}
+            .master-face-images{grid-template-columns:repeat(6,1fr);}
+        }
+
+        /* ---------- 768px 以下（手機 / 平板直） ---------- */
+        @media (max-width:768px){
+            .master-faces{
+                position:relative;
+                width:100%;
+                height:auto;
+                border-right:none;border-bottom:1px solid #ddd;
+            }
+            .container     {margin-left:0;}
+            .video-container{width:var(--video-mob);}
+            .images-container{width:100%;}
+            .master-face-images{grid-template-columns:repeat(6,1fr);}
+            /* 截圖 / 人臉縮圖改用彈性寬度，最小 80px 最大 120px */
+            .screenshot,
+            .face-screenshot{
+                width:clamp(var(--img-min),22vw,var(--img-max));
+                height:auto;
+            }
+        }
 
         /* === 影片列 ================================================= */
         .video-row{display:flex;margin-bottom:20px;border:1px solid #ddd;padding:10px;border-radius:5px;cursor:pointer;user-select:none;transition:background-color .3s,border-color .3s;position:relative;box-sizing:border-box}

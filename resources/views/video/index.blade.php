@@ -25,15 +25,15 @@
         }
 
         /*  在 ≥1200px 時再設定正確 margin */
-        @media (min-width:1200px){
-            :root{ --vc-w:70%; }
+        @media (min-width:2560px){
+            :root{ --vc-w:35%; }
             .master-faces{width:var(--sidebar-full);}
             .container   {margin-left:var(--sidebar-full);}   /* ← 這行已存在，確定保留 */
             .images-container{width:calc(100% - var(--vc-w));}
         }
 
         /* ---------- 769 ~ 1199 ---------- */
-        @media (max-width:1199px) and (min-width:769px){
+        @media (min-width:1200px) and (max-width:2559px){
             :root{ --vc-w: 35%; }          /* ★ 改成 35% ★ */
 
             .master-faces{width:var(--sidebar-pad);}   /* 左欄 240px */

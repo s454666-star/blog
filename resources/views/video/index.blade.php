@@ -383,9 +383,7 @@
     $('#video-type, #sort-by, #sort-dir').on('change', function(){
         $('#controls-form').submit();
     });
-    if (focusId) {
-        focusVideoById(focusId);
-    }
+
     function refreshMasterFaces() {
         $.get("{{ route('video.loadMasterFaces') }}", {
             video_type: $('#video-type').val(),
@@ -800,7 +798,11 @@
         }).disableSelection();
 
         /* --- 初始建構 --- */
-        buildVideoList();applySizes();focusMaxId();
+        buildVideoList(); applySizes(); watchFocusedRow();
+
+        if (focusId) {
+            focusVideoById(focusId);
+        }
     });
 
     /* --------------------------------------------------

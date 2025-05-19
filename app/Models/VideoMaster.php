@@ -22,6 +22,10 @@
             'updated_at',
         ];
 
+        protected $casts = [
+            'duration' => 'decimal:2',
+        ];
+
         public $timestamps = true;
 
         /**

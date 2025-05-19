@@ -284,6 +284,20 @@
             <span id="play-mode-label"></span>
         </div>
         <div class="control-group">
+            <label for="sort-by">排序方式：</label>
+            <select id="sort-by" name="sort_by" class="form-control">
+                <option value="duration" {{ $sortBy === 'duration' ? 'selected' : '' }}>依時長</option>
+                <option value="id"       {{ $sortBy === 'id'       ? 'selected' : '' }}>依先後</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label for="sort-dir">排序方向：</label>
+            <select id="sort-dir" name="sort_dir" class="form-control">
+                <option value="asc"  {{ $sortDir === 'asc'  ? 'selected' : '' }}>由小到大</option>
+                <option value="desc" {{ $sortDir === 'desc' ? 'selected' : '' }}>由大到小</option>
+            </select>
+        </div>
+        <div class="control-group">
             <button id="delete-focused-btn" class="btn btn-warning" type="button">刪除聚焦的影片</button>
         </div>
     </form>
@@ -362,6 +376,10 @@
     let videoSize      = {{ request('video_size',25) }};
     let imageSize      = {{ request('image_size',200) }};
     let videoType      = '{{ request('video_type','1') }}';
+
+    $('#video-type, #sort-by, #sort-dir').on('change', function(){
+        $('#controls-form').submit();
+    });
 
     /* --------------------------------------------------
      * 快訊訊息

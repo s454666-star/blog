@@ -16,76 +16,92 @@
         public function index(Request $request)
         {
             $videoType = $request->input('video_type', '1');
+            $sortBy    = $this->parseSortBy($request->input('sort_by', 'duration'));
+            $sortDir   = $this->parseSortDir($request->input('sort_dir', 'asc'));
 
-            $total = VideoMaster::where('video_type', $videoType)->count();
             $perPage = 10;
-            $lastPage = ceil($total / $perPage);
+            $total   = VideoMaster::where('video_type', $videoType)->count();
+            $lastPage= (int) ceil($total / $perPage);
 
-            $maxIdVideo = VideoMaster::where('video_type', $videoType)->orderBy('id', 'desc')->first();
+            // 找到最新一支影片，計算要跳到哪一頁
+            $maxIdVideo = VideoMaster::where('video_type', $videoType)
+                ->orderBy('id', 'desc')
+                ->first();
 
             if ($maxIdVideo) {
                 $position = VideoMaster::where('video_type', $videoType)
                     ->where('duration', '<=', $maxIdVideo->duration)
                     ->orderBy('duration', 'asc')
                     ->count();
-
-                $page = ceil($position / $perPage);
+                $page = (int) ceil($position / $perPage);
             } else {
                 $page = 1;
             }
 
-            $videos = VideoMaster::with(['screenshots.faceScreenshots'])
+            // 依使用者選擇排序
+            $videos = VideoMaster::with('screenshots.faceScreenshots')
                 ->where('video_type', $videoType)
-                ->orderBy('duration', 'asc')
+                ->orderBy($sortBy, $sortDir)
                 ->paginate($perPage, ['*'], 'page', $page);
 
-            $prev_page = $page > 1 ? $page - 1 : null;
-            $next_page = $page < $lastPage ? $page + 1 : null;
+            $prevPage = $page > 1        ? $page - 1    : null;
+            $nextPage = $page < $lastPage? $page + 1    : null;
 
+            // 側邊主面人臉也跟著排序
             $masterFaces = VideoFaceScreenshot::where('is_master', 1)
-                ->whereHas('videoScreenshot.videoMaster', function($query) use ($videoType) {
-                    $query->where('video_type', $videoType);
-                })
+                ->whereHas('videoScreenshot.videoMaster', fn($q)=> $q->where('video_type', $videoType))
                 ->with('videoScreenshot.videoMaster')
-                ->get()
-                ->sortBy(function($face) {
-                    return $face->videoScreenshot->videoMaster->duration;
-                });
+                ->orderByRelation('videoScreenshot.videoMaster.duration', $sortDir) // Laravel 10+ helper
+                ->get();
 
-            // 將 lastPage 傳到前端
-            return view('video.index', compact('videos', 'masterFaces', 'next_page', 'prev_page', 'lastPage'));
+            return view('video.index', compact(
+                'videos','masterFaces','prevPage','nextPage','lastPage',
+                'videoType','sortBy','sortDir'
+            ));
         }
 
         public function loadMore(Request $request)
         {
-            $page = $request->input('page', 1);
-            $videoType = $request->input('video_type', '1');
+            $page     = (int) $request->input('page', 1);
+            $videoType= $request->input('video_type', '1');
+            $sortBy   = $this->parseSortBy($request->input('sort_by', 'duration'));
+            $sortDir  = $this->parseSortDir($request->input('sort_dir', 'asc'));
 
-            $videos = VideoMaster::with(['screenshots.faceScreenshots'])
+            $videos = VideoMaster::with('screenshots.faceScreenshots')
                 ->where('video_type', $videoType)
-                ->orderBy('duration', 'asc')
+                ->orderBy($sortBy, $sortDir)
                 ->paginate(10, ['*'], 'page', $page);
 
             if ($videos->isEmpty()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => '沒有更多資料了。',
-                ], 204);
+                return response()->json(['success'=>false,'message'=>'沒有更多資料了。'], 204);
             }
-
-            $prev_page = $videos->currentPage() > 1 ? $videos->currentPage() - 1 : null;
-            $next_page = $videos->currentPage() < $videos->lastPage() ? $videos->currentPage() + 1 : null;
 
             $html = view('video.partials.video_rows', compact('videos'))->render();
 
             return response()->json([
-                'success' => true,
-                'data' => $html,
-                'next_page' => $next_page,
-                'prev_page' => $prev_page,
-                'last_page' => $videos->lastPage(),
-                'current_page' => $videos->currentPage()
+                'success'      => true,
+                'data'         => $html,
+                'next_page'    => $videos->currentPage() < $videos->lastPage() ? $videos->currentPage()+1 : null,
+                'prev_page'    => $videos->currentPage() > 1              ? $videos->currentPage()-1 : null,
+                'last_page'    => $videos->lastPage(),
+                'current_page' => $videos->currentPage(),
             ]);
+        }
+
+        /**
+         * 只允許 duration 或 id 排序
+         */
+        private function parseSortBy(string $sortBy): string
+        {
+            return in_array($sortBy, ['id','duration']) ? $sortBy : 'duration';
+        }
+
+        /**
+         * 只允許 asc 或 desc
+         */
+        private function parseSortDir(string $dir): string
+        {
+            return strtolower($dir) === 'desc' ? 'desc' : 'asc';
         }
 
         public function findPage(Request $request)

@@ -464,7 +464,7 @@
                     'video_id'    => $face->videoScreenshot->videoMaster->id,
                     'path'        => config('app.video_base_url') . '/' . $face->face_image_path,
                     'duration'    => $face->videoScreenshot->videoMaster->duration,
-                ]),
+                ])->values()->all(),
             ]);
         }
 

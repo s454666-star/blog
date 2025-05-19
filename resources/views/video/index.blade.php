@@ -378,11 +378,14 @@
     let videoSize      = {{ request('video_size',25) }};
     let imageSize      = {{ request('image_size',200) }};
     let videoType      = '{{ request('video_type','1') }}';
+    let focusId = {{ $focusId ?? 'null' }};
 
     $('#video-type, #sort-by, #sort-dir').on('change', function(){
         $('#controls-form').submit();
     });
-
+    if (focusId) {
+        focusVideoById(focusId);
+    }
     function refreshMasterFaces() {
         $.get("{{ route('video.loadMasterFaces') }}", {
             video_type: $('#video-type').val(),
@@ -544,10 +547,13 @@
      * -------------------------------------------------- */
     function focusMasterFace(id){
         $('.master-face-img').removeClass('focused');
-        const $t=$(`.master-face-img[data-video-id="${id}"]`).addClass('focused');
-        if(!$t.length)return;
-        const c=document.querySelector('.master-faces');
-        c.scrollTo({top:$t[0].offsetTop-c.clientHeight/2+$t[0].clientHeight/2,behavior:'smooth'});
+        const $t = $(`.master-face-img[data-video-id="${id}"]`).addClass('focused');
+        if(!$t.length) return;
+        const c = document.querySelector('.master-faces');
+        c.scrollTo({
+            top: $t[0].offsetTop - c.clientHeight/2 + $t[0].clientHeight/2,
+            behavior: 'smooth'
+        });
     }
 
     /* --------------------------------------------------
@@ -829,6 +835,15 @@
         if($max){
             $('.video-row').removeClass('focused');$max.addClass('focused');
             focusMasterFace(max);$max[0].scrollIntoView({behavior:'smooth',block:'center'});
+        }
+    }
+    function focusVideoById(vid){
+        const $target = $('.video-row[data-id="'+vid+'"]');
+        if($target.length){
+            $('.video-row').removeClass('focused');
+            $target.addClass('focused');
+            focusMasterFace(vid);
+            $target[0].scrollIntoView({behavior:'smooth',block:'center'});
         }
     }
     function updateMasterFace(face){

@@ -63,7 +63,7 @@
             return view('video.index', compact(
                 'videos','masterFaces','prevPage','nextPage','lastPage',
                 'videoType','sortBy','sortDir'
-            ));
+            ))->with('focusId', $maxIdVideo->id ?? null);
         }
 
         public function loadMore(Request $request)

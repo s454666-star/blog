@@ -283,18 +283,20 @@
             <input id="play-mode" type="range" name="play_mode" min="0" max="1" value="{{ request('play_mode','0') }}" step="1">
             <span id="play-mode-label"></span>
         </div>
+        {{-- 排序依據 --}}
         <div class="control-group">
             <label for="sort-by">排序方式：</label>
             <select id="sort-by" name="sort_by" class="form-control">
-                <option value="duration" {{ $sortBy === 'duration' ? 'selected' : '' }}>依時長</option>
-                <option value="id"       {{ $sortBy === 'id'       ? 'selected' : '' }}>依先後</option>
+                <option value="duration" {{ $sortBy==='duration' ? 'selected':'' }}>依時長</option>
+                <option value="id"       {{ $sortBy==='id'       ? 'selected':'' }}>依先後</option>
             </select>
         </div>
+        {{-- 排序方向 --}}
         <div class="control-group">
             <label for="sort-dir">排序方向：</label>
             <select id="sort-dir" name="sort_dir" class="form-control">
-                <option value="asc"  {{ $sortDir === 'asc'  ? 'selected' : '' }}>由小到大</option>
-                <option value="desc" {{ $sortDir === 'desc' ? 'selected' : '' }}>由大到小</option>
+                <option value="asc"  {{ $sortDir==='asc'  ? 'selected':'' }}>由小到大</option>
+                <option value="desc" {{ $sortDir==='desc' ? 'selected':'' }}>由大到小</option>
             </select>
         </div>
         <div class="control-group">

@@ -300,6 +300,11 @@
             </select>
         </div>
         <div class="control-group">
+            <label for="missing-only" class="mr-2">只顯示未選主面</label>
+            <input id="missing-only" type="checkbox" name="missing_only" value="1"
+                {{ $missingOnly ? 'checked' : '' }}>
+        </div>
+        <div class="control-group">
             <button id="delete-focused-btn" class="btn btn-warning" type="button">刪除聚焦的影片</button>
         </div>
     </form>
@@ -364,6 +369,7 @@
     /* --------------------------------------------------
      * 全域變數
      * -------------------------------------------------- */
+    let missingOnly   = {{ $missingOnly ? 'true' : 'false' }};
     let latestId   = {{ $latestId ?? 'null' }};
     let sortBy     = '{{ $sortBy }}';
     let sortDir    = '{{ $sortDir }}';
@@ -383,6 +389,12 @@
     let videoType      = '{{ request('video_type','1') }}';
 
     $('#video-type, #sort-by, #sort-dir').on('change', function(){
+        $('#controls-form').submit();
+    });
+
+    /* --- 只顯示未選主面切換 --- */
+    $('#missing-only').on('change', () => {            // 勾/取消就重新送出表單
+        missingOnly = this.checked;                    // 同步全域變數
         $('#controls-form').submit();
     });
 
@@ -408,78 +420,104 @@
         nextPage = max < lastPage? (max + 1) : null;
     }
 
-    function loadMoreVideos(dir='down', target=null){
-        if(loading) return;
-        if(!target){
-            if(dir==='down' && !nextPage) return;
-            if(dir==='up'   && !prevPage) return;
+    function loadMoreVideos(dir = 'down', target = null) {
+        if (loading) return;
+
+        // 沒指定 target 時，判斷是否還有上下頁
+        if (!target) {
+            if (dir === 'down' && !nextPage) return;
+            if (dir === 'up'   && !prevPage) return;
         }
+
         loading = true;
         $('#load-more').show();
 
-        const data = { video_type: videoType };
-        data.page = target ?? (dir==='down' ? nextPage : prevPage);
+        const data = {
+            video_type   : videoType,
+            missing_only : missingOnly ? 1 : 0,
+            sort_by      : sortBy,
+            sort_dir     : sortDir,
+            page         : target ?? (dir === 'down' ? nextPage : prevPage),
+        };
 
         $.ajax({
             url: "{{ route('video.loadMore') }}",
             method: 'GET',
             data,
-            success(res){
-                if(res && res.success && res.data.trim()){
+            success(res) {
+                if (res && res.success && res.data.trim()) {
                     const $temp = $('<div>').html(res.data);
-                    dir==='down'
+                    dir === 'down'
                         ? $('#videos-list').append($temp.children())
                         : $('#videos-list').prepend($temp.children());
 
-                    if(!loadedPages.includes(res.current_page))
+                    if (!loadedPages.includes(res.current_page))
                         loadedPages.push(res.current_page);
+
                     lastPage = res.last_page || lastPage;
                     rebuildAndSort();
-                }else{
-                    if(!target){
-                        dir==='down'? nextPage=null : prevPage=null;
-                    }
+                } else {
+                    if (!target) dir === 'down' ? nextPage = null : prevPage = null;
                     $('#load-more').html('<p>沒有更多資料了。</p>');
                 }
-                loading=false;$('#load-more').hide();
+                loading = false;
+                $('#load-more').hide();
             },
-            error(){
-                showMessage('error','載入失敗，請稍後再試。');
-                loading=false;$('#load-more').hide();
+            error() {
+                showMessage('error', '載入失敗，請稍後再試。');
+                loading = false;
+                $('#load-more').hide();
             }
         });
     }
 
-    function loadPageAndFocus(videoId, page){
-        if(!page){showMessage('error','找不到該影片所在的頁面。');return;}
-        loading=true;$('#load-more').show();
+    function loadPageAndFocus(videoId, page) {
+        if (!page) {
+            showMessage('error', '找不到該影片所在的頁面。');
+            return;
+        }
+
+        loading = true;
+        $('#load-more').show();
+
         $.ajax({
             url: "{{ route('video.loadMore') }}",
             method: 'GET',
-            data:{page,video_type:videoType},
-            success(res){
-                if(res && res.success && res.data.trim()){
-                    const $temp=$('<div>').html(res.data);
+            data: {
+                page,
+                video_type   : videoType,
+                missing_only : missingOnly ? 1 : 0,
+                sort_by      : sortBy,
+                sort_dir     : sortDir
+            },
+            success(res) {
+                if (res && res.success && res.data.trim()) {
+                    const $temp = $('<div>').html(res.data);
                     $('#videos-list').append($temp.children());
-                    if(!loadedPages.includes(res.current_page))
+
+                    if (!loadedPages.includes(res.current_page))
                         loadedPages.push(res.current_page);
-                    lastPage=res.last_page||lastPage;
+
+                    lastPage = res.last_page || lastPage;
                     rebuildAndSort();
-                    const $target=$('.video-row[data-id="'+videoId+'"]');
-                    if($target.length){
+
+                    const $target = $('.video-row[data-id="' + videoId + '"]');
+                    if ($target.length) {
                         $('.video-row').removeClass('focused');
                         $target.addClass('focused');
                         focusMasterFace(videoId);
-                        $target[0].scrollIntoView({behavior:'smooth',block:'center'});
+                        $target[0].scrollIntoView({behavior: 'smooth', block: 'center'});
                     }
-                }else{
-                    showMessage('error','無法載入該頁資料。');
+                } else {
+                    showMessage('error', '無法載入該頁資料。');
                 }
-                loading=false;$('#load-more').hide();
+                loading = false;
+                $('#load-more').hide();
             },
-            error(){
-                showMessage('error','載入失敗，請稍後再試。');
-                loading=false;$('#load-more').hide();
+            error() {
+                showMessage('error', '載入失敗，請稍後再試。');
+                loading = false;
+                $('#load-more').hide();
             }
         });
     }

@@ -37,7 +37,6 @@
             :root{ --vc-w: 65%; }
             .master-faces{width:var(--sidebar-pad);}   /* 左欄固定 240px */
             .container   {margin-left:var(--sidebar-pad);}  /* 內容區往右推 240px *//* ← 筆電／平板橫 */
-            .container   {margin-left:0;}
             .images-container{width:calc(100% - var(--vc-w));}
             .controls{left:0;}                   /* 讓控制列不再卡 30% */
         }
@@ -47,7 +46,6 @@
             :root{ --vc-w: 100%; }               /* ← 手機／平板直 */
             .master-faces{width:var(--sidebar-pad);}   /* 左欄固定 240px */
             .container   {margin-left:var(--sidebar-pad);}  /* 內容區往右推 240px */
-            .container   {margin-left:0;}
             .images-container{width:100%;}
             .screenshot,
             .face-screenshot{width:clamp(var(--img-min),22vw,var(--img-max));height:auto;}
@@ -184,10 +182,10 @@
             100%{background-position:200% 50%;}
         }
 
-        /* === 影片與截圖容器 === */
-        .video-container{width:var(--vc-w);padding-right:10px}
-        /* 1️⃣  用新變數算截圖區寬度 */
-        .images-container{width:calc(100% - var(--vc-w)); padding-left:10px; overflow:hidden}
+        /* 強制以 CSS 變數為準，蓋掉 JS 動的 inline-style ❶❷ */
+        .video-container{width:var(--vc-w) !important; padding-right:10px;}
+        .images-container{width:calc(100% - var(--vc-w)) !important; padding-left:10px; overflow:hidden;}
+
         .screenshot,.face-screenshot{width:100px;height:56px;object-fit:cover;margin:5px;transition:transform .3s,border .3s,box-shadow .3s}
         .face-screenshot.master{border:3px solid #f00}
 

@@ -34,11 +34,13 @@
 
         /* ---------- 769 ~ 1199 ---------- */
         @media (max-width:1199px) and (min-width:769px){
-            :root{ --vc-w: 65%; }
-            .master-faces{width:var(--sidebar-pad);}   /* 左欄固定 240px */
-            .container   {margin-left:var(--sidebar-pad);}  /* 內容區往右推 240px *//* ← 筆電／平板橫 */
-            .images-container{width:calc(100% - var(--vc-w));}
-            .controls{left:0;}                   /* 讓控制列不再卡 30% */
+            :root{ --vc-w: 35%; }          /* ★ 改成 35% ★ */
+
+            .master-faces{width:var(--sidebar-pad);}   /* 左欄 240px */
+            .container   {margin-left:var(--sidebar-pad);}  /* 內容區右移 240px */
+
+            .images-container{width:calc(100% - var(--vc-w));}  /* 剩下 65% */
+            .controls{left:0;}
         }
 
         /* ---------- ≤768 ---------- */

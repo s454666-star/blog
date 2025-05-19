@@ -300,9 +300,14 @@
             </select>
         </div>
         <div class="control-group">
-            <label for="missing-only" class="mr-2">只顯示未選主面</label>
-            <input id="missing-only" type="checkbox" name="missing_only" value="1"
-                {{ $missingOnly ? 'checked' : '' }}>
+            <label for="missing-only">未選主面:</label>
+            <input id="missing-only"
+                   type="range"
+                   name="missing_only"
+                   min="0" max="1" step="1"
+                   value="{{ $missingOnly ? 1 : 0 }}"
+                   style="width:50px;height:10px">
+            <span id="missing-only-label"></span>
         </div>
         <div class="control-group">
             <button id="delete-focused-btn" class="btn btn-warning" type="button">刪除聚焦的影片</button>
@@ -393,10 +398,17 @@
     });
 
     /* --- 只顯示未選主面切換 --- */
-    $('#missing-only').on('change', () => {            // 勾/取消就重新送出表單
-        missingOnly = this.checked;                    // 同步全域變數
-        $('#controls-form').submit();
-    });
+    $('#missing-only')
+        .on('input', function(){                // 拖動時即時顯示文字
+            missingOnly = $(this).val() === '1';
+            updateMissingOnlyLabel();
+        })
+        .on('change', function(){               // 放開滑鼠 → 重新整理
+            missingOnly = $(this).val() === '1';
+            $('#controls-form').submit();
+        });
+    /* 第一次進頁面就寫一次文字 */
+    updateMissingOnlyLabel();
 
     /* --------------------------------------------------
      * 快訊訊息
@@ -418,6 +430,11 @@
         const max = Math.max.apply(null, loadedPages);
         prevPage = min > 1       ? (min - 1) : null;
         nextPage = max < lastPage? (max + 1) : null;
+    }
+
+    /* --- 只顯示未選主面滑動開關 --- */
+    function updateMissingOnlyLabel(){
+        $('#missing-only-label').text(missingOnly ? '開' : '關');
     }
 
     function loadMoreVideos(dir = 'down', target = null) {

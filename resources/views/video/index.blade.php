@@ -383,6 +383,31 @@
         $('#controls-form').submit();
     });
 
+    function refreshMasterFaces() {
+        $.get("{{ route('video.loadMasterFaces') }}", {
+            video_type: $('#video-type').val(),
+            sort_by:    $('#sort-by').val(),
+            sort_dir:   $('#sort-dir').val()
+        }, res => {
+            if (!res.success) return;
+            const $wrap = $('.master-face-images').empty();
+            res.data.forEach(face => {
+                $wrap.append(
+                    `<img src="${face.path}"
+              class="master-face-img"
+              data-video-id="${face.video_id}"
+              data-duration="${face.duration}">`
+                );
+            });
+        });
+    }
+
+    // 頁面載入時＋每次排序選項改變時都重整
+    $(function(){
+        refreshMasterFaces();
+        $('#sort-by,#sort-dir,#video-type').on('change', refreshMasterFaces);
+    });
+
     /* --------------------------------------------------
      * 快訊訊息
      * -------------------------------------------------- */

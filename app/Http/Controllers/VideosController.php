@@ -434,31 +434,37 @@
         {
             $videoType = $request->input('video_type', '1');
 
+            // 接收排序參數
+            $sortBy  = in_array($request->input('sort_by'), ['id','duration'])
+                ? $request->input('sort_by')
+                : 'duration';
+            $sortDir = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
+
             $masterFaces = VideoFaceScreenshot::where('is_master', 1)
-                ->whereHas('videoScreenshot.videoMaster', function($query) use ($videoType) {
-                    $query->where('video_type', $videoType);
+                ->whereHas('videoScreenshot.videoMaster', function($q) use ($videoType) {
+                    $q->where('video_type', $videoType);
                 })
                 ->with('videoScreenshot.videoMaster')
                 ->get()
-                ->sortBy(function($face) {
-                    return $face->videoScreenshot->videoMaster->duration;
-                });
+                ->sortBy(
+                // 依照 sortBy 決定要拿影片的 duration 還是 id
+                    fn($face) => $sortBy === 'duration'
+                        ? (float)$face->videoScreenshot->videoMaster->duration
+                        : $face->videoScreenshot->videoMaster->id,
+                    SORT_NUMERIC,
+                    // desc => true, asc => false
+                    $sortDir === 'desc'
+                );
 
-            foreach ($masterFaces as $face) {
-                $imagePath = public_path($face->face_image_path);
-                if (file_exists($imagePath)) {
-                    list($width, $height) = getimagesize($imagePath);
-                    $face->width = $width;
-                    $face->height = $height;
-                } else {
-                    $face->width = 0;
-                    $face->height = 0;
-                }
-            }
-
+            // 回傳排序好的資料給前端
             return response()->json([
                 'success' => true,
-                'data' => $masterFaces->toArray()
+                'data'    => $masterFaces->map(fn($face) => [
+                    'id'          => $face->id,
+                    'video_id'    => $face->videoScreenshot->videoMaster->id,
+                    'path'        => config('app.video_base_url') . '/' . $face->face_image_path,
+                    'duration'    => $face->videoScreenshot->videoMaster->duration,
+                ]),
             ]);
         }
 

@@ -21,48 +21,35 @@
             --video-mob   : 100%;     /* 手機影片寬 */
             --img-min     : 80px;     /* 截圖最小 */
             --img-max     : 120px;    /* 截圖最大 */
+            --vc-w: 70%;
         }
 
-        /* ---------- 1200px ↑ ---------- */
+        /* ---------- ≥1200px ---------- */
         @media (min-width:1200px){
+            :root{ --vc-w: 70%; }                /* ← 桌機 */
             .master-faces{width:var(--sidebar-full);}
             .container    {margin-left:var(--sidebar-full);}
-            .video-container{width:var(--video-pc);}
-            .images-container{width:calc(100% - var(--video-pc));}
+            .images-container{width:calc(100% - var(--vc-w));}
         }
 
-        /* ---------- 769px ~ 1199px（一般筆電 / 平板橫） ---------- */
+        /* ---------- 769 ~ 1199 ---------- */
         @media (max-width:1199px) and (min-width:769px){
-            .master-faces{
-                position:relative;
-                width:var(--sidebar-pad);
-                height:auto;
-                border-right:none;border-bottom:1px solid #ddd;
-            }
-            .container    {margin-left:0;}
-            .video-container{width:var(--video-pad);}
-            .images-container{width:calc(100% - var(--video-pad));}
-            .master-face-images{grid-template-columns:repeat(6,1fr);}
+            :root{ --vc-w: 65%; }                /* ← 筆電／平板橫 */
+            .master-faces{ /* …原設定保留… */ }
+            .container   {margin-left:0;}
+            .images-container{width:calc(100% - var(--vc-w));}
+            .controls{left:0;}                   /* 讓控制列不再卡 30% */
         }
 
-        /* ---------- 768px 以下（手機 / 平板直） ---------- */
+        /* ---------- ≤768 ---------- */
         @media (max-width:768px){
-            .master-faces{
-                position:relative;
-                width:100%;
-                height:auto;
-                border-right:none;border-bottom:1px solid #ddd;
-            }
-            .container     {margin-left:0;}
-            .video-container{width:var(--video-mob);}
+            :root{ --vc-w: 100%; }               /* ← 手機／平板直 */
+            .master-faces{ /* …原設定保留… */ }
+            .container   {margin-left:0;}
             .images-container{width:100%;}
-            .master-face-images{grid-template-columns:repeat(6,1fr);}
-            /* 截圖 / 人臉縮圖改用彈性寬度，最小 80px 最大 120px */
             .screenshot,
-            .face-screenshot{
-                width:clamp(var(--img-min),22vw,var(--img-max));
-                height:auto;
-            }
+            .face-screenshot{width:clamp(var(--img-min),22vw,var(--img-max));height:auto;}
+            .controls{left:0;}                   /* 控制列置滿 */
         }
 
         /* === 影片列 ================================================= */
@@ -196,7 +183,7 @@
         }
 
         /* === 影片與截圖容器 === */
-        .video-container{width:var(--video-width);padding-right:10px}
+        .video-container{width:var(--vc-w);padding-right:10px}
         .images-container{width:calc(100% - var(--video-width));padding-left:10px;overflow:hidden}
         .screenshot,.face-screenshot{width:100px;height:56px;object-fit:cover;margin:5px;transition:transform .3s,border .3s,box-shadow .3s}
         .face-screenshot.master{border:3px solid #f00}

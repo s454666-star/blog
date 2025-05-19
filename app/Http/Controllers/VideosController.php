@@ -16,53 +16,79 @@ class VideosController extends Controller
     public function index(Request $request)
     {
         $videoType = $request->input('video_type', '1');
-        // 新增：讀排序參數
-        $sortBy  = in_array($request->input('sort_by'), ['id','duration'])
-            ? $request->input('sort_by')
-            : 'duration';
+
+        // ---- 讀取排序參數 ----
+        $sortBy  = in_array($request->input('sort_by'), ['id', 'duration'])
+            ? $request->input('sort_by') : 'duration';
         $sortDir = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
 
-        $perPage = 10;
-        $total   = VideoMaster::where('video_type',$videoType)->count();
-        $lastPage= (int) ceil($total/$perPage);
+        $perPage  = 10;
+        $total    = VideoMaster::where('video_type', $videoType)->count();
+        $lastPage = (int) ceil($total / $perPage);
 
-        // 計算要跳到哪頁（不變）
-        $maxIdVideo = VideoMaster::where('video_type',$videoType)
-            ->orderBy('id','desc')->first();
-        $page = $maxIdVideo
-            ? (int) ceil(
-                VideoMaster::where('video_type',$videoType)
-                    ->where('duration','<=',$maxIdVideo->duration)
-                    ->orderBy('duration','asc')
-                    ->count() / $perPage
-            )
-            : 1;
+        // ---- 找出「最新那支」影片（id 最大）----
+        $latest = VideoMaster::where('video_type', $videoType)
+            ->orderBy('id', 'desc')
+            ->first();
+        $latestId = $latest?->id;
+        $page     = 1;                                    // 預設值，資料為空時用
 
-        // 主列表套用 orderBy
+        if ($latest) {
+            switch ($sortBy) {
+                case 'id':
+                    // id 由大到小 ⇒ 最新在第 1 頁；由小到大 ⇒ 最新在最後一頁
+                    $page = $sortDir === 'desc' ? 1 : $lastPage;
+                    break;
+
+                case 'duration':
+                default:
+                    if ($sortDir === 'asc') {
+                        $position = VideoMaster::where('video_type', $videoType)
+                            ->where('duration', '<=', $latest->duration)
+                            ->count();
+                    } else { // duration desc
+                        $position = VideoMaster::where('video_type', $videoType)
+                            ->where('duration', '>=', $latest->duration)
+                            ->count();
+                    }
+                    $page = (int) ceil($position / $perPage);
+                    break;
+            }
+        }
+
+        // ---- 取出主列表 ----
         $videos = VideoMaster::with('screenshots.faceScreenshots')
-            ->where('video_type',$videoType)
-            ->orderBy($sortBy,$sortDir)
+            ->where('video_type', $videoType)
+            ->orderBy($sortBy, $sortDir)
             ->paginate($perPage, ['*'], 'page', $page);
 
-        $prevPage = $page>1        ? $page-1    : null;
-        $nextPage = $page<$lastPage? $page+1    : null;
+        $prevPage = $page > 1         ? $page - 1 : null;
+        $nextPage = $page < $lastPage ? $page + 1 : null;
 
-        // 側邊主面人臉：先 get() 再用 Collection 排序
-        $masterFaces = VideoFaceScreenshot::where('is_master',1)
-            ->whereHas('videoScreenshot.videoMaster', fn($q)=> $q->where('video_type',$videoType))
+        // ---- 主面人臉清單：照目前排序規則排 ----
+        $masterFaces = VideoFaceScreenshot::where('is_master', 1)
+            ->whereHas('videoScreenshot.videoMaster', fn ($q) =>
+            $q->where('video_type', $videoType))
             ->with('videoScreenshot.videoMaster')
             ->get()
             ->sortBy(
-                fn($face) => $sortBy === 'duration'
-                    ? (float)$face->videoScreenshot->videoMaster->duration
+                fn ($face) => $sortBy === 'duration'
+                    ? (float) $face->videoScreenshot->videoMaster->duration
                     : $face->videoScreenshot->videoMaster->id,
                 SORT_NUMERIC,
                 $sortDir === 'desc'
             );
 
         return view('video.index', compact(
-            'videos','masterFaces','prevPage','nextPage','lastPage',
-            'videoType','sortBy','sortDir'
+            'videos',
+            'masterFaces',
+            'prevPage',
+            'nextPage',
+            'lastPage',
+            'videoType',
+            'sortBy',
+            'sortDir',
+            'latestId'
         ));
     }
 

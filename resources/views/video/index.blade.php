@@ -364,6 +364,9 @@
     /* --------------------------------------------------
      * 全域變數
      * -------------------------------------------------- */
+    let latestId   = {{ $latestId ?? 'null' }};
+    let sortBy     = '{{ $sortBy }}';
+    let sortDir    = '{{ $sortDir }}';
     let lastPage       = {{ $lastPage ?? 1 }};
     let loadedPages    = [{{ $videos->currentPage() }}];
     let nextPage       = {{ $next_page ?? 'null' }};
@@ -482,13 +485,19 @@
     }
 
     function rebuildAndSort(){
-        const rows = $('.video-row').get().sort((a,b)=>+$(a).data('duration')-+$(b).data('duration'));
+        const rows = $('.video-row').get().sort((a, b) => {
+            const valA = sortBy === 'duration' ? +$(a).data('duration') : +$(a).data('id');
+            const valB = sortBy === 'duration' ? +$(b).data('duration') : +$(b).data('id');
+            return sortDir === 'asc' ? (valA - valB) : (valB - valA);
+        });
         $('#videos-list').empty().append(rows);
+
         buildVideoList();
         applySizes();
         recalcPages();
-        const $f=$('.video-row.focused').first();
-        if($f.length)setTimeout(()=>{$f[0].scrollIntoView({behavior:'smooth',block:'center'});},0);
+
+        // 排好之後再次確保聚焦
+        focusMaxId();
         watchFocusedRow();
     }
 
@@ -795,17 +804,28 @@
     listRO.observe(document.getElementById('videos-list'));
 
     /* --------------------------------------------------
-     * 其他輔助
+     * 永遠聚焦最新 id 的那支影片
      * -------------------------------------------------- */
     function focusMaxId(){
-        const $rows=$('.video-row');if(!$rows.length)return;
-        let $max=null,max=-Infinity;
-        $rows.each(function(){const id=parseInt($(this).data('id'),10);if(id>max){max=id;$max=$(this);}});
-        if($max){
-            $('.video-row').removeClass('focused');$max.addClass('focused');
-            focusMasterFace(max);$max[0].scrollIntoView({behavior:'smooth',block:'center'});
+        if (latestId === null) return;
+
+        const $target = $('.video-row[data-id="' + latestId + '"]');
+
+        if ($target.length) {
+            $('.video-row').removeClass('focused');
+            $target.addClass('focused');
+            focusMasterFace(latestId);
+            $target[0].scrollIntoView({behavior: 'smooth', block: 'center'});
+        } else {
+            // 這一頁沒有 → 動態查詢它在第幾頁，載進來再聚焦
+            $.get("{{ route('video.findPage') }}", {video_id: latestId, video_type: videoType}, res => {
+                if (res?.success && res.page) {
+                    loadPageAndFocus(latestId, res.page);
+                }
+            });
         }
     }
+
     function updateMasterFace(face){
         const ori=(face.width&&face.height&&parseInt(face.width)>=parseInt(face.height))?'landscape':'';
         const vid=face.video_screenshot.video_master.id;

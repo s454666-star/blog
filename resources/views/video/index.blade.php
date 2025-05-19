@@ -34,8 +34,9 @@
 
         /* ---------- 769 ~ 1199 ---------- */
         @media (max-width:1199px) and (min-width:769px){
-            :root{ --vc-w: 65%; }                /* ← 筆電／平板橫 */
-            .master-faces{ /* …原設定保留… */ }
+            :root{ --vc-w: 65%; }
+            .master-faces{width:var(--sidebar-pad);}   /* 左欄固定 240px */
+            .container   {margin-left:var(--sidebar-pad);}  /* 內容區往右推 240px *//* ← 筆電／平板橫 */
             .container   {margin-left:0;}
             .images-container{width:calc(100% - var(--vc-w));}
             .controls{left:0;}                   /* 讓控制列不再卡 30% */
@@ -44,7 +45,8 @@
         /* ---------- ≤768 ---------- */
         @media (max-width:768px){
             :root{ --vc-w: 100%; }               /* ← 手機／平板直 */
-            .master-faces{ /* …原設定保留… */ }
+            .master-faces{width:var(--sidebar-pad);}   /* 左欄固定 240px */
+            .container   {margin-left:var(--sidebar-pad);}  /* 內容區往右推 240px */
             .container   {margin-left:0;}
             .images-container{width:100%;}
             .screenshot,

@@ -24,11 +24,11 @@
             --vc-w: 70%;
         }
 
-        /* ---------- ≥1200px ---------- */
+        /*  在 ≥1200px 時再設定正確 margin */
         @media (min-width:1200px){
-            :root{ --vc-w: 70%; }                /* ← 桌機 */
+            :root{ --vc-w:70%; }
             .master-faces{width:var(--sidebar-full);}
-            .container    {margin-left:var(--sidebar-full);}
+            .container   {margin-left:var(--sidebar-full);}   /* ← 這行已存在，確定保留 */
             .images-container{width:calc(100% - var(--vc-w));}
         }
 
@@ -184,7 +184,8 @@
 
         /* === 影片與截圖容器 === */
         .video-container{width:var(--vc-w);padding-right:10px}
-        .images-container{width:calc(100% - var(--video-width));padding-left:10px;overflow:hidden}
+        /* 1️⃣  用新變數算截圖區寬度 */
+        .images-container{width:calc(100% - var(--vc-w)); padding-left:10px; overflow:hidden}
         .screenshot,.face-screenshot{width:100px;height:56px;object-fit:cover;margin:5px;transition:transform .3s,border .3s,box-shadow .3s}
         .face-screenshot.master{border:3px solid #f00}
 
@@ -216,8 +217,8 @@
         .master-face-img:hover{border-color:#007bff;transform:scale(1.05)}
         .master-face-img.focused{border-color:#28a745;box-shadow:0 0 15px rgba(40,167,69,.7);transform:scale(1.1)}
 
-        /* === 主要內容區 === */
-        .container{margin-left:30%;padding-top:20px;padding-bottom:80px}
+        /* 2️⃣  取消全域 30% 邊距，讓 media-query 真能接管 */
+        .container{margin-left:0; padding-top:20px; padding-bottom:80px}
 
         /* === 快訊訊息 === */
         .message-container{position:fixed;top:20px;right:20px;z-index:3000}

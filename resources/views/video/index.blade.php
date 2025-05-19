@@ -11,48 +11,7 @@
     <!-- ===== 樣式 (依功能分區) ===== -->
     <style>
 
-        /* ========== 全域尺寸變數 ========== */
-        :root{
-            --video-width : 70%;      /* 舊的依然保留 */
-            --sidebar-full: 22vw;     /* ≥1200px 左欄寬 */
-            --sidebar-pad : 240px;    /* 1199~769 左欄寬 */
-            --video-pc    : 70%;      /* 桌機影片寬 */
-            --video-pad   : 65%;      /* 平板影片寬 */
-            --video-mob   : 100%;     /* 手機影片寬 */
-            --img-min     : 80px;     /* 截圖最小 */
-            --img-max     : 120px;    /* 截圖最大 */
-            --vc-w: 70%;
-        }
-
-        /*  在 ≥1200px 時再設定正確 margin */
-        @media (min-width:2560px){
-            :root{ --vc-w:35%; }
-            .master-faces{width:var(--sidebar-full);}
-            .container   {margin-left:var(--sidebar-full);}   /* ← 這行已存在，確定保留 */
-            .images-container{width:calc(100% - var(--vc-w));}
-        }
-
-        /* ---------- 769 ~ 1199 ---------- */
-        @media (min-width:1200px) and (max-width:2559px){
-            :root{ --vc-w: 35%; }          /* ★ 改成 35% ★ */
-
-            .master-faces{width:var(--sidebar-pad);}   /* 左欄 240px */
-            .container   {margin-left:var(--sidebar-pad);}  /* 內容區右移 240px */
-
-            .images-container{width:calc(100% - var(--vc-w));}  /* 剩下 65% */
-            .controls{left:0;}
-        }
-
-        /* ---------- ≤768 ---------- */
-        @media (max-width:768px){
-            :root{ --vc-w: 100%; }               /* ← 手機／平板直 */
-            .master-faces{width:var(--sidebar-pad);}   /* 左欄固定 240px */
-            .container   {margin-left:var(--sidebar-pad);}  /* 內容區往右推 240px */
-            .images-container{width:100%;}
-            .screenshot,
-            .face-screenshot{width:clamp(var(--img-min),22vw,var(--img-max));height:auto;}
-            .controls{left:0;}                   /* 控制列置滿 */
-        }
+        :root{ --video-width:70%; }
 
         /* === 影片列 ================================================= */
         .video-row{display:flex;margin-bottom:20px;border:1px solid #ddd;padding:10px;border-radius:5px;cursor:pointer;user-select:none;transition:background-color .3s,border-color .3s;position:relative;box-sizing:border-box}
@@ -184,10 +143,9 @@
             100%{background-position:200% 50%;}
         }
 
-        /* 強制以 CSS 變數為準，蓋掉 JS 動的 inline-style ❶❷ */
-        .video-container{width:var(--vc-w) !important; padding-right:10px;}
-        .images-container{width:calc(100% - var(--vc-w)) !important; padding-left:10px; overflow:hidden;}
-
+        /* === 影片與截圖容器 === */
+        .video-container{width:var(--video-width);padding-right:10px}
+        .images-container{width:calc(100% - var(--video-width));padding-left:10px;overflow:hidden}
         .screenshot,.face-screenshot{width:100px;height:56px;object-fit:cover;margin:5px;transition:transform .3s,border .3s,box-shadow .3s}
         .face-screenshot.master{border:3px solid #f00}
 
@@ -219,8 +177,8 @@
         .master-face-img:hover{border-color:#007bff;transform:scale(1.05)}
         .master-face-img.focused{border-color:#28a745;box-shadow:0 0 15px rgba(40,167,69,.7);transform:scale(1.1)}
 
-        /* 2️⃣  取消全域 30% 邊距，讓 media-query 真能接管 */
-        .container{margin-left:0; padding-top:20px; padding-bottom:80px}
+        /* === 主要內容區 === */
+        .container{margin-left:30%;padding-top:20px;padding-bottom:80px}
 
         /* === 快訊訊息 === */
         .message-container{position:fixed;top:20px;right:20px;z-index:3000}

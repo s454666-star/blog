@@ -144,9 +144,14 @@ class VideosController extends Controller
 
     public function findPage(Request $request)
     {
-        $videoId = $request->input('video_id');
-        $videoType = $request->input('video_type', '1');
+        $videoId     = $request->input('video_id');
+        $videoType   = $request->input('video_type', '1');
+        $missingOnly = $request->boolean('missing_only', false);
+        $sortBy      = $this->parseSortBy($request->input('sort_by', 'duration'));
+        $sortDir     = $this->parseSortDir($request->input('sort_dir', 'asc'));
+        $perPage     = 10;
 
+        /* ---- 目標影片 ---- */
         $video = VideoMaster::where('id', $videoId)
             ->where('video_type', $videoType)
             ->first();
@@ -158,17 +163,33 @@ class VideosController extends Controller
             ], 404);
         }
 
-        $position = VideoMaster::where('video_type', $videoType)
-            ->where('duration', '<=', $video->duration)
-            ->orderBy('duration', 'asc')
-            ->count();
+        /* ---- 建立基礎查詢（與列表一致） ---- */
+        $baseQuery = VideoMaster::where('video_type', $videoType);
+        if ($missingOnly) {
+            $baseQuery->whereDoesntHave('masterFaces');
+        }
 
-        $perPage = 10;
-        $page = ceil($position / $perPage);
+        /* ---- 計算位置 ---- */
+        switch ($sortBy) {
+            case 'id':
+                $position = ($sortDir === 'asc')
+                    ? (clone $baseQuery)->where('id', '<=', $video->id)->count()
+                    : (clone $baseQuery)->where('id', '>=', $video->id)->count();
+                break;
+
+            case 'duration':
+            default:
+                $position = ($sortDir === 'asc')
+                    ? (clone $baseQuery)->where('duration', '<=', $video->duration)->count()
+                    : (clone $baseQuery)->where('duration', '>=', $video->duration)->count();
+                break;
+        }
+
+        $page = (int) ceil($position / $perPage);
 
         return response()->json([
             'success' => true,
-            'page' => $page,
+            'page'    => $page,
         ]);
     }
 

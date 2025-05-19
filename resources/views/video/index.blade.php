@@ -812,19 +812,35 @@
         $(document).on('dblclick','.face-screenshot',function(e){e.stopPropagation();setMaster($(this).data('id'),$(this).data('video-id'));});
         $(document).on('click','.set-master-btn',function(e){e.stopPropagation();setMaster($(this).data('id'),$(this).data('video-id'));});
 
-        /* --- 主面人臉側欄 → 聚焦影片 --- */
-        $(document).on('click','.master-face-img',function(){
-            const vid=$(this).data('video-id');
-            const $row=$('.video-row[data-id="'+vid+'"]');
-            if($row.length){
-                $('.video-row').removeClass('focused');$row.addClass('focused');
-                focusMasterFace(vid);$row[0].scrollIntoView({behavior:'smooth',block:'center'});
-            }else{
-                $.get("{{ route('video.findPage') }}",{video_id:vid,video_type:videoType},res=>{
-                    res&&res.success&&res.page?loadPageAndFocus(vid,res.page)
-                        :showMessage('error','找不到該影片所在的頁面。');
-                }).fail(()=>showMessage('error','查詢失敗，請稍後再試。'));
+        /* ------------------ 左欄主面人臉 → 聚焦影片 ------------------ */
+        $(document).off('click', '.master-face-img');     // 先解除舊綁定，避免重複
+        $(document).on('click', '.master-face-img', function () {
+            const vid = $(this).data('video-id');
+
+            /* 1. 試著找目前頁是否已有影片 */
+            const $row = $('.video-row[data-id="' + vid + '"]');
+            if ($row.length) {
+                $('.video-row').removeClass('focused');
+                $row.addClass('focused');
+                focusMasterFace(vid);
+                $row[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return;
             }
+
+            /* 2. 不在目前頁 → 先查頁碼，再載入並聚焦 */
+            $.get("{{ route('video.findPage') }}", {
+                video_id:    vid,
+                video_type:  videoType,
+                missing_only: missingOnly ? 1 : 0,   // ⭐ 加上缺主面篩選
+                sort_by:     sortBy,                 // ⭐ 加上排序依據
+                sort_dir:    sortDir                 // ⭐ 加上排序方向
+            }, res => {
+                if (res?.success && res.page) {
+                    loadPageAndFocus(vid, res.page);
+                } else {
+                    showMessage('error', '找不到該影片所在的頁面。');
+                }
+            }).fail(() => showMessage('error', '查詢失敗，請稍後再試。'));
         });
 
         /* --- 監聽排列拖曳 --- */

@@ -214,10 +214,64 @@
 
         /* === Bootstrap Container 寬度上限調整 (大螢幕) === */
         @media(min-width:1200px){.container,.container-lg,.container-md,.container-sm,.container-xl{max-width:1750px}}
+
+        /* === 主面人臉側欄開關動畫 =========================== */
+        .master-faces{
+            transition:transform .45s ease-in-out;          /* 滑動動畫 */
+        }
+        .master-faces.collapsed{
+            transform:translateX(-100%);                    /* 完全藏到左側 */
+        }
+
+        /* 內容區跟隨位移 — 直接用 margin-left 讓內容補齊全幅 */
+        .container{
+            transition:margin-left .45s ease-in-out;
+        }
+        .container.expanded{  /* 側欄展開時維持舊 30% 邊距 */
+            margin-left:30%;
+        }
+
+        /* 開關鈕本身：只控制 X，Y 由 JS 寫入 inline-style */
+        #toggle-master-faces{
+            position:fixed;
+            left:0;
+            transform:translateX(-50%);
+            z-index:1100;
+            width:38px;height:38px;border-radius:50%;
+            border:none;background:#007bff;color:#fff;
+            font-size:20px;line-height:38px;text-align:center;
+            cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);
+            transition:transform .45s ease-in-out, opacity .3s;
+        }
+
+        /* 展開狀態（JS 會套 .inside）— 直接把鈕推到側欄內右緣 */
+        #toggle-master-faces.inside{
+            transform:translateX(calc(260px - 50%)) rotate(180deg);
+            opacity:.6;
+        }
+
+        #toggle-master-faces.hide{                      /* 展開時縮進側欄 */
+            opacity:.6;
+            transform:translate(calc(-50% + 260px),0) rotate(180deg);
+        }
+        .controls{
+            position:fixed;
+            bottom:0;
+            transition:left .45s ease-in-out;           /* 新增動畫 */
+        }
+        .controls.expanded{left:30%;}                   /* 側欄展開維持舊位置 */
+
+        /* ---------- 讓預設寬度變 100%，只有 .expanded 時才 30% ---------- */
+        .container{ margin-left:0!important; }      /* 收合時占滿 */
+        .controls { left:0!important; }             /* 收合時貼左 */
+
+        .container.expanded{ margin-left:30% !important; }
+        .controls.expanded{ left:30% !important; }
     </style>
 </head>
 <body>
-
+<!-- === 主面人臉開關按鈕 === -->
+<button id="toggle-master-faces" title="展開 / 收合主面人臉">☰</button>
 <!-- ===== 主面人臉側欄 ===== -->
 <div class="master-faces">
     <h5>主面人臉</h5>
@@ -850,6 +904,48 @@
 
         /* --- 初始建構 --- */
         buildVideoList();applySizes();focusMaxId();
+
+        /* ----------- 主面人臉側欄開關 ----------- */
+        const $btnToggle = $('#toggle-master-faces');
+        const $sidebar   = $('.master-faces');
+        const $content   = $('.container');
+        const $controls  = $('.controls');
+
+        function updateToggleState(collapsed){
+            if(collapsed){
+                $sidebar.addClass('collapsed');
+                $content.removeClass('expanded');
+                $controls.removeClass('expanded');
+                updateBtnPos(true);
+                $btnToggle.html('☰');
+            }else{
+                $sidebar.removeClass('collapsed');
+                $content.addClass('expanded');
+                $controls.addClass('expanded');
+                updateBtnPos(false);
+                $btnToggle.html('❮');
+            }
+        }
+
+        // 預設展開（You can set collapsed=true if you want）
+        let collapsed = false;
+        updateToggleState(collapsed);
+
+        $btnToggle.on('click', ()=> {
+            collapsed = !collapsed;
+            updateToggleState(collapsed);
+        });
+
+        /* ------- ① 進頁面就把鈕頂到 h5 標題同高 ------- */
+        const headerTop = $('.master-faces h5').offset().top;   // 與視窗頂端距離
+        $('#toggle-master-faces').css('top', headerTop + 'px');
+
+        /* ------- ② 監聽側欄開關，控制 .inside class ------- */
+        // const $btnToggle = $('#toggle-master-faces');
+        function updateBtnPos(collapsed){
+            collapsed ? $btnToggle.removeClass('inside')
+                : $btnToggle.addClass('inside');
+        }
     });
 
     /* --------------------------------------------------

@@ -315,7 +315,8 @@
 
 <!-- ===== 底部控制列 ===== -->
 <div class="controls">
-    <form id="controls-form" class="d-flex flex-wrap w-100">
+    <form id="controls-form" class="d-flex flex-wrap w-100" method="GET">
+        <input type="hidden" id="focus-id" name="focus_id" value="{{ $focusId }}">
         <div class="control-group">
             <label for="video-size">影片大小:</label>
             <input id="video-size" type="range" name="video_size" min="10" max="50" value="{{ request('video_size',25) }}">
@@ -447,8 +448,10 @@
     let imageSize      = {{ request('image_size',200) }};
     let videoType      = '{{ request('video_type','1') }}';
 
+    let initialFocusId = {{ $focusId ?? 'null' }};
+
     $('#video-type, #sort-by, #sort-dir').on('change', function(){
-        $('#controls-form').submit();
+        setTimeout(() => $('#controls-form').trigger('submit'), 0);
     });
 
     /* --- 只顯示未選主面切換 --- */
@@ -509,6 +512,7 @@
             sort_by      : sortBy,
             sort_dir     : sortDir,
             page         : target ?? (dir === 'down' ? nextPage : prevPage),
+            focus_id     : $('#focus-id').val()
         };
 
         $.ajax({
@@ -559,7 +563,8 @@
                 video_type   : videoType,
                 missing_only : missingOnly ? 1 : 0,
                 sort_by      : sortBy,
-                sort_dir     : sortDir
+                sort_dir     : sortDir,
+                focus_id     : $('#focus-id').val()
             },
             success(res) {
                 if (res && res.success && res.data.trim()) {
@@ -594,19 +599,26 @@
     }
 
     function rebuildAndSort(){
+        const currentId = $('.video-row.focused').data('id') || null;
         const rows = $('.video-row').get().sort((a, b) => {
             const valA = sortBy === 'duration' ? +$(a).data('duration') : +$(a).data('id');
             const valB = sortBy === 'duration' ? +$(b).data('duration') : +$(b).data('id');
             return sortDir === 'asc' ? (valA - valB) : (valB - valA);
         });
         $('#videos-list').empty().append(rows);
-
         buildVideoList();
         applySizes();
         recalcPages();
 
-        // 排好之後再次確保聚焦
-        focusMaxId();
+        if (currentId){                                                // ★ 回復焦點
+            const $t = $('.video-row[data-id="'+currentId+'"]');
+            if ($t.length){
+                $('.video-row').removeClass('focused');
+                $t.addClass('focused');
+                focusMasterFace(currentId);
+            }
+            $('#focus-id').val(currentId);
+        }
         watchFocusedRow();
     }
 
@@ -723,8 +735,13 @@
 
         /* --- 影片列點擊 --- */
         $(document).on('click','.video-row',function(){
-            $('.video-row').removeClass('focused');$(this).addClass('focused');const id=$(this).data('id');
-            focusMasterFace(id);this.scrollIntoView({behavior:'smooth',block:'center'});
+            $('.video-row').removeClass('focused');
+            $(this).addClass('focused');
+            const id = $(this).data('id');
+
+            $('#focus-id').val(id);                 // ★ 新增：送出表單時帶上
+            focusMasterFace(id);
+            this.scrollIntoView({behavior:'smooth',block:'center'});
         });
 
         /* --- Hover 放大截圖 --- */
@@ -903,7 +920,7 @@
         }).disableSelection();
 
         /* --- 初始建構 --- */
-        buildVideoList();applySizes();focusMaxId();
+        buildVideoList();applySizes();focusInitial();
 
         /* ----------- 主面人臉側欄開關 ----------- */
         const $btnToggle = $('#toggle-master-faces');
@@ -946,6 +963,14 @@
             collapsed ? $btnToggle.removeClass('inside')
                 : $btnToggle.addClass('inside');
         }
+
+        /* --------------------------------------------------
+         * 確保送出前寫入 focus-id
+         * -------------------------------------------------- */
+        $('#controls-form').on('submit', function () {
+            const fid = $('.video-row.focused').data('id') || '';
+            $('#focus-id').val(fid);          // ← 送出表單前最後覆寫
+        });
     });
 
     /* --------------------------------------------------
@@ -991,6 +1016,21 @@
                 }
             });
         }
+    }
+
+    function focusInitial(){
+        const targetId = (initialFocusId !== null) ? initialFocusId : latestId;
+        if (targetId === null) return;
+
+        const $t = $('.video-row[data-id="'+targetId+'"]');
+        if ($t.length){
+            $('.video-row').removeClass('focused');
+            $t.addClass('focused');
+            focusMasterFace(targetId);
+            $t[0].scrollIntoView({behavior:'smooth',block:'center'});
+        }
+        // 用完即丟，避免之後 rebuild 又蓋掉使用者手動選擇
+        initialFocusId = null;                                     // ★ 新增
     }
 
     function updateMasterFace(face){

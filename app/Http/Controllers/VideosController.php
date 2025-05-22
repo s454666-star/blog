@@ -22,7 +22,7 @@ class VideosController extends Controller
             ? $request->input('sort_by') : 'duration';
         $sortDir      = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
         $perPage      = 10;
-
+        $focusId     = $request->input('focus_id');
         /* ---------- 建立基礎查詢 ---------- */
         $baseQuery = VideoMaster::where('video_type', $videoType);
         if ($missingOnly) {
@@ -37,7 +37,28 @@ class VideosController extends Controller
         $latestId = $latest?->id;
         $page     = 1;
 
-        if ($latest) {
+        if ($focusId) {                                      // ★ 若使用者指定焦點
+            $video = (clone $baseQuery)->where('id', $focusId)->first();
+
+            if ($video) {
+                switch ($sortBy) {
+                    case 'id':
+                        $position = ($sortDir === 'asc')
+                            ? (clone $baseQuery)->where('id', '<=', $video->id)->count()
+                            : (clone $baseQuery)->where('id', '>=', $video->id)->count();
+                        break;
+
+                    case 'duration':
+                    default:
+                        $position = ($sortDir === 'asc')
+                            ? (clone $baseQuery)->where('duration', '<=', $video->duration)->count()
+                            : (clone $baseQuery)->where('duration', '>=', $video->duration)->count();
+                        break;
+                }
+                $page = (int) ceil($position / $perPage);
+            }
+        }
+        else if ($latest) {
             switch ($sortBy) {
 
                 case 'id':
@@ -88,7 +109,8 @@ class VideosController extends Controller
             'videos', 'masterFaces',
             'prevPage', 'nextPage', 'lastPage',
             'videoType', 'sortBy', 'sortDir',
-            'latestId', 'missingOnly'                           // <── 傳到前端
+            'latestId', 'missingOnly',
+            'focusId'
         ));
     }
 

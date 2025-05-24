@@ -50,7 +50,7 @@
 
                 $data = json_decode($response->getBody()->getContents(), true);
                 if (!empty($data['ok'])) {
-                    $this->info('Successfully set bot commands: ' . $data['description'] ?? '');
+                    $this->info('Successfully set bot commands: ' . json_encode($data));
                     return self::SUCCESS;
                 }
 

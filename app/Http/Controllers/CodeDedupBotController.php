@@ -22,7 +22,7 @@
         {
             $update = $request->all();
 
-            // 只處理有文字的訊息
+            // 只處理文字
             if (empty($update['message']['text'])) {
                 return response('ok', 200);
             }
@@ -53,54 +53,60 @@
                 return response('ok', 200);
             }
 
-            // 2. 去除所有中文，並根據指定正則提取代碼
+            // 2. 去除中文並提取所有符合規則的代碼
             $cleanText = preg_replace('/[\p{Han}]+/u', '', $text);
             $pattern = '/
-            (?:                                    # 第一大群：有前綴
-                @?filepan_bot:                     #   @filepan_bot: 或 filepan_bot:
-              | link:\s*                           #   link:
-              | (?:vi_|pk_|p_|d_|showfilesbot_|    #   vi_、pk_、p_、d_、showfilesbot_
-                   [vVpPdD]_|                     #   V_、P_、D_ 前綴
+            (?:                                    # 有前綴
+                @?filepan_bot:
+              | link:\s*
+              | (?:vi_|pk_|p_|d_|showfilesbot_|
+                   [vVpPdD]_|
                    [vVpPdD]_datapanbot_)
             )
-            [A-Za-z0-9_+\-]+                       # 主體：英數、底線、+、-
-            (?:=_grp|=_mda)?                       # 可選後綴
+            [A-Za-z0-9_+\-]+
+            (?:=_grp|=_mda)?
           |
-            \b                                     # 第二大群：無前綴
-            [A-Za-z0-9_+\-]+                       # 主體：英數、底線、+、-
-            (?:=_grp|=_mda)                        # 必須有 =_grp 或 =_mda
+            \b
+            [A-Za-z0-9_+\-]+
+            (?:=_grp|=_mda)
             \b
         /xu';
             preg_match_all($pattern, $cleanText, $matches);
             $codes = array_unique($matches[0] ?? []);
 
-            // 3. 如果沒有任何符合的代碼就直接忽略
+            // 若抽取後沒有任何代碼，則不回覆
             if (empty($codes)) {
                 return response('ok', 200);
             }
 
-            // 4. 逐一檢查並處理每個代碼
-            foreach ($codes as $code) {
-                $existing = DB::table('dialogues')
-                    ->where('chat_id', $chatId)
-                    ->where('text', $code)
-                    ->first();
+            // 3. 查出已存在的代碼
+            $existing = DB::table('dialogues')
+                ->where('chat_id', $chatId)
+                ->whereIn('text', $codes)
+                ->pluck('text')
+                ->all();
 
-                if ($existing) {
-                    $firstTime = date('Y-m-d H:i:s', strtotime($existing->created_at));
-                    $reply = "❗️ 重複代碼偵測：您在 {$firstTime} 已經提供過：\n“{$code}”";
-                    $this->sendMessage($chatId, $reply);
-                } else {
-                    // 回送代碼並存入資料庫
-                    $this->sendMessage($chatId, $code);
-                    DB::table('dialogues')->insert([
-                        'chat_id'    => $chatId,
-                        'message_id' => $msgId,
-                        'text'       => $code,
-                        'created_at' => now(),
-                    ]);
-                }
+            // 4. 計算新代碼
+            $newCodes = array_values(array_diff($codes, $existing));
+
+            // 若沒有新代碼，也不回覆
+            if (empty($newCodes)) {
+                return response('ok', 200);
             }
+
+            // 5. 逐筆存入資料庫
+            foreach ($newCodes as $code) {
+                DB::table('dialogues')->insert([
+                    'chat_id'    => $chatId,
+                    'message_id' => $msgId,
+                    'text'       => $code,
+                    'created_at' => now(),
+                ]);
+            }
+
+            // 6. 一次性回覆所有新代碼
+            $reply = "🔍 已擷取到以下新代碼：\n" . implode("\n", $newCodes);
+            $this->sendMessage($chatId, $reply);
 
             return response('ok', 200);
         }

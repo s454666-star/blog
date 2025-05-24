@@ -9,7 +9,7 @@
     class CodeDedupBotController extends Controller
     {
         // /start 分頁每頁筆數
-        protected int $historyPerPage = 100;
+        protected int $historyPerPage = 50;
 
         protected string $apiUrl;
         protected Client $http;

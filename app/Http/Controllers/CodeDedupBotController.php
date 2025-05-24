@@ -10,7 +10,7 @@
 
     class CodeDedupBotController extends Controller
     {
-        /** Telegram 文字上限（官方固定 4 096） */
+        /** Telegram 文字上限（UTF-8 4096 byte） */
         private const MAX_MESSAGE_BYTES = 4096;
 
         protected string $apiUrl;
@@ -18,7 +18,7 @@
 
         public function __construct()
         {
-            $token      = config('telegram.bot_token');   // 移到 .env
+            $token       = config('telegram.bot_token');      // 請將 TELEGRAM_BOT_TOKEN 放在 .env
             $this->apiUrl = "https://api.telegram.org/bot{$token}/";
             $this->http   = new Client(['base_uri' => $this->apiUrl]);
         }
@@ -32,7 +32,7 @@
                 return $this->handleCallback($update['callback_query']);
             }
 
-            /* ---------- 2. 只處理文字訊息 ---------- */
+            /* ---------- 2. 僅處理文字訊息 ---------- */
             if (empty($update['message']['text'])) {
                 return response('ok', 200);
             }
@@ -55,7 +55,7 @@
         /* ===== callback_query ===== */
         private function handleCallback(array $cb)
         {
-            // 立即結束 loading
+            // 結束 loading
             $this->safeRequest('answerCallbackQuery', [
                 'callback_query_id' => $cb['id'],
             ]);
@@ -65,18 +65,18 @@
                 return response('ok', 200);
             }
 
-            $chatId    = $cb['message']['chat']['id'];
-            $messageId = $cb['message']['message_id'];
+            $chatId   = $cb['message']['chat']['id'];
+            $pageNum  = max(1, (int)$page);
 
             $allCodes = $this->getAllCodes($chatId);
             $pages    = $this->chunkByBytes($allCodes);
-            $pageIdx  = max(1, min(count($pages), (int)$page)) - 1;
+            $pageIdx  = min(count($pages), $pageNum) - 1;
 
-            $this->safeRequest('editMessageText', [
+            // 以新訊息方式送出，保留第一頁
+            $this->safeRequest('sendMessage', [
                 'chat_id'      => $chatId,
-                'message_id'   => $messageId,
                 'text'         => $pages[$pageIdx],
-                'reply_markup' => $this->buildHistoryKeyboard(count($pages)),
+                'reply_markup' => $this->buildHistoryKeyboard(count($pages), $pageNum),
             ]);
 
             return response('ok', 200);
@@ -100,14 +100,14 @@
                 $this->safeRequest('sendMessage', [
                     'chat_id'      => $chatId,
                     'text'         => $first,
-                    'reply_markup' => $this->buildHistoryKeyboard(count($pages)),
+                    'reply_markup' => $this->buildHistoryKeyboard(count($pages), 1),
                 ]);
             }
 
             return response('ok', 200);
         }
 
-        /* ===== 抽出、去重並存入 DB ===== */
+        /* ===== 抽出並去重 ===== */
         private function extractAndStoreCodes(int $chatId, int $msgId, string $text): void
         {
             // 去中文
@@ -148,7 +148,7 @@
                 ]);
             }
 
-            // 一次回覆新碼
+            // 回覆新碼
             $this->sendMessage($chatId, implode("\n", $new));
         }
 
@@ -162,14 +162,13 @@
                 ->all();
         }
 
-        /** 依「字節數」(UTF-8) 分頁，確保每頁 < 4 096 bytes */
+        /** 依 byte 分頁，確保 < 4096 bytes */
         private function chunkByBytes(array $codes): array
         {
             $pages  = [];
             $buffer = '';
 
             foreach ($codes as $code) {
-                // +1 為換行
                 $line = $code . "\n";
                 if (strlen($buffer) + strlen($line) > self::MAX_MESSAGE_BYTES) {
                     $pages[] = rtrim($buffer);
@@ -194,17 +193,18 @@
             ]);
         }
 
-        /** 建立分頁按鈕 */
-        private function buildHistoryKeyboard(int $totalPages): array
+        /** 建立分頁按鈕（當前頁以「🔘」標示） */
+        private function buildHistoryKeyboard(int $totalPages, int $currentPage = 1): array
         {
             $btns = [];
             for ($i = 1; $i <= $totalPages; $i++) {
-                $btns[] = ['text' => (string)$i, 'callback_data' => "history:$i"];
+                $label = $i === $currentPage ? "🔘{$i}" : (string)$i;
+                $btns[] = ['text' => $label, 'callback_data' => "history:$i"];
             }
             return ['inline_keyboard' => array_chunk($btns, 10)];
         }
 
-        /** 封裝 Telegram API 呼叫並捕捉錯誤 */
+        /** 封裝 Telegram API 呼叫 */
         private function safeRequest(string $method, array $payload): void
         {
             try {

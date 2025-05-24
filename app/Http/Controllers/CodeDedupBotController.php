@@ -4,7 +4,6 @@
 
     use Illuminate\Http\Request;
     use Illuminate\Support\Facades\DB;
-    use Illuminate\Support\Facades\Cache;
     use GuzzleHttp\Client;
 
     class CodeDedupBotController extends Controller
@@ -14,7 +13,7 @@
 
         public function __construct()
         {
-            $token       = config('telegram.bot_token', '7921552608:AAGsjaUR6huZaCpH9SBARpi5_cQ0LiUwEiQ');
+            $token       = '7921552608:AAGsjaUR6huZaCpH9SBARpi5_cQ0LiUwEiQ';
             $this->apiUrl = "https://api.telegram.org/bot{$token}/";
             $this->http   = new Client(['base_uri' => $this->apiUrl]);
         }
@@ -32,7 +31,7 @@
             $text   = trim($update['message']['text']);
             $msgId  = $update['message']['message_id'];
 
-            // 1. /start：顯示歷史代碼
+            // 1. /start：列出最近 20 筆「代碼」歷史
             if ($text === '/start') {
                 $rows = DB::table('dialogues')
                     ->where('chat_id', $chatId)
@@ -41,18 +40,20 @@
                     ->get(['text', 'created_at']);
 
                 if ($rows->isEmpty()) {
-                    $this->sendMessage($chatId, "目前還沒有任何歷史代碼。");
+                    $reply = "目前還沒有任何歷史代碼。";
                 } else {
                     $items = $rows->reverse()->map(function($r, $i){
                         $time = date('H:i', strtotime($r->created_at));
                         return sprintf("%02d. [%s] %s", $i+1, $time, $r->text);
                     })->join("\n");
-                    $this->sendMessage($chatId, "📜 歷史代碼（最近 ".count($rows)." 筆）：\n" . $items);
+                    $reply = "📜 歷史代碼（最近 ".count($rows)." 筆）：\n" . $items;
                 }
+
+                $this->sendMessage($chatId, $reply);
                 return response('ok', 200);
             }
 
-            // 2. 去除中文並提取符合規則的代碼
+            // 2. 去除中文並提取所有符合規則的代碼
             $cleanText = preg_replace('/[\p{Han}]+/u', '', $text);
             $pattern = '/
             (?:                                    # 有前綴
@@ -73,22 +74,23 @@
             preg_match_all($pattern, $cleanText, $matches);
             $codes = array_unique($matches[0] ?? []);
 
-            // 若無任何符合的代碼，直接結束
+            // 若抽取後沒有任何代碼，則不回覆
             if (empty($codes)) {
                 return response('ok', 200);
             }
 
-            // 3. 找出已存在資料庫中的代碼
+            // 3. 查出已存在的代碼
             $existing = DB::table('dialogues')
                 ->where('chat_id', $chatId)
                 ->whereIn('text', $codes)
                 ->pluck('text')
                 ->all();
 
-            // 4. 計算真正的新代碼
+            // 4. 計算新代碼
             $newCodes = array_values(array_diff($codes, $existing));
+
+            // 若沒有新代碼，也不回覆
             if (empty($newCodes)) {
-                // 全部重複，無新代碼時不回覆
                 return response('ok', 200);
             }
 
@@ -102,26 +104,9 @@
                 ]);
             }
 
-            // 6. 將新代碼累積到快取
-            $cacheKeyCodes = "pending_codes:{$chatId}";
-            $pending       = Cache::get($cacheKeyCodes, []);
-            $merged        = array_unique(array_merge($pending, $newCodes));
-            // TTL 長一點，避免錯過合併期
-            Cache::put($cacheKeyCodes, $merged, now()->addSeconds(10));
-
-            // 7. 第一次進來的請求才會等待並一次性發送
-            $cacheKeyLock = "pending_codes_lock:{$chatId}";
-            // add 只在 key 不存在時回傳 true
-            if (Cache::add($cacheKeyLock, true, 3)) {
-                // 延遲 3 秒再取出快取並發送
-                sleep(3);
-
-                $toSend = Cache::pull($cacheKeyCodes, []);
-                if (!empty($toSend)) {
-                    $reply = "🔍 已擷取到以下新代碼：\n" . implode("\n", $toSend);
-                    $this->sendMessage($chatId, $reply);
-                }
-            }
+            // 6. 一次性回覆所有新代碼
+            $reply = "🔍 已擷取到以下新代碼：\n" . implode("\n", $newCodes);
+            $this->sendMessage($chatId, $reply);
 
             return response('ok', 200);
         }

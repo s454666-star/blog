@@ -3,6 +3,7 @@
     use App\Http\Controllers\ActorController;
     use App\Http\Controllers\AlbumController;
     use App\Http\Controllers\AlbumPhotoController;
+    use App\Http\Controllers\CodeDedupBotController;
     use App\Http\Controllers\CreditCardController;
     use App\Http\Controllers\DeliveryAddressController;
     use App\Http\Controllers\FileScreenshotController;
@@ -90,3 +91,5 @@
         Route::put('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateItemQuantity']);
         Route::delete('/orders/{orderId}/items/{itemId}', [OrderController::class, 'deleteItem']);
     });
+    Route::post('/telegram/webhook', [CodeDedupBotController::class, 'handle']);
+

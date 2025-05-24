@@ -5,7 +5,7 @@
     use Illuminate\Console\Command;
     use GuzzleHttp\Client;
 
-    class SetMyCommandsCommand extends Command
+    class SetMyCommands extends Command
     {
         /**
          * The name and signature of the console command.

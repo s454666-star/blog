@@ -28,12 +28,21 @@
             // 1. 處理 callback_query（/start 分頁按鈕）
             if (!empty($update['callback_query'])) {
                 $cb   = $update['callback_query'];
+
+                // --- 新增：回覆 callback_query，避免客戶端持續 loading ---
+                $this->http->post('answerCallbackQuery', [
+                    'json' => [
+                        'callback_query_id' => $cb['id'],
+                    ],
+                ]);
+
                 $data = $cb['data'];                // 例如 "history:2"
                 [$action, $page] = explode(':', $data);
 
                 if ($action === 'history') {
                     $chatId    = $cb['message']['chat']['id'];
                     $messageId = $cb['message']['message_id'];
+
                     // 取出所有歷史 code
                     $allCodes = DB::table('dialogues')
                         ->where('chat_id', $chatId)
@@ -41,6 +50,7 @@
                         ->pluck('text')
                         ->all();
 
+                    // 分頁
                     $pages = array_chunk($allCodes, $this->historyPerPage);
                     $pageIndex = max(1, min(count($pages), (int)$page)) - 1;
                     $pageCodes = $pages[$pageIndex];
@@ -145,7 +155,7 @@
                 ]);
             }
 
-            // 回覆全部新 code（純粹 code，每行一筆）
+            // 回覆全部新 code（純 code，每行一筆）
             $reply = implode("\n", $newCodes);
             $this->sendMessage($chatId, $reply);
 

@@ -1,6 +1,4 @@
 <?php
-// app/Http/Controllers/CodeDedupBotController.php
-
     namespace App\Http\Controllers;
 
     use Illuminate\Http\Request;
@@ -14,45 +12,66 @@
 
         public function __construct()
         {
-            // Telegram Bot Token
             $token       = '7921552608:AAGsjaUR6huZaCpH9SBARpi5_cQ0LiUwEiQ';
             $this->apiUrl = "https://api.telegram.org/bot{$token}/";
             $this->http   = new Client(['base_uri' => $this->apiUrl]);
+
+            // （選擇性）每次啟動時也可在這裡確保指令已註冊
+            // $this->http->post('setMyCommands', ['json'=>[ 'commands'=>[['command'=>'start','description'=>'列出本聊天的歷史對話'],],],]);
         }
 
-        /**
-         * 接收 Telegram webhook 呼叫
-         */
         public function handle(Request $request)
         {
             $update = $request->all();
 
-            // 只處理來自 message 的文字訊息
+            // 只處理文字
             if (empty($update['message']['text'])) {
                 return response('ok', 200);
             }
 
-            $chatId    = $update['message']['chat']['id'];
-            $messageId = $update['message']['message_id'];
-            $text      = trim($update['message']['text']);
+            $chatId = $update['message']['chat']['id'];
+            $text   = trim($update['message']['text']);
+            $msgId  = $update['message']['message_id'];
 
-            // 檢查是否重複
+            // 1. /start：列出歷史對話
+            if ($text === '/start') {
+                // 拿最近 20 筆歷史
+                $rows = DB::table('dialogues')
+                    ->where('chat_id', $chatId)
+                    ->orderBy('created_at', 'desc')
+                    ->limit(20)
+                    ->get(['text', 'created_at']);
+
+                if ($rows->isEmpty()) {
+                    $reply = "目前還沒有任何歷史對話。";
+                } else {
+                    // 倒序排列：最早在上面
+                    $items = $rows->reverse()->map(function($r, $i){
+                        $time = date('H:i', strtotime($r->created_at));
+                        return sprintf("%02d. [%s] %s", $i+1, $time, $r->text);
+                    })->join("\n");
+                    $reply = "📜 歷史對話（最近 ".count($rows)." 筆）：\n" . $items;
+                }
+                $this->sendMessage($chatId, $reply);
+                return response('ok', 200);
+            }
+
+            // 2. 其他文字：原本的去重邏輯
             $existing = DB::table('dialogues')
                 ->where('chat_id', $chatId)
                 ->where('text', $text)
                 ->first();
 
             if ($existing) {
-                // 重複：回覆提醒
                 $firstTime = date('Y-m-d H:i:s', strtotime($existing->created_at));
                 $reply = "❗️ 重複訊息偵測：您在 {$firstTime} 已經說過：\n“{$text}”";
                 $this->sendMessage($chatId, $reply);
+
             } else {
-                // 不重複：回原文，並存資料庫
                 $this->sendMessage($chatId, $text);
                 DB::table('dialogues')->insert([
                     'chat_id'    => $chatId,
-                    'message_id' => $messageId,
+                    'message_id' => $msgId,
                     'text'       => $text,
                     'created_at' => now(),
                 ]);
@@ -61,9 +80,6 @@
             return response('ok', 200);
         }
 
-        /**
-         * 呼叫 Telegram sendMessage API
-         */
         protected function sendMessage(int $chatId, string $text): void
         {
             $this->http->post('sendMessage', [

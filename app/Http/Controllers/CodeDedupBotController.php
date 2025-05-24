@@ -8,9 +8,11 @@
 
     class CodeDedupBotController extends Controller
     {
+        // /start 分頁每頁筆數
+        protected int $historyPerPage = 100;
+
         protected string $apiUrl;
         protected Client $http;
-        protected int $perPage = 100;
 
         public function __construct()
         {
@@ -23,33 +25,38 @@
         {
             $update = $request->all();
 
-            // 1. 處理 callback_query（分頁按鈕點擊）
+            // 1. 處理 callback_query（/start 分頁按鈕）
             if (!empty($update['callback_query'])) {
-                $cb       = $update['callback_query'];
-                $data     = $cb['data'];                   // e.g. "dedup:12345:2"
-                [$action, $origMsgId, $page] = explode(':', $data);
-                if ($action === 'dedup') {
-                    $chatId      = $cb['message']['chat']['id'];
-                    $messageId   = $cb['message']['message_id'];
-                    $allCodes    = DB::table('dialogues')
+                $cb   = $update['callback_query'];
+                $data = $cb['data'];                // 例如 "history:2"
+                [$action, $page] = explode(':', $data);
+
+                if ($action === 'history') {
+                    $chatId    = $cb['message']['chat']['id'];
+                    $messageId = $cb['message']['message_id'];
+                    // 取出所有歷史 code
+                    $allCodes = DB::table('dialogues')
                         ->where('chat_id', $chatId)
-                        ->where('message_id', $origMsgId)
+                        ->orderBy('created_at', 'desc')
                         ->pluck('text')
                         ->all();
-                    $pages       = array_chunk($allCodes, $this->perPage);
-                    $pageIndex   = max(1, min(count($pages), (int)$page)) - 1;
-                    $pageCodes   = $pages[$pageIndex];
-                    $text        = implode("\n", $pageCodes);
-                    // 重新編輯訊息
+
+                    $pages = array_chunk($allCodes, $this->historyPerPage);
+                    $pageIndex = max(1, min(count($pages), (int)$page)) - 1;
+                    $pageCodes = $pages[$pageIndex];
+                    $text      = implode("\n", $pageCodes);
+
+                    // 編輯訊息，換成對應頁
                     $this->http->post('editMessageText', [
                         'json' => [
                             'chat_id'      => $chatId,
                             'message_id'   => $messageId,
                             'text'         => $text,
-                            'reply_markup'=> $this->buildKeyboard($origMsgId, count($pages)),
+                            'reply_markup'=> $this->buildHistoryKeyboard(count($pages)),
                         ],
                     ]);
                 }
+
                 return response('ok', 200);
             }
 
@@ -62,27 +69,41 @@
             $text   = trim($update['message']['text']);
             $msgId  = $update['message']['message_id'];
 
-            // /start：列出最近 20 筆「代碼」歷史
+            // 3. /start：顯示歷史 code（分頁）
             if ($text === '/start') {
-                $rows = DB::table('dialogues')
+                $allCodes = DB::table('dialogues')
                     ->where('chat_id', $chatId)
                     ->orderBy('created_at', 'desc')
-                    ->limit(20)
-                    ->get(['text']);
-                if ($rows->isEmpty()) {
-                    $reply = "目前還沒有任何歷史代碼。";
+                    ->pluck('text')
+                    ->all();
+
+                if (empty($allCodes)) {
+                    $this->sendMessage($chatId, "目前還沒有任何歷史代碼。");
                 } else {
-                    $items = $rows->reverse()
-                        ->pluck('text')
-                        ->join("\n");
-                    $reply = "📜 歷史代碼（最近 ".count($rows)." 筆）：\n" . $items;
+                    $pages = array_chunk($allCodes, $this->historyPerPage);
+                    $firstPage = $pages[0];
+                    $replyText = implode("\n", $firstPage);
+
+                    if (count($pages) === 1) {
+                        $this->sendMessage($chatId, $replyText);
+                    } else {
+                        $this->http->post('sendMessage', [
+                            'json' => [
+                                'chat_id'      => $chatId,
+                                'text'         => $replyText,
+                                'reply_markup'=> $this->buildHistoryKeyboard(count($pages)),
+                            ],
+                        ]);
+                    }
                 }
-                $this->sendMessage($chatId, $reply);
+
                 return response('ok', 200);
             }
 
-            // 3. 去除中文並擷取符合規則的 code
+            // 4. 一般輸入──抽 code 並去重
+            // 移除中文
             $cleanText = preg_replace('/[\p{Han}]+/u', '', $text);
+            // 正則擷取
             $pattern = '/
             (?:                                    # 有前綴
                 @?filepan_bot:
@@ -102,7 +123,7 @@
                 return response('ok', 200);
             }
 
-            // 4. 過濾已存在的 code
+            // 過濾已存 code
             $existing = DB::table('dialogues')
                 ->where('chat_id', $chatId)
                 ->whereIn('text', $codes)
@@ -114,7 +135,7 @@
                 return response('ok', 200);
             }
 
-            // 5. 存入資料庫
+            // 存入 DB
             foreach ($newCodes as $code) {
                 DB::table('dialogues')->insert([
                     'chat_id'    => $chatId,
@@ -124,32 +145,15 @@
                 ]);
             }
 
-            // 6. 回覆（含分頁）
-            $total = count($newCodes);
-            $pages = array_chunk($newCodes, $this->perPage);
-            // 第一頁內容
-            $firstPage = $pages[0];
-            $replyText = implode("\n", $firstPage);
-
-            // 如果只有一頁，直接回訊息
-            if ($total <= $this->perPage) {
-                $this->sendMessage($chatId, $replyText);
-            } else {
-                // 回傳第一頁並附上分頁按鈕
-                $this->http->post('sendMessage', [
-                    'json' => [
-                        'chat_id'      => $chatId,
-                        'text'         => $replyText,
-                        'reply_markup'=> $this->buildKeyboard($msgId, count($pages)),
-                    ],
-                ]);
-            }
+            // 回覆全部新 code（純粹 code，每行一筆）
+            $reply = implode("\n", $newCodes);
+            $this->sendMessage($chatId, $reply);
 
             return response('ok', 200);
         }
 
         /**
-         * 發送簡訊（無分頁按鈕）
+         * 發送純文字訊息
          */
         protected function sendMessage(int $chatId, string $text): void
         {
@@ -162,19 +166,18 @@
         }
 
         /**
-         * 建立 inline keyboard（分頁按鈕）
+         * 建立 /start 歷史分頁按鈕
          *
-         * @param int $origMsgId 使用者訊息 ID（用來查詢該次插入的 codes）
-         * @param int $totalPages 分頁總數
+         * @param int $totalPages
          * @return array
          */
-        protected function buildKeyboard(int $origMsgId, int $totalPages): array
+        protected function buildHistoryKeyboard(int $totalPages): array
         {
             $buttons = [];
             for ($i = 1; $i <= $totalPages; $i++) {
                 $buttons[] = [
                     'text'         => (string)$i,
-                    'callback_data'=> "dedup:{$origMsgId}:{$i}"
+                    'callback_data'=> "history:{$i}",
                 ];
             }
             // 每列最多 10 個按鈕

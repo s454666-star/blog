@@ -5,8 +5,6 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Symfony\Component\Process\Process;
 use Illuminate\Support\Facades\Response;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
 class UrlViewerController extends Controller
 {
@@ -85,9 +83,7 @@ class UrlViewerController extends Controller
                 return response()->json(['success' => false, 'error' => '請貼上有效的 Threads/IG Cookies（name=value; 形式）']);
             }
             $this->ensureCookiesDir();
-            // 1) 寫入 .threads.net
             $this->writeNetscapeForDomain('.threads.net', $pairs, $this->threadsCookieFile);
-            // 2) 同步同一批到 IG（確保有 csrftoken 等）
             $this->writeNetscapeIGFromPairs($pairs);
 
             if (!$this->isValidGenericCookieFile($this->threadsCookieFile)) {
@@ -105,9 +101,6 @@ class UrlViewerController extends Controller
     public function fetch(Request $request)
     {
         $rawUrl = trim((string) $request->input('url'));
-        $debug  = (bool)$request->input('debug', false) || (bool)env('THREADS_DEBUG', false);
-        $trace  = Str::uuid()->toString();
-
         if ($rawUrl === '') {
             return response()->json(['success' => false, 'error' => '缺少 URL']);
         }
@@ -123,30 +116,22 @@ class UrlViewerController extends Controller
             return response()->json([
                 'success' => false,
                 'error' => 'Instagram 需要有效的 Cookies（至少 sessionid 與 csrftoken），請先於上方儲存。',
-                'needSession' => true,
-                'traceId' => $trace
+                'needSession' => true
             ]);
         }
 
-        // Threads：專屬解析 + 詳細診斷
         if ($isThreads) {
-            $res = $this->extractThreadsVideoUrlsDetailed($url, $debug, $trace);
-            if (!empty($res['urls'])) {
-                $payload = ['success' => true, 'urls' => $res['urls'], 'traceId' => $trace];
-                if ($debug) $payload['diag'] = $res['diag'];
-                return response()->json($payload);
+            $urls = $this->extractThreadsVideoUrls($url);
+            if (!empty($urls)) {
+                return response()->json(['success' => true, 'urls' => $urls]);
             }
-            $payload = [
+            return response()->json([
                 'success' => false,
-                'error' => $res['diag']['reason'] ?? 'Threads 仍無法取得直鏈',
-                'needThreadsCookie' => $res['diag']['hints']['mightNeedCookies'] ?? false,
-                'traceId' => $trace
-            ];
-            if ($debug) $payload['diag'] = $res['diag'];
-            return response()->json($payload);
+                'error' => 'Threads 仍無法取得直鏈，請確認已在「Threads」分頁貼上完整 Cookies（含 sessionid / csrftoken 等）。',
+                'needThreadsCookie' => true
+            ]);
         }
 
-        // 其他站點交給 yt-dlp
         if ($isYT)   { $url = $this->normalizeYouTubeWatchUrl($url); }
         if ($isBili) { $url = $this->normalizeBilibiliUrl($url); }
 
@@ -154,7 +139,7 @@ class UrlViewerController extends Controller
         $run  = $this->runYtDlpWithFallback($args, 140, $isYT);
 
         if (!$run['ok']) {
-            $resp = ['success' => false, 'error' => $run['stderr'], 'traceId' => $trace];
+            $resp = ['success' => false, 'error' => $run['stderr']];
             if ($isYT && $run['needYTCookie']) {
                 $resp['needYTCookie'] = true;
             }
@@ -163,10 +148,10 @@ class UrlViewerController extends Controller
 
         $urls = $this->splitUrls($run['stdout']);
         if (empty($urls)) {
-            return response()->json(['success' => false, 'error' => '未取得可播放的直連 URL', 'traceId' => $trace]);
+            return response()->json(['success' => false, 'error' => '未取得可播放的直連 URL']);
         }
 
-        return response()->json(['success' => true, 'urls' => $urls, 'traceId' => $trace]);
+        return response()->json(['success' => true, 'urls' => $urls]);
     }
 
     /**
@@ -175,9 +160,6 @@ class UrlViewerController extends Controller
     public function download(Request $request)
     {
         $rawUrl = trim((string) $request->query('url'));
-        $debug  = (bool)$request->query('debug', false) || (bool)env('THREADS_DEBUG', false);
-        $trace  = Str::uuid()->toString();
-
         if ($rawUrl === '') {
             return response()->json(['success' => false, 'error' => '缺少 URL']);
         }
@@ -193,8 +175,7 @@ class UrlViewerController extends Controller
             return response()->json([
                 'success' => false,
                 'error' => 'Instagram 需要有效的 Cookies（至少 sessionid 與 csrftoken），請先於上方儲存。',
-                'needSession' => true,
-                'traceId' => $trace
+                'needSession' => true
             ]);
         }
 
@@ -205,17 +186,13 @@ class UrlViewerController extends Controller
         $filePath = storage_path("app/public/" . $fileName);
 
         if ($isThreads) {
-            $res = $this->extractThreadsVideoUrlsDetailed($url, $debug, $trace);
-            $directs = $res['urls'];
+            $directs = $this->extractThreadsVideoUrls($url);
             if (empty($directs)) {
-                $payload = [
+                return response()->json([
                     'success' => false,
                     'error' => 'Threads 無法取得直鏈，可能需要更完整的 Cookies（含 sessionid / csrftoken 等）。',
-                    'needThreadsCookie' => true,
-                    'traceId' => $trace
-                ];
-                if ($debug) $payload['diag'] = $res['diag'];
-                return response()->json($payload);
+                    'needThreadsCookie' => true
+                ]);
             }
             $dlUrl = $directs[0];
 
@@ -243,13 +220,10 @@ class UrlViewerController extends Controller
 
             $r = $this->run($args, 420);
             if (!$r['ok']) {
-                if ($debug) {
-                    Log::warning('[THREADS][DL]['.$trace.'] yt-dlp error', ['stderr' => $r['stderr']]);
-                }
-                return response()->json(['success' => false, 'error' => $r['stderr'], 'traceId' => $trace]);
+                return response()->json(['success' => false, 'error' => $r['stderr']]);
             }
             if (!is_file($filePath)) {
-                return response()->json(['success' => false, 'error' => '下載失敗，找不到輸出檔案', 'traceId' => $trace]);
+                return response()->json(['success' => false, 'error' => '下載失敗，找不到輸出檔案']);
             }
             return Response::download($filePath)->deleteFileAfterSend(true);
         }
@@ -259,7 +233,7 @@ class UrlViewerController extends Controller
 
         $run = $this->runYtDlpWithFallback($args, 420, $isYT);
         if (!$run['ok']) {
-            $resp = ['success' => false, 'error' => $run['stderr'], 'traceId' => $trace];
+            $resp = ['success' => false, 'error' => $run['stderr']];
             if ($isYT && $run['needYTCookie']) {
                 $resp['needYTCookie'] = true;
             }
@@ -267,7 +241,7 @@ class UrlViewerController extends Controller
         }
 
         if (!is_file($filePath)) {
-            return response()->json(['success' => false, 'error' => '下載失敗，找不到輸出檔案', 'traceId' => $trace]);
+            return response()->json(['success' => false, 'error' => '下載失敗，找不到輸出檔案']);
         }
 
         return Response::download($filePath)->deleteFileAfterSend(true);
@@ -437,7 +411,7 @@ class UrlViewerController extends Controller
         return $out;
     }
 
-    /* -------------------- Threads：解析（含詳細診斷） -------------------- */
+    /* -------------------- Threads：正規化 + 直鏈解析（合併 Cookie） -------------------- */
 
     private function isThreadsUrl(string $url): bool
     {
@@ -454,26 +428,11 @@ class UrlViewerController extends Controller
         return $url;
     }
 
-    private function extractThreadsVideoUrlsDetailed(string $url, bool $debug, string $trace): array
+    private function extractThreadsVideoUrls(string $url): array
     {
         $url = $this->normalizeThreadsUrl($url);
-        $cookieHeader = $this->buildThreadsCombinedCookieHeader();
 
-        $diag = [
-            'traceId' => $trace,
-            'target' => $url,
-            'cookies' => [
-                'hasThreadsFile' => is_file($this->threadsCookieFile),
-                'hasIGFile' => is_file($this->igSessionFile),
-                'combinedLength' => strlen($cookieHeader),
-            ],
-            'steps' => [],
-            'reason' => '',
-            'hints' => [
-                'mightNeedCookies' => false,
-                'ipv6OrHttp2Issue' => false,
-            ],
-        ];
+        $cookieHeader = $this->buildThreadsCombinedCookieHeader();
 
         $headers = [
             'User-Agent: ' . $this->desktopUA(),
@@ -481,67 +440,37 @@ class UrlViewerController extends Controller
             'Accept-Language: zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
             'Referer: https://www.threads.net/',
         ];
-        if ($cookieHeader !== '') $headers[] = 'Cookie: ' . $cookieHeader;
-
-        // Step 1: 原頁
-        $main = $this->curlFetchDetailed($url, $headers, $trace);
-        $diag['steps'][] = $this->diagFromCurl('main', $url, $main);
-        if ($debug) Log::info('[THREADS]['.$trace.'] MAIN fetch', $diag['steps'][count($diag['steps'])-1]);
-
-        $cand1 = $this->pickVideoUrlsFromHtml($main['body'] ?? null);
-        $analysis1 = $this->analyzeThreadsHtml($main['body'] ?? null);
-        $diag['steps'][count($diag['steps'])-1]['analysis'] = $analysis1;
-
-        // Step 2: /embed
-        $cand = $cand1;
-        if (empty($cand)) {
-            $embedUrl = rtrim($url, '/') . '/embed';
-            $embed = $this->curlFetchDetailed($embedUrl, $headers, $trace);
-            $diag['steps'][] = $this->diagFromCurl('embed', $embedUrl, $embed);
-            if ($debug) Log::info('[THREADS]['.$trace.'] EMBED fetch', $diag['steps'][count($diag['steps'])-1]);
-
-            $cand2 = $this->pickVideoUrlsFromHtml($embed['body'] ?? null);
-            $analysis2 = $this->analyzeThreadsHtml($embed['body'] ?? null);
-            $diag['steps'][count($diag['steps'])-1]['analysis'] = $analysis2;
-            $cand = $cand2;
+        if ($cookieHeader !== '') {
+            $headers[] = 'Cookie: ' . $cookieHeader;
         }
 
-        // 淨化/排序
-        $cand = array_values(array_unique(array_map(function ($u) {
+        $html = $this->curlGet($url, $headers);
+        $candidates = $this->pickVideoUrlsFromHtml($html);
+
+        if (empty($candidates)) {
+            $embedUrl = rtrim($url, '/') . '/embed';
+            $html2 = $this->curlGet($embedUrl, $headers);
+            $candidates = $this->pickVideoUrlsFromHtml($html2);
+        }
+
+        $candidates = array_values(array_unique(array_map(function ($u) {
             $u = (string) $u;
             $u = html_entity_decode($u, ENT_QUOTES | ENT_HTML5, 'UTF-8');
             return str_replace(['\\u002F', '\\/'], '/', $u);
-        }, $cand)));
+        }, $candidates)));
 
-        $mp4 = array_values(array_filter($cand, fn($u) => stripos($u, '.mp4') !== false));
-        $m3u8 = array_values(array_filter($cand, fn($u) => stripos($u, '.m3u8') !== false));
+        $mp4 = array_values(array_filter($candidates, fn($u) => stripos($u, '.mp4') !== false));
+        $m3u8 = array_values(array_filter($candidates, fn($u) => stripos($u, '.m3u8') !== false));
 
-        if (!empty($mp4) || !empty($m3u8)) {
-            $diag['reason'] = 'HTML 中已找到媒體 URL';
-            return ['urls' => (!empty($mp4) ? $mp4 : $m3u8), 'diag' => $diag];
-        }
+        if (!empty($mp4)) return $mp4;
+        if (!empty($m3u8)) return $m3u8;
 
-        // Step 3: yt-dlp 後備
-        $viaYt = $this->extractThreadsViaYtDlp($url, $cookieHeader, $trace, $debug);
-        $diag['steps'][] = ['step' => 'yt-dlp', 'found' => count($viaYt), 'urls' => array_slice($viaYt, 0, 3)];
-        if (!empty($viaYt)) {
-            $diag['reason'] = '以 yt-dlp -g 取得直鏈';
-            return ['urls' => $viaYt, 'diag' => $diag];
-        }
-
-        // 判斷可能原因
-        $diag['reason'] = $this->detectThreadsFailureReason($main, $diag);
-        if (($main['status'] ?? 0) === 403 || ($main['status'] ?? 0) === 401) {
-            $diag['hints']['mightNeedCookies'] = true;
-        }
-        if (($main['info']['http_version'] ?? '') === '2' || ($main['info']['primary_ip'] ?? '') === '' ) {
-            $diag['hints']['ipv6OrHttp2Issue'] = true;
-        }
-
-        return ['urls' => [], 'diag' => $diag];
+        // 仍無 -> 最後用 yt-dlp -g 後備（帶 Referer 與 Cookie）
+        $viaYtDlp = $this->extractThreadsViaYtDlp($url, $cookieHeader);
+        return $viaYtDlp;
     }
 
-    private function extractThreadsViaYtDlp(string $url, string $cookieHeader, string $trace, bool $debug): array
+    private function extractThreadsViaYtDlp(string $url, string $cookieHeader): array
     {
         $args = [
             'yt-dlp', '--ignore-config', '--force-ipv4', '--no-playlist',
@@ -564,11 +493,9 @@ class UrlViewerController extends Controller
         }
 
         $r = $this->run($args, 140);
-        if ($debug && !$r['ok']) {
-            Log::warning('[THREADS]['.$trace.'] yt-dlp fallback failed', ['stderr' => $r['stderr']]);
-        }
         if (!$r['ok']) return [];
-        return $this->splitUrls($r['stdout']);
+        $urls = $this->splitUrls($r['stdout']);
+        return $urls;
     }
 
     private function pickVideoUrlsFromHtml(?string $html): array
@@ -576,7 +503,6 @@ class UrlViewerController extends Controller
         if (!is_string($html) || $html === '') return [];
         $out = [];
 
-        // og:video / og:video:url / og:video:secure_url
         if (preg_match_all('#<meta[^>]+property=["\']og:video(?::url)?["\'][^>]+content=["\']([^"\']+)#i', $html, $m)) {
             foreach ($m[1] as $u) $out[] = $u;
         }
@@ -584,7 +510,6 @@ class UrlViewerController extends Controller
             foreach ($m2[1] as $u) $out[] = $u;
         }
 
-        // 常見 JSON 欄位
         $patterns = [
             '#"video_url"\s*:\s*"([^"]+)"#i',
             '#"video_versions"\s*:\s*\[\s*{[^}]*"url"\s*:\s*"([^"]+)"#i',
@@ -602,61 +527,48 @@ class UrlViewerController extends Controller
         return $out;
     }
 
-    private function analyzeThreadsHtml(?string $html): array
+    private function buildThreadsCombinedCookieHeader(): string
     {
-        if (!is_string($html)) return ['length' => 0, 'mp4' => 0, 'm3u8' => 0, 'loginWall' => false, 'hasOgVideo' => false];
-        $mp4 = preg_match_all('#\.mp4#i', $html);
-        $m3u8 = preg_match_all('#\.m3u8#i', $html);
-        $login = preg_match('#(login|log in|請登入|sign in)#i', $html) ? true : false;
-        $hasOg = preg_match('#og:video#i', $html) ? true : false;
-        return [
-            'length' => strlen($html),
-            'mp4' => (int)$mp4,
-            'm3u8' => (int)$m3u8,
-            'loginWall' => $login,
-            'hasOgVideo' => $hasOg,
-        ];
+        $pairs = [];
+        $pairs = array_merge($pairs, $this->readAllPairsFromNetscape($this->threadsCookieFile));
+        $pairs = array_merge($pairs, $this->readAllPairsFromNetscape($this->igSessionFile));
+
+        if (empty($pairs)) return '';
+        $chunks = [];
+        foreach ($pairs as $k => $v) {
+            if ($k === '' || $v === '') continue;
+            $chunks[] = $k . '=' . $v;
+        }
+        return implode('; ', $chunks);
     }
 
-    private function detectThreadsFailureReason(array $main, array $diag): string
+    private function readAllPairsFromNetscape(string $file): array
     {
-        $status = $main['status'] ?? 0;
-        $body   = $main['body'] ?? '';
-        if ($status === 0 && ($main['error'] ?? '') !== '') {
-            return '連線失敗：' . $main['error'];
+        $out = [];
+        if (!is_file($file)) return $out;
+        $content = file_get_contents($file);
+        if ($content === false) return $out;
+        $lines = preg_split("/\r\n|\n|\r/", $content) ?: [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || (isset($line[0]) && $line[0] === '#')) continue;
+            $parts = explode("\t", $line);
+            if (count($parts) === 7) {
+                $name  = $parts[5];
+                $value = $parts[6];
+                if ($name !== '' && $value !== '') {
+                    $out[$name] = $value;
+                }
+            }
         }
-        if ($status === 403 || $status === 401) {
-            return '被拒絕（' . $status . '），可能需要 Cookies 或 IP/協定受限';
-        }
-        if (stripos($body, 'login') !== false || stripos($body, 'log in') !== false) {
-            return '頁面要求登入（HTML 出現 login 字樣）';
-        }
-        if ($status >= 300 && $status < 400) {
-            return '被重導（' . $status . '），可能導向同意/登入頁';
-        }
-        if ($body === '' || strlen($body) < 1000) {
-            return '取得的 HTML 內容過少，可能被壓縮/阻擋或需要 JS 執行';
-        }
-        return 'HTML 未包含可用媒體資訊；可能需要 Cookies 或改用不同 UA/Referer';
+        return $out;
     }
 
-    /* ------------- cURL 詳細請求（IPv4 + HTTP/1.1 + header/診斷 + HTML 快照） ------------- */
-
-    private function curlFetchDetailed(string $url, array $headers, string $trace): array
+    private function curlGet(string $url, array $headers): ?string
     {
         if (!function_exists('curl_init')) {
-            return ['ok' => false, 'error' => 'cURL 未啟用', 'status' => 0, 'headers' => [], 'info' => []];
+            return null;
         }
-
-        $this->ensureTmpDir();
-
-        $headerLines = [];
-        $headerFn = function($ch, $header) use (&$headerLines) {
-            $trim = trim($header);
-            if ($trim !== '') $headerLines[] = $trim;
-            return strlen($header);
-        };
-
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL => $url,
@@ -667,86 +579,19 @@ class UrlViewerController extends Controller
             CURLOPT_TIMEOUT => 25,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_ENCODING => '',
-            CURLOPT_HEADERFUNCTION => $headerFn,
-            CURLOPT_IPRESOLVE => defined('CURL_IPRESOLVE_V4') ? CURL_IPRESOLVE_V4 : 1, // 強制 IPv4
-            CURLOPT_HTTP_VERSION => defined('CURL_HTTP_VERSION_1_1') ? CURL_HTTP_VERSION_1_1 : 2, // 強制 HTTP/1.1
+            CURLOPT_IPRESOLVE => defined('CURL_IPRESOLVE_V4') ? CURL_IPRESOLVE_V4 : 1,
+            CURLOPT_HTTP_VERSION => defined('CURL_HTTP_VERSION_1_1') ? CURL_HTTP_VERSION_1_1 : 2,
             CURLOPT_USERAGENT => $this->desktopUA(),
         ]);
-        $body   = curl_exec($ch);
-        $errno  = curl_errno($ch);
-        $error  = curl_error($ch);
-        $info   = curl_getinfo($ch);
+        $body = curl_exec($ch);
         curl_close($ch);
-
-        $status = (int)($info['http_code'] ?? 0);
-        $ok = ($errno === 0 && $status >= 200 && $status < 400);
-
-        // 紀錄 HTML 快照（前 200KB）
-        $snap = is_string($body) ? substr($body, 0, 200 * 1024) : '';
-        $this->writeSnapshot($trace, ($status ? $status : 'NA') . '_' . parse_url($url, PHP_URL_PATH), $snap);
-
-        return [
-            'ok' => $ok,
-            'status' => $status,
-            'headers' => $headerLines,
-            'body' => $body,
-            'error' => $error,
-            'errno' => $errno,
-            'info' => [
-                'total_time' => $info['total_time'] ?? null,
-                'namelookup_time' => $info['namelookup_time'] ?? null,
-                'connect_time' => $info['connect_time'] ?? null,
-                'pretransfer_time' => $info['pretransfer_time'] ?? null,
-                'starttransfer_time' => $info['starttransfer_time'] ?? null,
-                'primary_ip' => $info['primary_ip'] ?? null,
-                'primary_port' => $info['primary_port'] ?? null,
-                'redirect_count' => $info['redirect_count'] ?? null,
-                'redirect_url' => $info['redirect_url'] ?? null,
-                'effective_url' => $info['url'] ?? $url,
-                'http_version' => (string)($info['http_version'] ?? ''),
-                'size_download' => $info['size_download'] ?? null,
-            ],
-        ];
-    }
-
-    private function diagFromCurl(string $step, string $url, array $r): array
-    {
-        return [
-            'step' => $step,
-            'url' => $url,
-            'status' => $r['status'] ?? 0,
-            'ok' => $r['ok'] ?? false,
-            'errno' => $r['errno'] ?? 0,
-            'error' => $r['error'] ?? '',
-            'info' => $r['info'] ?? [],
-            'headers' => array_slice($r['headers'] ?? [], 0, 30),
-            'bodySample' => $this->ellipsize($r['body'] ?? '', 800),
-        ];
-    }
-
-    private function writeSnapshot(string $trace, string $name, string $content): void
-    {
-        $safe = preg_replace('/[^A-Za-z0-9_\-\.]/', '_', $name);
-        $file = storage_path('app/tmp/threads_' . $trace . '_' . $safe . '.html');
-        @file_put_contents($file, $content);
-    }
-
-    private function ensureTmpDir(): void
-    {
-        $dir = storage_path('app/tmp');
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0777, true);
+        if (!is_string($body) || $body === '') {
+            return null;
         }
+        return $body;
     }
 
-    private function ellipsize(string $s, int $limit): string
-    {
-        if ($limit <= 0) return '';
-        if (mb_strlen($s, 'UTF-8') <= $limit) return $s;
-        return mb_substr($s, 0, $limit, 'UTF-8') . ' …(truncated)';
-    }
-
-    /* -------------------- 共用：URL 正規化與 Cookie 檔 -------------------- */
+    /* -------------------- 站點偵測/URL 正規化 -------------------- */
 
     private function normalizeAll(string $url): string
     {
@@ -842,6 +687,8 @@ class UrlViewerController extends Controller
 
         return $scheme . '://' . $host . $path . (isset($parts['query']) ? ('?' . $parts['query']) : '');
     }
+
+    /* -------------------- Cookie 檔驗證/寫入 -------------------- */
 
     private function ensureCookiesDir(): void
     {

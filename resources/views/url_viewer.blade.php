@@ -1,4 +1,3 @@
-<!-- resources/views/url_viewer.blade.php -->
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -103,24 +102,23 @@
 
     const radios = document.getElementsByName("cookie-site");
 
-    if (!hasIG) {
-        sessionBox.style.display = "block";
-        setSite('ig');
-    }
-
+    // 以無痕模式優先；僅 YouTube 429 等情況再顯示 session-box
     function setSite(site) {
         for (const r of radios) r.checked = (r.value === site);
         igInputs.style.display = (site === 'ig') ? "" : "none";
         ytInputs.style.display = (site === 'yt') ? "" : "none";
         thInputs.style.display = (site === 'threads') ? "" : "none";
     }
-
     for (const r of radios) {
         r.addEventListener('change', () => setSite(document.querySelector('input[name="cookie-site"]:checked').value));
     }
 
+    function setLog(msg) {
+        logBox.textContent = (msg || "");
+        logBox.scrollTop = logBox.scrollHeight;
+    }
     function appendLog(msg) {
-        logBox.textContent += msg + "\n";
+        logBox.textContent += (msg ? ("\n" + msg) : "");
         logBox.scrollTop = logBox.scrollHeight;
     }
 
@@ -144,7 +142,7 @@
                 : sessionTH.value.trim();
 
         if (!session) {
-            logBox.textContent = "❌ 輸入不能為空";
+            setLog("❌ 輸入不能為空");
             return;
         }
 
@@ -163,14 +161,13 @@
             })
             .then(data => {
                 if (data.success) {
-                    logBox.textContent = "✅ " + data.message;
-                    if (site === 'ig') sessionBox.style.display = "none";
+                    setLog("✅ " + data.message);
                 } else {
-                    logBox.textContent = "❌ " + (data.error || "儲存失敗");
+                    setLog("❌ " + (data.error || "儲存失敗"));
                 }
             })
             .catch(err => {
-                logBox.textContent = "❌ 發生錯誤: " + err.message;
+                setLog("❌ 發生錯誤: " + err.message);
             });
     });
 
@@ -180,31 +177,26 @@
     fetchBtn.addEventListener("click", () => {
         const url = urlInput.value.trim();
         if (!url) {
-            logBox.textContent = "❌ 請先輸入網址";
+            setLog("❌ 請先輸入網址");
             return;
         }
         originalInputUrl = url;
         lastTraceId = null;
 
-        logBox.textContent = "🔍 開始解析中...\n";
+        setLog("🔍 開始解析中...");
         diagWrap.style.display = "none";
         diagBox.textContent = "";
         videoContainer.style.display = "none";
         downloadBtn.style.display = "none";
         videoPlayer.removeAttribute('src');
 
-        if (isInstagramUrl(url) && !hasIG) {
-            sessionBox.style.display = "block";
-            setSite('ig');
-        }
-
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 150000);
+        const timer = setTimeout(() => controller.abort(), 180000);
 
         fetch("/fetch-url", {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": csrfToken },
-            body: JSON.stringify({ url, debug: !!document.getElementById("debug").checked }),
+            body: JSON.stringify({ url, debug: !!debugChk.checked }),
             signal: controller.signal
         })
             .then(async (res) => {
@@ -219,51 +211,41 @@
             .then(data => {
                 lastTraceId = data.traceId || null;
                 if (data.success) {
-                    logBox.textContent = "✅ 找到影片直連：\n" + data.urls.join("\n");
+                    setLog("✅ 找到影片直連：\n" + data.urls.join("\n"));
                     videoPlayer.src = data.urls[0];
                     videoContainer.style.display = "block";
                     downloadBtn.style.display = "inline-block";
                 } else {
-                    logBox.textContent = "❌ 錯誤：\n" + (data.error || "解析失敗");
+                    setLog("❌ 錯誤：\n" + (data.error || "解析失敗"));
                     if (isYouTubeUrl(url) && (data.needYTCookie || /429|confirm you.?re not a bot/i.test(data.error || ''))) {
                         sessionBox.style.display = "block";
                         setSite('yt');
                         appendLog("ℹ️ YouTube 可能觸發頻率限制/驗證，請在上方選擇 YouTube 並貼上 cookies 後重試。");
                     }
-                    if (data.needSession) {
-                        sessionBox.style.display = "block";
-                        setSite('ig');
-                        appendLog("ℹ️ Instagram 需要完整 Cookies（至少 sessionid + csrftoken），請在 IG 分頁貼上再試。");
-                    }
-                    if (data.needThreadsCookie || isThreadsUrl(url)) {
-                        sessionBox.style.display = "block";
-                        setSite('threads');
-                        appendLog("ℹ️ Threads 建議貼上 Cookies（可貼與 IG 相同那串），系統會同步到 IG。");
-                    }
                 }
-                if (document.getElementById("debug").checked && data.diag) {
+                if (debugChk.checked && data.diag) {
                     diagWrap.style.display = "block";
                     diagBox.textContent = JSON.stringify(data.diag, null, 2);
-                    appendLog("📎 伺服器已儲存 HTML 快照於 storage/app/tmp/（檔名前綴 threads_" + (data.traceId || 'NA') + "_）。");
+                    appendLog("📎 伺服器已儲存 HTML 快照於 storage/app/tmp/（檔名前綴 trace_" + (data.traceId || 'NA') + "_）。");
                 }
             })
             .catch(err => {
                 clearTimeout(timer);
                 if (err.name === "AbortError") {
-                    logBox.textContent = "⏱️ 解析逾時，請稍後重試。";
+                    setLog("⏱️ 解析逾時，請稍後重試。");
                 } else {
-                    logBox.textContent = "❌ 發生錯誤: " + err.message;
+                    setLog("❌ 發生錯誤: " + err.message);
                 }
             });
     });
 
     downloadBtn.addEventListener("click", () => {
         if (!originalInputUrl) {
-            logBox.textContent = "❌ 請先輸入網址並解析";
+            setLog("❌ 請先輸入網址並解析");
             return;
         }
         const qs = new URLSearchParams({ url: originalInputUrl });
-        if (document.getElementById("debug").checked) qs.set('debug', '1');
+        if (debugChk.checked) qs.set('debug', '1');
         window.location.href = "/download?" + qs.toString();
     });
 </script>

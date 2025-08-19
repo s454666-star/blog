@@ -68,21 +68,45 @@ class UrlViewerController extends Controller
 
     public function download(Request $request)
     {
-        $videoUrl = $request->query('url');
-        if (!$videoUrl) {
+        $url = $request->query('url');
+        if (!$url) {
             abort(404, '缺少影片網址');
         }
 
-        // 用現在日期 + 時間當檔名
+        // 產生暫存檔路徑
         $fileName = now()->format('Ymd_His') . ".mp4";
+        $tempPath = storage_path("app/temp/{$fileName}");
 
-        $ch = curl_init($videoUrl);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        $videoData = curl_exec($ch);
-        curl_close($ch);
+        try {
+            // 確保目錄存在
+            if (!is_dir(dirname($tempPath))) {
+                mkdir(dirname($tempPath), 0755, true);
+            }
 
-        return response($videoData, 200)
-            ->header('Content-Type', 'video/mp4')
-            ->header('Content-Disposition', "attachment; filename=\"$fileName\"");
+            // 使用 yt-dlp 直接下載影片到暫存檔
+            $process = new \Symfony\Component\Process\Process([
+                'yt-dlp',
+                '-o', $tempPath,   // 輸出檔案位置
+                '-f', 'mp4',       // 指定格式
+                $url
+            ]);
+            $process->setTimeout(120); // 最多等 2 分鐘
+            $process->run();
+
+            if (!$process->isSuccessful()) {
+                throw new \Symfony\Component\Process\Exception\ProcessFailedException($process);
+            }
+
+            // 回傳檔案下載
+            return response()->download($tempPath, $fileName)->deleteFileAfterSend(true);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => "下載失敗: " . $e->getMessage(),
+                'log' => $process->getErrorOutput() ?? ''
+            ]);
+        }
     }
+
 }

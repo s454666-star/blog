@@ -19,7 +19,7 @@
 <body>
 <div class="container">
     <h2>影片下載工具</h2>
-    <input type="text" id="url" placeholder="輸入影片 URL (支援 YouTube, Instagram...)">
+    <input type="text" id="url" placeholder="輸入影片 URL (支援 YouTube, Instagram, Bilibili...)">
     <div id="session-box">
         <input type="password" id="session" placeholder="請輸入 Instagram sessionid">
         <button id="save-session-btn">儲存 Session</button>
@@ -28,7 +28,7 @@
     <pre id="log"></pre>
     <div id="video-container" style="display:none;">
         <video id="video-player" controls></video>
-        <a id="download-btn" href="#">⬇️ 下載影片</a>
+        <a id="download-btn" href="#" download>⬇️ 下載影片</a>
     </div>
 </div>
 
@@ -69,7 +69,6 @@
         const url = urlInput.value;
         logBox.textContent = "🔍 開始解析中...\n";
         videoContainer.style.display = "none";
-        downloadBtn.style.display = "none";
 
         fetch("/fetch-url", {
             method: "POST",
@@ -82,19 +81,13 @@
                     logBox.textContent = "✅ 找到影片連結:\n" + data.videoUrl +
                         "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
 
-                    // 顯示容器
+                    // ✅ 無論 mp4 / m4s 一律顯示播放器
                     videoContainer.style.display = "block";
+                    videoPlayer.src = data.videoUrl;
+                    videoPlayer.type = "video/mp4"; // 瀏覽器可播 m4s
 
-                    // 若是 mp4 就能播放，否則只顯示下載
-                    if (data.videoUrl.endsWith(".mp4")) {
-                        videoPlayer.style.display = "block";
-                        videoPlayer.src = data.videoUrl;
-                    } else {
-                        videoPlayer.style.display = "none";
-                    }
-
-                    // 總是顯示下載按鈕
-                    downloadBtn.href = "/download?source=" + encodeURIComponent(data.sourceUrl || data.videoUrl);
+                    // ✅ 下載直接用 videoUrl
+                    downloadBtn.href = data.videoUrl;
                     downloadBtn.style.display = "inline-block";
                 } else {
                     logBox.textContent = "❌ 錯誤: " + data.error + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");

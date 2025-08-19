@@ -26,14 +26,24 @@ class UrlViewerController extends Controller
 
             $html = $response->body();
             $debugLog[] = "回傳長度: " . strlen($html) . " bytes";
-
-            // 預覽前 500 字
             $debugLog[] = "HTML 前 500 字:\n" . substr($html, 0, 500);
 
-            // 嘗試找 <script id="SIGI_STATE">
-            preg_match('/<script id="SIGI_STATE"[^>]*>(.*?)<\/script>/s', $html, $matches);
-            if (empty($matches)) {
-                $debugLog[] = "❌ 沒找到 SIGI_STATE JSON";
+            $jsonRaw = null;
+
+            // 嘗試找 SIGI_STATE
+            if (preg_match('/<script id="SIGI_STATE"[^>]*>(.*?)<\/script>/s', $html, $matches)) {
+                $jsonRaw = $matches[1];
+                $debugLog[] = "找到 SIGI_STATE JSON，長度: " . strlen($jsonRaw);
+            }
+
+            // 如果沒找到 SIGI_STATE，嘗試 NEXT_DATA
+            if (!$jsonRaw && preg_match('/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s', $html, $matches)) {
+                $jsonRaw = $matches[1];
+                $debugLog[] = "找到 __NEXT_DATA__ JSON，長度: " . strlen($jsonRaw);
+            }
+
+            if (!$jsonRaw) {
+                $debugLog[] = "❌ 沒找到 SIGI_STATE 或 __NEXT_DATA__";
                 return response()->json([
                     'success' => false,
                     'error' => '找不到影片 JSON',
@@ -41,8 +51,6 @@ class UrlViewerController extends Controller
                 ]);
             }
 
-            $jsonRaw = $matches[1];
-            $debugLog[] = "找到 SIGI_STATE JSON，長度: " . strlen($jsonRaw);
             $debugLog[] = "JSON 前 500 字:\n" . substr($jsonRaw, 0, 500);
 
             $json = json_decode($jsonRaw, true);
@@ -55,8 +63,9 @@ class UrlViewerController extends Controller
                 ]);
             }
 
-            // 尋找 ItemModule -> 任意影片 -> video.playAddr
             $videoUrl = null;
+
+            // 如果是 SIGI_STATE 結構
             if (isset($json['ItemModule']) && is_array($json['ItemModule'])) {
                 foreach ($json['ItemModule'] as $itemId => $item) {
                     if (isset($item['video']['playAddr'])) {
@@ -68,6 +77,18 @@ class UrlViewerController extends Controller
                         $debugLog[] = "找到 downloadAddr: " . $videoUrl;
                         break;
                     }
+                }
+            }
+
+            // 如果是 NEXT_DATA 結構
+            if (!$videoUrl && isset($json['props']['pageProps']['itemInfo']['itemStruct']['video'])) {
+                $videoData = $json['props']['pageProps']['itemInfo']['itemStruct']['video'];
+                if (isset($videoData['playAddr'])) {
+                    $videoUrl = $videoData['playAddr'];
+                    $debugLog[] = "NEXT_DATA.playAddr: " . $videoUrl;
+                } elseif (isset($videoData['downloadAddr'])) {
+                    $videoUrl = $videoData['downloadAddr'];
+                    $debugLog[] = "NEXT_DATA.downloadAddr: " . $videoUrl;
                 }
             }
 
@@ -96,6 +117,7 @@ class UrlViewerController extends Controller
             ]);
         }
     }
+
 
 
     public function download(Request $request)

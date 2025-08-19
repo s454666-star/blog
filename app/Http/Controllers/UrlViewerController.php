@@ -20,6 +20,7 @@ class UrlViewerController extends Controller
         return view('url_viewer');
     }
 
+    // 儲存 sessionid
     public function saveSession(Request $request)
     {
         $session = trim($request->input('session'));
@@ -35,18 +36,18 @@ class UrlViewerController extends Controller
         return response()->json(['success' => true, 'message' => 'IG session 已儲存']);
     }
 
+    // 解析影片連結
     public function fetch(Request $request)
     {
         $url = $request->input('url');
         $debugLog = [];
-        $videoUrl = null;
 
         try {
             $debugLog[] = "開始解析 URL: " . $url;
 
             $cmd = ['yt-dlp', '-g'];
 
-            // 如果是 Instagram
+            // IG 特殊處理
             if (strpos($url, 'instagram.com') !== false) {
                 if (!file_exists($this->igSessionFile)) {
                     return response()->json([
@@ -59,10 +60,11 @@ class UrlViewerController extends Controller
 
                 $sessionId = trim(file_get_contents($this->igSessionFile));
 
-                // 建立 cookies.txt 給 yt-dlp 用
+                // 產生符合 Netscape 格式的 cookies.txt
                 $cookiePath = storage_path("app/cookies/ig_cookie_tmp.txt");
-                $cookieLine = ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{$sessionId}\n";
-                file_put_contents($cookiePath, $cookieLine);
+                $cookieContent = "# Netscape HTTP Cookie File\n";
+                $cookieContent .= ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{$sessionId}\n";
+                file_put_contents($cookiePath, $cookieContent);
 
                 $cmd = ['yt-dlp', '-g', '--cookies', $cookiePath, $url];
                 $debugLog[] = "使用 IG sessionid 下載";
@@ -76,6 +78,18 @@ class UrlViewerController extends Controller
 
             if (!$process->isSuccessful()) {
                 $debugLog[] = "yt-dlp 錯誤:\n" . $process->getErrorOutput();
+
+                // 如果是 IG 而且 session 過期 → 要求重新輸入
+                if (strpos($url, 'instagram.com') !== false) {
+                    unlink($this->igSessionFile); // 刪除舊 session
+                    return response()->json([
+                        'success' => false,
+                        'error' => 'IG sessionid 已失效，請重新輸入',
+                        'needSession' => true,
+                        'log' => $debugLog
+                    ]);
+                }
+
                 throw new ProcessFailedException($process);
             }
 
@@ -109,6 +123,7 @@ class UrlViewerController extends Controller
         }
     }
 
+    // 下載影片
     public function download(Request $request)
     {
         $videoUrl = $request->query('url');

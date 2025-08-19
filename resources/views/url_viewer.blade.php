@@ -55,7 +55,7 @@
 
         <div id="threads-inputs" style="display:none;">
             <textarea id="session-threads" rows="4" placeholder="請貼上 Threads/IG Cookies（name=value; name2=value2; ...）。可直接貼你上面那串。"></textarea>
-            <div class="hint">會同時儲存到 <code>.threads.net</code> 與 <code>.threads.com</code>，並同步至 <code>.instagram.com</code>。</div>
+            <div class="hint">會同時儲存到 <code>.threads.net</code> 並同步至 <code>.instagram.com</code>。</div>
         </div>
 
         <div class="row">
@@ -235,10 +235,10 @@
                         setSite('ig');
                         appendLog("ℹ️ Instagram 需要完整 Cookies（至少 sessionid + csrftoken），請在 IG 分頁貼上再試。");
                     }
-                    if (isThreadsUrl(url)) {
-                        appendLog("ℹ️ 已嘗試免登入 GraphQL/yt-dlp 後備。若仍失敗，可貼上 Threads/IG Cookies 再試（本工具會同步到 net/com/IG）。");
+                    if (data.needThreadsCookie || isThreadsUrl(url)) {
                         sessionBox.style.display = "block";
                         setSite('threads');
+                        appendLog("ℹ️ Threads 建議貼上 Cookies（可貼與 IG 相同那串），系統會同步到 IG。");
                     }
                 }
                 if (document.getElementById("debug").checked && data.diag) {

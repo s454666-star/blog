@@ -19,9 +19,8 @@ class UrlViewerController extends Controller
 
     public function index()
     {
-        // 嚴格驗證 IG cookie 檔；不是正確 Netscape + sessionid 就視為未登入
-        $hasSession   = $this->ensureValidIGCookieFile();
-        $hasYTCookie  = $this->isValidGenericCookieFile($this->ytCookieFile);
+        $hasSession  = $this->ensureValidIGCookieFile();
+        $hasYTCookie = $this->isValidGenericCookieFile($this->ytCookieFile);
         return view('url_viewer', compact('hasSession', 'hasYTCookie'));
     }
 
@@ -69,7 +68,7 @@ class UrlViewerController extends Controller
     }
 
     /**
-     * 抓直連 URL（預覽）
+     * 抓影片直連 URL (預覽)
      */
     public function fetch(Request $request)
     {
@@ -78,12 +77,14 @@ class UrlViewerController extends Controller
             return response()->json(['success' => false, 'error' => '缺少 URL']);
         }
 
-        $isIG = $this->isInstagramUrl($url);
-        $isYT = $this->isYouTubeUrl($url);
+        // 站點偵測
+        $isIG   = $this->isInstagramUrl($url);
+        $isYT   = $this->isYouTubeUrl($url);
+        $isBili = $this->isBilibiliUrl($url);
 
-        if ($isYT) {
-            $url = $this->normalizeYouTubeWatchUrl($url);
-        }
+        // 正規化
+        if ($isYT)   { $url = $this->normalizeYouTubeWatchUrl($url); }
+        if ($isBili) { $url = $this->normalizeBilibiliUrl($url); }
 
         if ($isIG && !$this->isValidIGCookieFile($this->igSessionFile)) {
             return response()->json([
@@ -93,11 +94,11 @@ class UrlViewerController extends Controller
             ]);
         }
 
-        // 準備第一階段參數
-        $args = $this->buildArgsBase($url, $isIG, $isYT, true);
+        // 準備 yt-dlp 參數（預覽）
+        $args = $this->buildArgsBase($url, $isIG, $isYT, $isBili, true);
 
-        // 嘗試執行；若遇到 429/驗證，啟動 YouTube 後備流程
-        $run = $this->runYtDlpWithFallback($args, 120, $isYT, true);
+        // 執行 +（針對 YT）後備策略
+        $run = $this->runYtDlpWithFallback($args, 120, $isYT, false);
 
         if (!$run['ok']) {
             $resp = ['success' => false, 'error' => $run['stderr']];
@@ -125,12 +126,12 @@ class UrlViewerController extends Controller
             return response()->json(['success' => false, 'error' => '缺少 URL']);
         }
 
-        $isIG = $this->isInstagramUrl($url);
-        $isYT = $this->isYouTubeUrl($url);
+        $isIG   = $this->isInstagramUrl($url);
+        $isYT   = $this->isYouTubeUrl($url);
+        $isBili = $this->isBilibiliUrl($url);
 
-        if ($isYT) {
-            $url = $this->normalizeYouTubeWatchUrl($url);
-        }
+        if ($isYT)   { $url = $this->normalizeYouTubeWatchUrl($url); }
+        if ($isBili) { $url = $this->normalizeBilibiliUrl($url); }
 
         if ($isIG && !$this->isValidIGCookieFile($this->igSessionFile)) {
             return response()->json([
@@ -143,14 +144,14 @@ class UrlViewerController extends Controller
         $fileName = "video_" . date("Ymd_His") . ".mp4";
         $filePath = storage_path("app/public/" . $fileName);
 
-        $args = $this->buildArgsBase($url, $isIG, $isYT, false);
-        // 下載用：輸出 mp4 檔案
+        $args = $this->buildArgsBase($url, $isIG, $isYT, $isBili, false);
+        // 下載輸出
         $args = array_merge($args, [
             '--merge-output-format', 'mp4',
             '-o', $filePath
         ]);
 
-        $run = $this->runYtDlpWithFallback($args, 420, $isYT, false);
+        $run = $this->runYtDlpWithFallback($args, 420, $isYT, true);
 
         if (!$run['ok']) {
             $resp = ['success' => false, 'error' => $run['stderr']];
@@ -169,21 +170,32 @@ class UrlViewerController extends Controller
 
     /* -------------------- yt-dlp 參數與執行（含後備） -------------------- */
 
-    private function buildArgsBase(string $url, bool $isIG, bool $isYT, bool $forPreview): array
+    private function buildArgsBase(string $url, bool $isIG, bool $isYT, bool $isBili, bool $forPreview): array
     {
-        // 共同參數：忽略全域設定、強制 IPv4、語系標頭、關閉播放清單
+        // 共同參數：忽略全域設定、強制 IPv4、關閉播放清單、語系標頭
         $base = [
             'yt-dlp',
             '--ignore-config',
             '--force-ipv4',
             '--no-playlist',
             '--add-header', 'Accept-Language: zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-            '--user-agent', 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36',
         ];
 
-        // YouTube：優先用 android client（較少觸發驗證）
+        // 預設使用 Android UA（對 YT 較友善）
+        $ua = 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36';
+
+        // YouTube：優先用 android client
         if ($isYT) {
             $base = array_merge($base, ['--extractor-args', 'youtube:player_client=android']);
+        }
+
+        // Bilibili：採用桌面 UA，並加入 Referer/Origin
+        if ($isBili) {
+            $ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+            $base = array_merge($base, [
+                '--add-header', 'Referer: https://www.bilibili.com',
+                '--add-header', 'Origin: https://www.bilibili.com',
+            ]);
         }
 
         // IG：僅 IG 連結才帶 cookies
@@ -191,66 +203,60 @@ class UrlViewerController extends Controller
             $base = array_merge($base, ['--cookies', $this->igSessionFile]);
         }
 
-        // 輸出種類
+        $base = array_merge($base, ['--user-agent', $ua]);
+
+        // 預覽/下載格式
         if ($forPreview) {
             $base = array_merge($base, ['-f', 'bestvideo+bestaudio/best', '-g']);
         } else {
             $base = array_merge($base, ['-f', 'bestvideo+bestaudio/best']);
         }
 
-        // 較保守的重試策略（避免直接失敗）
-        $base = array_merge($base, [
-            '--retries', '10',
-            '--retry-sleep', '3',
-        ]);
+        // 較保守重試
+        $base = array_merge($base, ['--retries', '10', '--retry-sleep', '3']);
 
         $base[] = $url;
         return $base;
     }
 
     /**
-     * 執行 yt-dlp；若偵測到 YT 429 或驗證需求，嘗試後備：
+     * 執行 yt-dlp；若偵測到 YT 429/驗證需求，嘗試後備：
      * 1) 更換 client: ios → tv
      * 2) 若已有 YouTube Cookie（Netscape），加入 --cookies 再試
      */
-    private function runYtDlpWithFallback(array $args, int $timeoutSec, bool $isYT, bool $forPreview): array
+    private function runYtDlpWithFallback(array $args, int $timeoutSec, bool $isYT, bool $preferFileOutput): array
     {
         $needYTCookie = false;
 
-        // 第一次嘗試（已經是 android client）
         $r1 = $this->run($args, $timeoutSec);
         if ($r1['ok']) return $r1;
 
         if ($isYT && $this->looksLikeYTRateLimit($r1['stderr'])) {
-            // 第二次嘗試：切換成 iOS client
+            // 改 iOS client
             $args2 = $this->swapYTClient($args, 'ios');
             $r2 = $this->run($args2, $timeoutSec);
             if ($r2['ok']) return $r2;
 
+            // 再試 TV
             if ($this->looksLikeYTRateLimit($r2['stderr'])) {
-                // 第三次：TV client
                 $args3 = $this->swapYTClient($args, 'tv');
                 $r3 = $this->run($args3, $timeoutSec);
                 if ($r3['ok']) return $r3;
             }
 
-            // 若仍失敗且有 YT Cookies 檔，帶 cookies 再試一次（用 ios client）
+            // 若有 YT Cookies：附上 cookies 後再試
             if ($this->isValidGenericCookieFile($this->ytCookieFile)) {
                 $needYTCookie = false;
                 $args4 = $this->ensureArg($args, '--cookies', $this->ytCookieFile);
                 $args4 = $this->swapYTClient($args4, 'ios');
                 $r4 = $this->run($args4, $timeoutSec);
                 if ($r4['ok']) return $r4;
-            } else {
-                $needYTCookie = true;
-            }
 
-            // 最後再嘗試一次：TV client + cookies（如果有）
-            if ($this->isValidGenericCookieFile($this->ytCookieFile)) {
-                $args5 = $this->ensureArg($args, '--cookies', $this->ytCookieFile);
-                $args5 = $this->swapYTClient($args5, 'tv');
+                $args5 = $this->swapYTClient($args4, 'tv');
                 $r5 = $this->run($args5, $timeoutSec);
                 if ($r5['ok']) return $r5;
+            } else {
+                $needYTCookie = true;
             }
         }
 
@@ -308,7 +314,6 @@ class UrlViewerController extends Controller
                 $out[] = $args[$i];
             }
         }
-        // 若原本沒有，補上
         if (!in_array('--extractor-args', $out, true)) {
             $out[] = '--extractor-args';
             $out[] = 'youtube:player_client=' . $client;
@@ -318,7 +323,6 @@ class UrlViewerController extends Controller
 
     private function ensureArg(array $args, string $flag, string $value): array
     {
-        // 若已存在該 flag，更新其值；否則追加
         $out = [];
         $replaced = false;
         for ($i = 0; $i < count($args); $i++) {
@@ -368,12 +372,23 @@ class UrlViewerController extends Controller
         return (strpos($host, 'youtube.com') !== false) || (strpos($host, 'youtu.be') !== false);
     }
 
+    private function isBilibiliUrl(string $url): bool
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+        if (!is_string($host)) return false;
+        $host = strtolower($host);
+        return (strpos($host, 'bilibili.com') !== false) || (strpos($host, 'b23.tv') !== false);
+    }
+
+    /**
+     * YouTube：只保留 v、t，避免 playlist 參數拖慢或卡住
+     */
     private function normalizeYouTubeWatchUrl(string $url): string
     {
         $parts = parse_url($url);
         if (!is_array($parts)) return $url;
 
-        // youtu.be 短連結轉換
+        // youtu.be 短連結
         if (!empty($parts['host']) && !empty($parts['path'])) {
             $host = strtolower($parts['host']);
             if (strpos($host, 'youtu.be') !== false) {
@@ -384,7 +399,6 @@ class UrlViewerController extends Controller
             }
         }
 
-        // youtube.com/watch? 只保留 v、t
         $query = [];
         if (isset($parts['query'])) parse_str($parts['query'], $query);
         $keep = [];
@@ -396,6 +410,50 @@ class UrlViewerController extends Controller
             return $base . '?' . http_build_query($keep);
         }
         return $url;
+    }
+
+    /**
+     * Bilibili：將 m.bilibili.com 轉為 www.bilibili.com
+     *   - video/BV... → 保留 BV，補上結尾斜線
+     *   - 僅保留 p=（分P）參數；移除 spm_id_from、vd_source 等雜參
+     */
+    private function normalizeBilibiliUrl(string $url): string
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts)) return $url;
+
+        $scheme = $parts['scheme'] ?? 'https';
+        $host   = strtolower($parts['host'] ?? '');
+        $path   = $parts['path'] ?? '';
+        $query  = [];
+        if (isset($parts['query'])) parse_str($parts['query'], $query);
+
+        // b23.tv 短連結交由 yt-dlp 自行展開
+        if (strpos($host, 'b23.tv') !== false) {
+            return $url;
+        }
+
+        // 強制 www
+        if (strpos($host, 'bilibili.com') !== false) {
+            $host = 'www.bilibili.com';
+        }
+
+        // video/BV... 的處理
+        if (preg_match('#^/video/(BV[0-9A-Za-z]+)#', $path, $m)) {
+            $bv = $m[1];
+            $keep = [];
+            if (!empty($query['p'])) {
+                $keep['p'] = (int) $query['p'];
+            }
+            $normalized = $scheme . '://' . $host . '/video/' . $bv . '/';
+            if (!empty($keep)) {
+                $normalized .= '?' . http_build_query($keep);
+            }
+            return $normalized;
+        }
+
+        // 其他路徑（如 bangumi/play/ep...）保留 host 替換為 www，其餘維持原狀
+        return $scheme . '://' . $host . $path . (isset($parts['query']) ? ('?' . $parts['query']) : '');
     }
 
     /* -------------------- Cookie 檔驗證/寫入 -------------------- */
@@ -490,7 +548,6 @@ class UrlViewerController extends Controller
 
     private function parseCookiePairs(string $input): array
     {
-        // 將 "name=value; name2=value2" 轉為鍵值陣列
         $pairs = [];
         $segments = array_filter(array_map('trim', explode(';', $input)));
         foreach ($segments as $seg) {

@@ -43,7 +43,7 @@
 
         <div id="yt-inputs" style="display:none;">
             <textarea id="session-yt" rows="4" placeholder="請貼上 YouTube Cookies（name=value; name2=value2; ...）"></textarea>
-            <div class="hint">建議用瀏覽器外掛（如 Cookie-Editor）匯出或複製當前 <code>youtube.com</code> 的 Cookie。將轉為 Netscape 格式儲存。</div>
+            <div class="hint">建議用外掛（Cookie-Editor）複製當前 <code>youtube.com</code> 的 Cookie。將轉為 Netscape 格式儲存。</div>
         </div>
 
         <div class="row">
@@ -110,10 +110,10 @@
         try { return new URL(u).hostname.toLowerCase().includes('instagram.com'); } catch { return false; }
     }
     function isYouTubeUrl(u) {
-        try {
-            const h = new URL(u).hostname.toLowerCase();
-            return h.includes('youtube.com') || h.includes('youtu.be');
-        } catch { return false; }
+        try { const h = new URL(u).hostname.toLowerCase(); return h.includes('youtube.com') || h.includes('youtu.be'); } catch { return false; }
+    }
+    function isBilibiliUrl(u) {
+        try { const h = new URL(u).hostname.toLowerCase(); return h.includes('bilibili.com') || h.includes('b23.tv'); } catch { return false; }
     }
 
     saveSessionBtn.addEventListener("click", () => {
@@ -141,7 +141,6 @@
             .then(data => {
                 if (data.success) {
                     logBox.textContent = "✅ " + data.message;
-                    // 若是 IG，成功後可隱藏；YouTube 視需求保留
                     if (site === 'ig') sessionBox.style.display = "none";
                 } else {
                     logBox.textContent = "❌ " + (data.error || "儲存失敗");
@@ -167,14 +166,13 @@
         downloadBtn.style.display = "none";
         videoPlayer.removeAttribute('src');
 
-        // 若是 IG 且目前沒有 IG Cookie，主動顯示 IG 欄
         if (isInstagramUrl(url) && !hasIG) {
             sessionBox.style.display = "block";
             setSite('ig');
         }
 
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 130000); // 130 秒避免卡住（含重試）
+        const timer = setTimeout(() => controller.abort(), 130000);
 
         fetch("/fetch-url", {
             method: "POST",
@@ -199,8 +197,7 @@
                     downloadBtn.style.display = "inline-block";
                 } else {
                     logBox.textContent = "❌ 錯誤：\n" + (data.error || "解析失敗");
-                    // 若為 YouTube 且伺服器提示需要 Cookie，顯示 YT Cookie 輸入
-                    if (data.needYTCookie || (isYouTubeUrl(url) && /429|confirm you.?re not a bot/i.test(data.error || ''))) {
+                    if (isYouTubeUrl(url) && (data.needYTCookie || /429|confirm you.?re not a bot/i.test(data.error || ''))) {
                         sessionBox.style.display = "block";
                         setSite('yt');
                         appendLog("ℹ️ YouTube 可能觸發頻率限制/驗證，請在上方選擇 YouTube 並貼上 cookies 後重試。");
@@ -215,7 +212,7 @@
             .catch(err => {
                 clearTimeout(timer);
                 if (err.name === "AbortError") {
-                    logBox.textContent = "⏱️ 解析逾時，請稍後重試或提供 YouTube Cookies。";
+                    logBox.textContent = "⏱️ 解析逾時，請稍後重試。";
                     if (isYouTubeUrl(url)) {
                         sessionBox.style.display = "block";
                         setSite('yt');

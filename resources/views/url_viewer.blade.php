@@ -1,3 +1,4 @@
+<!-- resources/views/url_viewer.blade.php -->
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -89,7 +90,6 @@
 
     const radios = document.getElementsByName("cookie-site");
 
-    // 初始：若 IG Cookie 無效，先露出輸入框（預設 IG）
     if (!hasIG) {
         sessionBox.style.display = "block";
         setSite('ig');
@@ -220,7 +220,7 @@
                     if (data.needThreadsCookie || isThreadsUrl(url)) {
                         sessionBox.style.display = "block";
                         setSite('threads');
-                        appendLog("ℹ️ Threads 需要 Cookies（可貼你上面那串），系統會同步到 IG，一次搞定兩邊。");
+                        appendLog("ℹ️ 若仍失敗，請在 Threads 分頁貼上 Cookies（可貼與 IG 相同那串），系統會同步到 IG。");
                     }
                 }
             })

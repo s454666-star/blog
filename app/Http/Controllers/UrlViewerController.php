@@ -24,6 +24,7 @@ class UrlViewerController extends Controller
         $hasIGSession   = $this->ensureValidIGCookieFile();
         $hasYTCookie    = $this->isValidGenericCookieFile($this->ytCookieFile);
         $hasThreadsCook = $this->isValidGenericCookieFile($this->threadsCookieFile);
+
         return view('url_viewer', [
             'hasSession'     => $hasIGSession,
             'hasYTCookie'    => $hasYTCookie,
@@ -49,7 +50,6 @@ class UrlViewerController extends Controller
         if ($site === 'ig') {
             $pairs = $this->parseCookiePairs($raw);
             if (empty($pairs)) {
-                // 僅貼了純 sessionid
                 $sessionId = $this->extractSessionId($raw);
                 if (!$sessionId) {
                     return response()->json(['success' => false, 'error' => '請貼上有效的 IG Cookies 或 sessionid']);
@@ -83,9 +83,7 @@ class UrlViewerController extends Controller
                 return response()->json(['success' => false, 'error' => '請貼上有效的 Threads/IG Cookies（name=value; 形式）']);
             }
             $this->ensureCookiesDir();
-            // 1) 寫入 .threads.net
             $this->writeNetscapeForDomain('.threads.net', $pairs, $this->threadsCookieFile);
-            // 2) 同步同一批到 IG（確保有 csrftoken 等，解決 IG 400/需要登入）
             $this->writeNetscapeIGFromPairs($pairs);
 
             if (!$this->isValidGenericCookieFile($this->threadsCookieFile)) {
@@ -107,7 +105,6 @@ class UrlViewerController extends Controller
             return response()->json(['success' => false, 'error' => '缺少 URL']);
         }
 
-        // 站點偵測 + 正規化
         $url = $this->normalizeAll($rawUrl);
 
         $isIG      = $this->isInstagramUrl($url);
@@ -123,7 +120,6 @@ class UrlViewerController extends Controller
             ]);
         }
 
-        // Threads：用自家解析器；會帶上 threads.net + instagram.com 的 Cookie
         if ($isThreads) {
             $urls = $this->extractThreadsVideoUrls($url);
             if (!empty($urls)) {
@@ -136,7 +132,6 @@ class UrlViewerController extends Controller
             ]);
         }
 
-        // 其他站點交給 yt-dlp
         if ($isYT)   { $url = $this->normalizeYouTubeWatchUrl($url); }
         if ($isBili) { $url = $this->normalizeBilibiliUrl($url); }
 
@@ -190,7 +185,6 @@ class UrlViewerController extends Controller
         $fileName = "video_" . date("Ymd_His") . ".mp4";
         $filePath = storage_path("app/public/" . $fileName);
 
-        // Threads：先取直鏈，再交給 yt-dlp 下載
         if ($isThreads) {
             $directs = $this->extractThreadsVideoUrls($url);
             if (empty($directs)) {
@@ -203,24 +197,18 @@ class UrlViewerController extends Controller
             $dlUrl = $directs[0];
 
             $args = [
-                'yt-dlp',
-                '--ignore-config',
-                '--force-ipv4',
-                '--no-playlist',
+                'yt-dlp', '--ignore-config', '--force-ipv4', '--no-playlist',
                 '--add-header', 'Accept-Language: zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
                 '--add-header', 'Referer: https://www.threads.net',
                 '--user-agent', $this->desktopUA(),
-                '-o', $filePath,
-                '--merge-output-format', 'mp4',
+                '-o', $filePath, '--merge-output-format', 'mp4',
                 $dlUrl
             ];
 
-            // 若有 Cookies，直接以「Cookie: ...」頭餵入（合併 threads.net+instagram.com）
             $cookieHeader = $this->buildThreadsCombinedCookieHeader();
             if ($cookieHeader !== '') {
                 $args = [
-                    'yt-dlp', '--ignore-config',
-                    '--force-ipv4', '--no-playlist',
+                    'yt-dlp', '--ignore-config', '--force-ipv4', '--no-playlist',
                     '--add-header', 'Accept-Language: zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
                     '--add-header', 'Referer: https://www.threads.net',
                     '--add-header', 'Cookie: ' . $cookieHeader,
@@ -234,15 +222,12 @@ class UrlViewerController extends Controller
             if (!$r['ok']) {
                 return response()->json(['success' => false, 'error' => $r['stderr']]);
             }
-
             if (!is_file($filePath)) {
                 return response()->json(['success' => false, 'error' => '下載失敗，找不到輸出檔案']);
             }
-
             return Response::download($filePath)->deleteFileAfterSend(true);
         }
 
-        // 其他站點
         $args = $this->buildArgsBase($url, $isIG, $isYT, $isBili, true, false);
         $args = array_merge($args, ['--merge-output-format', 'mp4', '-o', $filePath]);
 
@@ -447,11 +432,11 @@ class UrlViewerController extends Controller
     {
         $url = $this->normalizeThreadsUrl($url);
 
-        // 合併 threads.net + instagram.com 的 Cookie
         $cookieHeader = $this->buildThreadsCombinedCookieHeader();
 
         $headers = [
             'User-Agent: ' . $this->desktopUA(),
+            'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language: zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
             'Referer: https://www.threads.net/',
         ];
@@ -459,18 +444,15 @@ class UrlViewerController extends Controller
             $headers[] = 'Cookie: ' . $cookieHeader;
         }
 
-        // 先抓原頁
         $html = $this->curlGet($url, $headers);
         $candidates = $this->pickVideoUrlsFromHtml($html);
 
-        // 若未命中，試 embed
         if (empty($candidates)) {
             $embedUrl = rtrim($url, '/') . '/embed';
             $html2 = $this->curlGet($embedUrl, $headers);
             $candidates = $this->pickVideoUrlsFromHtml($html2);
         }
 
-        // 淨化/去重與排序（mp4 優先）
         $candidates = array_values(array_unique(array_map(function ($u) {
             $u = (string) $u;
             $u = html_entity_decode($u, ENT_QUOTES | ENT_HTML5, 'UTF-8');
@@ -482,7 +464,38 @@ class UrlViewerController extends Controller
 
         if (!empty($mp4)) return $mp4;
         if (!empty($m3u8)) return $m3u8;
-        return [];
+
+        // 仍無 -> 最後用 yt-dlp -g 後備（帶 Referer 與 Cookie）
+        $viaYtDlp = $this->extractThreadsViaYtDlp($url, $cookieHeader);
+        return $viaYtDlp;
+    }
+
+    private function extractThreadsViaYtDlp(string $url, string $cookieHeader): array
+    {
+        $args = [
+            'yt-dlp', '--ignore-config', '--force-ipv4', '--no-playlist',
+            '--add-header', 'Accept-Language: zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+            '--add-header', 'Referer: https://www.threads.net',
+            '--user-agent', $this->desktopUA(),
+            '-g',
+            $url
+        ];
+        if ($cookieHeader !== '') {
+            $args = [
+                'yt-dlp', '--ignore-config', '--force-ipv4', '--no-playlist',
+                '--add-header', 'Accept-Language: zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+                '--add-header', 'Referer: https://www.threads.net',
+                '--add-header', 'Cookie: ' . $cookieHeader,
+                '--user-agent', $this->desktopUA(),
+                '-g',
+                $url
+            ];
+        }
+
+        $r = $this->run($args, 140);
+        if (!$r['ok']) return [];
+        $urls = $this->splitUrls($r['stdout']);
+        return $urls;
     }
 
     private function pickVideoUrlsFromHtml(?string $html): array
@@ -490,12 +503,13 @@ class UrlViewerController extends Controller
         if (!is_string($html) || $html === '') return [];
         $out = [];
 
-        // og:video / og:video:url
         if (preg_match_all('#<meta[^>]+property=["\']og:video(?::url)?["\'][^>]+content=["\']([^"\']+)#i', $html, $m)) {
             foreach ($m[1] as $u) $out[] = $u;
         }
+        if (preg_match_all('#<meta[^>]+property=["\']og:video:secure_url["\'][^>]+content=["\']([^"\']+)#i', $html, $m2)) {
+            foreach ($m2[1] as $u) $out[] = $u;
+        }
 
-        // 常見 JSON 欄位
         $patterns = [
             '#"video_url"\s*:\s*"([^"]+)"#i',
             '#"video_versions"\s*:\s*\[\s*{[^}]*"url"\s*:\s*"([^"]+)"#i',
@@ -506,8 +520,8 @@ class UrlViewerController extends Controller
             '#https?://[^"\']+?\.m3u8[^"\']*#i',
         ];
         foreach ($patterns as $re) {
-            if (preg_match_all($re, $html, $m2)) {
-                foreach ($m2[1] ?? $m2[0] as $u) $out[] = $u;
+            if (preg_match_all($re, $html, $mm)) {
+                foreach (($mm[1] ?? $mm[0]) as $u) $out[] = $u;
             }
         }
         return $out;
@@ -565,6 +579,9 @@ class UrlViewerController extends Controller
             CURLOPT_TIMEOUT => 25,
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_ENCODING => '',
+            CURLOPT_IPRESOLVE => defined('CURL_IPRESOLVE_V4') ? CURL_IPRESOLVE_V4 : 1,
+            CURLOPT_HTTP_VERSION => defined('CURL_HTTP_VERSION_1_1') ? CURL_HTTP_VERSION_1_1 : 2,
+            CURLOPT_USERAGENT => $this->desktopUA(),
         ]);
         $body = curl_exec($ch);
         curl_close($ch);
@@ -689,8 +706,6 @@ class UrlViewerController extends Controller
         if (strpos($content, 'Netscape HTTP Cookie File') === false) return false;
 
         $hasSession = false;
-        $hasCsrf = false;
-
         $lines = preg_split("/\r\n|\n|\r/", $content) ?: [];
         foreach ($lines as $line) {
             $line = trim($line);
@@ -698,10 +713,8 @@ class UrlViewerController extends Controller
             $parts = explode("\t", $line);
             if (count($parts) === 7) {
                 if ($parts[5] === 'sessionid' && $parts[6] !== '') $hasSession = true;
-                if ($parts[5] === 'csrftoken' && $parts[6] !== '') $hasCsrf = true;
             }
         }
-        // 至少要 sessionid；若有 csrftoken 更佳（能避免你遇到的 400）
         return $hasSession;
     }
 
@@ -792,12 +805,8 @@ class UrlViewerController extends Controller
 
     private function writeNetscapeIGFromPairs(array $pairs): void
     {
-        // 確保 sessionid 放進去；其它（csrftoken、mid、ig_did、ds_user_id、dpr、ps_l、ps_n）若有也一併寫入
         $content = "# Netscape HTTP Cookie File\n";
-        $keys = array_unique(array_merge(
-            array_keys($pairs),
-            ['sessionid', 'csrftoken']
-        ));
+        $keys = array_unique(array_merge(array_keys($pairs), ['sessionid', 'csrftoken']));
         foreach ($keys as $k) {
             if (!isset($pairs[$k])) continue;
             $v = $pairs[$k];

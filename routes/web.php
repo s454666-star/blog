@@ -141,3 +141,4 @@ Route::post('/extract', [ExtractController::class, 'process'])->name('extract.pr
 Route::get('/url-viewer', [UrlViewerController::class, 'index']);
 Route::post('/fetch-url', [UrlViewerController::class, 'fetch']);
 Route::get('/download', [UrlViewerController::class, 'download']);
+Route::post('/save-session', [UrlViewerController::class, 'saveSession']);

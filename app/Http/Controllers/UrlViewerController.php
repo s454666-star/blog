@@ -3,35 +3,74 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
+use Symfony\Component\Process\Exception\ProcessFailedException;
 
 class UrlViewerController extends Controller
 {
+    private $igSessionFile;
+
+    public function __construct()
+    {
+        $this->igSessionFile = storage_path("app/cookies/ig_session.txt");
+    }
+
     public function index()
     {
         return view('url_viewer');
     }
 
-    // 解析影片直連 URL
+    public function saveSession(Request $request)
+    {
+        $session = trim($request->input('session'));
+        if (!$session) {
+            return response()->json(['success' => false, 'error' => 'sessionid 不能為空']);
+        }
+
+        if (!is_dir(dirname($this->igSessionFile))) {
+            mkdir(dirname($this->igSessionFile), 0755, true);
+        }
+
+        file_put_contents($this->igSessionFile, $session);
+        return response()->json(['success' => true, 'message' => 'IG session 已儲存']);
+    }
+
     public function fetch(Request $request)
     {
         $url = $request->input('url');
         $debugLog = [];
+        $videoUrl = null;
 
         try {
             $debugLog[] = "開始解析 URL: " . $url;
 
-            // 如果是 Instagram，強制改成 embed URL
-            if (preg_match('/instagram\.com\/reel\/([^\/]+)/', $url, $m)) {
-                $reelId = $m[1];
-                $url = "https://www.instagram.com/reel/{$reelId}/embed/";
-                $debugLog[] = "偵測到 IG Reel，自動轉換 URL: " . $url;
+            $cmd = ['yt-dlp', '-g'];
+
+            // 如果是 Instagram
+            if (strpos($url, 'instagram.com') !== false) {
+                if (!file_exists($this->igSessionFile)) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => '需要 IG sessionid，請先輸入',
+                        'needSession' => true,
+                        'log' => $debugLog
+                    ]);
+                }
+
+                $sessionId = trim(file_get_contents($this->igSessionFile));
+
+                // 建立 cookies.txt 給 yt-dlp 用
+                $cookiePath = storage_path("app/cookies/ig_cookie_tmp.txt");
+                $cookieLine = ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{$sessionId}\n";
+                file_put_contents($cookiePath, $cookieLine);
+
+                $cmd = ['yt-dlp', '-g', '--cookies', $cookiePath, $url];
+                $debugLog[] = "使用 IG sessionid 下載";
+            } else {
+                $cmd[] = $url;
             }
 
-            $process = new Process([
-                'yt-dlp', '-g', $url
-            ]);
+            $process = new Process($cmd);
             $process->setTimeout(60);
             $process->run();
 
@@ -70,7 +109,6 @@ class UrlViewerController extends Controller
         }
     }
 
-    // 直接下載影片（用日期+時間命名）
     public function download(Request $request)
     {
         $videoUrl = $request->query('url');
@@ -81,32 +119,18 @@ class UrlViewerController extends Controller
         $fileName = now()->format('Ymd_His') . ".mp4";
         $tempPath = storage_path("app/temp/{$fileName}");
 
-        try {
-            if (!is_dir(dirname($tempPath))) {
-                mkdir(dirname($tempPath), 0755, true);
-            }
-
-            // 直接下載影片到暫存檔
-            $process = new Process([
-                'yt-dlp',
-                '-o', $tempPath,
-                '-f', 'mp4',
-                $videoUrl
-            ]);
-            $process->setTimeout(120);
-            $process->run();
-
-            if (!$process->isSuccessful()) {
-                throw new ProcessFailedException($process);
-            }
-
-            return response()->download($tempPath, $fileName)->deleteFileAfterSend(true);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'error' => "下載失敗: " . $e->getMessage()
-            ]);
+        if (!is_dir(dirname($tempPath))) {
+            mkdir(dirname($tempPath), 0755, true);
         }
+
+        $process = new Process(['yt-dlp', '-o', $tempPath, '-f', 'mp4', $videoUrl]);
+        $process->setTimeout(120);
+        $process->run();
+
+        if (!$process->isSuccessful()) {
+            throw new ProcessFailedException($process);
+        }
+
+        return response()->download($tempPath, $fileName)->deleteFileAfterSend(true);
     }
 }

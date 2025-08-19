@@ -62,6 +62,28 @@
                     videoContainer.style.display = "block";
                     videoPlayer.src = data.videoUrl;
                     downloadBtn.href = "/download?url=" + encodeURIComponent(data.videoUrl);
+                } else if (data.needSession) {
+                    const session = prompt("請輸入 Instagram sessionid：");
+                    if (session) {
+                        fetch("/save-session", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
+                            },
+                            body: JSON.stringify({ session })
+                        })
+                            .then(r => r.json())
+                            .then(res => {
+                                if (res.success) {
+                                    alert("Session 已儲存，請再點一次解析。");
+                                } else {
+                                    alert("儲存失敗: " + res.error);
+                                }
+                            });
+                    }
+                    logBox.textContent = "⚠️ 請輸入 sessionid 才能下載 IG 影片";
+                    videoContainer.style.display = "none";
                 } else {
                     logBox.textContent = "❌ 錯誤: " + data.error + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
                     videoContainer.style.display = "none";

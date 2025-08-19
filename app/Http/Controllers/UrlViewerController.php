@@ -17,7 +17,9 @@ class UrlViewerController extends Controller
 
     public function index()
     {
-        return view('url_viewer');
+        return view('url_viewer', [
+            'hasSession' => file_exists($this->igSessionFile) // 回傳給前端判斷
+        ]);
     }
 
     // 儲存 sessionid
@@ -45,7 +47,7 @@ class UrlViewerController extends Controller
         try {
             $debugLog[] = "開始解析 URL: " . $url;
 
-            $cmd = ['yt-dlp', '-g'];
+            $cmd = ['yt-dlp', '-f', 'best', '--get-url'];
 
             // IG 特殊處理
             if (strpos($url, 'instagram.com') !== false) {
@@ -66,7 +68,7 @@ class UrlViewerController extends Controller
                 $cookieContent .= ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{$sessionId}\n";
                 file_put_contents($cookiePath, $cookieContent);
 
-                $cmd = ['yt-dlp', '-g', '--cookies', $cookiePath, $url];
+                $cmd = ['yt-dlp', '-f', 'best', '--cookies', $cookiePath, '--get-url', $url];
                 $debugLog[] = "使用 IG sessionid 嘗試下載";
             } else {
                 $cmd[] = $url;
@@ -104,7 +106,7 @@ class UrlViewerController extends Controller
                 ]);
             }
 
-            $videoUrl = explode("\n", $output)[0];
+            $videoUrl = explode("\n", $output)[0]; // best 格式會有聲音
             $debugLog[] = "✅ 影片直連 URL: " . $videoUrl;
 
             return response()->json([
@@ -140,7 +142,7 @@ class UrlViewerController extends Controller
 
         $process = new Process([
             'yt-dlp',
-            '-f', 'bestvideo+bestaudio/best',
+            '-f', 'best',
             '--merge-output-format', 'mp4',
             '-o', $tempPath,
             $videoUrl

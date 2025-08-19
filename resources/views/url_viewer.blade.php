@@ -33,23 +33,20 @@
 </div>
 
 <script>
-    const urlInput = document.getElementById("url");
+    const hasSession = {{ $hasSession ? 'true' : 'false' }};
     const sessionBox = document.getElementById("session-box");
+    if (!hasSession) {
+        sessionBox.style.display = "block";
+    }
+
     const sessionInput = document.getElementById("session");
     const saveSessionBtn = document.getElementById("save-session-btn");
+    const urlInput = document.getElementById("url");
     const fetchBtn = document.getElementById("fetch-btn");
     const logBox = document.getElementById("log");
     const videoPlayer = document.getElementById("video-player");
     const videoContainer = document.getElementById("video-container");
     const downloadBtn = document.getElementById("download-btn");
-
-    urlInput.addEventListener("input", () => {
-        if (urlInput.value.includes("instagram.com")) {
-            sessionBox.style.display = "block";
-        } else {
-            sessionBox.style.display = "none";
-        }
-    });
 
     saveSessionBtn.addEventListener("click", () => {
         const session = sessionInput.value;
@@ -61,6 +58,7 @@
             .then(res => res.json())
             .then(data => {
                 logBox.textContent = data.success ? "✅ " + data.message : "❌ " + data.error;
+                if (data.success) sessionBox.style.display = "none";
             })
             .catch(err => {
                 logBox.textContent = "❌ 發生錯誤: " + err;
@@ -69,7 +67,6 @@
 
     fetchBtn.addEventListener("click", () => {
         const url = urlInput.value;
-
         logBox.textContent = "🔍 開始解析中...\n";
         videoContainer.style.display = "none";
 
@@ -83,7 +80,6 @@
                 if (data.success) {
                     logBox.textContent = "✅ 找到影片連結:\n" + data.videoUrl +
                         "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
-
                     videoContainer.style.display = "block";
                     videoPlayer.src = data.videoUrl;
                     downloadBtn.href = "/download?url=" + encodeURIComponent(data.videoUrl);

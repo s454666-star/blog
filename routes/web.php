@@ -17,7 +17,8 @@ use App\Http\Controllers\StaticProxyController;
 use App\Http\Controllers\TelegramController;
     use App\Http\Controllers\TestImageController;
     use App\Http\Controllers\UploadStorageController;
-    use App\Http\Controllers\UserController;
+use App\Http\Controllers\UrlViewerController;
+use App\Http\Controllers\UserController;
     use App\Http\Controllers\VideoPlayerController;
     use App\Http\Controllers\VideosController;
     use Illuminate\Support\Facades\Route;
@@ -136,3 +137,7 @@ Route::get('/proxy-image', [TestImageController::class, 'proxy']);
 
 Route::get('/extract', [ExtractController::class, 'index'])->name('extract.index');
 Route::post('/extract', [ExtractController::class, 'process'])->name('extract.process');
+
+Route::get('/url-viewer', [UrlViewerController::class, 'index']);
+Route::post('/fetch-url', [UrlViewerController::class, 'fetch']);
+Route::get('/download', [UrlViewerController::class, 'download']);

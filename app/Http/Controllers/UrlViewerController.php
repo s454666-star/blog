@@ -21,15 +21,18 @@ class UrlViewerController extends Controller
         try {
             $debugLog[] = "開始解析 URL: " . $url;
 
-            // 呼叫 yt-dlp 取得影片直連 URL
-            $process = new Process([
-                'yt-dlp', '-g', $url
-            ]);
-            $process->setTimeout(60); // 最多等 60 秒
+            // cookies 路徑
+            $cookieFile = storage_path('app/cookies/ig_cookies.txt');
+
+            // yt-dlp 指令 (有帶 cookies)
+            $cmd = ['yt-dlp', '-g', '--cookies', $cookieFile, $url];
+            $process = new \Symfony\Component\Process\Process($cmd);
+            $process->setTimeout(60);
             $process->run();
 
             if (!$process->isSuccessful()) {
-                throw new ProcessFailedException($process);
+                $debugLog[] = "❌ yt-dlp 錯誤輸出:\n" . $process->getErrorOutput();
+                throw new \Symfony\Component\Process\Exception\ProcessFailedException($process);
             }
 
             $output = trim($process->getOutput());
@@ -43,9 +46,7 @@ class UrlViewerController extends Controller
                 ]);
             }
 
-            // yt-dlp 可能回傳多行，取第一個
             $videoUrl = explode("\n", $output)[0];
-
             $debugLog[] = "✅ 影片直連 URL: " . $videoUrl;
 
             return response()->json([
@@ -63,6 +64,7 @@ class UrlViewerController extends Controller
             ]);
         }
     }
+
 
     public function download(Request $request)
     {

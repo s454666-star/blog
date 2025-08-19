@@ -3,95 +3,100 @@
 <head>
     <meta charset="UTF-8">
     <title>影片下載工具</title>
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #f5f6fa; }
-        .container { margin-top: 60px; max-width: 800px; }
-        .card { border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        #log-box { min-height: 120px; white-space: pre-wrap; background: #272822; color: #f8f8f2; padding: 10px; border-radius: 6px; font-family: monospace; overflow-y: auto; }
-        video { max-width: 100%; margin-top: 20px; border-radius: 8px; }
+        body { font-family: Arial, sans-serif; background: #f8f9fa; padding: 30px; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        input[type="text"], input[type="password"] { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 8px; }
+        button { padding: 12px 20px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        pre { background: #212529; color: #f8f9fa; padding: 15px; border-radius: 8px; height: 300px; overflow-y: auto; }
+        video { width: 100%; margin-top: 20px; border-radius: 8px; }
+        #download-btn { display: none; margin-top: 15px; text-decoration: none; background: #28a745; padding: 12px 20px; border-radius: 8px; color: white; }
+        #download-btn:hover { background: #218838; }
+        #session-box { display: none; }
     </style>
 </head>
 <body>
 <div class="container">
-    <div class="card p-4">
-        <h2 class="mb-3">🎬 影片下載工具</h2>
-        <div class="input-group mb-3">
-            <input type="text" id="url-input" class="form-control" placeholder="輸入影片頁面 URL">
-            <button class="btn btn-primary" id="fetch-btn">解析影片</button>
-        </div>
-        <div id="log-box">等待輸入 URL...</div>
-        <div id="video-container" class="mt-4" style="display: none;">
-            <h5>預覽影片：</h5>
-            <video id="video-player" controls></video>
-            <div class="mt-3">
-                <a id="download-btn" class="btn btn-success" href="#">下載影片</a>
-            </div>
-        </div>
+    <h2>影片下載工具</h2>
+    <input type="text" id="url" placeholder="輸入影片 URL (支援 YouTube, Instagram...)">
+    <div id="session-box">
+        <input type="password" id="session" placeholder="請輸入 Instagram sessionid">
+        <button id="save-session-btn">儲存 Session</button>
+    </div>
+    <button id="fetch-btn">解析影片</button>
+    <pre id="log"></pre>
+    <div id="video-container" style="display:none;">
+        <video id="video-player" controls></video>
+        <a id="download-btn" href="#">⬇️ 下載影片</a>
     </div>
 </div>
 
 <script>
-    document.getElementById('fetch-btn').addEventListener('click', function () {
-        const url = document.getElementById('url-input').value;
-        const logBox = document.getElementById('log-box');
-        const videoContainer = document.getElementById('video-container');
-        const videoPlayer = document.getElementById('video-player');
-        const downloadBtn = document.getElementById('download-btn');
+    const urlInput = document.getElementById("url");
+    const sessionBox = document.getElementById("session-box");
+    const sessionInput = document.getElementById("session");
+    const saveSessionBtn = document.getElementById("save-session-btn");
+    const fetchBtn = document.getElementById("fetch-btn");
+    const logBox = document.getElementById("log");
+    const videoPlayer = document.getElementById("video-player");
+    const videoContainer = document.getElementById("video-container");
+    const downloadBtn = document.getElementById("download-btn");
 
-        if (!url) {
-            logBox.textContent = "⚠️ 請先輸入 URL";
-            return;
+    urlInput.addEventListener("input", () => {
+        if (urlInput.value.includes("instagram.com")) {
+            sessionBox.style.display = "block";
+        } else {
+            sessionBox.style.display = "none";
         }
+    });
 
-        logBox.textContent = "⏳ 正在解析中...";
+    saveSessionBtn.addEventListener("click", () => {
+        const session = sessionInput.value;
+        fetch("/save-session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": "{{ csrf_token() }}" },
+            body: JSON.stringify({ session })
+        })
+            .then(res => res.json())
+            .then(data => {
+                logBox.textContent = data.success ? "✅ " + data.message : "❌ " + data.error;
+            })
+            .catch(err => {
+                logBox.textContent = "❌ 發生錯誤: " + err;
+            });
+    });
+
+    fetchBtn.addEventListener("click", () => {
+        const url = urlInput.value;
+
+        logBox.textContent = "🔍 開始解析中...\n";
+        videoContainer.style.display = "none";
 
         fetch("/fetch-url", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
-            },
+            headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": "{{ csrf_token() }}" },
             body: JSON.stringify({ url })
         })
-            .then(response => response.json())
+            .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    logBox.textContent = "✅ 找到影片連結:\n" + data.videoUrl + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
+                    logBox.textContent = "✅ 找到影片連結:\n" + data.videoUrl +
+                        "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
+
                     videoContainer.style.display = "block";
                     videoPlayer.src = data.videoUrl;
                     downloadBtn.href = "/download?url=" + encodeURIComponent(data.videoUrl);
-                } else if (data.needSession) {
-                    const session = prompt(data.error + "\n請輸入新的 Instagram sessionid：");
-                    if (session) {
-                        fetch("/save-session", {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json",
-                                "X-CSRF-TOKEN": document.querySelector('meta[name="csrf-token"]').content
-                            },
-                            body: JSON.stringify({ session })
-                        })
-                            .then(r => r.json())
-                            .then(res => {
-                                if (res.success) {
-                                    alert("Session 已儲存，請再點一次解析。");
-                                } else {
-                                    alert("儲存失敗: " + res.error);
-                                }
-                            });
-                    }
-                    logBox.textContent = "⚠️ " + data.error;
-                    videoContainer.style.display = "none";
+                    downloadBtn.style.display = "inline-block";
                 } else {
                     logBox.textContent = "❌ 錯誤: " + data.error + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
-                    videoContainer.style.display = "none";
+                    if (data.needSession) {
+                        sessionBox.style.display = "block";
+                    }
                 }
             })
             .catch(err => {
-                logBox.textContent = "❌ 請求失敗: " + err.message;
-                videoContainer.style.display = "none";
+                logBox.textContent = "❌ 發生錯誤: " + err;
             });
     });
 </script>

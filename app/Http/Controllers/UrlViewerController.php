@@ -123,7 +123,7 @@ class UrlViewerController extends Controller
         }
     }
 
-    // 下載影片 (自動合併聲音+影片)
+    // 下載影片
     public function download(Request $request)
     {
         $videoUrl = $request->query('url');

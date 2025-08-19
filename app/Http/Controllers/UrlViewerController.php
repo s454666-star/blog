@@ -22,7 +22,13 @@ class UrlViewerController extends Controller
         try {
             $debugLog[] = "開始解析 URL: " . $url;
 
-            // 不帶 cookies
+            // 如果是 Instagram，強制改成 embed URL
+            if (preg_match('/instagram\.com\/reel\/([^\/]+)/', $url, $m)) {
+                $reelId = $m[1];
+                $url = "https://www.instagram.com/reel/{$reelId}/embed/";
+                $debugLog[] = "偵測到 IG Reel，自動轉換 URL: " . $url;
+            }
+
             $process = new Process([
                 'yt-dlp', '-g', $url
             ]);
@@ -45,9 +51,7 @@ class UrlViewerController extends Controller
                 ]);
             }
 
-            // yt-dlp 可能回傳多行，取第一行
             $videoUrl = explode("\n", $output)[0];
-
             $debugLog[] = "✅ 影片直連 URL: " . $videoUrl;
 
             return response()->json([

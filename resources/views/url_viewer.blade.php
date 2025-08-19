@@ -1,4 +1,3 @@
-<!-- resources/views/url_viewer.blade.php -->
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -204,7 +203,7 @@
         fetch("/fetch-url", {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": csrfToken },
-            body: JSON.stringify({ url, debug: !!document.getElementById("debug").checked }),
+            body: JSON.stringify({ url, debug: !!debugChk.checked }),
             signal: controller.signal
         })
             .then(async (res) => {
@@ -241,7 +240,7 @@
                         appendLog("ℹ️ Threads 建議貼上 Cookies（可貼與 IG 相同那串），系統會同步到 IG。");
                     }
                 }
-                if (document.getElementById("debug").checked && data.diag) {
+                if (debugChk.checked && data.diag) {
                     diagWrap.style.display = "block";
                     diagBox.textContent = JSON.stringify(data.diag, null, 2);
                     appendLog("📎 伺服器已儲存 HTML 快照於 storage/app/tmp/（檔名前綴 threads_" + (data.traceId || 'NA') + "_）。");
@@ -263,7 +262,7 @@
             return;
         }
         const qs = new URLSearchParams({ url: originalInputUrl });
-        if (document.getElementById("debug").checked) qs.set('debug', '1');
+        if (debugChk.checked) qs.set('debug', '1');
         window.location.href = "/download?" + qs.toString();
     });
 </script>

@@ -13,6 +13,7 @@ class UrlViewerController extends Controller
         return view('url_viewer');
     }
 
+    // 解析影片直連 URL
     public function fetch(Request $request)
     {
         $url = $request->input('url');
@@ -21,18 +22,16 @@ class UrlViewerController extends Controller
         try {
             $debugLog[] = "開始解析 URL: " . $url;
 
-            // cookies 路徑
-            $cookieFile = storage_path('app/cookies/ig_cookies.txt');
-
-            // yt-dlp 指令 (有帶 cookies)
-            $cmd = ['yt-dlp', '-g', '--cookies', $cookieFile, $url];
-            $process = new \Symfony\Component\Process\Process($cmd);
+            // 不帶 cookies
+            $process = new Process([
+                'yt-dlp', '-g', $url
+            ]);
             $process->setTimeout(60);
             $process->run();
 
             if (!$process->isSuccessful()) {
-                $debugLog[] = "❌ yt-dlp 錯誤輸出:\n" . $process->getErrorOutput();
-                throw new \Symfony\Component\Process\Exception\ProcessFailedException($process);
+                $debugLog[] = "yt-dlp 錯誤:\n" . $process->getErrorOutput();
+                throw new ProcessFailedException($process);
             }
 
             $output = trim($process->getOutput());
@@ -46,7 +45,9 @@ class UrlViewerController extends Controller
                 ]);
             }
 
+            // yt-dlp 可能回傳多行，取第一行
             $videoUrl = explode("\n", $output)[0];
+
             $debugLog[] = "✅ 影片直連 URL: " . $videoUrl;
 
             return response()->json([
@@ -65,48 +66,43 @@ class UrlViewerController extends Controller
         }
     }
 
-
+    // 直接下載影片（用日期+時間命名）
     public function download(Request $request)
     {
-        $url = $request->query('url');
-        if (!$url) {
+        $videoUrl = $request->query('url');
+        if (!$videoUrl) {
             abort(404, '缺少影片網址');
         }
 
-        // 產生暫存檔路徑
         $fileName = now()->format('Ymd_His') . ".mp4";
         $tempPath = storage_path("app/temp/{$fileName}");
 
         try {
-            // 確保目錄存在
             if (!is_dir(dirname($tempPath))) {
                 mkdir(dirname($tempPath), 0755, true);
             }
 
-            // 使用 yt-dlp 直接下載影片到暫存檔
-            $process = new \Symfony\Component\Process\Process([
+            // 直接下載影片到暫存檔
+            $process = new Process([
                 'yt-dlp',
-                '-o', $tempPath,   // 輸出檔案位置
-                '-f', 'mp4',       // 指定格式
-                $url
+                '-o', $tempPath,
+                '-f', 'mp4',
+                $videoUrl
             ]);
-            $process->setTimeout(120); // 最多等 2 分鐘
+            $process->setTimeout(120);
             $process->run();
 
             if (!$process->isSuccessful()) {
-                throw new \Symfony\Component\Process\Exception\ProcessFailedException($process);
+                throw new ProcessFailedException($process);
             }
 
-            // 回傳檔案下載
             return response()->download($tempPath, $fileName)->deleteFileAfterSend(true);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error' => "下載失敗: " . $e->getMessage(),
-                'log' => $process->getErrorOutput() ?? ''
+                'error' => "下載失敗: " . $e->getMessage()
             ]);
         }
     }
-
 }

@@ -58,12 +58,12 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    logBox.textContent = "✅ 找到影片連結:\n" + data.videoUrl;
+                    logBox.textContent = "✅ 找到影片連結:\n" + data.videoUrl + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
                     videoContainer.style.display = "block";
                     videoPlayer.src = data.videoUrl;
                     downloadBtn.href = "/download?url=" + encodeURIComponent(data.videoUrl);
                 } else {
-                    logBox.textContent = "❌ 錯誤: " + data.error;
+                    logBox.textContent = "❌ 錯誤: " + data.error + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
                     videoContainer.style.display = "none";
                 }
             })

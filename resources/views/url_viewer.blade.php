@@ -46,7 +46,6 @@
 
 <script>
     const hasSession = {{ $hasSession ? 'true' : 'false' }};
-    const needsSessionUI = !hasSession;
     const sessionBox = document.getElementById("session-box");
     const sessionInput = document.getElementById("session");
     const saveSessionBtn = document.getElementById("save-session-btn");
@@ -58,7 +57,8 @@
     const downloadBtn = document.getElementById("download-btn");
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
-    if (needsSessionUI) {
+    // 初始：如果伺服器端驗證 cookie 檔無效，就顯示輸入框（只影響 IG）
+    if (!hasSession) {
         sessionBox.style.display = "block";
     }
 
@@ -90,7 +90,13 @@
             headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": csrfToken },
             body: JSON.stringify({ session })
         })
-            .then(res => res.json())
+            .then(async (res) => {
+                const ct = res.headers.get("content-type") || "";
+                if (!ct.includes("application/json")) {
+                    throw new Error("伺服器未回傳 JSON");
+                }
+                return res.json();
+            })
             .then(data => {
                 if (data.success) {
                     logBox.textContent = "✅ Session 已儲存 (Netscape 格式)";
@@ -100,7 +106,7 @@
                 }
             })
             .catch(err => {
-                logBox.textContent = "❌ 發生錯誤: " + err;
+                logBox.textContent = "❌ 發生錯誤: " + err.message;
             });
     });
 
@@ -122,12 +128,25 @@
             sessionBox.style.display = "block";
         }
 
+        // 設定 90 秒逾時，避免永遠卡住
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 90000);
+
         fetch("/fetch-url", {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": csrfToken },
-            body: JSON.stringify({ url })
+            body: JSON.stringify({ url }),
+            signal: controller.signal
         })
-            .then(res => res.json())
+            .then(async (res) => {
+                clearTimeout(timer);
+                const ct = res.headers.get("content-type") || "";
+                if (!ct.includes("application/json")) {
+                    const txt = await res.text();
+                    throw new Error("伺服器未回傳 JSON，狀態碼 " + res.status + "，內容：" + txt.slice(0, 200));
+                }
+                return res.json();
+            })
             .then(data => {
                 if (data.success) {
                     logBox.textContent = "✅ 找到影片直連：\n" + data.urls.join("\n");
@@ -144,7 +163,12 @@
                 }
             })
             .catch(err => {
-                logBox.textContent = "❌ 發生錯誤: " + err;
+                clearTimeout(timer);
+                if (err.name === "AbortError") {
+                    logBox.textContent = "⏱️ 解析逾時，請稍後重試或確認網址。";
+                } else {
+                    logBox.textContent = "❌ 發生錯誤: " + err.message;
+                }
             });
     });
 

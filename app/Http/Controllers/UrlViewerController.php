@@ -41,11 +41,8 @@ class UrlViewerController extends Controller
         }
 
         $this->ensureCookiesDir();
-
-        // 以 Netscape 格式寫入
         $this->writeNetscapeCookieFile($sessionId);
 
-        // 再次驗證
         $ok = $this->isValidNetscapeCookieFile($this->igSessionFile);
         if (!$ok) {
             return response()->json(['success' => false, 'error' => '寫入 cookie 檔失敗，格式驗證未通過']);
@@ -64,7 +61,14 @@ class UrlViewerController extends Controller
             return response()->json(['success' => false, 'error' => '缺少 URL']);
         }
 
+        // 判斷站點
         $isIG = $this->isInstagramUrl($url);
+        $isYT = $this->isYouTubeUrl($url);
+
+        // YouTube：移除 playlist 參數避免卡住
+        if ($isYT) {
+            $url = $this->normalizeYouTubeWatchUrl($url);
+        }
 
         // 若為 IG 但沒有有效 cookie，請先輸入 session
         if ($isIG && !$this->isValidNetscapeCookieFile($this->igSessionFile)) {
@@ -75,44 +79,59 @@ class UrlViewerController extends Controller
             ]);
         }
 
+        // 準備 yt-dlp 參數
         $args = [
             'yt-dlp',
+            '--ignore-config',
             '-f', 'bestvideo+bestaudio/best',
-            '-g', // 只回傳直連
+            '-g',
             $url
         ];
 
-        // 僅 IG 才帶 cookies，避免無關站點也讀取錯誤 cookie 檔而引發錯誤
         if ($isIG) {
             $args = [
                 'yt-dlp',
+                '--ignore-config',
                 '--cookies', $this->igSessionFile,
+                '-f', 'bestvideo+bestaudio/best',
+                '-g',
+                $url
+            ];
+        } elseif ($isYT) {
+            // 僅對 YouTube 加上 --no-playlist，避免解析播放清單造成長時間等待
+            $args = [
+                'yt-dlp',
+                '--ignore-config',
+                '--no-playlist',
                 '-f', 'bestvideo+bestaudio/best',
                 '-g',
                 $url
             ];
         }
 
-        $process = new Process($args);
-        $process->setTimeout(120);
-        $process->run();
+        try {
+            $process = new Process($args);
+            $process->setTimeout(90); // fetch 預覽給較短逾時
+            $process->run();
 
-        if (!$process->isSuccessful()) {
-            // 將 stderr 直接回傳前端
-            return response()->json(['success' => false, 'error' => $process->getErrorOutput()]);
+            if (!$process->isSuccessful()) {
+                return response()->json(['success' => false, 'error' => $process->getErrorOutput()]);
+            }
+
+            $output = trim($process->getOutput());
+            $urls = preg_split("/\r\n|\n|\r/", $output) ?: [];
+            $urls = array_values(array_filter($urls, function ($u) {
+                return preg_match('#^https?://#i', $u);
+            }));
+
+            if (empty($urls)) {
+                return response()->json(['success' => false, 'error' => '未取得可播放的直連 URL']);
+            }
+
+            return response()->json(['success' => true, 'urls' => $urls]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'error' => '解析例外：' . $e->getMessage()]);
         }
-
-        $output = trim($process->getOutput());
-        $urls = preg_split("/\r\n|\n|\r/", $output) ?: [];
-        $urls = array_values(array_filter($urls, function ($u) {
-            return preg_match('#^https?://#i', $u);
-        }));
-
-        if (empty($urls)) {
-            return response()->json(['success' => false, 'error' => '未取得可播放的直連 URL']);
-        }
-
-        return response()->json(['success' => true, 'urls' => $urls]);
     }
 
     /**
@@ -126,6 +145,12 @@ class UrlViewerController extends Controller
         }
 
         $isIG = $this->isInstagramUrl($url);
+        $isYT = $this->isYouTubeUrl($url);
+
+        if ($isYT) {
+            $url = $this->normalizeYouTubeWatchUrl($url);
+        }
+
         if ($isIG && !$this->isValidNetscapeCookieFile($this->igSessionFile)) {
             return response()->json([
                 'success' => false,
@@ -134,11 +159,12 @@ class UrlViewerController extends Controller
             ]);
         }
 
-        $fileName = "ig_video_" . date("Ymd_His") . ".mp4";
+        $fileName = "video_" . date("Ymd_His") . ".mp4";
         $filePath = storage_path("app/public/" . $fileName);
 
         $args = [
             'yt-dlp',
+            '--ignore-config',
             '-f', 'bestvideo+bestaudio/best',
             '--merge-output-format', 'mp4',
             '-o', $filePath,
@@ -148,7 +174,18 @@ class UrlViewerController extends Controller
         if ($isIG) {
             $args = [
                 'yt-dlp',
+                '--ignore-config',
                 '--cookies', $this->igSessionFile,
+                '-f', 'bestvideo+bestaudio/best',
+                '--merge-output-format', 'mp4',
+                '-o', $filePath,
+                $url
+            ];
+        } elseif ($isYT) {
+            $args = [
+                'yt-dlp',
+                '--ignore-config',
+                '--no-playlist',
                 '-f', 'bestvideo+bestaudio/best',
                 '--merge-output-format', 'mp4',
                 '-o', $filePath,
@@ -156,19 +193,23 @@ class UrlViewerController extends Controller
             ];
         }
 
-        $process = new Process($args);
-        $process->setTimeout(300);
-        $process->run();
+        try {
+            $process = new Process($args);
+            $process->setTimeout(300);
+            $process->run();
 
-        if (!$process->isSuccessful()) {
-            return response()->json(['success' => false, 'error' => $process->getErrorOutput()]);
+            if (!$process->isSuccessful()) {
+                return response()->json(['success' => false, 'error' => $process->getErrorOutput()]);
+            }
+
+            if (!is_file($filePath)) {
+                return response()->json(['success' => false, 'error' => '下載失敗，找不到輸出檔案']);
+            }
+
+            return Response::download($filePath)->deleteFileAfterSend(true);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'error' => '下載例外：' . $e->getMessage()]);
         }
-
-        if (!is_file($filePath)) {
-            return response()->json(['success' => false, 'error' => '下載失敗，找不到輸出檔案']);
-        }
-
-        return Response::download($filePath)->deleteFileAfterSend(true);
     }
 
     /* -------------------- 私有工具方法 -------------------- */
@@ -187,6 +228,55 @@ class UrlViewerController extends Controller
         if (!is_string($host)) return false;
         $host = strtolower($host);
         return (strpos($host, 'instagram.com') !== false);
+    }
+
+    private function isYouTubeUrl(string $url): bool
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+        if (!is_string($host)) return false;
+        $host = strtolower($host);
+        return (strpos($host, 'youtube.com') !== false) || (strpos($host, 'youtu.be') !== false);
+    }
+
+    /**
+     * YouTube 只保留單支影片的 v 參數，移除 list/start_radio/index 等造成清單解析的參數
+     */
+    private function normalizeYouTubeWatchUrl(string $url): string
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts)) return $url;
+
+        // youtu.be 短連結轉換成 watch?v=
+        if (isset($parts['host']) && isset($parts['path'])) {
+            $host = strtolower($parts['host']);
+            if (strpos($host, 'youtu.be') !== false) {
+                $videoId = ltrim($parts['path'] ?? '', '/');
+                if ($videoId !== '') {
+                    return 'https://www.youtube.com/watch?v=' . $videoId;
+                }
+            }
+        }
+
+        // 處理 youtube.com/watch
+        $query = [];
+        if (isset($parts['query'])) {
+            parse_str($parts['query'], $query);
+        }
+
+        // 只保留 v、t（起始時間可保留）
+        $keep = [];
+        if (!empty($query['v'])) {
+            $keep['v'] = $query['v'];
+        }
+        if (!empty($query['t'])) {
+            $keep['t'] = $query['t'];
+        }
+
+        $base = 'https://www.youtube.com/watch';
+        if (!empty($keep)) {
+            return $base . '?' . http_build_query($keep);
+        }
+        return $url;
     }
 
     /**
@@ -209,12 +299,11 @@ class UrlViewerController extends Controller
         $lines = preg_split("/\r\n|\n|\r/", $content) ?: [];
         foreach ($lines as $line) {
             $line = trim($line);
-            if ($line === '' || str_starts_with($line, '#')) {
+            if ($line === '' || (strlen($line) > 0 && $line[0] === '#')) {
                 continue;
             }
             $parts = explode("\t", $line);
             if (count($parts) === 7) {
-                // [$domain, $flag, $path, $secure, $expiry, $name, $value]
                 if ($parts[5] === 'sessionid' && $parts[6] !== '') {
                     return true;
                 }
@@ -242,7 +331,6 @@ class UrlViewerController extends Controller
             return false;
         }
 
-        // 嘗試從檔案內容抽出 sessionid
         $sessionId = $this->extractSessionId($raw);
         if ($sessionId) {
             $this->ensureCookiesDir();
@@ -263,15 +351,12 @@ class UrlViewerController extends Controller
     {
         $trimmed = trim($input, " \t\n\r\0\x0B;");
 
-        // 若包含 sessionid=，從中抓取
         if (stripos($trimmed, 'sessionid=') !== false) {
             if (preg_match('/sessionid=([^;]+)/i', $trimmed, $m)) {
                 return urldecode(trim($m[1]));
             }
         }
 
-        // 否則視為直接貼 session 值
-        // 做基本過濾：不含空白與分號
         if ($trimmed !== '' && !str_contains($trimmed, ' ') && !str_contains($trimmed, ';')) {
             return urldecode($trimmed);
         }
@@ -282,12 +367,10 @@ class UrlViewerController extends Controller
     /**
      * 以 Netscape 格式寫出 cookies 檔（僅 sessionid 一筆）
      * 欄位：domain, includeSubdomains, path, secure, expiry, name, value
-     * expiry=0 代表 session cookie
      */
     private function writeNetscapeCookieFile(string $sessionId): void
     {
         $content = "# Netscape HTTP Cookie File\n";
-        // 使用 .instagram.com（子網域皆適用），secure 設 TRUE，expiry=0
         $content .= ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{$sessionId}\n";
         file_put_contents($this->igSessionFile, $content, LOCK_EX);
     }

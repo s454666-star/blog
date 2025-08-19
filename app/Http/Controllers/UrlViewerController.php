@@ -71,7 +71,8 @@ class UrlViewerController extends Controller
             abort(404, '缺少影片網址');
         }
 
-        $fileName = basename(parse_url($videoUrl, PHP_URL_PATH)) ?: "video.mp4";
+        // 用現在日期 + 時間當檔名
+        $fileName = now()->format('Ymd_His') . ".mp4";
 
         $ch = curl_init($videoUrl);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);

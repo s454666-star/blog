@@ -18,7 +18,10 @@ class UrlViewerController extends Controller
 
     public function index()
     {
-        return view('url_viewer');
+        // ✅ 判斷是否已經有 IG session
+        $hasSession = file_exists($this->igSessionFile) && filesize($this->igSessionFile) > 0;
+
+        return view('url_viewer', compact('hasSession'));
     }
 
     // 儲存 sessionid
@@ -35,7 +38,7 @@ class UrlViewerController extends Controller
 
         file_put_contents($this->igSessionFile, $session);
 
-        return response()->json(['success' => true]);
+        return response()->json(['success' => true, 'message' => 'Session 已儲存']);
     }
 
     // 抓影片直連 URL

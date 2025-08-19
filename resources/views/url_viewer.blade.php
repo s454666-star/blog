@@ -84,7 +84,7 @@
                     }
                     logBox.textContent = "⚠️ " + data.error;
                     videoContainer.style.display = "none";
-                }else {
+                } else {
                     logBox.textContent = "❌ 錯誤: " + data.error + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
                     videoContainer.style.display = "none";
                 }

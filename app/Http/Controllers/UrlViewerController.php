@@ -67,7 +67,7 @@ class UrlViewerController extends Controller
                 file_put_contents($cookiePath, $cookieContent);
 
                 $cmd = ['yt-dlp', '-g', '--cookies', $cookiePath, $url];
-                $debugLog[] = "使用 IG sessionid 下載";
+                $debugLog[] = "使用 IG sessionid 嘗試下載";
             } else {
                 $cmd[] = $url;
             }
@@ -81,7 +81,7 @@ class UrlViewerController extends Controller
 
                 // 如果是 IG 而且 session 過期 → 要求重新輸入
                 if (strpos($url, 'instagram.com') !== false) {
-                    unlink($this->igSessionFile); // 刪除舊 session
+                    @unlink($this->igSessionFile); // 刪除舊 session
                     return response()->json([
                         'success' => false,
                         'error' => 'IG sessionid 已失效，請重新輸入',
@@ -123,7 +123,7 @@ class UrlViewerController extends Controller
         }
     }
 
-    // 下載影片
+    // 下載影片 (自動合併聲音+影片)
     public function download(Request $request)
     {
         $videoUrl = $request->query('url');
@@ -138,8 +138,14 @@ class UrlViewerController extends Controller
             mkdir(dirname($tempPath), 0755, true);
         }
 
-        $process = new Process(['yt-dlp', '-o', $tempPath, '-f', 'mp4', $videoUrl]);
-        $process->setTimeout(120);
+        $process = new Process([
+            'yt-dlp',
+            '-f', 'bestvideo+bestaudio/best',
+            '--merge-output-format', 'mp4',
+            '-o', $tempPath,
+            $videoUrl
+        ]);
+        $process->setTimeout(180);
         $process->run();
 
         if (!$process->isSuccessful()) {

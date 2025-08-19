@@ -37,7 +37,7 @@ class UrlViewerController extends Controller
         return response()->json(['success' => true, 'message' => 'IG session 已儲存']);
     }
 
-    // 解析影片（給前端預覽）
+    // 解析影片直連
     public function fetch(Request $request)
     {
         $url = $request->input('url');
@@ -46,8 +46,7 @@ class UrlViewerController extends Controller
         try {
             $debugLog[] = "開始解析 URL: " . $url;
 
-            // 用 -f best 讓 yt-dlp 輸出可播放直連
-            $cmd = ['yt-dlp', '-f', 'b', '--get-url'];
+            $cmd = ['yt-dlp', '--get-url'];
 
             if (strpos($url, 'instagram.com') !== false) {
                 if (!file_exists($this->igSessionFile)) {
@@ -65,7 +64,7 @@ class UrlViewerController extends Controller
                 $cookieContent .= ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{$sessionId}\n";
                 file_put_contents($cookiePath, $cookieContent);
 
-                $cmd = ['yt-dlp', '-f', 'b', '--cookies', $cookiePath, '--get-url', $url];
+                $cmd = ['yt-dlp', '--cookies', $cookiePath, '--get-url', $url];
                 $debugLog[] = "使用 IG sessionid 嘗試下載";
             } else {
                 $cmd[] = $url;
@@ -90,15 +89,19 @@ class UrlViewerController extends Controller
             }
 
             $output = trim($process->getOutput());
-            $videoUrl = explode("\n", $output)[0];
+            $urls = explode("\n", $output);
 
             $debugLog[] = "yt-dlp 輸出:\n" . $output;
+
+            // 只顯示第一條直連給使用者參考
+            $videoUrl = $urls[0];
+
             $debugLog[] = "✅ 影片直連 URL: " . $videoUrl;
 
             return response()->json([
                 'success' => true,
                 'videoUrl' => $videoUrl,
-                'sourceUrl' => $url, // 保留原始網址給下載用
+                'sourceUrl' => $url, // 保留原始網址下載用
                 'log' => $debugLog
             ]);
 
@@ -112,7 +115,7 @@ class UrlViewerController extends Controller
         }
     }
 
-    // 正確下載（用原始網址）
+    // 下載影片
     public function download(Request $request)
     {
         $sourceUrl = $request->query('source');

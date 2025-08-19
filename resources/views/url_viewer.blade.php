@@ -81,8 +81,13 @@
                     logBox.textContent = "✅ 找到影片連結:\n" + data.videoUrl +
                         "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
 
-                    videoContainer.style.display = "block";
-                    videoPlayer.src = data.videoUrl; // ✅ 這裡現在是可播的 mp4/mpd
+                    // ⚠️ Bilibili 分段檔不能直接播放，這裡先隱藏播放器
+                    if (data.videoUrl.endsWith(".mp4")) {
+                        videoContainer.style.display = "block";
+                        videoPlayer.src = data.videoUrl;
+                    } else {
+                        videoContainer.style.display = "none"; // 僅顯示直連
+                    }
 
                     downloadBtn.href = "/download?source=" + encodeURIComponent(data.sourceUrl);
                     downloadBtn.style.display = "inline-block";

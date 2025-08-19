@@ -28,7 +28,7 @@
     <pre id="log"></pre>
     <div id="video-container" style="display:none;">
         <video id="video-player" controls></video>
-        <a id="download-btn" href="#" download>⬇️ 下載影片</a>
+        <button id="download-btn">⬇️ 下載影片</button>
     </div>
 </div>
 
@@ -47,6 +47,8 @@
     const videoPlayer = document.getElementById("video-player");
     const videoContainer = document.getElementById("video-container");
     const downloadBtn = document.getElementById("download-btn");
+
+    let currentVideoUrl = null; // ✅ 記錄影片連結
 
     saveSessionBtn.addEventListener("click", () => {
         const session = sessionInput.value;
@@ -81,13 +83,9 @@
                     logBox.textContent = "✅ 找到影片連結:\n" + data.videoUrl +
                         "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
 
-                    // ✅ 無論 mp4 / m4s 一律顯示播放器
+                    currentVideoUrl = data.videoUrl; // ✅ 保存連結
                     videoContainer.style.display = "block";
                     videoPlayer.src = data.videoUrl;
-                    videoPlayer.type = "video/mp4"; // 瀏覽器可播 m4s
-
-                    // ✅ 下載直接用 videoUrl
-                    downloadBtn.href = data.videoUrl;
                     downloadBtn.style.display = "inline-block";
                 } else {
                     logBox.textContent = "❌ 錯誤: " + data.error + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
@@ -99,6 +97,38 @@
             .catch(err => {
                 logBox.textContent = "❌ 發生錯誤: " + err;
             });
+    });
+
+    // ✅ 修正下載：用 blob + 當下日期時間命名
+    downloadBtn.addEventListener("click", async () => {
+        if (!currentVideoUrl) return;
+
+        try {
+            const res = await fetch(currentVideoUrl);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement("a");
+            a.href = url;
+
+            // 產生檔名：yyyyMMdd_HHmmss.mp4
+            const now = new Date();
+            const filename = now.getFullYear().toString()
+                + String(now.getMonth()+1).padStart(2,"0")
+                + String(now.getDate()).padStart(2,"0") + "_"
+                + String(now.getHours()).padStart(2,"0")
+                + String(now.getMinutes()).padStart(2,"0")
+                + String(now.getSeconds()).padStart(2,"0") + ".mp4";
+
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            logBox.textContent = "❌ 下載失敗: " + err;
+        }
     });
 </script>
 </body>

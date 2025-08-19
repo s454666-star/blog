@@ -22,7 +22,6 @@ class UrlViewerController extends Controller
         ]);
     }
 
-    // 儲存 sessionid
     public function saveSession(Request $request)
     {
         $session = trim($request->input('session'));
@@ -38,7 +37,7 @@ class UrlViewerController extends Controller
         return response()->json(['success' => true, 'message' => 'IG session 已儲存']);
     }
 
-    // 解析影片連結
+    // 解析影片
     public function fetch(Request $request)
     {
         $url = $request->input('url');
@@ -47,10 +46,8 @@ class UrlViewerController extends Controller
         try {
             $debugLog[] = "開始解析 URL: " . $url;
 
-            // 預設命令 (不要加 -f best，避免 B 站錯誤)
             $cmd = ['yt-dlp', '--get-url'];
 
-            // IG 特殊處理
             if (strpos($url, 'instagram.com') !== false) {
                 if (!file_exists($this->igSessionFile)) {
                     return response()->json([
@@ -62,8 +59,6 @@ class UrlViewerController extends Controller
                 }
 
                 $sessionId = trim(file_get_contents($this->igSessionFile));
-
-                // 產生符合 Netscape 格式的 cookies.txt
                 $cookiePath = storage_path("app/cookies/ig_cookie_tmp.txt");
                 $cookieContent = "# Netscape HTTP Cookie File\n";
                 $cookieContent .= ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{$sessionId}\n";
@@ -81,7 +76,6 @@ class UrlViewerController extends Controller
 
             if (!$process->isSuccessful()) {
                 $debugLog[] = "yt-dlp 錯誤:\n" . $process->getErrorOutput();
-
                 if (strpos($url, 'instagram.com') !== false) {
                     @unlink($this->igSessionFile);
                     return response()->json([
@@ -91,28 +85,20 @@ class UrlViewerController extends Controller
                         'log' => $debugLog
                     ]);
                 }
-
                 throw new ProcessFailedException($process);
             }
 
             $output = trim($process->getOutput());
+            $urls = explode("\n", $output);
+            $videoUrl = $urls[0]; // 第一個通常是 video，有聲音的情況會只有一條
+
             $debugLog[] = "yt-dlp 輸出:\n" . $output;
-
-            if (empty($output)) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'yt-dlp 沒有解析到影片連結',
-                    'log' => $debugLog
-                ]);
-            }
-
-            // 取第一個 URL（通常已經是合併後有聲音的）
-            $videoUrl = explode("\n", $output)[0];
             $debugLog[] = "✅ 影片直連 URL: " . $videoUrl;
 
             return response()->json([
                 'success' => true,
                 'videoUrl' => $videoUrl,
+                'sourceUrl' => $url,   // ⬅️ 把原始網址也一起回傳
                 'log' => $debugLog
             ]);
 
@@ -126,12 +112,12 @@ class UrlViewerController extends Controller
         }
     }
 
-    // 下載影片
+    // 正確下載
     public function download(Request $request)
     {
-        $videoUrl = $request->query('url');
-        if (!$videoUrl) {
-            abort(404, '缺少影片網址');
+        $sourceUrl = $request->query('source');
+        if (!$sourceUrl) {
+            abort(404, '缺少影片原始網址');
         }
 
         $fileName = now()->format('Ymd_His') . ".mp4";
@@ -146,7 +132,7 @@ class UrlViewerController extends Controller
             '-f', 'bestvideo+bestaudio/best',
             '--merge-output-format', 'mp4',
             '-o', $tempPath,
-            $videoUrl
+            $sourceUrl // ⬅️ 用原始網址，讓 yt-dlp 自己處理分段
         ]);
         $process->setTimeout(180);
         $process->run();

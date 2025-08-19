@@ -80,9 +80,12 @@
                 if (data.success) {
                     logBox.textContent = "✅ 找到影片連結:\n" + data.videoUrl +
                         "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
+
                     videoContainer.style.display = "block";
                     videoPlayer.src = data.videoUrl;
-                    downloadBtn.href = "/download?url=" + encodeURIComponent(data.videoUrl);
+
+                    // ⬅️ 注意這裡改掉，下載用原始網址
+                    downloadBtn.href = "/download?source=" + encodeURIComponent(data.sourceUrl);
                     downloadBtn.style.display = "inline-block";
                 } else {
                     logBox.textContent = "❌ 錯誤: " + data.error + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");

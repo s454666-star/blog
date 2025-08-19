@@ -37,7 +37,7 @@ class UrlViewerController extends Controller
         return response()->json(['success' => true, 'message' => 'IG session 已儲存']);
     }
 
-    // 解析影片
+    // 解析影片（給前端預覽）
     public function fetch(Request $request)
     {
         $url = $request->input('url');
@@ -46,7 +46,8 @@ class UrlViewerController extends Controller
         try {
             $debugLog[] = "開始解析 URL: " . $url;
 
-            $cmd = ['yt-dlp', '--get-url'];
+            // 用 -f best 讓 yt-dlp 輸出可播放直連
+            $cmd = ['yt-dlp', '-f', 'b', '--get-url'];
 
             if (strpos($url, 'instagram.com') !== false) {
                 if (!file_exists($this->igSessionFile)) {
@@ -64,7 +65,7 @@ class UrlViewerController extends Controller
                 $cookieContent .= ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{$sessionId}\n";
                 file_put_contents($cookiePath, $cookieContent);
 
-                $cmd = ['yt-dlp', '--cookies', $cookiePath, '--get-url', $url];
+                $cmd = ['yt-dlp', '-f', 'b', '--cookies', $cookiePath, '--get-url', $url];
                 $debugLog[] = "使用 IG sessionid 嘗試下載";
             } else {
                 $cmd[] = $url;
@@ -89,8 +90,7 @@ class UrlViewerController extends Controller
             }
 
             $output = trim($process->getOutput());
-            $urls = explode("\n", $output);
-            $videoUrl = $urls[0]; // 第一個通常是 video，有聲音的情況會只有一條
+            $videoUrl = explode("\n", $output)[0];
 
             $debugLog[] = "yt-dlp 輸出:\n" . $output;
             $debugLog[] = "✅ 影片直連 URL: " . $videoUrl;
@@ -98,7 +98,7 @@ class UrlViewerController extends Controller
             return response()->json([
                 'success' => true,
                 'videoUrl' => $videoUrl,
-                'sourceUrl' => $url,   // ⬅️ 把原始網址也一起回傳
+                'sourceUrl' => $url, // 保留原始網址給下載用
                 'log' => $debugLog
             ]);
 
@@ -112,7 +112,7 @@ class UrlViewerController extends Controller
         }
     }
 
-    // 正確下載
+    // 正確下載（用原始網址）
     public function download(Request $request)
     {
         $sourceUrl = $request->query('source');
@@ -132,7 +132,7 @@ class UrlViewerController extends Controller
             '-f', 'bestvideo+bestaudio/best',
             '--merge-output-format', 'mp4',
             '-o', $tempPath,
-            $sourceUrl // ⬅️ 用原始網址，讓 yt-dlp 自己處理分段
+            $sourceUrl
         ]);
         $process->setTimeout(180);
         $process->run();

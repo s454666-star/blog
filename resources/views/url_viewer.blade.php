@@ -82,9 +82,8 @@
                         "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
 
                     videoContainer.style.display = "block";
-                    videoPlayer.src = data.videoUrl;
+                    videoPlayer.src = data.videoUrl; // ✅ 這裡現在是可播的 mp4/mpd
 
-                    // ⬅️ 注意這裡改掉，下載用原始網址
                     downloadBtn.href = "/download?source=" + encodeURIComponent(data.sourceUrl);
                     downloadBtn.style.display = "inline-block";
                 } else {

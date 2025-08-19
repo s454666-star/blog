@@ -6,7 +6,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
         body { font-family: Arial, sans-serif; background: #f8f9fa; padding: 30px; }
-        .container { max-width: 860px; margin: auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .container { max-width: 900px; margin: auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
         input[type="text"], input[type="password"], textarea { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 8px; }
         button { padding: 12px 20px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; }
         button:hover { background: #0056b3; }
@@ -18,7 +18,7 @@
         .row { display: flex; gap: 10px; align-items: center; }
         .row > * { flex: 1; }
         .hint { color: #6c757d; font-size: 13px; margin-top: 6px; }
-        .radio { display: flex; gap: 14px; align-items: center; margin-top: 6px; }
+        .radio { display: flex; gap: 14px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
         label small { color: #6c757d; }
     </style>
 </head>
@@ -26,7 +26,7 @@
 <div class="container">
     <h2>影片下載工具</h2>
     <div class="row">
-        <input type="text" id="url" placeholder="輸入影片 URL (支援 YouTube, Instagram, Bilibili...)">
+        <input type="text" id="url" placeholder="輸入影片 URL (YouTube / Instagram / Bilibili / Threads)">
         <button id="fetch-btn">解析影片</button>
     </div>
 
@@ -34,16 +34,22 @@
         <div class="radio">
             <label><input type="radio" name="cookie-site" value="ig" checked> Instagram</label>
             <label><input type="radio" name="cookie-site" value="yt"> YouTube</label>
+            <label><input type="radio" name="cookie-site" value="threads"> Threads</label>
         </div>
 
         <div id="ig-inputs">
             <input type="password" id="session-ig" placeholder="請輸入 Instagram sessionid 或含 sessionid=... 的 Cookie 片段">
-            <div class="hint">會自動擷取 <code>sessionid</code> 並轉成 Netscape 格式。</div>
+            <div class="hint">會自動擷取 <code>sessionid</code> 並轉 Netscape 格式。</div>
         </div>
 
         <div id="yt-inputs" style="display:none;">
             <textarea id="session-yt" rows="4" placeholder="請貼上 YouTube Cookies（name=value; name2=value2; ...）"></textarea>
-            <div class="hint">建議用外掛（Cookie-Editor）複製當前 <code>youtube.com</code> 的 Cookie。將轉為 Netscape 格式儲存。</div>
+            <div class="hint">建議用外掛（Cookie-Editor）複製當前 <code>youtube.com</code> 的 Cookies。</div>
+        </div>
+
+        <div id="threads-inputs" style="display:none;">
+            <textarea id="session-threads" rows="4" placeholder="請貼上 Threads Cookies（name=value; name2=value2; ...）"></textarea>
+            <div class="hint">登入 <code>threads.net</code> 後以外掛複製 Cookies，貼上後儲存即可。</div>
         </div>
 
         <div class="row">
@@ -60,8 +66,9 @@
 </div>
 
 <script>
-    const hasIG = {{ $hasSession ? 'true' : 'false' }};
-    const hasYT = {{ isset($hasYTCookie) && $hasYTCookie ? 'true' : 'false' }};
+    const hasIG  = {{ $hasSession ? 'true' : 'false' }};
+    const hasYT  = {{ isset($hasYTCookie) && $hasYTCookie ? 'true' : 'false' }};
+    const hasTH  = {{ isset($hasThreadsCook) && $hasThreadsCook ? 'true' : 'false' }};
 
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     const sessionBox = document.getElementById("session-box");
@@ -75,8 +82,10 @@
     const saveSessionBtn = document.getElementById("save-session-btn");
     const igInputs = document.getElementById("ig-inputs");
     const ytInputs = document.getElementById("yt-inputs");
+    const thInputs = document.getElementById("threads-inputs");
     const sessionIG = document.getElementById("session-ig");
     const sessionYT = document.getElementById("session-yt");
+    const sessionTH = document.getElementById("session-threads");
 
     const radios = document.getElementsByName("cookie-site");
 
@@ -88,17 +97,13 @@
 
     function setSite(site) {
         for (const r of radios) r.checked = (r.value === site);
-        if (site === 'ig') {
-            igInputs.style.display = "";
-            ytInputs.style.display = "none";
-        } else {
-            igInputs.style.display = "none";
-            ytInputs.style.display = "";
-        }
+        igInputs.style.display = (site === 'ig') ? "" : "none";
+        ytInputs.style.display = (site === 'yt') ? "" : "none";
+        thInputs.style.display = (site === 'threads') ? "" : "none";
     }
 
     for (const r of radios) {
-        r.addEventListener('change', () => setSite(document.querySelector('input[name="cookie-site"]:checked').value));
+        r.addEventListener('change', () => setSite(document.querySelector('input[name=\"cookie-site\"]:checked').value));
     }
 
     function appendLog(msg) {
@@ -115,10 +120,15 @@
     function isBilibiliUrl(u) {
         try { const h = new URL(u).hostname.toLowerCase(); return h.includes('bilibili.com') || h.includes('b23.tv'); } catch { return false; }
     }
+    function isThreadsUrl(u) {
+        try { const h = new URL(u).hostname.toLowerCase(); return h.includes('threads.net') || h.includes('threads.com'); } catch { return false; }
+    }
 
     saveSessionBtn.addEventListener("click", () => {
         const site = document.querySelector('input[name="cookie-site"]:checked').value;
-        const session = site === 'ig' ? sessionIG.value.trim() : sessionYT.value.trim();
+        const session = site === 'ig' ? sessionIG.value.trim()
+            : site === 'yt' ? sessionYT.value.trim()
+                : sessionTH.value.trim();
 
         if (!session) {
             logBox.textContent = "❌ 輸入不能為空";
@@ -166,6 +176,7 @@
         downloadBtn.style.display = "none";
         videoPlayer.removeAttribute('src');
 
+        // 顯示必要的 Cookie 區塊提示
         if (isInstagramUrl(url) && !hasIG) {
             sessionBox.style.display = "block";
             setSite('ig');
@@ -207,16 +218,17 @@
                         setSite('ig');
                         appendLog("ℹ️ Instagram 需要 sessionid，請輸入後重試。");
                     }
+                    if (data.needThreadsCookie || isThreadsUrl(url)) {
+                        sessionBox.style.display = "block";
+                        setSite('threads');
+                        appendLog("ℹ️ Threads 可能需要 Cookies，請於上方選擇 Threads 並貼上 Cookies 後重試。");
+                    }
                 }
             })
             .catch(err => {
                 clearTimeout(timer);
                 if (err.name === "AbortError") {
                     logBox.textContent = "⏱️ 解析逾時，請稍後重試。";
-                    if (isYouTubeUrl(url)) {
-                        sessionBox.style.display = "block";
-                        setSite('yt');
-                    }
                 } else {
                     logBox.textContent = "❌ 發生錯誤: " + err.message;
                 }

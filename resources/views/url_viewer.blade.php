@@ -48,8 +48,8 @@
         </div>
 
         <div id="threads-inputs" style="display:none;">
-            <textarea id="session-threads" rows="4" placeholder="請貼上 Threads Cookies（name=value; name2=value2; ...）"></textarea>
-            <div class="hint">登入 <code>threads.net</code> 後以外掛複製 Cookies，貼上後儲存即可。</div>
+            <textarea id="session-threads" rows="4" placeholder="請貼上 Threads Cookies（name=value; name2=value2; ...）。可直接貼你剛提供的那串。"></textarea>
+            <div class="hint">系統會把 Threads Cookies 與 IG 的 session 合併送出，以便取到登入後的內容。</div>
         </div>
 
         <div class="row">
@@ -103,7 +103,7 @@
     }
 
     for (const r of radios) {
-        r.addEventListener('change', () => setSite(document.querySelector('input[name=\"cookie-site\"]:checked').value));
+        r.addEventListener('change', () => setSite(document.querySelector('input[name="cookie-site"]:checked').value));
     }
 
     function appendLog(msg) {
@@ -176,7 +176,6 @@
         downloadBtn.style.display = "none";
         videoPlayer.removeAttribute('src');
 
-        // 顯示必要的 Cookie 區塊提示
         if (isInstagramUrl(url) && !hasIG) {
             sessionBox.style.display = "block";
             setSite('ig');
@@ -221,7 +220,7 @@
                     if (data.needThreadsCookie || isThreadsUrl(url)) {
                         sessionBox.style.display = "block";
                         setSite('threads');
-                        appendLog("ℹ️ Threads 可能需要 Cookies，請於上方選擇 Threads 並貼上 Cookies 後重試。");
+                        appendLog("ℹ️ Threads 需要 Cookies（可直接貼你上面那串），儲存後再解析。");
                     }
                 }
             })

@@ -35,7 +35,7 @@ class UrlViewerController extends Controller
      * 儲存 Cookie：
      * site=ig       -> 接受 sessionid 或整串 Cookie，寫成 IG Netscape（僅 sessionid）
      * site=yt       -> 接受整串 Cookie（name=value;...），轉為 .youtube.com Netscape
-     * site=threads  -> 接受整串 Cookie（name=value;...），轉為 .threads.net Netscape
+     * site=threads  -> 接受整串 Cookie（name=value;...），轉為 .threads.net Netscape，且若含 sessionid 會同步更新 IG 的 ig_session.txt
      */
     public function saveSession(Request $request)
     {
@@ -78,11 +78,19 @@ class UrlViewerController extends Controller
                 return response()->json(['success' => false, 'error' => '請貼上有效的 Threads Cookie（name=value; 形式）']);
             }
             $this->ensureCookiesDir();
+            // 1) 主要：寫到 .threads.net
             $this->writeNetscapeForDomain('.threads.net', $pairs, $this->threadsCookieFile);
+
+            // 2) 若有 sessionid，順便更新 IG 的 ig_session.txt
+            if (isset($pairs['sessionid']) && $pairs['sessionid'] !== '') {
+                $this->writeNetscapeIG($pairs['sessionid']);
+            }
+
+            // 驗證
             if (!$this->isValidGenericCookieFile($this->threadsCookieFile)) {
                 return response()->json(['success' => false, 'error' => '寫入 Threads Cookie 檔失敗，格式驗證未通過']);
             }
-            return response()->json(['success' => true, 'message' => 'Threads Cookies 已儲存 (Netscape 格式)']);
+            return response()->json(['success' => true, 'message' => 'Threads Cookies 已儲存 (Netscape 格式，並已同步 IG sessionid)']);
         }
 
         return response()->json(['success' => false, 'error' => '未知的 site 參數']);
@@ -101,10 +109,10 @@ class UrlViewerController extends Controller
         // 站點偵測 + 正規化
         $url = $this->normalizeAll($rawUrl);
 
-        $isIG     = $this->isInstagramUrl($url);
-        $isYT     = $this->isYouTubeUrl($url);
-        $isBili   = $this->isBilibiliUrl($url);
-        $isThreads= $this->isThreadsUrl($url);
+        $isIG      = $this->isInstagramUrl($url);
+        $isYT      = $this->isYouTubeUrl($url);
+        $isBili    = $this->isBilibiliUrl($url);
+        $isThreads = $this->isThreadsUrl($url);
 
         if ($isIG && !$this->isValidIGCookieFile($this->igSessionFile)) {
             return response()->json([
@@ -114,16 +122,15 @@ class UrlViewerController extends Controller
             ]);
         }
 
-        // Threads：先用自家解析器抓直鏈
+        // Threads：用自家解析器；會帶上 threads.net 與 instagram.com 的 Cookie
         if ($isThreads) {
             $urls = $this->extractThreadsVideoUrls($url);
             if (!empty($urls)) {
                 return response()->json(['success' => true, 'urls' => $urls]);
             }
-            // 解析不到就提示 Cookie
             return response()->json([
                 'success' => false,
-                'error' => 'Threads 需要 Cookies 或該貼文無法匿名存取，請貼上 Threads Cookies 後再試。',
+                'error' => 'Threads 仍無法取得直鏈，請確認已在「Threads」分頁貼上有效 Cookies（含 sessionid / csrftoken 等）。',
                 'needThreadsCookie' => true
             ]);
         }
@@ -182,18 +189,16 @@ class UrlViewerController extends Controller
         $fileName = "video_" . date("Ymd_His") . ".mp4";
         $filePath = storage_path("app/public/" . $fileName);
 
-        // Threads：先取直鏈，再交給 yt-dlp 下載（支援 m3u8/mp4）
+        // Threads：先取直鏈，再交給 yt-dlp 下載
         if ($isThreads) {
             $directs = $this->extractThreadsVideoUrls($url);
             if (empty($directs)) {
                 return response()->json([
                     'success' => false,
-                    'error' => 'Threads 無法取得直鏈，可能需要 Cookies。',
+                    'error' => 'Threads 無法取得直鏈，可能需要更完整的 Cookies（含 sessionid / csrftoken 等）。',
                     'needThreadsCookie' => true
                 ]);
             }
-
-            // 取最優先的直鏈（mp4 優先，其次 m3u8）
             $dlUrl = $directs[0];
 
             $args = [
@@ -209,18 +214,17 @@ class UrlViewerController extends Controller
                 $dlUrl
             ];
 
-            // 若有 Threads Cookies，帶入
-            if ($this->isValidGenericCookieFile($this->threadsCookieFile)) {
-                $args = array_merge(['yt-dlp', '--ignore-config'], [
-                    '--force-ipv4',
-                    '--no-playlist',
+            // 若有 Threads Cookies 或 IG sessionid，組合後帶入
+            $cookieHeader = $this->buildThreadsCombinedCookieHeader();
+            if ($cookieHeader !== '') {
+                $args = array_merge([
+                    'yt-dlp', '--ignore-config',
+                    '--force-ipv4', '--no-playlist',
                     '--add-header', 'Accept-Language: zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
                     '--add-header', 'Referer: https://www.threads.net',
                     '--user-agent', $this->desktopUA(),
-                    '--cookies', $this->threadsCookieFile,
-                    '-o', $filePath,
-                    '--merge-output-format', 'mp4',
-                    $dlUrl
+                    '--add-header', 'Cookie: ' . $cookieHeader,
+                    '-o', $filePath, '--merge-output-format', 'mp4', $dlUrl
                 ]);
             }
 
@@ -236,7 +240,7 @@ class UrlViewerController extends Controller
             return Response::download($filePath)->deleteFileAfterSend(true);
         }
 
-        // 其他站點：交給 yt-dlp
+        // 其他站點
         $args = $this->buildArgsBase($url, $isIG, $isYT, $isBili, true, false);
         $args = array_merge($args, ['--merge-output-format', 'mp4', '-o', $filePath]);
 
@@ -268,15 +272,12 @@ class UrlViewerController extends Controller
             '--add-header', 'Accept-Language: zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
         ];
 
-        // 預設 UA：Android 對 YT 較友善
         $ua = $this->androidUA();
 
-        // YT：指定 client
         if ($isYT) {
             $base = array_merge($base, ['--extractor-args', 'youtube:player_client=android']);
         }
 
-        // Bilibili：用桌面 UA + 必要標頭
         if ($isBili) {
             $ua = $this->desktopUA();
             $base = array_merge($base, [
@@ -285,30 +286,24 @@ class UrlViewerController extends Controller
             ]);
         }
 
-        // IG：僅 IG 連結才帶 cookies
         if ($isIG) {
             $base = array_merge($base, ['--cookies', $this->igSessionFile]);
         }
 
         $base = array_merge($base, ['--user-agent', $ua]);
 
-        // 預覽/下載格式
         if ($forPreview) {
             $base = array_merge($base, ['-f', 'bestvideo+bestaudio/best', '-g']);
         } else {
             $base = array_merge($base, ['-f', 'bestvideo+bestaudio/best']);
         }
 
-        // 重試
         $base = array_merge($base, ['--retries', '10', '--retry-sleep', '3']);
 
         $base[] = $url;
         return $base;
     }
 
-    /**
-     * 針對 YouTube 的 429/驗證後備。
-     */
     private function runYtDlpWithFallback(array $args, int $timeoutSec, bool $isYT): array
     {
         $needYTCookie = false;
@@ -317,19 +312,16 @@ class UrlViewerController extends Controller
         if ($r1['ok']) return $r1;
 
         if ($isYT && $this->looksLikeYTRateLimit($r1['stderr'])) {
-            // iOS
             $args2 = $this->swapYTClient($args, 'ios');
             $r2 = $this->run($args2, $timeoutSec);
             if ($r2['ok']) return $r2;
 
-            // TV
             if ($this->looksLikeYTRateLimit($r2['stderr'])) {
                 $args3 = $this->swapYTClient($args, 'tv');
                 $r3 = $this->run($args3, $timeoutSec);
                 if ($r3['ok']) return $r3;
             }
 
-            // 加 Cookies 再試
             if ($this->isValidGenericCookieFile($this->ytCookieFile)) {
                 $needYTCookie = false;
                 $args4 = $this->ensureArg($args, '--cookies', $this->ytCookieFile);
@@ -430,7 +422,7 @@ class UrlViewerController extends Controller
         return $out;
     }
 
-    /* -------------------- Threads 專用：正規化 + 直鏈解析 -------------------- */
+    /* -------------------- Threads：正規化 + 直鏈解析（合併 Cookie） -------------------- */
 
     private function isThreadsUrl(string $url): bool
     {
@@ -442,9 +434,7 @@ class UrlViewerController extends Controller
 
     private function normalizeThreadsUrl(string $url): string
     {
-        // threads.com -> threads.net
         $url = preg_replace('#://(www\.)?threads\.com/#i', '://www.threads.net/', $url);
-        // 沒有 www 的加上 www（避免某些跨網域導致 Referer 檢查）
         $url = preg_replace('#://threads\.net/#i', '://www.threads.net/', $url);
         return $url;
     }
@@ -453,31 +443,55 @@ class UrlViewerController extends Controller
     {
         $url = $this->normalizeThreadsUrl($url);
 
+        // 合併 threads.net + instagram.com 的 Cookie
+        $cookieHeader = $this->buildThreadsCombinedCookieHeader();
+
         $headers = [
             'User-Agent: ' . $this->desktopUA(),
             'Accept-Language: zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
             'Referer: https://www.threads.net/',
         ];
-
-        // 若有 Threads Cookies，附上
-        $cookieHeader = $this->buildCookieHeaderFromNetscape($this->threadsCookieFile, 'www.threads.net');
         if ($cookieHeader !== '') {
             $headers[] = 'Cookie: ' . $cookieHeader;
         }
 
+        // 先抓原頁
         $html = $this->curlGet($url, $headers);
-        if ($html === null) {
-            return [];
+        $candidates = $this->pickVideoUrlsFromHtml($html);
+
+        // 若未命中，試 embed
+        if (empty($candidates)) {
+            $embedUrl = rtrim($url, '/') . '/embed';
+            $html2 = $this->curlGet($embedUrl, $headers);
+            $candidates = $this->pickVideoUrlsFromHtml($html2);
         }
 
-        $candidates = [];
+        // 淨化/去重與排序（mp4 優先）
+        $candidates = array_values(array_unique(array_map(function ($u) {
+            $u = (string) $u;
+            $u = html_entity_decode($u, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            return str_replace(['\\u002F', '\\/'], '/', $u);
+        }, $candidates)));
 
-        // 1) og:video / og:video:url
+        $mp4 = array_values(array_filter($candidates, fn($u) => stripos($u, '.mp4') !== false));
+        $m3u8 = array_values(array_filter($candidates, fn($u) => stripos($u, '.m3u8') !== false));
+
+        if (!empty($mp4)) return $mp4;
+        if (!empty($m3u8)) return $m3u8;
+        return [];
+    }
+
+    private function pickVideoUrlsFromHtml(?string $html): array
+    {
+        if (!is_string($html) || $html === '') return [];
+        $out = [];
+
+        // og:video / og:video:url
         if (preg_match_all('#<meta[^>]+property=["\']og:video(?::url)?["\'][^>]+content=["\']([^"\']+)#i', $html, $m)) {
-            foreach ($m[1] as $u) $candidates[] = $u;
+            foreach ($m[1] as $u) $out[] = $u;
         }
 
-        // 2) JSON 內常見欄位：video_url、video_versions[].url、contentUrl
+        // 常見 JSON 欄位
         $patterns = [
             '#"video_url"\s*:\s*"([^"]+)"#i',
             '#"video_versions"\s*:\s*\[\s*{[^}]*"url"\s*:\s*"([^"]+)"#i',
@@ -485,32 +499,56 @@ class UrlViewerController extends Controller
             '#"playable_url"\s*:\s*"([^"]+)"#i',
             '#"url"\s*:\s*"([^"]+?\.mp4[^"]*)"#i',
             '#"src"\s*:\s*"([^"]+?\.mp4[^"]*)"#i',
+            '#https?://[^"\']+?\.m3u8[^"\']*#i',
         ];
         foreach ($patterns as $re) {
             if (preg_match_all($re, $html, $m2)) {
-                foreach ($m2[1] as $u) $candidates[] = $u;
+                foreach ($m2[1] ?? $m2[0] as $u) $out[] = $u;
             }
         }
+        return $out;
+    }
 
-        // 3) m3u8（必要時當作備援）
-        if (preg_match_all('#https?://[^"\']+?\.m3u8[^"\']*#i', $html, $m3)) {
-            foreach ($m3[0] as $u) $candidates[] = $u;
+    private function buildThreadsCombinedCookieHeader(): string
+    {
+        $pairs = [];
+
+        // 1) 讀 threads_cookies.txt（.threads.net）
+        $pairs = array_merge($pairs, $this->readAllPairsFromNetscape($this->threadsCookieFile));
+
+        // 2) 讀 IG 檔（ig_session.txt 只有 sessionid；也一併加入）
+        $igPairs = $this->readAllPairsFromNetscape($this->igSessionFile);
+        $pairs = array_merge($pairs, $igPairs);
+
+        if (empty($pairs)) return '';
+        $chunks = [];
+        foreach ($pairs as $k => $v) {
+            if ($k === '' || $v === '') continue;
+            $chunks[] = $k . '=' . $v;
         }
+        return implode('; ', $chunks);
+    }
 
-        // 處理跳脫字元與去重
-        $candidates = array_values(array_unique(array_map(function ($u) {
-            $u = html_entity_decode($u, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            $u = str_replace(['\\u002F', '\\/'], '/', $u);
-            return $u;
-        }, $candidates)));
-
-        // 優先回傳 mp4，再回傳 m3u8
-        $mp4 = array_values(array_filter($candidates, fn($u) => stripos($u, '.mp4') !== false));
-        $m3u8 = array_values(array_filter($candidates, fn($u) => stripos($u, '.m3u8') !== false));
-
-        if (!empty($mp4)) return $mp4;
-        if (!empty($m3u8)) return $m3u8;
-        return [];
+    private function readAllPairsFromNetscape(string $file): array
+    {
+        $out = [];
+        if (!is_file($file)) return $out;
+        $content = file_get_contents($file);
+        if ($content === false) return $out;
+        $lines = preg_split("/\r\n|\n|\r/", $content) ?: [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || (isset($line[0]) && $line[0] === '#')) continue;
+            $parts = explode("\t", $line);
+            if (count($parts) === 7) {
+                $name  = $parts[5];
+                $value = $parts[6];
+                if ($name !== '' && $value !== '') {
+                    $out[$name] = $value; // 後者覆蓋前者
+                }
+            }
+        }
+        return $out;
     }
 
     private function curlGet(string $url, array $headers): ?string
@@ -537,42 +575,10 @@ class UrlViewerController extends Controller
         return $body;
     }
 
-    private function buildCookieHeaderFromNetscape(string $file, string $host): string
-    {
-        if (!$this->isValidGenericCookieFile($file)) return '';
-        $host = ltrim(strtolower($host), '.');
-        $content = file_get_contents($file);
-        if ($content === false) return '';
-        $lines = preg_split("/\r\n|\n|\r/", $content) ?: [];
-        $pairs = [];
-        foreach ($lines as $line) {
-            $line = trim($line);
-            if ($line === '' || (isset($line[0]) && $line[0] === '#')) continue;
-            $parts = explode("\t", $line);
-            if (count($parts) === 7) {
-                $domain = ltrim(strtolower($parts[0]), '.');
-                $name   = $parts[5];
-                $value  = $parts[6];
-                if ($name === '' || $value === '') continue;
-                // host 尾段比對
-                if ($host === $domain || str_ends_with($host, '.'.$domain)) {
-                    $pairs[$name] = $value;
-                }
-            }
-        }
-        if (empty($pairs)) return '';
-        $chunks = [];
-        foreach ($pairs as $k => $v) {
-            $chunks[] = $k . '=' . $v;
-        }
-        return implode('; ', $chunks);
-    }
-
     /* -------------------- 站點偵測/URL 正規化 -------------------- */
 
     private function normalizeAll(string $url): string
     {
-        // Threads 正規化要最先做（避免 .com）
         if ($this->isThreadsUrl($url)) {
             $url = $this->normalizeThreadsUrl($url);
         }
@@ -789,7 +795,7 @@ class UrlViewerController extends Controller
         file_put_contents($filePath, $content, LOCK_EX);
     }
 
-    /* -------------------- UA -------------------- */
+    /* -------------------- UA 與共用 -------------------- */
 
     private function androidUA(): string
     {
@@ -800,8 +806,6 @@ class UrlViewerController extends Controller
     {
         return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
     }
-
-    /* -------------------- 工具 -------------------- */
 
     private function splitUrls(string $output): array
     {

@@ -33,9 +33,9 @@ class UrlViewerController extends Controller
 
     /**
      * 儲存 Cookie：
-     * site=ig       -> 接受 sessionid 或整串 Cookie，寫成 IG Netscape（僅 sessionid）
-     * site=yt       -> 接受整串 Cookie（name=value;...），轉為 .youtube.com Netscape
-     * site=threads  -> 接受整串 Cookie（name=value;...），轉為 .threads.net Netscape，且若含 sessionid 會同步更新 IG 的 ig_session.txt
+     * site=ig       -> 接受整串 Cookies 或純 sessionid；會把所有 pair（含 csrftoken 等）寫入 .instagram.com 檔
+     * site=yt       -> 接受整串 Cookies，寫入 .youtube.com 檔
+     * site=threads  -> 接受整串 Cookies，寫入 .threads.net 檔，並「同步同一批」寫入 IG 檔
      */
     public function saveSession(Request $request)
     {
@@ -47,22 +47,27 @@ class UrlViewerController extends Controller
         }
 
         if ($site === 'ig') {
-            $sessionId = $this->extractSessionId($raw);
-            if ($sessionId === null || $sessionId === '') {
-                return response()->json(['success' => false, 'error' => '無法從輸入取得有效的 Instagram sessionid']);
+            $pairs = $this->parseCookiePairs($raw);
+            if (empty($pairs)) {
+                // 僅貼了純 sessionid
+                $sessionId = $this->extractSessionId($raw);
+                if (!$sessionId) {
+                    return response()->json(['success' => false, 'error' => '請貼上有效的 IG Cookies 或 sessionid']);
+                }
+                $pairs = ['sessionid' => $sessionId];
             }
             $this->ensureCookiesDir();
-            $this->writeNetscapeIG($sessionId);
+            $this->writeNetscapeIGFromPairs($pairs);
             if (!$this->isValidIGCookieFile($this->igSessionFile)) {
                 return response()->json(['success' => false, 'error' => '寫入 IG Cookie 檔失敗，格式驗證未通過']);
             }
-            return response()->json(['success' => true, 'message' => 'Instagram Session 已儲存 (Netscape 格式)']);
+            return response()->json(['success' => true, 'message' => 'Instagram Cookies 已儲存（含 sessionid/csrftoken）']);
         }
 
         if ($site === 'yt') {
             $pairs = $this->parseCookiePairs($raw);
             if (empty($pairs)) {
-                return response()->json(['success' => false, 'error' => '請貼上有效的 YouTube Cookie（name=value; 形式）']);
+                return response()->json(['success' => false, 'error' => '請貼上有效的 YouTube Cookies（name=value; 形式）']);
             }
             $this->ensureCookiesDir();
             $this->writeNetscapeForDomain('.youtube.com', $pairs, $this->ytCookieFile);
@@ -75,22 +80,18 @@ class UrlViewerController extends Controller
         if ($site === 'threads') {
             $pairs = $this->parseCookiePairs($raw);
             if (empty($pairs)) {
-                return response()->json(['success' => false, 'error' => '請貼上有效的 Threads Cookie（name=value; 形式）']);
+                return response()->json(['success' => false, 'error' => '請貼上有效的 Threads/IG Cookies（name=value; 形式）']);
             }
             $this->ensureCookiesDir();
-            // 1) 主要：寫到 .threads.net
+            // 1) 寫入 .threads.net
             $this->writeNetscapeForDomain('.threads.net', $pairs, $this->threadsCookieFile);
+            // 2) 同步同一批到 IG（確保有 csrftoken 等，解決 IG 400/需要登入）
+            $this->writeNetscapeIGFromPairs($pairs);
 
-            // 2) 若有 sessionid，順便更新 IG 的 ig_session.txt
-            if (isset($pairs['sessionid']) && $pairs['sessionid'] !== '') {
-                $this->writeNetscapeIG($pairs['sessionid']);
-            }
-
-            // 驗證
             if (!$this->isValidGenericCookieFile($this->threadsCookieFile)) {
                 return response()->json(['success' => false, 'error' => '寫入 Threads Cookie 檔失敗，格式驗證未通過']);
             }
-            return response()->json(['success' => true, 'message' => 'Threads Cookies 已儲存 (Netscape 格式，並已同步 IG sessionid)']);
+            return response()->json(['success' => true, 'message' => 'Threads Cookies 已儲存，並已同步至 Instagram 檔案。']);
         }
 
         return response()->json(['success' => false, 'error' => '未知的 site 參數']);
@@ -117,12 +118,12 @@ class UrlViewerController extends Controller
         if ($isIG && !$this->isValidIGCookieFile($this->igSessionFile)) {
             return response()->json([
                 'success' => false,
-                'error' => 'Instagram 需要有效的 sessionid，請先輸入。',
+                'error' => 'Instagram 需要有效的 Cookies（至少 sessionid 與 csrftoken），請先於上方儲存。',
                 'needSession' => true
             ]);
         }
 
-        // Threads：用自家解析器；會帶上 threads.net 與 instagram.com 的 Cookie
+        // Threads：用自家解析器；會帶上 threads.net + instagram.com 的 Cookie
         if ($isThreads) {
             $urls = $this->extractThreadsVideoUrls($url);
             if (!empty($urls)) {
@@ -130,7 +131,7 @@ class UrlViewerController extends Controller
             }
             return response()->json([
                 'success' => false,
-                'error' => 'Threads 仍無法取得直鏈，請確認已在「Threads」分頁貼上有效 Cookies（含 sessionid / csrftoken 等）。',
+                'error' => 'Threads 仍無法取得直鏈，請確認已在「Threads」分頁貼上完整 Cookies（含 sessionid / csrftoken 等）。',
                 'needThreadsCookie' => true
             ]);
         }
@@ -140,7 +141,7 @@ class UrlViewerController extends Controller
         if ($isBili) { $url = $this->normalizeBilibiliUrl($url); }
 
         $args = $this->buildArgsBase($url, $isIG, $isYT, $isBili, false, true);
-        $run  = $this->runYtDlpWithFallback($args, 120, $isYT);
+        $run  = $this->runYtDlpWithFallback($args, 140, $isYT);
 
         if (!$run['ok']) {
             $resp = ['success' => false, 'error' => $run['stderr']];
@@ -178,7 +179,7 @@ class UrlViewerController extends Controller
         if ($isIG && !$this->isValidIGCookieFile($this->igSessionFile)) {
             return response()->json([
                 'success' => false,
-                'error' => 'Instagram 需要有效的 sessionid，請先輸入再下載。',
+                'error' => 'Instagram 需要有效的 Cookies（至少 sessionid 與 csrftoken），請先於上方儲存。',
                 'needSession' => true
             ]);
         }
@@ -214,18 +215,19 @@ class UrlViewerController extends Controller
                 $dlUrl
             ];
 
-            // 若有 Threads Cookies 或 IG sessionid，組合後帶入
+            // 若有 Cookies，直接以「Cookie: ...」頭餵入（合併 threads.net+instagram.com）
             $cookieHeader = $this->buildThreadsCombinedCookieHeader();
             if ($cookieHeader !== '') {
-                $args = array_merge([
+                $args = [
                     'yt-dlp', '--ignore-config',
                     '--force-ipv4', '--no-playlist',
                     '--add-header', 'Accept-Language: zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
                     '--add-header', 'Referer: https://www.threads.net',
-                    '--user-agent', $this->desktopUA(),
                     '--add-header', 'Cookie: ' . $cookieHeader,
-                    '-o', $filePath, '--merge-output-format', 'mp4', $dlUrl
-                ]);
+                    '--user-agent', $this->desktopUA(),
+                    '-o', $filePath, '--merge-output-format', 'mp4',
+                    $dlUrl
+                ];
             }
 
             $r = $this->run($args, 420);
@@ -287,7 +289,10 @@ class UrlViewerController extends Controller
         }
 
         if ($isIG) {
-            $base = array_merge($base, ['--cookies', $this->igSessionFile]);
+            $base = array_merge($base, [
+                '--cookies', $this->igSessionFile,
+                '--add-header', 'Referer: https://www.instagram.com',
+            ]);
         }
 
         $base = array_merge($base, ['--user-agent', $ua]);
@@ -299,7 +304,6 @@ class UrlViewerController extends Controller
         }
 
         $base = array_merge($base, ['--retries', '10', '--retry-sleep', '3']);
-
         $base[] = $url;
         return $base;
     }
@@ -512,13 +516,8 @@ class UrlViewerController extends Controller
     private function buildThreadsCombinedCookieHeader(): string
     {
         $pairs = [];
-
-        // 1) 讀 threads_cookies.txt（.threads.net）
         $pairs = array_merge($pairs, $this->readAllPairsFromNetscape($this->threadsCookieFile));
-
-        // 2) 讀 IG 檔（ig_session.txt 只有 sessionid；也一併加入）
-        $igPairs = $this->readAllPairsFromNetscape($this->igSessionFile);
-        $pairs = array_merge($pairs, $igPairs);
+        $pairs = array_merge($pairs, $this->readAllPairsFromNetscape($this->igSessionFile));
 
         if (empty($pairs)) return '';
         $chunks = [];
@@ -544,7 +543,7 @@ class UrlViewerController extends Controller
                 $name  = $parts[5];
                 $value = $parts[6];
                 if ($name !== '' && $value !== '') {
-                    $out[$name] = $value; // 後者覆蓋前者
+                    $out[$name] = $value;
                 }
             }
         }
@@ -689,16 +688,21 @@ class UrlViewerController extends Controller
         if ($content === false) return false;
         if (strpos($content, 'Netscape HTTP Cookie File') === false) return false;
 
+        $hasSession = false;
+        $hasCsrf = false;
+
         $lines = preg_split("/\r\n|\n|\r/", $content) ?: [];
         foreach ($lines as $line) {
             $line = trim($line);
             if ($line === '' || (strlen($line) > 0 && $line[0] === '#')) continue;
             $parts = explode("\t", $line);
-            if (count($parts) === 7 && $parts[5] === 'sessionid' && $parts[6] !== '') {
-                return true;
+            if (count($parts) === 7) {
+                if ($parts[5] === 'sessionid' && $parts[6] !== '') $hasSession = true;
+                if ($parts[5] === 'csrftoken' && $parts[6] !== '') $hasCsrf = true;
             }
         }
-        return false;
+        // 至少要 sessionid；若有 csrftoken 更佳（能避免你遇到的 400）
+        return $hasSession;
     }
 
     private function isValidGenericCookieFile(string $path): bool
@@ -738,7 +742,7 @@ class UrlViewerController extends Controller
         $sessionId = $this->extractSessionId($raw);
         if ($sessionId) {
             $this->ensureCookiesDir();
-            $this->writeNetscapeIG($sessionId);
+            $this->writeNetscapeIGFromPairs(['sessionid' => $sessionId]);
             return $this->isValidIGCookieFile($this->igSessionFile);
         }
 
@@ -786,10 +790,28 @@ class UrlViewerController extends Controller
         file_put_contents($this->igSessionFile, $content, LOCK_EX);
     }
 
+    private function writeNetscapeIGFromPairs(array $pairs): void
+    {
+        // 確保 sessionid 放進去；其它（csrftoken、mid、ig_did、ds_user_id、dpr、ps_l、ps_n）若有也一併寫入
+        $content = "# Netscape HTTP Cookie File\n";
+        $keys = array_unique(array_merge(
+            array_keys($pairs),
+            ['sessionid', 'csrftoken']
+        ));
+        foreach ($keys as $k) {
+            if (!isset($pairs[$k])) continue;
+            $v = $pairs[$k];
+            if ($v === '') continue;
+            $content .= ".instagram.com\tTRUE\t/\tTRUE\t0\t{$k}\t{$v}\n";
+        }
+        file_put_contents($this->igSessionFile, $content, LOCK_EX);
+    }
+
     private function writeNetscapeForDomain(string $domain, array $pairs, string $filePath): void
     {
         $content = "# Netscape HTTP Cookie File\n";
         foreach ($pairs as $k => $v) {
+            if ($k === '' || $v === '') continue;
             $content .= "{$domain}\tTRUE\t/\tTRUE\t0\t{$k}\t{$v}\n";
         }
         file_put_contents($filePath, $content, LOCK_EX);

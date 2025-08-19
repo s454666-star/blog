@@ -38,8 +38,8 @@
         </div>
 
         <div id="ig-inputs">
-            <input type="password" id="session-ig" placeholder="請輸入 Instagram sessionid 或含 sessionid=... 的 Cookie 片段">
-            <div class="hint">會自動擷取 <code>sessionid</code> 並轉 Netscape 格式。</div>
+            <textarea id="session-ig" rows="3" placeholder="貼上 Instagram Cookies（或僅 sessionid）。建議包含：sessionid、csrftoken、mid、ig_did、ds_user_id、dpr、ps_l、ps_n"></textarea>
+            <div class="hint">此版本會把整串 Cookies 寫入 <code>.instagram.com</code> 的 Netscape 檔，解決 <code>No csrf token set</code> 問題。</div>
         </div>
 
         <div id="yt-inputs" style="display:none;">
@@ -48,8 +48,8 @@
         </div>
 
         <div id="threads-inputs" style="display:none;">
-            <textarea id="session-threads" rows="4" placeholder="請貼上 Threads Cookies（name=value; name2=value2; ...）。可直接貼你剛提供的那串。"></textarea>
-            <div class="hint">系統會把 Threads Cookies 與 IG 的 session 合併送出，以便取到登入後的內容。</div>
+            <textarea id="session-threads" rows="4" placeholder="請貼上 Threads/IG Cookies（name=value; name2=value2; ...）。可直接貼你上面那串。"></textarea>
+            <div class="hint">會同時儲存到 <code>.threads.net</code> 並「同步同一批」到 <code>.instagram.com</code>，讓 Threads 與 IG 都能取到登入內容。</div>
         </div>
 
         <div class="row">
@@ -124,7 +124,7 @@
         try { const h = new URL(u).hostname.toLowerCase(); return h.includes('threads.net') || h.includes('threads.com'); } catch { return false; }
     }
 
-    saveSessionBtn.addEventListener("click", () => {
+    document.getElementById("save-session-btn").addEventListener("click", () => {
         const site = document.querySelector('input[name="cookie-site"]:checked').value;
         const session = site === 'ig' ? sessionIG.value.trim()
             : site === 'yt' ? sessionYT.value.trim()
@@ -182,7 +182,7 @@
         }
 
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 130000);
+        const timer = setTimeout(() => controller.abort(), 150000);
 
         fetch("/fetch-url", {
             method: "POST",
@@ -215,12 +215,12 @@
                     if (data.needSession) {
                         sessionBox.style.display = "block";
                         setSite('ig');
-                        appendLog("ℹ️ Instagram 需要 sessionid，請輸入後重試。");
+                        appendLog("ℹ️ Instagram 需要完整 Cookies（至少 sessionid + csrftoken），請在 IG 分頁貼上再試。");
                     }
                     if (data.needThreadsCookie || isThreadsUrl(url)) {
                         sessionBox.style.display = "block";
                         setSite('threads');
-                        appendLog("ℹ️ Threads 需要 Cookies（可直接貼你上面那串），儲存後再解析。");
+                        appendLog("ℹ️ Threads 需要 Cookies（可貼你上面那串），系統會同步到 IG，一次搞定兩邊。");
                     }
                 }
             })

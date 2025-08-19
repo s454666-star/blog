@@ -384,11 +384,11 @@ class UrlViewerController extends Controller
     {
         $s = strtolower($stderr);
         if ($s === '') return false;
-        return str_contains($s, 'http error 429')
-            || str_contains($s, 'too many requests')
-            || str_contains($s, 'confirm you’re not a bot')
-            || str_contains($s, 'confirm youre not a bot')
-            || str_contains($s, 'sign in to confirm you’re not a bot');
+        return strpos($s, 'http error 429') !== false
+            || strpos($s, 'too many requests') !== false
+            || strpos($s, 'confirm you’re not a bot') !== false
+            || strpos($s, 'confirm youre not a bot') !== false
+            || strpos($s, 'sign in to confirm you’re not a bot') !== false;
     }
 
     private function swapYTClient(array $args, string $client): array
@@ -397,7 +397,7 @@ class UrlViewerController extends Controller
         $skipNext = false;
         for ($i = 0; $i < count($args); $i++) {
             if ($skipNext) { $skipNext = false; continue; }
-            if ($args[$i] === '--extractor-args' && isset($args[$i + 1]) && str_starts_with($args[$i + 1], 'youtube:player_client=')) {
+            if ($args[$i] === '--extractor-args' && isset($args[$i + 1]) && strpos($args[$i + 1], 'youtube:player_client=') === 0) {
                 $out[] = '--extractor-args';
                 $out[] = 'youtube:player_client=' . $client;
                 $skipNext = true;
@@ -925,7 +925,7 @@ class UrlViewerController extends Controller
             }
         }
 
-        if ($trimmed !== '' && !str_contains($trimmed, ' ') && !str_contains($trimmed, ';')) {
+        if ($trimmed !== '' && strpos($trimmed, ' ') === false && strpos($trimmed, ';') === false) {
             return urldecode($trimmed);
         }
 
@@ -977,6 +977,44 @@ class UrlViewerController extends Controller
             $content .= "{$domain}\tTRUE\t/\tTRUE\t0\t{$k}\t{$v}\n";
         }
         file_put_contents($filePath, $content, LOCK_EX);
+    }
+
+    /* -------------------- 這就是你缺的：合併 Threads+IG Cookie 成 Request Header -------------------- */
+    private function buildThreadsCombinedCookieHeader(): string
+    {
+        $pairs = [];
+        $pairs = array_merge($pairs, $this->readAllPairsFromNetscape($this->threadsCookieFile));
+        $pairs = array_merge($pairs, $this->readAllPairsFromNetscape($this->igSessionFile));
+
+        if (empty($pairs)) return '';
+        $chunks = [];
+        foreach ($pairs as $k => $v) {
+            if ($k === '' || $v === '') continue;
+            $chunks[] = $k . '=' . $v;
+        }
+        return implode('; ', $chunks);
+    }
+
+    private function readAllPairsFromNetscape(string $file): array
+    {
+        $out = [];
+        if (!is_file($file)) return $out;
+        $content = file_get_contents($file);
+        if ($content === false) return $out;
+        $lines = preg_split("/\r\n|\n|\r/", $content) ?: [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || (isset($line[0]) && $line[0] === '#')) continue;
+            $parts = explode("\t", $line);
+            if (count($parts) === 7) {
+                $name  = $parts[5];
+                $value = $parts[6];
+                if ($name !== '' && $value !== '') {
+                    $out[$name] = $value;
+                }
+            }
+        }
+        return $out;
     }
 
     /* -------------------- UA 與共用 -------------------- */

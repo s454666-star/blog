@@ -35,16 +35,14 @@ class UrlViewerController extends Controller
             mkdir(dirname($this->igSessionFile), 0777, true);
         }
 
-        // 產生 Netscape 格式
+        // ✅ 轉成 Netscape 格式
         $cookieContent = "# Netscape HTTP Cookie File\n";
-        $cookieContent .= "# This file was generated automatically\n";
-        $cookieContent .= ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t" . $session . "\n";
+        $cookieContent .= ".instagram.com\tTRUE\t/\tFALSE\t0\tsessionid\t{$session}\n";
 
         file_put_contents($this->igSessionFile, $cookieContent);
 
         return response()->json(['success' => true, 'message' => 'Session 已儲存 (Netscape 格式)' ]);
     }
-
     // 抓影片直連 URL (預覽)
     public function fetch(Request $request)
     {

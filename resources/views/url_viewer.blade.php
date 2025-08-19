@@ -69,6 +69,7 @@
         const url = urlInput.value;
         logBox.textContent = "🔍 開始解析中...\n";
         videoContainer.style.display = "none";
+        downloadBtn.style.display = "none";
 
         fetch("/fetch-url", {
             method: "POST",
@@ -81,15 +82,19 @@
                     logBox.textContent = "✅ 找到影片連結:\n" + data.videoUrl +
                         "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
 
-                    // ⚠️ Bilibili 分段檔不能直接播放，這裡先隱藏播放器
+                    // 顯示容器
+                    videoContainer.style.display = "block";
+
+                    // 若是 mp4 就能播放，否則只顯示下載
                     if (data.videoUrl.endsWith(".mp4")) {
-                        videoContainer.style.display = "block";
+                        videoPlayer.style.display = "block";
                         videoPlayer.src = data.videoUrl;
                     } else {
-                        videoContainer.style.display = "none"; // 僅顯示直連
+                        videoPlayer.style.display = "none";
                     }
 
-                    downloadBtn.href = "/download?source=" + encodeURIComponent(data.sourceUrl);
+                    // 總是顯示下載按鈕
+                    downloadBtn.href = "/download?source=" + encodeURIComponent(data.sourceUrl || data.videoUrl);
                     downloadBtn.style.display = "inline-block";
                 } else {
                     logBox.textContent = "❌ 錯誤: " + data.error + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");

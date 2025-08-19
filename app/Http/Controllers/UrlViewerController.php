@@ -18,7 +18,7 @@ class UrlViewerController extends Controller
     public function index()
     {
         return view('url_viewer', [
-            'hasSession' => file_exists($this->igSessionFile) // 回傳給前端判斷
+            'hasSession' => file_exists($this->igSessionFile)
         ]);
     }
 
@@ -47,7 +47,8 @@ class UrlViewerController extends Controller
         try {
             $debugLog[] = "開始解析 URL: " . $url;
 
-            $cmd = ['yt-dlp', '-f', 'best', '--get-url'];
+            // 預設命令 (不要加 -f best，避免 B 站錯誤)
+            $cmd = ['yt-dlp', '--get-url'];
 
             // IG 特殊處理
             if (strpos($url, 'instagram.com') !== false) {
@@ -68,7 +69,7 @@ class UrlViewerController extends Controller
                 $cookieContent .= ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t{$sessionId}\n";
                 file_put_contents($cookiePath, $cookieContent);
 
-                $cmd = ['yt-dlp', '-f', 'best', '--cookies', $cookiePath, '--get-url', $url];
+                $cmd = ['yt-dlp', '--cookies', $cookiePath, '--get-url', $url];
                 $debugLog[] = "使用 IG sessionid 嘗試下載";
             } else {
                 $cmd[] = $url;
@@ -81,9 +82,8 @@ class UrlViewerController extends Controller
             if (!$process->isSuccessful()) {
                 $debugLog[] = "yt-dlp 錯誤:\n" . $process->getErrorOutput();
 
-                // 如果是 IG 而且 session 過期 → 要求重新輸入
                 if (strpos($url, 'instagram.com') !== false) {
-                    @unlink($this->igSessionFile); // 刪除舊 session
+                    @unlink($this->igSessionFile);
                     return response()->json([
                         'success' => false,
                         'error' => 'IG sessionid 已失效，請重新輸入',
@@ -106,7 +106,8 @@ class UrlViewerController extends Controller
                 ]);
             }
 
-            $videoUrl = explode("\n", $output)[0]; // best 格式會有聲音
+            // 取第一個 URL（通常已經是合併後有聲音的）
+            $videoUrl = explode("\n", $output)[0];
             $debugLog[] = "✅ 影片直連 URL: " . $videoUrl;
 
             return response()->json([
@@ -142,7 +143,7 @@ class UrlViewerController extends Controller
 
         $process = new Process([
             'yt-dlp',
-            '-f', 'best',
+            '-f', 'bestvideo+bestaudio/best',
             '--merge-output-format', 'mp4',
             '-o', $tempPath,
             $videoUrl

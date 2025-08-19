@@ -1,4 +1,3 @@
-<!-- resources/views/url_viewer.blade.php -->
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -8,7 +7,7 @@
     <style>
         body { font-family: Arial, sans-serif; background: #f8f9fa; padding: 30px; }
         .container { max-width: 900px; margin: auto; background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-        input[type="text"], input[type="password"], textarea { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 8px; }
+        input[type="text"], textarea { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 8px; }
         button { padding: 12px 20px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; }
         button:hover { background: #0056b3; }
         pre { background: #212529; color: #f8f9fa; padding: 15px; border-radius: 8px; height: 320px; overflow-y: auto; white-space: pre-wrap; }
@@ -16,11 +15,13 @@
         #download-btn { display: none; margin-top: 15px; text-decoration: none; background: #28a745; padding: 12px 20px; border-radius: 8px; color: white; }
         #download-btn:hover { background: #218838; }
         #session-box { display: none; }
-        .row { display: flex; gap: 10px; align-items: center; }
+        .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .row > * { flex: 1; }
         .hint { color: #6c757d; font-size: 13px; margin-top: 6px; }
         .radio { display: flex; gap: 14px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
         label small { color: #6c757d; }
+        .inline { display: inline-flex; align-items: center; gap: 8px; }
+        details { margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -28,7 +29,10 @@
     <h2>影片下載工具</h2>
     <div class="row">
         <input type="text" id="url" placeholder="輸入影片 URL (YouTube / Instagram / Bilibili / Threads)">
-        <button id="fetch-btn">解析影片</button>
+        <div class="inline">
+            <label class="inline"><input type="checkbox" id="debug"> 顯示詳細 Log</label>
+            <button id="fetch-btn">解析影片</button>
+        </div>
     </div>
 
     <div id="session-box">
@@ -40,7 +44,7 @@
 
         <div id="ig-inputs">
             <textarea id="session-ig" rows="3" placeholder="貼上 Instagram Cookies（或僅 sessionid）。建議包含：sessionid、csrftoken、mid、ig_did、ds_user_id、dpr、ps_l、ps_n"></textarea>
-            <div class="hint">此版本會把整串 Cookies 寫入 <code>.instagram.com</code> 的 Netscape 檔，解決 <code>No csrf token set</code> 問題。</div>
+            <div class="hint">此版本會把整串 Cookies 寫入 <code>.instagram.com</code> 的 Netscape 檔。</div>
         </div>
 
         <div id="yt-inputs" style="display:none;">
@@ -50,7 +54,7 @@
 
         <div id="threads-inputs" style="display:none;">
             <textarea id="session-threads" rows="4" placeholder="請貼上 Threads/IG Cookies（name=value; name2=value2; ...）。可直接貼你上面那串。"></textarea>
-            <div class="hint">會同時儲存到 <code>.threads.net</code> 並「同步同一批」到 <code>.instagram.com</code>，讓 Threads 與 IG 都能取到登入內容。</div>
+            <div class="hint">會同時儲存到 <code>.threads.net</code> 並同步至 <code>.instagram.com</code>。</div>
         </div>
 
         <div class="row">
@@ -59,6 +63,11 @@
     </div>
 
     <pre id="log"></pre>
+
+    <details id="diag-wrap" style="display:none;">
+        <summary>📋 伺服器診斷</summary>
+        <pre id="diag"></pre>
+    </details>
 
     <div id="video-container" style="display:none;">
         <video id="video-player" controls></video>
@@ -76,6 +85,9 @@
     const urlInput = document.getElementById("url");
     const fetchBtn = document.getElementById("fetch-btn");
     const logBox = document.getElementById("log");
+    const diagWrap = document.getElementById("diag-wrap");
+    const diagBox = document.getElementById("diag");
+    const debugChk = document.getElementById("debug");
     const videoPlayer = document.getElementById("video-player");
     const videoContainer = document.getElementById("video-container");
     const downloadBtn = document.getElementById("download-btn");
@@ -162,6 +174,7 @@
     });
 
     let originalInputUrl = null;
+    let lastTraceId = null;
 
     fetchBtn.addEventListener("click", () => {
         const url = urlInput.value.trim();
@@ -170,8 +183,11 @@
             return;
         }
         originalInputUrl = url;
+        lastTraceId = null;
 
         logBox.textContent = "🔍 開始解析中...\n";
+        diagWrap.style.display = "none";
+        diagBox.textContent = "";
         videoContainer.style.display = "none";
         downloadBtn.style.display = "none";
         videoPlayer.removeAttribute('src');
@@ -187,7 +203,7 @@
         fetch("/fetch-url", {
             method: "POST",
             headers: { "Content-Type": "application/json", "X-CSRF-TOKEN": csrfToken },
-            body: JSON.stringify({ url }),
+            body: JSON.stringify({ url, debug: !!debugChk.checked }),
             signal: controller.signal
         })
             .then(async (res) => {
@@ -200,6 +216,7 @@
                 return res.json();
             })
             .then(data => {
+                lastTraceId = data.traceId || null;
                 if (data.success) {
                     logBox.textContent = "✅ 找到影片直連：\n" + data.urls.join("\n");
                     videoPlayer.src = data.urls[0];
@@ -220,8 +237,13 @@
                     if (data.needThreadsCookie || isThreadsUrl(url)) {
                         sessionBox.style.display = "block";
                         setSite('threads');
-                        appendLog("ℹ️ 若仍失敗，請在 Threads 分頁貼上 Cookies（可貼與 IG 相同那串），系統會同步到 IG。");
+                        appendLog("ℹ️ Threads 建議貼上 Cookies（可貼與 IG 相同那串），系統會同步到 IG。");
                     }
+                }
+                if (debugChk.checked && data.diag) {
+                    diagWrap.style.display = "block";
+                    diagBox.textContent = JSON.stringify(data.diag, null, 2);
+                    appendLog("📎 伺服器已儲存 HTML 快照於 storage/app/tmp/（檔名前綴 threads_" + (data.traceId || 'NA') + "_）。");
                 }
             })
             .catch(err => {
@@ -239,7 +261,9 @@
             logBox.textContent = "❌ 請先輸入網址並解析";
             return;
         }
-        window.location.href = "/download?url=" + encodeURIComponent(originalInputUrl);
+        const qs = new URLSearchParams({ url: originalInputUrl });
+        if (debugChk.checked) qs.set('debug', '1');
+        window.location.href = "/download?" + qs.toString();
     });
 </script>
 </body>

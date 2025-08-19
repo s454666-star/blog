@@ -20,11 +20,10 @@ class UrlViewerController extends Controller
     {
         // ✅ 判斷是否已經有 IG session
         $hasSession = file_exists($this->igSessionFile) && filesize($this->igSessionFile) > 0;
-
         return view('url_viewer', compact('hasSession'));
     }
 
-    // 儲存 sessionid
+    // ✅ 儲存 Instagram sessionid 並轉換成 Netscape cookie 格式
     public function saveSession(Request $request)
     {
         $session = trim($request->input('session'));
@@ -36,16 +35,20 @@ class UrlViewerController extends Controller
             mkdir(dirname($this->igSessionFile), 0777, true);
         }
 
-        file_put_contents($this->igSessionFile, $session);
+        // 產生 Netscape 格式
+        $cookieContent = "# Netscape HTTP Cookie File\n";
+        $cookieContent .= "# This file was generated automatically\n";
+        $cookieContent .= ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t" . $session . "\n";
 
-        return response()->json(['success' => true, 'message' => 'Session 已儲存']);
+        file_put_contents($this->igSessionFile, $cookieContent);
+
+        return response()->json(['success' => true, 'message' => 'Session 已儲存 (Netscape 格式)' ]);
     }
 
-    // 抓影片直連 URL
+    // 抓影片直連 URL (預覽)
     public function fetch(Request $request)
     {
         $url = $request->input('url');
-
         if (!$url) {
             return response()->json(['success' => false, 'error' => '缺少 URL']);
         }
@@ -53,7 +56,7 @@ class UrlViewerController extends Controller
         $args = [
             'yt-dlp',
             '--cookies', $this->igSessionFile,
-            '-f', 'best',
+            '-f', 'bestvideo+bestaudio/best',
             '-g', // 只取直連
             $url
         ];
@@ -75,7 +78,6 @@ class UrlViewerController extends Controller
     public function download(Request $request)
     {
         $url = $request->query('url');
-
         if (!$url) {
             return response()->json(['success' => false, 'error' => '缺少 URL']);
         }

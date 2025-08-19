@@ -48,8 +48,8 @@
     const videoContainer = document.getElementById("video-container");
     const downloadBtn = document.getElementById("download-btn");
 
-    let currentVideoUrl = null; // ✅ 記錄影片直連
-    let originalInputUrl = null; // ✅ 記錄使用者輸入的原始網址
+    let currentVideoUrl = null;
+    let originalInputUrl = null;
 
     saveSessionBtn.addEventListener("click", () => {
         const session = sessionInput.value;
@@ -70,7 +70,7 @@
 
     fetchBtn.addEventListener("click", () => {
         const url = urlInput.value;
-        originalInputUrl = url; // ✅ 保存原始輸入網址
+        originalInputUrl = url;
         logBox.textContent = "🔍 開始解析中...\n";
         videoContainer.style.display = "none";
 
@@ -82,15 +82,13 @@
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    logBox.textContent = "✅ 找到影片直連:\n" + data.urls.join("\n") +
-                        "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
-
-                    currentVideoUrl = data.urls[0]; // ✅ 預覽用第一個直連
+                    logBox.textContent = "✅ 找到影片直連:\n" + data.urls.join("\n");
+                    currentVideoUrl = data.urls[0];
                     videoContainer.style.display = "block";
                     videoPlayer.src = currentVideoUrl;
                     downloadBtn.style.display = "inline-block";
                 } else {
-                    logBox.textContent = "❌ 錯誤: " + data.error + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
+                    logBox.textContent = "❌ 錯誤: " + data.error;
                     if (data.needSession) {
                         sessionBox.style.display = "block";
                     }
@@ -101,7 +99,6 @@
             });
     });
 
-    // ✅ 修正下載：交給後端 yt-dlp 合併聲音
     downloadBtn.addEventListener("click", () => {
         if (!originalInputUrl) {
             logBox.textContent = "❌ 請先輸入網址並解析";

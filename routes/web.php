@@ -114,7 +114,6 @@ Route::get('/upload', function () {
 
 Route::post('/upload', [ UploadStorageController::class, 'upload' ]);
 
-// routes/web.php
 Route::get('/videos-management', [ App\Http\Controllers\LibraryController::class, 'index' ])->name('videos.index');
 Route::post('/generate-thumbnails', [LibraryController::class, 'generateThumbnails'])->name('generate-thumbnails');
 

@@ -28,7 +28,7 @@
     <pre id="log"></pre>
     <div id="video-container" style="display:none;">
         <video id="video-player" controls></video>
-        <button id="download-btn">⬇️ 下載影片</button>
+        <button id="download-btn">⬇️ 下載影片 (含聲音)</button>
     </div>
 </div>
 
@@ -48,7 +48,8 @@
     const videoContainer = document.getElementById("video-container");
     const downloadBtn = document.getElementById("download-btn");
 
-    let currentVideoUrl = null; // ✅ 記錄影片連結
+    let currentVideoUrl = null; // ✅ 記錄影片直連
+    let originalInputUrl = null; // ✅ 記錄使用者輸入的原始網址
 
     saveSessionBtn.addEventListener("click", () => {
         const session = sessionInput.value;
@@ -59,7 +60,7 @@
         })
             .then(res => res.json())
             .then(data => {
-                logBox.textContent = data.success ? "✅ " + data.message : "❌ " + data.error;
+                logBox.textContent = data.success ? "✅ Session 已儲存" : "❌ " + data.error;
                 if (data.success) sessionBox.style.display = "none";
             })
             .catch(err => {
@@ -69,6 +70,7 @@
 
     fetchBtn.addEventListener("click", () => {
         const url = urlInput.value;
+        originalInputUrl = url; // ✅ 保存原始輸入網址
         logBox.textContent = "🔍 開始解析中...\n";
         videoContainer.style.display = "none";
 
@@ -80,12 +82,12 @@
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    logBox.textContent = "✅ 找到影片連結:\n" + data.videoUrl +
+                    logBox.textContent = "✅ 找到影片直連:\n" + data.urls.join("\n") +
                         "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
 
-                    currentVideoUrl = data.videoUrl; // ✅ 保存連結
+                    currentVideoUrl = data.urls[0]; // ✅ 預覽用第一個直連
                     videoContainer.style.display = "block";
-                    videoPlayer.src = data.videoUrl;
+                    videoPlayer.src = currentVideoUrl;
                     downloadBtn.style.display = "inline-block";
                 } else {
                     logBox.textContent = "❌ 錯誤: " + data.error + "\n\nLOG:\n" + (data.log ? data.log.join("\n---\n") : "");
@@ -99,36 +101,13 @@
             });
     });
 
-    // ✅ 修正下載：用 blob + 當下日期時間命名
-    downloadBtn.addEventListener("click", async () => {
-        if (!currentVideoUrl) return;
-
-        try {
-            const res = await fetch(currentVideoUrl);
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-
-            const a = document.createElement("a");
-            a.href = url;
-
-            // 產生檔名：yyyyMMdd_HHmmss.mp4
-            const now = new Date();
-            const filename = now.getFullYear().toString()
-                + String(now.getMonth()+1).padStart(2,"0")
-                + String(now.getDate()).padStart(2,"0") + "_"
-                + String(now.getHours()).padStart(2,"0")
-                + String(now.getMinutes()).padStart(2,"0")
-                + String(now.getSeconds()).padStart(2,"0") + ".mp4";
-
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-
-            URL.revokeObjectURL(url);
-        } catch (err) {
-            logBox.textContent = "❌ 下載失敗: " + err;
+    // ✅ 修正下載：交給後端 yt-dlp 合併聲音
+    downloadBtn.addEventListener("click", () => {
+        if (!originalInputUrl) {
+            logBox.textContent = "❌ 請先輸入網址並解析";
+            return;
         }
+        window.location.href = "/download?url=" + encodeURIComponent(originalInputUrl);
     });
 </script>
 </body>

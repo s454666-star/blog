@@ -20,33 +20,59 @@ class UrlViewerController extends Controller
         try {
             $debugLog[] = "開始抓取: " . $url;
 
-            $response = Http::get($url);
-            $html = $response->body();
+            $response = Http::withHeaders([
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            ])->get($url);
 
+            $html = $response->body();
             $debugLog[] = "回傳長度: " . strlen($html) . " bytes";
 
             // 預覽前 500 字
             $debugLog[] = "HTML 前 500 字:\n" . substr($html, 0, 500);
 
-            // 嘗試抓 <video src="...">
-            preg_match('/<video[^>]+src=["\']([^"\']+)["\']/i', $html, $matches1);
-            if (!empty($matches1)) {
-                $debugLog[] = "匹配到 <video src>: " . $matches1[1];
-            } else {
-                $debugLog[] = "❌ 沒有匹配到 <video src>";
+            // 嘗試找 <script id="SIGI_STATE">
+            preg_match('/<script id="SIGI_STATE"[^>]*>(.*?)<\/script>/s', $html, $matches);
+            if (empty($matches)) {
+                $debugLog[] = "❌ 沒找到 SIGI_STATE JSON";
+                return response()->json([
+                    'success' => false,
+                    'error' => '找不到影片 JSON',
+                    'log' => $debugLog
+                ]);
             }
 
-            // 嘗試抓 meta og:video
-            preg_match('/<meta[^>]+property=["\']og:video["\'][^>]+content=["\']([^"\']+)["\']/i', $html, $matches2);
-            if (!empty($matches2)) {
-                $debugLog[] = "匹配到 og:video: " . $matches2[1];
-            } else {
-                $debugLog[] = "❌ 沒有匹配到 og:video";
+            $jsonRaw = $matches[1];
+            $debugLog[] = "找到 SIGI_STATE JSON，長度: " . strlen($jsonRaw);
+            $debugLog[] = "JSON 前 500 字:\n" . substr($jsonRaw, 0, 500);
+
+            $json = json_decode($jsonRaw, true);
+            if (!$json) {
+                $debugLog[] = "❌ JSON decode 失敗";
+                return response()->json([
+                    'success' => false,
+                    'error' => 'JSON decode 失敗',
+                    'log' => $debugLog
+                ]);
             }
 
-            $videoUrl = $matches1[1] ?? ($matches2[1] ?? null);
+            // 尋找 ItemModule -> 任意影片 -> video.playAddr
+            $videoUrl = null;
+            if (isset($json['ItemModule']) && is_array($json['ItemModule'])) {
+                foreach ($json['ItemModule'] as $itemId => $item) {
+                    if (isset($item['video']['playAddr'])) {
+                        $videoUrl = $item['video']['playAddr'];
+                        $debugLog[] = "找到 playAddr: " . $videoUrl;
+                        break;
+                    } elseif (isset($item['video']['downloadAddr'])) {
+                        $videoUrl = $item['video']['downloadAddr'];
+                        $debugLog[] = "找到 downloadAddr: " . $videoUrl;
+                        break;
+                    }
+                }
+            }
 
             if (!$videoUrl) {
+                $debugLog[] = "❌ JSON 裡沒有找到影片連結";
                 return response()->json([
                     'success' => false,
                     'error' => '找不到影片連結',
@@ -70,6 +96,7 @@ class UrlViewerController extends Controller
             ]);
         }
     }
+
 
     public function download(Request $request)
     {

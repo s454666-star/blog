@@ -69,7 +69,7 @@
         document.addEventListener('DOMContentLoaded', function () {
             initializePage();
 
-            // Handle Pagination Clicks (AJAX 置換 .container)
+            // Handle Pagination Clicks
             document.addEventListener('click', function (e) {
                 if (e.target.matches('.pagination a') || e.target.closest('.pagination a')) {
                     e.preventDefault();
@@ -105,8 +105,7 @@
                     const targetSelector = this.getAttribute('data-target');
                     const target = document.querySelector(targetSelector);
                     if (target.style.display === 'none' || target.style.display === '') {
-                        // Columns 版面顯示用 block
-                        target.style.display = 'block';
+                        target.style.display = 'flex';
                         this.textContent = '隱藏圖片';
                     } else {
                         target.style.display = 'none';
@@ -115,9 +114,9 @@
                 });
             });
 
-            // 預設全部顯示（columns 需用 block）
+            // Ensure all images are visible by default
             document.querySelectorAll('.article-images').forEach(imagesDiv => {
-                imagesDiv.style.display = 'block';
+                imagesDiv.style.display = 'flex';
             });
 
             // Initialize Image Click Events
@@ -131,6 +130,7 @@
             document.querySelectorAll('.article-image').forEach(image => {
                 // Left-Click Event
                 image.addEventListener('click', function (e) {
+                    // Only handle left-clicks
                     if (e.button !== 0) return;
 
                     const articleDiv = this.closest('.article');
@@ -144,9 +144,9 @@
                         checkbox.checked = true;
                     }
 
-                    // Toggle Images（columns 使用 block/none）
+                    // Toggle Images
                     if (imagesDiv.style.display === 'none' || imagesDiv.style.display === '') {
-                        imagesDiv.style.display = 'block';
+                        imagesDiv.style.display = 'flex';
                         toggleButton.textContent = '隱藏圖片';
                     } else {
                         imagesDiv.style.display = 'none';
@@ -168,18 +168,23 @@
                         checkbox.checked = true;
                     }
 
+                    let seedLink = '';
+
                     if (seedButton) {
-                        const seedLink = seedButton.getAttribute('data-seed-link');
+                        // Retrieve the seed link from the data attribute
+                        seedLink = seedButton.getAttribute('data-seed-link');
                         if (seedLink) {
                             window.open(seedLink, '_blank');
                         }
                     }
 
+                    // Submit the Batch Delete Form
                     const batchDeleteForm = document.getElementById('batch-delete-form');
                     if (batchDeleteForm) {
                         batchDeleteForm.submit();
                     }
 
+                    // Optionally, show a toast message
                     showToast('批次刪除已觸發');
                 });
             });

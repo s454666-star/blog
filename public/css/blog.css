@@ -1,16 +1,20 @@
 /* 展開/收縮按鈕樣式 */
 .toggle-images {
-    cursor: pointer;
-    background-color: #4CAF50;
-    color: white;
-    padding: 8px 16px;
-    border: none;
-    border-radius: 5px;
-    font-size: 14px;
-    margin-top: 10px;
-    transition: background-color 0.3s;
+    cursor: pointer; /* 讓滑鼠指標變成手形圖標 */
+    background-color: #4CAF50; /* 設定按鈕背景顏色 */
+    color: white; /* 設定文字顏色為白色 */
+    padding: 8px 16px; /* 設定內邊距 */
+    border: none; /* 移除邊框 */
+    border-radius: 5px; /* 邊角圓滑 */
+    font-size: 14px; /* 文字大小 */
+    margin-top: 10px; /* 與上方內容的間距 */
+    transition: background-color 0.3s; /* 點擊時的背景顏色變化動畫 */
 }
-.toggle-images:hover { background-color: #45a049; }
+
+/* 滑鼠懸停在按鈕上時的效果 */
+.toggle-images:hover {
+    background-color: #45a049; /* 滑鼠懸停時按鈕的背景顏色 */
+}
 
 /* 全體背景 */
 body {
@@ -23,58 +27,49 @@ body {
     max-width: 2000px;
     margin: 0 auto;
     padding: 20px;
-    background: #fff;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    border-radius: 8px;
+    background: #fff; /* 容器背景色 */
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2); /* 容器陰影 */
+    border-radius: 8px; /* 容器邊角圓滑 */
 }
 
-/* ★★ 兩欄瀑布流關鍵：columns 取代 flex ★★ */
 .article-images {
-    /* 兩欄固定，不會因為單張圖片高度不同而讓左右欄「互相推擠」 */
-    column-count: 2;          /* 左右兩欄 */
-    column-gap: 12px;         /* 欄間距 */
-    width: 100%;
-    margin: 12px 0 24px;
+    display: flex; /* 設置為flex佈局 */
+    flex-wrap: wrap; /* 允許換行 */
+    justify-content: space-between; /* 兩張圖片之間留有間隔 */
+    /*margin-bottom: 15px; !* 與下方內容留有間隔 *!*/
+    max-width: 100%; /* 或更大的值，根据布局需要 */
+    overflow: visible; /* 确保内容不会被裁切 */
+    margin-bottom: 250px; /* 增加底部外边距，为长图片留出空间 */
 }
 
-/* 圖片維持原比例，塞滿欄寬；避免被拆欄 */
 .article-image {
-    width: 100%;              /* 填滿欄寬 */
-    height: auto;             /* 維持原比例 */
-    display: block;
-    margin: 0 0 12px;
-    break-inside: avoid;                      /* 標準屬性 */
-    -webkit-column-break-inside: avoid;       /* Safari/舊版 WebKit */
-    page-break-inside: avoid;                 /* 列印相容 */
-}
-
-/* 小螢幕時可改為單欄（若你希望） */
-@media (max-width: 900px) {
-    .article-images { column-count: 1; }
+    max-width: 48%; /* 每張圖片最大寬度設為48%，以便兩張圖片能夠適當顯示在一行 */
+    height: auto; /* 高度自動 */
+    margin-bottom: 10px; /* 圖片之間留有間隔 */
 }
 
 /* 文章樣式 */
 .article {
-    background: #ffffff;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    margin-bottom: 20px;
-    overflow: hidden;
-    max-width: 100%;
-    padding: 20px;
+    background: #ffffff; /* 文章背景色 */
+    border: 1px solid #e0e0e0; /* 文章邊框 */
+    border-radius: 8px; /* 文章邊角圓滑 */
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* 文章陰影 */
+    margin-bottom: 20px; /* 文章間距 */
+    overflow: hidden; /* 超出邊框的內容被隱藏 */
+    max-width: 100%; /* 設定文章最大寬度，視需要調整 */
+    padding: 20px; /* 增加內邊距以改善閱讀體驗 */
     min-height: auto;
 }
 
 /* 文章標題 */
 .article h2 {
-    background: #f2f2f2;
-    color: #333;
-    padding: 10px 15px;
-    font-size: 1.5rem;
+    background: #f2f2f2; /* 標題背景色 */
+    color: #333; /* 標題文字顏色 */
+    padding: 10px 15px; /* 標題內邊距 */
+    font-size: 1.5rem; /* 標題字體大小 */
 }
 
-/* 文章內的圖片（全文預設，保留） */
+/* 文章內的圖片 */
 .article img {
     width: 100%;
     height: auto;
@@ -82,192 +77,595 @@ body {
 }
 
 /* 文章內容 */
-.article-content { padding: 15px; }
+.article-content {
+    padding: 15px;
+}
 
 /* 文章段落 */
 .article p {
-    color: #666;
-    line-height: 1.6;
-    margin: 10px 0;
-    font-size: 1rem;
+    color: #666; /* 段落文字顏色 */
+    line-height: 1.6; /* 行高 */
+    margin: 10px 0; /* 段落間距 */
+    font-size: 1rem; /* 段落字體大小 */
 }
 
 /* 文章中的連結 */
-.article a { color: #3273dc; font-weight: bold; }
-.article a:hover { text-decoration: underline; }
+.article a {
+    color: #3273dc; /* 連結顏色 */
+    font-weight: bold; /* 連結加粗 */
+}
+
+/* 滑鼠懸停時的連結效果 */
+.article a:hover {
+    text-decoration: underline; /* 下劃線 */
+}
 
 /* 刪除按鈕 */
 .btn-danger {
-    background-color: #ff3860;
-    color: #fff;
-    border: none;
-    padding: 10px 20px;
-    cursor: pointer;
-    border-radius: 4px;
-    font-size: 1rem;
-    transition: background-color 0.3s;
+    background-color: #ff3860; /* 按鈕背景色 */
+    color: #fff; /* 按鈕文字顏色 */
+    border: none; /* 移除邊框 */
+    padding: 10px 20px; /* 按鈕內邊距 */
+    cursor: pointer; /* 滑鼠樣式 */
+    border-radius: 4px; /* 按鈕邊角圓滑 */
+    font-size: 1rem; /* 按鈕字體大小 */
+    transition: background-color 0.3s; /* 背景色變化動畫 */
 }
-.btn-danger:hover { background-color: #ff2b56; }
+
+/* 滑鼠懸停時的刪除按鈕效果 */
+.btn-danger:hover {
+    background-color: #ff2b56; /* 按鈕背景色變深 */
+}
 
 /* 搜索表單 */
-.search-form { margin-bottom: 20px; }
-.search-form input[type="text"] {
-    padding: 5px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    width: calc(100% - 90px);
+.search-form {
+    margin-bottom: 20px; /* 表單下邊距 */
 }
+
+/* 搜索輸入框 */
+.search-form input[type="text"] {
+    padding: 5px; /* 輸入框內邊距 */
+    border: 1px solid #ddd; /* 輸入框邊框 */
+    border-radius: 4px; /* 輸入框邊角圓滑 */
+    width: calc(100% - 90px); /* 輸入框寬度 */
+}
+
+/* 搜索按鈕 */
 .search-form button {
-    padding: 5px 15px;
-    cursor: pointer;
-    border: none;
-    border-radius: 4px;
-    background-color: #4CAF50;
-    color: white;
+    padding: 5px 15px; /* 按鈕內邊距 */
+    cursor: pointer; /* 滑鼠樣式 */
+    border: none; /* 移除邊框 */
+    border-radius: 4px; /* 按鈕邊角圓滑 */
+    background-color: #4CAF50; /* 按鈕背景色 */
+    color: white; /* 按鈕文字顏色 */
 }
 
 .article-info {
+    display: flex; /* 啟用 Flexbox */
+    justify-content: space-between; /* 兩端對齊 */
+    align-items: center; /* 垂直居中 */
+    margin-bottom: 10px; /* 添加一些底部間距 */
+}
+
+.article-info p, .article-info a {
+    margin: 0; /* 移除邊距 */
+    padding: 0; /* 移除內距 */
+}
+
+.pagination-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    font-size: 14px;
+    font-weight: medium;
+    color: #007bff; /* 藍色文字 */
+    background-color: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+.pagination-button:hover {
+    color: #0056b3; /* 深藍色文字，滑鼠懸停時 */
+    background-color: #e9ecef;
+    border-color: #dee2e6;
+}
+
+.pagination-button.disabled {
+    color: #6c757d; /* 灰色文字，禁用狀態 */
+    pointer-events: none; /* 禁止點擊 */
+    background-color: #fff;
+    border-color: #dee2e6;
+}
+
+/* 自定義按鈕樣式 */
+.custom-btn {
+    padding: 15px 22.5px; /* 增加內邊距來放大1.5倍 */
+    font-size: 18px; /* 增加字體大小以適應按鈕大小 */
+    /*line-height: 1.5; !* 調整行高以保持文本垂直居中 *!*/
+    transition: background-color 0.3s ease; /* 平滑背景色變化的過渡效果 */
+}
+
+/* 按鈕懸停效果 */
+.custom-btn:hover {
+    background-color: #2874a6; /* 鼠標懸停時改變背景色 */
+}
+
+/* 禁用狀態的按鈕樣式 */
+.custom-btn.disabled, .custom-btn:disabled {
+    background-color: #6c757d; /* 禁用狀態的背景色 */
+    cursor: not-allowed; /* 禁用狀態顯示不可點擊的標誌 */
+}
+
+/* 分頁按鈕間隔 */
+.custom-pagination-btn:not(:last-child) {
+    margin-right: 8px; /* 設定按鈕間隔 */
+}
+
+.pagination-btn:hover {
+    background-color: #0056b3;
+}
+
+.pagination-btn.disabled {
+    background-color: #6c757d;
+    pointer-events: none;
+}
+
+.pagination-container {
+    display: flex;
+    justify-content: center; /* 居中顯示分頁按鈕 */
+    align-items: center; /* 垂直居中 */
+    flex-wrap: wrap; /* 允許換行，以適應響應式布局 */
+}
+
+.pagination-btn {
+    display: inline-block;
+    padding: 8px 16px; /* 調整內邊距以增加按鈕大小，提高可讀性 */
+    margin: 0 4px; /* 增加按鈕間的間距 */
+    font-size: 16px; /* 增大字體大小 */
+    font-weight: bold; /* 字體加粗 */
+    color: #007bff; /* 按鈕文字顏色 */
+    background-color: #fff; /* 按鈕背景顏色 */
+    border: 1px solid #dee2e6; /* 按鈕邊框 */
+    border-radius: 5px; /* 邊框圓角 */
+    cursor: pointer; /* 鼠標懸停時的手形指標 */
+    text-decoration: none; /* 移除文字下劃線 */
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out; /* 平滑過渡效果 */
+}
+
+.pagination-btn:hover {
+    color: #0056b3; /* 滑鼠懸停時文字顏色變化 */
+    background-color: #e9ecef; /* 滑鼠懸停時背景顏色變化 */
+    border-color: #dee2e6; /* 滑鼠懸停時邊框顏色變化 */
+}
+
+.pagination-btn.disabled {
+    color: #6c757d; /* 禁用按鈕的文字顏色 */
+    pointer-events: none; /* 禁止點擊行為 */
+    background-color: #fff; /* 禁用按鈕的背景顏色 */
+    border-color: #dee2e6; /* 禁用按鈕的邊框顏色 */
+}
+
+
+.pagination-nav {
     display: flex;
     justify-content: space-between;
     align-items: center;
+}
+
+.pagination-prev, .pagination-next {
+    /* 確保這些元素靠左和靠右 */
+    flex: 0 0 auto;
+}
+
+.pagination-center {
+    /* 確保這個元素可以擴展以填滿可用空間 */
+    flex-grow: 1;
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.article-header {
+    display: flex;
+    align-items: center;
     margin-bottom: 10px;
 }
-.article-info p, .article-info a { margin: 0; padding: 0; }
 
-/* 分頁樣式（保留你原有設定） */
-.pagination-button {
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 6px 12px; font-size: 14px; font-weight: medium;
-    color: #007bff; background-color: #fff; border: 1px solid #dee2e6;
-    border-radius: 0.25rem; cursor: pointer;
-    transition: color .15s, background-color .15s, border-color .15s;
-}
-.pagination-button:hover { color: #0056b3; background-color: #e9ecef; border-color: #dee2e6; }
-.pagination-button.disabled { color: #6c757d; pointer-events: none; background-color: #fff; border-color: #dee2e6; }
 
-.custom-btn { padding: 15px 22.5px; font-size: 18px; transition: background-color .3s ease; }
-.custom-btn:hover { background-color: #2874a6; }
-.custom-btn.disabled, .custom-btn:disabled { background-color: #6c757d; cursor: not-allowed; }
-
-.pagination-container { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; }
-.pagination-btn {
-    display:inline-block; padding:8px 16px; margin:0 4px; font-size:16px; font-weight:bold;
-    color:#007bff; background:#fff; border:1px solid #dee2e6; border-radius:5px; cursor:pointer;
-    text-decoration:none; transition: color .15s, background-color .15s, border-color .15s;
-}
-.pagination-btn:hover { color:#0056b3; background:#e9ecef; border-color:#dee2e6; }
-.pagination-btn.disabled { color:#6c757d; pointer-events:none; background:#fff; border-color:#dee2e6; }
-.pagination-btn.active { color:#fff; background:#007bff; border-color:#007bff; cursor:default; }
-.pagination-btn:hover, .pagination-btn.active:hover { background:#0056b3; border-color:#0056b3; }
-
-.pagination-nav { display:flex; justify-content:space-between; align-items:center; }
-.pagination-prev, .pagination-next { flex:0 0 auto; }
-.pagination-center { flex-grow:1; display:flex; justify-content:center; flex-wrap:wrap; }
-
-.article-header { display:flex; align-items:center; margin-bottom:10px; }
 .article-checkbox {
-    margin-right:10px; width:30px; height:30px; cursor:pointer;
+    margin-right: 10px;
+    width: 30px; /* 增大複選框的寬度 */
+    height: 30px; /* 增大複選框的高度 */
+    cursor: pointer;
 }
-.article-checkbox + label { cursor:pointer; }
 
-/* 批次刪除等按鈕（保留） */
-.batch-delete-btn { background-color:#e74c3c; }
-#batch-delete-btn:hover { background-color:#2874a6; }
+.article-checkbox + label {
+    cursor: pointer;
+}
+
+.batch-delete-btn {
+    background-color: #e74c3c; /* 紅色背景 */
+}
+
+#batch-delete-btn:hover {
+    background-color: #2874a6;
+}
+
+/* 調整文章容器樣式 */
+.article {
+    border: 1px solid #e0e0e0;
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
 
 /* 標題樣式調整，確保與複選框對齊 */
-.article h2 { margin:0; font-size:24px; line-height:28px; flex-grow:1; }
+.article h2 {
+    margin: 0;
+    font-size: 24px;
+    line-height: 28px;
+    flex-grow: 1;
+}
 
-/* 種子/下載按鈕 */
+.seed-link-btn {
+    background-color: #4CAF50; /* 綠色背景 */
+    color: white; /* 白色文字 */
+    padding: 10px 24px; /* 內邊距 */
+    border: none; /* 無邊框 */
+    border-radius: 5px; /* 圓角邊框 */
+    cursor: pointer; /* 手形游標 */
+    text-decoration: none; /* 移除文字裝飾 */
+    font-size: 16px; /* 文字大小 */
+    transition: background 0.3s ease-in-out; /* 過渡效果 */
+}
+
+.seed-link-btn:hover {
+    background-color: #45a049; /* 深綠色背景 */
+}
+
+
 .seed-link-btn, .download-btn {
-    padding: 10px 24px; border:none; border-radius:5px; cursor:pointer;
-    text-decoration:none; font-size:16px; transition: background .3s ease-in-out; margin-right:10px;
+    padding: 10px 24px; /* 內邊距 */
+    border: none; /* 無邊框 */
+    border-radius: 5px; /* 圓角邊框 */
+    cursor: pointer; /* 手形游標 */
+    text-decoration: none; /* 移除文字裝飾 */
+    font-size: 16px; /* 文字大小 */
+    transition: background 0.3s ease-in-out; /* 背景色過渡效果 */
+    margin-right: 10px; /* 右邊距 */
 }
-.seed-link-btn { background:#4CAF50; color:#fff; }
-.seed-link-btn:hover { background:#45a049; }
-.download-btn { background:#007bff; color:#fff; }
-.download-btn:hover { background:#0056b3; }
 
-/* 其餘按鈕色系（保留） */
-.password-btn { background:#f44336; color:#fff; border:none; padding:5px 10px; margin-left:10px; border-radius:4px; cursor:pointer; font-size:.9rem; }
-.link-btn { background:#4CAF50; color:#fff; padding:5px 10px; margin-left:10px; border-radius:4px; text-decoration:none; display:inline-block; cursor:pointer; font-size:.9rem; }
-.password-btn:hover, .link-btn:hover { opacity:.8; }
-
-.button-group { display:flex; align-items:center; gap:10px; margin-bottom:15px; }
-.button-group button, .button-group .link-btn {
-    width:100px; line-height:40px; text-align:center; border:none; border-radius:5px; color:#fff; font-size:14px; cursor:pointer;
-    margin:0 5px; padding:0; display:inline-block;
+.seed-link-btn {
+    background-color: #4CAF50; /* 綠色背景 */
+    color: white; /* 白色文字 */
 }
-.toggle-images { background:#4CAF50; }
-.password-btn { background:#f44336; }
-.link-btn { background:#008CBA; }
-.button-group button:hover, .button-group .link-btn:hover { opacity:.8; }
 
-/* 全寬圖片 class（保留） */
+.seed-link-btn:hover {
+    background-color: #45a049; /* 深綠色背景 */
+}
+
+.download-btn {
+    background-color: #007bff; /* 藍色背景 */
+    color: white; /* 白色文字 */
+}
+
+.download-btn:hover {
+    background-color: #0056b3; /* 深藍色背景 */
+}
+
 .full-width-image {
-    width: 50%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin-bottom: 200px;
-    max-width: 50%;
-    height: auto;
+    width: 50%; /* 確保父容器占滿整行 */
+    display: flex; /* 使用 Flex 佈局 */
+    flex-direction: column; /* 子元素（圖片）縱向排列 */
+    align-items: center; /* 子元素（圖片）居中對齊 */
+    margin-bottom: 200px; /* 與下一個元素的間距 */
+    max-width: 50%; /* 确保图片宽度不超过容器宽度 */
+    height: auto; /* 保持图片原始比例 */
 }
 
-/* Toast（保留） */
+
+.pagination-btn.active {
+    color: #fff; /* 設定文字顏色為白色 */
+    background-color: #007bff; /* 設定背景顏色為深藍色 */
+    border-color: #007bff; /* 設定邊框顏色與背景色一致 */
+    cursor: default; /* 更改鼠標樣式，表示該按鈕是不可點擊的 */
+}
+
+.pagination-btn:hover,
+.pagination-btn.active:hover {
+    background-color: #0056b3; /* 深藍色，滑鼠懸停時 */
+    border-color: #0056b3;
+}
+
+/* 密碼按鈕樣式 */
+.password-btn {
+    background-color: #f44336; /* 紅色背景 */
+    color: white; /* 白色文字 */
+    border: none; /* 無邊框 */
+    padding: 5px 10px; /* 內邊距 */
+    margin-left: 10px; /* 與其他元素的間距 */
+    border-radius: 4px; /* 圓角邊框 */
+    cursor: pointer; /* 手形游標 */
+    font-size: 0.9rem; /* 文字大小 */
+}
+
+/* 連結按鈕樣式 */
+.link-btn {
+    background-color: #4CAF50; /* 綠色背景 */
+    color: white; /* 白色文字 */
+    padding: 5px 10px; /* 內邊距 */
+    margin-left: 10px; /* 與其他元素的間距 */
+    border-radius: 4px; /* 圓角邊框 */
+    text-decoration: none; /* 移除下劃線 */
+    display: inline-block; /* 確保適當顯示 */
+    cursor: pointer; /* 手形游標 */
+    font-size: 0.9rem; /* 文字大小 */
+}
+
+.password-btn:hover, .link-btn:hover {
+    opacity: 0.8; /* 滑鼠懸停時的透明度變化 */
+}
+
+
+.button-group {
+    display: flex; /* 使用 Flexbox 布局 */
+    align-items: center; /* 垂直居中對齊按鈕 */
+    gap: 10px; /* 設定按鈕之間的間隙 */
+    margin-bottom: 15px; /* 與文章內容的間隔 */
+}
+
+/* 按鈕和連結按鈕的共用樣式 */
+.button-group button, .button-group .link-btn {
+    padding: 5px 10px; /* 內邊距 */
+    border: none; /* 無邊框 */
+    border-radius: 4px; /* 圓角邊框 */
+    cursor: pointer; /* 手形游標 */
+    font-size: 0.9rem; /* 文字大小 */
+    text-decoration: none; /* 移除下劃線 */
+    color: white; /* 白色文字 */
+}
+
+/* 按鈕共用樣式 */
+.button-group button, .button-group .link-btn {
+    width: 100px; /* 統一寬度 */
+    /*height: 40px; !* 統一高度 *!*/
+    line-height: 40px; /* 文字垂直居中 */
+    text-align: center; /* 文字水平居中 */
+    border: none; /* 移除邊框 */
+    border-radius: 5px; /* 圓角邊框 */
+    color: white; /* 文字顏色 */
+    font-size: 14px; /* 文字大小 */
+    cursor: pointer; /* 鼠標指標 */
+    margin: 0 5px; /* 保持按鈕間距 */
+    padding: 0; /* 移除內邊距，以防止影響大小 */
+    display: inline-block; /* 確保正確顯示 */
+}
+
+/* 隱藏圖片按鈕樣式 */
+.toggle-images {
+    background-color: #4CAF50; /* 綠色背景 */
+}
+
+/* 密碼按鈕樣式 */
+.password-btn {
+    background-color: #f44336; /* 紅色背景 */
+}
+
+/* 連結按鈕樣式 */
+.link-btn {
+    background-color: #008CBA; /* 藍色背景 */
+}
+
+/* 按鈕懸浮效果 */
+.button-group button:hover, .button-group .link-btn:hover {
+    opacity: 0.8; /* 添加淡化效果 */
+}
+
 .toast {
-    visibility: hidden;
-    position: fixed;
-    top: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: auto;
-    background-color: #2ecc71;
-    color: white;
-    text-align: center;
-    padding: 10px;
-    border-radius: 5px;
-    z-index: 1000;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    font-size: 16px;
+    visibility: hidden; /* 預設為隱藏 */
+    width: 100%; /* 讓提示訊息寬度滿版 */
+    background-color: #2ecc71; /* 薄荷綠背景顏色 */
+    color: #ffffff; /* 文字顏色為白色 */
+    text-align: center; /* 文字置中 */
+    border-radius: 0; /* 移除邊角的圓弧 */
+    padding: 20px 0; /* 上下有 20px 的內距，左右無內距 */
+    position: fixed; /* 固定定位 */
+    top: 0; /* 定位到頁面頂部 */
+    left: 0; /* 與左邊界對齊 */
+    z-index: 9999; /* 確保提示訊息會顯示在頁面上的其他元素之上 */
+    font-size: 17px; /* 文字大小 */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2); /* 添加一些陰影以增加深度感 */
 }
-.toast.show { visibility: visible; animation: slideDown .5s, fadeOut .5s 2.5s; }
-@keyframes slideDown { from { top: -50px; } to { top: 0; } }
-@keyframes fadeOut { from { opacity:1; } to { opacity:0; visibility:hidden; } }
 
-/* 共用按鈕（保留你統一規格） */
+/* 顯示和隱藏的動畫效果 */
+.toast.show {
+    visibility: visible; /* 使提示訊息可見 */
+    -webkit-animation: slideDown 0.5s, fadeout 0.5s 2.5s;
+    animation: slideDown 0.5s, fadeout 0.5s 2.5s;
+}
+
+@keyframes slideDown {
+    from {top: -50px;}
+    to {top: 0;}
+}
+
+@-webkit-keyframes fadeout {
+    from {opacity: 1;}
+    to {opacity: 0;}
+}
+
+@keyframes fadeout {
+    from {opacity: 1;}
+    to {opacity: 0;}
+}
+
+.preserve-btn {
+    background-color: #f0ad4e; /* 橙色背景 */
+    border-color: #eea236; /* 橙色邊框 */
+}
+
+.preserve-btn:hover {
+    background-color: #ec971f; /* 深橙色背景 */
+    border-color: #d58512; /* 深橙色邊框 */
+}
+
+.show-preserved-btn {
+    background-color: #5cb85c; /* 綠色背景 */
+    border-color: #4cae4c; /* 綠色邊框 */
+}
+
+.show-preserved-btn:hover {
+    background-color: #4cae4c; /* 深綠色背景 */
+    border-color: #398439; /* 深綠色邊框 */
+}
+.toast {
+    visibility: hidden; /* 初始狀態設為隱藏 */
+    position: fixed; /* 固定位置，不隨頁面滾動 */
+    top: 0; /* 頂部對齊 */
+    left: 50%; /* 水平中心對齊 */
+    transform: translateX(-50%); /* 校正位置以確保準確中心對齊 */
+    width: auto; /* 自動寬度 */
+    background-color: #2ecc71; /* 背景色 */
+    color: white; /* 文字顏色 */
+    text-align: center; /* 文字置中 */
+    padding: 10px; /* 內邊距 */
+    border-radius: 5px; /* 圓角 */
+    z-index: 1000; /* 確保在大多數元素之上 */
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2); /* 輕微陰影效果 */
+    font-size: 16px; /* 字體大小 */
+}
+
+.toast.show {
+    visibility: visible; /* 顯示 Toast */
+    animation: slideDown 0.5s, fadeOut 0.5s 2.5s; /* 滑入和淡出效果 */
+}
+
+@keyframes slideDown {
+    from {
+        top: -50px; /* 從上方進入 */
+    }
+    to {
+        top: 0; /* 定位到頂部 */
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1; /* 完全可見 */
+    }
+    to {
+        opacity: 0; /* 完全透明 */
+        visibility: hidden; /* 完全隱藏 */
+    }
+}
+
+
 .custom-btn, .preserve-btn, .show-preserved-btn, .toggle-images {
     cursor: pointer;
-    background-color: #4CAF50;
+    background-color: #4CAF50; /* 統一按鈕背景色為綠色 */
     color: white;
-    padding: 12px 24px;
+    padding: 12px 24px; /* 調整內邊距 */
     border: none;
     border-radius: 5px;
     font-size: 25px;
-    transition: background-color 0.3s;
+    transition: background-color 0.3s; /* 點擊時的背景顏色變化動畫 */
 }
-.custom-btn:hover, .preserve-btn:hover, .show-preserved-btn:hover, .toggle-images:hover { background-color:#45a049; }
 
+.custom-btn:hover, .preserve-btn:hover, .show-preserved-btn:hover, .toggle-images:hover {
+    background-color: #45a049; /* 滑鼠懸停時按鈕的背景顏色 */
+}
+
+/* 按鈕基本樣式 */
+.custom-btn {
+    cursor: pointer;
+    color: white;
+    padding: 8px 16px; /* 調整內邊距 */
+    border: none;
+    border-radius: 5px;
+    transition: background-color 0.3s; /* 點擊時的背景顏色變化動畫 */
+}
+
+/* 批次刪除按鈕樣式 */
+.batch-delete-btn {
+    background-color: #ccd318;
+}
+
+.batch-delete-btn:hover {
+    background-color: #e1ca35;
+}
+
+/* 保留按鈕樣式 */
+.preserve-btn {
+    background-color: #b213de; /* 橙色背景 */
+}
+
+.preserve-btn:hover {
+    background-color: #7d30b0; /* 深橙色背景 */
+}
+
+/* 顯示保留按鈕樣式 */
+.show-preserved-btn {
+    background-color: #2fcc9c; /* 綠色背景 */
+}
+
+.show-preserved-btn:hover {
+    background-color: #40b978; /* 深綠色背景 */
+}
+
+.actions {
+    display: flex;
+    justify-content: center; /* 居中對齊 */
+    gap: 20px; /* 按鈕間隔 */
+    margin-bottom: 20px; /* 與下方內容的間距 */
+}
+
+.action-form {
+    display: flex; /* 使用flex布局以更好地控制元素 */
+    flex-wrap: wrap; /* 允許按鈕換行 */
+    align-items: center; /* 垂直居中對齊按鈕 */
+    justify-content: center; /* 水平居中 */
+    gap: 20px; /* 設定按鈕之間的間隙為20px */
+}
+
+/* 共用按鈕樣式 */
+/* 共用按鈕基本樣式 */
 .custom-btn, .batch-delete-btn, .preserve-btn, .show-preserved-btn {
     cursor: pointer !important;
     color: white !important;
-    background-color: #4CAF50 !important;
-    padding: 10px 20px !important;
-    font-size: 16px !important;
+    background-color: #4CAF50 !important;  /* 統一初始背景色 */
+    padding: 10px 20px !important;  /* 統一內邊距 */
+    font-size: 16px !important;  /* 統一字體大小 */
     border: none !important;
     border-radius: 5px !important;
-    height: 50px !important;
-    width: 150px !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    transition: background-color 0.3s !important;
-    text-align: center !important;
-    line-height: 30px !important;
+    height: 50px !important;  /* 統一高度 */
+    width: 150px !important;  /* 統一寬度 */
+    display: flex !important;  /* 使用flex布局 */
+    align-items: center !important;  /* 垂直居中 */
+    justify-content: center !important;  /* 水平居中 */
+    transition: background-color 0.3s !important;  /* 背景色變化動畫 */
+    text-align: center !important;  /* 文字居中 */
+    line-height: 30px !important;  /* 統一行高 */
 }
-.batch-delete-btn { background-color: #e74c3c !important; }
-.preserve-btn { background-color: #f39c12 !important; }
-.show-preserved-btn { background-color: #16a085 !important; }
+
+/* 指定背景顏色變化 */
+.batch-delete-btn {
+    background-color: #e74c3c !important; /* 批次刪除紅色背景 */
+}
+
+.preserve-btn {
+    background-color: #f39c12 !important; /* 保留橙色背景 */
+}
+
+.show-preserved-btn {
+    background-color: #16a085 !important; /* 顯示保留蒂爾藍背景 */
+}
+
+/* 按鈕懸浮效果 */
 .custom-btn:hover, .batch-delete-btn:hover, .preserve-btn:hover, .show-preserved-btn:hover {
-    background-color: #45a049 !important;
-    opacity: 0.8 !important;
+    background-color: #45a049 !important; /* 深綠色背景，滑鼠懸停時 */
+    opacity: 0.8 !important; /* 滑鼠懸停時的透明度變化 */
 }

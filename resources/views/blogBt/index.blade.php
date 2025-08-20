@@ -25,17 +25,16 @@
                 <div id="article-{{ $article->article_id }}" class="article">
                     <!-- Article Header -->
                     <div class="article-header">
-                        <input type="checkbox" name="selected_articles[]" value="{{ $article->article_id }}"
-                               class="article-checkbox">
+                        <input type="checkbox" name="selected_articles[]" value="{{ $article->article_id }}" class="article-checkbox">
                         <h2>{{ $article->title }}</h2>
                     </div>
 
                     <!-- Article Info Buttons -->
                     <div class="article-info">
-                        <button class="seed-link-btn" data-seed-link="{{ $article->password }}">
+                        <button type="button" class="seed-link-btn" data-seed-link="{{ $article->password }}">
                             種子鏈結
                         </button>
-                        <button class="download-btn" onclick="window.open('{{ $article->https_link }}', '_blank')">
+                        <button type="button" class="download-btn" onclick="window.open('{{ $article->https_link }}', '_blank')">
                             下載
                         </button>
                     </div>
@@ -95,17 +94,17 @@
             });
         });
 
-        /**
-         * Initializes event listeners for the page.
-         */
         function initializePage() {
-            // Initialize Toggle Images Buttons
+            // Toggle Images Buttons
             document.querySelectorAll('.toggle-images').forEach(button => {
                 button.addEventListener('click', function () {
                     const targetSelector = this.getAttribute('data-target');
                     const target = document.querySelector(targetSelector);
+                    if (!target) return;
+
                     if (target.style.display === 'none' || target.style.display === '') {
-                        target.style.display = 'flex';
+                        // 顯示時使用 grid，對齊左右各一張
+                        target.style.display = 'grid';
                         this.textContent = '隱藏圖片';
                     } else {
                         target.style.display = 'none';
@@ -114,23 +113,18 @@
                 });
             });
 
-            // Ensure all images are visible by default
+            // 預設全部顯示（grid）
             document.querySelectorAll('.article-images').forEach(imagesDiv => {
-                imagesDiv.style.display = 'flex';
+                imagesDiv.style.display = 'grid';
             });
 
-            // Initialize Image Click Events
             initializeImageClicks();
         }
 
-        /**
-         * Sets up event listeners for image interactions.
-         */
         function initializeImageClicks() {
             document.querySelectorAll('.article-image').forEach(image => {
-                // Left-Click Event
+                // 左鍵：勾選該文章並切換顯示/隱藏
                 image.addEventListener('click', function (e) {
-                    // Only handle left-clicks
                     if (e.button !== 0) return;
 
                     const articleDiv = this.closest('.article');
@@ -140,13 +134,10 @@
                     const toggleButton = articleDiv.querySelector('.toggle-images');
                     const imagesDiv = articleDiv.querySelector('.article-images');
 
-                    if (checkbox) {
-                        checkbox.checked = true;
-                    }
+                    if (checkbox) checkbox.checked = true;
 
-                    // Toggle Images
                     if (imagesDiv.style.display === 'none' || imagesDiv.style.display === '') {
-                        imagesDiv.style.display = 'flex';
+                        imagesDiv.style.display = 'grid';
                         toggleButton.textContent = '隱藏圖片';
                     } else {
                         imagesDiv.style.display = 'none';
@@ -154,7 +145,7 @@
                     }
                 });
 
-                // Right-Click Event
+                // 右鍵：勾選該文章 → 開種子鏈結 → 送出批次刪除
                 image.addEventListener('contextmenu', function (e) {
                     e.preventDefault();
 
@@ -164,36 +155,25 @@
                     const checkbox = articleDiv.querySelector('.article-checkbox');
                     const seedButton = articleDiv.querySelector('.seed-link-btn');
 
-                    if (checkbox) {
-                        checkbox.checked = true;
-                    }
-
-                    let seedLink = '';
+                    if (checkbox) checkbox.checked = true;
 
                     if (seedButton) {
-                        // Retrieve the seed link from the data attribute
-                        seedLink = seedButton.getAttribute('data-seed-link');
+                        const seedLink = seedButton.getAttribute('data-seed-link');
                         if (seedLink) {
                             window.open(seedLink, '_blank');
                         }
                     }
 
-                    // Submit the Batch Delete Form
                     const batchDeleteForm = document.getElementById('batch-delete-form');
                     if (batchDeleteForm) {
                         batchDeleteForm.submit();
                     }
 
-                    // Optionally, show a toast message
                     showToast('批次刪除已觸發');
                 });
             });
         }
 
-        /**
-         * Displays a toast notification with the given message.
-         * @param {string} message - The message to display.
-         */
         function showToast(message) {
             const toast = document.getElementById('toast');
             toast.textContent = message;

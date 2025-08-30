@@ -6,7 +6,8 @@ use App\Http\Controllers\BlogController;
 use App\Http\Controllers\ExtractController;
 use App\Http\Controllers\FetchController;
 use App\Http\Controllers\GalleryController;
-use App\Http\Controllers\ImageController;
+    use App\Http\Controllers\IgGrabController;
+    use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
 use App\Http\Controllers\LibraryController;
     use App\Http\Controllers\MemberController;
@@ -142,3 +143,7 @@ Route::get('/url-viewer', [UrlViewerController::class, 'index']);
 Route::post('/fetch-url', [UrlViewerController::class, 'fetch']);
 Route::get('/download', [UrlViewerController::class, 'download']);
 Route::post('/save-session', [UrlViewerController::class, 'saveSession']);
+
+Route::get('/ig-grabber', [IgGrabController::class, 'index'])->name('ig.index');
+Route::post('/ig-grabber/fetch', [IgGrabController::class, 'fetch'])->name('ig.fetch');
+Route::get('/ig-grabber/download', [IgGrabController::class, 'download'])->name('ig.download');

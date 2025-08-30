@@ -4,7 +4,7 @@
 @section('content')
     <div class="container">
         <!-- Search Form -->
-        <form action="{{ url('blog-bt') }}" method="GET" class="search-form">
+        <form action="{{ route('blogBt.index') }}" method="GET" class="search-form">
             <input type="text" name="search" placeholder="搜尋文章..." value="{{ request()->search }}">
             <button type="submit">搜尋</button>
         </form>
@@ -32,10 +32,17 @@
 
                     <!-- Article Info Buttons -->
                     <div class="article-info">
-                        <button class="seed-link-btn" data-seed-link="{{ $article->password }}">
+                        <!-- 重要：加上 type="button"，避免提交表單 -->
+                        <button type="button"
+                                class="seed-link-btn"
+                                data-seed-link="{{ e($article->password) }}">
                             種子鏈結
                         </button>
-                        <button class="download-btn" onclick="window.open('{{ $article->https_link }}', '_blank')">
+
+                        <!-- 重要：加上 type="button"，避免提交表單 -->
+                        <button type="button"
+                                class="download-btn"
+                                onclick="window.open('{{ $article->https_link }}', '_blank', 'noopener')">
                             下載
                         </button>
                     </div>
@@ -69,7 +76,7 @@
         document.addEventListener('DOMContentLoaded', function () {
             initializePage();
 
-            // Handle Pagination Clicks
+            // Handle Pagination Clicks (AJAX 置換)
             document.addEventListener('click', function (e) {
                 if (e.target.matches('.pagination a') || e.target.closest('.pagination a')) {
                     e.preventDefault();
@@ -119,6 +126,16 @@
                 imagesDiv.style.display = 'flex';
             });
 
+            // Initialize Seed Link Button Clicks
+            document.querySelectorAll('.seed-link-btn').forEach(btn => {
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const raw = this.getAttribute('data-seed-link') || '';
+                    openSeedOrUrl(raw);
+                });
+            });
+
             // Initialize Image Click Events
             initializeImageClicks();
         }
@@ -128,10 +145,9 @@
          */
         function initializeImageClicks() {
             document.querySelectorAll('.article-image').forEach(image => {
-                // Left-Click Event
+                // Left-Click Event: 勾選 + 展/收圖
                 image.addEventListener('click', function (e) {
-                    // Only handle left-clicks
-                    if (e.button !== 0) return;
+                    if (e.button !== 0) return; // 只處理左鍵
 
                     const articleDiv = this.closest('.article');
                     if (!articleDiv) return;
@@ -144,7 +160,6 @@
                         checkbox.checked = true;
                     }
 
-                    // Toggle Images
                     if (imagesDiv.style.display === 'none' || imagesDiv.style.display === '') {
                         imagesDiv.style.display = 'flex';
                         toggleButton.textContent = '隱藏圖片';
@@ -154,7 +169,7 @@
                     }
                 });
 
-                // Right-Click Event
+                // Right-Click Event: 開種子 + 觸發批次刪除
                 image.addEventListener('contextmenu', function (e) {
                     e.preventDefault();
 
@@ -169,30 +184,68 @@
                     }
 
                     let seedLink = '';
-
                     if (seedButton) {
-                        // Retrieve the seed link from the data attribute
-                        seedLink = seedButton.getAttribute('data-seed-link');
-                        if (seedLink) {
-                            window.open(seedLink, '_blank');
-                        }
+                        seedLink = seedButton.getAttribute('data-seed-link') || '';
                     }
 
-                    // Submit the Batch Delete Form
+                    // 先開連結（使用使用者互動手勢，較不會被攔）
+                    if (seedLink) {
+                        openSeedOrUrl(seedLink);
+                    } else {
+                        showToast('未找到此文章的種子鏈結');
+                    }
+
+                    // 再延後觸發批次刪除，避免阻擋彈窗
                     const batchDeleteForm = document.getElementById('batch-delete-form');
                     if (batchDeleteForm) {
-                        batchDeleteForm.submit();
+                        setTimeout(() => batchDeleteForm.submit(), 0);
                     }
 
-                    // Optionally, show a toast message
                     showToast('批次刪除已觸發');
                 });
             });
         }
 
         /**
+         * 開啟種子或 URL，並做基本規整以避免「無協定」的情況。
+         */
+        function openSeedOrUrl(raw) {
+            const link = normalizeLink(raw);
+            if (!link) {
+                showToast('沒有可開啟的鏈結');
+                return;
+            }
+            try {
+                const w = window.open(link, '_blank', 'noopener');
+                // 若被瀏覽器阻擋，改用動態 <a> 觸發
+                if (!w) {
+                    const a = document.createElement('a');
+                    a.href = link;
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                }
+            } catch (err) {
+                console.error('Open link error:', err);
+                showToast('開啟連結失敗');
+            }
+        }
+
+        /**
+         * 將可能缺少協定的字串轉為瀏覽器可開啟的形式。
+         */
+        function normalizeLink(raw) {
+            if (!raw) return '';
+            const s = raw.trim();
+            if (/^(magnet:|https?:\/\/)/i.test(s)) return s;
+            if (/^www\./i.test(s)) return 'https://' + s;
+            return s;
+        }
+
+        /**
          * Displays a toast notification with the given message.
-         * @param {string} message - The message to display.
          */
         function showToast(message) {
             const toast = document.getElementById('toast');

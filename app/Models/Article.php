@@ -13,6 +13,7 @@ class Article extends Model
         'title',
         'password',
         'https_link',
+        'detail_url',
         'source_type',
         'article_time',
     ];

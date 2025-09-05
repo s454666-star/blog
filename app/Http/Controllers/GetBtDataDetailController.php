@@ -107,6 +107,7 @@
                     'title'        => $title,
                     'password'     => $magnetLink,
                     'https_link'   => $downloadLink,
+                    'detail_url'   => $detailPageUrl,
                     'article_time' => $articleTimeWithSeconds,
                     'source_type'  => 2,
                     'is_disabled'  => 0,
@@ -120,7 +121,7 @@
                             $realUrl = $this->getRealImageController->processImage($imageUrl);
 
                             $existingImage = $article->images()->where('image_path', $realUrl)->first();
-                            if (!$existingImage) {
+                            if (!$existingImage && $realUrl) {
                                 $article->images()->create([
                                     'image_name' => basename($realUrl),
                                     'image_path' => $realUrl,

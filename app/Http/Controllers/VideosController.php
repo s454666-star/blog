@@ -21,7 +21,7 @@ class VideosController extends Controller
         $sortBy       = in_array($request->input('sort_by'), ['id','duration'])
             ? $request->input('sort_by') : 'duration';
         $sortDir      = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
-        $perPage      = 10;
+        $perPage      = 50;
         $focusId     = $request->input('focus_id');
         /* ---------- 建立基礎查詢 ---------- */
         $baseQuery = VideoMaster::where('video_type', $videoType);
@@ -505,15 +505,21 @@ class VideosController extends Controller
     {
         $videoType = $request->input('video_type', '1');
 
+        // 讓左欄排序與右欄一致
+        $sortBy  = in_array($request->input('sort_by'), ['id', 'duration']) ? $request->input('sort_by') : 'duration';
+        $sortDir = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
+
         $masterFaces = VideoFaceScreenshot::where('is_master', 1)
             ->whereHas('videoScreenshot.videoMaster', function($query) use ($videoType) {
                 $query->where('video_type', $videoType);
             })
             ->with('videoScreenshot.videoMaster')
             ->get()
-            ->sortBy(function($face) {
-                return $face->videoScreenshot->videoMaster->duration;
-            });
+            ->sortBy(function($face) use ($sortBy) {
+                return $sortBy === 'duration'
+                    ? (float) ($face->videoScreenshot->videoMaster->duration ?? 0)
+                    : (int)   ($face->videoScreenshot->videoMaster->id ?? 0);
+            }, SORT_NUMERIC, $sortDir === 'desc');
 
         foreach ($masterFaces as $face) {
             $imagePath = public_path($face->face_image_path);
@@ -529,7 +535,7 @@ class VideosController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $masterFaces->toArray()
+            'data'    => $masterFaces->toArray()
         ]);
     }
 

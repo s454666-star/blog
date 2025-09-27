@@ -600,17 +600,19 @@
 
     function rebuildAndSort(){
         const currentId = $('.video-row.focused').data('id') || null;
+
         const rows = $('.video-row').get().sort((a, b) => {
-            const valA = sortBy === 'duration' ? +$(a).data('duration') : +$(a).data('id');
-            const valB = sortBy === 'duration' ? +$(b).data('duration') : +$(b).data('id');
-            return sortDir === 'asc' ? (valA - valB) : (valB - valA);
+            const valA = (sortBy === 'duration') ? +$(a).data('duration') : +$(a).data('id');
+            const valB = (sortBy === 'duration') ? +$(b).data('duration') : +$(b).data('id');
+            return (sortDir === 'asc') ? (valA - valB) : (valB - valA);
         });
+
         $('#videos-list').empty().append(rows);
         buildVideoList();
         applySizes();
         recalcPages();
 
-        if (currentId){                                                // ★ 回復焦點
+        if (currentId){
             const $t = $('.video-row[data-id="'+currentId+'"]');
             if ($t.length){
                 $('.video-row').removeClass('focused');
@@ -620,6 +622,9 @@
             $('#focus-id').val(currentId);
         }
         watchFocusedRow();
+
+        // ★★★ 這一行是關鍵：右側重排後，左側也依同樣的 sortBy/sortDir 重新排
+        resortMasterFacesByCurrentSort();
     }
 
     /* --------------------------------------------------
@@ -1034,23 +1039,80 @@
     }
 
     function updateMasterFace(face){
-        const ori=(face.width&&face.height&&parseInt(face.width)>=parseInt(face.height))?'landscape':'';
-        const vid=face.video_screenshot.video_master.id;
-        const $img=$('.master-face-img[data-video-id="'+vid+'"]');
-        if($img.length){
-            $img.attr('src','{{ config("app.video_base_url") }}/'+face.face_image_path)
-                .toggleClass('landscape',!!ori);
-        }else{
-            const html=`<img src="{{ config("app.video_base_url") }}/${face.face_image_path}" class="master-face-img ${ori}" data-video-id="${vid}" data-duration="${face.video_screenshot.video_master.duration}">`;
-            let inserted=false;
-            $('.master-face-images img').each(function(){
-                if(face.video_screenshot.video_master.duration < +$(this).data('duration')){
-                    $(this).before(html);inserted=true;return false;
-                }
-            });
-            if(!inserted) $('.master-face-images').append(html);
+        const vid = face.video_screenshot.video_master.id;
+        const durationVal = parseFloat(face.video_screenshot.video_master.duration) || 0;
+
+        const isLandscape = (face.width && face.height && parseInt(face.width) >= parseInt(face.height));
+        const oriClass = isLandscape ? 'landscape' : '';
+        const src = '{{ config("app.video_base_url") }}/' + face.face_image_path;
+
+        // 已經有這部影片的主面 → 更新後重新定位
+        let $img = $('.master-face-img[data-video-id="' + vid + '"]');
+        if ($img.length) {
+            $img.attr('src', src)
+                .toggleClass('landscape', !!oriClass)
+                .attr('data-duration', durationVal)
+                .attr('data-video-id', vid);
+
+            repositionMasterFace($img[0]);
+        } else {
+            // 沒有就新增一張並按當前排序插入
+            const html =
+                '<img src="' + src + '" ' +
+                'class="master-face-img ' + oriClass + '" ' +
+                'data-video-id="' + vid + '" ' +
+                'data-duration="' + durationVal + '">';
+
+            const $node = $(html);
+            insertMasterFaceInOrder($node[0]);
         }
+
         applySizes();
+    }
+
+    function getFaceSortKey(el){
+        const $el = $(el);
+        if (sortBy === 'duration') {
+            return parseFloat($el.data('duration')) || 0;
+        } else {
+            return parseInt($el.data('video-id')) || 0; // 以影片 id 當排序鍵
+        }
+    }
+
+    function compareFaces(a, b){
+        const ka = getFaceSortKey(a);
+        const kb = getFaceSortKey(b);
+        return (sortDir === 'asc') ? (ka - kb) : (kb - ka);
+    }
+
+    function insertMasterFaceInOrder(el){
+        const $c = $('.master-face-images');
+        const items = $c.children('img.master-face-img').get();
+        let inserted = false;
+
+        for (let i = 0; i < items.length; i++) {
+            if (compareFaces(el, items[i]) < 0) {
+                $(items[i]).before(el);
+                inserted = true;
+                break;
+            }
+        }
+        if (!inserted) {
+            $c.append(el);
+        }
+    }
+
+    function repositionMasterFace(el){
+        const $el = $(el);
+        $el.detach();
+        insertMasterFaceInOrder(el);
+    }
+
+    function resortMasterFacesByCurrentSort(){
+        const $c = $('.master-face-images');
+        const arr = $c.children('img.master-face-img').get();
+        arr.sort(compareFaces);
+        $c.empty().append(arr);
     }
 
 

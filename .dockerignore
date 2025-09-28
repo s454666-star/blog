@@ -1,0 +1,63 @@
+# Git / OS junk
+.git
+.gitignore
+.DS_Store
+Thumbs.db
+npm-debug.log
+yarn-error.log
+
+# 後端與快取
+vendor
+node_modules
+storage/logs
+storage/framework/cache
+storage/framework/sessions
+storage/framework/views
+
+# 私密設定
+.env
+
+# === 先排除整個 public，再逐一放行必要檔 ===
+public/**
+
+# 放行 Laravel 必要入口與常見設定/資源清單
+!public/index.php
+!public/.htaccess
+!public/robots.txt
+!public/favicon.ico
+!public/mix-manifest.json
+!public/build/           # Vite/Mix 輸出資料夾（如需）
+!public/assets/          # 若你用 assets 資料夾（如需）
+!public/dist/            # 若有 dist （如需）
+
+# 明確忽略會變動/大型檔（即使放行了資料夾，這些也要排除）
+public/**/*.log
+public/**/*.tmp
+public/**/*.temp
+public/**/*_wh*.jpg
+public/**/*_wh*.jpeg
+public/session.*.php
+public/*.php~            # 編輯器產生的暫存
+public/*.swp
+
+# 若你有上傳目錄（仍建議不要放進 image）
+public/uploads/**
+public/storage/**
+
+# 大型/靜態媒體（避免把整個媒體庫打包）
+public/**/*.jpg
+public/**/*.jpeg
+public/**/*.png
+public/**/*.gif
+public/**/*.webp
+public/**/*.svg
+public/**/*.ico
+public/**/*.mp4
+public/**/*.mov
+public/**/*.mkv
+public/**/*.webm
+public/**/*.avi
+public/**/*.pdf
+public/**/*.zip
+public/**/*.rar
+public/**/*.7z

@@ -35,6 +35,8 @@
     Route::get('/videos', 'App\Http\Controllers\MediaController@index');
     Route::get('/videos-random', 'App\Http\Controllers\VideosRandomController@index');
 
+    Route::get('/random-video', 'App\Http\Controllers\RandomVideoController@index');
+
 // 受保護的路由，需要通過認證
     Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('users', UserController::class);

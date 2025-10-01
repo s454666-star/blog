@@ -42,8 +42,10 @@
         }
 
         /**
-         * 產出一份 M3U8（UTF-8）播放清單，列出所有可播放的 m3u8（僅取 video_type=1 且 m3u8_path 有效者）。
-         * 每個項目用 #EXTINF 標題（影片名稱），URL 為推導後的絕對 m3u8 位置，可被播放器逐條播放。
+         * 產出 IPTV 友善的 M3U8（UTF-8），僅列 video_type=1 且 m3u8_path 有效者。
+         * - 使用 EXTINF:-1（未知/直播式），相容 IPTV 客戶端
+         * - 附加 tvg-id / tvg-name / group-title
+         * - URL 全部做百分比編碼（處理中文、空白）
          */
         public function playlist(Request $request): Response
         {
@@ -55,25 +57,26 @@
                 ->orderByDesc('id')
                 ->get();
 
-            if ($rows->isEmpty()) {
-                $content = "#EXTM3U\n";
-                return response($content, 200, [
-                    'Content-Type' => 'application/vnd.apple.mpegurl; charset=UTF-8',
-                    'Cache-Control' => 'no-store, no-cache, must-revalidate',
-                ]);
-            }
-
             $lines = [];
             $lines[] = "#EXTM3U";
 
             foreach ($rows as $row) {
                 $title = is_string($row->video_name) && $row->video_name !== '' ? $row->video_name : "Video {$row->id}";
-                $duration = $this->normalizeDurationForExtinf($row->duration);
-                $url = $this->buildAbsoluteUrlFromRequest($request, $row->m3u8_path);
+                $absUrl = $this->buildAbsoluteUrlFromRequest($request, $row->m3u8_path);
 
-                // #EXTINF:<秒數>,<顯示名稱>
-                $lines[] = "#EXTINF:{$duration},{$this->escapeExtinfTitle($title)}";
-                $lines[] = $url;
+                // 將 URL 的 path 每一段做百分比編碼，避免中文/空白造成 xTeVe / FFmpeg 解析失敗
+                $encodedUrl = $this->percentEncodeUrlPath($absUrl);
+
+                // 產出更符合 IPTV 的 EXTINF 行（含欄位）
+                $extinf = $this->buildIptvExtinfLine(
+                    tvgId: "vm{$row->id}",
+                    tvgName: $title,
+                    groupTitle: "MyStar",
+                    displayName: $title
+                );
+
+                $lines[] = $extinf;
+                $lines[] = $encodedUrl;
             }
 
             $content = implode("\n", $lines) . "\n";
@@ -85,8 +88,7 @@
         }
 
         /**
-         * 以當前請求推導正確的 Origin（scheme + host[:port]），
-         * 優先使用 X-Forwarded-* 與 Host，再回退到 Request 與 APP_URL。
+         * 以當前請求推導 Origin（scheme + host[:port]），優先 X-Forwarded-* 與 Host，再回退到 Request / APP_URL。
          */
         protected function buildAbsoluteUrlFromRequest(Request $request, ?string $relativePath): ?string
         {
@@ -102,7 +104,7 @@
             $origin = $this->resolveOrigin($request);
             $path = $this->normalizePathForWeb($relativePath);
 
-            // 視你的實際公開路徑調整這段前綴（你原本就是接在 /30T-A）
+            // 依你的實際公開根路徑調整本前綴；你目前是 /30T-A
             return $origin . '/30T-A' . $path;
         }
 
@@ -162,25 +164,67 @@
         }
 
         /**
-         * EXTINF 的秒數需為整數。若資料庫沒有秒數，使用 -1（未知時長），可被大多播放器接受。
+         * 將 URL 的 path 部分逐段做百分比編碼（保留 scheme/host/query/fragment）
+         * 例如：https://host/中 文/自拍_1/video.m3u8
          */
-        protected function normalizeDurationForExtinf($duration): int
+        protected function percentEncodeUrlPath(?string $url): ?string
         {
-            if (is_numeric($duration)) {
-                $sec = (int) round((float) $duration);
-                if ($sec >= 0) {
-                    return $sec;
-                }
+            if (!$url) {
+                return null;
             }
-            return -1;
+            $parts = parse_url($url);
+            if ($parts === false) {
+                return $url;
+            }
+
+            $scheme = isset($parts['scheme']) ? $parts['scheme'] . '://' : '';
+            $auth   = '';
+            if (isset($parts['user'])) {
+                $auth .= $parts['user'];
+                if (isset($parts['pass'])) {
+                    $auth .= ':' . $parts['pass'];
+                }
+                $auth .= '@';
+            }
+            $host   = $parts['host'] ?? '';
+            $port   = isset($parts['port']) ? ':' . $parts['port'] : '';
+
+            $path   = $parts['path'] ?? '';
+            if ($path !== '') {
+                $segments = explode('/', $path);
+                foreach ($segments as &$seg) {
+                    if ($seg === '') {
+                        continue;
+                    }
+                    $seg = rawurlencode($seg);
+                }
+                $path = implode('/', $segments);
+            }
+
+            $query  = isset($parts['query']) ? '?' . $parts['query'] : '';
+            $frag   = isset($parts['fragment']) ? '#' . $parts['fragment'] : '';
+
+            return $scheme . $auth . $host . $port . $path . $query . $frag;
         }
 
         /**
-         * 安全處理標題中的換行與控制字元，避免破壞清單格式。
+         * 生成 IPTV 慣用 EXTINF 行（-1 + tvg-id/tvg-name/group-title），名稱在逗號後。
+         * 例：#EXTINF:-1 tvg-id="vm123" tvg-name="自拍 123" group-title="MyStar",自拍 123
          */
-        protected function escapeExtinfTitle(string $title): string
+        protected function buildIptvExtinfLine(string $tvgId, string $tvgName, string $groupTitle, string $displayName): string
         {
-            $title = str_replace(["\r", "\n"], ' ', $title);
-            return trim($title);
+            // EXTINF 必須單行，標題去除換行符
+            $title = str_replace(["\r", "\n"], ' ', trim($displayName));
+            $tvgIdEsc = $this->escapeExtinfAttr($tvgId);
+            $tvgNameEsc = $this->escapeExtinfAttr($tvgName);
+            $groupEsc = $this->escapeExtinfAttr($groupTitle);
+
+            return "#EXTINF:-1 tvg-id=\"{$tvgIdEsc}\" tvg-name=\"{$tvgNameEsc}\" group-title=\"{$groupEsc}\",{$title}";
+        }
+
+        protected function escapeExtinfAttr(string $v): string
+        {
+            // 雖然多數客戶端不會解析到引號，但保險處理
+            return str_replace(['"', "\r", "\n"], ['\"', ' ', ' '], trim($v));
         }
     }

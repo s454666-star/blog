@@ -59,7 +59,7 @@
             $origin = $this->resolveOrigin($request);
             $path = $this->normalizePathForWeb($relativePath);
 
-            return $origin . $path;
+            return $origin . '/30T-A'. $path;
         }
 
         /**

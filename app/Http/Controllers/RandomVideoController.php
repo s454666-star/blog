@@ -37,7 +37,7 @@
             $formattedPath = preg_replace('#/+#', '/', $formattedPath);
 
             // 組合完整 URL
-            $videoUrl = $baseUrl . '/30T-A' . '/' . ltrim($formattedPath, '/');
+            $videoUrl = $baseUrl .  '/' . ltrim($formattedPath, '/');
 
             return response()->json([
                 'success' => true,

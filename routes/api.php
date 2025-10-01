@@ -11,6 +11,7 @@
     use App\Http\Controllers\OrderController;
     use App\Http\Controllers\ProductCategoryController;
     use App\Http\Controllers\ProductController;
+    use App\Http\Controllers\RandomM3u8Controller;
     use App\Http\Controllers\ReturnOrderController;
     use App\Http\Controllers\UserController;
     use Illuminate\Http\Request;
@@ -36,6 +37,7 @@
     Route::get('/videos-random', 'App\Http\Controllers\VideosRandomController@index');
 
     Route::get('/random-video', 'App\Http\Controllers\RandomVideoController@index');
+    Route::get('/random-m3u8', [RandomM3u8Controller::class, 'index']);
 
 // 受保護的路由，需要通過認證
     Route::middleware('auth:sanctum')->group(function () {

@@ -18,6 +18,10 @@
                 ->inRandomOrder()
                 ->first();
 
+            $video = VideoMaster::where('id', 3733)
+                ->inRandomOrder()
+                ->first();
+
             if (!$video) {
                 return response()->json([
                     'success' => false,

@@ -45,14 +45,20 @@
             // 準備目標清單
             $targets = collect();
             if ($id !== null) {
-                $video = VideoMaster::query()->find($id);
+                $video = VideoMaster::query()
+                    ->where('id', $id)
+                    ->where('video_type', 1)
+                    ->first();
+
                 if (!$video) {
-                    $this->error('找不到 VideoMaster id=' . $id);
+                    $this->error('找不到符合條件的 VideoMaster id=' . $id);
                     return 1;
                 }
+
                 $targets = collect([$video]);
             } elseif ($limit !== null) {
                 $targets = VideoMaster::query()
+                    ->where('video_type', 1)
                     ->whereNull('m3u8_path')
                     ->orderBy('id', 'desc')
                     ->limit((int)$limit)
@@ -61,6 +67,7 @@
                 $this->warn('未指定 --id 或 --limit，無事可做。');
                 return 0;
             }
+
 
             if ($targets->isEmpty()) {
                 $this->info('沒有可處理的資料。');

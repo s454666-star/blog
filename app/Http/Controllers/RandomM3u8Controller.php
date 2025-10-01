@@ -5,6 +5,7 @@
     use App\Models\VideoMaster;
     use Illuminate\Http\JsonResponse;
     use Illuminate\Http\Request;
+    use Illuminate\Http\Response;
 
     class RandomM3u8Controller extends Controller
     {
@@ -41,6 +42,49 @@
         }
 
         /**
+         * 產出一份 M3U8（UTF-8）播放清單，列出所有可播放的 m3u8（僅取 video_type=1 且 m3u8_path 有效者）。
+         * 每個項目用 #EXTINF 標題（影片名稱），URL 為推導後的絕對 m3u8 位置，可被播放器逐條播放。
+         */
+        public function playlist(Request $request): Response
+        {
+            $rows = VideoMaster::query()
+                ->where('video_type', 1)
+                ->whereNotNull('m3u8_path')
+                ->where('m3u8_path', '!=', '')
+                ->where('m3u8_path', '!=', 'null')
+                ->orderByDesc('id')
+                ->get();
+
+            if ($rows->isEmpty()) {
+                $content = "#EXTM3U\n";
+                return response($content, 200, [
+                    'Content-Type' => 'application/vnd.apple.mpegurl; charset=UTF-8',
+                    'Cache-Control' => 'no-store, no-cache, must-revalidate',
+                ]);
+            }
+
+            $lines = [];
+            $lines[] = "#EXTM3U";
+
+            foreach ($rows as $row) {
+                $title = is_string($row->video_name) && $row->video_name !== '' ? $row->video_name : "Video {$row->id}";
+                $duration = $this->normalizeDurationForExtinf($row->duration);
+                $url = $this->buildAbsoluteUrlFromRequest($request, $row->m3u8_path);
+
+                // #EXTINF:<秒數>,<顯示名稱>
+                $lines[] = "#EXTINF:{$duration},{$this->escapeExtinfTitle($title)}";
+                $lines[] = $url;
+            }
+
+            $content = implode("\n", $lines) . "\n";
+
+            return response($content, 200, [
+                'Content-Type' => 'application/vnd.apple.mpegurl; charset=UTF-8',
+                'Cache-Control' => 'no-store, no-cache, must-revalidate',
+            ]);
+        }
+
+        /**
          * 以當前請求推導正確的 Origin（scheme + host[:port]），
          * 優先使用 X-Forwarded-* 與 Host，再回退到 Request 與 APP_URL。
          */
@@ -50,7 +94,6 @@
                 return null;
             }
 
-            // 若資料庫已存絕對網址，直接回傳
             $lower = strtolower($relativePath);
             if (str_starts_with($lower, 'http://') || str_starts_with($lower, 'https://')) {
                 return $relativePath;
@@ -59,7 +102,8 @@
             $origin = $this->resolveOrigin($request);
             $path = $this->normalizePathForWeb($relativePath);
 
-            return $origin . '/30T-A'. $path;
+            // 視你的實際公開路徑調整這段前綴（你原本就是接在 /30T-A）
+            return $origin . '/30T-A' . $path;
         }
 
         /**
@@ -67,7 +111,6 @@
          */
         protected function resolveOrigin(Request $request): string
         {
-            // 取 X-Forwarded-Host（可能含多個，用第一個）
             $xfh = $request->header('X-Forwarded-Host');
             if ($xfh) {
                 $xfhParts = array_map('trim', explode(',', $xfh));
@@ -76,16 +119,12 @@
                 $forwardedHost = null;
             }
 
-            // 取 X-Forwarded-Proto 與 X-Forwarded-Port
-            $xfproto = $request->header('X-Forwarded-Proto'); // http or https
+            $xfproto = $request->header('X-Forwarded-Proto');
             $xfport  = $request->header('X-Forwarded-Port');
 
-            // Host（優先 Host header，沒有才回退）
             $host = $forwardedHost ?: $request->header('Host');
             if (!$host || $host === '') {
-                // 再退到 Request 物件解析
                 $host = $request->getHost();
-                // 最後再退到 APP_URL 的 host
                 if (!$host || $host === '') {
                     $appUrlHost = parse_url(config('app.url'), PHP_URL_HOST);
                     if (is_string($appUrlHost) && $appUrlHost !== '') {
@@ -94,22 +133,18 @@
                 }
             }
 
-            // Scheme（優先 X-Forwarded-Proto）
             $scheme = $xfproto ?: ($request->isSecure() ? 'https' : 'http');
 
-            // 加上 port（若需要）
             $hostWithPort = $host;
             $hasPortInHost = (strpos($host, ':') !== false);
 
             if (!$hasPortInHost && $xfport) {
-                // 若 forwarded port 不是預設埠才附加
-                if (!($scheme === 'http' && $xfport == '80') && !($scheme === 'https' && $xfport == '443')) {
+                if (!(($scheme === 'http' && $xfport == '80') || ($scheme === 'https' && $xfport == '443'))) {
                     $hostWithPort = $host . ':' . $xfport;
                 }
             } elseif (!$hasPortInHost) {
-                // 沒有 X-Forwarded-Port 的情況，嘗試從 request 推估實際連線埠
                 $port = (int) $request->getPort();
-                if (!($scheme === 'http' && $port === 80) && !($scheme === 'https' && $port === 443)) {
+                if (!(($scheme === 'http' && $port === 80) || ($scheme === 'https' && $port === 443))) {
                     $hostWithPort = $host . ':' . $port;
                 }
             }
@@ -124,5 +159,28 @@
         {
             $normalized = str_replace('\\', '/', $path);
             return '/' . ltrim($normalized, '/');
+        }
+
+        /**
+         * EXTINF 的秒數需為整數。若資料庫沒有秒數，使用 -1（未知時長），可被大多播放器接受。
+         */
+        protected function normalizeDurationForExtinf($duration): int
+        {
+            if (is_numeric($duration)) {
+                $sec = (int) round((float) $duration);
+                if ($sec >= 0) {
+                    return $sec;
+                }
+            }
+            return -1;
+        }
+
+        /**
+         * 安全處理標題中的換行與控制字元，避免破壞清單格式。
+         */
+        protected function escapeExtinfTitle(string $title): string
+        {
+            $title = str_replace(["\r", "\n"], ' ', $title);
+            return trim($title);
         }
     }

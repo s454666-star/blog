@@ -38,6 +38,7 @@
 
     Route::get('/random-video', 'App\Http\Controllers\RandomVideoController@index');
     Route::get('/random-m3u8', [RandomM3u8Controller::class, 'index']);
+    Route::get('/m3u8/all.m3u8', [RandomM3u8Controller::class, 'playlist']);
 
 // 受保護的路由，需要通過認證
     Route::middleware('auth:sanctum')->group(function () {

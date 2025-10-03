@@ -39,6 +39,12 @@ Route::post('/videos/set-master-face', [VideosController::class, 'setMasterFace'
 Route::get('/videos/load-master-faces', [VideosController::class, 'loadMasterFaces'])->name('video.loadMasterFaces');
 Route::get('/videos/findPage', [VideosController::class, 'findPage'])->name('video.findPage');
 Route::post('/videos', [VideosController::class, 'store'])->name('video.store');
+Route::get('/videos/random', [VideosController::class, 'getRandomVideos'])->name('videos.random');
+Route::get('/videos/test', [VideosController::class, 'getTest'])->name('videos.test');
+Route::get('/video-player', [VideosController::class, 'player'])->name('videos.player');
+Route::get('/api/videos/random-type', [VideosController::class, 'getRandomVideoType'])->name('videos.api.random_type');
+Route::get('/videos/search', [VideosController::class, 'search'])->name('videos.search');
+Route::delete('/videos/{id}', [VideosController::class, 'destroy'])->name('videos.destroy');
 
 Route::middleware('web')->post('/admin-login', [UserController::class, 'login']);
 
@@ -50,14 +56,10 @@ Route::post('/download-file/{file}', [EncryptionController::class, 'downloadFile
 Route::delete('/delete-folder/{folder}', [EncryptionController::class, 'deleteFolder'])->name('delete.folder');
 Route::delete('/delete-file/{file}', [EncryptionController::class, 'deleteFile'])->name('delete.file');
 Route::post('/download-chunk/{folder}/{file}', [EncryptionController::class, 'downloadChunk'])->name('download.chunk');
-Route::get('/videos/random', [VideosController::class, 'getRandomVideos'])->name('videos.random');
-Route::get('/videos/test', [VideosController::class, 'getTest'])->name('videos.test');
-Route::get('/video-player', [VideosController::class, 'player'])->name('videos.player');
-Route::get('/api/videos/random-type', [VideosController::class, 'getRandomVideoType'])->name('videos.api.random_type');
+
 Route::get('/videoplayer-list', [VideoPlayerController::class, 'getVideoPlayerList'])
         ->name('videos.api.videoplayer_list');
-Route::get('/videos/search', [VideosController::class, 'search'])->name('videos.search');
-Route::delete('/videos/{id}', [VideosController::class, 'destroy'])->name('videos.destroy');
+
 
 // 靜態頁面和身份驗證頁面
 Route::get('/', function () {

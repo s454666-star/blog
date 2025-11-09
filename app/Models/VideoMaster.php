@@ -10,12 +10,12 @@
         use HasFactory;
 
         protected $table = 'video_master';
-
         protected $primaryKey = 'id';
 
         protected $fillable = [
             'video_name',
             'video_path',
+            'm3u8_path',
             'duration',
             'video_type',
             'created_at',
@@ -29,7 +29,7 @@
         public $timestamps = true;
 
         /**
-         * Get the screenshots for the video.
+         * 影片的截圖列表
          */
         public function screenshots()
         {
@@ -37,12 +37,18 @@
         }
 
         /**
-         * Get the master face screenshots for the video.
+         * 影片的「主面」人臉列表（透過 screenshots）
+         * 🚩 不在這裡排序，避免 hasManyThrough 對父表排序的 SQL 問題；排序放查詢端（Controller）做。
          */
         public function masterFaces()
         {
-            return $this->hasManyThrough(VideoFaceScreenshot::class, VideoScreenshot::class, 'video_master_id', 'video_screenshot_id', 'id', 'id')
-                ->where('is_master', 1)
-                ->orderBy('video_master.duration', 'asc');
+            return $this->hasManyThrough(
+                VideoFaceScreenshot::class,
+                VideoScreenshot::class,
+                'video_master_id',
+                'video_screenshot_id',
+                'id',
+                'id'
+            )->where('is_master', 1);
         }
     }

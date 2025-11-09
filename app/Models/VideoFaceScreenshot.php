@@ -23,7 +23,7 @@
         public $timestamps = true;
 
         /**
-         * Get the screenshot that owns the face screenshot.
+         * 所屬的截圖
          */
         public function videoScreenshot()
         {
@@ -31,10 +31,22 @@
         }
 
         /**
-         * Get the video master through the screenshot.
+         * 透過截圖反查 VideoMaster
+         * 正確的一對一穿越關聯（hasOneThrough）鍵位設定如下：
+         * firstKey  = VideoScreenshot.video_master_id   （through 表上，指向 related 的鍵）
+         * secondKey = VideoMaster.id                    （related 表的主鍵）
+         * localKey  = VideoFaceScreenshot.video_screenshot_id（當前模型到 through 的鍵）
+         * secondLocalKey = VideoScreenshot.id           （through 表的主鍵）
          */
         public function videoMaster()
         {
-            return $this->hasOneThrough(VideoMaster::class, VideoScreenshot::class, 'id', 'id', 'video_screenshot_id', 'video_master_id');
+            return $this->hasOneThrough(
+                VideoMaster::class,
+                VideoScreenshot::class,
+                'video_master_id',
+                'id',
+                'video_screenshot_id',
+                'id'
+            );
         }
     }

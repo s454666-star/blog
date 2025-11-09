@@ -22,7 +22,7 @@
         public $timestamps = true;
 
         /**
-         * Get the video master that owns the screenshot.
+         * 所屬的影片主檔
          */
         public function videoMaster()
         {
@@ -30,7 +30,7 @@
         }
 
         /**
-         * Get the face screenshots for the screenshot.
+         * 該截圖底下的人臉截圖
          */
         public function faceScreenshots()
         {

@@ -5,6 +5,7 @@
     use App\Models\VideoFaceScreenshot;
     use App\Models\VideoMaster;
     use App\Models\VideoScreenshot;
+    use App\Models\VideoTs;
     use Illuminate\Http\Request;
     use Illuminate\Pagination\LengthAwarePaginator;
     use Illuminate\Support\Facades\Storage;
@@ -20,7 +21,7 @@
             $missingOnly = $request->boolean('missing_only', false);       // 是否只列出尚未選主面
             $sortBy      = in_array($request->input('sort_by'), ['id','duration']) ? $request->input('sort_by') : 'duration';
             $sortDir     = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
-            $perPage     = 50;
+            $perPage     = 20;
             $focusId     = $request->input('focus_id');
 
             /* ---------- 建立基礎查詢 ---------- */
@@ -206,29 +207,43 @@
                 ], 400);
             }
 
-            $videos = VideoMaster::whereIn('id', $ids)->get();
+            // 預設根目錄（可用 .env 覆寫）
+            $videoRoot = rtrim(env('VIDEO_SOURCE_ROOT', 'F:/video'), '/\\');
+            $m3u8Root  = rtrim(env('M3U8_TARGET_ROOT', 'Z:/m3u8'), '/\\');
+
+            $videos = VideoMaster::whereIn('id', $ids)->with('screenshots.faceScreenshots')->get();
 
             foreach ($videos as $video) {
-                $videoFile = "F:/video/" . $video->video_path;
-                if (File::exists($videoFile)) {
-                    File::delete($videoFile);
-                }
+                DB::beginTransaction();
+                try {
+                    // 1) 刪除原影片與其截圖、人臉檔案
+                    $this->deleteVideoPhysicalFiles($video, $videoRoot);
 
-                foreach ($video->screenshots as $screenshot) {
-                    $screenshotFile = "F:/video/" . $screenshot->screenshot_path;
-                    if (File::exists($screenshotFile)) {
-                        File::delete($screenshotFile);
-                    }
+                    // 2) 若有 m3u8，刪除 videos_ts 與 Z:\m3u8 的檔案與資料夾
+                    $this->deleteM3u8AssetsAndRows($video, $m3u8Root);
 
-                    foreach ($screenshot->faceScreenshots as $face) {
-                        $faceFile = "F:/video/" . $face->face_image_path;
-                        if (File::exists($faceFile)) {
-                            File::delete($faceFile);
+                    // 3) 刪除 DB：screenshots、faceScreenshots 已設置 on delete cascade（或手動刪除保險）
+                    foreach ($video->screenshots as $screenshot) {
+                        foreach ($screenshot->faceScreenshots as $face) {
+                            $face->delete();
                         }
+                        $screenshot->delete();
                     }
+
+                    // 4) 刪除 video_master
+                    $video->delete();
+
+                    DB::commit();
+                } catch (\Throwable $e) {
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'message' => '刪除影片時發生錯誤：' . $e->getMessage(),
+                    ], 500);
                 }
 
-                $video->delete();
+                // 5) 嘗試刪除空資料夾（原影片資料夾）
+                $this->deleteVideoFolderIfExists($video, $videoRoot);
             }
 
             return response()->json([
@@ -619,8 +634,12 @@
          */
         public function destroy($id)
         {
+            // 預設根目錄（可用 .env 覆寫）
+            $videoRoot = rtrim(env('VIDEO_SOURCE_ROOT', 'F:/video'), '/\\');
+            $m3u8Root  = rtrim(env('M3U8_TARGET_ROOT', 'Z:/m3u8'), '/\\');
+
             // 查找影片
-            $video = VideoMaster::find($id);
+            $video = VideoMaster::with('screenshots.faceScreenshots')->find($id);
 
             if (!$video) {
                 return response()->json([
@@ -629,55 +648,28 @@
                 ], 404);
             }
 
-            // 取得影片資料夾名稱，例如 \自拍_1\自拍.mp4 取得 自拍_1
-            $videoPath  = $video->video_path;
-            $videoFolder= pathinfo($videoPath, PATHINFO_DIRNAME);
-
-            // 定義影片資料夾的完整路徑
-            $folderPath = 'F:/video/' . $videoFolder;
-
-            // 開始資料庫交易
             DB::beginTransaction();
 
             try {
-                // 刪除相關的人臉截圖檔案及資料庫紀錄
+                // 1) 刪除原影片與其截圖、人臉檔案
+                $this->deleteVideoPhysicalFiles($video, $videoRoot);
+
+                // 2) 若有 m3u8，刪除 videos_ts 與 Z:\m3u8 的檔案與資料夾
+                $this->deleteM3u8AssetsAndRows($video, $m3u8Root);
+
+                // 3) 刪除關聯資料（雙保險：有外鍵 on delete cascade 時可省，但這裡保留）
                 foreach ($video->screenshots as $screenshot) {
                     foreach ($screenshot->faceScreenshots as $face) {
-                        // 刪除人臉截圖檔案
-                        $faceFile = "F:/video/" . $face->face_image_path;
-                        if (File::exists($faceFile)) {
-                            File::delete($faceFile);
-                        }
-                        // 刪除人臉截圖資料庫紀錄
                         $face->delete();
                     }
-
-                    // 刪除截圖檔案
-                    $screenshotFile = "F:/video/" . $screenshot->screenshot_path;
-                    if (File::exists($screenshotFile)) {
-                        File::delete($screenshotFile);
-                    }
-                    // 刪除截圖資料庫紀錄
                     $screenshot->delete();
                 }
 
-                // 刪除影片資料庫紀錄
+                // 4) 刪除影片主檔
                 $video->delete();
 
-                // 刪除影片資料夾及其所有檔案
-                if (File::exists($folderPath)) {
-                    File::deleteDirectory($folderPath);
-                }
-
-                // 提交交易
                 DB::commit();
-
-                return response()->json([
-                    'success' => true,
-                    'message' => '影片已成功刪除。',
-                ]);
             } catch (\Exception $e) {
-                // 回滾交易
                 DB::rollBack();
 
                 return response()->json([
@@ -685,6 +677,14 @@
                     'message' => '刪除影片時發生錯誤，請稍後再試。',
                 ], 500);
             }
+
+            // 5) 刪除空的影片資料夾（若存在）
+            $this->deleteVideoFolderIfExists($video, $videoRoot);
+
+            return response()->json([
+                'success' => true,
+                'message' => '影片已成功刪除。',
+            ]);
         }
 
         /**
@@ -740,5 +740,99 @@
                         });
                 })
                 ->count();
+        }
+
+        /* ==============================
+         *  以下為本次新增／抽取的共用方法
+         * ============================== */
+
+        /**
+         * 刪除影片本體與其關聯的截圖、人臉檔案（F:\video 之下）。
+         */
+        private function deleteVideoPhysicalFiles(VideoMaster $video, string $videoRoot): void
+        {
+            // 刪影片檔
+            $videoFile = $this->joinPaths($videoRoot, $video->video_path);
+            if (File::exists($videoFile)) {
+                File::delete($videoFile);
+            }
+
+            // 刪截圖與人臉
+            $screenshots = $video->relationLoaded('screenshots') ? $video->screenshots : $video->screenshots()->with('faceScreenshots')->get();
+            foreach ($screenshots as $screenshot) {
+                $screenshotFile = $this->joinPaths($videoRoot, $screenshot->screenshot_path);
+                if (File::exists($screenshotFile)) {
+                    File::delete($screenshotFile);
+                }
+                foreach ($screenshot->faceScreenshots as $face) {
+                    $faceFile = $this->joinPaths($videoRoot, $face->face_image_path);
+                    if (File::exists($faceFile)) {
+                        File::delete($faceFile);
+                    }
+                }
+            }
+        }
+
+        /**
+         * 若該影片有 m3u8_path，則：
+         * 1) 刪除 videos_ts 中對應資料（path like /m3u8/<folder>/%）
+         * 2) 刪除 Z:\m3u8\<folder>\ 下的 m3u8 與 ts 檔案與資料夾
+         */
+        private function deleteM3u8AssetsAndRows(VideoMaster $video, string $m3u8Root): void
+        {
+            if (empty($video->m3u8_path)) {
+                return;
+            }
+
+            // m3u8_path 樣式：/m3u8/<folder>/video.m3u8
+            // 取 <folder>
+            $folder = basename(dirname(str_replace('\\', '/', $video->m3u8_path)));
+
+            if ($folder === '' || $folder === '/' || $folder === '.' || $folder === '..') {
+                return;
+            }
+
+            // 1) 刪 DB：videos_ts.path like '/m3u8/<folder>/%'
+            $prefix = '/m3u8/' . $folder . '/';
+            VideoTs::where('path', 'like', $prefix . '%')->delete();
+
+            // 2) 刪實體檔案：Z:\m3u8\<folder>
+            $targetDir = $this->joinPaths($m3u8Root, $folder);
+            if (File::exists($targetDir)) {
+                File::deleteDirectory($targetDir);
+            }
+        }
+
+        /**
+         * 刪除影片的資料夾（若存在）。例如 video_path = 自拍_1/自拍.mp4 -> 刪除 F:\video\自拍_1
+         */
+        private function deleteVideoFolderIfExists(VideoMaster $video, string $videoRoot): void
+        {
+            $videoPath   = str_replace('\\', '/', (string) $video->video_path);
+            $videoFolder = trim(pathinfo($videoPath, PATHINFO_DIRNAME), '/');
+            if ($videoFolder === '' || $videoFolder === '.' || $videoFolder === '..') {
+                return;
+            }
+
+            $folderPath = $this->joinPaths($videoRoot, $videoFolder);
+            if (File::exists($folderPath)) {
+                // 直接刪整個資料夾（不管內部是否仍有殘留）
+                File::deleteDirectory($folderPath);
+            }
+        }
+
+        /**
+         * 安全組合 Windows / Linux 路徑
+         */
+        private function joinPaths(string ...$parts): string
+        {
+            $trimmed = array_map(function ($p) {
+                return trim((string) $p, "/\\");
+            }, $parts);
+
+            $joined = implode(DIRECTORY_SEPARATOR, $trimmed);
+            // 讓像 C: 這種磁碟標示不被 trim 影響
+            $joined = str_replace([':/', ':\\'], ':/', $joined);
+            return $joined;
         }
     }

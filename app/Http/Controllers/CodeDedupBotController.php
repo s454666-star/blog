@@ -18,7 +18,7 @@
 
         public function __construct()
         {
-            $token       = config('telegram.bot_token');      // 請將 TELEGRAM_BOT_TOKEN 放在 .env
+            $token        = config('telegram.bot_token');      // 請將 TELEGRAM_BOT_TOKEN 放在 .env
             $this->apiUrl = "https://api.telegram.org/bot{$token}/";
             $this->http   = new Client(['base_uri' => $this->apiUrl]);
         }
@@ -65,8 +65,8 @@
                 return response('ok', 200);
             }
 
-            $chatId   = $cb['message']['chat']['id'];
-            $pageNum  = max(1, (int)$page);
+            $chatId  = $cb['message']['chat']['id'];
+            $pageNum = max(1, (int)$page);
 
             $allCodes = $this->getAllCodes($chatId);
             $pages    = $this->chunkByBytes($allCodes);
@@ -110,15 +110,17 @@
         /* ===== 抽出並去重 ===== */
         private function extractAndStoreCodes(int $chatId, int $msgId, string $text): void
         {
-            // 去中文
+            // 去中文（保留英文、日文假名等，方便混在文字中抓 code）
             $clean = preg_replace('/[\p{Han}]+/u', '', $text);
 
             // 擷取 code
+            // 新增 ntmjmqbot_ 前綴的識別，像 ntmjmqbot_5p_28v_0d_s54xEbtm7ZKU4 這種格式也會被抓到
             $pattern = '/
-            (?:@?filepan_bot:|link:\s*|(?:vi_|pk_|p_|d_|showfilesbot_|[vVpPdD]_?datapanbot_|[vVpPdD]_))
+            (?:@?filepan_bot:|link:\s*|(?:vi_|pk_|p_|d_|showfilesbot_|[vVpPdD]_?datapanbot_|[vVpPdD]_|ntmjmqbot_))
             [A-Za-z0-9_\+\-]+(?:=_grp|=_mda)? |
             \b[A-Za-z0-9_\+\-]+(?:=_grp|=_mda)\b
         /xu';
+
             preg_match_all($pattern, $clean, $m);
             $codes = array_unique($m[0] ?? []);
 
@@ -197,10 +199,23 @@
         private function buildHistoryKeyboard(int $totalPages, int $currentPage = 1): array
         {
             $btns = [];
-            for ($i = 1; $i <= $totalPages; $i++) {
-                $label = $i === $currentPage ? "🔘{$i}" : (string)$i;
-                $btns[] = ['text' => $label, 'callback_data' => "history:$i"];
+            $i    = 1;
+
+            while ($i <= $totalPages) {
+                if ($i === $currentPage) {
+                    $label = '🔘' . $i;
+                } else {
+                    $label = (string)$i;
+                }
+
+                $btns[] = [
+                    'text'          => $label,
+                    'callback_data' => 'history:' . $i,
+                ];
+
+                $i = $i + 1;
             }
+
             return ['inline_keyboard' => array_chunk($btns, 10)];
         }
 
@@ -210,7 +225,7 @@
             try {
                 $this->http->post($method, ['json' => $payload]);
             } catch (GuzzleException $e) {
-                Log::warning("Telegram {$method} 失敗：".$e->getMessage(), compact('payload'));
+                Log::warning('Telegram ' . $method . ' 失敗：' . $e->getMessage(), compact('payload'));
             }
         }
     }

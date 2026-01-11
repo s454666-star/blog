@@ -60,7 +60,12 @@
                 'callback_query_id' => $cb['id'],
             ]);
 
-            [$action, $page] = explode(':', $cb['data'] ?? 'history:1');
+            $data = (string)($cb['data'] ?? 'history:1');
+            $parts = explode(':', $data);
+
+            $action = $parts[0] ?? 'history';
+            $page = $parts[1] ?? '1';
+
             if ($action !== 'history') {
                 return response('ok', 200);
             }
@@ -69,7 +74,8 @@
             $pageNum = max(1, (int)$page);
 
             $allCodes = $this->getAllCodes($chatId);
-            $pages    = $this->chunkByBytes($allCodes);
+            $lines    = $this->buildDisplayLines($allCodes);
+            $pages    = $this->chunkByBytes($lines);
             $pageIdx  = min(count($pages), $pageNum) - 1;
 
             // 以新訊息方式送出，保留第一頁
@@ -91,7 +97,8 @@
                 return response('ok', 200);
             }
 
-            $pages = $this->chunkByBytes($allCodes);
+            $lines = $this->buildDisplayLines($allCodes);
+            $pages = $this->chunkByBytes($lines);
             $first = $pages[0];
 
             if (count($pages) === 1) {
@@ -115,10 +122,12 @@
 
             // 擷取 code
             // 新增 ntmjmqbot_ 前綴的識別，像 ntmjmqbot_5p_28v_0d_s54xEbtm7ZKU4 這種格式也會被抓到
+            // 新增 LH_ 開頭代碼（例如 LH_SF2zk8diVrVFxxFG）
             $pattern = '/
             (?:@?filepan_bot:|link:\s*|(?:vi_|pk_|p_|d_|showfilesbot_|[vVpPdD]_?datapanbot_|[vVpPdD]_|ntmjmqbot_))
             [A-Za-z0-9_\+\-]+(?:=_grp|=_mda)? |
-            \b[A-Za-z0-9_\+\-]+(?:=_grp|=_mda)\b
+            \b[A-Za-z0-9_\+\-]+(?:=_grp|=_mda)\b |
+            \bLH_[A-Za-z0-9]+\b
         /xu';
 
             preg_match_all($pattern, $clean, $m);
@@ -150,8 +159,11 @@
                 ]);
             }
 
-            // 回覆新碼
-            $this->sendMessage($chatId, implode("\n", $new));
+            // 回覆新碼：LH_ 放最下面，中間空一行
+            $replyText = $this->formatCodesForReply($new);
+            if ($replyText !== '') {
+                $this->sendMessage($chatId, $replyText);
+            }
         }
 
         /* ===== 共用 ===== */
@@ -165,13 +177,13 @@
         }
 
         /** 依 byte 分頁，確保 < 4096 bytes */
-        private function chunkByBytes(array $codes): array
+        private function chunkByBytes(array $lines): array
         {
             $pages  = [];
             $buffer = '';
 
-            foreach ($codes as $code) {
-                $line = $code . "\n";
+            foreach ($lines as $lineText) {
+                $line = $lineText . "\n";
                 if (strlen($buffer) + strlen($line) > self::MAX_MESSAGE_BYTES) {
                     $pages[] = rtrim($buffer);
                     $buffer  = '';
@@ -227,5 +239,63 @@
             } catch (GuzzleException $e) {
                 Log::warning('Telegram ' . $method . ' 失敗：' . $e->getMessage(), compact('payload'));
             }
+        }
+
+        /** 將代碼依規則分組：非 LH_ 在上，LH_ 在下 */
+        private function splitCodesByLhPrefix(array $codes): array
+        {
+            $normal = [];
+            $lh = [];
+
+            foreach ($codes as $code) {
+                if ($this->isLhCode($code)) {
+                    $lh[] = $code;
+                } else {
+                    $normal[] = $code;
+                }
+            }
+
+            return [$normal, $lh];
+        }
+
+        /** 判斷是否為 LH_ 開頭代碼 */
+        private function isLhCode(string $code): bool
+        {
+            return str_starts_with($code, 'LH_');
+        }
+
+        /** 回覆文字格式：LH_ 放最後，中間空一行 */
+        private function formatCodesForReply(array $codes): string
+        {
+            [$normal, $lh] = $this->splitCodesByLhPrefix($codes);
+
+            $normalText = implode("\n", $normal);
+            $lhText = implode("\n", $lh);
+
+            if ($normalText !== '' && $lhText !== '') {
+                return $normalText . "\n\n" . $lhText;
+            }
+
+            if ($normalText !== '') {
+                return $normalText;
+            }
+
+            return $lhText;
+        }
+
+        /** 產生顯示用行列表（供歷史 / 分頁用）：LH_ 放最後，中間插入空行 */
+        private function buildDisplayLines(array $codes): array
+        {
+            [$normal, $lh] = $this->splitCodesByLhPrefix($codes);
+
+            if (!empty($normal) && !empty($lh)) {
+                return array_merge($normal, [''], $lh);
+            }
+
+            if (!empty($normal)) {
+                return $normal;
+            }
+
+            return $lh;
         }
     }

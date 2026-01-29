@@ -33,7 +33,7 @@
             $dryRun = (bool)$this->option('dry-run');
 
             // 根路徑可用 .env 覆蓋，否則使用預設
-            $srcRoot = rtrim(env('VIDEO_SOURCE_ROOT', 'F:\\video'), '\\/');
+            $srcRoot = rtrim(env('VIDEO_SOURCE_ROOT', 'D:\\video'), '\\/');
             $dstRoot = rtrim(env('M3U8_TARGET_ROOT', 'Z:\\m3u8'), '\\/');
 
             // 檢查 ffmpeg 是否可用

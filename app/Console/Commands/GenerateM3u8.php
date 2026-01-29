@@ -14,7 +14,7 @@
         public function handle()
         {
             // 設定檔案路徑與目錄
-            $videoFile = 'F:\\video\\內射-FC2-PPV-3619794\\內射-FC2-PPV-3619794.mp4';
+            $videoFile = 'D:\\video\\內射-FC2-PPV-3619794\\內射-FC2-PPV-3619794.mp4';
             $videoDir = dirname($videoFile);
             $fileName = basename($videoFile, '.mp4'); // 只取名稱去掉副檔名
             $videoNameInDB = "$fileName.mp4"; // 確保格式與資料庫一致
@@ -61,8 +61,8 @@
             }
 
             // 產生相對路徑，並確保格式正確
-            // 將 'F:\video\' 替換為 '\'，以得到相對於根目錄的路徑
-            $relativeM3u8Path = str_replace('F:\\video\\', '\\', $m3u8Path);
+            // 將 'D:\video\' 替換為 '\'，以得到相對於根目錄的路徑
+            $relativeM3u8Path = str_replace('D:\\video\\', '\\', $m3u8Path);
 
             // 更新資料表 video_master 的 m3u8_path 欄位
             try {

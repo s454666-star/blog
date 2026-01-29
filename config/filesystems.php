@@ -31,7 +31,7 @@ return [
     'disks' => [
         'videos' => [
             'driver' => 'local',
-            'root' => 'F:\video', // Windows 系統下的絕對路徑
+            'root' => 'D:\video', // Windows 系統下的絕對路徑
             'url' => 'https://video.test/', // 對應的基礎 URL
             'visibility' => 'public',
         ],

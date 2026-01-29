@@ -13,6 +13,9 @@
         /** Telegram 文字上限（UTF-8 4096 byte） */
         private const MAX_MESSAGE_BYTES = 4096;
 
+        /** 每次回覆最多 5 行 */
+        private const REPLY_LINES_PER_MESSAGE = 5;
+
         protected string $apiUrl;
         protected Client $http;
 
@@ -159,11 +162,8 @@
                 ]);
             }
 
-            // 回覆新碼：LH_ 放最下面，中間空一行
-            $replyText = $this->formatCodesForReply($new);
-            if ($replyText !== '') {
-                $this->sendMessage($chatId, $replyText);
-            }
+            // 回覆新碼：改成「每 5 行吐一次」，且仍保留 LH_ 放最下面，中間空一行
+            $this->sendCodesInBatches($chatId, $new);
         }
 
         /* ===== 共用 ===== */
@@ -297,5 +297,46 @@
             }
 
             return $lh;
+        }
+
+        /** 新增：每 5 行吐一次（同時保護 4096 bytes），並保留 LH_ 置底/空行分隔規則 */
+        private function sendCodesInBatches(int $chatId, array $codes): void
+        {
+            $formatted = $this->formatCodesForReply($codes);
+            $formatted = trim($formatted);
+
+            if ($formatted === '') {
+                return;
+            }
+
+            $lines = preg_split("/\r\n|\r|\n/", $formatted);
+            if (!$lines) {
+                return;
+            }
+
+            $bufferLines = [];
+            foreach ($lines as $line) {
+                $bufferLines[] = $line;
+
+                $shouldSendByLineCount = count($bufferLines) >= self::REPLY_LINES_PER_MESSAGE;
+
+                $candidateText = implode("\n", $bufferLines);
+                $shouldSendByBytes = strlen($candidateText) >= (self::MAX_MESSAGE_BYTES - 32);
+
+                if ($shouldSendByLineCount || $shouldSendByBytes) {
+                    $textToSend = trim(implode("\n", $bufferLines));
+                    if ($textToSend !== '') {
+                        $this->sendMessage($chatId, $textToSend);
+                    }
+                    $bufferLines = [];
+                }
+            }
+
+            if (!empty($bufferLines)) {
+                $textToSend = trim(implode("\n", $bufferLines));
+                if ($textToSend !== '') {
+                    $this->sendMessage($chatId, $textToSend);
+                }
+            }
         }
     }

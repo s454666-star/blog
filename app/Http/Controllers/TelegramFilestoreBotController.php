@@ -358,9 +358,11 @@ class TelegramFilestoreBotController extends Controller
             $session->save();
         });
 
+        $tokenText = (string)$session->public_token;
+
         $this->sendMessage(
             $chatId,
-            "已結束上傳 ✅\n\n分享代碼：\n<code>{$session->public_token}</code>\n\n任何人把這段代碼貼給我，就可以取得你上傳的檔案。\n\n你也可以用 /myfiles 查詢、用 /delete 刪除。",
+            "已結束上傳 ✅\n\n分享代碼：\n<code>{$tokenText}</code>\n\n任何人把這段代碼貼給我，就可以取得你上傳的檔案。\n\n你也可以用 /myfiles 查詢、用 /delete 刪除。",
             null,
             'HTML'
         );
@@ -415,7 +417,6 @@ class TelegramFilestoreBotController extends Controller
 
         SendFilestoreSessionFilesJob::dispatch((int)$session->id, $chatId);
     }
-
 
     private function askCloseUpload(int $chatId): void
     {
@@ -496,8 +497,10 @@ class TelegramFilestoreBotController extends Controller
             return;
         }
 
+        $http = Http::timeout(60);
+
         if ($fileType === 'photo') {
-            Http::post("https://api.telegram.org/bot{$token}/sendPhoto", [
+            $http->post("https://api.telegram.org/bot{$token}/sendPhoto", [
                 'chat_id' => $chatId,
                 'photo' => $fileId,
             ]);
@@ -514,7 +517,7 @@ class TelegramFilestoreBotController extends Controller
                 $payload['caption'] = $fileName;
             }
 
-            Http::post("https://api.telegram.org/bot{$token}/sendVideo", $payload);
+            $http->post("https://api.telegram.org/bot{$token}/sendVideo", $payload);
             return;
         }
 
@@ -528,11 +531,11 @@ class TelegramFilestoreBotController extends Controller
                 $payload['caption'] = $fileName;
             }
 
-            Http::post("https://api.telegram.org/bot{$token}/sendDocument", $payload);
+            $http->post("https://api.telegram.org/bot{$token}/sendDocument", $payload);
             return;
         }
 
-        Http::post("https://api.telegram.org/bot{$token}/sendDocument", [
+        $http->post("https://api.telegram.org/bot{$token}/sendDocument", [
             'chat_id' => $chatId,
             'document' => $fileId,
         ]);
@@ -569,12 +572,12 @@ class TelegramFilestoreBotController extends Controller
             return;
         }
 
-        Http::post("https://api.telegram.org/bot{$token}/answerCallbackQuery", [
+        Http::timeout(30)->post("https://api.telegram.org/bot{$token}/answerCallbackQuery", [
             'callback_query_id' => $callbackQueryId,
         ]);
     }
 
-    private function sendMessage(int $chatId, string $text, ?array $replyMarkup = null): void
+    private function sendMessage(int $chatId, string $text, ?array $replyMarkup = null, ?string $parseMode = null): void
     {
         $token = (string)config('telegram.filestore_bot_token');
         if ($token === '') {
@@ -590,14 +593,19 @@ class TelegramFilestoreBotController extends Controller
             $payload['reply_markup'] = $replyMarkup;
         }
 
-        Http::post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
+        if ($parseMode !== null && $parseMode !== '') {
+            $payload['parse_mode'] = $parseMode;
+            $payload['disable_web_page_preview'] = true;
+        }
+
+        Http::timeout(30)->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
     }
 
-    private function sendLongMessage(int $chatId, string $text): void
+    private function sendLongMessage(int $chatId, string $text, ?string $parseMode = null): void
     {
         $chunks = $this->splitByUtf8Bytes($text, 3800);
         foreach ($chunks as $chunk) {
-            $this->sendMessage($chatId, $chunk);
+            $this->sendMessage($chatId, $chunk, null, $parseMode);
         }
     }
 

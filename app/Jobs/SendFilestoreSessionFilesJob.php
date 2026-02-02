@@ -98,8 +98,10 @@ class SendFilestoreSessionFilesJob implements ShouldQueue
             return;
         }
 
+        $http = Http::timeout(60);
+
         if ($fileType === 'photo') {
-            Http::post("https://api.telegram.org/bot{$token}/sendPhoto", [
+            $http->post("https://api.telegram.org/bot{$token}/sendPhoto", [
                 'chat_id' => $chatId,
                 'photo' => $fileId,
             ]);
@@ -116,7 +118,7 @@ class SendFilestoreSessionFilesJob implements ShouldQueue
                 $payload['caption'] = $fileName;
             }
 
-            Http::post("https://api.telegram.org/bot{$token}/sendVideo", $payload);
+            $http->post("https://api.telegram.org/bot{$token}/sendVideo", $payload);
             return;
         }
 
@@ -130,11 +132,11 @@ class SendFilestoreSessionFilesJob implements ShouldQueue
                 $payload['caption'] = $fileName;
             }
 
-            Http::post("https://api.telegram.org/bot{$token}/sendDocument", $payload);
+            $http->post("https://api.telegram.org/bot{$token}/sendDocument", $payload);
             return;
         }
 
-        Http::post("https://api.telegram.org/bot{$token}/sendDocument", [
+        $http->post("https://api.telegram.org/bot{$token}/sendDocument", [
             'chat_id' => $chatId,
             'document' => $fileId,
         ]);
@@ -161,7 +163,6 @@ class SendFilestoreSessionFilesJob implements ShouldQueue
             $payload['disable_web_page_preview'] = true;
         }
 
-        Http::post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
+        Http::timeout(60)->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
     }
-
 }

@@ -32,7 +32,7 @@
         /**
          * 每批之間等待（避免 Telegram rate limit）
          */
-        private const BATCH_SLEEP_MICROSECONDS = 1500000;
+        private const BATCH_SLEEP_MICROSECONDS = 1200000;
 
         public function __construct(int $sessionId, int $targetChatId)
         {
@@ -62,78 +62,108 @@
                 return;
             }
 
-            $mediaCount = (int)TelegramFilestoreFile::query()
+            $mediaFiles = TelegramFilestoreFile::query()
                 ->where('session_id', $session->id)
                 ->whereIn('file_type', ['photo', 'video'])
-                ->count();
+                ->orderBy('id')
+                ->get();
 
-            $documentCount = (int)TelegramFilestoreFile::query()
+            $documentFiles = TelegramFilestoreFile::query()
                 ->where('session_id', $session->id)
                 ->where('file_type', 'document')
-                ->count();
+                ->orderBy('id')
+                ->get();
+
+            $otherFiles = TelegramFilestoreFile::query()
+                ->where('session_id', $session->id)
+                ->whereNotIn('file_type', ['photo', 'video', 'document'])
+                ->orderBy('id')
+                ->get();
+
+            $mediaCount = (int)$mediaFiles->count();
+            $documentCount = (int)$documentFiles->count();
+            $otherCount = (int)$otherFiles->count();
 
             $infoLines = [];
-            $infoLines[] = "開始傳送檔案（共 {$totalCount} 個）…";
+            $infoLines[] = "開始傳送檔案（共 {$totalCount} 個）（batch-album-v3）…";
             if ($mediaCount > 0) {
-                $infoLines[] = "照片/影片：每 " . self::MEDIA_GROUP_BATCH_SIZE . " 個一組批次傳送（共 {$mediaCount} 個）";
+                $infoLines[] = "照片/影片：每 " . self::MEDIA_GROUP_BATCH_SIZE . " 個一組相簿批次傳送（共 {$mediaCount} 個）";
             }
             if ($documentCount > 0) {
                 $infoLines[] = "文件：因 Telegram 限制，會逐筆傳送（共 {$documentCount} 個）";
             }
+            if ($otherCount > 0) {
+                $infoLines[] = "其他：會逐筆傳送（共 {$otherCount} 個）";
+            }
 
             $this->sendMessage($this->targetChatId, implode("\n", $infoLines));
 
-            $sentCount = 0;
+            /**
+             * 1) 先送 photo/video：用 sendMediaGroup 每 10 個一組
+             */
+            if ($mediaCount > 0) {
+                $chunks = array_chunk($mediaFiles->all(), self::MEDIA_GROUP_BATCH_SIZE);
 
-            $mediaBuffer = [];
+                foreach ($chunks as $index => $chunkFiles) {
+                    $ok = $this->sendMediaGroupBatch($this->targetChatId, $chunkFiles);
 
-            TelegramFilestoreFile::query()
-                ->where('session_id', $session->id)
-                ->orderBy('id')
-                ->chunkById(200, function ($files) use (&$sentCount, $totalCount, &$mediaBuffer) {
-                    foreach ($files as $file) {
-                        $type = (string)$file->file_type;
+                    if (!$ok) {
+                        $this->sendMessage(
+                            $this->targetChatId,
+                            "相簿批次傳送失敗，改用逐筆傳送（請看 log 查原因）。"
+                        );
 
-                        if ($type === 'photo' || $type === 'video') {
-                            $mediaBuffer[] = $file;
-
-                            if (count($mediaBuffer) >= self::MEDIA_GROUP_BATCH_SIZE) {
-                                $this->sendMediaGroupBatch($this->targetChatId, $mediaBuffer);
-                                $sentCount = $sentCount + count($mediaBuffer);
-                                $mediaBuffer = [];
-
-                                if ($sentCount < $totalCount) {
-                                    usleep(self::BATCH_SLEEP_MICROSECONDS);
-                                }
-                            }
-
-                            continue;
-                        }
-
-                        if ($type === 'document') {
-                            $this->sendFileByType($this->targetChatId, $type, (string)$file->file_id, $file->file_name);
-                            $sentCount = $sentCount + 1;
-
-                            if ($sentCount < $totalCount) {
-                                usleep(self::BATCH_SLEEP_MICROSECONDS);
-                            }
-
-                            continue;
-                        }
-
-                        $this->sendFileByType($this->targetChatId, $type, (string)$file->file_id, $file->file_name);
-                        $sentCount = $sentCount + 1;
-
-                        if ($sentCount < $totalCount) {
-                            usleep(self::BATCH_SLEEP_MICROSECONDS);
+                        foreach ($chunkFiles as $file) {
+                            $this->sendFileByType(
+                                $this->targetChatId,
+                                (string)$file->file_type,
+                                (string)$file->file_id,
+                                $file->file_name
+                            );
+                            usleep(250000);
                         }
                     }
-                }, 'id');
 
-            if (!empty($mediaBuffer)) {
-                $this->sendMediaGroupBatch($this->targetChatId, $mediaBuffer);
-                $sentCount = $sentCount + count($mediaBuffer);
-                $mediaBuffer = [];
+                    if ($index < count($chunks) - 1) {
+                        usleep(self::BATCH_SLEEP_MICROSECONDS);
+                    }
+                }
+            }
+
+            /**
+             * 2) 再送 document：逐筆
+             */
+            if ($documentCount > 0) {
+                foreach ($documentFiles as $i => $file) {
+                    $this->sendFileByType(
+                        $this->targetChatId,
+                        (string)$file->file_type,
+                        (string)$file->file_id,
+                        $file->file_name
+                    );
+
+                    if ($i < $documentCount - 1) {
+                        usleep(self::BATCH_SLEEP_MICROSECONDS);
+                    }
+                }
+            }
+
+            /**
+             * 3) 其他型別：逐筆（保底）
+             */
+            if ($otherCount > 0) {
+                foreach ($otherFiles as $i => $file) {
+                    $this->sendFileByType(
+                        $this->targetChatId,
+                        (string)$file->file_type,
+                        (string)$file->file_id,
+                        $file->file_name
+                    );
+
+                    if ($i < $otherCount - 1) {
+                        usleep(self::BATCH_SLEEP_MICROSECONDS);
+                    }
+                }
             }
 
             $this->sendMessage($this->targetChatId, "已全部傳送完成 ✅");
@@ -159,18 +189,14 @@
         }
 
         /**
-         * 用 sendMediaGroup 批次傳送照片/影片（最多 10 個）
-         * 重要：這裡會檢查 Telegram 回應，失敗會寫 log，並 fallback 單張送（確保一定送得出去）
+         * sendMediaGroup 批次傳送照片/影片（最多 10 個）
+         * 回傳 true 表示 Telegram ok=true
          */
-        private function sendMediaGroupBatch(int $chatId, array $files): void
+        private function sendMediaGroupBatch(int $chatId, array $files): bool
         {
-            if (empty($files)) {
-                return;
-            }
-
             $token = (string)config('telegram.filestore_bot_token');
             if ($token === '') {
-                return;
+                return false;
             }
 
             $media = [];
@@ -198,62 +224,25 @@
             }
 
             if (empty($media)) {
-                return;
+                return true;
             }
 
-            $response = $this->postSendMediaGroupAsJson($token, $chatId, $media);
+            $response = $this->postSendMediaGroup($token, $chatId, $media);
 
             if (!$this->isTelegramOk($response)) {
-                $responseForm = $this->postSendMediaGroupAsForm($token, $chatId, $media);
-
-                if (!$this->isTelegramOk($responseForm)) {
-                    $err1 = $this->safeResponseBody($response);
-                    $err2 = $this->safeResponseBody($responseForm);
-
-                    Log::error('telegram_send_media_group_failed', [
-                        'chat_id' => $chatId,
-                        'media_count' => count($media),
-                        'json_status' => $response ? $response->status() : null,
-                        'json_body' => $err1,
-                        'form_status' => $responseForm ? $responseForm->status() : null,
-                        'form_body' => $err2,
-                    ]);
-
-                    $this->sendMessage(
-                        $chatId,
-                        "相簿批次傳送失敗，改用逐筆傳送（請看 log 查原因）。"
-                    );
-
-                    foreach ($files as $file) {
-                        $type = (string)$file->file_type;
-                        if ($type === 'photo' || $type === 'video') {
-                            $this->sendFileByType($chatId, $type, (string)$file->file_id, $file->file_name);
-                            usleep(300000);
-                        }
-                    }
-                }
-            }
-        }
-
-        private function postSendMediaGroupAsJson(string $token, int $chatId, array $media): ?Response
-        {
-            try {
-                return Http::timeout(60)
-                    ->asJson()
-                    ->post("https://api.telegram.org/bot{$token}/sendMediaGroup", [
-                        'chat_id' => $chatId,
-                        'media' => $media,
-                    ]);
-            } catch (\Throwable $e) {
-                Log::error('telegram_send_media_group_json_exception', [
+                Log::error('telegram_send_media_group_failed', [
                     'chat_id' => $chatId,
-                    'message' => $e->getMessage(),
+                    'media_count' => count($media),
+                    'status' => $response ? $response->status() : null,
+                    'body' => $response ? $response->body() : null,
                 ]);
-                return null;
+                return false;
             }
+
+            return true;
         }
 
-        private function postSendMediaGroupAsForm(string $token, int $chatId, array $media): ?Response
+        private function postSendMediaGroup(string $token, int $chatId, array $media): ?Response
         {
             try {
                 return Http::timeout(60)
@@ -263,7 +252,7 @@
                         'media' => json_encode($media, JSON_UNESCAPED_UNICODE),
                     ]);
             } catch (\Throwable $e) {
-                Log::error('telegram_send_media_group_form_exception', [
+                Log::error('telegram_send_media_group_exception', [
                     'chat_id' => $chatId,
                     'message' => $e->getMessage(),
                 ]);
@@ -287,19 +276,6 @@
             }
 
             return (bool)($json['ok'] ?? false);
-        }
-
-        private function safeResponseBody(?Response $response): ?string
-        {
-            if (!$response) {
-                return null;
-            }
-
-            try {
-                return (string)$response->body();
-            } catch (\Throwable $e) {
-                return null;
-            }
         }
 
         private function sendFileByType(int $chatId, string $fileType, string $fileId, ?string $fileName): void

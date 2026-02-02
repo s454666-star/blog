@@ -7,10 +7,12 @@
     use Illuminate\Bus\Queueable;
     use Illuminate\Contracts\Queue\ShouldQueue;
     use Illuminate\Foundation\Bus\Dispatchable;
+    use Illuminate\Http\Client\Response;
     use Illuminate\Queue\InteractsWithQueue;
     use Illuminate\Queue\SerializesModels;
     use Illuminate\Support\Facades\DB;
     use Illuminate\Support\Facades\Http;
+    use Illuminate\Support\Facades\Log;
 
     class SendFilestoreSessionFilesJob implements ShouldQueue
     {
@@ -23,12 +25,12 @@
         public int $tries = 3;
 
         /**
-         * 一次最多 10 個（Telegram sendMediaGroup 限制）
+         * Telegram sendMediaGroup 限制：最多 10 個
          */
         private const MEDIA_GROUP_BATCH_SIZE = 10;
 
         /**
-         * 每批之間等待（避免被 Telegram rate limit）
+         * 每批之間等待（避免 Telegram rate limit）
          */
         private const BATCH_SLEEP_MICROSECONDS = 1500000;
 
@@ -83,10 +85,6 @@
 
             $sentCount = 0;
 
-            /**
-             * 先送 photo/video：用 sendMediaGroup 每 10 個一組
-             * 注意：sendMediaGroup 不能混 document，所以必須先分流
-             */
             $mediaBuffer = [];
 
             TelegramFilestoreFile::query()
@@ -132,9 +130,6 @@
                     }
                 }, 'id');
 
-            /**
-             * 把剩餘不足 10 個的 photo/video 一次送出
-             */
             if (!empty($mediaBuffer)) {
                 $this->sendMediaGroupBatch($this->targetChatId, $mediaBuffer);
                 $sentCount = $sentCount + count($mediaBuffer);
@@ -164,8 +159,8 @@
         }
 
         /**
-         * 以 sendMediaGroup 批次傳送照片/影片（最多 10 個）
-         * Telegram 限制：只能 photo/video（或 audio），不能 document
+         * 用 sendMediaGroup 批次傳送照片/影片（最多 10 個）
+         * 重要：這裡會檢查 Telegram 回應，失敗會寫 log，並 fallback 單張送（確保一定送得出去）
          */
         private function sendMediaGroupBatch(int $chatId, array $files): void
         {
@@ -206,10 +201,105 @@
                 return;
             }
 
-            Http::timeout(60)->post("https://api.telegram.org/bot{$token}/sendMediaGroup", [
-                'chat_id' => $chatId,
-                'media' => json_encode($media, JSON_UNESCAPED_UNICODE),
-            ]);
+            $response = $this->postSendMediaGroupAsJson($token, $chatId, $media);
+
+            if (!$this->isTelegramOk($response)) {
+                $responseForm = $this->postSendMediaGroupAsForm($token, $chatId, $media);
+
+                if (!$this->isTelegramOk($responseForm)) {
+                    $err1 = $this->safeResponseBody($response);
+                    $err2 = $this->safeResponseBody($responseForm);
+
+                    Log::error('telegram_send_media_group_failed', [
+                        'chat_id' => $chatId,
+                        'media_count' => count($media),
+                        'json_status' => $response ? $response->status() : null,
+                        'json_body' => $err1,
+                        'form_status' => $responseForm ? $responseForm->status() : null,
+                        'form_body' => $err2,
+                    ]);
+
+                    $this->sendMessage(
+                        $chatId,
+                        "相簿批次傳送失敗，改用逐筆傳送（請看 log 查原因）。"
+                    );
+
+                    foreach ($files as $file) {
+                        $type = (string)$file->file_type;
+                        if ($type === 'photo' || $type === 'video') {
+                            $this->sendFileByType($chatId, $type, (string)$file->file_id, $file->file_name);
+                            usleep(300000);
+                        }
+                    }
+                }
+            }
+        }
+
+        private function postSendMediaGroupAsJson(string $token, int $chatId, array $media): ?Response
+        {
+            try {
+                return Http::timeout(60)
+                    ->asJson()
+                    ->post("https://api.telegram.org/bot{$token}/sendMediaGroup", [
+                        'chat_id' => $chatId,
+                        'media' => $media,
+                    ]);
+            } catch (\Throwable $e) {
+                Log::error('telegram_send_media_group_json_exception', [
+                    'chat_id' => $chatId,
+                    'message' => $e->getMessage(),
+                ]);
+                return null;
+            }
+        }
+
+        private function postSendMediaGroupAsForm(string $token, int $chatId, array $media): ?Response
+        {
+            try {
+                return Http::timeout(60)
+                    ->asForm()
+                    ->post("https://api.telegram.org/bot{$token}/sendMediaGroup", [
+                        'chat_id' => $chatId,
+                        'media' => json_encode($media, JSON_UNESCAPED_UNICODE),
+                    ]);
+            } catch (\Throwable $e) {
+                Log::error('telegram_send_media_group_form_exception', [
+                    'chat_id' => $chatId,
+                    'message' => $e->getMessage(),
+                ]);
+                return null;
+            }
+        }
+
+        private function isTelegramOk(?Response $response): bool
+        {
+            if (!$response) {
+                return false;
+            }
+
+            if (!$response->successful()) {
+                return false;
+            }
+
+            $json = $response->json();
+            if (!is_array($json)) {
+                return false;
+            }
+
+            return (bool)($json['ok'] ?? false);
+        }
+
+        private function safeResponseBody(?Response $response): ?string
+        {
+            if (!$response) {
+                return null;
+            }
+
+            try {
+                return (string)$response->body();
+            } catch (\Throwable $e) {
+                return null;
+            }
         }
 
         private function sendFileByType(int $chatId, string $fileType, string $fileId, ?string $fileName): void

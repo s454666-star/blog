@@ -133,6 +133,11 @@ class TelegramFilestoreBotController extends Controller
             return;
         }
 
+        if ($data === 'filestore_delete_open') {
+            $this->handleDeleteCommand($chatId, '/delete');
+            return;
+        }
+
         if (Str::startsWith($data, 'filestore_delete_pick:')) {
             $sessionId = (int)Str::after($data, 'filestore_delete_pick:');
             $this->askDeleteConfirm($chatId, $sessionId);
@@ -440,8 +445,13 @@ class TelegramFilestoreBotController extends Controller
             return;
         }
 
-        DB::transaction(function () use ($session) {
-            $token = $this->generateUniquePublicToken();
+        $counts = $this->countFilesByType((int)$session->id);
+        $videoCount = (int)($counts['video'] ?? 0);
+        $photoCount = (int)($counts['photo'] ?? 0);
+        $docCount = (int)($counts['document'] ?? 0) + (int)($counts['other'] ?? 0);
+
+        DB::transaction(function () use ($session, $videoCount, $photoCount, $docCount) {
+            $token = $this->generateUniquePublicTokenWithCounts($videoCount, $photoCount, $docCount);
 
             $session->public_token = $token;
             $session->encrypt_token = $this->hashForDb($token);
@@ -458,6 +468,49 @@ class TelegramFilestoreBotController extends Controller
             null,
             'HTML'
         );
+    }
+
+    private function countFilesByType(int $sessionId): array
+    {
+        $rows = TelegramFilestoreFile::query()
+                                     ->select('file_type', DB::raw('COUNT(*) as total'))
+                                     ->where('session_id', $sessionId)
+                                     ->groupBy('file_type')
+                                     ->get();
+
+        $result = [
+            'photo' => 0,
+            'video' => 0,
+            'document' => 0,
+            'other' => 0,
+        ];
+
+        foreach ($rows as $row) {
+            $type = (string)($row->file_type ?? '');
+            $total = (int)($row->total ?? 0);
+
+            if ($type === 'photo') {
+                $result['photo'] = $total;
+                continue;
+            }
+
+            if ($type === 'video') {
+                $result['video'] = $total;
+                continue;
+            }
+
+            if ($type === 'document') {
+                $result['document'] = $total;
+                continue;
+            }
+
+            if ($type === 'other') {
+                $result['other'] = $total;
+                continue;
+            }
+        }
+
+        return $result;
     }
 
     private function sendSessionFilesByToken(int $chatId, string $publicToken): void
@@ -636,6 +689,38 @@ class TelegramFilestoreBotController extends Controller
     private function isPublicToken(string $text): bool
     {
         return Str::startsWith($text, self::TOKEN_PREFIX) && strlen($text) > strlen(self::TOKEN_PREFIX);
+    }
+
+    private function generateUniquePublicTokenWithCounts(int $videoCount, int $photoCount, int $documentCount): string
+    {
+        $segments = [];
+
+        if ($videoCount > 0) {
+            $segments[] = (string)$videoCount . 'V';
+        }
+
+        if ($photoCount > 0) {
+            $segments[] = (string)$photoCount . 'P';
+        }
+
+        if ($documentCount > 0) {
+            $segments[] = (string)$documentCount . 'D';
+        }
+
+        if (empty($segments)) {
+            $segments[] = '0D';
+        }
+
+        do {
+            $random = Str::lower(Str::random(18));
+            $token = self::TOKEN_PREFIX . implode('_', $segments) . '_' . $random;
+
+            $exists = TelegramFilestoreSession::query()
+                                              ->where('public_token', $token)
+                                              ->exists();
+        } while ($exists);
+
+        return $token;
     }
 
     private function generateUniquePublicToken(): string

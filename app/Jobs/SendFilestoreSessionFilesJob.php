@@ -32,7 +32,7 @@
         /**
          * 每批之間等待（避免 Telegram rate limit）
          */
-        private const BATCH_SLEEP_MICROSECONDS = 1200000;
+        private const BATCH_SLEEP_MICROSECONDS = 2500000;
 
         public function __construct(int $sessionId, int $targetChatId)
         {

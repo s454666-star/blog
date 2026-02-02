@@ -15,6 +15,9 @@ class TelegramFilestoreBotController extends Controller
 {
     private const TOKEN_PREFIX = 'filestoebot_';
 
+    private const MYFILES_PAGE_SIZE = 10;
+    private const MYFILES_MAX_PAGES_SHOWN = 7;
+
     public function webhook(Request $request)
     {
         $update = $request->all();
@@ -50,7 +53,7 @@ class TelegramFilestoreBotController extends Controller
             }
 
             if ($text === '/myfiles') {
-                $this->handleMyFilesCommand($chatId);
+                $this->handleMyFilesCommand($chatId, 1);
                 return response()->json(['ok' => true]);
             }
 
@@ -146,24 +149,56 @@ class TelegramFilestoreBotController extends Controller
             $this->sendMessage($chatId, "已取消刪除。");
             return;
         }
+
+        if (Str::startsWith($data, 'filestore_myfiles_page:')) {
+            $page = (int)Str::after($data, 'filestore_myfiles_page:');
+            if ($page <= 0) {
+                $page = 1;
+            }
+            $this->handleMyFilesCommand($chatId, $page);
+            return;
+        }
+
+        if ($data === 'filestore_myfiles_refresh') {
+            $this->handleMyFilesCommand($chatId, 1);
+            return;
+        }
     }
 
-    private function handleMyFilesCommand(int $chatId): void
+    private function handleMyFilesCommand(int $chatId, int $page): void
     {
-        $sessions = TelegramFilestoreSession::query()
-                                            ->where('chat_id', $chatId)
-                                            ->where('status', 'closed')
-                                            ->orderByDesc('id')
-                                            ->limit(30)
-                                            ->get();
+        if ($page <= 0) {
+            $page = 1;
+        }
 
-        if ($sessions->isEmpty()) {
+        $baseQuery = TelegramFilestoreSession::query()
+                                             ->where('chat_id', $chatId)
+                                             ->where('status', 'closed');
+
+        $total = (int)(clone $baseQuery)->count();
+
+        if ($total <= 0) {
             $this->sendMessage($chatId, "你目前沒有已結束上傳的檔案。");
             return;
         }
 
+        $pageSize = self::MYFILES_PAGE_SIZE;
+        $totalPages = (int)max(1, (int)ceil($total / $pageSize));
+
+        if ($page > $totalPages) {
+            $page = $totalPages;
+        }
+
+        $offset = ($page - 1) * $pageSize;
+
+        $sessions = (clone $baseQuery)
+            ->orderByDesc('id')
+            ->offset($offset)
+            ->limit($pageSize)
+            ->get();
+
         $lines = [];
-        $lines[] = "你的檔案清單（最多顯示 30 筆）：";
+        $lines[] = "你的檔案清單（第 {$page} / {$totalPages} 頁，每頁 {$pageSize} 筆，共 {$total} 筆）：";
         $lines[] = "";
 
         foreach ($sessions as $s) {
@@ -179,8 +214,65 @@ class TelegramFilestoreBotController extends Controller
             $lines[] = "";
         }
 
+        $keyboard = $this->buildMyFilesPaginationKeyboard($page, $totalPages);
+
         $this->sendLongMessage($chatId, implode("\n", $lines));
-        $this->sendMessage($chatId, "你也可以用 /delete 來刪除你上傳的檔案。");
+        $this->sendMessage(
+            $chatId,
+            "請選擇頁次：",
+            ['inline_keyboard' => $keyboard]
+        );
+    }
+
+    private function buildMyFilesPaginationKeyboard(int $page, int $totalPages): array
+    {
+        $keyboard = [];
+
+        $navRow = [];
+        if ($page > 1) {
+            $navRow[] = ['text' => '上一頁', 'callback_data' => 'filestore_myfiles_page:' . ($page - 1)];
+        }
+        if ($page < $totalPages) {
+            $navRow[] = ['text' => '下一頁', 'callback_data' => 'filestore_myfiles_page:' . ($page + 1)];
+        }
+        if (!empty($navRow)) {
+            $keyboard[] = $navRow;
+        }
+
+        $start = max(1, $page - (int)floor(self::MYFILES_MAX_PAGES_SHOWN / 2));
+        $end = $start + self::MYFILES_MAX_PAGES_SHOWN - 1;
+        if ($end > $totalPages) {
+            $end = $totalPages;
+            $start = max(1, $end - self::MYFILES_MAX_PAGES_SHOWN + 1);
+        }
+
+        $pageRow = [];
+        for ($p = $start; $p <= $end; $p++) {
+            $label = (string)$p;
+            if ($p === $page) {
+                $label = '•' . $label . '•';
+            }
+
+            $pageRow[] = [
+                'text' => $label,
+                'callback_data' => 'filestore_myfiles_page:' . $p,
+            ];
+
+            if (count($pageRow) >= 5) {
+                $keyboard[] = $pageRow;
+                $pageRow = [];
+            }
+        }
+        if (!empty($pageRow)) {
+            $keyboard[] = $pageRow;
+        }
+
+        $utilRow = [];
+        $utilRow[] = ['text' => '重新整理', 'callback_data' => 'filestore_myfiles_refresh'];
+        $utilRow[] = ['text' => '刪除檔案', 'callback_data' => 'filestore_delete_open'];
+        $keyboard[] = $utilRow;
+
+        return $keyboard;
     }
 
     private function handleDeleteCommand(int $chatId, string $text): void

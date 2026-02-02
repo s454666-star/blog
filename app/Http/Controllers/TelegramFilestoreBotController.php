@@ -18,6 +18,12 @@ class TelegramFilestoreBotController extends Controller
     private const MYFILES_PAGE_SIZE = 10;
     private const MYFILES_MAX_PAGES_SHOWN = 7;
 
+    /**
+     * 避免短時間內重複送出「是否結束上傳？」的去重視窗（秒）
+     * 例如：連續收到多個檔案訊息 / webhook 重送 / 併發，都只會在這段時間內送一次。
+     */
+    private const CLOSE_UPLOAD_PROMPT_DEDUP_SECONDS = 30;
+
     public function webhook(Request $request)
     {
         $update = $request->all();
@@ -103,9 +109,16 @@ class TelegramFilestoreBotController extends Controller
                 $session->total_size = (int)$session->total_size + (int)($filePayload['file_size'] ?? 0);
                 $session->save();
             }
-        });
 
-        $this->askCloseUpload($chatId);
+            /**
+             * 修正重點：把「是否結束上傳？」提示也放進 transaction，
+             * 利用資料列鎖避免併發 / webhook 重送導致的重複訊息。
+             */
+            $shouldAsk = $this->markCloseUploadPromptIfAllowed($session);
+            if ($shouldAsk) {
+                $this->askCloseUpload($chatId);
+            }
+        });
 
         return response()->json(['ok' => true]);
     }
@@ -457,6 +470,12 @@ class TelegramFilestoreBotController extends Controller
             $session->encrypt_token = $this->hashForDb($token);
             $session->status = 'closed';
             $session->closed_at = now();
+
+            /**
+             * 重要：一旦已結束上傳，後續就不需要再顯示「是否結束上傳？」提示去重旗標
+             */
+            $session->close_upload_prompted_at = null;
+
             $session->save();
         });
 
@@ -830,5 +849,46 @@ class TelegramFilestoreBotController extends Controller
         }
 
         return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.') . ' ' . $units[$i];
+    }
+
+    /**
+     * 修正重點：提示去重
+     *
+     * 需求：不要出現多次「是否結束上傳？」
+     * 作法：在 uploading session 上記錄 close_upload_prompted_at
+     * - 若為空或已超過去重秒數，更新為 now 並回傳 true（允許發送提示）
+     * - 若在去重視窗內，回傳 false（不再發送）
+     *
+     * 注意：這段會在 transaction 中執行，且上層已拿到 session，
+     * 這裡再用 lockForUpdate 把同一筆 uploading session 鎖住，避免併發重複發。
+     */
+    private function markCloseUploadPromptIfAllowed(TelegramFilestoreSession $session): bool
+    {
+        $fresh = TelegramFilestoreSession::query()
+                                         ->where('id', $session->id)
+                                         ->lockForUpdate()
+                                         ->first();
+
+        if (!$fresh) {
+            return false;
+        }
+
+        if ((string)$fresh->status !== 'uploading') {
+            return false;
+        }
+
+        $lastAt = $fresh->close_upload_prompted_at;
+
+        if ($lastAt) {
+            $diffSeconds = now()->diffInSeconds($lastAt);
+            if ($diffSeconds < self::CLOSE_UPLOAD_PROMPT_DEDUP_SECONDS) {
+                return false;
+            }
+        }
+
+        $fresh->close_upload_prompted_at = now();
+        $fresh->save();
+
+        return true;
     }
 }

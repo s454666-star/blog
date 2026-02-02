@@ -6,6 +6,7 @@
     use App\Models\TelegramFilestoreFile;
     use App\Models\TelegramFilestoreSession;
     use Illuminate\Http\Request;
+    use Illuminate\Support\Facades\Cache;
     use Illuminate\Support\Facades\DB;
     use Illuminate\Support\Facades\Http;
     use Illuminate\Support\Facades\Log;
@@ -29,6 +30,12 @@
          */
         private const DELETE_PAGE_SIZE = 10;
         private const DELETE_MAX_PAGES_SHOWN = 7;
+
+        /**
+         * close upload 提示訊息 message_id 的 cache TTL（分鐘）
+         * 不用太精準，主要是讓 editMessageText 能找到同一則提示訊息
+         */
+        private const CLOSE_UPLOAD_PROMPT_MESSAGE_CACHE_MINUTES = 180;
 
         public function webhook(Request $request)
         {
@@ -117,13 +124,16 @@
                 }
 
                 /**
-                 * 修正重點：把「是否結束上傳？」提示也放進 transaction，
-                 * 利用資料列鎖避免併發 / webhook 重送導致的重複訊息。
+                 * 提示去重：只送一次
+                 * 但後續每次上傳都會更新同一則提示訊息（editMessageText），確保數量正確。
                  */
                 $shouldAsk = $this->markCloseUploadPromptIfAllowed($session);
                 if ($shouldAsk) {
                     $this->askCloseUploadWithCounts($chatId, (int)$session->id);
+                    return;
                 }
+
+                $this->updateCloseUploadPromptMessageIfExists($chatId, (int)$session->id);
             });
 
             return response()->json(['ok' => true]);
@@ -240,11 +250,6 @@
                 ->limit($pageSize)
                 ->get();
 
-            /**
-             * 用 HTML + <code> 包住 token，Telegram 會提供點擊複製的 UI
-             * - sendLongMessage(..., 'HTML') 讓整段以 HTML parse
-             * - 內容中所有動態字串做 HTML escape，避免破版
-             */
             $lines = [];
             $lines[] = $this->escapeHtml("你的檔案清單（第 {$page} / {$totalPages} 頁，每頁 {$pageSize} 筆，共 {$total} 筆）：");
             $lines[] = "";
@@ -593,13 +598,12 @@
                 $session->status = 'closed';
                 $session->closed_at = now();
 
-                /**
-                 * 重要：一旦已結束上傳，後續就不需要再顯示「是否結束上傳？」提示去重旗標
-                 */
                 $session->close_upload_prompted_at = null;
 
                 $session->save();
             });
+
+            $this->forgetCloseUploadPromptMessageId((int)$session->id);
 
             $tokenText = (string)$session->public_token;
 
@@ -635,6 +639,8 @@
 
                 $session->delete();
             });
+
+            $this->forgetCloseUploadPromptMessageId((int)$session->id);
 
             $this->sendMessage($chatId, "已取消本次上傳 ✅\n已移除 {$fileCount} 個檔案。");
         }
@@ -732,7 +738,7 @@
             SendFilestoreSessionFilesJob::dispatch((int)$session->id, $chatId);
         }
 
-        private function askCloseUploadWithCounts(int $chatId, int $sessionId): void
+        private function buildCloseUploadPromptText(int $sessionId): string
         {
             $counts = $this->countFilesByType($sessionId);
 
@@ -751,26 +757,56 @@
                 $lines[] = "檔案：{$doc}";
             }
 
-            $prefix = '';
             if (!empty($lines)) {
-                $prefix = implode('　', $lines) . "\n";
+                return implode('　', $lines) . "\n是否結束上傳？";
             }
 
-            $this->sendMessage(
-                $chatId,
-                $prefix . "是否結束上傳？",
-                [
-                    'inline_keyboard' => [
-                        [
-                            ['text' => '結束上傳', 'callback_data' => 'filestore_close_upload'],
-                            ['text' => '繼續上傳', 'callback_data' => 'filestore_continue_upload'],
-                        ],
-                        [
-                            ['text' => '取消本次上傳', 'callback_data' => 'filestore_cancel_upload'],
-                        ],
+            return "是否結束上傳？";
+        }
+
+        private function buildCloseUploadPromptKeyboard(): array
+        {
+            return [
+                'inline_keyboard' => [
+                    [
+                        ['text' => '結束上傳', 'callback_data' => 'filestore_close_upload'],
+                        ['text' => '繼續上傳', 'callback_data' => 'filestore_continue_upload'],
                     ],
-                ]
-            );
+                    [
+                        ['text' => '取消本次上傳', 'callback_data' => 'filestore_cancel_upload'],
+                    ],
+                ],
+            ];
+        }
+
+        private function askCloseUploadWithCounts(int $chatId, int $sessionId): void
+        {
+            $text = $this->buildCloseUploadPromptText($sessionId);
+            $keyboard = $this->buildCloseUploadPromptKeyboard();
+
+            $sentMessageId = $this->sendMessageReturningMessageId($chatId, $text, $keyboard, null);
+            if ($sentMessageId !== null) {
+                $this->rememberCloseUploadPromptMessageId($sessionId, $sentMessageId);
+            }
+        }
+
+        /**
+         * 修正 bug 核心：同一則提示訊息只送一次，但後續每次都更新其內容，讓數量永遠正確。
+         */
+        private function updateCloseUploadPromptMessageIfExists(int $chatId, int $sessionId): void
+        {
+            $messageId = $this->getCloseUploadPromptMessageId($sessionId);
+            if ($messageId === null) {
+                return;
+            }
+
+            $text = $this->buildCloseUploadPromptText($sessionId);
+            $keyboard = $this->buildCloseUploadPromptKeyboard();
+
+            $ok = $this->editMessageText($chatId, $messageId, $text, $keyboard, null);
+            if (!$ok) {
+                $this->forgetCloseUploadPromptMessageId($sessionId);
+            }
         }
 
         private function extractTelegramFilePayload(array $message): ?array
@@ -972,13 +1008,69 @@
             Http::timeout(30)->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
         }
 
+        private function sendMessageReturningMessageId(int $chatId, string $text, ?array $replyMarkup = null, ?string $parseMode = null): ?int
+        {
+            $token = (string)config('telegram.filestore_bot_token');
+            if ($token === '') {
+                return null;
+            }
+
+            $payload = [
+                'chat_id' => $chatId,
+                'text' => $text,
+            ];
+
+            if ($replyMarkup !== null) {
+                $payload['reply_markup'] = $replyMarkup;
+            }
+
+            if ($parseMode !== null && $parseMode !== '') {
+                $payload['parse_mode'] = $parseMode;
+                $payload['disable_web_page_preview'] = true;
+            }
+
+            $resp = Http::timeout(30)->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
+            if (!$resp->ok()) {
+                return null;
+            }
+
+            $messageId = $resp->json('result.message_id');
+            if ($messageId === null) {
+                return null;
+            }
+
+            return (int)$messageId;
+        }
+
+        private function editMessageText(int $chatId, int $messageId, string $text, ?array $replyMarkup = null, ?string $parseMode = null): bool
+        {
+            $token = (string)config('telegram.filestore_bot_token');
+            if ($token === '') {
+                return false;
+            }
+
+            $payload = [
+                'chat_id' => $chatId,
+                'message_id' => $messageId,
+                'text' => $text,
+            ];
+
+            if ($replyMarkup !== null) {
+                $payload['reply_markup'] = $replyMarkup;
+            }
+
+            if ($parseMode !== null && $parseMode !== '') {
+                $payload['parse_mode'] = $parseMode;
+                $payload['disable_web_page_preview'] = true;
+            }
+
+            $resp = Http::timeout(30)->post("https://api.telegram.org/bot{$token}/editMessageText", $payload);
+
+            return $resp->ok();
+        }
+
         private function sendLongMessage(int $chatId, string $text, ?string $parseMode = null): void
         {
-            /**
-             * HTML 模式下，<code> 會讓 token 可點擊複製。
-             * 這裡用 splitByUtf8Bytes 分段，但要避免把 <code>...</code> 切斷。
-             * 目前 token 長度很短，不太會跨段；仍保留保險：若 parseMode=HTML，改用較保守的 maxBytes。
-             */
             $maxBytes = 3800;
             if ($parseMode !== null && strtoupper($parseMode) === 'HTML') {
                 $maxBytes = 3000;
@@ -1036,9 +1128,6 @@
             return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.') . ' ' . $units[$i];
         }
 
-        /**
-         * HTML escape（Telegram HTML parse_mode 需要）
-         */
         private function escapeHtml(string $text): string
         {
             return str_replace(
@@ -1048,17 +1137,35 @@
             );
         }
 
-        /**
-         * 修正重點：提示去重
-         *
-         * 需求：不要出現多次「是否結束上傳？」
-         * 作法：在 uploading session 上記錄 close_upload_prompted_at
-         * - 若為空或已超過去重秒數，更新為 now 並回傳 true（允許發送提示）
-         * - 若在去重視窗內，回傳 false（不再發送）
-         *
-         * 注意：這段會在 transaction 中執行，且上層已拿到 session，
-         * 這裡再用 lockForUpdate 把同一筆 uploading session 鎖住，避免併發重複發。
-         */
+        private function getCloseUploadPromptMessageCacheKey(int $sessionId): string
+        {
+            return 'filestore_close_upload_prompt_message_id_' . $sessionId;
+        }
+
+        private function rememberCloseUploadPromptMessageId(int $sessionId, int $messageId): void
+        {
+            $key = $this->getCloseUploadPromptMessageCacheKey($sessionId);
+            Cache::put($key, $messageId, now()->addMinutes(self::CLOSE_UPLOAD_PROMPT_MESSAGE_CACHE_MINUTES));
+        }
+
+        private function getCloseUploadPromptMessageId(int $sessionId): ?int
+        {
+            $key = $this->getCloseUploadPromptMessageCacheKey($sessionId);
+            $value = Cache::get($key);
+
+            if ($value === null) {
+                return null;
+            }
+
+            return (int)$value;
+        }
+
+        private function forgetCloseUploadPromptMessageId(int $sessionId): void
+        {
+            $key = $this->getCloseUploadPromptMessageCacheKey($sessionId);
+            Cache::forget($key);
+        }
+
         private function markCloseUploadPromptIfAllowed(TelegramFilestoreSession $session): bool
         {
             $fresh = TelegramFilestoreSession::query()

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendFilestoreSessionFilesJob;
 use App\Models\TelegramFilestoreFile;
 use App\Models\TelegramFilestoreSession;
 use Illuminate\Http\Request;
@@ -375,33 +376,44 @@ class TelegramFilestoreBotController extends Controller
             return;
         }
 
-        $files = TelegramFilestoreFile::query()
-                                      ->where('session_id', $session->id)
-                                      ->orderBy('id')
-                                      ->get();
+        $locked = false;
 
-        if ($files->isEmpty()) {
-            $this->sendMessage($chatId, "這個代碼沒有任何檔案。");
+        DB::transaction(function () use ($session, &$locked) {
+            $fresh = TelegramFilestoreSession::query()
+                                             ->where('id', $session->id)
+                                             ->lockForUpdate()
+                                             ->first();
+
+            if (!$fresh) {
+                $locked = false;
+                return;
+            }
+
+            if ((int)$fresh->is_sending === 1) {
+                $locked = false;
+                return;
+            }
+
+            $fresh->is_sending = 1;
+            $fresh->sending_started_at = now();
+            $fresh->sending_finished_at = null;
+            $fresh->share_count = (int)$fresh->share_count + 1;
+            $fresh->last_shared_at = now();
+            $fresh->save();
+
+            $locked = true;
+        });
+
+        if (!$locked) {
+            $this->sendMessage($chatId, "正在傳送中，請稍候…");
             return;
         }
 
-        DB::transaction(function () use ($session) {
-            $session->share_count = (int)$session->share_count + 1;
-            $session->last_shared_at = now();
-            $session->save();
-        });
+        $this->sendMessage($chatId, "已加入傳送佇列，準備開始傳送…");
 
-        $this->sendMessage(
-            $chatId,
-            "正在傳送檔案（共 {$files->count()} 個）…"
-        );
-
-        foreach ($files as $file) {
-            $this->sendFileByType($chatId, $file->file_type, $file->file_id, $file->file_name);
-        }
-
-        $this->sendMessage($chatId, "已全部傳送完成 ✅");
+        SendFilestoreSessionFilesJob::dispatch((int)$session->id, $chatId);
     }
+
 
     private function askCloseUpload(int $chatId): void
     {

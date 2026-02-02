@@ -140,16 +140,28 @@ class SendFilestoreSessionFilesJob implements ShouldQueue
         ]);
     }
 
-    private function sendMessage(int $chatId, string $text): void
+    private function sendMessage(int $chatId, string $text, ?array $replyMarkup = null, ?string $parseMode = null): void
     {
         $token = (string)config('telegram.filestore_bot_token');
         if ($token === '') {
             return;
         }
 
-        Http::post("https://api.telegram.org/bot{$token}/sendMessage", [
+        $payload = [
             'chat_id' => $chatId,
             'text' => $text,
-        ]);
+        ];
+
+        if ($replyMarkup !== null) {
+            $payload['reply_markup'] = $replyMarkup;
+        }
+
+        if ($parseMode !== null && $parseMode !== '') {
+            $payload['parse_mode'] = $parseMode;
+            $payload['disable_web_page_preview'] = true;
+        }
+
+        Http::post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
     }
+
 }

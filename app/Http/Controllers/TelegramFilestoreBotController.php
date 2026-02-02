@@ -360,7 +360,9 @@ class TelegramFilestoreBotController extends Controller
 
         $this->sendMessage(
             $chatId,
-            "已結束上傳 ✅\n\n分享代碼：\n{$session->public_token}\n\n任何人把這段代碼貼給我，就可以取得你上傳的檔案。\n\n你也可以用 /myfiles 查詢、用 /delete 刪除。"
+            "已結束上傳 ✅\n\n分享代碼：\n<code>{$session->public_token}</code>\n\n任何人把這段代碼貼給我，就可以取得你上傳的檔案。\n\n你也可以用 /myfiles 查詢、用 /delete 刪除。",
+            null,
+            'HTML'
         );
     }
 

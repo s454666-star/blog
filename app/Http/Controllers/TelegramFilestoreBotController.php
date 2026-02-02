@@ -17,16 +17,13 @@ class TelegramFilestoreBotController extends Controller
     public function webhook(Request $request)
     {
         $update = $request->all();
-
         Log::info('telegram_filestore_update', $update);
 
-        // 1) 處理 callback_query（按鈕）
         if (!empty($update['callback_query'])) {
             $this->handleCallback($update['callback_query']);
             return response()->json(['ok' => true]);
         }
 
-        // 2) 僅處理 message
         if (!isset($update['message'])) {
             return response()->json(['ok' => true]);
         }
@@ -40,15 +37,24 @@ class TelegramFilestoreBotController extends Controller
             return response()->json(['ok' => true]);
         }
 
-        // 3) 文字訊息：/start 或 token
         if (isset($message['text'])) {
             $text = trim((string)$message['text']);
 
             if ($text === '/start') {
                 $this->sendMessage(
                     $chatId,
-                    "Filestore Bot 已啟動\n\n請直接傳送圖片、影片或檔案。\n上傳完成後按「結束上傳」即可產生分享代碼。"
+                    "Filestore Bot 已啟動\n\n請直接傳送圖片、影片或檔案。\n上傳完成後按「結束上傳」即可產生分享代碼。\n\n指令：\n/myfiles 查詢我的檔案\n/delete 刪除我上傳的檔案"
                 );
+                return response()->json(['ok' => true]);
+            }
+
+            if ($text === '/myfiles') {
+                $this->handleMyFilesCommand($chatId);
+                return response()->json(['ok' => true]);
+            }
+
+            if (Str::startsWith($text, '/delete')) {
+                $this->handleDeleteCommand($chatId, $text);
                 return response()->json(['ok' => true]);
             }
 
@@ -57,11 +63,9 @@ class TelegramFilestoreBotController extends Controller
                 return response()->json(['ok' => true]);
             }
 
-            // 其他文字不回覆（避免干擾）
             return response()->json(['ok' => true]);
         }
 
-        // 4) 檔案類訊息：photo/document/video
         $filePayload = $this->extractTelegramFilePayload($message);
 
         if ($filePayload === null) {
@@ -97,7 +101,6 @@ class TelegramFilestoreBotController extends Controller
             }
         });
 
-        // 不回「已收到圖片/影片」等文字，只顯示結束按鈕
         $this->askCloseUpload($chatId);
 
         return response()->json(['ok' => true]);
@@ -123,9 +126,172 @@ class TelegramFilestoreBotController extends Controller
         }
 
         if ($data === 'filestore_continue_upload') {
-            // 使用者選擇繼續，不多回話（避免噪音）
             return;
         }
+
+        if (Str::startsWith($data, 'filestore_delete_pick:')) {
+            $sessionId = (int)Str::after($data, 'filestore_delete_pick:');
+            $this->askDeleteConfirm($chatId, $sessionId);
+            return;
+        }
+
+        if (Str::startsWith($data, 'filestore_delete_confirm:')) {
+            $sessionId = (int)Str::after($data, 'filestore_delete_confirm:');
+            $this->deleteSessionOwnedByChat($chatId, $sessionId);
+            return;
+        }
+
+        if (Str::startsWith($data, 'filestore_delete_cancel:')) {
+            $this->sendMessage($chatId, "已取消刪除。");
+            return;
+        }
+    }
+
+    private function handleMyFilesCommand(int $chatId): void
+    {
+        $sessions = TelegramFilestoreSession::query()
+                                            ->where('chat_id', $chatId)
+                                            ->where('status', 'closed')
+                                            ->orderByDesc('id')
+                                            ->limit(30)
+                                            ->get();
+
+        if ($sessions->isEmpty()) {
+            $this->sendMessage($chatId, "你目前沒有已結束上傳的檔案。");
+            return;
+        }
+
+        $lines = [];
+        $lines[] = "你的檔案清單（最多顯示 30 筆）：";
+        $lines[] = "";
+
+        foreach ($sessions as $s) {
+            $token = $s->public_token ?? '(無 token)';
+            $files = (int)$s->total_files;
+            $size = $this->formatBytes((int)$s->total_size);
+            $shareCount = (int)$s->share_count;
+            $lastShared = $s->last_shared_at ? (string)$s->last_shared_at : '無';
+
+            $lines[] = "代碼：{$token}";
+            $lines[] = "檔案數：{$files}　總大小：{$size}";
+            $lines[] = "被分享：{$shareCount} 次　上次分享：{$lastShared}";
+            $lines[] = "";
+        }
+
+        $this->sendLongMessage($chatId, implode("\n", $lines));
+        $this->sendMessage($chatId, "你也可以用 /delete 來刪除你上傳的檔案。");
+    }
+
+    private function handleDeleteCommand(int $chatId, string $text): void
+    {
+        $parts = preg_split('/\s+/', trim($text));
+        $token = $parts[1] ?? null;
+
+        if ($token !== null && $token !== '') {
+            if (!$this->isPublicToken($token)) {
+                $this->sendMessage($chatId, "格式不正確，請輸入 /delete filestoebot_xxx");
+                return;
+            }
+
+            $session = TelegramFilestoreSession::query()
+                                               ->where('public_token', $token)
+                                               ->where('chat_id', $chatId)
+                                               ->where('status', 'closed')
+                                               ->first();
+
+            if (!$session) {
+                $this->sendMessage($chatId, "找不到你可刪除的代碼（只能刪除你自己上傳的）。");
+                return;
+            }
+
+            $this->askDeleteConfirm($chatId, (int)$session->id);
+            return;
+        }
+
+        $sessions = TelegramFilestoreSession::query()
+                                            ->where('chat_id', $chatId)
+                                            ->where('status', 'closed')
+                                            ->orderByDesc('id')
+                                            ->limit(20)
+                                            ->get();
+
+        if ($sessions->isEmpty()) {
+            $this->sendMessage($chatId, "你目前沒有可刪除的檔案。");
+            return;
+        }
+
+        $keyboard = [];
+        foreach ($sessions as $s) {
+            $tokenText = $s->public_token ?? ('session_' . $s->id);
+            $keyboard[] = [
+                ['text' => '刪除 ' . $tokenText, 'callback_data' => 'filestore_delete_pick:' . $s->id],
+            ];
+        }
+
+        $this->sendMessage(
+            $chatId,
+            "請選擇要刪除的分享代碼：",
+            ['inline_keyboard' => $keyboard]
+        );
+    }
+
+    private function askDeleteConfirm(int $chatId, int $sessionId): void
+    {
+        $session = TelegramFilestoreSession::query()
+                                           ->where('id', $sessionId)
+                                           ->first();
+
+        if (!$session) {
+            $this->sendMessage($chatId, "找不到該筆資料。");
+            return;
+        }
+
+        if ((int)$session->chat_id !== $chatId) {
+            $this->sendMessage($chatId, "你只能刪除你自己上傳的檔案。");
+            return;
+        }
+
+        $token = $session->public_token ?? '(無 token)';
+        $count = (int)$session->total_files;
+        $size = $this->formatBytes((int)$session->total_size);
+
+        $this->sendMessage(
+            $chatId,
+            "確定要刪除？\n\n代碼：{$token}\n檔案數：{$count}\n總大小：{$size}\n\n刪除後代碼將失效，其他人也無法再取檔。",
+            [
+                'inline_keyboard' => [
+                    [
+                        ['text' => '確認刪除', 'callback_data' => 'filestore_delete_confirm:' . $sessionId],
+                        ['text' => '取消', 'callback_data' => 'filestore_delete_cancel:' . $sessionId],
+                    ],
+                ],
+            ]
+        );
+    }
+
+    private function deleteSessionOwnedByChat(int $chatId, int $sessionId): void
+    {
+        $session = TelegramFilestoreSession::query()
+                                           ->where('id', $sessionId)
+                                           ->first();
+
+        if (!$session) {
+            $this->sendMessage($chatId, "找不到該筆資料。");
+            return;
+        }
+
+        if ((int)$session->chat_id !== $chatId) {
+            $this->sendMessage($chatId, "你只能刪除你自己上傳的檔案。");
+            return;
+        }
+
+        $token = $session->public_token ?? '(無 token)';
+
+        DB::transaction(function () use ($session) {
+            $session->delete();
+        });
+
+        $this->sendMessage($chatId, "已刪除 ✅\n代碼：{$token}\n此代碼已失效。");
     }
 
     private function getOrCreateUploadingSession(int $chatId, ?string $username): TelegramFilestoreSession
@@ -152,8 +318,10 @@ class TelegramFilestoreBotController extends Controller
                                                              'status' => 'uploading',
                                                              'total_files' => 0,
                                                              'total_size' => 0,
+                                                             'share_count' => 0,
                                                              'created_at' => now(),
                                                              'closed_at' => null,
+                                                             'last_shared_at' => null,
                                                          ]);
     }
 
@@ -191,7 +359,7 @@ class TelegramFilestoreBotController extends Controller
 
         $this->sendMessage(
             $chatId,
-            "已結束上傳 ✅\n\n分享代碼：\n{$session->public_token}\n\n任何人把這段代碼貼給我，就可以取得你上傳的檔案。"
+            "已結束上傳 ✅\n\n分享代碼：\n{$session->public_token}\n\n任何人把這段代碼貼給我，就可以取得你上傳的檔案。\n\n你也可以用 /myfiles 查詢、用 /delete 刪除。"
         );
     }
 
@@ -216,6 +384,12 @@ class TelegramFilestoreBotController extends Controller
             $this->sendMessage($chatId, "這個代碼沒有任何檔案。");
             return;
         }
+
+        DB::transaction(function () use ($session) {
+            $session->share_count = (int)$session->share_count + 1;
+            $session->last_shared_at = now();
+            $session->save();
+        });
 
         $this->sendMessage(
             $chatId,
@@ -403,5 +577,59 @@ class TelegramFilestoreBotController extends Controller
         }
 
         Http::post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
+    }
+
+    private function sendLongMessage(int $chatId, string $text): void
+    {
+        $chunks = $this->splitByUtf8Bytes($text, 3800);
+        foreach ($chunks as $chunk) {
+            $this->sendMessage($chatId, $chunk);
+        }
+    }
+
+    private function splitByUtf8Bytes(string $text, int $maxBytes): array
+    {
+        $result = [];
+        $current = '';
+
+        $len = mb_strlen($text, 'UTF-8');
+        for ($i = 0; $i < $len; $i++) {
+            $char = mb_substr($text, $i, 1, 'UTF-8');
+            $candidate = $current . $char;
+
+            if (strlen($candidate) > $maxBytes) {
+                if ($current !== '') {
+                    $result[] = $current;
+                }
+                $current = $char;
+                continue;
+            }
+
+            $current = $candidate;
+        }
+
+        if ($current !== '') {
+            $result[] = $current;
+        }
+
+        return $result;
+    }
+
+    private function formatBytes(int $bytes): string
+    {
+        if ($bytes <= 0) {
+            return '0 B';
+        }
+
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $i = 0;
+        $value = (float)$bytes;
+
+        while ($value >= 1024 && $i < count($units) - 1) {
+            $value /= 1024;
+            $i++;
+        }
+
+        return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.') . ' ' . $units[$i];
     }
 }

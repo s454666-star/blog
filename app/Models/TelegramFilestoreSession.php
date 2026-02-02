@@ -19,14 +19,17 @@ class TelegramFilestoreSession extends Model
         'status',
         'total_files',
         'total_size',
+        'share_count',
         'created_at',
         'closed_at',
+        'last_shared_at',
     ];
 
     protected $casts = [
         'chat_id' => 'integer',
         'total_files' => 'integer',
         'total_size' => 'integer',
+        'share_count' => 'integer',
     ];
 
     public function files(): HasMany

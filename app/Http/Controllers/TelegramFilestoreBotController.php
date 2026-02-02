@@ -215,26 +215,33 @@ class TelegramFilestoreBotController extends Controller
             ->limit($pageSize)
             ->get();
 
+        /**
+         * ✅ 修正重點：用 HTML + <code> 包住 token，Telegram 會提供點擊複製的 UI
+         * - sendLongMessage(..., 'HTML') 讓整段以 HTML parse
+         * - 內容中所有動態字串做 HTML escape，避免破版
+         */
         $lines = [];
-        $lines[] = "你的檔案清單（第 {$page} / {$totalPages} 頁，每頁 {$pageSize} 筆，共 {$total} 筆）：";
+        $lines[] = $this->escapeHtml("你的檔案清單（第 {$page} / {$totalPages} 頁，每頁 {$pageSize} 筆，共 {$total} 筆）：");
         $lines[] = "";
 
         foreach ($sessions as $s) {
-            $token = $s->public_token ?? '(無 token)';
+            $token = (string)($s->public_token ?? '');
+            $tokenHtml = $token !== '' ? '<code>' . $this->escapeHtml($token) . '</code>' : $this->escapeHtml('(無 token)');
+
             $files = (int)$s->total_files;
             $size = $this->formatBytes((int)$s->total_size);
             $shareCount = (int)$s->share_count;
             $lastShared = $s->last_shared_at ? (string)$s->last_shared_at : '無';
 
-            $lines[] = "代碼：{$token}";
-            $lines[] = "檔案數：{$files}　總大小：{$size}";
-            $lines[] = "被分享：{$shareCount} 次　上次分享：{$lastShared}";
+            $lines[] = "代碼：{$tokenHtml}";
+            $lines[] = $this->escapeHtml("檔案數：{$files}　總大小：{$size}");
+            $lines[] = $this->escapeHtml("被分享：{$shareCount} 次　上次分享：{$lastShared}");
             $lines[] = "";
         }
 
         $keyboard = $this->buildMyFilesPaginationKeyboard($page, $totalPages);
 
-        $this->sendLongMessage($chatId, implode("\n", $lines));
+        $this->sendLongMessage($chatId, implode("\n", $lines), 'HTML');
         $this->sendMessage(
             $chatId,
             "請選擇頁次：",
@@ -799,7 +806,17 @@ class TelegramFilestoreBotController extends Controller
 
     private function sendLongMessage(int $chatId, string $text, ?string $parseMode = null): void
     {
-        $chunks = $this->splitByUtf8Bytes($text, 3800);
+        /**
+         * HTML 模式下，<code> 會讓 token 可點擊複製。
+         * 這裡用 splitByUtf8Bytes 分段，但要避免把 <code>...</code> 切斷。
+         * 目前 token 長度很短，不太會跨段；仍保留保險：若 parseMode=HTML，改用較保守的 maxBytes。
+         */
+        $maxBytes = 3800;
+        if ($parseMode !== null && strtoupper($parseMode) === 'HTML') {
+            $maxBytes = 3000;
+        }
+
+        $chunks = $this->splitByUtf8Bytes($text, $maxBytes);
         foreach ($chunks as $chunk) {
             $this->sendMessage($chatId, $chunk, null, $parseMode);
         }
@@ -849,6 +866,18 @@ class TelegramFilestoreBotController extends Controller
         }
 
         return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.') . ' ' . $units[$i];
+    }
+
+    /**
+     * HTML escape（Telegram HTML parse_mode 需要）
+     */
+    private function escapeHtml(string $text): string
+    {
+        return str_replace(
+            ['&', '<', '>'],
+            ['&amp;', '&lt;', '&gt;'],
+            $text
+        );
     }
 
     /**

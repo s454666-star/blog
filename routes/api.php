@@ -97,4 +97,4 @@
         Route::delete('/orders/{orderId}/items/{itemId}', [OrderController::class, 'deleteItem']);
     });
     Route::post('/telegram/webhook', [CodeDedupBotController::class, 'handle']);
-
+    Route::post('/telegram/filestore/webhook', [TelegramFilestoreBotController::class, 'webhook']);

@@ -23,7 +23,7 @@ services:
             # 供 Nginx 讀取 Laravel public
             - C:/www/blog:/var/www/html:ro
             # 供 /video/ 靜態資源（本機 F 槽）
-            - F:/video:/mnt/video:ro
+            - D:/video:/mnt/video:ro
             # 供 /m3u8/ HLS —— 使用 UNC 路徑（先在 Docker Desktop File Sharing 加入 \\mc\30T-A\m3u8）
             - //mc/30T-A/m3u8:/mnt/m3u8:ro
             # 暫存（可保留）

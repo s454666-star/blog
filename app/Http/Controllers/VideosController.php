@@ -208,7 +208,7 @@
             }
 
             // 預設根目錄（可用 .env 覆寫）
-            $videoRoot = rtrim(env('VIDEO_SOURCE_ROOT', 'F:/video'), '/\\');
+            $videoRoot = rtrim(env('VIDEO_SOURCE_ROOT', 'D:/video'), '/\\');
             $m3u8Root  = rtrim(env('M3U8_TARGET_ROOT', 'Z:/m3u8'), '/\\');
 
             $videos = VideoMaster::whereIn('id', $ids)->with('screenshots.faceScreenshots')->get();
@@ -271,7 +271,7 @@
                 $filename = time() . '_' . $file->getClientOriginalName();
                 Storage::disk('videos')->putFileAs($videoFolder, $file, $filename);
 
-                $duration = $this->getVideoDuration("F:/video/{$videoFolder}/{$filename}");
+                $duration = $this->getVideoDuration("D:/video/{$videoFolder}/{$filename}");
 
                 $video = VideoMaster::create([
                     'video_name' => $videoName,
@@ -317,13 +317,13 @@
                     ], 404);
                 }
 
-                $screenshotFile = "F:/video/" . $screenshot->screenshot_path;
+                $screenshotFile = "D:/video/" . $screenshot->screenshot_path;
                 if (File::exists($screenshotFile)) {
                     File::delete($screenshotFile);
                 }
 
                 foreach ($screenshot->faceScreenshots as $face) {
-                    $faceFile = "F:/video/" . $face->face_image_path;
+                    $faceFile = "D:/video/" . $face->face_image_path;
                     if (File::exists($faceFile)) {
                         File::delete($faceFile);
                     }
@@ -345,7 +345,7 @@
                     ], 404);
                 }
 
-                $faceFile = "F:/video/" . $face->face_image_path;
+                $faceFile = "D:/video/" . $face->face_image_path;
                 if (File::exists($faceFile)) {
                     File::delete($faceFile);
                 }
@@ -635,7 +635,7 @@
         public function destroy($id)
         {
             // 預設根目錄（可用 .env 覆寫）
-            $videoRoot = rtrim(env('VIDEO_SOURCE_ROOT', 'F:/video'), '/\\');
+            $videoRoot = rtrim(env('VIDEO_SOURCE_ROOT', 'D:/video'), '/\\');
             $m3u8Root  = rtrim(env('M3U8_TARGET_ROOT', 'Z:/m3u8'), '/\\');
 
             // 查找影片

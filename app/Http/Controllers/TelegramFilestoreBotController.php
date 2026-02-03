@@ -167,6 +167,11 @@
                 return;
             }
 
+            if ($data === 'filestore_refresh_upload') {
+                $this->refreshUploadingSessionCountsAndPrompt($chatId);
+                return;
+            }
+
             if ($data === 'filestore_delete_open') {
                 $this->handleDeleteListPaged($chatId, 1);
                 return;
@@ -771,6 +776,7 @@
                     [
                         ['text' => '結束上傳', 'callback_data' => 'filestore_close_upload'],
                         ['text' => '繼續上傳', 'callback_data' => 'filestore_continue_upload'],
+                        ['text' => '重新整理', 'callback_data' => 'filestore_refresh_upload'],
                     ],
                     [
                         ['text' => '取消本次上傳', 'callback_data' => 'filestore_cancel_upload'],
@@ -807,6 +813,49 @@
             if (!$ok) {
                 $this->forgetCloseUploadPromptMessageId($sessionId);
             }
+        }
+
+        /**
+         * 「重新整理」：重新計算目前 uploading session 的檔案數量/容量，並更新提示訊息
+         */
+        private function refreshUploadingSessionCountsAndPrompt(int $chatId): void
+        {
+            $sessionId = null;
+
+            DB::transaction(function () use ($chatId, &$sessionId) {
+                $session = TelegramFilestoreSession::query()
+                    ->where('chat_id', $chatId)
+                    ->where('status', 'uploading')
+                    ->orderByDesc('id')
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$session) {
+                    $sessionId = null;
+                    return;
+                }
+
+                $agg = TelegramFilestoreFile::query()
+                    ->where('session_id', $session->id)
+                    ->selectRaw('COUNT(*) as total_files, COALESCE(SUM(file_size), 0) as total_size')
+                    ->first();
+
+                $totalFiles = (int)($agg->total_files ?? 0);
+                $totalSize = (int)($agg->total_size ?? 0);
+
+                $session->total_files = $totalFiles;
+                $session->total_size = $totalSize;
+                $session->save();
+
+                $sessionId = (int)$session->id;
+            });
+
+            if ($sessionId === null) {
+                $this->sendMessage($chatId, "目前沒有進行中的上傳。");
+                return;
+            }
+
+            $this->updateCloseUploadPromptMessageIfExists($chatId, $sessionId);
         }
 
         private function extractTelegramFilePayload(array $message): ?array

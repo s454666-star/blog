@@ -3,6 +3,7 @@
     namespace App\Http\Controllers;
 
     use App\Jobs\SendFilestoreSessionFilesJob;
+    use App\Jobs\TelegramFilestoreDebouncedPromptJob;
     use App\Models\TelegramFilestoreFile;
     use App\Models\TelegramFilestoreSession;
     use Illuminate\Http\Request;
@@ -22,13 +23,11 @@
 
         /**
          * 避免短時間內重複送出「是否結束上傳？」的去重視窗（秒）
-         * 例如：連續收到多個檔案訊息 / webhook 重送 / 併發，都只會在這段時間內送一次。
          */
         private const CLOSE_UPLOAD_PROMPT_DEDUP_SECONDS = 30;
 
         /**
          * close upload 提示訊息 message_id 的 cache TTL（分鐘）
-         * 不用太精準，主要是讓 editMessageText 能找到同一則提示訊息
          */
         private const CLOSE_UPLOAD_PROMPT_MESSAGE_CACHE_MINUTES = 180;
 
@@ -40,21 +39,18 @@
 
         /**
          * 同一個人同一個 token 的去重時間（秒）
-         * 25 秒內同 token 只解析一次，避免一直派發 job 讓機器人當機
          */
         private const TOKEN_DEDUP_SECONDS = 25;
 
         /**
          * 同 chat 同 message_id 去重時間（秒）
-         * 避免 webhook 重送 / 併發導致重複處理
          */
         private const MESSAGE_DEDUP_SECONDS = 600;
 
         /**
-         * 為了避免 Telegram editMessageText 被限流：
-         * 同一個 session 的提示訊息，至少間隔 N 秒才更新一次
+         * debounce 秒數：N 秒內沒有新檔案才統計一次
          */
-        private const CLOSE_UPLOAD_PROMPT_EDIT_THROTTLE_SECONDS = 2;
+        private const DEBOUNCE_SECONDS = 5;
 
         public function webhook(Request $request)
         {
@@ -118,7 +114,6 @@
                 return response()->json(['ok' => true]);
             }
 
-            // 同 message 去重（避免 webhook 重送/併發）
             if (!$this->acquireMessageDedupLock($chatId, $messageId)) {
                 Log::info('telegram_filestore_message_dedup_skip', [
                     'chat_id' => $chatId,
@@ -131,10 +126,9 @@
             }
 
             $sessionId = null;
-            $shouldAskCloseUpload = false;
 
             try {
-                DB::transaction(function () use ($chatId, $username, $messageId, $filePayload, $message, &$sessionId, &$shouldAskCloseUpload) {
+                DB::transaction(function () use ($chatId, $username, $messageId, $filePayload, $message, &$sessionId) {
                     $session = $this->getOrCreateUploadingSession($chatId, $username);
                     $sessionId = (int)$session->id;
 
@@ -144,7 +138,6 @@
                         ->exists();
 
                     if (!$exists) {
-                        // 這裡保留你原本的寫法（你目前 DB 看到 raw_payload 已是 JSON 字串，OK）
                         TelegramFilestoreFile::query()->create([
                             'session_id' => $session->id,
                             'chat_id' => $chatId,
@@ -155,7 +148,6 @@
                             'mime_type' => $filePayload['mime_type'],
                             'file_size' => (int)($filePayload['file_size'] ?? 0),
                             'file_type' => $filePayload['file_type'],
-                            // 關鍵：存「字串」不要存 array
                             'raw_payload' => $this->safeJsonEncode($message),
                             'created_at' => now(),
                         ]);
@@ -164,9 +156,6 @@
                         $session->total_size = (int)$session->total_size + (int)($filePayload['file_size'] ?? 0);
                         $session->save();
                     }
-
-                    // 這裡只做 DB 狀態判斷，不要打 Telegram
-                    $shouldAskCloseUpload = $this->markCloseUploadPromptIfAllowed($session);
                 });
             } catch (Throwable $e) {
                 Log::error('telegram_filestore_transaction_failed', [
@@ -181,19 +170,11 @@
                 return response()->json(['ok' => true]);
             }
 
-            // ✅ commit 後再更新提示訊息（避免 Telegram API 失敗導致 DB rollback）
             if ($sessionId !== null) {
                 try {
-                    if ($shouldAskCloseUpload) {
-                        $this->askCloseUploadWithCounts($chatId, $sessionId);
-                    } else {
-                        // 節流：避免每個檔案都 edit，狂撞 Telegram 限流
-                        if ($this->acquirePromptEditThrottleLock($sessionId)) {
-                            $this->updateCloseUploadPromptMessageIfExists($chatId, $sessionId);
-                        }
-                    }
+                    $this->touchSessionLastFileAtAndDispatchDebounceJob($sessionId, $chatId);
                 } catch (Throwable $e) {
-                    Log::error('telegram_filestore_prompt_update_failed', [
+                    Log::error('telegram_filestore_debounce_dispatch_failed', [
                         'chat_id' => $chatId,
                         'session_id' => $sessionId,
                         'error' => $e->getMessage(),
@@ -203,6 +184,25 @@
             }
 
             return response()->json(['ok' => true]);
+        }
+
+        private function touchSessionLastFileAtAndDispatchDebounceJob(int $sessionId, int $chatId): void
+        {
+            $lastKey = $this->getDebounceLastFileAtCacheKey($sessionId);
+
+            Cache::put(
+                $lastKey,
+                now()->getTimestamp(),
+                now()->addMinutes(self::CLOSE_UPLOAD_PROMPT_MESSAGE_CACHE_MINUTES)
+            );
+
+            TelegramFilestoreDebouncedPromptJob::dispatch($sessionId, $chatId)
+                ->delay(now()->addSeconds(self::DEBOUNCE_SECONDS));
+        }
+
+        private function getDebounceLastFileAtCacheKey(int $sessionId): string
+        {
+            return 'filestore_debounce_last_file_at_' . $sessionId;
         }
 
         private function safeJsonEncode($value): string
@@ -222,12 +222,6 @@
         {
             $key = 'filestore_message_dedup_' . $chatId . '_' . $messageId;
             return Cache::add($key, 1, now()->addSeconds(self::MESSAGE_DEDUP_SECONDS));
-        }
-
-        private function acquirePromptEditThrottleLock(int $sessionId): bool
-        {
-            $key = 'filestore_close_upload_prompt_edit_throttle_' . $sessionId;
-            return Cache::add($key, 1, now()->addSeconds(self::CLOSE_UPLOAD_PROMPT_EDIT_THROTTLE_SECONDS));
         }
 
         private function handleCallback(array $callbackQuery): void
@@ -673,9 +667,7 @@
                 $session->encrypt_token = $this->hashForDb($token);
                 $session->status = 'closed';
                 $session->closed_at = now();
-
                 $session->close_upload_prompted_at = null;
-
                 $session->save();
             });
 
@@ -1135,40 +1127,6 @@
             Cache::forget($key);
         }
 
-        private function markCloseUploadPromptIfAllowed(TelegramFilestoreSession $session): bool
-        {
-            $fresh = TelegramFilestoreSession::query()
-                ->where('id', $session->id)
-                ->lockForUpdate()
-                ->first();
-
-            if (!$fresh) {
-                return false;
-            }
-
-            if ((string)$fresh->status !== 'uploading') {
-                return false;
-            }
-
-            $lastAt = $fresh->close_upload_prompted_at;
-
-            if ($lastAt) {
-                $diffSeconds = now()->diffInSeconds($lastAt);
-                if ($diffSeconds < self::CLOSE_UPLOAD_PROMPT_DEDUP_SECONDS) {
-                    return false;
-                }
-            }
-
-            $fresh->close_upload_prompted_at = now();
-            $fresh->save();
-
-            return true;
-        }
-
-        /**
-         * 你原本就有 sendSessionFilesByToken / sendFileByType 等方法
-         * 這段我不動你的功能，只保留你原本存在的呼叫入口
-         */
         private function sendSessionFilesByToken(int $chatId, string $publicToken): void
         {
             $session = TelegramFilestoreSession::query()

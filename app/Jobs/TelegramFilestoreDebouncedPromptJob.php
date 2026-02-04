@@ -26,6 +26,11 @@
         private const CLOSE_UPLOAD_PROMPT_DEDUP_SECONDS = 30;
         private const CLOSE_UPLOAD_PROMPT_MESSAGE_CACHE_MINUTES = 180;
 
+        /**
+         * 同一 session debounce job 的互斥鎖（秒）
+         */
+        private const SESSION_JOB_LOCK_SECONDS = 15;
+
         public int $timeout = 60;
         public int $tries = 3;
 
@@ -51,55 +56,84 @@
             }
 
             $nowTs = now()->getTimestamp();
-            if (($nowTs - $lastTsInt) < self::DEBOUNCE_SECONDS) {
+            $diff = $nowTs - $lastTsInt;
+
+            if ($diff < self::DEBOUNCE_SECONDS) {
+                $delay = self::DEBOUNCE_SECONDS - $diff;
+                if ($delay < 1) {
+                    $delay = 1;
+                }
+
+                self::dispatch($this->sessionId, $this->chatId)
+                    ->delay(now()->addSeconds($delay));
+
                 return;
             }
 
-            $session = TelegramFilestoreSession::query()
-                ->where('id', $this->sessionId)
-                ->first();
-
-            if (!$session) {
+            $lockKey = $this->getSessionJobLockKey($this->sessionId);
+            $locked = Cache::add($lockKey, 1, now()->addSeconds(self::SESSION_JOB_LOCK_SECONDS));
+            if (!$locked) {
                 return;
             }
 
-            if ((string)$session->status !== 'uploading') {
-                return;
-            }
+            try {
+                $session = TelegramFilestoreSession::query()
+                    ->where('id', $this->sessionId)
+                    ->first();
 
-            $fileCount = (int)TelegramFilestoreFile::query()
-                ->where('session_id', $this->sessionId)
-                ->count();
+                if (!$session) {
+                    return;
+                }
 
-            if ($fileCount <= 0) {
-                return;
-            }
+                if ((string)$session->status !== 'uploading') {
+                    return;
+                }
 
-            $counts = $this->countFilesByType($this->sessionId);
-            $text = $this->buildCloseUploadPromptText($counts);
-            $keyboard = $this->buildCloseUploadPromptKeyboard();
+                $fileCount = (int)TelegramFilestoreFile::query()
+                    ->where('session_id', $this->sessionId)
+                    ->count();
 
-            $oldMessageId = $this->getCloseUploadPromptMessageId($this->sessionId);
+                if ($fileCount <= 0) {
+                    return;
+                }
 
-            if ($oldMessageId !== null) {
-                $this->deleteMessage($this->chatId, $oldMessageId);
-                $this->forgetCloseUploadPromptMessageId($this->sessionId);
-            }
+                $allowedToSend = $this->markCloseUploadPromptIfAllowed($this->sessionId);
+                if (!$allowedToSend) {
+                    return;
+                }
 
-            $allowedToSend = $this->markCloseUploadPromptIfAllowed($this->sessionId);
-            if (!$allowedToSend) {
-                return;
-            }
+                $counts = $this->countFilesByType($this->sessionId);
+                $text = $this->buildCloseUploadPromptText($counts);
+                $keyboard = $this->buildCloseUploadPromptKeyboard();
 
-            $sentMessageId = $this->sendMessageReturningMessageId($this->chatId, $text, $keyboard);
-            if ($sentMessageId !== null) {
-                $this->rememberCloseUploadPromptMessageId($this->sessionId, $sentMessageId);
+                $oldMessageId = $this->getCloseUploadPromptMessageId($this->sessionId);
+
+                if ($oldMessageId !== null) {
+                    $ok = $this->editMessageText($this->chatId, $oldMessageId, $text, $keyboard);
+                    if ($ok) {
+                        return;
+                    }
+
+                    $this->forgetCloseUploadPromptMessageId($this->sessionId);
+                }
+
+                $sentMessageId = $this->sendMessageReturningMessageId($this->chatId, $text, $keyboard);
+                if ($sentMessageId !== null) {
+                    $this->rememberCloseUploadPromptMessageId($this->sessionId, $sentMessageId);
+                }
+            } finally {
+                Cache::forget($lockKey);
             }
         }
 
         private function getDebounceLastFileAtCacheKey(int $sessionId): string
         {
             return 'filestore_debounce_last_file_at_' . $sessionId;
+        }
+
+        private function getSessionJobLockKey(int $sessionId): string
+        {
+            return 'filestore_debounce_job_lock_' . $sessionId;
         }
 
         private function getCloseUploadPromptMessageCacheKey(int $sessionId): string
@@ -287,7 +321,7 @@
             return (int)$messageId;
         }
 
-        private function deleteMessage(int $chatId, int $messageId): bool
+        private function editMessageText(int $chatId, int $messageId, string $text, array $replyMarkup): bool
         {
             $token = (string)config('telegram.filestore_bot_token');
             if ($token === '') {
@@ -298,13 +332,15 @@
                 $payload = [
                     'chat_id' => $chatId,
                     'message_id' => $messageId,
+                    'text' => $text,
+                    'reply_markup' => $replyMarkup,
                 ];
 
-                $resp = Http::timeout(30)->post("https://api.telegram.org/bot{$token}/deleteMessage", $payload);
+                $resp = Http::timeout(30)->post("https://api.telegram.org/bot{$token}/editMessageText", $payload);
 
                 return $resp->ok();
             } catch (Throwable $e) {
-                Log::error('telegram_filestore_delete_message_failed', [
+                Log::error('telegram_filestore_edit_message_failed', [
                     'chat_id' => $chatId,
                     'message_id' => $messageId,
                     'error' => $e->getMessage(),

@@ -18,7 +18,7 @@
     {
         private const TOKEN_PREFIX = 'filestoebot_';
 
-        private const MYFILES_PAGE_SIZE = 10;
+        private const MYFILES_PAGE_SIZE = 30;
         private const MYFILES_MAX_PAGES_SHOWN = 7;
 
         /**

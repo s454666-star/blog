@@ -79,14 +79,11 @@
             $text = $this->buildCloseUploadPromptText($counts);
             $keyboard = $this->buildCloseUploadPromptKeyboard();
 
-            $messageId = $this->getCloseUploadPromptMessageId($this->sessionId);
+            $oldMessageId = $this->getCloseUploadPromptMessageId($this->sessionId);
 
-            if ($messageId !== null) {
-                $ok = $this->editMessageText($this->chatId, $messageId, $text, $keyboard);
-                if (!$ok) {
-                    $this->forgetCloseUploadPromptMessageId($this->sessionId);
-                }
-                return;
+            if ($oldMessageId !== null) {
+                $this->deleteMessage($this->chatId, $oldMessageId);
+                $this->forgetCloseUploadPromptMessageId($this->sessionId);
             }
 
             $allowedToSend = $this->markCloseUploadPromptIfAllowed($this->sessionId);
@@ -290,22 +287,30 @@
             return (int)$messageId;
         }
 
-        private function editMessageText(int $chatId, int $messageId, string $text, array $replyMarkup): bool
+        private function deleteMessage(int $chatId, int $messageId): bool
         {
             $token = (string)config('telegram.filestore_bot_token');
             if ($token === '') {
                 return false;
             }
 
-            $payload = [
-                'chat_id' => $chatId,
-                'message_id' => $messageId,
-                'text' => $text,
-                'reply_markup' => $replyMarkup,
-            ];
+            try {
+                $payload = [
+                    'chat_id' => $chatId,
+                    'message_id' => $messageId,
+                ];
 
-            $resp = Http::timeout(30)->post("https://api.telegram.org/bot{$token}/editMessageText", $payload);
+                $resp = Http::timeout(30)->post("https://api.telegram.org/bot{$token}/deleteMessage", $payload);
 
-            return $resp->ok();
+                return $resp->ok();
+            } catch (Throwable $e) {
+                Log::error('telegram_filestore_delete_message_failed', [
+                    'chat_id' => $chatId,
+                    'message_id' => $messageId,
+                    'error' => $e->getMessage(),
+                    'exception' => get_class($e),
+                ]);
+                return false;
+            }
         }
     }

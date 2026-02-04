@@ -13,8 +13,11 @@ class CodeDedupBotController extends Controller
     /** Telegram 文字上限（UTF-8 4096 byte） */
     private const MAX_MESSAGE_BYTES = 4096;
 
-    /** 每次回覆最多 5 行 */
+    /** 每次回覆最多 5 行（只套用在「一般代碼 + LH_」區塊；filestoebot_ 不套用） */
     private const REPLY_LINES_PER_MESSAGE = 5;
+
+    /** filestoebot_ 前綴 */
+    private const FILESTOEBOT_PREFIX = 'filestoebot_';
 
     protected string $apiUrl;
     protected Client $http;
@@ -124,10 +127,10 @@ class CodeDedupBotController extends Controller
         $clean = preg_replace('/[\p{Han}]+/u', '', $text);
 
         // 擷取 code
-        // 新增 iv_ / IV_ 前綴的識別（例如 iv_BAACAgU...）
-        // 保留原本的 ntmjmqbot_、LH_ 等規則
+        // 新增 filestoebot_ 前綴識別
+        // 保留原本的 ntmjmqbot_、LH_、showfilesbot_ 等規則
         $pattern = '/
-            (?:\b(?:@?filepan_bot:|link:\s*|[vV]i_|[iI]v_|pk_|p_|d_|showfilesbot_|[vVpPdD]_?datapanbot_|[vVpPdD]_|ntmjmqbot_)
+            (?:\b(?:@?filepan_bot:|link:\s*|[vV]i_|[iI]v_|pk_|p_|d_|showfilesbot_|[vVpPdD]_?datapanbot_|[vVpPdD]_|ntmjmqbot_|filestoebot_)
                 [A-Za-z0-9_\+\-]+(?:=_grp|=_mda)?\b
             )
             |
@@ -165,7 +168,9 @@ class CodeDedupBotController extends Controller
                                            ]);
         }
 
-        // 回覆新碼：改成「每 5 行吐一次」，且仍保留 LH_ 放最下面，中間空一行
+        // 回覆新碼：
+        // - 一般代碼 + LH_：維持每 5 行一組分批回覆（仍保護 4096 bytes）
+        // - filestoebot_：集中放最下面，一次整包回覆（只依 bytes 分頁，不依 5 行）
         $this->sendCodesInBatches($chatId, $new);
     }
 
@@ -244,76 +249,151 @@ class CodeDedupBotController extends Controller
         }
     }
 
-    /** 將代碼依規則分組：非 LH_ 在上，LH_ 在下 */
-    private function splitCodesByLhPrefix(array $codes): array
-    {
-        $normal = [];
-        $lh = [];
-
-        foreach ($codes as $code) {
-            if ($this->isLhCode($code)) {
-                $lh[] = $code;
-            } else {
-                $normal[] = $code;
-            }
-        }
-
-        return [$normal, $lh];
-    }
-
     /** 判斷是否為 LH_ 開頭代碼 */
     private function isLhCode(string $code): bool
     {
         return str_starts_with($code, 'LH_');
     }
 
-    /** 回覆文字格式：LH_ 放最後，中間空一行 */
+    /** 判斷是否為 filestoebot_ 開頭代碼 */
+    private function isFilestoebotCode(string $code): bool
+    {
+        return str_starts_with($code, self::FILESTOEBOT_PREFIX);
+    }
+
+    /**
+     * 將代碼依規則分組：
+     * 1) 一般代碼（非 LH_、非 filestoebot_）
+     * 2) LH_
+     * 3) filestoebot_
+     */
+    private function splitCodesByGroups(array $codes): array
+    {
+        $normal = [];
+        $lh = [];
+        $filestoebot = [];
+
+        foreach ($codes as $code) {
+            if ($this->isFilestoebotCode($code)) {
+                $filestoebot[] = $code;
+                continue;
+            }
+
+            if ($this->isLhCode($code)) {
+                $lh[] = $code;
+                continue;
+            }
+
+            $normal[] = $code;
+        }
+
+        return [$normal, $lh, $filestoebot];
+    }
+
+    /**
+     * 回覆文字格式：
+     * - 一般代碼在上
+     * - LH_ 在下（中間空一行）
+     * - filestoebot_ 最底（再空一行）
+     */
     private function formatCodesForReply(array $codes): string
     {
-        [$normal, $lh] = $this->splitCodesByLhPrefix($codes);
+        [$normal, $lh, $filestoebot] = $this->splitCodesByGroups($codes);
+
+        $chunks = [];
 
         $normalText = implode("\n", $normal);
-        $lhText = implode("\n", $lh);
-
-        if ($normalText !== '' && $lhText !== '') {
-            return $normalText . "\n\n" . $lhText;
-        }
-
         if ($normalText !== '') {
-            return $normalText;
+            $chunks[] = $normalText;
         }
 
-        return $lhText;
+        $lhText = implode("\n", $lh);
+        if ($lhText !== '') {
+            $chunks[] = $lhText;
+        }
+
+        $filestoebotText = implode("\n", $filestoebot);
+        if ($filestoebotText !== '') {
+            $chunks[] = $filestoebotText;
+        }
+
+        return implode("\n\n", $chunks);
     }
 
-    /** 產生顯示用行列表（供歷史 / 分頁用）：LH_ 放最後，中間插入空行 */
+    /**
+     * 產生顯示用行列表（供歷史 / 分頁用）：
+     * 一般代碼 -> 空行 -> LH_ -> 空行 -> filestoebot_
+     */
     private function buildDisplayLines(array $codes): array
     {
-        [$normal, $lh] = $this->splitCodesByLhPrefix($codes);
+        [$normal, $lh, $filestoebot] = $this->splitCodesByGroups($codes);
 
-        if (!empty($normal) && !empty($lh)) {
-            return array_merge($normal, [''], $lh);
-        }
+        $lines = [];
 
         if (!empty($normal)) {
-            return $normal;
+            $lines = array_merge($lines, $normal);
         }
 
-        return $lh;
+        if (!empty($lh)) {
+            if (!empty($lines)) {
+                $lines[] = '';
+            }
+            $lines = array_merge($lines, $lh);
+        }
+
+        if (!empty($filestoebot)) {
+            if (!empty($lines)) {
+                $lines[] = '';
+            }
+            $lines = array_merge($lines, $filestoebot);
+        }
+
+        return $lines;
     }
 
-    /** 新增：每 5 行吐一次（同時保護 4096 bytes），並保留 LH_ 置底/空行分隔規則 */
+    /**
+     * 新增：回覆分批策略
+     * - 一般代碼 + LH_：每 5 行吐一次（同時保護 4096 bytes），並維持 LH_ 放中段（在一般代碼下方）
+     * - filestoebot_：集中放最下面一次整包提供（不依 5 行分組），但仍保護 4096 bytes（只依 bytes 分頁）
+     */
     private function sendCodesInBatches(int $chatId, array $codes): void
     {
-        $formatted = $this->formatCodesForReply($codes);
-        $formatted = trim($formatted);
+        [$normal, $lh, $filestoebot] = $this->splitCodesByGroups($codes);
 
-        if ($formatted === '') {
-            return;
+        $topLines = $this->buildTopLinesForReply($normal, $lh);
+        $this->sendTopLinesByLineCountAndBytes($chatId, $topLines);
+
+        $this->sendFilestoebotAllAtOnceByBytes($chatId, $filestoebot);
+    }
+
+    /**
+     * 建立「一般代碼 + LH_」回覆行（維持 LH_ 置底、空行分隔）
+     */
+    private function buildTopLinesForReply(array $normal, array $lh): array
+    {
+        $lines = [];
+
+        if (!empty($normal)) {
+            $lines = array_merge($lines, $normal);
         }
 
-        $lines = preg_split("/\r\n|\r|\n/", $formatted);
-        if (!$lines) {
+        if (!empty($lh)) {
+            if (!empty($lines)) {
+                $lines[] = '';
+            }
+            $lines = array_merge($lines, $lh);
+        }
+
+        return $lines;
+    }
+
+    /**
+     * 一般代碼 + LH_：依 5 行與 bytes 同時限制發送
+     */
+    private function sendTopLinesByLineCountAndBytes(int $chatId, array $lines): void
+    {
+        $lines = array_values($lines);
+        if (empty($lines)) {
             return;
         }
 
@@ -339,6 +419,27 @@ class CodeDedupBotController extends Controller
             $textToSend = trim(implode("\n", $bufferLines));
             if ($textToSend !== '') {
                 $this->sendMessage($chatId, $textToSend);
+            }
+        }
+    }
+
+    /**
+     * filestoebot_：不依 5 行分組，整包一次提供
+     * 若超過 4096 bytes，則僅依 bytes 分頁（仍保持「集中」的語意）
+     */
+    private function sendFilestoebotAllAtOnceByBytes(int $chatId, array $filestoebot): void
+    {
+        if (empty($filestoebot)) {
+            return;
+        }
+
+        $lines = array_values($filestoebot);
+
+        $pages = $this->chunkByBytes($lines);
+        foreach ($pages as $pageText) {
+            $pageText = trim($pageText);
+            if ($pageText !== '') {
+                $this->sendMessage($chatId, $pageText);
             }
         }
     }

@@ -239,6 +239,7 @@
             }
 
             if ($data === 'filestore_close_upload') {
+                $this->deletePromptMessageFromCallbackIfAny($callbackQuery);
                 $this->closeSessionAndReturnToken($chatId);
                 return;
             }
@@ -248,6 +249,7 @@
             }
 
             if ($data === 'filestore_cancel_upload') {
+                $this->deletePromptMessageFromCallbackIfAny($callbackQuery);
                 $this->cancelUploadingSession($chatId);
                 return;
             }
@@ -291,6 +293,18 @@
                 $this->handleMyFilesCommand($chatId, $page);
                 return;
             }
+        }
+
+        private function deletePromptMessageFromCallbackIfAny(array $callbackQuery): void
+        {
+            $chatId = (int)($callbackQuery['message']['chat']['id'] ?? 0);
+            $messageId = (int)($callbackQuery['message']['message_id'] ?? 0);
+
+            if ($chatId <= 0 || $messageId <= 0) {
+                return;
+            }
+
+            $this->deleteMessage($chatId, $messageId);
         }
 
         private function handleMyFilesCommand(int $chatId, int $page): void
@@ -671,7 +685,7 @@
                 $session->save();
             });
 
-            $this->forgetCloseUploadPromptMessageId((int)$session->id);
+            $this->deleteCloseUploadPromptIfExists((int)$session->id, $chatId);
 
             $tokenText = (string)$session->public_token;
 
@@ -708,9 +722,19 @@
                 $session->delete();
             });
 
-            $this->forgetCloseUploadPromptMessageId((int)$session->id);
+            $this->deleteCloseUploadPromptIfExists((int)$session->id, $chatId);
 
             $this->sendMessage($chatId, "已取消本次上傳 ✅\n已移除 {$fileCount} 個檔案。");
+        }
+
+        private function deleteCloseUploadPromptIfExists(int $sessionId, int $chatId): void
+        {
+            $promptMessageId = $this->getCloseUploadPromptMessageId($sessionId);
+            if ($promptMessageId !== null) {
+                $this->deleteMessage($chatId, $promptMessageId);
+            }
+
+            $this->forgetCloseUploadPromptMessageId($sessionId);
         }
 
         private function countFilesByType(int $sessionId): array
@@ -795,17 +819,6 @@
                     ],
                 ],
             ];
-        }
-
-        private function askCloseUploadWithCounts(int $chatId, int $sessionId): void
-        {
-            $text = $this->buildCloseUploadPromptText($sessionId);
-            $keyboard = $this->buildCloseUploadPromptKeyboard();
-
-            $sentMessageId = $this->sendMessageReturningMessageId($chatId, $text, $keyboard, null);
-            if ($sentMessageId !== null) {
-                $this->rememberCloseUploadPromptMessageId($sessionId, $sentMessageId);
-            }
         }
 
         private function updateCloseUploadPromptMessageIfExists(int $chatId, int $sessionId): void
@@ -1026,6 +1039,21 @@
             }
 
             $resp = Http::timeout(30)->post("https://api.telegram.org/bot{$token}/editMessageText", $payload);
+
+            return $resp->ok();
+        }
+
+        private function deleteMessage(int $chatId, int $messageId): bool
+        {
+            $token = (string)config('telegram.filestore_bot_token');
+            if ($token === '') {
+                return false;
+            }
+
+            $resp = Http::timeout(30)->post("https://api.telegram.org/bot{$token}/deleteMessage", [
+                'chat_id' => $chatId,
+                'message_id' => $messageId,
+            ]);
 
             return $resp->ok();
         }

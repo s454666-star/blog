@@ -16,6 +16,10 @@
 
     class TelegramFilestoreBotController extends Controller
     {
+        /**
+         * 只有「加密文件」才固定使用此前綴。
+         * 但「解碼/貼代碼取檔」時，不應該強制要求使用者一定要帶此前綴。
+         */
         private const TOKEN_PREFIX = 'filestoebot_';
 
         private const MYFILES_PAGE_SIZE = 30;
@@ -96,13 +100,27 @@
                     return response()->json(['ok' => true]);
                 }
 
-                if ($this->isPublicToken($text)) {
-                    if (!$this->acquireTokenDedupLock($chatId, $text)) {
+                /**
+                 * 修正：解碼時不要管任何前綴，都可以嘗試解碼。
+                 * 這裡把「貼代碼取檔」視為解碼行為：
+                 * - 只要看起來像代碼（符合基本格式），就嘗試用原字串與補前綴兩種方式查詢
+                 * - 若不存在資料庫就回「找不到檔案」
+                 *
+                 * 只有「加密文件」才固定要求 filestoebot_ 前綴（該邏輯若在別處使用 TOKEN_PREFIX 仍不變）
+                 */
+                if ($this->looksLikeToken($text)) {
+                    $normalizedForDedup = $this->normalizeTokenForDedup($text);
+
+                    if (!$this->acquireTokenDedupLock($chatId, $normalizedForDedup)) {
                         $this->sendMessage($chatId, "這個代碼剛剛已處理過，請稍候再試。");
                         return response()->json(['ok' => true]);
                     }
 
-                    $this->sendSessionFilesByToken($chatId, $text);
+                    $found = $this->sendSessionFilesByToken($chatId, $text);
+                    if (!$found) {
+                        $this->sendMessage($chatId, "找不到檔案");
+                    }
+
                     return response()->json(['ok' => true]);
                 }
 
@@ -424,16 +442,18 @@
             $token = $parts[1] ?? null;
 
             if ($token !== null && $token !== '') {
-                if (!$this->isPublicToken($token)) {
-                    $this->sendMessage($chatId, "格式不正確，請輸入 /delete filestoebot_xxx");
+                $token = trim((string)$token);
+
+                /**
+                 * 修正：/delete 也支援不帶前綴（因為你說解碼不要管任何前綴）
+                 * 這裡仍維持「只能刪除你自己上傳的 closed session」的限制。
+                 */
+                if (!$this->looksLikeToken($token)) {
+                    $this->sendMessage($chatId, "格式不正確，請輸入 /delete 代碼");
                     return;
                 }
 
-                $session = TelegramFilestoreSession::query()
-                    ->where('public_token', $token)
-                    ->where('chat_id', $chatId)
-                    ->where('status', 'closed')
-                    ->first();
+                $session = $this->findClosedSessionByTokenLoose($chatId, $token);
 
                 if (!$session) {
                     $this->sendMessage($chatId, "找不到你可刪除的代碼（只能刪除你自己上傳的）。");
@@ -893,9 +913,44 @@
             return null;
         }
 
-        private function isPublicToken(string $text): bool
+        /**
+         * 解碼用：只要看起來像代碼就嘗試
+         * - 不要求任何前綴
+         * - 避免一般聊天文字一直回找不到檔案
+         */
+        private function looksLikeToken(string $text): bool
         {
-            return Str::startsWith($text, self::TOKEN_PREFIX) && strlen($text) > strlen(self::TOKEN_PREFIX);
+            $t = trim($text);
+            if ($t === '') {
+                return false;
+            }
+
+            if (Str::startsWith($t, '/')) {
+                return false;
+            }
+
+            if (mb_strlen($t, 'UTF-8') < 10) {
+                return false;
+            }
+
+            return preg_match('/^[A-Za-z0-9_\-]+$/', $t) === 1;
+        }
+
+        /**
+         * 用於 token dedup：把「不帶前綴」的代碼也統一成同一把 key
+         */
+        private function normalizeTokenForDedup(string $text): string
+        {
+            $t = trim($text);
+            if ($t === '') {
+                return '';
+            }
+
+            if (Str::startsWith($t, self::TOKEN_PREFIX)) {
+                return $t;
+            }
+
+            return self::TOKEN_PREFIX . $t;
         }
 
         private function acquireTokenDedupLock(int $chatId, string $token): bool
@@ -1155,16 +1210,23 @@
             Cache::forget($key);
         }
 
-        private function sendSessionFilesByToken(int $chatId, string $publicToken): void
+        /**
+         * 修正：解碼/取檔時，不限制前綴
+         * - 先用原字串查
+         * - 若原字串沒前綴，再補前綴查
+         * - 找不到回 false（由上層回：找不到檔案）
+         */
+        private function sendSessionFilesByToken(int $chatId, string $publicToken): bool
         {
-            $session = TelegramFilestoreSession::query()
-                ->where('public_token', $publicToken)
-                ->where('status', 'closed')
-                ->first();
+            $publicToken = trim($publicToken);
+            if ($publicToken === '') {
+                return false;
+            }
+
+            $session = $this->findClosedSessionByTokenLoose(null, $publicToken);
 
             if (!$session) {
-                $this->sendMessage($chatId, "找不到這個代碼對應的檔案。");
-                return;
+                return false;
             }
 
             $locked = false;
@@ -1197,11 +1259,44 @@
 
             if (!$locked) {
                 $this->sendMessage($chatId, "正在傳送中，請稍候…");
-                return;
+                return true;
             }
 
             $this->sendMessage($chatId, "已加入傳送佇列，準備開始傳送…");
 
             SendFilestoreSessionFilesJob::dispatch((int)$session->id, $chatId);
+
+            return true;
+        }
+
+        /**
+         * token 查詢（解碼不限制前綴）：
+         * - 若有指定 chatId，代表限制只能找「該使用者」的 session（用在 /delete）
+         * - chatId 為 null 代表任何人都可用代碼取檔（用在貼代碼取檔）
+         */
+        private function findClosedSessionByTokenLoose(?int $chatId, string $token): ?TelegramFilestoreSession
+        {
+            $t = trim($token);
+            if ($t === '') {
+                return null;
+            }
+
+            $candidates = [];
+
+            $candidates[] = $t;
+
+            if (!Str::startsWith($t, self::TOKEN_PREFIX)) {
+                $candidates[] = self::TOKEN_PREFIX . $t;
+            }
+
+            $query = TelegramFilestoreSession::query()
+                ->where('status', 'closed')
+                ->whereIn('public_token', $candidates);
+
+            if ($chatId !== null) {
+                $query->where('chat_id', $chatId);
+            }
+
+            return $query->first();
         }
     }

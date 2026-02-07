@@ -14,7 +14,8 @@
     use App\Http\Controllers\RandomM3u8Controller;
     use App\Http\Controllers\ReturnOrderController;
 use App\Http\Controllers\TelegramFilestoreBotController;
-use App\Http\Controllers\UserController;
+    use App\Http\Controllers\TokenScanController;
+    use App\Http\Controllers\UserController;
     use Illuminate\Http\Request;
     use Illuminate\Support\Facades\Route;
 
@@ -99,3 +100,5 @@ use App\Http\Controllers\UserController;
     });
     Route::post('/telegram/webhook', [CodeDedupBotController::class, 'handle']);
     Route::post('/telegram/filestore/webhook', [TelegramFilestoreBotController::class, 'webhook']);
+    Route::get('/token-scan/headers', [TokenScanController::class, 'headers']);
+    Route::get('/token-scan/items/{peerId}', [TokenScanController::class, 'items']);

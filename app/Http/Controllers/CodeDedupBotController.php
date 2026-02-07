@@ -208,11 +208,7 @@
             $i    = 1;
 
             while ($i <= $totalPages) {
-                if ($i === $currentPage) {
-                    $label = '🔘' . $i;
-                } else {
-                    $label = (string)$i;
-                }
+                $label = ($i === $currentPage) ? ('🔘' . $i) : (string)$i;
 
                 $btns[] = [
                     'text'          => $label,
@@ -247,12 +243,6 @@
             return str_starts_with($code, self::FILESTOEBOT_PREFIX);
         }
 
-        /**
-         * 將代碼依規則分組：
-         * 1) 一般代碼（非 LH_、非 filestoebot_）
-         * 2) LH_
-         * 3) filestoebot_
-         */
         private function splitCodesByGroups(array $codes): array
         {
             $normal = [];
@@ -276,40 +266,6 @@
             return [$normal, $lh, $filestoebot];
         }
 
-        /**
-         * 回覆文字格式：
-         * 一般代碼在上
-         * LH_ 在下（中間空一行）
-         * filestoebot_ 最底（再空一行）
-         */
-        private function formatCodesForReply(array $codes): string
-        {
-            [$normal, $lh, $filestoebot] = $this->splitCodesByGroups($codes);
-
-            $chunks = [];
-
-            $normalText = implode("\n", $normal);
-            if ($normalText !== '') {
-                $chunks[] = $normalText;
-            }
-
-            $lhText = implode("\n", $lh);
-            if ($lhText !== '') {
-                $chunks[] = $lhText;
-            }
-
-            $filestoebotText = implode("\n", $filestoebot);
-            if ($filestoebotText !== '') {
-                $chunks[] = $filestoebotText;
-            }
-
-            return implode("\n\n", $chunks);
-        }
-
-        /**
-         * 產生顯示用行列表（供歷史 / 分頁用）：
-         * 一般代碼 -> 空行 -> LH_ -> 空行 -> filestoebot_
-         */
         private function buildDisplayLines(array $codes): array
         {
             [$normal, $lh, $filestoebot] = $this->splitCodesByGroups($codes);
@@ -337,11 +293,6 @@
             return $lines;
         }
 
-        /**
-         * 回覆分批策略
-         * 一般代碼 + LH_：每 5 行吐一次（同時保護 4096 bytes）
-         * filestoebot_：集中放最下面一次整包提供（只依 bytes 分頁）
-         */
         private function sendCodesInBatches(int $chatId, array $codes): void
         {
             [$normal, $lh, $filestoebot] = $this->splitCodesByGroups($codes);
@@ -352,9 +303,6 @@
             $this->sendFilestoebotAllAtOnceByBytes($chatId, $filestoebot);
         }
 
-        /**
-         * 建立「一般代碼 + LH_」回覆行（維持 LH_ 置底、空行分隔）
-         */
         private function buildTopLinesForReply(array $normal, array $lh): array
         {
             $lines = [];
@@ -373,9 +321,6 @@
             return $lines;
         }
 
-        /**
-         * 一般代碼 + LH_：依 5 行與 bytes 同時限制發送
-         */
         private function sendTopLinesByLineCountAndBytes(int $chatId, array $lines): void
         {
             $lines = array_values($lines);
@@ -409,10 +354,6 @@
             }
         }
 
-        /**
-         * filestoebot_：整包一次提供
-         * 若超過 4096 bytes，則僅依 bytes 分頁
-         */
         private function sendFilestoebotAllAtOnceByBytes(int $chatId, array $filestoebot): void
         {
             if (empty($filestoebot)) {

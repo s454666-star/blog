@@ -4,9 +4,6 @@
 
     class TelegramCodeTokenService
     {
-        /**
-         * 抽取 token 用的正則（與你原本一致）
-         */
         private const EXTRACT_PATTERN = '/
         (?:\b(?:@?filepan_bot:|link:\s*|[vV]i_|[iI]v_|pk_|p_|d_|showfilesbot_|[vVpPdD]_?datapanbot_|[vVpPdD]_|ntmjmqbot_|filestoebot_)
             [A-Za-z0-9_\+\-]+(?:=_grp|=_mda)?\b
@@ -17,17 +14,10 @@
         (?:\bLH_[A-Za-z0-9]+\b)
     /xu';
 
-        /**
-         * 驗證一段字串是否為「合法 token」（用來判斷切割是否成立）
-         */
         private const VALID_TOKEN_PREFIXED = '/^(?:@?filepan_bot:|link:\s*|[vV]i_|[iI]v_|pk_|[pP]_|[dD]_|showfilesbot_|[vVpPdD]_?datapanbot_|[vVpPdD]_|ntmjmqbot_|filestoebot_)[A-Za-z0-9_\+\-]+(?:=_grp|=_mda)?$/u';
         private const VALID_TOKEN_PLAIN    = '/^[A-Za-z0-9_\+\-]+(?:=_grp|=_mda)$/u';
         private const VALID_TOKEN_LH       = '/^LH_[A-Za-z0-9]+$/u';
 
-        /**
-         * 內部分離用：任何「原本支援的起始前綴」都列入切點候選
-         * 切點是否採用，會再用 VALID_TOKEN_* 做驗證，避免亂切
-         */
         private const SPLIT_MARKER_PATTERNS = [
             '/@?filepan_bot:/u',
             '/link:\s*/u',
@@ -45,10 +35,6 @@
             '/[vVpPdD]_/u',
         ];
 
-        /**
-         * 輸入文字，回傳擷取到的 token 陣列（去重、保留原順序）
-         * 並且可以把「黏在一起的 token」遞迴切成多個 token
-         */
         public function extractTokens(string $text): array
         {
             $text = trim($text);
@@ -56,7 +42,6 @@
                 return [];
             }
 
-            // 去中文（保留英文、日文假名等）
             $clean = preg_replace('/[\p{Han}]+/u', '', $text);
             if ($clean === null) {
                 $clean = $text;
@@ -84,7 +69,6 @@
                 }
             }
 
-            // 去重（保留順序）
             $seen = [];
             $result = [];
             foreach ($expanded as $token) {
@@ -120,11 +104,6 @@
             return false;
         }
 
-        /**
-         * 將一段字串切成「全部都是合法 token」的陣列
-         * 如果本身就是合法 token，直接回傳單一元素
-         * 如果黏在一起，會透過 marker 找切點並遞迴驗證
-         */
         private function splitToValidTokens(string $s): array
         {
             $s = trim($s);
@@ -133,7 +112,13 @@
             }
 
             $memo = [];
-            return $this->splitToValidTokensInternal($s, $memo);
+            $out = $this->splitToValidTokensInternal($s, $memo);
+
+            if (!empty($out)) {
+                return $out;
+            }
+
+            return [$s];
         }
 
         private function splitToValidTokensInternal(string $s, array &$memo): array
@@ -147,12 +132,16 @@
                 return $memo[$s];
             }
 
-            if ($this->isValidToken($s)) {
+            $positions = $this->findSplitPositions($s);
+
+            // 關鍵修正：
+            // 就算整串符合 "prefix + allowed chars" 看起來是合法 token，
+            // 只要內部還出現 marker（pos > 0），就必須先嘗試拆分。
+            if ($this->isValidToken($s) && empty($positions)) {
                 $memo[$s] = [$s];
                 return $memo[$s];
             }
 
-            $positions = $this->findSplitPositions($s);
             if (empty($positions)) {
                 $memo[$s] = [];
                 return $memo[$s];
@@ -167,11 +156,8 @@
                     continue;
                 }
 
-                $left  = substr($s, 0, $pos);
-                $right = substr($s, $pos);
-
-                $left  = trim((string)$left);
-                $right = trim((string)$right);
+                $left  = trim((string)substr($s, 0, $pos));
+                $right = trim((string)substr($s, $pos));
 
                 if ($left === '' || $right === '') {
                     continue;
@@ -194,13 +180,15 @@
                 }
             }
 
+            // 拆分如果完全失敗，但整串其實是合法 token，回退成整串
+            if (empty($best) && $this->isValidToken($s)) {
+                $best = [$s];
+            }
+
             $memo[$s] = $best;
             return $memo[$s];
         }
 
-        /**
-         * 找出字串內部可疑的「新 token 起點」位置（pos > 0）
-         */
         private function findSplitPositions(string $s): array
         {
             $positions = [];

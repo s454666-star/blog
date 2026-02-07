@@ -15,30 +15,79 @@
     /xu';
 
         /**
-         * 只要內部再次出現這些 marker（pos > 0），就代表可能是「黏在一起」需要拆
-         * 注意：這裡保留短 marker（p_/d_/v_/P_/D_/V_）是為了支援黏連拆分
-         * 但真正避免誤切的關鍵是下面「更嚴格的 token 合法性判斷」
+         * 強前綴：只要同一串出現多次，就先硬切（最可靠）
+         * 這些前綴在你的 token 系統裡辨識度高，不會誤切在 token 內容中間
          */
-        private const SPLIT_MARKER_PATTERNS = [
-            '/@?filepan_bot:/u',
-            '/link:\s*/u',
-            '/showfilesbot_/u',
-            '/filestoebot_/u',
-            '/ntmjmqbot_/u',
-            '/[vVpPdD]_?datapanbot_/u',
-            '/datapanbot_/u',
-            '/LH_/u',
-            '/[vV]i_/u',
-            '/[iI]v_/u',
-            '/pk_/u',
-            '/[pP]_/u',
-            '/[dD]_/u',
-            '/[vV]_/u',
-            '/[P]_/u',
-            '/[D]_/u',
-            '/[V]_/u',
-            '/[vVpPdD]_/u',
+        private const STRONG_PREFIXES = [
+            'showfilesbot_',
+            'filestoebot_',
+            'ntmjmqbot_',
+            'datapanbot_',
+            'vi_',
+            'iv_',
+            'pk_',
+            'LH_',
+            'link:',
+            '@filepan_bot:',
+            'filepan_bot:',
         ];
+
+        /**
+         * 更嚴格的 token 判斷，避免 showfilesbot_1 / D_52 這種碎片被當成合法 token
+         */
+        private function isValidToken(string $s): bool
+        {
+            $s = trim($s);
+            if ($s === '') {
+                return false;
+            }
+
+            if (preg_match('/^showfilesbot_\d+[VPD]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
+                return true;
+            }
+
+            if (preg_match('/^filestoebot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
+                return true;
+            }
+
+            if (preg_match('/^ntmjmqbot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
+                return true;
+            }
+
+            if (preg_match('/^[vVpPdD]_?datapanbot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
+                return true;
+            }
+
+            if (preg_match('/^[vV]i_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
+                return true;
+            }
+
+            if (preg_match('/^[iI]v_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
+                return true;
+            }
+
+            if (preg_match('/^pk_[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1) {
+                return true;
+            }
+
+            if (preg_match('/^link:\s*[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1) {
+                return true;
+            }
+
+            if (preg_match('/^@?filepan_bot:[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1) {
+                return true;
+            }
+
+            if (preg_match('/^LH_[A-Za-z0-9]{4,}$/u', $s) === 1) {
+                return true;
+            }
+
+            if (preg_match('/^[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)$/u', $s) === 1) {
+                return true;
+            }
+
+            return false;
+        }
 
         public function extractTokens(string $text): array
         {
@@ -67,7 +116,7 @@
 
                 $parts = $this->splitToValidTokens($token);
                 foreach ($parts as $p) {
-                    $p = (string)$p;
+                    $p = trim((string)$p);
                     if ($p !== '') {
                         $expanded[] = $p;
                     }
@@ -87,96 +136,6 @@
             return $result;
         }
 
-        /**
-         * 更嚴格的 token 判斷，避免 showfilesbot_1 / D_52 這種碎片被當成合法 token
-         */
-        private function isValidToken(string $s): bool
-        {
-            $s = trim($s);
-            if ($s === '') {
-                return false;
-            }
-
-            // showfilesbot_ 必須長成 showfilesbot_1D_.... 或 showfilesbot_3V_....
-            // 並要求尾段至少 8 字元，避免 showfilesbot_1D_52 這種誤判
-            if (preg_match('/^showfilesbot_\d+[VPD]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-
-            // filestoebot_ 至少 8 字元
-            if (preg_match('/^filestoebot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-
-            // ntmjmqbot_ 至少 8 字元（允許底線）
-            if (preg_match('/^ntmjmqbot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-
-            // datapanbot 類
-            if (preg_match('/^[vVpPdD]_?datapanbot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-
-            // vi_ / iv_ 至少 8 字元
-            if (preg_match('/^[vV]i_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-            if (preg_match('/^[iI]v_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-
-            // pk_ 至少 6 字元
-            if (preg_match('/^pk_[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-
-            // p_/d_/v_/P_/D_/V_ 這些短前綴：要求內容至少 8 字元，避免 D_52 這種碎片
-            if (preg_match('/^[pP]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-            if (preg_match('/^[dD]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-            if (preg_match('/^[vV]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-            if (preg_match('/^[P]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-            if (preg_match('/^[D]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-            if (preg_match('/^[V]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-            if (preg_match('/^[vVpPdD]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-
-            // link: token（允許空白），內容至少 6 字元
-            if (preg_match('/^link:\s*[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-
-            // filepan_bot:
-            if (preg_match('/^@?filepan_bot:[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
-            }
-
-            // LH_
-            if (preg_match('/^LH_[A-Za-z0-9]{4,}$/u', $s) === 1) {
-                return true;
-            }
-
-            // 純 token（一定要 =_grp 或 =_mda）
-            if (preg_match('/^[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)$/u', $s) === 1) {
-                return true;
-            }
-
-            return false;
-        }
-
         private function splitToValidTokens(string $s): array
         {
             $s = trim($s);
@@ -186,7 +145,6 @@
 
             $memo = [];
             $out = $this->splitToValidTokensInternal($s, $memo);
-
             if (!empty($out)) {
                 return $out;
             }
@@ -205,91 +163,127 @@
                 return $memo[$s];
             }
 
-            $positions = $this->findSplitPositions($s);
+            /**
+             * 第一步：強前綴硬切（解決你這種 showfilesbot_ 重複黏連，保證不漏最後一段）
+             */
+            $strongPieces = $this->splitByStrongPrefixesIfNeeded($s);
+            if (count($strongPieces) > 1) {
+                $all = [];
+                foreach ($strongPieces as $piece) {
+                    $piece = trim((string)$piece);
+                    if ($piece === '') {
+                        continue;
+                    }
 
-            // 關鍵：就算整串是合法 token，只要內部還有 marker（pos > 0）就要先嘗試拆
-            if ($this->isValidToken($s) && empty($positions)) {
+                    $sub = $this->splitToValidTokensInternal($piece, $memo);
+
+                    if (!empty($sub)) {
+                        $all = array_merge($all, $sub);
+                        continue;
+                    }
+
+                    if ($this->isValidToken($piece)) {
+                        $all[] = $piece;
+                    } else {
+                        $memo[$s] = [];
+                        return $memo[$s];
+                    }
+                }
+
+                if (!empty($all)) {
+                    $memo[$s] = $all;
+                    return $memo[$s];
+                }
+            }
+
+            /**
+             * 第二步：如果本身就是合法 token，且沒有需要硬切，直接回傳
+             */
+            if ($this->isValidToken($s)) {
                 $memo[$s] = [$s];
                 return $memo[$s];
             }
 
-            if (empty($positions)) {
-                $memo[$s] = [];
-                return $memo[$s];
-            }
-
-            sort($positions);
-
-            $best = [];
-            foreach ($positions as $pos) {
-                $pos = (int)$pos;
-                if ($pos <= 0) {
-                    continue;
-                }
-
-                $left  = trim((string)substr($s, 0, $pos));
-                $right = trim((string)substr($s, $pos));
-
-                if ($left === '' || $right === '') {
-                    continue;
-                }
-
-                $leftTokens  = $this->splitToValidTokensInternal($left, $memo);
-                if (empty($leftTokens)) {
-                    continue;
-                }
-
-                $rightTokens = $this->splitToValidTokensInternal($right, $memo);
-                if (empty($rightTokens)) {
-                    continue;
-                }
-
-                $candidate = array_merge($leftTokens, $rightTokens);
-
-                // 只接受「所有片段都是合法 token」
-                $allValid = true;
-                foreach ($candidate as $t) {
-                    if (!$this->isValidToken((string)$t)) {
-                        $allValid = false;
-                        break;
-                    }
-                }
-                if (!$allValid) {
-                    continue;
-                }
-
-                // 取能拆出最多 token 的那組
-                if (count($candidate) > count($best)) {
-                    $best = $candidate;
-                }
-            }
-
-            // 拆分完全失敗但本體合法：回退成整串
-            if (empty($best) && $this->isValidToken($s)) {
-                $best = [$s];
-            }
-
-            $memo[$s] = $best;
+            $memo[$s] = [];
             return $memo[$s];
         }
 
-        private function findSplitPositions(string $s): array
+        /**
+         * 若同一串內某個強前綴出現多次，直接以所有出現位置切段
+         * 例如：showfilesbot_...showfilesbot_...showfilesbot_... 會切成 3 段
+         */
+        private function splitByStrongPrefixesIfNeeded(string $s): array
         {
+            $s = (string)$s;
             $positions = [];
 
-            foreach (self::SPLIT_MARKER_PATTERNS as $rx) {
-                $matches = [];
-                preg_match_all($rx, $s, $matches, PREG_OFFSET_CAPTURE);
+            foreach (self::STRONG_PREFIXES as $prefix) {
+                $prefixLen = strlen($prefix);
+                if ($prefixLen === 0) {
+                    continue;
+                }
 
-                $items = $matches[0] ?? [];
-                foreach ($items as $item) {
-                    $pos = (int)($item[1] ?? -1);
-                    if ($pos > 0) {
-                        $positions[$pos] = true;
+                $offset = 0;
+                $found = [];
+
+                while (true) {
+                    $pos = strpos($s, $prefix, $offset);
+                    if ($pos === false) {
+                        break;
+                    }
+
+                    $found[] = (int)$pos;
+                    $offset = (int)$pos + 1;
+
+                    if ($offset >= strlen($s)) {
+                        break;
+                    }
+                }
+
+                if (count($found) >= 2) {
+                    foreach ($found as $p) {
+                        if ($p > 0) {
+                            $positions[$p] = true;
+                        }
                     }
                 }
             }
 
-            return array_map('intval', array_keys($positions));
+            if (empty($positions)) {
+                return [$s];
+            }
+
+            $cuts = array_map('intval', array_keys($positions));
+            sort($cuts);
+
+            $parts = [];
+            $start = 0;
+
+            foreach ($cuts as $cut) {
+                $len = $cut - $start;
+                if ($len > 0) {
+                    $parts[] = substr($s, $start, $len);
+                }
+                $start = $cut;
+            }
+
+            $tail = substr($s, $start);
+            if ($tail !== '') {
+                $parts[] = $tail;
+            }
+
+            $cleanParts = [];
+            foreach ($parts as $p) {
+                $p = trim((string)$p);
+                if ($p !== '') {
+                    $cleanParts[] = $p;
+                }
+            }
+
+            if (empty($cleanParts)) {
+                return [$s];
+            }
+
+            return $cleanParts;
         }
     }

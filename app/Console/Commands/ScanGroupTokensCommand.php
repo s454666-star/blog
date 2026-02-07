@@ -39,6 +39,16 @@
          */
         private array $groupsIndex = [];
 
+        /**
+         * HTTP retry 次數
+         */
+        private const HTTP_MAX_RETRIES = 3;
+
+        /**
+         * 每次 bulk insert 的 chunk 大小
+         */
+        private const INSERT_CHUNK_SIZE = 500;
+
         public function __construct(TelegramCodeTokenService $tokenService)
         {
             parent::__construct();
@@ -143,7 +153,7 @@
                     break;
                 }
 
-                $insertedThisBatch = $this->extractAndInsertTokensFromItems($header->id, $items);
+                $insertedThisBatch = $this->extractAndInsertTokensFromItems((int)$header->id, $items);
 
                 $header->last_start_message_id = $startMessageId;
                 $header->max_message_id = $maxIdInBatch;
@@ -159,6 +169,17 @@
                 } else {
                     $this->line("peer_id={$peerId} 本批沒有新增 token");
                 }
+
+                $lastMessageIdFromGroups = 0;
+                $groupInfo = $this->groupsIndex[$peerId] ?? null;
+                if (is_array($groupInfo)) {
+                    $lastMessageIdFromGroups = (int)($groupInfo['last_message_id'] ?? 0);
+                }
+
+                if ($lastMessageIdFromGroups > 0 && (int)$header->max_message_id >= $lastMessageIdFromGroups) {
+                    $this->line("peer_id={$peerId} 已掃到群組最新 last_message_id={$lastMessageIdFromGroups}，停止。");
+                    break;
+                }
             }
 
             $this->line("peer_id={$peerId} 完成，總新增 token：{$totalInserted}");
@@ -170,61 +191,80 @@
          */
         private function fetchGroupsIndex(): array
         {
-            try {
-                $res = $this->http->get('groups');
-                $body = (string)$res->getBody();
-                $json = json_decode($body, true);
+            $tries = 0;
 
-                if (!is_array($json)) {
-                    return [];
-                }
+            while (true) {
+                $tries = $tries + 1;
 
-                $items = $json['items'] ?? [];
-                if (!is_array($items)) {
-                    return [];
-                }
+                try {
+                    $res = $this->http->get('groups');
+                    $body = (string)$res->getBody();
+                    $json = json_decode($body, true);
 
-                $index = [];
-                foreach ($items as $it) {
-                    if (!is_array($it)) {
-                        continue;
+                    if (!is_array($json)) {
+                        return [];
                     }
 
-                    $id = (int)($it['id'] ?? 0);
-                    if ($id <= 0) {
-                        continue;
+                    $items = $json['items'] ?? [];
+                    if (!is_array($items)) {
+                        return [];
                     }
 
-                    $index[$id] = [
-                        'title' => (string)($it['title'] ?? ''),
-                        'last_message_id' => (int)($it['last_message_id'] ?? 0),
-                    ];
-                }
+                    $index = [];
+                    foreach ($items as $it) {
+                        if (!is_array($it)) {
+                            continue;
+                        }
 
-                return $index;
-            } catch (GuzzleException $e) {
-                $this->line('HTTP 失敗：GET /groups err=' . $e->getMessage());
-                return [];
+                        $id = (int)($it['id'] ?? 0);
+                        if ($id <= 0) {
+                            continue;
+                        }
+
+                        $index[$id] = [
+                            'title' => (string)($it['title'] ?? ''),
+                            'last_message_id' => (int)($it['last_message_id'] ?? 0),
+                        ];
+                    }
+
+                    return $index;
+                } catch (GuzzleException $e) {
+                    if ($tries >= self::HTTP_MAX_RETRIES) {
+                        $this->line('HTTP 失敗：GET /groups err=' . $e->getMessage());
+                        return [];
+                    }
+
+                    usleep(250000);
+                }
             }
         }
 
         private function fetchGroupPage(int $peerId, int $startMessageId): ?array
         {
             $path = "groups/{$peerId}/{$startMessageId}";
+            $tries = 0;
 
-            try {
-                $res = $this->http->get($path);
-                $body = (string)$res->getBody();
-                $json = json_decode($body, true);
+            while (true) {
+                $tries = $tries + 1;
 
-                if (!is_array($json)) {
-                    return null;
+                try {
+                    $res = $this->http->get($path);
+                    $body = (string)$res->getBody();
+                    $json = json_decode($body, true);
+
+                    if (!is_array($json)) {
+                        return null;
+                    }
+
+                    return $json;
+                } catch (GuzzleException $e) {
+                    if ($tries >= self::HTTP_MAX_RETRIES) {
+                        $this->line("HTTP 失敗：peer_id={$peerId} start={$startMessageId} err=" . $e->getMessage());
+                        return null;
+                    }
+
+                    usleep(250000);
                 }
-
-                return $json;
-            } catch (GuzzleException $e) {
-                $this->line("HTTP 失敗：peer_id={$peerId} start={$startMessageId} err=" . $e->getMessage());
-                return null;
             }
         }
 
@@ -341,6 +381,26 @@
                 $existingGlobalSet[(string)$t] = true;
             }
 
+            $tokensNeedDialoguesCheck = [];
+            foreach ($candidateTokens as $token) {
+                if (!isset($existingGlobalSet[$token])) {
+                    $tokensNeedDialoguesCheck[] = $token;
+                }
+            }
+
+            $dialoguesExistingSet = [];
+            if (!empty($tokensNeedDialoguesCheck)) {
+                $dialoguesExisting = DB::table('dialogues')
+                    ->where('chat_id', self::DIALOGUES_CHAT_ID)
+                    ->whereIn('text', $tokensNeedDialoguesCheck)
+                    ->pluck('text')
+                    ->all();
+
+                foreach ($dialoguesExisting as $t) {
+                    $dialoguesExistingSet[(string)$t] = true;
+                }
+            }
+
             $rowsToInsert = [];
             $insertedTokensForPrint = [];
 
@@ -349,12 +409,7 @@
                     continue;
                 }
 
-                $existsInDialogues = DB::table('dialogues')
-                    ->where('chat_id', self::DIALOGUES_CHAT_ID)
-                    ->where('text', $token)
-                    ->exists();
-
-                if ($existsInDialogues) {
+                if (isset($dialoguesExistingSet[$token])) {
                     continue;
                 }
 
@@ -376,33 +431,60 @@
             $insertedCount = 0;
 
             DB::transaction(function () use ($rowsToInsert, &$insertedCount) {
+                $tokens = [];
+                foreach ($rowsToInsert as $row) {
+                    $tokens[] = (string)$row['token'];
+                }
+                $tokens = array_values(array_unique($tokens));
+
+                if (empty($tokens)) {
+                    return;
+                }
+
+                $existingTokens = TokenScanItem::query()
+                    ->whereIn('token', $tokens)
+                    ->pluck('token')
+                    ->all();
+
+                $existingSet = [];
+                foreach ($existingTokens as $t) {
+                    $existingSet[(string)$t] = true;
+                }
+
+                $dialoguesExisting = DB::table('dialogues')
+                    ->where('chat_id', self::DIALOGUES_CHAT_ID)
+                    ->whereIn('text', $tokens)
+                    ->pluck('text')
+                    ->all();
+
+                $dialoguesSet = [];
+                foreach ($dialoguesExisting as $t) {
+                    $dialoguesSet[(string)$t] = true;
+                }
+
+                $finalRows = [];
                 foreach ($rowsToInsert as $row) {
                     $token = (string)$row['token'];
-                    $headerId = (int)$row['header_id'];
-
-                    $existsGlobal = TokenScanItem::query()
-                        ->where('token', $token)
-                        ->exists();
-
-                    if ($existsGlobal) {
+                    if (isset($existingSet[$token])) {
                         continue;
                     }
-
-                    $existsInDialogues = DB::table('dialogues')
-                        ->where('chat_id', self::DIALOGUES_CHAT_ID)
-                        ->where('text', $token)
-                        ->exists();
-
-                    if ($existsInDialogues) {
+                    if (isset($dialoguesSet[$token])) {
                         continue;
                     }
-
-                    TokenScanItem::query()->create([
-                        'header_id' => $headerId,
+                    $finalRows[] = [
+                        'header_id' => (int)$row['header_id'],
                         'token' => $token,
-                    ]);
+                    ];
+                }
 
-                    $insertedCount = $insertedCount + 1;
+                if (empty($finalRows)) {
+                    return;
+                }
+
+                $chunks = array_chunk($finalRows, self::INSERT_CHUNK_SIZE);
+                foreach ($chunks as $chunk) {
+                    $affected = DB::table('token_scan_items')->insertOrIgnore($chunk);
+                    $insertedCount = $insertedCount + (int)$affected;
                 }
             });
 

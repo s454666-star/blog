@@ -42,48 +42,73 @@
                 return false;
             }
 
-            if (preg_match('/^showfilesbot_\d+[VPD]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
+            $len = strlen($s);
+            if ($len < 6) {
+                return false;
             }
 
-            if (preg_match('/^filestoebot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
+            $hasSuffix = (strpos($s, '=_grp') !== false) || (strpos($s, '=_mda') !== false);
+
+            if (
+                strpos($s, 'showfilesbot_') !== 0 &&
+                strpos($s, 'filestoebot_') !== 0 &&
+                strpos($s, 'ntmjmqbot_') !== 0 &&
+                strpos($s, 'datapanbot_') === false &&
+                (stripos($s, 'vi_') !== 0) &&
+                (stripos($s, 'iv_') !== 0) &&
+                strpos($s, 'pk_') !== 0 &&
+                strpos($s, 'LH_') !== 0 &&
+                stripos($s, 'link:') !== 0 &&
+                stripos($s, '@filepan_bot:') !== 0 &&
+                stripos($s, 'filepan_bot:') !== 0
+            ) {
+                if (!$hasSuffix) {
+                    return false;
+                }
             }
 
-            if (preg_match('/^ntmjmqbot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
+            if (strpos($s, 'showfilesbot_') === 0) {
+                return preg_match('/^showfilesbot_\d+[VPD]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1;
             }
 
-            if (preg_match('/^[vVpPdD]_?datapanbot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
+            if (strpos($s, 'filestoebot_') === 0) {
+                return preg_match('/^filestoebot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1;
             }
 
-            if (preg_match('/^[vV]i_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
+            if (strpos($s, 'ntmjmqbot_') === 0) {
+                return preg_match('/^ntmjmqbot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1;
             }
 
-            if (preg_match('/^[iI]v_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
+            if (strpos($s, 'pk_') === 0) {
+                return preg_match('/^pk_[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1;
             }
 
-            if (preg_match('/^pk_[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
+            if (strpos($s, 'LH_') === 0) {
+                return preg_match('/^LH_[A-Za-z0-9]{4,}$/u', $s) === 1;
             }
 
-            if (preg_match('/^link:\s*[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
+            if (stripos($s, 'link:') === 0) {
+                return preg_match('/^link:\s*[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1;
             }
 
-            if (preg_match('/^@?filepan_bot:[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1) {
-                return true;
+            if (stripos($s, '@filepan_bot:') === 0 || stripos($s, 'filepan_bot:') === 0) {
+                return preg_match('/^@?filepan_bot:[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1;
             }
 
-            if (preg_match('/^LH_[A-Za-z0-9]{4,}$/u', $s) === 1) {
-                return true;
+            if (preg_match('/^[vVpPdD]_?datapanbot_/u', $s) === 1) {
+                return preg_match('/^[vVpPdD]_?datapanbot_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1;
             }
 
-            if (preg_match('/^[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)$/u', $s) === 1) {
-                return true;
+            if (preg_match('/^[vV]i_/u', $s) === 1) {
+                return preg_match('/^[vV]i_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1;
+            }
+
+            if (preg_match('/^[iI]v_/u', $s) === 1) {
+                return preg_match('/^[iI]v_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1;
+            }
+
+            if ($hasSuffix) {
+                return preg_match('/^[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)$/u', $s) === 1;
             }
 
             return false;

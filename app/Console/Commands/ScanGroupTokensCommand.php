@@ -5,6 +5,7 @@
     use App\Models\TokenScanHeader;
     use App\Models\TokenScanItem;
     use App\Services\TelegramCodeTokenService;
+    use Carbon\Carbon;
     use GuzzleHttp\Client;
     use GuzzleHttp\Exception\GuzzleException;
     use Illuminate\Console\Command;
@@ -109,12 +110,16 @@
 
             $totalInserted = 0;
             $loopCount = 0;
+            $lastMaxDateTime = null;
 
             while (true) {
                 $loopCount = $loopCount + 1;
 
                 if ($limitTimes !== null && $loopCount > $limitTimes) {
                     $this->line("peer_id={$peerId} 已達限制 API 次數 {$limitTimes}，停止。");
+                    if ($lastMaxDateTime !== null) {
+                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                    }
                     break;
                 }
 
@@ -124,34 +129,53 @@
 
                 if (!$payload) {
                     $this->line("peer_id={$peerId} start={$startMessageId} 取回失敗，停止。");
+                    if ($lastMaxDateTime !== null) {
+                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                    }
                     break;
                 }
 
                 $status = (string)($payload['status'] ?? '');
                 if ($status !== 'ok') {
                     $this->line("peer_id={$peerId} start={$startMessageId} status={$status}，停止。");
+                    if ($lastMaxDateTime !== null) {
+                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                    }
                     break;
                 }
 
                 $items = $payload['items'] ?? [];
                 if (!is_array($items) || count($items) === 0) {
-                    $this->printHeaderTable($header, $peerId, $startMessageId, 0, 0, $totalInserted);
+                    $this->printHeaderTable($header, $peerId, $startMessageId, 0, 0, $totalInserted, null);
                     $this->line("peer_id={$peerId} start={$startMessageId} items=0，沒有新訊息，停止。");
+                    if ($lastMaxDateTime !== null) {
+                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                    }
                     break;
                 }
 
                 $maxIdInBatch = $this->getMaxMessageId($items);
                 if ($maxIdInBatch <= 0) {
-                    $this->printHeaderTable($header, $peerId, $startMessageId, 0, count($items), $totalInserted);
+                    $this->printHeaderTable($header, $peerId, $startMessageId, 0, count($items), $totalInserted, null);
                     $this->line("peer_id={$peerId} start={$startMessageId} 無法取得 max message id，停止。");
+                    if ($lastMaxDateTime !== null) {
+                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                    }
                     break;
                 }
 
                 if ($maxIdInBatch < $startMessageId) {
-                    $this->printHeaderTable($header, $peerId, $startMessageId, $maxIdInBatch, count($items), $totalInserted);
+                    $maxDateTimeStr = $this->getDateTimeByMessageId($items, $maxIdInBatch);
+                    $this->printHeaderTable($header, $peerId, $startMessageId, $maxIdInBatch, count($items), $totalInserted, $maxDateTimeStr);
                     $this->line("peer_id={$peerId} start={$startMessageId} maxIdInBatch={$maxIdInBatch} 小於 start，視為沒有新訊息，停止。");
+                    if ($lastMaxDateTime !== null) {
+                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                    }
                     break;
                 }
+
+                $maxDateTimeStr = $this->getDateTimeByMessageId($items, $maxIdInBatch);
+                $lastMaxDateTime = $maxDateTimeStr;
 
                 $insertedThisBatch = $this->extractAndInsertTokensFromItems((int)$header->id, $items);
 
@@ -162,12 +186,16 @@
 
                 $totalInserted = $totalInserted + $insertedThisBatch;
 
-                $this->printHeaderTable($header, $peerId, $startMessageId, $maxIdInBatch, count($items), $totalInserted);
+                $this->printHeaderTable($header, $peerId, $startMessageId, $maxIdInBatch, count($items), $totalInserted, $maxDateTimeStr);
 
                 if ($insertedThisBatch > 0) {
                     $this->line("peer_id={$peerId} 本批新增 token：{$insertedThisBatch}");
                 } else {
                     $this->line("peer_id={$peerId} 本批沒有新增 token");
+                }
+
+                if ($maxDateTimeStr !== null) {
+                    $this->line("peer_id={$peerId} 本批最大日期時間：{$maxDateTimeStr}");
                 }
 
                 $lastMessageIdFromGroups = 0;
@@ -178,11 +206,17 @@
 
                 if ($lastMessageIdFromGroups > 0 && (int)$header->max_message_id >= $lastMessageIdFromGroups) {
                     $this->line("peer_id={$peerId} 已掃到群組最新 last_message_id={$lastMessageIdFromGroups}，停止。");
+                    if ($lastMaxDateTime !== null) {
+                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                    }
                     break;
                 }
             }
 
             $this->line("peer_id={$peerId} 完成，總新增 token：{$totalInserted}");
+            if ($lastMaxDateTime !== null) {
+                $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+            }
             $this->line(str_repeat('-', 80));
         }
 
@@ -281,6 +315,37 @@
                 }
             }
             return $max;
+        }
+
+        private function getDateTimeByMessageId(array $items, int $messageId): ?string
+        {
+            if ($messageId <= 0) {
+                return null;
+            }
+
+            foreach ($items as $it) {
+                if (!is_array($it)) {
+                    continue;
+                }
+
+                $id = (int)($it['id'] ?? 0);
+                if ($id !== $messageId) {
+                    continue;
+                }
+
+                $dateRaw = $it['date'] ?? null;
+                if (!is_string($dateRaw) || trim($dateRaw) === '') {
+                    return null;
+                }
+
+                try {
+                    return Carbon::parse($dateRaw)->format('Y-m-d H:i:s');
+                } catch (\Throwable $e) {
+                    return null;
+                }
+            }
+
+            return null;
         }
 
         private function getWebPageTitle(array $message): ?string
@@ -495,8 +560,15 @@
             return $insertedCount;
         }
 
-        private function printHeaderTable(TokenScanHeader $header, int $peerId, int $startMessageId, int $maxIdInBatch, int $batchCount, int $totalInserted): void
-        {
+        private function printHeaderTable(
+            TokenScanHeader $header,
+            int $peerId,
+            int $startMessageId,
+            int $maxIdInBatch,
+            int $batchCount,
+            int $totalInserted,
+            ?string $maxDateTime
+        ): void {
             $title = $header->chat_title ?? '';
             $title = (string)$title;
 
@@ -512,13 +584,14 @@
                          '目前位置(start_message_id)' => $startMessageId,
                          '目前抓到最大message_id' => (int)$header->max_message_id,
                          '本批最大message_id' => $maxIdInBatch,
+                         '本批最大日期時間' => $maxDateTime ?? '',
                          '本批筆數' => $batchCount,
                          '群組最新last_message_id' => $lastMessageIdFromGroups,
                          '累計新增token' => $totalInserted,
                      ]];
 
             $this->table(
-                ['聊天室id', '聊天室名稱', '目前位置(start_message_id)', '目前抓到最大message_id', '本批最大message_id', '本批筆數', '群組最新last_message_id', '累計新增token'],
+                ['聊天室id', '聊天室名稱', '目前位置(start_message_id)', '目前抓到最大message_id', '本批最大message_id', '本批最大日期時間', '本批筆數', '群組最新last_message_id', '累計新增token'],
                 $rows
             );
         }

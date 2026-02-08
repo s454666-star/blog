@@ -164,8 +164,11 @@
                     break;
                 }
 
+                $batchMaxDateTimeCarbon = $this->getDateTimeCarbonByMessageId($items, $maxIdInBatch);
+                $maxDateTimeStr = $this->formatCarbonToYmdHis($batchMaxDateTimeCarbon);
+                $lastMaxDateTime = $maxDateTimeStr;
+
                 if ($maxIdInBatch < $startMessageId) {
-                    $maxDateTimeStr = $this->getDateTimeByMessageId($items, $maxIdInBatch);
                     $this->printHeaderTable($header, $peerId, $startMessageId, $maxIdInBatch, count($items), $totalInserted, $maxDateTimeStr);
                     $this->line("peer_id={$peerId} start={$startMessageId} maxIdInBatch={$maxIdInBatch} 小於 start，視為沒有新訊息，停止。");
                     if ($lastMaxDateTime !== null) {
@@ -174,14 +177,18 @@
                     break;
                 }
 
-                $maxDateTimeStr = $this->getDateTimeByMessageId($items, $maxIdInBatch);
-                $lastMaxDateTime = $maxDateTimeStr;
-
                 $insertedThisBatch = $this->extractAndInsertTokensFromItems((int)$header->id, $items);
 
                 $header->last_start_message_id = $startMessageId;
                 $header->max_message_id = $maxIdInBatch;
                 $header->last_batch_count = count($items);
+
+                if ($batchMaxDateTimeCarbon !== null) {
+                    $header->max_message_datetime = $batchMaxDateTimeCarbon->format('Y-m-d H:i:s');
+                } else {
+                    $header->max_message_datetime = null;
+                }
+
                 $header->save();
 
                 $totalInserted = $totalInserted + $insertedThisBatch;
@@ -317,7 +324,7 @@
             return $max;
         }
 
-        private function getDateTimeByMessageId(array $items, int $messageId): ?string
+        private function getDateTimeCarbonByMessageId(array $items, int $messageId): ?Carbon
         {
             if ($messageId <= 0) {
                 return null;
@@ -339,13 +346,26 @@
                 }
 
                 try {
-                    return Carbon::parse($dateRaw)->format('Y-m-d H:i:s');
+                    return Carbon::parse($dateRaw);
                 } catch (\Throwable $e) {
                     return null;
                 }
             }
 
             return null;
+        }
+
+        private function formatCarbonToYmdHis(?Carbon $carbon): ?string
+        {
+            if ($carbon === null) {
+                return null;
+            }
+
+            try {
+                return $carbon->format('Y-m-d H:i:s');
+            } catch (\Throwable $e) {
+                return null;
+            }
         }
 
         private function getWebPageTitle(array $message): ?string
@@ -578,11 +598,21 @@
                 $lastMessageIdFromGroups = (int)($groupInfo['last_message_id'] ?? 0);
             }
 
+            $headerMaxDateTime = null;
+            if (isset($header->max_message_datetime) && $header->max_message_datetime !== null && (string)$header->max_message_datetime !== '') {
+                try {
+                    $headerMaxDateTime = Carbon::parse((string)$header->max_message_datetime)->format('Y-m-d H:i:s');
+                } catch (\Throwable $e) {
+                    $headerMaxDateTime = (string)$header->max_message_datetime;
+                }
+            }
+
             $rows = [[
                          '聊天室id' => $peerId,
                          '聊天室名稱' => $title,
                          '目前位置(start_message_id)' => $startMessageId,
                          '目前抓到最大message_id' => (int)$header->max_message_id,
+                         '表頭最大日期時間' => $headerMaxDateTime ?? '',
                          '本批最大message_id' => $maxIdInBatch,
                          '本批最大日期時間' => $maxDateTime ?? '',
                          '本批筆數' => $batchCount,
@@ -591,7 +621,7 @@
                      ]];
 
             $this->table(
-                ['聊天室id', '聊天室名稱', '目前位置(start_message_id)', '目前抓到最大message_id', '本批最大message_id', '本批最大日期時間', '本批筆數', '群組最新last_message_id', '累計新增token'],
+                ['聊天室id', '聊天室名稱', '目前位置(start_message_id)', '目前抓到最大message_id', '表頭最大日期時間', '本批最大message_id', '本批最大日期時間', '本批筆數', '群組最新last_message_id', '累計新增token'],
                 $rows
             );
         }

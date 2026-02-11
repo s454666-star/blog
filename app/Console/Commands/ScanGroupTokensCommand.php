@@ -53,6 +53,11 @@
          */
         private const INSERT_CHUNK_SIZE = 500;
 
+        /**
+         * 時區偏移（你的需求：表頭最大日期時間、印出與資料庫都要 +8h）
+         */
+        private const HEADER_DATETIME_OFFSET_HOURS = 8;
+
         public function __construct(TelegramCodeTokenService $tokenService)
         {
             parent::__construct();
@@ -168,7 +173,9 @@
                 }
 
                 $batchMaxDateTimeCarbon = $this->getDateTimeCarbonByMessageId($items, $maxIdInBatch);
-                $maxDateTimeStr = $this->formatCarbonToYmdHis($batchMaxDateTimeCarbon);
+                $batchMaxDateTimeForHeader = $this->applyHeaderDatetimeOffset($batchMaxDateTimeCarbon);
+
+                $maxDateTimeStr = $this->formatCarbonToYmdHis($batchMaxDateTimeForHeader);
                 $lastMaxDateTime = $maxDateTimeStr;
 
                 if ($maxIdInBatch < $startMessageId) {
@@ -186,8 +193,8 @@
                 $header->max_message_id = $maxIdInBatch;
                 $header->last_batch_count = count($items);
 
-                if ($batchMaxDateTimeCarbon !== null) {
-                    $header->max_message_datetime = $batchMaxDateTimeCarbon->format('Y-m-d H:i:s');
+                if ($batchMaxDateTimeForHeader !== null) {
+                    $header->max_message_datetime = $batchMaxDateTimeForHeader->format('Y-m-d H:i:s');
                 } else {
                     $header->max_message_datetime = null;
                 }
@@ -404,6 +411,25 @@
             }
 
             return $text;
+        }
+
+        /**
+         * 表頭時間修正：統一將「表頭最大日期時間」做 +8h
+         * - 寫入 token_scan_headers.max_message_datetime：+8h
+         * - console 印出「表頭最大日期時間」：+8h（因為是從 DB 讀出來，已經是 +8h）
+         * - console 印出「本批最大日期時間」：也用同樣的 +8h（避免看起來不一致）
+         */
+        private function applyHeaderDatetimeOffset(?Carbon $carbon): ?Carbon
+        {
+            if ($carbon === null) {
+                return null;
+            }
+
+            try {
+                return $carbon->copy()->addHours(self::HEADER_DATETIME_OFFSET_HOURS);
+            } catch (\Throwable $e) {
+                return null;
+            }
         }
 
         /**

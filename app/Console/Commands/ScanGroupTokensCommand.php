@@ -54,9 +54,9 @@
         private const INSERT_CHUNK_SIZE = 500;
 
         /**
-         * 時區偏移（你的需求：表頭最大日期時間、印出與資料庫都要 +8h）
+         * 你要的 +8 小時（Asia/Taipei）
          */
-        private const HEADER_DATETIME_OFFSET_HOURS = 8;
+        private const TARGET_TIMEZONE = 'Asia/Taipei';
 
         public function __construct(TelegramCodeTokenService $tokenService)
         {
@@ -173,9 +173,9 @@
                 }
 
                 $batchMaxDateTimeCarbon = $this->getDateTimeCarbonByMessageId($items, $maxIdInBatch);
-                $batchMaxDateTimeForHeader = $this->applyHeaderDatetimeOffset($batchMaxDateTimeCarbon);
+                $batchMaxDateTimeTaipei = $this->convertMessageTimeToTaipei($batchMaxDateTimeCarbon);
 
-                $maxDateTimeStr = $this->formatCarbonToYmdHis($batchMaxDateTimeForHeader);
+                $maxDateTimeStr = $this->formatCarbonToYmdHis($batchMaxDateTimeTaipei);
                 $lastMaxDateTime = $maxDateTimeStr;
 
                 if ($maxIdInBatch < $startMessageId) {
@@ -187,20 +187,26 @@
                     break;
                 }
 
-                $insertedThisBatch = $this->extractAndInsertTokensFromItems((int)$header->id, $items);
-
+                /**
+                 * 重要：你要的「就算本批新增 token=0 也要更新時間」
+                 * 所以只要 items 有回來，就先把 header 的 max_message_id / max_message_datetime 更新並存檔
+                 */
                 $header->last_start_message_id = $startMessageId;
                 $header->max_message_id = $maxIdInBatch;
                 $header->last_batch_count = count($items);
 
-                if ($batchMaxDateTimeForHeader !== null) {
-                    $header->max_message_datetime = $batchMaxDateTimeForHeader->format('Y-m-d H:i:s');
+                if ($batchMaxDateTimeTaipei !== null) {
+                    $header->max_message_datetime = $batchMaxDateTimeTaipei->format('Y-m-d H:i:s');
                 } else {
                     $header->max_message_datetime = null;
                 }
 
                 $header->save();
 
+                /**
+                 * 再做 token 去重與寫入（本批新增 token=0 不影響 header 的時間更新）
+                 */
+                $insertedThisBatch = $this->extractAndInsertTokensFromItems((int)$header->id, $items);
                 $totalInserted = $totalInserted + $insertedThisBatch;
 
                 $this->printHeaderTable($header, $peerId, $startMessageId, $maxIdInBatch, count($items), $totalInserted, $maxDateTimeStr);
@@ -365,6 +371,29 @@
             return null;
         }
 
+        /**
+         * 核心修正：一律把 message 的時間「當作 UTC」來解讀，轉成 Asia/Taipei
+         * 這樣你看到的就一定是 +8 的結果，且存入 DB 也是 +8 後的字串
+         */
+        private function convertMessageTimeToTaipei(?Carbon $carbon): ?Carbon
+        {
+            if ($carbon === null) {
+                return null;
+            }
+
+            try {
+                $utc = Carbon::createFromFormat('Y-m-d H:i:s', $carbon->format('Y-m-d H:i:s'), 'UTC');
+                return $utc->setTimezone(self::TARGET_TIMEZONE);
+            } catch (\Throwable $e) {
+                try {
+                    $utc = Carbon::parse($carbon->toDateTimeString(), 'UTC');
+                    return $utc->setTimezone(self::TARGET_TIMEZONE);
+                } catch (\Throwable $e2) {
+                    return null;
+                }
+            }
+        }
+
         private function formatCarbonToYmdHis(?Carbon $carbon): ?string
         {
             if ($carbon === null) {
@@ -411,25 +440,6 @@
             }
 
             return $text;
-        }
-
-        /**
-         * 表頭時間修正：統一將「表頭最大日期時間」做 +8h
-         * - 寫入 token_scan_headers.max_message_datetime：+8h
-         * - console 印出「表頭最大日期時間」：+8h（因為是從 DB 讀出來，已經是 +8h）
-         * - console 印出「本批最大日期時間」：也用同樣的 +8h（避免看起來不一致）
-         */
-        private function applyHeaderDatetimeOffset(?Carbon $carbon): ?Carbon
-        {
-            if ($carbon === null) {
-                return null;
-            }
-
-            try {
-                return $carbon->copy()->addHours(self::HEADER_DATETIME_OFFSET_HOURS);
-            } catch (\Throwable $e) {
-                return null;
-            }
         }
 
         /**
@@ -627,12 +637,18 @@
                 $lastMessageIdFromGroups = (int)($groupInfo['last_message_id'] ?? 0);
             }
 
-            $headerMaxDateTime = null;
-            if (isset($header->max_message_datetime) && $header->max_message_datetime !== null && (string)$header->max_message_datetime !== '') {
-                try {
-                    $headerMaxDateTime = Carbon::parse((string)$header->max_message_datetime)->format('Y-m-d H:i:s');
-                } catch (\Throwable $e) {
-                    $headerMaxDateTime = (string)$header->max_message_datetime;
+            /**
+             * 重要：表頭最大日期時間用 DB 原始值印出（避免 Eloquent cast/時區處理讓你看起來沒變）
+             */
+            $headerMaxDateTimeRaw = '';
+            try {
+                $raw = $header->getRawOriginal('max_message_datetime');
+                if ($raw !== null) {
+                    $headerMaxDateTimeRaw = (string)$raw;
+                }
+            } catch (\Throwable $e) {
+                if (isset($header->max_message_datetime) && $header->max_message_datetime !== null) {
+                    $headerMaxDateTimeRaw = (string)$header->max_message_datetime;
                 }
             }
 
@@ -641,7 +657,7 @@
                          '聊天室名稱' => $title,
                          '目前位置(start_message_id)' => $startMessageId,
                          '目前抓到最大message_id' => (int)$header->max_message_id,
-                         '表頭最大日期時間' => $headerMaxDateTime ?? '',
+                         '表頭最大日期時間' => $headerMaxDateTimeRaw,
                          '本批最大message_id' => $maxIdInBatch,
                          '本批最大日期時間' => $maxDateTime ?? '',
                          '本批筆數' => $batchCount,

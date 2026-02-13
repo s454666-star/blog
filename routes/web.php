@@ -153,3 +153,5 @@ Route::post('/ig-grabber/fetch', [IgGrabController::class, 'fetch'])->name('ig.f
 Route::get('/ig-grabber/download', [IgGrabController::class, 'download'])->name('ig.download');
 Route::get('/dialogues/mark-read', [DialogueReadController::class, 'page'])->name('dialogues.markRead.page');
 Route::post('/dialogues/mark-read', [DialogueReadController::class, 'mark'])->name('dialogues.markRead.mark');
+Route::get('/tdl', [TdlCommandController::class, 'index']);
+Route::post('/tdl', [TdlCommandController::class, 'generate']);

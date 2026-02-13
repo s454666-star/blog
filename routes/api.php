@@ -14,6 +14,7 @@
     use App\Http\Controllers\RandomM3u8Controller;
     use App\Http\Controllers\ReturnOrderController;
 use App\Http\Controllers\TelegramFilestoreBotController;
+    use App\Http\Controllers\TelegramWebhookController;
     use App\Http\Controllers\TokenScanController;
     use App\Http\Controllers\UserController;
     use Illuminate\Http\Request;
@@ -102,3 +103,4 @@ use App\Http\Controllers\TelegramFilestoreBotController;
     Route::post('/telegram/filestore/webhook', [TelegramFilestoreBotController::class, 'webhook']);
     Route::get('/token-scan/headers', [TokenScanController::class, 'headers']);
     Route::get('/token-scan/items/{peerId}', [TokenScanController::class, 'items']);
+    Route::post('/telegram/webhook/mystar-secure', [TelegramWebhookController::class, 'handle']);

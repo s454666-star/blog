@@ -150,4 +150,3 @@ Route::post('/save-session', [UrlViewerController::class, 'saveSession']);
 Route::get('/ig-grabber', [IgGrabController::class, 'index'])->name('ig.index');
 Route::post('/ig-grabber/fetch', [IgGrabController::class, 'fetch'])->name('ig.fetch');
 Route::get('/ig-grabber/download', [IgGrabController::class, 'download'])->name('ig.download');
-Route::post('/telegram/webhook/mystar-secure', [TelegramWebhookController::class, 'handle']);

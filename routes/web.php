@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
+    use App\Http\Controllers\DialogueReadController;
     use App\Http\Controllers\EncryptionController;
 use App\Http\Controllers\ExtractController;
 use App\Http\Controllers\FetchController;

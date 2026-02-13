@@ -150,3 +150,5 @@ Route::post('/save-session', [UrlViewerController::class, 'saveSession']);
 Route::get('/ig-grabber', [IgGrabController::class, 'index'])->name('ig.index');
 Route::post('/ig-grabber/fetch', [IgGrabController::class, 'fetch'])->name('ig.fetch');
 Route::get('/ig-grabber/download', [IgGrabController::class, 'download'])->name('ig.download');
+Route::get('/dialogues/mark-read', [DialogueReadController::class, 'page'])->name('dialogues.markRead.page');
+Route::post('/dialogues/mark-read', [DialogueReadController::class, 'mark'])->name('dialogues.markRead.mark');

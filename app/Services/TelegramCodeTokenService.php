@@ -5,7 +5,7 @@
     class TelegramCodeTokenService
     {
         private const EXTRACT_PATTERN = '/
-        (?:\b(?:@?filepan_bot:|link:\s*|[vV]i_|[iI]v_|pk_|p_|d_|showfilesbot_|showfiles3bot_|[vVpPdD]_?datapanbot_|[vVpPdD]_|ntmjmqbot_|filestoebot_)
+        (?:\b(?:@?filepan_bot:|link:\s*|[vV]i_|[iI]v_|pk_|p_|d_|showfilesbot_|showfiles3bot_|Save2BoxBot|[vVpPdD]_?datapanbot_|[vVpPdD]_|ntmjmqbot_|filestoebot_)
             [A-Za-z0-9_\+\-]+(?:=_grp|=_mda)?\b
         )
         |
@@ -21,6 +21,7 @@
         private const STRONG_PREFIXES = [
             'showfilesbot_',
             'showfiles3bot_',
+            'Save2BoxBot',
             'filestoebot_',
             'ntmjmqbot_',
             'datapanbot_',
@@ -52,10 +53,12 @@
 
             $isShowfilesbot = strpos($s, 'showfilesbot_') === 0;
             $isShowfiles3bot = strpos($s, 'showfiles3bot_') === 0;
+            $isSave2BoxBot = stripos($s, 'Save2BoxBot') === 0;
 
             if (
                 !$isShowfilesbot &&
                 !$isShowfiles3bot &&
+                !$isSave2BoxBot &&
                 strpos($s, 'filestoebot_') !== 0 &&
                 strpos($s, 'ntmjmqbot_') !== 0 &&
                 strpos($s, 'datapanbot_') === false &&
@@ -78,6 +81,10 @@
 
             if ($isShowfiles3bot) {
                 return preg_match('/^showfiles3bot_\d+[VPD]_[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1;
+            }
+
+            if ($isSave2BoxBot) {
+                return preg_match('/^Save2BoxBot[A-Za-z0-9_\+\-]{8,}(?:=_grp|=_mda)?$/u', $s) === 1;
             }
 
             if (strpos($s, 'filestoebot_') === 0) {
@@ -198,7 +205,7 @@
             }
 
             /**
-             * 第一步：強前綴硬切（解決你這種 showfilesbot_ / showfiles3bot_ 重複黏連，保證不漏最後一段）
+             * 第一步：強前綴硬切（解決黏連，保證不漏最後一段）
              */
             $strongPieces = $this->splitByStrongPrefixesIfNeeded($s);
             if (count($strongPieces) > 1) {
@@ -244,8 +251,6 @@
 
         /**
          * 若同一串內某個強前綴出現多次，直接以所有出現位置切段
-         * 例如：showfilesbot_...showfilesbot_...showfilesbot_... 會切成 3 段
-         * 例如：showfiles3bot_...showfiles3bot_... 會切成多段
          */
         private function splitByStrongPrefixesIfNeeded(string $s): array
         {

@@ -27,11 +27,7 @@
         <h1>Dialogues 標記已讀</h1>
 
         <div class="hint">
-            貼上多行文字（每行一筆），例如：<br>
-            <code>showfilesbot_1V_v157p7c0u8R5B73499R7</code><br>
-            <code>showfilesbot_6P_S1Z7Y7q0q8P6a1i8y0M0</code><br>
-            <code>showfilesbot_5P_6V_s1A7g7S0X8g616x9A7i6</code><br>
-            <code>showfilesbot_6P_G1e7z7U0c8B7c1o5Q727</code><br><br>
+            貼上多行文字（每行一筆）<br>
             送出方式：在文字框內 <b>按 Enter</b>（送出標記）或按下「標記」按鈕。<br>
             若你需要在框內手動換行，請用 <b>Shift + Enter</b>。
         </div>

@@ -23,7 +23,7 @@
         private int $chatId;
 
         private const DEBOUNCE_SECONDS = 5;
-        private const CLOSE_UPLOAD_PROMPT_DEDUP_SECONDS = 30;
+        private const CLOSE_UPLOAD_PROMPT_DEDUP_SECONDS = 3;
         private const CLOSE_UPLOAD_PROMPT_MESSAGE_CACHE_MINUTES = 180;
 
         /**

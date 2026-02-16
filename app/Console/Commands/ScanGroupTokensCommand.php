@@ -16,21 +16,25 @@
         protected $signature = 'tg:scan-group-tokens {times? : 打 API 次數（不填=全跑）}';
         protected $description = '掃描 Telegram 群組聊天資料並抽取 token，去重後寫入 token_scan_items（可限制 API 次數）';
 
-        private Client $http;
         private TelegramCodeTokenService $tokenService;
 
         /**
-         * 你要掃的聊天室 id 放這裡，可自由加減
+         * base_uri 對應要掃的群組
+         * - http://127.0.0.1:8000/ 的群組 id：完全不動（保留原本那份）
+         * - 新增 http://127.0.0.1:8001/ 的群組 id：只加這個 base 的掃描清單
          */
-        private array $peerIds = [
-            2607630227,
-            2562367214,
-            2605076496,
-            3690371890,
-            3318624691,
-            2675610516,
-            1203660770,
-            2480276465,
+        private array $scanTargetsByBaseUri = [
+            'http://127.0.0.1:8000/' => [
+                2607630227,
+                3690371890,
+                3318624691,
+                1203660770,
+                1849236028,
+            ],
+            'http://127.0.0.1:8001/' => [
+                2562367214,
+                2605076496,
+            ],
         ];
 
         /**
@@ -61,13 +65,6 @@
         public function __construct(TelegramCodeTokenService $tokenService)
         {
             parent::__construct();
-
-            $this->http = new Client([
-                'base_uri' => 'http://127.0.0.1:8000/',
-                'timeout' => 30,
-                'connect_timeout' => 10,
-            ]);
-
             $this->tokenService = $tokenService;
         }
 
@@ -83,18 +80,46 @@
                 }
             }
 
-            $this->groupsIndex = $this->fetchGroupsIndex();
+            foreach ($this->scanTargetsByBaseUri as $baseUri => $peerIds) {
+                $baseUri = trim((string)$baseUri);
+                if ($baseUri === '') {
+                    continue;
+                }
 
-            foreach ($this->peerIds as $peerId) {
-                $peerId = (int)$peerId;
-                $this->scanOnePeer($peerId, $limitTimes);
+                if (!is_array($peerIds) || empty($peerIds)) {
+                    continue;
+                }
+
+                $this->line(str_repeat('=', 80));
+                $this->line("使用 base_uri={$baseUri} 開始掃描");
+                $this->line(str_repeat('=', 80));
+
+                $http = $this->makeHttpClient($baseUri);
+                $this->groupsIndex = $this->fetchGroupsIndex($http);
+
+                foreach ($peerIds as $peerId) {
+                    $peerId = (int)$peerId;
+                    $this->scanOnePeer($http, $baseUri, $peerId, $limitTimes);
+                }
             }
 
             return self::SUCCESS;
         }
 
-        private function scanOnePeer(int $peerId, ?int $limitTimes): void
+        private function makeHttpClient(string $baseUri): Client
         {
+            return new Client([
+                'base_uri' => $baseUri,
+                'timeout' => 30,
+                'connect_timeout' => 10,
+            ]);
+        }
+
+        private function scanOnePeer(Client $http, string $baseUri, int $peerId, ?int $limitTimes): void
+        {
+            $this->line(str_repeat('-', 80));
+            $this->line("base_uri={$baseUri} peer_id={$peerId} 開始");
+
             $header = TokenScanHeader::query()->where('peer_id', $peerId)->first();
 
             if (!$header) {
@@ -124,50 +149,50 @@
                 $loopCount = $loopCount + 1;
 
                 if ($limitTimes !== null && $loopCount > $limitTimes) {
-                    $this->line("peer_id={$peerId} 已達限制 API 次數 {$limitTimes}，停止。");
+                    $this->line("base_uri={$baseUri} peer_id={$peerId} 已達限制 API 次數 {$limitTimes}，停止。");
                     if ($lastMaxDateTime !== null) {
-                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                        $this->line("base_uri={$baseUri} peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
                     }
                     break;
                 }
 
                 $startMessageId = ((int)$header->max_message_id) > 0 ? ((int)$header->max_message_id + 1) : 1;
 
-                $payload = $this->fetchGroupPage($peerId, $startMessageId);
+                $payload = $this->fetchGroupPage($http, $peerId, $startMessageId);
 
                 if (!$payload) {
-                    $this->line("peer_id={$peerId} start={$startMessageId} 取回失敗，停止。");
+                    $this->line("base_uri={$baseUri} peer_id={$peerId} start={$startMessageId} 取回失敗，停止。");
                     if ($lastMaxDateTime !== null) {
-                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                        $this->line("base_uri={$baseUri} peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
                     }
                     break;
                 }
 
                 $status = (string)($payload['status'] ?? '');
                 if ($status !== 'ok') {
-                    $this->line("peer_id={$peerId} start={$startMessageId} status={$status}，停止。");
+                    $this->line("base_uri={$baseUri} peer_id={$peerId} start={$startMessageId} status={$status}，停止。");
                     if ($lastMaxDateTime !== null) {
-                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                        $this->line("base_uri={$baseUri} peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
                     }
                     break;
                 }
 
                 $items = $payload['items'] ?? [];
                 if (!is_array($items) || count($items) === 0) {
-                    $this->printHeaderTable($header, $peerId, $startMessageId, 0, 0, $totalInserted, null);
-                    $this->line("peer_id={$peerId} start={$startMessageId} items=0，沒有新訊息，停止。");
+                    $this->printHeaderTable($header, $baseUri, $peerId, $startMessageId, 0, 0, $totalInserted, null);
+                    $this->line("base_uri={$baseUri} peer_id={$peerId} start={$startMessageId} items=0，沒有新訊息，停止。");
                     if ($lastMaxDateTime !== null) {
-                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                        $this->line("base_uri={$baseUri} peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
                     }
                     break;
                 }
 
                 $maxIdInBatch = $this->getMaxMessageId($items);
                 if ($maxIdInBatch <= 0) {
-                    $this->printHeaderTable($header, $peerId, $startMessageId, 0, count($items), $totalInserted, null);
-                    $this->line("peer_id={$peerId} start={$startMessageId} 無法取得 max message id，停止。");
+                    $this->printHeaderTable($header, $baseUri, $peerId, $startMessageId, 0, count($items), $totalInserted, null);
+                    $this->line("base_uri={$baseUri} peer_id={$peerId} start={$startMessageId} 無法取得 max message id，停止。");
                     if ($lastMaxDateTime !== null) {
-                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                        $this->line("base_uri={$baseUri} peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
                     }
                     break;
                 }
@@ -179,17 +204,16 @@
                 $lastMaxDateTime = $maxDateTimeStr;
 
                 if ($maxIdInBatch < $startMessageId) {
-                    $this->printHeaderTable($header, $peerId, $startMessageId, $maxIdInBatch, count($items), $totalInserted, $maxDateTimeStr);
-                    $this->line("peer_id={$peerId} start={$startMessageId} maxIdInBatch={$maxIdInBatch} 小於 start，視為沒有新訊息，停止。");
+                    $this->printHeaderTable($header, $baseUri, $peerId, $startMessageId, $maxIdInBatch, count($items), $totalInserted, $maxDateTimeStr);
+                    $this->line("base_uri={$baseUri} peer_id={$peerId} start={$startMessageId} maxIdInBatch={$maxIdInBatch} 小於 start，視為沒有新訊息，停止。");
                     if ($lastMaxDateTime !== null) {
-                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                        $this->line("base_uri={$baseUri} peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
                     }
                     break;
                 }
 
                 /**
-                 * 重要：你要的「就算本批新增 token=0 也要更新時間」
-                 * 所以只要 items 有回來，就先把 header 的 max_message_id / max_message_datetime 更新並存檔
+                 * 重要：就算本批新增 token=0 也要更新時間
                  */
                 $header->last_start_message_id = $startMessageId;
                 $header->max_message_id = $maxIdInBatch;
@@ -203,22 +227,19 @@
 
                 $header->save();
 
-                /**
-                 * 再做 token 去重與寫入（本批新增 token=0 不影響 header 的時間更新）
-                 */
                 $insertedThisBatch = $this->extractAndInsertTokensFromItems((int)$header->id, $items);
                 $totalInserted = $totalInserted + $insertedThisBatch;
 
-                $this->printHeaderTable($header, $peerId, $startMessageId, $maxIdInBatch, count($items), $totalInserted, $maxDateTimeStr);
+                $this->printHeaderTable($header, $baseUri, $peerId, $startMessageId, $maxIdInBatch, count($items), $totalInserted, $maxDateTimeStr);
 
                 if ($insertedThisBatch > 0) {
-                    $this->line("peer_id={$peerId} 本批新增 token：{$insertedThisBatch}");
+                    $this->line("base_uri={$baseUri} peer_id={$peerId} 本批新增 token：{$insertedThisBatch}");
                 } else {
-                    $this->line("peer_id={$peerId} 本批沒有新增 token");
+                    $this->line("base_uri={$baseUri} peer_id={$peerId} 本批沒有新增 token");
                 }
 
                 if ($maxDateTimeStr !== null) {
-                    $this->line("peer_id={$peerId} 本批最大日期時間：{$maxDateTimeStr}");
+                    $this->line("base_uri={$baseUri} peer_id={$peerId} 本批最大日期時間：{$maxDateTimeStr}");
                 }
 
                 $lastMessageIdFromGroups = 0;
@@ -228,25 +249,22 @@
                 }
 
                 if ($lastMessageIdFromGroups > 0 && (int)$header->max_message_id >= $lastMessageIdFromGroups) {
-                    $this->line("peer_id={$peerId} 已掃到群組最新 last_message_id={$lastMessageIdFromGroups}，停止。");
+                    $this->line("base_uri={$baseUri} peer_id={$peerId} 已掃到群組最新 last_message_id={$lastMessageIdFromGroups}，停止。");
                     if ($lastMaxDateTime !== null) {
-                        $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                        $this->line("base_uri={$baseUri} peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
                     }
                     break;
                 }
             }
 
-            $this->line("peer_id={$peerId} 完成，總新增 token：{$totalInserted}");
+            $this->line("base_uri={$baseUri} peer_id={$peerId} 完成，總新增 token：{$totalInserted}");
             if ($lastMaxDateTime !== null) {
-                $this->line("peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
+                $this->line("base_uri={$baseUri} peer_id={$peerId} 最後一批最大日期時間：{$lastMaxDateTime}");
             }
             $this->line(str_repeat('-', 80));
         }
 
-        /**
-         * 打 /groups 建立 peer_id -> title/last_message_id 的索引
-         */
-        private function fetchGroupsIndex(): array
+        private function fetchGroupsIndex(Client $http): array
         {
             $tries = 0;
 
@@ -254,7 +272,7 @@
                 $tries = $tries + 1;
 
                 try {
-                    $res = $this->http->get('groups');
+                    $res = $http->get('groups');
                     $body = (string)$res->getBody();
                     $json = json_decode($body, true);
 
@@ -296,7 +314,7 @@
             }
         }
 
-        private function fetchGroupPage(int $peerId, int $startMessageId): ?array
+        private function fetchGroupPage(Client $http, int $peerId, int $startMessageId): ?array
         {
             $path = "groups/{$peerId}/{$startMessageId}";
             $tries = 0;
@@ -305,7 +323,7 @@
                 $tries = $tries + 1;
 
                 try {
-                    $res = $this->http->get($path);
+                    $res = $http->get($path);
                     $body = (string)$res->getBody();
                     $json = json_decode($body, true);
 
@@ -371,10 +389,6 @@
             return null;
         }
 
-        /**
-         * 核心修正：一律把 message 的時間「當作 UTC」來解讀，轉成 Asia/Taipei
-         * 這樣你看到的就一定是 +8 的結果，且存入 DB 也是 +8 後的字串
-         */
         private function convertMessageTimeToTaipei(?Carbon $carbon): ?Carbon
         {
             if ($carbon === null) {
@@ -442,12 +456,6 @@
             return $text;
         }
 
-        /**
-         * 去重規則：
-         * 1) token_scan_items.token 全表唯一（不管 header_id）
-         * 2) dialogues 是否已有（chat_id 固定 7702694790）
-         * 兩者都沒有才 insert token_scan_items（仍會記錄 header_id 方便追溯來源聊天室）
-         */
         private function extractAndInsertTokensFromItems(int $headerId, array $items): int
         {
             $candidateTokens = [];
@@ -621,6 +629,7 @@
 
         private function printHeaderTable(
             TokenScanHeader $header,
+            string $baseUri,
             int $peerId,
             int $startMessageId,
             int $maxIdInBatch,
@@ -637,9 +646,6 @@
                 $lastMessageIdFromGroups = (int)($groupInfo['last_message_id'] ?? 0);
             }
 
-            /**
-             * 重要：表頭最大日期時間用 DB 原始值印出（避免 Eloquent cast/時區處理讓你看起來沒變）
-             */
             $headerMaxDateTimeRaw = '';
             try {
                 $raw = $header->getRawOriginal('max_message_datetime');
@@ -653,6 +659,7 @@
             }
 
             $rows = [[
+                         'base_uri' => $baseUri,
                          '聊天室id' => $peerId,
                          '聊天室名稱' => $title,
                          '目前位置(start_message_id)' => $startMessageId,
@@ -666,7 +673,19 @@
                      ]];
 
             $this->table(
-                ['聊天室id', '聊天室名稱', '目前位置(start_message_id)', '目前抓到最大message_id', '表頭最大日期時間', '本批最大message_id', '本批最大日期時間', '本批筆數', '群組最新last_message_id', '累計新增token'],
+                [
+                    'base_uri',
+                    '聊天室id',
+                    '聊天室名稱',
+                    '目前位置(start_message_id)',
+                    '目前抓到最大message_id',
+                    '表頭最大日期時間',
+                    '本批最大message_id',
+                    '本批最大日期時間',
+                    '本批筆數',
+                    '群組最新last_message_id',
+                    '累計新增token'
+                ],
                 $rows
             );
         }

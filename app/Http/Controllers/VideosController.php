@@ -51,26 +51,40 @@
                 $page = (int) ceil($position / $perPage);
             }
 
-            /* ---------- 取主列表（穩定排序） ---------- */
+            /* ---------- 取主列表（穩定排序 + 精簡 eager load 欄位） ---------- */
             $videos = $this->applyOrdering((clone $baseQuery), $sortBy, $sortDir)
-                ->with('screenshots.faceScreenshots')
+                ->with([
+                    'screenshots' => function ($q) {
+                        $q->select(['id', 'video_master_id', 'screenshot_path']);
+                    },
+                    'screenshots.faceScreenshots' => function ($q) {
+                        $q->select(['id', 'video_screenshot_id', 'face_image_path', 'is_master']);
+                    },
+                ])
                 ->paginate($perPage, ['*'], 'page', max($page, 1));
 
             $prevPage = $page > 1 ? $page - 1 : null;
             $nextPage = $page < $lastPage ? $page + 1 : null;
 
-            /* ---------- 左欄主面人臉 ---------- */
-            $masterFaces = VideoFaceScreenshot::where('is_master', 1)
-                ->whereHas('videoScreenshot.videoMaster', function ($q) use ($videoType) {
-                    $q->where('video_type', $videoType);
-                })
+            /* ---------- 左欄主面人臉（改用 DB 排序，避免 PHP sortBy） ---------- */
+            $masterFacesQuery = VideoFaceScreenshot::query()
+                ->select('video_face_screenshots.*')
+                ->join('video_screenshots', 'video_screenshots.id', '=', 'video_face_screenshots.video_screenshot_id')
+                ->join('video_master', 'video_master.id', '=', 'video_screenshots.video_master_id')
+                ->where('video_face_screenshots.is_master', 1)
+                ->where('video_master.video_type', $videoType);
+
+            if ($sortBy === 'duration') {
+                $masterFacesQuery
+                    ->orderBy('video_master.duration', $sortDir)
+                    ->orderBy('video_master.id', $sortDir);
+            } else {
+                $masterFacesQuery->orderBy('video_master.id', $sortDir);
+            }
+
+            $masterFaces = $masterFacesQuery
                 ->with('videoScreenshot.videoMaster')
-                ->get()
-                ->sortBy(function ($f) use ($sortBy) {
-                    return $sortBy === 'duration'
-                        ? (float) $f->videoScreenshot->videoMaster->duration
-                        : (int) $f->videoScreenshot->videoMaster->id;
-                }, SORT_NUMERIC, $sortDir === 'desc');
+                ->get();
 
             return view('video.index', compact(
                 'videos', 'masterFaces',
@@ -94,9 +108,16 @@
                 $query->whereDoesntHave('masterFaces');
             }
 
-            // 套用穩定排序
+            // 套用穩定排序 + 精簡 eager load 欄位（減少 SQL/記憶體/HTML 生成成本）
             $videos = $this->applyOrdering($query, $sortBy, $sortDir)
-                ->with('screenshots.faceScreenshots')
+                ->with([
+                    'screenshots' => function ($q) {
+                        $q->select(['id', 'video_master_id', 'screenshot_path']);
+                    },
+                    'screenshots.faceScreenshots' => function ($q) {
+                        $q->select(['id', 'video_screenshot_id', 'face_image_path', 'is_master']);
+                    },
+                ])
                 ->paginate(10, ['*'], 'page', $page);
 
             if ($videos->isEmpty()) {

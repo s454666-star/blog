@@ -33,19 +33,21 @@ body {
 }
 
 .article-images {
-    display: flex; /* 設置為flex佈局 */
-    flex-wrap: wrap; /* 允許換行 */
-    justify-content: space-between; /* 兩張圖片之間留有間隔 */
-    /*margin-bottom: 15px; !* 與下方內容留有間隔 *!*/
-    max-width: 100%; /* 或更大的值，根据布局需要 */
-    overflow: visible; /* 确保内容不会被裁切 */
-    margin-bottom: 250px; /* 增加底部外边距，为长图片留出空间 */
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between; /* 一列兩張不變 */
+    align-items: flex-start; /* 關鍵：不要把同一列的 item 拉到同高度 */
+    max-width: 100%;
+    overflow: visible;
+    margin-bottom: 250px;
 }
 
 .article-image {
-    max-width: 48%; /* 每張圖片最大寬度設為48%，以便兩張圖片能夠適當顯示在一行 */
-    height: auto; /* 高度自動 */
-    margin-bottom: 10px; /* 圖片之間留有間隔 */
+    max-width: 48%; /* 一列兩張不變 */
+    height: auto; /* 保持比例 */
+    align-self: flex-start; /* 保險：單張也不要被同列拉伸 */
+    object-fit: contain; /* 保險：避免任何情況下被外部高度影響而扭曲 */
+    margin-bottom: 10px;
 }
 
 /* 文章樣式 */

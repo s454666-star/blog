@@ -671,3 +671,1027 @@ body {
     background-color: #45a049 !important; /* 深綠色背景，滑鼠懸停時 */
     opacity: 0.8 !important; /* 滑鼠懸停時的透明度變化 */
 }
+
+
+/* =========================
+   2026 UI 改版：統一按鈕、動態背景、標題動態漸層、版面優化
+   （直接加在 blog.css 最底部）
+   ========================= */
+
+/* 全頁：動態背景（不影響點擊） */
+body {
+    background: #0b1220 !important;
+    position: relative;
+    overflow-x: hidden;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+
+    background:
+        radial-gradient(circle at 15% 15%, rgba(99, 102, 241, 0.35), transparent 55%),
+        radial-gradient(circle at 85% 25%, rgba(34, 197, 94, 0.25), transparent 55%),
+        radial-gradient(circle at 50% 90%, rgba(236, 72, 153, 0.22), transparent 60%),
+        linear-gradient(120deg, rgba(2, 6, 23, 0.95), rgba(15, 23, 42, 0.92));
+    background-size: 200% 200%;
+    animation: blogBgMove 16s ease-in-out infinite;
+}
+
+body::after {
+    content: "";
+    position: fixed;
+    inset: -40%;
+    z-index: -1;
+    pointer-events: none;
+
+    background:
+        radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.08), transparent 45%),
+        radial-gradient(circle at 70% 60%, rgba(255, 255, 255, 0.06), transparent 45%),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+    filter: blur(22px);
+    opacity: 0.9;
+    animation: blogBgFloat 22s linear infinite;
+}
+
+@keyframes blogBgMove {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+@keyframes blogBgFloat {
+    0% { transform: translate3d(0, 0, 0) rotate(0deg); }
+    50% { transform: translate3d(2%, -2%, 0) rotate(8deg); }
+    100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+}
+
+/* 容器：玻璃感、留白更舒服 */
+.container {
+    max-width: 1200px !important;
+    margin: 28px auto 64px auto !important;
+    padding: 22px !important;
+
+    background: rgba(255, 255, 255, 0.72) !important;
+    border: 1px solid rgba(255, 255, 255, 0.28) !important;
+    border-radius: 18px !important;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35) !important;
+    backdrop-filter: blur(12px);
+}
+
+/* 搜尋列：更一致、更好看 */
+.search-form {
+    display: flex !important;
+    gap: 12px !important;
+    align-items: center !important;
+
+    padding: 12px !important;
+    border-radius: 18px !important;
+    background: rgba(255, 255, 255, 0.55) !important;
+    border: 1px solid rgba(255, 255, 255, 0.30) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12) !important;
+}
+
+.search-form input[type="text"] {
+    flex: 1 1 auto !important;
+    height: 44px !important;
+    width: auto !important;
+
+    border-radius: 12px !important;
+    padding: 0 14px !important;
+
+    border: 1px solid rgba(0, 0, 0, 0.10) !important;
+    background: rgba(255, 255, 255, 0.88) !important;
+    font-size: 15px !important;
+    outline: none !important;
+}
+
+.search-form input[type="text"]:focus {
+    border-color: rgba(59, 130, 246, 0.60) !important;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.22) !important;
+}
+
+/* 文章卡片：更精緻 */
+.article {
+    background: rgba(255, 255, 255, 0.78) !important;
+    border: 1px solid rgba(0, 0, 0, 0.06) !important;
+    border-radius: 18px !important;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16) !important;
+    overflow: visible !important;
+
+    padding: 18px !important;
+    margin-bottom: 18px !important;
+
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.article:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 55px rgba(0, 0, 0, 0.20) !important;
+}
+
+.article-header {
+    gap: 12px !important;
+}
+
+/* 文章標題：動態漸層（取代灰底） */
+.article h2 {
+    margin: 0 !important;
+    padding: 12px 16px !important;
+    border-radius: 14px !important;
+
+    color: #ffffff !important;
+    font-size: 18px !important;
+    line-height: 1.25 !important;
+
+    background: linear-gradient(
+        120deg,
+        rgba(255, 107, 107, 1),
+        rgba(254, 202, 87, 1),
+        rgba(72, 219, 251, 1),
+        rgba(29, 209, 161, 1),
+        rgba(95, 39, 205, 1)
+    ) !important;
+    background-size: 320% 320% !important;
+    animation: blogTitleGradient 10s ease-in-out infinite;
+
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18) !important;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.22) !important;
+}
+
+@keyframes blogTitleGradient {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* 上方 actions：像工具列一樣更乾淨 */
+.actions {
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    flex-wrap: wrap !important;
+
+    padding: 12px !important;
+    border-radius: 18px !important;
+    background: rgba(255, 255, 255, 0.55) !important;
+    border: 1px solid rgba(255, 255, 255, 0.30) !important;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* 文章內 button-group：更整齊 */
+.button-group {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+    align-items: center !important;
+
+    margin-top: 12px !important;
+    margin-bottom: 14px !important;
+
+    padding: 10px !important;
+    border-radius: 16px !important;
+    background: rgba(15, 23, 42, 0.04) !important;
+    border: 1px solid rgba(0, 0, 0, 0.06) !important;
+}
+
+/* =========================
+   按鈕統一（大小、Hover 高亮、按下效果）
+   你提到的：隱藏圖片按鈕也會有高亮
+   ========================= */
+
+:root {
+    --blog-btn-h: 44px;
+    --blog-btn-w: 150px;
+    --blog-btn-radius: 14px;
+}
+
+.actions button,
+.button-group button,
+.button-group a.link-btn,
+.search-form button {
+    height: var(--blog-btn-h) !important;
+    min-height: var(--blog-btn-h) !important;
+    width: var(--blog-btn-w) !important;
+    min-width: var(--blog-btn-w) !important;
+
+    padding: 0 14px !important;
+    border-radius: var(--blog-btn-radius) !important;
+
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.2px !important;
+    line-height: 1 !important;
+
+    border: 1px solid rgba(255, 255, 255, 0.22) !important;
+    color: #ffffff !important;
+
+    text-decoration: none !important;
+    user-select: none;
+
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18) !important;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease, background-position 0.5s ease;
+}
+
+/* 統一 Hover：高亮、浮起、發光邊 */
+.actions button:hover,
+.button-group button:hover,
+.button-group a.link-btn:hover,
+.search-form button:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.10) saturate(1.06);
+    box-shadow:
+        0 0 0 4px rgba(255, 255, 255, 0.14),
+        0 18px 42px rgba(0, 0, 0, 0.26) !important;
+}
+
+/* 統一 Active：按下回彈 */
+.actions button:active,
+.button-group button:active,
+.button-group a.link-btn:active,
+.search-form button:active {
+    transform: translateY(0);
+    filter: brightness(0.98);
+    box-shadow: 0 10px 18px rgba(0, 0, 0, 0.18) !important;
+}
+
+/* 統一 Focus：鍵盤操作也漂亮 */
+.actions button:focus-visible,
+.button-group button:focus-visible,
+.button-group a.link-btn:focus-visible,
+.search-form button:focus-visible {
+    outline: none !important;
+    box-shadow:
+        0 0 0 4px rgba(59, 130, 246, 0.28),
+        0 18px 42px rgba(0, 0, 0, 0.26) !important;
+}
+
+/* 各按鈕配色（保留區分但特效統一） */
+.actions .batch-delete-btn {
+    background: linear-gradient(135deg, rgba(255, 59, 48, 1), rgba(255, 107, 107, 1)) !important;
+    background-size: 180% 180% !important;
+}
+
+.actions .preserve-btn {
+    background: linear-gradient(135deg, rgba(124, 58, 237, 1), rgba(236, 72, 153, 1)) !important;
+    background-size: 180% 180% !important;
+}
+
+/* 你現在用的是 toggle-view-btn（不是 show-preserved-btn） */
+.actions .toggle-view-btn {
+    background: linear-gradient(135deg, rgba(14, 165, 233, 1), rgba(34, 197, 94, 1)) !important;
+    background-size: 180% 180% !important;
+}
+
+/* 文章內：隱藏圖片、密碼、連結 */
+.button-group .toggle-images {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 1), rgba(22, 163, 74, 1)) !important;
+    background-size: 180% 180% !important;
+}
+
+.button-group .password-btn {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 1), rgba(249, 115, 22, 1)) !important;
+    background-size: 180% 180% !important;
+}
+
+.button-group a.link-btn {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 1), rgba(99, 102, 241, 1)) !important;
+    background-size: 180% 180% !important;
+}
+
+/* 搜尋按鈕也統一同款質感 */
+.search-form button {
+    background: linear-gradient(135deg, rgba(6, 182, 212, 1), rgba(59, 130, 246, 1)) !important;
+    background-size: 180% 180% !important;
+}
+
+/* Hover 時讓漸層有滑動感（更「活」） */
+.actions button:hover,
+.button-group button:hover,
+.button-group a.link-btn:hover,
+.search-form button:hover {
+    background-position: 100% 50% !important;
+}
+
+/* =========================
+   圖片：維持一列兩張，但高度不互相拉扯、不變形
+   ========================= */
+.article-images {
+    display: flex;
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+    justify-content: space-between !important;
+    align-items: flex-start !important;
+
+    margin-bottom: 18px !important;
+    overflow: visible !important;
+}
+
+.article img.article-image {
+    width: calc(50% - 6px) !important;
+    max-width: calc(50% - 6px) !important;
+    height: auto !important;
+
+    object-fit: contain !important;
+    align-self: flex-start !important;
+
+    border-radius: 16px !important;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18) !important;
+    background: rgba(255, 255, 255, 0.65) !important;
+}
+
+/* 手機：一列一張 */
+@media (max-width: 768px) {
+    :root { --blog-btn-w: 100%; }
+
+    .actions button,
+    .button-group button,
+    .button-group a.link-btn,
+    .search-form button {
+        width: 100% !important;
+        min-width: 100% !important;
+    }
+
+    .article img.article-image {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+}
+
+/* =========================
+   最終修正：按鈕尺寸強制統一 + Hover 統一（含隱藏圖片） + 版面加寬(左右各 5%)
+   + 標題動態漸層更「會動」
+   （取代舊的「最新修正：按鈕統一...」那整段到檔案結尾）
+   ========================= */
+
+:root {
+    --ui-btn-h: 56px;
+    --ui-btn-w: 180px;
+    --ui-btn-radius: 16px;
+    --ui-btn-font: 18px;
+    --ui-btn-pad-x: 18px;
+}
+
+/* 中央主要區塊加寬：左右各留約 5% 背景 */
+body .container {
+    width: 90vw !important;
+    max-width: 90vw !important;
+    margin: 22px auto !important;
+}
+
+/* 小螢幕不要硬卡 90% */
+@media (max-width: 1100px) {
+    body .container {
+        width: 96vw !important;
+        max-width: 96vw !important;
+    }
+}
+
+/* 文章卡片保持滿寬 */
+.article {
+    /*width: 100% !important;*/
+    max-width: 100% !important;
+}
+
+/* 搜尋列：input 撐滿、按鈕固定尺寸 */
+.search-form {
+    display: flex !important;
+    align-items: center !important;
+    gap: 14px !important;
+    margin-bottom: 20px !important;
+}
+
+.search-form input[type="text"] {
+    flex: 1 1 auto !important;
+    width: auto !important;
+    height: var(--ui-btn-h) !important;
+    padding: 0 16px !important;
+    border-radius: var(--ui-btn-radius) !important;
+}
+
+/* actions 排版 */
+.actions {
+    justify-content: flex-start !important;
+    flex-wrap: wrap !important;
+    gap: 14px !important;
+}
+
+/* 文章內按鈕列 */
+.button-group {
+    flex-wrap: wrap !important;
+    gap: 14px !important;
+}
+
+/* =========================
+   按鈕尺寸「強制統一」
+   不只 ui-btn：連 seed-link-btn / download-btn / toggle-images 沒加 ui-btn 也照樣統一
+   ========================= */
+
+.actions button,
+.search-form button,
+.button-group button,
+.button-group a,
+.custom-btn,
+.batch-delete-btn,
+.preserve-btn,
+.toggle-view-btn,
+.toggle-images,
+.password-btn,
+.link-btn,
+.seed-link-btn,
+.download-btn,
+a.seed-link-btn,
+a.download-btn {
+    box-sizing: border-box !important;
+
+    height: var(--ui-btn-h) !important;
+    min-height: var(--ui-btn-h) !important;
+
+    width: var(--ui-btn-w) !important;
+    min-width: var(--ui-btn-w) !important;
+
+    padding: 0 var(--ui-btn-pad-x) !important;
+    border-radius: var(--ui-btn-radius) !important;
+
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    font-size: var(--ui-btn-font) !important;
+    font-weight: 800 !important;
+    line-height: 1 !important;
+
+    border: none !important;
+    color: #ffffff !important;
+    text-decoration: none !important;
+
+    cursor: pointer !important;
+    user-select: none !important;
+
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.18) !important;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease !important;
+
+    pointer-events: auto !important;
+}
+
+/* Hover 高亮：全部按鈕一致（含「隱藏圖片」） */
+.actions button:hover,
+.search-form button:hover,
+.button-group button:hover,
+.button-group a:hover,
+.custom-btn:hover,
+.batch-delete-btn:hover,
+.preserve-btn:hover,
+.toggle-view-btn:hover,
+.toggle-images:hover,
+.password-btn:hover,
+.link-btn:hover,
+.seed-link-btn:hover,
+.download-btn:hover,
+a.seed-link-btn:hover,
+a.download-btn:hover {
+    transform: translateY(-2px) !important;
+    filter: brightness(1.10) saturate(1.08) !important;
+    box-shadow:
+        0 0 0 4px rgba(255, 255, 255, 0.14),
+        0 18px 44px rgba(0, 0, 0, 0.26) !important;
+}
+
+/* Active */
+.actions button:active,
+.search-form button:active,
+.button-group button:active,
+.button-group a:active,
+.custom-btn:active,
+.batch-delete-btn:active,
+.preserve-btn:active,
+.toggle-view-btn:active,
+.toggle-images:active,
+.password-btn:active,
+.link-btn:active,
+.seed-link-btn:active,
+.download-btn:active,
+a.seed-link-btn:active,
+a.download-btn:active {
+    transform: translateY(0) !important;
+    filter: brightness(0.98) !important;
+    box-shadow: 0 10px 18px rgba(0, 0, 0, 0.18) !important;
+}
+
+/* =========================
+   顏色：保留你原本按鈕顏色語意（只補齊沒套到的）
+   ========================= */
+
+.batch-delete-btn {
+    background-color: #e74c3c !important;
+}
+
+.preserve-btn {
+    background-color: #b213de !important;
+}
+
+.toggle-view-btn {
+    background-color: #2fcc9c !important;
+}
+
+.toggle-images {
+    background-color: #7a3db5 !important;
+}
+
+.password-btn {
+    background-color: #f44336 !important;
+}
+
+a.link-btn,
+.link-btn {
+    background-color: #008CBA !important;
+}
+
+.seed-link-btn,
+a.seed-link-btn {
+    background-color: #4CAF50 !important;
+}
+
+.download-btn,
+a.download-btn {
+    background-color: #007bff !important;
+}
+
+.search-form button {
+    background-color: #12a8d8 !important;
+}
+
+/* =========================
+   標題：更明顯「會動」的漸層 + 光帶掃過效果
+   ========================= */
+
+.article h2 {
+    position: relative !important;
+    overflow: hidden !important;
+
+    color: #ffffff !important;
+    border-radius: 14px !important;
+
+    background: linear-gradient(
+        120deg,
+        rgba(255, 107, 107, 1),
+        rgba(254, 202, 87, 1),
+        rgba(72, 219, 251, 1),
+        rgba(29, 209, 161, 1),
+        rgba(95, 39, 205, 1)
+    ) !important;
+
+    background-size: 520% 520% !important;
+    animation: blogTitleGradient2 6.5s linear infinite !important;
+
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18) !important;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.22) !important;
+}
+
+.article h2::after {
+    content: "";
+    position: absolute;
+    inset: -40% -60%;
+    pointer-events: none;
+
+    background: linear-gradient(
+        110deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.22) 45%,
+        rgba(255, 255, 255, 0) 60%
+    );
+
+    transform: translateX(-35%) rotate(10deg);
+    animation: blogTitleShine2 2.8s ease-in-out infinite;
+    mix-blend-mode: overlay;
+    opacity: 0.9;
+}
+
+@keyframes blogTitleGradient2 {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+@keyframes blogTitleShine2 {
+    0% { transform: translateX(-35%) rotate(10deg); opacity: 0.0; }
+    20% { opacity: 0.9; }
+    60% { transform: translateX(35%) rotate(10deg); opacity: 0.9; }
+    100% { transform: translateX(35%) rotate(10deg); opacity: 0.0; }
+}
+
+
+/* =========================
+   Hotfix：標題漸層（每篇隨機）、標題微調、隱藏圖片強制生效
+   ========================= */
+
+/* 標題：保留原本效果，只把字變小一點點（原本 21px） */
+.article h2 {
+    position: relative !important;
+    overflow: hidden !important;
+
+    color: #ffffff !important;
+
+    font-size: 23px !important;
+    line-height: 1.2 !important;
+    padding: 16px 22px !important;
+
+    border-radius: 16px !important;
+
+    /* 預設底色（若 JS 沒跑也還是有漸層） */
+    background: linear-gradient(120deg, #ff6b6b, #feca57, #48dbfb, #1dd1a1, #5f27cd) !important;
+
+    background-size: 520% 520% !important;
+    animation: blogTitleGradient2 6.5s linear infinite !important;
+
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18) !important;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.22) !important;
+}
+
+/* 光帶掃過：更有「會動」感 */
+.article h2::after {
+    content: "";
+    position: absolute;
+    inset: -40% -60%;
+    pointer-events: none;
+
+    background: linear-gradient(
+        110deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.22) 45%,
+        rgba(255, 255, 255, 0) 60%
+    );
+
+    transform: translateX(-35%) rotate(10deg);
+    animation: blogTitleShine2 2.8s ease-in-out infinite;
+    mix-blend-mode: overlay;
+    opacity: 0.9;
+}
+
+/* 重要：每篇文章標題隨機漸層（JS 會在 .article 上設定 data-title-grad）
+   同時支援 h2 與 .article-title，避免標題有 class 時選不到 */
+/* 保底：如果 HTML 沒有 data-title-grad，也要讓每篇標題不一樣（依 article id 尾數分配） */
+.article:not([data-title-grad])[id$="0"] h2 { background: linear-gradient(120deg, #ff5a7a, #ffb86b, #7afcff, #7c3aed) !important; }
+.article:not([data-title-grad])[id$="1"] h2 { background: linear-gradient(120deg, #22c55e, #60a5fa, #a78bfa, #f472b6) !important; }
+.article:not([data-title-grad])[id$="2"] h2 { background: linear-gradient(120deg, #f97316, #f43f5e, #8b5cf6, #22d3ee) !important; }
+.article:not([data-title-grad])[id$="3"] h2 { background: linear-gradient(120deg, #fde047, #fb7185, #34d399, #60a5fa) !important; }
+.article:not([data-title-grad])[id$="4"] h2 { background: linear-gradient(120deg, #a78bfa, #22c55e, #f97316, #38bdf8) !important; }
+.article:not([data-title-grad])[id$="5"] h2 { background: linear-gradient(120deg, #06b6d4, #3b82f6, #a855f7, #f43f5e) !important; }
+.article:not([data-title-grad])[id$="6"] h2 { background: linear-gradient(120deg, #f59e0b, #ef4444, #8b5cf6, #10b981) !important; }
+.article:not([data-title-grad])[id$="7"] h2 { background: linear-gradient(120deg, #93c5fd, #fda4af, #86efac, #fcd34d) !important; }
+.article:not([data-title-grad])[id$="8"] h2 { background: linear-gradient(120deg, #c084fc, #67e8f9, #fda4af, #fde68a) !important; }
+.article:not([data-title-grad])[id$="9"] h2 { background: linear-gradient(120deg, #34d399, #60a5fa, #f472b6, #fbbf24) !important; }
+
+
+/* 保底：hidden 屬性一定要能隱藏（避免任何 display: flex !important 干擾） */
+[hidden] {
+    display: none !important;
+}
+
+/* 隱藏圖片：class 一律生效（保底） */
+.article-images.is-hidden {
+    display: none !important;
+}
+
+.article-images.is-hidden img {
+    display: none !important;
+}
+
+/* 保底：就算 class 被其它樣式干擾，data 狀態也要能強制隱藏 */
+.article[data-images-hidden="1"] .article-images,
+.article[data-images-hidden="1"] .article-images img {
+    display: none !important;
+}
+
+
+/* 統一版面：文章加寬（左右各留 5%）、動態背景、按鈕統一、標題漸層動畫、隱藏圖片修正 */
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    padding: 28px 0 64px;
+    font-family: Arial, sans-serif;
+    position: relative;
+    overflow-x: hidden;
+    background: #0b1020;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    top: -35%;
+    right: -35%;
+    bottom: -35%;
+    left: -35%;
+    background: linear-gradient(120deg, rgba(59,130,246,0.55), rgba(168,85,247,0.45), rgba(34,211,238,0.45), rgba(244,63,94,0.40));
+    background-size: 240% 240%;
+    animation: bgFlow 18s ease-in-out infinite;
+    filter: blur(40px);
+    opacity: 0.95;
+    z-index: -2;
+}
+
+body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+        radial-gradient(circle at 20% 10%, rgba(255,255,255,0.25), rgba(255,255,255,0) 45%),
+        radial-gradient(circle at 85% 25%, rgba(255,255,255,0.18), rgba(255,255,255,0) 40%),
+        radial-gradient(circle at 35% 85%, rgba(255,255,255,0.14), rgba(255,255,255,0) 45%);
+    opacity: 0.55;
+    z-index: -1;
+}
+
+@keyframes bgFlow {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+.container {
+    width: 90%;
+    max-width: 90%;
+    margin: 0 auto;
+    padding: 22px;
+    background: rgba(255, 255, 255, 0.82);
+    border-radius: 22px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.28);
+    backdrop-filter: blur(10px);
+}
+
+.search-form {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.search-form input[type="text"] {
+    flex: 1 1 auto;
+    width: auto;
+    height: 52px;
+    padding: 0 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(0,0,0,0.14);
+    outline: none;
+    background: rgba(255,255,255,0.90);
+}
+
+.search-form input[type="text"]:focus {
+    border-color: rgba(59,130,246,0.65);
+    box-shadow: 0 0 0 4px rgba(59,130,246,0.18);
+}
+
+/* 統一按鈕尺寸與互動效果（包含隱藏圖片） */
+.ui-btn,
+.search-form button,
+.actions .custom-btn,
+.button-group button,
+.button-group a,
+.seed-link-btn,
+.download-btn,
+.link-btn,
+.password-btn,
+.toggle-images {
+    height: 52px;
+    min-height: 52px;
+    width: 160px;
+    min-width: 160px;
+    padding: 0 18px;
+    border-radius: 14px;
+    border: none;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 16px;
+    line-height: 1;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    color: #ffffff;
+    user-select: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
+}
+
+.ui-btn:hover,
+.search-form button:hover,
+.actions .custom-btn:hover,
+.button-group button:hover,
+.button-group a:hover,
+.seed-link-btn:hover,
+.download-btn:hover,
+.link-btn:hover,
+.password-btn:hover,
+.toggle-images:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.07);
+    box-shadow: 0 14px 28px rgba(0,0,0,0.22);
+    opacity: 0.98;
+}
+
+.ui-btn:active,
+.search-form button:active,
+.actions .custom-btn:active,
+.button-group button:active,
+.button-group a:active,
+.seed-link-btn:active,
+.download-btn:active,
+.link-btn:active,
+.password-btn:active,
+.toggle-images:active {
+    transform: translateY(0);
+    filter: brightness(0.98);
+}
+
+.ui-btn:focus-visible,
+.search-form button:focus-visible,
+.actions .custom-btn:focus-visible,
+.button-group button:focus-visible,
+.button-group a:focus-visible,
+.seed-link-btn:focus-visible,
+.download-btn:focus-visible,
+.link-btn:focus-visible,
+.password-btn:focus-visible,
+.toggle-images:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 4px rgba(59,130,246,0.25), 0 14px 28px rgba(0,0,0,0.22);
+}
+
+/* 各按鈕配色（維持你原本語意，但做成更一致） */
+.search-btn,
+.search-form button {
+    background: linear-gradient(135deg, #06b6d4, #3b82f6);
+}
+
+.batch-delete-btn {
+    background: linear-gradient(135deg, #ff4d6d, #ef4444);
+}
+
+.preserve-btn {
+    background: linear-gradient(135deg, #f59e0b, #f97316);
+}
+
+.toggle-view-btn {
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+
+.toggle-images {
+    background: linear-gradient(135deg, #7c3aed, #a855f7);
+}
+
+.password-btn {
+    background: linear-gradient(135deg, #ef4444, #f43f5e);
+}
+
+.link-btn {
+    background: linear-gradient(135deg, #0ea5e9, #2563eb);
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.button-group {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+/* 文章卡片與標題（標題再加大一點點，且漸層會動；顏色由 JS 每篇隨機） */
+.article {
+    border-radius: 20px;
+    border: 1px solid rgba(0,0,0,0.10);
+    box-shadow: 0 14px 30px rgba(0,0,0,0.12);
+    padding: 18px;
+    margin-bottom: 20px;
+    background: rgba(255,255,255,0.86);
+    overflow: hidden;
+}
+
+.article-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.article-title {
+    margin: 0;
+    padding: 18px 24px;
+    border-radius: 18px;
+    font-size: 25px;
+    line-height: 1.25;
+    font-weight: 800;
+    color: #ffffff;
+    background-size: 300% 300%;
+    animation: titleGradMove 10s ease-in-out infinite;
+    box-shadow: 0 12px 24px rgba(0,0,0,0.18);
+    position: relative;
+    overflow: hidden;
+    flex: 1 1 auto;
+}
+
+.article-title::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 20% 30%, rgba(255,255,255,0.30), rgba(255,255,255,0) 45%);
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+@keyframes titleGradMove {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+/* 兩張一排，長圖不會把另一張拉長，圖片不扭曲 */
+.article-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 18px;
+    overflow: visible;
+}
+
+.article .article-images.is-hidden {
+    display: none !important;
+}
+
+.article-image {
+    flex: 0 0 calc(50% - 7px);
+    width: calc(50% - 7px);
+    max-width: calc(50% - 7px);
+    height: auto;
+    border-radius: 16px;
+    object-fit: contain;
+    box-shadow: 0 12px 26px rgba(0,0,0,0.18);
+    cursor: pointer;
+}
+
+.article img.article-image.is-hidden {
+    display: none !important;
+}
+
+@media (max-width: 900px) {
+    .container {
+        width: 96%;
+        max-width: 96%;
+        padding: 16px;
+    }
+
+    .ui-btn,
+    .search-form button,
+    .actions .custom-btn,
+    .button-group button,
+    .button-group a,
+    .seed-link-btn,
+    .download-btn,
+    .link-btn,
+    .password-btn,
+    .toggle-images {
+        width: 100%;
+        min-width: 100%;
+    }
+
+    .article-image {
+        flex: 0 0 100%;
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+/* =========================
+   Hotfix：隱藏圖片再保底（避免圖片不在 .article-images 內）
+   ========================= */
+.article[data-images-hidden="1"] img.article-image,
+.article[data-images-hidden="1"] .article-images img,
+.article[data-images-hidden="1"] .article-info img {
+    display: none !important;
+}

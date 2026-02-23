@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
+    use App\Http\Controllers\BtdigController;
     use App\Http\Controllers\DialogueReadController;
     use App\Http\Controllers\EncryptionController;
 use App\Http\Controllers\ExtractController;
@@ -23,6 +24,7 @@ use App\Http\Controllers\StaticProxyController;
     use App\Http\Controllers\UploadStorageController;
 use App\Http\Controllers\UrlViewerController;
 use App\Http\Controllers\UserController;
+    use App\Http\Controllers\VideoDuplicateController;
     use App\Http\Controllers\VideoPlayerController;
     use App\Http\Controllers\VideosController;
     use Illuminate\Support\Facades\Route;
@@ -156,3 +158,9 @@ Route::get('/dialogues/mark-read', [DialogueReadController::class, 'page'])->nam
 Route::post('/dialogues/mark-read', [DialogueReadController::class, 'mark'])->name('dialogues.markRead.mark');
 Route::get('/tdl', [TdlCommandController::class, 'index']);
 Route::post('/tdl', [TdlCommandController::class, 'generate']);
+Route::get('/btdig', [BtdigController::class, 'index']);
+Route::get('/videos/duplicates', [VideoDuplicateController::class, 'index'])->name('videos.duplicates.index');
+Route::post('/videos/duplicates/open', [VideoDuplicateController::class, 'open'])->name('videos.duplicates.open');
+Route::post('/videos/duplicates/mark-unique', [VideoDuplicateController::class, 'markUnique'])->name('videos.duplicates.markUnique');
+Route::post('/videos/duplicates/mark-group-unique', [VideoDuplicateController::class, 'markGroupUnique'])->name('videos.duplicates.markGroupUnique');
+Route::post('/videos/duplicates/delete', [VideoDuplicateController::class, 'delete'])->name('videos.duplicates.delete');

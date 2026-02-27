@@ -8,7 +8,7 @@
     (?:
         \b(?:@?filepan_bot:|link:\s*|[vV]i_|[iI]v_|pk_|p_|d_|
         showfilesbot_|showfiles3bot_|Save2BoxBot|
-        ntmjmqbot_|filestoebot_|
+        ntmjmqbot_|newjmqbot_|filestoebot_|
         Messengercode_|
         [vVpPdD]_?datapanbot_)
         [A-Za-z0-9_\+\-]+(?:=_grp|=_mda)?\b
@@ -25,6 +25,7 @@
             'Save2BoxBot',
             'filestoebot_',
             'ntmjmqbot_',
+            'newjmqbot_',
             'Messengercode_',
             'datapanbot_',
             'vi_',
@@ -54,12 +55,14 @@
             $isShowfiles3bot = strpos($s, 'showfiles3bot_') === 0;
             $isSave2BoxBot = stripos($s, 'Save2BoxBot') === 0;
             $isMessengerCode = strpos($s, 'Messengercode_') === 0;
+            $isNewJmqbot = strpos($s, 'newjmqbot_') === 0;
 
             if (
                 !$isShowfilesbot &&
                 !$isShowfiles3bot &&
                 !$isSave2BoxBot &&
                 !$isMessengerCode &&
+                !$isNewJmqbot &&
                 strpos($s, 'filestoebot_') !== 0 &&
                 strpos($s, 'ntmjmqbot_') !== 0 &&
                 strpos($s, 'datapanbot_') === false &&
@@ -90,6 +93,10 @@
 
             if ($isMessengerCode) {
                 return preg_match('/^Messengercode_[A-Za-z0-9_\+\-]{6,}$/u', $s) === 1;
+            }
+
+            if ($isNewJmqbot) {
+                return preg_match('/^newjmqbot_[A-Za-z0-9_\+\-]{6,}$/u', $s) === 1;
             }
 
             if (strpos($s, 'filestoebot_') === 0) {
@@ -157,7 +164,7 @@
             $result = [];
 
             foreach ($raw as $token) {
-                $token = trim((string)$token);
+                $token = trim((string) $token);
                 if ($token === '') {
                     continue;
                 }

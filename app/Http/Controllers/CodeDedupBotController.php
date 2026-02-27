@@ -14,11 +14,14 @@
         /** Telegram 文字上限（UTF-8 4096 byte） */
         private const MAX_MESSAGE_BYTES = 4096;
 
-        /** 每次回覆最多 5 行（只套用在「一般代碼 + LH_」區塊；filestoebot_ 不套用） */
-        private const REPLY_LINES_PER_MESSAGE = 5;
-
         /** filestoebot_ 前綴 */
         private const FILESTOEBOT_PREFIX = 'filestoebot_';
+
+        /** newjmqbot_ 前綴 */
+        private const NEWJMQBOT_PREFIX = 'newjmqbot_';
+
+        /** Messengercode_ 前綴 */
+        private const MESSENGERCODE_PREFIX = 'Messengercode_';
 
         protected string $apiUrl;
         protected Client $http;
@@ -27,9 +30,9 @@
 
         public function __construct(TelegramCodeTokenService $tokenService)
         {
-            $token        = config('telegram.bot_token');
+            $token = config('telegram.bot_token');
             $this->apiUrl = "https://api.telegram.org/bot{$token}/";
-            $this->http   = new Client(['base_uri' => $this->apiUrl]);
+            $this->http = new Client(['base_uri' => $this->apiUrl]);
 
             $this->tokenService = $tokenService;
         }
@@ -48,9 +51,9 @@
                 return response('ok', 200);
             }
 
-            $chatId = $update['message']['chat']['id'];
-            $text   = trim($update['message']['text']);
-            $msgId  = $update['message']['message_id'];
+            $chatId = (int) $update['message']['chat']['id'];
+            $text = trim((string) $update['message']['text']);
+            $msgId = (int) $update['message']['message_id'];
 
             /* ---------- 3. /start：顯示歷史 ---------- */
             if ($text === '/start') {
@@ -71,7 +74,7 @@
                 'callback_query_id' => $cb['id'],
             ]);
 
-            $data = (string)($cb['data'] ?? 'history:1');
+            $data = (string) ($cb['data'] ?? 'history:1');
             $parts = explode(':', $data);
 
             $action = $parts[0] ?? 'history';
@@ -81,18 +84,24 @@
                 return response('ok', 200);
             }
 
-            $chatId  = $cb['message']['chat']['id'];
-            $pageNum = max(1, (int)$page);
+            $chatId = (int) $cb['message']['chat']['id'];
+            $pageNum = max(1, (int) $page);
 
             $allCodes = $this->getAllCodes($chatId);
-            $lines    = $this->buildDisplayLines($allCodes);
-            $pages    = $this->chunkByBytes($lines);
-            $pageIdx  = min(count($pages), $pageNum) - 1;
+            $lines = $this->buildDisplayLines($allCodes);
+            $pages = $this->chunkByBytes($lines);
+
+            if (empty($pages)) {
+                $this->sendMessage($chatId, '目前還沒有任何歷史代碼。');
+                return response('ok', 200);
+            }
+
+            $pageIdx = min(count($pages), $pageNum) - 1;
 
             // 以新訊息方式送出，保留第一頁
             $this->safeRequest('sendMessage', [
-                'chat_id'      => $chatId,
-                'text'         => $pages[$pageIdx],
+                'chat_id' => $chatId,
+                'text' => $pages[$pageIdx],
                 'reply_markup' => $this->buildHistoryKeyboard(count($pages), $pageNum),
             ]);
 
@@ -110,14 +119,20 @@
 
             $lines = $this->buildDisplayLines($allCodes);
             $pages = $this->chunkByBytes($lines);
+
+            if (empty($pages)) {
+                $this->sendMessage($chatId, '目前還沒有任何歷史代碼。');
+                return response('ok', 200);
+            }
+
             $first = $pages[0];
 
             if (count($pages) === 1) {
                 $this->sendMessage($chatId, $first);
             } else {
                 $this->safeRequest('sendMessage', [
-                    'chat_id'      => $chatId,
-                    'text'         => $first,
+                    'chat_id' => $chatId,
+                    'text' => $first,
                     'reply_markup' => $this->buildHistoryKeyboard(count($pages), 1),
                 ]);
             }
@@ -130,7 +145,7 @@
         {
             $codes = $this->tokenService->extractTokens($text);
 
-            if (!$codes) {
+            if (empty($codes)) {
                 return;
             }
 
@@ -142,16 +157,16 @@
                 ->all();
 
             $new = array_values(array_diff($codes, $existing));
-            if (!$new) {
+            if (empty($new)) {
                 return;
             }
 
             // 寫入 DB
             foreach ($new as $code) {
                 DB::table('dialogues')->insert([
-                    'chat_id'    => $chatId,
+                    'chat_id' => $chatId,
                     'message_id' => $msgId,
-                    'text'       => $code,
+                    'text' => $code,
                     'created_at' => now(),
                 ]);
             }
@@ -173,14 +188,14 @@
         /** 依 byte 分頁，確保 < 4096 bytes */
         private function chunkByBytes(array $lines): array
         {
-            $pages  = [];
+            $pages = [];
             $buffer = '';
 
             foreach ($lines as $lineText) {
                 $line = $lineText . "\n";
                 if (strlen($buffer) + strlen($line) > self::MAX_MESSAGE_BYTES) {
                     $pages[] = rtrim($buffer);
-                    $buffer  = '';
+                    $buffer = '';
                 }
                 $buffer .= $line;
             }
@@ -197,7 +212,7 @@
         {
             $this->safeRequest('sendMessage', [
                 'chat_id' => $chatId,
-                'text'    => $text,
+                'text' => $text,
             ]);
         }
 
@@ -205,13 +220,13 @@
         private function buildHistoryKeyboard(int $totalPages, int $currentPage = 1): array
         {
             $btns = [];
-            $i    = 1;
+            $i = 1;
 
             while ($i <= $totalPages) {
-                $label = ($i === $currentPage) ? ('🔘' . $i) : (string)$i;
+                $label = ($i === $currentPage) ? ('🔘' . $i) : (string) $i;
 
                 $btns[] = [
-                    'text'          => $label,
+                    'text' => $label,
                     'callback_data' => 'history:' . $i,
                 ];
 
@@ -243,15 +258,33 @@
             return str_starts_with($code, self::FILESTOEBOT_PREFIX);
         }
 
+        /** 判斷是否為 newjmqbot_ 開頭代碼 */
+        private function isNewJmqbotCode(string $code): bool
+        {
+            return str_starts_with($code, self::NEWJMQBOT_PREFIX);
+        }
+
+        /** 判斷是否為 Messengercode_ 開頭代碼 */
+        private function isMessengercode(string $code): bool
+        {
+            return str_starts_with($code, self::MESSENGERCODE_PREFIX);
+        }
+
         private function splitCodesByGroups(array $codes): array
         {
             $normal = [];
             $lh = [];
             $filestoebot = [];
+            $bottomSpecial = [];
 
             foreach ($codes as $code) {
                 if ($this->isFilestoebotCode($code)) {
                     $filestoebot[] = $code;
+                    continue;
+                }
+
+                if ($this->isNewJmqbotCode($code) || $this->isMessengercode($code)) {
+                    $bottomSpecial[] = $code;
                     continue;
                 }
 
@@ -263,12 +296,12 @@
                 $normal[] = $code;
             }
 
-            return [$normal, $lh, $filestoebot];
+            return [$normal, $lh, $filestoebot, $bottomSpecial];
         }
 
         private function buildDisplayLines(array $codes): array
         {
-            [$normal, $lh, $filestoebot] = $this->splitCodesByGroups($codes);
+            [$normal, $lh, $filestoebot, $bottomSpecial] = $this->splitCodesByGroups($codes);
 
             $lines = [];
 
@@ -290,17 +323,26 @@
                 $lines = array_merge($lines, $filestoebot);
             }
 
+            if (!empty($bottomSpecial)) {
+                if (!empty($lines)) {
+                    $lines[] = '';
+                }
+                $lines = array_merge($lines, $bottomSpecial);
+            }
+
             return $lines;
         }
 
         private function sendCodesInBatches(int $chatId, array $codes): void
         {
-            [$normal, $lh, $filestoebot] = $this->splitCodesByGroups($codes);
+            [$normal, $lh, $filestoebot, $bottomSpecial] = $this->splitCodesByGroups($codes);
 
             $topLines = $this->buildTopLinesForReply($normal, $lh);
-            $this->sendTopLinesByLineCountAndBytes($chatId, $topLines);
+            $this->sendAllAtOnceByBytes($chatId, $topLines);
 
             $this->sendFilestoebotAllAtOnceByBytes($chatId, $filestoebot);
+
+            $this->sendBottomSpecialAllAtOnceByBytes($chatId, $bottomSpecial);
         }
 
         private function buildTopLinesForReply(array $normal, array $lh): array
@@ -321,35 +363,18 @@
             return $lines;
         }
 
-        private function sendTopLinesByLineCountAndBytes(int $chatId, array $lines): void
+        private function sendAllAtOnceByBytes(int $chatId, array $lines): void
         {
             $lines = array_values($lines);
             if (empty($lines)) {
                 return;
             }
 
-            $bufferLines = [];
-            foreach ($lines as $line) {
-                $bufferLines[] = $line;
-
-                $shouldSendByLineCount = count($bufferLines) >= self::REPLY_LINES_PER_MESSAGE;
-
-                $candidateText = implode("\n", $bufferLines);
-                $shouldSendByBytes = strlen($candidateText) >= (self::MAX_MESSAGE_BYTES - 32);
-
-                if ($shouldSendByLineCount || $shouldSendByBytes) {
-                    $textToSend = trim(implode("\n", $bufferLines));
-                    if ($textToSend !== '') {
-                        $this->sendMessage($chatId, $textToSend);
-                    }
-                    $bufferLines = [];
-                }
-            }
-
-            if (!empty($bufferLines)) {
-                $textToSend = trim(implode("\n", $bufferLines));
-                if ($textToSend !== '') {
-                    $this->sendMessage($chatId, $textToSend);
+            $pages = $this->chunkByBytes($lines);
+            foreach ($pages as $pageText) {
+                $pageText = trim($pageText);
+                if ($pageText !== '') {
+                    $this->sendMessage($chatId, $pageText);
                 }
             }
         }
@@ -361,8 +386,25 @@
             }
 
             $lines = array_values($filestoebot);
-
             $pages = $this->chunkByBytes($lines);
+
+            foreach ($pages as $pageText) {
+                $pageText = trim($pageText);
+                if ($pageText !== '') {
+                    $this->sendMessage($chatId, $pageText);
+                }
+            }
+        }
+
+        private function sendBottomSpecialAllAtOnceByBytes(int $chatId, array $bottomSpecial): void
+        {
+            if (empty($bottomSpecial)) {
+                return;
+            }
+
+            $lines = array_values($bottomSpecial);
+            $pages = $this->chunkByBytes($lines);
+
             foreach ($pages as $pageText) {
                 $pageText = trim($pageText);
                 if ($pageText !== '') {

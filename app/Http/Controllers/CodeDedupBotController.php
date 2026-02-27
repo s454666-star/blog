@@ -69,7 +69,6 @@
         /* ===== callback_query ===== */
         private function handleCallback(array $cb)
         {
-            // 結束 loading
             $this->safeRequest('answerCallbackQuery', [
                 'callback_query_id' => $cb['id'],
             ]);
@@ -98,7 +97,6 @@
 
             $pageIdx = min(count($pages), $pageNum) - 1;
 
-            // 以新訊息方式送出，保留第一頁
             $this->safeRequest('sendMessage', [
                 'chat_id' => $chatId,
                 'text' => $pages[$pageIdx],
@@ -149,7 +147,6 @@
                 return;
             }
 
-            // 過濾舊碼
             $existing = DB::table('dialogues')
                 ->where('chat_id', $chatId)
                 ->whereIn('text', $codes)
@@ -161,7 +158,6 @@
                 return;
             }
 
-            // 寫入 DB
             foreach ($new as $code) {
                 DB::table('dialogues')->insert([
                     'chat_id' => $chatId,
@@ -171,7 +167,6 @@
                 ]);
             }
 
-            // 回覆新碼
             $this->sendCodesInBatches($chatId, $new);
         }
 
@@ -275,7 +270,8 @@
             $normal = [];
             $lh = [];
             $filestoebot = [];
-            $bottomSpecial = [];
+            $newjmqbot = [];
+            $messengercode = [];
 
             foreach ($codes as $code) {
                 if ($this->isFilestoebotCode($code)) {
@@ -283,8 +279,13 @@
                     continue;
                 }
 
-                if ($this->isNewJmqbotCode($code) || $this->isMessengercode($code)) {
-                    $bottomSpecial[] = $code;
+                if ($this->isNewJmqbotCode($code)) {
+                    $newjmqbot[] = $code;
+                    continue;
+                }
+
+                if ($this->isMessengercode($code)) {
+                    $messengercode[] = $code;
                     continue;
                 }
 
@@ -296,12 +297,12 @@
                 $normal[] = $code;
             }
 
-            return [$normal, $lh, $filestoebot, $bottomSpecial];
+            return [$normal, $lh, $filestoebot, $newjmqbot, $messengercode];
         }
 
         private function buildDisplayLines(array $codes): array
         {
-            [$normal, $lh, $filestoebot, $bottomSpecial] = $this->splitCodesByGroups($codes);
+            [$normal, $lh, $filestoebot, $newjmqbot, $messengercode] = $this->splitCodesByGroups($codes);
 
             $lines = [];
 
@@ -323,11 +324,18 @@
                 $lines = array_merge($lines, $filestoebot);
             }
 
-            if (!empty($bottomSpecial)) {
+            if (!empty($newjmqbot)) {
                 if (!empty($lines)) {
                     $lines[] = '';
                 }
-                $lines = array_merge($lines, $bottomSpecial);
+                $lines = array_merge($lines, $newjmqbot);
+            }
+
+            if (!empty($messengercode)) {
+                if (!empty($lines)) {
+                    $lines[] = '';
+                }
+                $lines = array_merge($lines, $messengercode);
             }
 
             return $lines;
@@ -335,14 +343,16 @@
 
         private function sendCodesInBatches(int $chatId, array $codes): void
         {
-            [$normal, $lh, $filestoebot, $bottomSpecial] = $this->splitCodesByGroups($codes);
+            [$normal, $lh, $filestoebot, $newjmqbot, $messengercode] = $this->splitCodesByGroups($codes);
 
             $topLines = $this->buildTopLinesForReply($normal, $lh);
             $this->sendAllAtOnceByBytes($chatId, $topLines);
 
             $this->sendFilestoebotAllAtOnceByBytes($chatId, $filestoebot);
 
-            $this->sendBottomSpecialAllAtOnceByBytes($chatId, $bottomSpecial);
+            $this->sendNewJmqbotAllAtOnceByBytes($chatId, $newjmqbot);
+
+            $this->sendMessengercodeAllAtOnceByBytes($chatId, $messengercode);
         }
 
         private function buildTopLinesForReply(array $normal, array $lh): array
@@ -396,13 +406,30 @@
             }
         }
 
-        private function sendBottomSpecialAllAtOnceByBytes(int $chatId, array $bottomSpecial): void
+        private function sendNewJmqbotAllAtOnceByBytes(int $chatId, array $newjmqbot): void
         {
-            if (empty($bottomSpecial)) {
+            if (empty($newjmqbot)) {
                 return;
             }
 
-            $lines = array_values($bottomSpecial);
+            $lines = array_values($newjmqbot);
+            $pages = $this->chunkByBytes($lines);
+
+            foreach ($pages as $pageText) {
+                $pageText = trim($pageText);
+                if ($pageText !== '') {
+                    $this->sendMessage($chatId, $pageText);
+                }
+            }
+        }
+
+        private function sendMessengercodeAllAtOnceByBytes(int $chatId, array $messengercode): void
+        {
+            if (empty($messengercode)) {
+                return;
+            }
+
+            $lines = array_values($messengercode);
             $pages = $this->chunkByBytes($lines);
 
             foreach ($pages as $pageText) {

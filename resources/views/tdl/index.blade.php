@@ -10,6 +10,7 @@
         .col { flex: 1; min-width: 360px; }
         textarea { width: 100%; height: 360px; padding: 10px; box-sizing: border-box; font-family: Consolas, monospace; font-size: 13px; }
         input[type="number"] { width: 100%; padding: 8px; box-sizing: border-box; }
+        input[type="text"] { width: 100%; padding: 8px; box-sizing: border-box; font-family: Consolas, monospace; font-size: 13px; }
         .btn { padding: 10px 14px; cursor: pointer; }
         .error { color: #b00020; margin: 10px 0; white-space: pre-wrap; }
         .hint { color: #666; font-size: 13px; margin-top: 6px; }
@@ -46,6 +47,15 @@
         </div>
 
         <div class="col box">
+            <label for="workdir">下載位置（預設 C:\Users\User\Videos\Captures）</label>
+            <input
+                id="workdir"
+                name="workdir"
+                type="text"
+                value="{{ $workdir }}"
+                placeholder="C:\Users\User\Videos\Captures"
+            >
+
             <label for="pair_per_line">每行放幾個 -u（預設 2）</label>
             <input id="pair_per_line" name="pair_per_line" type="number" min="1" value="{{ $pairPerLine }}">
 

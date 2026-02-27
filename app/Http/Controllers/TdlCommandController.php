@@ -6,6 +6,8 @@
 
     class TdlCommandController extends Controller
     {
+        private const DEFAULT_WORKDIR = 'C:\Users\User\Videos\Captures';
+
         public function index()
         {
             return view('tdl.index', [
@@ -15,6 +17,7 @@
                 'pairPerLine' => 2,
                 'threads' => 12,
                 'limit' => 12,
+                'workdir' => self::DEFAULT_WORKDIR,
             ]);
         }
 
@@ -24,6 +27,9 @@
             $pairPerLine = (int) $request->input('pair_per_line', 2);
             $threads = (int) $request->input('threads', 12);
             $limit = (int) $request->input('limit', 12);
+
+            $workdir = (string) $request->input('workdir', self::DEFAULT_WORKDIR);
+            $workdir = $this->normalizeWorkdir($workdir);
 
             if ($pairPerLine <= 0) {
                 $pairPerLine = 2;
@@ -52,7 +58,7 @@
                     throw new \RuntimeException('找不到任何 Message 的 id（會自動略過 MessageService）。');
                 }
 
-                $outputCmd = $this->buildTdlCommand((string) $peerId, $messageIds, $pairPerLine, $threads, $limit);
+                $outputCmd = $this->buildTdlCommand((string) $peerId, $messageIds, $pairPerLine, $threads, $limit, $workdir);
             } catch (\Throwable $e) {
                 $error = $e->getMessage();
             }
@@ -64,7 +70,25 @@
                 'pairPerLine' => $pairPerLine,
                 'threads' => $threads,
                 'limit' => $limit,
+                'workdir' => $workdir,
             ]);
+        }
+
+        private function normalizeWorkdir(string $workdir): string
+        {
+            $workdir = trim($workdir);
+
+            if ($workdir === '') {
+                return self::DEFAULT_WORKDIR;
+            }
+
+            $workdir = rtrim($workdir, "\\/");
+
+            if ($workdir === '') {
+                return self::DEFAULT_WORKDIR;
+            }
+
+            return $workdir;
         }
 
         private function extractPeerId(array $data): ?int
@@ -107,7 +131,7 @@
             return $ids;
         }
 
-        private function buildTdlCommand(string $peerId, array $messageIds, int $pairPerLine, int $threads, int $limit): string
+        private function buildTdlCommand(string $peerId, array $messageIds, int $pairPerLine, int $threads, int $limit, string $workdir): string
         {
             $urls = [];
             foreach ($messageIds as $id) {
@@ -115,6 +139,8 @@
             }
 
             $cmdLines = [];
+            $cmdLines[] = 'cd /d "' . $workdir . '"';
+            $cmdLines[] = '';
             $cmdLines[] = 'tdl dl ^';
 
             $currentLineParts = [];

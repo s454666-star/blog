@@ -158,7 +158,8 @@ Route::get('/dialogues/mark-read', [DialogueReadController::class, 'page'])->nam
 Route::post('/dialogues/mark-read', [DialogueReadController::class, 'mark'])->name('dialogues.markRead.mark');
 Route::get('/tdl', [TdlCommandController::class, 'index']);
 Route::post('/tdl', [TdlCommandController::class, 'generate']);
-Route::get('/btdig', [BtdigController::class, 'index']);
+Route::get('/btdig', [BtdigController::class, 'index'])->name('btdig.index');
+Route::post('/btdig/mark-copied', [BtdigController::class, 'markCopied'])->name('btdig.markCopied');
 Route::get('/videos/duplicates', [VideoDuplicateController::class, 'index'])->name('videos.duplicates.index');
 Route::post('/videos/duplicates/open', [VideoDuplicateController::class, 'open'])->name('videos.duplicates.open');
 Route::post('/videos/duplicates/mark-unique', [VideoDuplicateController::class, 'markUnique'])->name('videos.duplicates.markUnique');

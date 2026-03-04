@@ -1,0 +1,50 @@
+services:
+  telegram_service_1:
+    image: python:3.11-slim
+    container_name: telegram_service_1
+    working_dir: /app/python
+    volumes:
+      - ./:/app/python
+      - ./session:/app/python/session
+    ports:
+      - "8000:8000"
+    environment:
+      - TZ=Asia/Taipei
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true
+    command: >
+      sh -c "
+      python -m pip install --no-cache-dir -U pip
+      &&
+      python -m pip install --no-cache-dir fastapi uvicorn telethon pydantic
+      &&
+      uvicorn telegram_service:app --host 0.0.0.0 --port 8000
+      "
+    restart: unless-stopped
+
+  telegram_service_2:
+    image: python:3.11-slim
+    container_name: telegram_service_2
+    working_dir: /app/python
+    volumes:
+      - ./:/app/python
+      - ./session:/app/python/session
+    ports:
+      - "8001:8000"
+    environment:
+      - TZ=Asia/Taipei
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true
+    command: >
+      sh -c "
+      python -m pip install --no-cache-dir -U pip
+      &&
+      python -m pip install --no-cache-dir fastapi uvicorn telethon pydantic
+      &&
+      uvicorn telegram_service2:app --host 0.0.0.0 --port 8000
+      "
+    restart: unless-stopped

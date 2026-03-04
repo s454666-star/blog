@@ -203,13 +203,17 @@
         /* === 影片與截圖容器 === */
         .video-container {
             width: var(--video-width);
-            padding-right: 10px
+            padding-right: 10px;
+            box-sizing: border-box;
+            min-width: 0;
         }
 
         .images-container {
             width: calc(100% - var(--video-width));
             padding-left: 10px;
-            overflow: hidden
+            overflow: hidden;
+            box-sizing: border-box;
+            min-width: 0;
         }
 
         .screenshot, .face-screenshot {
@@ -521,6 +525,11 @@
         @media (min-width: 1200px) {
             .container, .container-lg, .container-md, .container-sm, .container-xl {
                 max-width: 1750px
+            }
+
+            /* 側欄展開時：避免在 FHD / 系統縮放情境下內容超出視窗右側 */
+            .container.expanded {
+                max-width: min(1750px, 70%)
             }
         }
 

@@ -11,9 +11,16 @@
 |
 */
 
-$app = new Illuminate\Foundation\Application(
-    $_ENV['APP_BASE_PATH'] ?? dirname(__DIR__)
-);
+    $env = $_SERVER['APP_ENV'] ?? $_ENV['APP_ENV'] ?? getenv('APP_ENV');
+
+    $app = new Illuminate\Foundation\Application(
+        $_ENV['APP_BASE_PATH'] ?? dirname(__DIR__)
+    );
+
+    if ($env && file_exists(dirname(__DIR__) . '/.env.' . $env)) {
+        $app->useEnvironmentPath(dirname(__DIR__));
+        $app->loadEnvironmentFrom('.env.' . $env);
+    }
 
 /*
 |--------------------------------------------------------------------------

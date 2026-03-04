@@ -165,3 +165,7 @@ Route::post('/videos/duplicates/open', [VideoDuplicateController::class, 'open']
 Route::post('/videos/duplicates/mark-unique', [VideoDuplicateController::class, 'markUnique'])->name('videos.duplicates.markUnique');
 Route::post('/videos/duplicates/mark-group-unique', [VideoDuplicateController::class, 'markGroupUnique'])->name('videos.duplicates.markGroupUnique');
 Route::post('/videos/duplicates/delete', [VideoDuplicateController::class, 'delete'])->name('videos.duplicates.delete');
+
+Route::get('/env-test', function () {
+    return config('app.env');
+});

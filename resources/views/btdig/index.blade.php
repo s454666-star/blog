@@ -501,16 +501,13 @@
         const url = 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(value);
 
         try {
-            const w = window.open(url, '_blank', 'noopener');
-            if (!w) {
-                const a = document.createElement('a');
-                a.href = url;
-                a.target = '_blank';
-                a.rel = 'noopener noreferrer';
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-            }
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
         } catch (e) {
             showToast('無法開啟 Google 圖片搜尋');
         }

@@ -372,6 +372,7 @@
             border:1px solid rgba(2,6,23,.10);
             background: rgba(248,250,252,.95);
             position:relative;
+            transition: box-shadow .18s ease, border-color .18s ease;
         }
 
         .shot img{
@@ -380,14 +381,54 @@
             object-fit:cover;
             display:block;
             transform: scale(1.02);
-            transition: .18s ease;
+            transition: transform .18s ease, filter .18s ease;
         }
-        .shot:hover img{transform: scale(1.06)}
+        .shot:hover{
+            border-color: rgba(124,58,237,.35);
+            box-shadow: 0 12px 28px rgba(2,6,23,.14), var(--glow);
+        }
+        .shot:hover img{
+            transform: scale(1.08);
+            filter: saturate(1.05);
+        }
         .shot::after{
             content:"";
             position:absolute; inset:0;
             background: radial-gradient(450px 160px at 20% 0%, rgba(124,58,237,.08), transparent 65%);
             pointer-events:none;
+        }
+
+        .shot-preview{
+            position:fixed;
+            inset:0;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            padding:28px;
+            background: rgba(2,6,23,.42);
+            backdrop-filter: blur(6px);
+            opacity:0;
+            visibility:hidden;
+            pointer-events:none;
+            transition: opacity .18s ease, visibility .18s ease;
+            z-index:120;
+        }
+
+        .shot-preview.show{
+            opacity:1;
+            visibility:visible;
+        }
+
+        .shot-preview img{
+            max-width:min(92vw, 1400px);
+            max-height:88vh;
+            width:auto;
+            height:auto;
+            display:block;
+            border-radius:18px;
+            border:1px solid rgba(255,255,255,.26);
+            box-shadow: 0 30px 90px rgba(2,6,23,.45);
+            background:#fff;
         }
 
         .empty{
@@ -454,8 +495,8 @@
         </div>
 
         <div class="stats">
-            <span class="chip">群組 <b>{{ (int)($stats['group_count'] ?? 0) }}</b></span>
-            <span class="chip">影片卡片 <b>{{ (int)($stats['video_count'] ?? 0) }}</b></span>
+            <span class="chip">群組 <b id="groupCount">{{ (int)($stats['group_count'] ?? 0) }}</b></span>
+            <span class="chip">影片卡片 <b id="videoCount">{{ (int)($stats['video_count'] ?? 0) }}</b></span>
         </div>
 
         <form class="search" method="GET" action="{{ route('videos.duplicates.index') }}">
@@ -594,6 +635,9 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="shot-preview" id="shotPreview" aria-hidden="true">
+    <img id="shotPreviewImg" alt="preview">
+</div>
 
 <script>
     (function(){
@@ -602,6 +646,10 @@
         const searchInput = document.getElementById('searchInput');
         const clearBtn = document.getElementById('clearBtn');
         const groupsRoot = document.getElementById('groupsRoot');
+        const groupCountEl = document.getElementById('groupCount');
+        const videoCountEl = document.getElementById('videoCount');
+        const shotPreview = document.getElementById('shotPreview');
+        const shotPreviewImg = document.getElementById('shotPreviewImg');
 
         function toast(msg, ok){
             const el = document.createElement('div');
@@ -615,6 +663,38 @@
                 setTimeout(() => el.remove(), 260);
             }, 2200);
         }
+
+        function showShotPreview(src){
+            if (!src) return;
+            shotPreviewImg.src = src;
+            shotPreview.classList.add('show');
+            shotPreview.setAttribute('aria-hidden', 'false');
+        }
+
+        function hideShotPreview(){
+            shotPreview.classList.remove('show');
+            shotPreview.setAttribute('aria-hidden', 'true');
+            shotPreviewImg.removeAttribute('src');
+        }
+
+        document.addEventListener('mouseenter', function(e){
+            const img = e.target.closest('.shot img');
+            if (!img) return;
+            showShotPreview(img.currentSrc || img.src);
+        }, true);
+
+        document.addEventListener('mouseleave', function(e){
+            const img = e.target.closest('.shot img');
+            if (!img) return;
+            hideShotPreview();
+        }, true);
+
+        window.addEventListener('blur', hideShotPreview);
+        document.addEventListener('keydown', function(e){
+            if (e.key === 'Escape') {
+                hideShotPreview();
+            }
+        });
 
         async function openFileById(id){
             try{
@@ -676,11 +756,6 @@
         }
 
         async function deleteById(id){
-            const sure = window.confirm('確定要刪除這個檔案？會同時刪除資料庫記錄並移除關聯 ids。');
-            if(!sure){
-                return;
-            }
-
             try{
                 const resp = await fetch("{{ route('videos.duplicates.delete') }}", {
                     method: 'POST',
@@ -766,6 +841,7 @@
                         if(group && group.isConnected){
                             group.remove();
                         }
+                        refreshStats();
                     }, 260);
 
                     return;
@@ -793,9 +869,29 @@
                         if(g && g.isConnected){
                             g.remove();
                         }
+                        refreshStats();
                     }, 260);
                 }
             });
+
+            refreshStats();
+        }
+
+        function refreshStats(){
+            if(!groupsRoot){
+                if(groupCountEl) groupCountEl.textContent = '0';
+                if(videoCountEl) videoCountEl.textContent = '0';
+                return;
+            }
+
+            const groups = Array.from(groupsRoot.querySelectorAll('.group')).filter(g => g && g.isConnected && g.style.display !== 'none');
+            const videoCount = groups.reduce((sum, g) => {
+                const visibleCards = Array.from(g.querySelectorAll('[data-card]')).filter(c => c && c.isConnected && c.style.display !== 'none');
+                return sum + visibleCards.length;
+            }, 0);
+
+            if(groupCountEl) groupCountEl.textContent = String(groups.length);
+            if(videoCountEl) videoCountEl.textContent = String(videoCount);
         }
 
         async function copyText(t){
@@ -837,6 +933,8 @@
                 const visible = Array.from(g.querySelectorAll('[data-card]')).some(c => c.style.display !== 'none');
                 g.style.display = visible ? '' : 'none';
             });
+
+            refreshStats();
         }
 
         document.addEventListener('click', (ev) => {

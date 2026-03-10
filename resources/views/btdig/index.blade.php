@@ -159,7 +159,12 @@
         <div class="mb-12 rounded-3xl border backdrop-blur p-6 shadow-lg {{ $groupOuterClass }}">
             <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
                 <h2 class="text-2xl font-bold border-l-4 pl-4 {{ $groupHeaderBarClass }}">
-                    🔎 關鍵字：{{ $keyword }}
+                    <span>🔎 關鍵字：</span>
+                    <button type="button"
+                            class="inline-flex items-center rounded-lg px-2 py-1 transition hover:bg-white/70 hover:text-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                            onclick="copyKeyword(event, '{{ e($keyword) }}')">
+                        {{ $keyword }}
+                    </button>
                 </h2>
 
                 <div class="flex items-center gap-2">
@@ -462,6 +467,20 @@
         } catch (e) {
             return false;
         }
+    }
+
+    async function copyKeyword(event, keyword) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const value = (keyword || '').trim();
+        if (!value) {
+            showToast('沒有可複製的關鍵字');
+            return;
+        }
+
+        const ok = await copyToClipboard(value);
+        showToast(ok ? '關鍵字已複製' : '關鍵字複製失敗');
     }
 
     function getCurrentQueryString() {

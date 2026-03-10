@@ -9,6 +9,9 @@
 
 <body class="bg-gradient-to-br from-slate-50 via-sky-50 to-indigo-50 min-h-screen text-slate-900">
 <div class="container mx-auto px-6 py-10">
+    @php
+        /** @var \Illuminate\Pagination\AbstractPaginator|\Illuminate\Support\Collection $results */
+    @endphp
 
     <h1 class="text-4xl font-bold mb-8 text-center tracking-widest text-sky-700 drop-shadow-sm">
         🎬 Magnet List
@@ -83,6 +86,7 @@
                     🧹 清除
                 </a>
             </div>
+
         </div>
     </form>
 
@@ -107,17 +111,17 @@
 
     <div class="flex flex-wrap gap-4 justify-between items-center mb-8">
         <div class="text-lg text-slate-700">
-            ??????
+            當頁總筆數：
             <span class="font-bold text-sky-700">{{ $pageResultsCount }}</span>
-            ?
+            筆
             <span class="mx-2 text-slate-300">|</span>
-            ??????
+            全部總筆數：
             <span class="font-bold text-violet-700">{{ $allResultsCount }}</span>
-            ?
+            筆
             <span class="mx-2 text-slate-300">|</span>
-            ????
+            已選擇：
             <span id="selectedCount" class="font-bold text-emerald-600">0</span>
-            ?
+            筆
         </div>
 
         <div class="flex gap-3 items-center">

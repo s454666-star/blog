@@ -158,12 +158,17 @@
 
         <div class="mb-12 rounded-3xl border backdrop-blur p-6 shadow-lg {{ $groupOuterClass }}">
             <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-                <h2 class="text-2xl font-bold border-l-4 pl-4 {{ $groupHeaderBarClass }}">
+                <h2 class="flex flex-wrap items-center gap-2 text-2xl font-bold border-l-4 pl-4 {{ $groupHeaderBarClass }}">
                     <span>🔎 關鍵字：</span>
                     <button type="button"
                             class="inline-flex items-center rounded-lg px-2 py-1 transition hover:bg-white/70 hover:text-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-300"
                             onclick="copyKeyword(event, '{{ e($keyword) }}')">
                         {{ $keyword }}
+                    </button>
+                    <button type="button"
+                            class="inline-flex items-center rounded-lg border border-slate-200 bg-white/80 px-3 py-1 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-sky-300 hover:text-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                            onclick="openGoogleImageSearch(event, '{{ e($keyword) }}')">
+                        Google 圖片
                     </button>
                 </h2>
 
@@ -481,6 +486,34 @@
 
         const ok = await copyToClipboard(value);
         showToast(ok ? '關鍵字已複製' : '關鍵字複製失敗');
+    }
+
+    function openGoogleImageSearch(event, keyword) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const value = (keyword || '').trim();
+        if (!value) {
+            showToast('沒有可搜尋的關鍵字');
+            return;
+        }
+
+        const url = 'https://www.google.com/search?tbm=isch&q=' + encodeURIComponent(value);
+
+        try {
+            const w = window.open(url, '_blank', 'noopener');
+            if (!w) {
+                const a = document.createElement('a');
+                a.href = url;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            }
+        } catch (e) {
+            showToast('無法開啟 Google 圖片搜尋');
+        }
     }
 
     function getCurrentQueryString() {

@@ -170,6 +170,11 @@
                             onclick="openGoogleImageSearch(event, '{{ e($keyword) }}')">
                         Google 圖片
                     </button>
+                    <button type="button"
+                            class="inline-flex items-center rounded-lg border border-slate-200 bg-white/80 px-3 py-1 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-sky-300 hover:text-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                            onclick="open3xPlanetSearch(event, '{{ e($keyword) }}')">
+                        3xPlanet
+                    </button>
                 </h2>
 
                 <div class="flex items-center gap-2">
@@ -478,10 +483,7 @@
         event.preventDefault();
         event.stopPropagation();
 
-        const rawValue = (keyword || '').trim();
-        const value = rawValue.includes('-')
-            ? rawValue.split('-').pop().trim()
-            : rawValue;
+        const value = getKeywordCopyValue(keyword);
         if (!value) {
             showToast('沒有可複製的關鍵字');
             return;
@@ -489,6 +491,13 @@
 
         const ok = await copyToClipboard(value);
         showToast(ok ? '關鍵字已複製' : '關鍵字複製失敗');
+    }
+
+    function getKeywordCopyValue(keyword) {
+        const rawValue = (keyword || '').trim();
+        return rawValue.includes('-')
+            ? rawValue.split('-').pop().trim()
+            : rawValue;
     }
 
     function openGoogleImageSearch(event, keyword) {
@@ -513,6 +522,31 @@
             a.remove();
         } catch (e) {
             showToast('無法開啟 Google 圖片搜尋');
+        }
+    }
+
+    function open3xPlanetSearch(event, keyword) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const value = getKeywordCopyValue(keyword);
+        if (!value) {
+            showToast('沒有可搜尋的關鍵字');
+            return;
+        }
+
+        const url = 'https://3xplanet.net/?s=' + encodeURIComponent(value);
+
+        try {
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (e) {
+            showToast('無法開啟 3xPlanet 搜尋');
         }
     }
 

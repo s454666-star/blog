@@ -83,22 +83,41 @@
                     🧹 清除
                 </a>
             </div>
-
-            <div class="text-sm text-slate-600">
-                <div class="font-semibold">提示</div>
-                <div class="opacity-90">type:1 輸入 900～902 會找到 n0900～n0902</div>
-                <div class="opacity-90">type:2 輸入 1247868～1247975 會找到 FC2-PPV-1247868～FC2-PPV-1247975</div>
-                <div class="opacity-90">已複製過的卡片會顯示「已複製」並且不可再選取</div>
-                <div class="opacity-90">勾選「隱藏含已複製的群組」後：群組內只要有任何一筆已複製，整個群組不顯示</div>
-            </div>
         </div>
     </form>
 
+    @php
+        $collection = $results instanceof \Illuminate\Pagination\AbstractPaginator ? collect($results->items()) : collect($results);
+        $grouped = $collection->groupBy('search_keyword');
+        $hideDisabled = !empty($hideDisabledGroups);
+        $visibleGrouped = $grouped->filter(function ($items) use ($hideDisabled) {
+            $groupHasDisabled = $items->contains(function ($row) {
+                return !empty($row->copied_at);
+            });
+
+            return !$hideDisabled || !$groupHasDisabled;
+        });
+        $pageResultsCount = $visibleGrouped->sum(function ($items) {
+            return $items->count();
+        });
+        $allResultsCount = $results instanceof \Illuminate\Pagination\AbstractPaginator
+            ? $results->total()
+            : $collection->count();
+    @endphp
+
     <div class="flex flex-wrap gap-4 justify-between items-center mb-8">
         <div class="text-lg text-slate-700">
-            已選擇：
+            ??????
+            <span class="font-bold text-sky-700">{{ $pageResultsCount }}</span>
+            ?
+            <span class="mx-2 text-slate-300">|</span>
+            ??????
+            <span class="font-bold text-violet-700">{{ $allResultsCount }}</span>
+            ?
+            <span class="mx-2 text-slate-300">|</span>
+            ????
             <span id="selectedCount" class="font-bold text-emerald-600">0</span>
-            筆
+            ?
         </div>
 
         <div class="flex gap-3 items-center">
@@ -114,21 +133,11 @@
         </div>
     </div>
 
-    @php
-        $collection = $results instanceof \Illuminate\Pagination\AbstractPaginator ? collect($results->items()) : collect($results);
-        $grouped = $collection->groupBy('search_keyword');
-        $hideDisabled = !empty($hideDisabledGroups);
-    @endphp
-
-    @forelse($grouped as $keyword => $items)
+    @forelse($visibleGrouped as $keyword => $items)
         @php
             $groupHasDisabled = $items->contains(function ($row) {
                 return !empty($row->copied_at);
             });
-
-            if ($hideDisabled && $groupHasDisabled) {
-                continue;
-            }
 
             $groupOuterClass = $groupHasDisabled
                 ? 'bg-emerald-50/60 border-emerald-200 shadow-emerald-200/30'

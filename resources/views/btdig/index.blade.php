@@ -478,7 +478,10 @@
         event.preventDefault();
         event.stopPropagation();
 
-        const value = (keyword || '').trim();
+        const rawValue = (keyword || '').trim();
+        const value = rawValue.includes('-')
+            ? rawValue.split('-').pop().trim()
+            : rawValue;
         if (!value) {
             showToast('沒有可複製的關鍵字');
             return;

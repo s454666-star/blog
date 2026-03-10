@@ -233,6 +233,7 @@
                     }
 
                     $duplicateIds = [];
+                    $sameFilenameDuplicateCandidates = [];
                     foreach ($candidates as $cand) {
                         if ($this->isDuplicateByAvailableHashes(
                             $hashHexes,
@@ -245,6 +246,11 @@
                             $threshold,
                             $minMatch
                         )) {
+                            if ((string) ($cand->filename ?? '') === $filename) {
+                                $sameFilenameDuplicateCandidates[] = $cand;
+                                continue;
+                            }
+
                             $duplicateIds[] = (int) $cand->id;
                         }
                     }
@@ -285,6 +291,21 @@
                         $current->save();
 
                         $currentId = (int) $current->id;
+
+                        foreach ($sameFilenameDuplicateCandidates as $sameFilenameCandidate) {
+                            $candidateId = (int) ($sameFilenameCandidate->id ?? 0);
+                            if ($candidateId <= 0 || $candidateId === $currentId) {
+                                continue;
+                            }
+
+                            $candidatePath = $this->normalizePath((string) ($sameFilenameCandidate->full_path ?? ''));
+                            if ($this->storedVideoPathExists($candidatePath)) {
+                                continue;
+                            }
+
+                            $this->deleteVideoDuplicateRecord($candidateId, $now);
+                        }
+
                         $groupIds = $this->mergeGroupIdsFromDuplicates($currentId, $duplicateIds);
 
                         sort($groupIds);
@@ -648,6 +669,7 @@
             return VideoDuplicate::query()
                 ->select([
                     'id',
+                    'filename',
                     'hash1_hex',
                     'hash2_hex',
                     'hash3_hex',
@@ -797,6 +819,94 @@
             })));
 
             return $ids;
+        }
+
+        private function parseSimilarVideoIds(string $csv): array
+        {
+            $csv = trim($csv);
+            if ($csv === '') {
+                return [];
+            }
+
+            $ids = [];
+            foreach (explode(',', $csv) as $part) {
+                $part = trim($part);
+                if ($part === '' || !ctype_digit($part)) {
+                    continue;
+                }
+
+                $ids[] = (int) $part;
+            }
+
+            $ids = array_values(array_unique(array_filter($ids, function ($id) {
+                return is_int($id) && $id > 0;
+            })));
+            sort($ids);
+
+            return $ids;
+        }
+
+        private function storedVideoPathExists(string $path): bool
+        {
+            $path = trim($path);
+            if ($path === '') {
+                return false;
+            }
+
+            return is_file($path);
+        }
+
+        private function deleteVideoDuplicateRecord(int $targetId, Carbon $now): bool
+        {
+            $target = VideoDuplicate::query()
+                ->select(['id', 'similar_video_ids'])
+                ->lockForUpdate()
+                ->find($targetId);
+
+            if ($target === null) {
+                return false;
+            }
+
+            $relatedIds = $this->parseSimilarVideoIds((string) ($target->similar_video_ids ?? ''));
+            if (!in_array($targetId, $relatedIds, true)) {
+                $relatedIds[] = $targetId;
+                sort($relatedIds);
+            }
+
+            $rows = VideoDuplicate::query()
+                ->whereIn('id', $relatedIds)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            foreach ($rows as $rowId => $row) {
+                if ((int) $rowId === $targetId) {
+                    continue;
+                }
+
+                $ids = $this->parseSimilarVideoIds((string) ($row->similar_video_ids ?? ''));
+                $ids = array_values(array_filter($ids, function ($id) use ($targetId) {
+                    return (int) $id !== $targetId;
+                }));
+
+                if (!in_array((int) $rowId, $ids, true)) {
+                    $ids[] = (int) $rowId;
+                }
+
+                $ids = array_values(array_unique(array_map('intval', $ids)));
+                sort($ids);
+
+                $newCsv = implode(',', $ids);
+                if ($newCsv !== (string) ($row->similar_video_ids ?? '')) {
+                    $row->similar_video_ids = $newCsv;
+                    $row->updated_at = $now;
+                    $row->save();
+                }
+            }
+
+            $target->delete();
+
+            return true;
         }
 
         private function markError(string $pathSha1, string $message): void

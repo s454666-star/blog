@@ -13,7 +13,7 @@ class CrawlerBtCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'command:get-bt';
+    protected $signature = 'get-bt';
 
     /**
      * The console command description.

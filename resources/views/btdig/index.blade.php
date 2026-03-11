@@ -5,6 +5,33 @@
     <title>BTDig Results</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .preview-thumb {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .preview-thumb img {
+            transition: transform 220ms ease, filter 220ms ease;
+        }
+
+        .preview-thumb:hover img,
+        .preview-thumb:focus-within img {
+            transform: scale(1.08);
+            filter: saturate(1.05);
+        }
+
+        .preview-overlay {
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 180ms ease, visibility 180ms ease;
+        }
+
+        .preview-overlay.is-visible {
+            opacity: 1;
+            visibility: visible;
+        }
+    </style>
 </head>
 
 <body class="bg-gradient-to-br from-slate-50 via-sky-50 to-indigo-50 min-h-screen text-slate-900">
@@ -142,6 +169,7 @@
             $groupHasDisabled = $items->contains(function ($row) {
                 return !empty($row->copied_at);
             });
+            $keywordImages = ($previewImagesByKeyword ?? collect())->get($keyword, collect());
 
             $groupOuterClass = $groupHasDisabled
                 ? 'bg-emerald-50/60 border-emerald-200 shadow-emerald-200/30'
@@ -175,6 +203,16 @@
                             onclick="open3xPlanetSearch(event, '{{ e($keyword) }}')">
                         3xPlanet
                     </button>
+                    <button type="button"
+                            class="inline-flex items-center rounded-lg border border-slate-200 bg-white/80 px-3 py-1 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-sky-300 hover:text-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                            onclick="openJavpopSearch(event, '{{ e($keyword) }}')">
+                        Javpop
+                    </button>
+                    <button type="button"
+                            class="inline-flex items-center rounded-lg border border-slate-200 bg-white/80 px-3 py-1 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-sky-300 hover:text-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                            onclick="openAvgoodSearch(event, '{{ e($keyword) }}')">
+                        AVGood
+                    </button>
                 </h2>
 
                 <div class="flex items-center gap-2">
@@ -189,6 +227,36 @@
                     @endif
                 </div>
             </div>
+
+            @if($keywordImages->isNotEmpty())
+                <div class="mb-6">
+                    <div class="flex flex-wrap gap-4">
+                        @foreach($keywordImages as $image)
+                            @php
+                                $imageUrl = route('btdig.image', ['image' => $image->id]);
+                                $imageLabel = sprintf('%s image %d', $keyword, (int) $image->sort_order);
+                            @endphp
+                            <a href="{{ $image->article_url ?: $image->viewimage_url }}"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               class="preview-thumb group w-36 sm:w-44 rounded-2xl border border-slate-200 bg-white/90 p-2 shadow-sm transition hover:-translate-y-1 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-sky-300"
+                               data-preview-src="{{ $imageUrl }}"
+                               data-preview-alt="{{ $imageLabel }}">
+                                <div class="aspect-[4/3] overflow-hidden rounded-xl bg-slate-100">
+                                    <img src="{{ $imageUrl }}"
+                                         alt="{{ $imageLabel }}"
+                                         loading="lazy"
+                                         class="h-full w-full object-cover">
+                                </div>
+                                <div class="mt-2 flex items-center justify-between gap-2 text-xs font-semibold text-slate-600">
+                                    <span>Preview {{ (int) $image->sort_order }}</span>
+                                    <span class="rounded-full bg-sky-100 px-2 py-1 text-sky-700">Hover</span>
+                                </div>
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
 
             <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
                 @foreach($items as $row)
@@ -374,11 +442,28 @@
      class="fixed bottom-6 left-1/2 -translate-x-1/2 hidden px-6 py-3 rounded-xl shadow-2xl bg-slate-900/90 text-white text-sm">
 </div>
 
+<div id="imagePreviewOverlay"
+     class="preview-overlay pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/80 p-6 backdrop-blur-sm">
+    <div class="flex max-h-[92vh] max-w-[96vw] flex-col items-center gap-4">
+        <img id="imagePreviewOverlayImage"
+             src=""
+             alt=""
+             class="max-h-[84vh] max-w-[94vw] rounded-2xl object-contain shadow-[0_24px_80px_rgba(15,23,42,0.65)]">
+        <div id="imagePreviewOverlayCaption"
+             class="rounded-full border border-white/15 bg-slate-900/75 px-4 py-2 text-sm font-semibold text-slate-100">
+        </div>
+    </div>
+</div>
+
 <script>
     const selectedCountEl = document.getElementById('selectedCount');
     const toastEl = document.getElementById('toast');
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     const markCopiedUrl = "{{ route('btdig.markCopied') }}";
+    const previewOverlayEl = document.getElementById('imagePreviewOverlay');
+    const previewOverlayImageEl = document.getElementById('imagePreviewOverlayImage');
+    const previewOverlayCaptionEl = document.getElementById('imagePreviewOverlayCaption');
+    let previewHideTimer = null;
 
     function showToast(message) {
         toastEl.textContent = message;
@@ -390,6 +475,60 @@
 
     function getAllCards() {
         return Array.from(document.querySelectorAll('.card'));
+    }
+
+    function showImagePreview(src, alt) {
+        if (!previewOverlayEl || !previewOverlayImageEl || !src) {
+            return;
+        }
+
+        if (previewHideTimer) {
+            clearTimeout(previewHideTimer);
+            previewHideTimer = null;
+        }
+
+        previewOverlayImageEl.src = src;
+        previewOverlayImageEl.alt = alt || '';
+        previewOverlayCaptionEl.textContent = alt || 'Preview';
+        previewOverlayEl.classList.add('is-visible');
+    }
+
+    function hideImagePreview() {
+        if (!previewOverlayEl || !previewOverlayImageEl) {
+            return;
+        }
+
+        previewHideTimer = setTimeout(() => {
+            previewOverlayEl.classList.remove('is-visible');
+            previewOverlayImageEl.src = '';
+            previewOverlayImageEl.alt = '';
+            previewOverlayCaptionEl.textContent = '';
+        }, 60);
+    }
+
+    function wirePreviewHovers() {
+        const previewTriggers = Array.from(document.querySelectorAll('[data-preview-src]'));
+
+        previewTriggers.forEach(trigger => {
+            const src = trigger.getAttribute('data-preview-src') || '';
+            const alt = trigger.getAttribute('data-preview-alt') || '';
+
+            trigger.addEventListener('mouseenter', function () {
+                showImagePreview(src, alt);
+            });
+
+            trigger.addEventListener('mouseleave', function () {
+                hideImagePreview();
+            });
+
+            trigger.addEventListener('focus', function () {
+                showImagePreview(src, alt);
+            });
+
+            trigger.addEventListener('blur', function () {
+                hideImagePreview();
+            });
+        });
     }
 
     function updateCount() {
@@ -547,6 +686,56 @@
             a.remove();
         } catch (e) {
             showToast('無法開啟 3xPlanet 搜尋');
+        }
+    }
+
+    function openJavpopSearch(event, keyword) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const value = getKeywordCopyValue(keyword);
+        if (!value) {
+            showToast('沒有可搜尋的關鍵字');
+            return;
+        }
+
+        const url = 'https://javpop.mov/ja/search/?s=' + encodeURIComponent(value);
+
+        try {
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (e) {
+            showToast('無法開啟 Javpop 搜尋');
+        }
+    }
+
+    function openAvgoodSearch(event, keyword) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const value = getKeywordCopyValue(keyword);
+        if (!value) {
+            showToast('沒有可搜尋的關鍵字');
+            return;
+        }
+
+        const url = 'https://avgood.com/c/s/?q=' + encodeURIComponent(value);
+
+        try {
+            const a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (e) {
+            showToast('無法開啟 AVGood 搜尋');
         }
     }
 
@@ -725,6 +914,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
+        wirePreviewHovers();
         wireCardClicks();
         updateCount();
 
@@ -751,6 +941,19 @@
                 form.submit();
             });
         }
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                if (previewHideTimer) {
+                    clearTimeout(previewHideTimer);
+                    previewHideTimer = null;
+                }
+                previewOverlayEl.classList.remove('is-visible');
+                previewOverlayImageEl.src = '';
+                previewOverlayImageEl.alt = '';
+                previewOverlayCaptionEl.textContent = '';
+            }
+        });
     });
 </script>
 

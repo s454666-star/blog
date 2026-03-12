@@ -37,6 +37,7 @@ RECENT_USED_CALLBACK_TTL_SECONDS = 45.0
 _BACKFILL_LAST_AT: Dict[str, float] = {}
 _BACKFILL_THROTTLE_SECONDS = 0.9
 DOWNLOAD_SEEN_KEYS_BY_JOB: Dict[str, Set[str]] = {}
+DOWNLOAD_RESERVED_PATHS_BY_JOB: Dict[str, Set[str]] = {}
 
 DOWNLOAD_JOBS: Dict[str, Dict[str, Any]] = {}
 DOWNLOAD_SEEN_KEYS: Set[str] = set()
@@ -137,6 +138,30 @@ def is_invalid_callback(bot_username: str, chat_id: int, message_id: int) -> boo
     _cleanup_invalid_callback_cache()
     k = _invalid_key(bot_username, chat_id, message_id)
     return k in INVALID_CALLBACK_MIDS
+
+
+def _mark_callback_message_invalid(message_id: Any):
+    try:
+        mid = int(message_id or 0)
+    except Exception:
+        return
+
+    if mid <= 0:
+        return
+
+    for msg in MESSAGE_STORE.values():
+        try:
+            if int(msg.get("message_id", 0) or 0) != mid:
+                continue
+
+            bot_username = str(msg.get("bot_username") or msg.get("sender_username") or "").strip()
+            chat_id = int(msg.get("chat_id", 0) or 0)
+
+            if bot_username and chat_id:
+                mark_invalid_callback(bot_username, chat_id, mid)
+            return
+        except Exception:
+            continue
 
 
 def mark_recent_used_callback_action(bot_username: str, chat_id: int, message_id: int, data_hex: str, marker: Optional[str] = None):
@@ -990,6 +1015,23 @@ def _pagination_confirmed_all_pages_visited(state: Optional[Dict[str, Any]], vis
 
     return True
 
+
+def _pagination_confirmed_by_last_clicked_target(state: Optional[Dict[str, Any]], last_clicked_page: Optional[int]) -> bool:
+    if not state or last_clicked_page is None:
+        return False
+
+    pi = state.get("page_info") or {}
+    total = pi.get("total_pages")
+    if total is None:
+        return False
+
+    try:
+        total_i = int(total)
+        clicked_i = int(last_clicked_page)
+        return total_i > 0 and clicked_i >= total_i
+    except Exception:
+        return False
+
 def detect_current_page_from_buttons(buttons: List[Dict[str, Any]]) -> Optional[int]:
     """
     判斷「目前頁碼」的規則（避免頁碼區間換頁時誤判）：
@@ -1129,6 +1171,8 @@ def _is_meaningful_state_message_for_pagination(bot_username: str, msg: Optional
 
     t = (msg.get("text") or "").strip()
     if t:
+        if _match_bot_verification_success_keyword(t) is not None:
+            return False
         if extract_page_info(t) is not None:
             return True
         if extract_total_items(t) is not None:
@@ -1136,6 +1180,124 @@ def _is_meaningful_state_message_for_pagination(bot_username: str, msg: Optional
         return True
 
     return False
+
+
+def _is_bot_completion_message(msg: Optional[Dict[str, Any]]) -> bool:
+    if not msg:
+        return False
+
+    if get_callback_buttons(msg):
+        return False
+
+    text = str(msg.get("text") or "").strip()
+    if not text:
+        return False
+
+    if extract_page_info(text) is not None:
+        return False
+
+    normalized = text.lower()
+    completion_keywords = [
+        "發送完成",
+        "发送完成",
+        "已發送完畢",
+        "已发送完毕",
+        "已發送完成",
+        "已发送完成",
+        "發送完畢",
+        "发送完毕",
+        "發送完了",
+        "发送完了",
+        "全部發送完成",
+        "全部发送完成",
+        "以下代碼的內容發送完成",
+        "以下代码的内容发送完成",
+        "完成",
+    ]
+
+    for kw in completion_keywords:
+        if kw and kw.lower() in normalized:
+            return True
+
+    return False
+
+
+BOT_VERIFICATION_SUCCESS_KEYWORDS = [
+    "验证码验证成功",
+    "驗證碼驗證成功",
+    "captcha verified successfully",
+]
+
+
+def _match_bot_verification_success_keyword(text: str) -> Optional[str]:
+    normalized = str(text or "").strip().lower()
+    if not normalized:
+        return None
+
+    for kw in BOT_VERIFICATION_SUCCESS_KEYWORDS:
+        kw2 = str(kw or "").strip()
+        if not kw2:
+            continue
+        if kw2.lower() in normalized:
+            return kw2
+
+    return None
+
+
+def _is_bot_verification_success_message(msg: Optional[Dict[str, Any]]) -> bool:
+    if not msg:
+        return False
+
+    if get_callback_buttons(msg):
+        return False
+
+    text = str(msg.get("text") or "").strip()
+    if not text:
+        return False
+
+    return _match_bot_verification_success_keyword(text) is not None
+
+
+BOT_NOT_FOUND_KEYWORDS = [
+    "💔抱歉，未找到可解析内容。",
+    "抱歉，未找到可解析内容。",
+    "抱歉，未找到可解析内容",
+    "未找到可解析内容。已加入缓存列表，稍后进行请求。",
+    "未找到可解析内容",
+    "已加入缓存列表，稍后进行请求。",
+]
+
+
+def _match_bot_not_found_keyword(text: str) -> Optional[str]:
+    normalized = str(text or "").strip().lower()
+    if not normalized:
+        return None
+
+    for kw in BOT_NOT_FOUND_KEYWORDS:
+        kw2 = str(kw or "").strip()
+        if not kw2:
+            continue
+        if kw2.lower() in normalized:
+            return kw2
+
+    return None
+
+
+def _is_bot_not_found_message(msg: Optional[Dict[str, Any]]) -> bool:
+    if not msg:
+        return False
+
+    if get_callback_buttons(msg):
+        return False
+
+    text = str(msg.get("text") or "").strip()
+    if not text:
+        return False
+
+    if extract_page_info(text) is not None:
+        return False
+
+    return _match_bot_not_found_keyword(text) is not None
 
 
 def find_latest_callback_message(bot_username: str, skip_invalid: bool = False) -> Optional[Dict[str, Any]]:
@@ -1316,6 +1478,7 @@ def _pagination_state_from_message(msg: Optional[Dict[str, Any]], next_keywords:
         "text_preview": (msg.get("text") or "")[:260],
         "page_info": pi,
         "buttons": buttons,
+        "has_buttons": bool(buttons),
         "buttons_text": buttons_text,
         "numeric_pages": numeric_pages,
         "highlighted_page": highlighted,
@@ -1464,6 +1627,120 @@ def collect_files_from_store(
         "files_unique_count": files_unique_count,
         "files_raw_count": files_raw_count,
         "files_truncated": files_truncated
+    }
+
+
+def _summarize_bot_message(msg: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not msg:
+        return None
+
+    text = str(msg.get("text") or "").strip()
+    page_info = extract_page_info(text) if text else None
+    total_items = extract_total_items(text) if text else None
+    matched_not_found = _match_bot_not_found_keyword(text)
+
+    kind = "other"
+    if matched_not_found:
+        kind = "not_found"
+    elif page_info is not None or bool(get_callback_buttons(msg)):
+        kind = "state"
+    elif _is_bot_completion_message(msg):
+        kind = "completion"
+
+    return {
+        "message_id": int(msg.get("message_id", 0) or 0),
+        "chat_id": int(msg.get("chat_id", 0) or 0),
+        "sender_username": msg.get("sender_username"),
+        "kind": kind,
+        "text_preview": text[:500],
+        "matched_not_found_keyword": matched_not_found,
+        "has_buttons": bool(get_callback_buttons(msg)),
+        "page_info": page_info,
+        "total_items": total_items,
+    }
+
+
+def summarize_latest_bot_message(bot_username: str, min_message_id: int = 0) -> Optional[Dict[str, Any]]:
+    latest = None
+
+    for msg in MESSAGE_STORE.values():
+        if msg.get("sender_username") != bot_username:
+            continue
+
+        mid = int(msg.get("message_id", 0) or 0)
+        if int(min_message_id or 0) > 0 and mid < int(min_message_id or 0):
+            continue
+
+        if latest is None or mid > int(latest.get("message_id", 0) or 0):
+            latest = msg
+
+    return _summarize_bot_message(latest)
+
+
+def _attach_bot_result_snapshot(
+    result: Dict[str, Any],
+    bot_username: str,
+    include_files: bool,
+    max_return_files: int,
+    max_raw_payload_bytes: int,
+    min_message_id: int = 0
+) -> Dict[str, Any]:
+    files_unique_count = 0
+
+    if include_files:
+        files_meta = collect_files_from_store(
+            bot_username,
+            int(max_return_files),
+            int(max_raw_payload_bytes),
+            int(min_message_id or 0)
+        )
+        result["files"] = files_meta
+        files_unique_count = int(files_meta.get("files_unique_count", files_meta.get("files_count", 0)) or 0)
+        result["files_unique_count"] = files_unique_count
+
+    latest_message = summarize_latest_bot_message(bot_username, min_message_id=int(min_message_id or 0))
+    if latest_message is not None:
+        result["latest_message"] = latest_message
+
+    result["outcome"] = {
+        "has_files": files_unique_count > 0,
+        "files_unique_count": files_unique_count,
+        "not_found_message_detected": bool(latest_message and latest_message.get("kind") == "not_found"),
+        "latest_message_kind": latest_message.get("kind") if latest_message else None,
+    }
+
+    return result
+
+
+def _summarize_bot_message(msg: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not msg:
+        return None
+
+    text = str(msg.get("text") or "").strip()
+    buttons = get_callback_buttons(msg)
+    page_info = extract_page_info(text) if text else None
+    total_items = extract_total_items(text) if text else None
+    matched_not_found = _match_bot_not_found_keyword(text)
+
+    kind = "other"
+    if matched_not_found:
+        kind = "not_found"
+    elif page_info is not None or bool(buttons):
+        kind = "state"
+    elif _is_bot_completion_message(msg):
+        kind = "completion"
+
+    return {
+        "message_id": int(msg.get("message_id", 0) or 0),
+        "chat_id": int(msg.get("chat_id", 0) or 0),
+        "sender_username": msg.get("sender_username"),
+        "kind": kind,
+        "text_preview": text[:500],
+        "matched_not_found_keyword": matched_not_found,
+        "has_buttons": bool(buttons),
+        "buttons_text": summarize_buttons(buttons),
+        "page_info": page_info,
+        "total_items": total_items,
     }
 
 async def _get_peer_for_bot(bot_username: str):
@@ -1706,6 +1983,55 @@ def _guess_ext_from_name_or_mime(file_name: Optional[str], mime_type: Optional[s
     return mapping.get(mt, "")
 
 
+def _safe_download_ext(file_name: Optional[str], mime_type: Optional[str]) -> str:
+    ext = _guess_ext_from_name_or_mime(file_name, mime_type)
+    if ext and re.fullmatch(r"\.[A-Za-z0-9]{1,10}", ext):
+        return ext
+    return ""
+
+
+def _reserve_download_file_path(
+    folder_path: str,
+    file_obj: Dict[str, Any],
+    base_name: str,
+    index: int,
+    job_id: str
+) -> str:
+    original_name = str(file_obj.get("file_name") or "").strip()
+    ext = _safe_download_ext(original_name, file_obj.get("mime_type"))
+
+    if original_name:
+        stem = original_name
+        if "." in original_name:
+            stem = original_name.rsplit(".", 1)[0]
+        safe_stem = _sanitize_for_path(stem, max_len=120)
+        if not safe_stem:
+            safe_stem = "download"
+    else:
+        safe_stem = f"{_sanitize_for_path(base_name, max_len=90)}_{index}"
+
+    reserved = DOWNLOAD_RESERVED_PATHS_BY_JOB.get(job_id)
+    if reserved is None:
+        reserved = set()
+        DOWNLOAD_RESERVED_PATHS_BY_JOB[job_id] = reserved
+
+    suffix = 0
+    while True:
+        if suffix <= 0:
+            candidate_name = f"{safe_stem}{ext}"
+        else:
+            candidate_name = f"{safe_stem} ({suffix}){ext}"
+
+        candidate_path = os.path.join(folder_path, candidate_name)
+        normalized = os.path.normcase(candidate_path)
+        if normalized in reserved or os.path.exists(candidate_path):
+            suffix = suffix + 1
+            continue
+
+        reserved.add(normalized)
+        return candidate_path
+
+
 async def _download_one_file_by_message_id(
     bot_username: str,
     peer: Any,
@@ -1737,9 +2063,13 @@ async def _download_one_file_by_message_id(
             if one is None:
                 raise RuntimeError("message not found")
 
-            ext = _guess_ext_from_name_or_mime(file_obj.get("file_name"), file_obj.get("mime_type"))
-            safe_base = _sanitize_for_path(base_name, max_len=90)
-            file_path = os.path.join(folder_path, f"{safe_base}_{index}{ext or ''}")
+            file_path = _reserve_download_file_path(
+                folder_path=folder_path,
+                file_obj=file_obj,
+                base_name=base_name,
+                index=index,
+                job_id=job_id
+            )
 
             await client.download_media(one, file=file_path)
 
@@ -1870,6 +2200,11 @@ async def _background_download_files(
         try:
             if job_id in DOWNLOAD_SEEN_KEYS_BY_JOB:
                 del DOWNLOAD_SEEN_KEYS_BY_JOB[job_id]
+        except Exception:
+            pass
+        try:
+            if job_id in DOWNLOAD_RESERVED_PATHS_BY_JOB:
+                del DOWNLOAD_RESERVED_PATHS_BY_JOB[job_id]
         except Exception:
             pass
 
@@ -2196,10 +2531,11 @@ def _pagination_confirmed_last_page(state: Optional[Dict[str, Any]]) -> bool:
 def _should_stop_by_total_items(
     enabled: bool,
     assumed_total_items: Optional[int],
-    files_meta: Dict[str, Any],
-    state: Optional[Dict[str, Any]],
-    need_confirm_done: bool,
-    need_last_page: bool
+    files_meta: Optional[Dict[str, Any]] = None,
+    state: Optional[Dict[str, Any]] = None,
+    need_confirm_done: bool = False,
+    need_last_page: bool = False,
+    files_unique_count: Optional[int] = None
 ) -> bool:
     if not enabled:
         return False
@@ -2212,8 +2548,14 @@ def _should_stop_by_total_items(
     if total_items_val <= 0:
         return False
 
+    files_meta = files_meta or {}
     raw_count = int(files_meta.get("files_raw_count") or 0)
-    unique_count = int(files_meta.get("files_unique_count") or 0)
+    if files_unique_count is None:
+        try:
+            files_unique_count = int(files_meta.get("files_unique_count") or 0)
+        except Exception:
+            files_unique_count = 0
+    unique_count = int(files_unique_count or 0)
     count_for_total = raw_count if raw_count > 0 else unique_count
 
     if count_for_total < int(total_items_val):
@@ -2227,37 +2569,49 @@ def _should_stop_by_total_items(
 
 async def _wait_for_files_or_state_change(
     bot_username: str,
-    prev_state_msg_id: int,
-    min_message_id: int,
-    timeout_seconds: int,
-    poll_interval: float = 0.7,
+    prev_state_msg_id: int = 0,
+    min_message_id: int = 0,
+    timeout_seconds: int = 25,
+    poll_interval: float = 0.35,
     max_logs: int = 120,
-    step: int = 0
+    step: int = 0,
+    prev_state: Optional[Dict[str, Any]] = None,
+    prev_files_unique_count: Optional[int] = None,
+    next_keywords: Optional[List[str]] = None,
+    max_return_files: int = 0,
+    max_raw_payload_bytes: int = 0
 ) -> Tuple[bool, str]:
     start = time.time()
 
     baseline_unique = 0
-    try:
-        meta0 = collect_files_from_store(
-            bot_username,
-            max_return_files=0,
-            max_raw_payload_bytes=0,
-            min_message_id=min_message_id
-        )
-        baseline_unique = int(meta0.get("files_unique_count", meta0.get("files_count", 0)) or 0)
-    except Exception:
-        baseline_unique = 0
+    if prev_files_unique_count is not None:
+        try:
+            baseline_unique = int(prev_files_unique_count or 0)
+        except Exception:
+            baseline_unique = 0
+    else:
+        try:
+            meta0 = collect_files_from_store(
+                bot_username,
+                max_return_files=int(max_return_files or 0),
+                max_raw_payload_bytes=int(max_raw_payload_bytes or 0),
+                min_message_id=min_message_id
+            )
+            baseline_unique = int(meta0.get("files_unique_count", meta0.get("files_count", 0)) or 0)
+        except Exception:
+            baseline_unique = 0
 
-    prev_msg = None
-    try:
-        for m in MESSAGE_STORE.values():
-            if m.get("sender_username") != bot_username:
-                continue
-            if int(m.get("message_id", 0) or 0) == int(prev_state_msg_id or 0):
-                prev_msg = m
-                break
-    except Exception:
-        prev_msg = None
+    prev_msg = prev_state if isinstance(prev_state, dict) else None
+    if prev_msg is None:
+        try:
+            for m in MESSAGE_STORE.values():
+                if m.get("sender_username") != bot_username:
+                    continue
+                if int(m.get("message_id", 0) or 0) == int(prev_state_msg_id or 0):
+                    prev_msg = m
+                    break
+        except Exception:
+            prev_msg = None
 
     prev_fp = callback_fingerprint(prev_msg) if prev_msg else ""
     prev_text_preview = ((prev_msg.get("text") or "")[:260]) if prev_msg else ""
@@ -2277,6 +2631,11 @@ async def _wait_for_files_or_state_change(
         "Forward", "forward"
     ]
 
+    if next_keywords:
+        for kw in next_keywords:
+            if kw and kw not in watch_next_keywords:
+                watch_next_keywords.append(kw)
+
     while True:
         if time.time() - start >= float(timeout_seconds or 0):
             return False, "timeout"
@@ -2293,8 +2652,8 @@ async def _wait_for_files_or_state_change(
         try:
             files_meta = collect_files_from_store(
                 bot_username,
-                max_return_files=0,
-                max_raw_payload_bytes=0,
+                max_return_files=int(max_return_files or 0),
+                max_raw_payload_bytes=int(max_raw_payload_bytes or 0),
                 min_message_id=min_message_id
             )
             files_unique_count = int(files_meta.get("files_unique_count", files_meta.get("files_count", 0)) or 0)
@@ -2303,6 +2662,13 @@ async def _wait_for_files_or_state_change(
 
         if files_unique_count > baseline_unique:
             return True, "files_increased"
+
+        latest_any = find_latest_bot_message_any(bot_username, require_meaningful=False)
+        if latest_any:
+            latest_any_mid = int(latest_any.get("message_id", 0) or 0)
+            state_floor_mid = max(int(prev_state_msg_id or 0), int(min_message_id or 0))
+            if latest_any_mid >= state_floor_mid and _is_bot_verification_success_message(latest_any):
+                return True, "verification_success"
 
         new_cb = find_latest_pagination_callback_message(
             bot_username,
@@ -2345,7 +2711,7 @@ async def _wait_for_files_or_state_change(
                     except Exception:
                         pass
 
-        await asyncio.sleep(float(poll_interval or 0.7))
+        await asyncio.sleep(float(poll_interval or 0.35))
 
 
 def _pagination_confirmed_last_page(state: Optional[Dict[str, Any]]) -> bool:
@@ -2615,8 +2981,13 @@ def _choose_best_state_message(
             score = score + 50000
         if bool(st.get("page_info")):
             score = score + 30000
+        if bool(st.get("has_buttons")):
+            score = score + 20000
         if bool(st.get("total_items")):
             score = score + 5000
+        numeric_pages = st.get("numeric_pages") or []
+        if numeric_pages:
+            score = score + min(len(numeric_pages), 10) * 500
 
         if best is None or score > best_score:
             best = m
@@ -2629,13 +3000,15 @@ async def _safe_click_pagination_button(
     next_keywords: List[str],
     max_logs: int,
     step: int,
-    max_retries: int,
-    wait_each_page_timeout_seconds: int,
-    max_return_files: int,
-    max_raw_payload_bytes: int,
-    callback_message_max_age_seconds: int,
-    callback_candidate_scan_limit: int,
-    min_message_id: int = 0
+    max_retries: int = 2,
+    wait_each_page_timeout_seconds: int = 25,
+    max_return_files: int = 1000,
+    max_raw_payload_bytes: int = 0,
+    callback_message_max_age_seconds: int = 30,
+    callback_candidate_scan_limit: int = 20,
+    min_message_id: int = 0,
+    msg: Optional[Dict[str, Any]] = None,
+    btn: Optional[Dict[str, Any]] = None
 ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
     files_meta_before = collect_files_from_store(
         bot_username,
@@ -2663,6 +3036,87 @@ async def _safe_click_pagination_button(
     for kw in default_next_keywords:
         if kw not in effective_next_keywords:
             effective_next_keywords.append(kw)
+
+    if msg is not None and btn is not None:
+        callback_msg = msg
+        chat_id = int(callback_msg.get("chat_id", 0) or 0)
+        mid = int(callback_msg.get("message_id", 0) or 0)
+
+        if is_invalid_callback(bot_username, chat_id, mid):
+            return False, "invalid_callback", callback_msg
+
+        data_hex = str(btn.get("data") or "")
+        clicked_text = (btn.get("text") or "").strip()
+        marker = _pagination_action_marker_from_message(callback_msg, buttons=get_callback_buttons(callback_msg))
+
+        if data_hex and is_recent_used_callback_action(bot_username, chat_id, mid, data_hex, marker=marker):
+            await asyncio.sleep(0.6)
+            return False, "recent_used", callback_msg
+
+        try:
+            await click_callback(bot_username, chat_id, mid, data_hex)
+            if data_hex:
+                mark_recent_used_callback_action(bot_username, chat_id, mid, data_hex, marker=marker)
+
+            changed, reason = await _wait_for_files_or_state_change(
+                bot_username=bot_username,
+                prev_state_msg_id=mid,
+                prev_state=callback_msg,
+                prev_files_unique_count=files_unique_before,
+                min_message_id=int(min_message_id or 0),
+                timeout_seconds=int(wait_each_page_timeout_seconds or 25),
+                poll_interval=0.35,
+                max_logs=max_logs,
+                step=step,
+                next_keywords=effective_next_keywords,
+                max_return_files=int(max_return_files or 0),
+                max_raw_payload_bytes=int(max_raw_payload_bytes or 0)
+            )
+
+            if not changed:
+                if data_hex:
+                    unmark_recent_used_callback_action(bot_username, chat_id, mid, data_hex, marker=marker)
+                return False, "clicked_but_no_change", callback_msg
+
+            files_meta_after = collect_files_from_store(
+                bot_username,
+                int(max_return_files),
+                int(max_raw_payload_bytes),
+                min_message_id=int(min_message_id or 0)
+            )
+            files_unique_after = int(files_meta_after.get("files_unique_count", files_meta_after.get("files_count", 0)))
+            if files_unique_after < files_unique_before:
+                pass
+
+            return True, clicked_text or "clicked", callback_msg
+
+        except FloodWaitError as e:
+            if data_hex:
+                unmark_recent_used_callback_action(bot_username, chat_id, mid, data_hex, marker=marker)
+            wait_s = 0
+            try:
+                wait_s = int(getattr(e, "seconds", 0) or 0)
+            except Exception:
+                wait_s = 0
+            push_log(stage="safe_click", result="flood_wait", step=step, extra={"bot_username": bot_username, "wait_seconds": wait_s}, max_logs=max_logs)
+            if wait_s > 0:
+                await asyncio.sleep(float(wait_s) + 1.0)
+            else:
+                await asyncio.sleep(1.2)
+            return False, "flood_wait", callback_msg
+
+        except MessageIdInvalidError:
+            mark_invalid_callback(bot_username, chat_id, mid)
+            if data_hex:
+                mark_recent_used_callback_action(bot_username, chat_id, mid, data_hex, marker=marker)
+            await asyncio.sleep(0.9)
+            return False, "invalid_callback", callback_msg
+
+        except Exception:
+            if data_hex:
+                mark_recent_used_callback_action(bot_username, chat_id, mid, data_hex, marker=marker)
+            await asyncio.sleep(0.9)
+            return False, "exception", callback_msg
 
     for attempt in range(1, int(max_retries or 1) + 1):
         await backfill_latest_from_bot(
@@ -2736,11 +3190,16 @@ async def _safe_click_pagination_button(
             changed, reason = await _wait_for_files_or_state_change(
                 bot_username=bot_username,
                 prev_state_msg_id=mid,
+                prev_state=callback_msg,
+                prev_files_unique_count=files_unique_before,
                 min_message_id=int(min_message_id or 0),
                 timeout_seconds=int(wait_each_page_timeout_seconds or 25),
-                poll_interval=0.7,
+                poll_interval=0.35,
                 max_logs=max_logs,
-                step=step
+                step=step,
+                next_keywords=effective_next_keywords,
+                max_return_files=int(max_return_files or 0),
+                max_raw_payload_bytes=int(max_raw_payload_bytes or 0)
             )
 
             if not changed:
@@ -2827,7 +3286,8 @@ async def _try_click_get_all_anytime(
 
     candidates: List[Dict[str, Any]] = []
     for msg in MESSAGE_STORE.values():
-        if str(msg.get("bot_username", "")).lower() != str(bot_username).lower():
+        msg_bot_username = str(msg.get("bot_username") or msg.get("sender_username") or "").lower()
+        if msg_bot_username != str(bot_username).lower():
             continue
         if int(msg.get("message_id", 0)) < int(min_message_id or 0):
             continue
@@ -2868,7 +3328,7 @@ async def _try_click_get_all_anytime(
             for b in row:
                 btn_text = str(b.get("text", "") or "")
                 if contains_any_keyword(btn_text, get_all_keywords):
-                    ok = await _safe_click_pagination_button(
+                    ok, _, _ = await _safe_click_pagination_button(
                         bot_username=bot_username,
                         msg=msg,
                         btn=b,
@@ -2887,7 +3347,7 @@ async def _try_click_get_all_anytime(
                 for b in row:
                     btn_text = str(b.get("text", "") or "")
                     if btn_text:
-                        ok = await _safe_click_pagination_button(
+                        ok, _, _ = await _safe_click_pagination_button(
                             bot_username=bot_username,
                             msg=msg,
                             btn=b,
@@ -2899,6 +3359,106 @@ async def _try_click_get_all_anytime(
                         if ok:
                             return True, btn_text
                         _mark_callback_message_invalid(msg.get("message_id"))
+
+    return False, None
+
+
+async def _try_click_get_all_anytime(
+    bot_username: str,
+    get_all_keywords: List[str],
+    max_logs: int,
+    step: int,
+    min_message_id: int = 0,
+    keywords: Optional[List[str]] = None
+) -> Tuple[bool, Optional[str]]:
+    if (not get_all_keywords) and keywords:
+        get_all_keywords = keywords
+
+    if not get_all_keywords:
+        get_all_keywords = ["获取全部", "獲取全部", "Get all", "ALL"]
+
+    await backfill_latest_from_bot(
+        bot_username,
+        limit=320,
+        timeout_seconds=6.0,
+        max_logs=max_logs,
+        step=step,
+        force=True
+    )
+
+    candidates: List[Dict[str, Any]] = []
+    for msg in MESSAGE_STORE.values():
+        msg_bot_username = str(msg.get("bot_username") or msg.get("sender_username") or "").lower()
+        if msg_bot_username != str(bot_username).lower():
+            continue
+        if int(msg.get("message_id", 0)) < int(min_message_id or 0):
+            continue
+        if msg.get("invalid_callback"):
+            continue
+
+        btns = get_callback_buttons(msg)
+        if not btns:
+            continue
+
+        candidates.append({
+            "msg": msg,
+            "text": str(msg.get("text", "") or ""),
+            "buttons": btns,
+        })
+
+    if not candidates:
+        return False, None
+
+    def contains_any_keyword(s: str, kws: List[str]) -> bool:
+        ss = (s or "").lower()
+        for k in kws:
+            kk = str(k or "").strip().lower()
+            if not kk:
+                continue
+            if kk in ss:
+                return True
+        return False
+
+    next_keywords = ["下一頁", "下一页", "下頁", "下页", "Next", "next", "➡", "▶"]
+    candidates.sort(key=lambda x: int(x["msg"].get("message_id", 0)), reverse=True)
+
+    for cand in candidates:
+        msg = cand["msg"]
+        buttons = cand["buttons"]
+
+        for b in buttons:
+            btn_text = str(b.get("text", "") or "")
+            if contains_any_keyword(btn_text, get_all_keywords):
+                ok, _, _ = await _safe_click_pagination_button(
+                    bot_username=bot_username,
+                    msg=msg,
+                    btn=b,
+                    max_logs=max_logs,
+                    step=step,
+                    next_keywords=next_keywords,
+                    min_message_id=min_message_id
+                )
+                if ok:
+                    return True, btn_text
+                _mark_callback_message_invalid(msg.get("message_id"))
+
+        if contains_any_keyword(cand["text"], get_all_keywords):
+            for b in buttons:
+                btn_text = str(b.get("text", "") or "")
+                if not btn_text:
+                    continue
+                ok, _, _ = await _safe_click_pagination_button(
+                    bot_username=bot_username,
+                    msg=msg,
+                    btn=b,
+                    max_logs=max_logs,
+                    step=step,
+                    next_keywords=next_keywords,
+                    min_message_id=min_message_id
+                )
+                if ok:
+                    return True, btn_text
+                _mark_callback_message_invalid(msg.get("message_id"))
 
     return False, None
 
@@ -3196,6 +3756,310 @@ async def _observe_no_controls_and_collect_files(
     )
 
 
+async def _continue_pagination_from_current_state(
+    bot_username: str,
+    next_keywords: List[str],
+    max_steps: int,
+    wait_each_page_timeout_seconds: int,
+    max_logs: int,
+    max_return_files: int,
+    max_raw_payload_bytes: int,
+    stop_when_no_new_files_rounds: int,
+    stop_when_reached_total_items: bool,
+    stop_need_confirm_pagination_done: bool,
+    stop_need_last_page_or_all_pages: bool,
+    callback_message_max_age_seconds: int,
+    callback_candidate_scan_limit: int,
+    observe_when_no_controls_poll_seconds: float,
+    min_message_id: int,
+    timeline: List[Dict[str, Any]],
+    visited_pages: Set[int],
+    initial_assumed_total_items: Optional[int] = None,
+    start_step: int = 0
+) -> Dict[str, Any]:
+    steps = int(start_step or 0)
+    no_new_files_rounds = 0
+    last_files_unique_count = 0
+    assumed_total_items: Optional[int] = None
+    if initial_assumed_total_items is not None:
+        try:
+            assumed_total_items = int(initial_assumed_total_items)
+        except Exception:
+            assumed_total_items = None
+    did_any_pagination_click = False
+    last_clicked_page: Optional[int] = None
+    last_clicked_desc = ""
+
+    while steps < int(max_steps or 0):
+        steps = steps + 1
+        await backfill_latest_from_bot(
+            bot_username,
+            limit=460,
+            timeout_seconds=6.0,
+            max_logs=max_logs,
+            step=steps,
+            force=True,
+            min_message_id=int(min_message_id or 0)
+        )
+
+        chosen_now = (
+            find_latest_pagination_callback_message(
+                bot_username,
+                next_keywords=next_keywords,
+                skip_invalid=True,
+                max_age_seconds=int(callback_message_max_age_seconds or 0),
+                scan_limit=int(callback_candidate_scan_limit or 0),
+                min_message_id=int(min_message_id or 0)
+            )
+            or find_latest_callback_message(bot_username, skip_invalid=True)
+            or _choose_best_state_message(
+                bot_username=bot_username,
+                next_keywords=next_keywords,
+                max_age_seconds=int(callback_message_max_age_seconds or 0),
+                scan_limit=int(callback_candidate_scan_limit or 0),
+                min_message_id=int(min_message_id or 0)
+            )
+        )
+
+        if not chosen_now:
+            latest_any = find_latest_bot_message_any(bot_username, require_meaningful=False)
+            if _is_bot_not_found_message(latest_any):
+                return {
+                    "status": "ok",
+                    "reason": "not found message detected; stop",
+                    "steps": steps,
+                    "did_any_pagination_click": did_any_pagination_click,
+                    "last_clicked_page": last_clicked_page,
+                    "last_clicked_desc": last_clicked_desc
+                }
+
+            latest_any = find_latest_bot_message_any(bot_username, require_meaningful=True)
+            if _is_bot_completion_message(latest_any):
+                return {
+                    "status": "ok",
+                    "reason": "completion message detected; stop",
+                    "steps": steps,
+                    "did_any_pagination_click": did_any_pagination_click,
+                    "last_clicked_page": last_clicked_page,
+                    "last_clicked_desc": last_clicked_desc
+                }
+
+            timeline.append({"step": steps, "status": "observe", "reason": "no state message; sleep"})
+            await asyncio.sleep(float(observe_when_no_controls_poll_seconds or 0.5))
+            continue
+
+        state = _pagination_state_from_message(chosen_now, next_keywords=next_keywords) or {}
+        pi_now = state.get("page_info")
+        total_items_now = state.get("total_items")
+        has_buttons_now = bool(state.get("has_buttons")) or bool(state.get("buttons"))
+
+        if pi_now and not has_buttons_now:
+            alt_chosen_now = (
+                find_latest_pagination_callback_message(
+                    bot_username,
+                    next_keywords=next_keywords,
+                    skip_invalid=True,
+                    max_age_seconds=int(callback_message_max_age_seconds or 0),
+                    scan_limit=int(callback_candidate_scan_limit or 0),
+                    min_message_id=int(min_message_id or 0)
+                )
+                or find_latest_callback_message(bot_username, skip_invalid=True)
+            )
+            if alt_chosen_now:
+                alt_state = _pagination_state_from_message(alt_chosen_now, next_keywords=next_keywords) or {}
+                alt_pi_now = alt_state.get("page_info")
+                alt_has_buttons = bool(alt_state.get("has_buttons")) or bool(alt_state.get("buttons"))
+                if alt_has_buttons and (bool(alt_state.get("is_pagination_like")) or bool(alt_pi_now)):
+                    chosen_now = alt_chosen_now
+                    state = alt_state
+                    pi_now = state.get("page_info")
+                    total_items_now = state.get("total_items")
+                    has_buttons_now = alt_has_buttons
+
+        buttons_now = get_callback_buttons(chosen_now)
+        latest_any = find_latest_bot_message_any(bot_username, require_meaningful=True)
+        if latest_any:
+            latest_any_mid = int(latest_any.get("message_id", 0) or 0)
+            chosen_now_mid = int(chosen_now.get("message_id", 0) or 0)
+            if latest_any_mid >= chosen_now_mid and _is_bot_not_found_message(latest_any):
+                return {
+                    "status": "ok",
+                    "reason": "not found message detected; stop",
+                    "steps": steps,
+                    "did_any_pagination_click": did_any_pagination_click,
+                    "last_clicked_page": last_clicked_page,
+                    "last_clicked_desc": last_clicked_desc
+                }
+            if latest_any_mid > chosen_now_mid and _is_bot_completion_message(latest_any):
+                return {
+                    "status": "ok",
+                    "reason": "completion message detected; stop",
+                    "steps": steps,
+                    "did_any_pagination_click": did_any_pagination_click,
+                    "last_clicked_page": last_clicked_page,
+                    "last_clicked_desc": last_clicked_desc
+                }
+
+        if assumed_total_items is None and total_items_now is not None:
+            try:
+                assumed_total_items = int(total_items_now)
+            except Exception:
+                assumed_total_items = None
+
+        if pi_now and pi_now.get("current_page") is not None:
+            try:
+                visited_pages.add(int(pi_now.get("current_page")))
+            except Exception:
+                pass
+
+        files_meta_now = collect_files_from_store(bot_username, int(max_return_files), int(max_raw_payload_bytes))
+        files_unique_now = int(files_meta_now.get("files_unique_count", files_meta_now.get("files_count", 0)))
+
+        timeline.append({
+            "step": steps,
+            "status": "state",
+            "message_id": chosen_now.get("message_id"),
+            "chat_id": chosen_now.get("chat_id"),
+            "page_info": pi_now,
+            "total_items": total_items_now,
+            "files_unique_count": files_unique_now,
+            "has_buttons": bool(has_buttons_now),
+            "buttons_text": summarize_buttons(buttons_now)
+        })
+
+        if files_unique_now <= last_files_unique_count:
+            no_new_files_rounds = no_new_files_rounds + 1
+        else:
+            no_new_files_rounds = 0
+            last_files_unique_count = files_unique_now
+
+        if stop_when_reached_total_items and assumed_total_items is not None:
+            if int(files_unique_now) >= int(assumed_total_items):
+                if stop_need_confirm_pagination_done:
+                    if _pagination_confirmed_last_page(state):
+                        return {
+                            "status": "ok",
+                            "reason": "reached total items + last page confirmed; stop",
+                            "steps": steps,
+                            "did_any_pagination_click": did_any_pagination_click,
+                            "last_clicked_page": last_clicked_page,
+                            "last_clicked_desc": last_clicked_desc
+                        }
+                    if stop_need_last_page_or_all_pages:
+                        if _pagination_confirmed_all_pages_visited(state, visited_pages):
+                            return {
+                                "status": "ok",
+                                "reason": "reached total items + all pages visited; stop",
+                                "steps": steps,
+                                "did_any_pagination_click": did_any_pagination_click,
+                                "last_clicked_page": last_clicked_page,
+                                "last_clicked_desc": last_clicked_desc
+                            }
+                        if _pagination_confirmed_by_last_clicked_target(state, last_clicked_page):
+                            return {
+                                "status": "ok",
+                                "reason": "reached total items after final page click; stop",
+                                "steps": steps,
+                                "did_any_pagination_click": did_any_pagination_click,
+                                "last_clicked_page": last_clicked_page,
+                                "last_clicked_desc": last_clicked_desc
+                            }
+                timeline.append({"step": steps, "status": "note", "reason": "reached total items but continue clicking pages"})
+
+        threshold_no_new = int(stop_when_no_new_files_rounds or 0)
+        if threshold_no_new > 0 and int(no_new_files_rounds) >= threshold_no_new:
+            if stop_need_confirm_pagination_done:
+                if _pagination_confirmed_last_page(state):
+                    return {
+                        "status": "ok",
+                        "reason": "last page confirmed; stop",
+                        "steps": steps,
+                        "did_any_pagination_click": did_any_pagination_click,
+                        "last_clicked_page": last_clicked_page,
+                        "last_clicked_desc": last_clicked_desc
+                    }
+                if stop_need_last_page_or_all_pages:
+                    if _pagination_confirmed_all_pages_visited(state, visited_pages):
+                        return {
+                            "status": "ok",
+                            "reason": "all pages visited; stop",
+                            "steps": steps,
+                            "did_any_pagination_click": did_any_pagination_click,
+                            "last_clicked_page": last_clicked_page,
+                            "last_clicked_desc": last_clicked_desc
+                        }
+            timeline.append({"step": steps, "status": "note", "reason": "no new files rounds reached but continue clicking pages"})
+
+        if stop_need_confirm_pagination_done and _pagination_confirmed_last_page(state):
+            return {
+                "status": "ok",
+                "reason": "last page confirmed; stop",
+                "steps": steps,
+                "did_any_pagination_click": did_any_pagination_click,
+                "last_clicked_page": last_clicked_page,
+                "last_clicked_desc": last_clicked_desc
+            }
+
+        ok_click, clicked_text, _used_msg = await _safe_click_pagination_button(
+            bot_username=bot_username,
+            next_keywords=next_keywords,
+            max_logs=int(max_logs or 0),
+            step=steps,
+            max_retries=2,
+            wait_each_page_timeout_seconds=int(wait_each_page_timeout_seconds or 0),
+            max_return_files=int(max_return_files or 0),
+            max_raw_payload_bytes=int(max_raw_payload_bytes or 0),
+            callback_message_max_age_seconds=int(callback_message_max_age_seconds or 0),
+            callback_candidate_scan_limit=int(callback_candidate_scan_limit or 0),
+            min_message_id=int(min_message_id or 0)
+        )
+
+        if not ok_click:
+            if clicked_text == "clicked_but_no_change":
+                timeline.append({"step": steps, "status": "note", "reason": "clicked_but_no_change; retry"})
+                await asyncio.sleep(0.35)
+                continue
+
+            try:
+                if clicked_text == "no_click" and bool(state.get("has_next")):
+                    timeline.append({"step": steps, "status": "note", "reason": "no_click but has_next; retry"})
+                    await asyncio.sleep(0.35)
+                    continue
+            except Exception:
+                pass
+
+            return {
+                "status": "ok",
+                "reason": str(clicked_text or "pagination stopped"),
+                "steps": steps,
+                "did_any_pagination_click": did_any_pagination_click,
+                "last_clicked_page": last_clicked_page,
+                "last_clicked_desc": last_clicked_desc
+            }
+
+        did_any_pagination_click = True
+        if clicked_text:
+            last_clicked_desc = str(clicked_text)
+            clicked_page_int = extract_first_int(clicked_text)
+            if clicked_page_int is not None:
+                try:
+                    last_clicked_page = int(clicked_page_int)
+                except Exception:
+                    pass
+            timeline.append({"step": steps, "status": "clicked", "clicked": clicked_text})
+
+        await asyncio.sleep(0.2)
+
+    return {
+        "status": "ok",
+        "reason": "max_steps reached",
+        "steps": steps,
+        "did_any_pagination_click": did_any_pagination_click,
+        "last_clicked_page": last_clicked_page,
+        "last_clicked_desc": last_clicked_desc
+    }
+
+
 @app.post("/bots/send-and-run-all-pages")
 async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
     if payload.clear_previous_replies:
@@ -3278,6 +4142,14 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
     async def _return_ok(reason: str) -> Dict[str, Any]:
         timeline.append({"step": steps, "status": "done", "reason": reason})
         resp = _attach_files({"status": "ok", "reason": reason, "steps": steps, "timeline": timeline})
+        resp = _attach_bot_result_snapshot(
+            resp,
+            bot_username=payload.bot_username,
+            include_files=bool(payload.include_files_in_response),
+            max_return_files=int(payload.max_return_files or 0),
+            max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0),
+            min_message_id=int(cleanup_min_mid or 0)
+        )
         asyncio.create_task(_start_background_download_and_cleanup())
         return resp
 
@@ -3286,8 +4158,24 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
         if error:
             resp["error"] = error
         resp = _attach_files(resp)
+        resp = _attach_bot_result_snapshot(
+            resp,
+            bot_username=payload.bot_username,
+            include_files=bool(payload.include_files_in_response),
+            max_return_files=int(payload.max_return_files or 0),
+            max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0),
+            min_message_id=int(cleanup_min_mid or 0)
+        )
         asyncio.create_task(_start_background_download_and_cleanup())
         return resp
+
+    async def _sleep_after_pagination_click() -> None:
+        try:
+            delay_s = float(payload.delay_seconds or 0)
+        except Exception:
+            delay_s = 0.0
+        if delay_s > 0:
+            await asyncio.sleep(delay_s)
 
     try:
         await backfill_latest_from_bot(payload.bot_username, limit=120, timeout_seconds=6.0, max_logs=payload.debug_max_logs, step=0, force=True)
@@ -3311,6 +4199,16 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
         )
         if not first_any:
             return await _return_fail("timeout waiting for first bot message after sending")
+
+        if _is_bot_not_found_message(first_any):
+            timeline.append({
+                "step": 0,
+                "status": "done",
+                "reason": "not found message detected; stop",
+                "message_id": first_any.get("message_id"),
+                "text_preview": (first_any.get("text") or "")[:200]
+            })
+            return await _return_ok("not found message detected; stop")
 
         await backfill_latest_from_bot(payload.bot_username, limit=360, timeout_seconds=6.0, max_logs=payload.debug_max_logs, step=0, force=True)
 
@@ -3346,7 +4244,11 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             "text_preview": (chosen_first.get("text") or "")[:200]
         })
 
+        if _is_bot_not_found_message(chosen_first):
+            return await _return_ok("not found message detected; stop")
+
         clicked_get_all = False
+        seed_total_items: Optional[int] = first_total_items
         if payload.bootstrap_click_get_all and not did_bootstrap_click:
             ok_get_all, clicked_text = await _try_click_get_all_anytime(
                 bot_username=payload.bot_username,
@@ -3358,6 +4260,13 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             if ok_get_all:
                 clicked_get_all = True
                 did_bootstrap_click = True
+                if seed_total_items is None:
+                    try:
+                        inferred_total = extract_first_int(clicked_text or "")
+                        if inferred_total is not None and int(inferred_total) > 0:
+                            seed_total_items = int(inferred_total)
+                    except Exception:
+                        pass
                 timeline.append({"step": 0, "status": "bootstrap_clicked_anytime", "clicked_text": clicked_text})
                 await asyncio.sleep(0.8)
                 await backfill_latest_from_bot(payload.bot_username, limit=420, timeout_seconds=6.0, max_logs=payload.debug_max_logs, step=0, force=True)
@@ -3435,6 +4344,48 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
                     return await _return_ok("no page_info and no buttons; observed files collected")
                 return await _return_ok("no page_info and no get_all; return current files")
 
+        loop_result = await _continue_pagination_from_current_state(
+            bot_username=payload.bot_username,
+            next_keywords=payload.next_text_keywords,
+            max_steps=int(payload.max_steps or 0),
+            wait_each_page_timeout_seconds=int(payload.wait_each_page_timeout_seconds),
+            max_logs=int(payload.debug_max_logs or 0),
+            max_return_files=int(payload.max_return_files or 0),
+            max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0),
+            stop_when_no_new_files_rounds=int(payload.stop_when_no_new_files_rounds or 0),
+            stop_when_reached_total_items=bool(payload.stop_when_reached_total_items),
+            stop_need_confirm_pagination_done=bool(payload.stop_need_confirm_pagination_done),
+            stop_need_last_page_or_all_pages=bool(payload.stop_need_last_page_or_all_pages),
+            callback_message_max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
+            callback_candidate_scan_limit=int(payload.callback_candidate_scan_limit or 0),
+            observe_when_no_controls_poll_seconds=float(payload.observe_when_no_controls_poll_seconds or 0.5),
+            min_message_id=int(cleanup_min_mid or 0),
+            timeline=timeline,
+            visited_pages=visited_pages,
+            initial_assumed_total_items=seed_total_items,
+            start_step=steps
+        )
+        steps = int(loop_result.get("steps", steps) or steps)
+        did_any_pagination_click = bool(loop_result.get("did_any_pagination_click")) or did_any_pagination_click
+        if loop_result.get("last_clicked_desc"):
+            last_clicked_desc = str(loop_result.get("last_clicked_desc"))
+        if loop_result.get("last_clicked_page") is not None:
+            try:
+                last_clicked_page = int(loop_result.get("last_clicked_page"))
+            except Exception:
+                pass
+
+        if str(loop_result.get("status") or "ok").lower() == "ok":
+            return await _return_ok(str(loop_result.get("reason") or "pagination done"))
+
+        if payload.allow_ok_when_no_buttons:
+            return await _return_ok(str(loop_result.get("reason") or "pagination stopped"))
+
+        return await _return_fail(
+            str(loop_result.get("reason") or "pagination stopped"),
+            str(loop_result.get("error") or "") or None
+        )
+
         no_new_files_rounds = 0
         last_files_unique_count = 0
         assumed_total_items: Optional[int] = None
@@ -3459,14 +4410,35 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
                     await backfill_latest_from_bot(payload.bot_username, limit=420, timeout_seconds=6.0, max_logs=payload.debug_max_logs, step=steps, force=True)
                     await _wait_after_bootstrap(payload.bot_username, int(payload.wait_after_bootstrap_timeout_seconds), payload.debug_max_logs, steps, payload.next_text_keywords, int(payload.max_return_files), int(payload.max_raw_payload_bytes))
 
-            msg_for_state = _choose_best_state_message(
-                bot_username=payload.bot_username,
-                next_keywords=payload.next_text_keywords,
-                max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
-                scan_limit=int(payload.callback_candidate_scan_limit or 20),
-                min_message_id=int(cleanup_min_mid or 0)
+            msg_for_state = (
+                find_latest_pagination_callback_message(
+                    payload.bot_username,
+                    next_keywords=payload.next_text_keywords,
+                    skip_invalid=True,
+                    max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
+                    scan_limit=int(payload.callback_candidate_scan_limit or 20),
+                    min_message_id=int(cleanup_min_mid or 0)
+                )
+                or find_latest_callback_message(payload.bot_username, skip_invalid=True)
+                or _choose_best_state_message(
+                    bot_username=payload.bot_username,
+                    next_keywords=payload.next_text_keywords,
+                    max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
+                    scan_limit=int(payload.callback_candidate_scan_limit or 20),
+                    min_message_id=int(cleanup_min_mid or 0)
+                )
             )
             if not msg_for_state:
+                latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=False)
+                if _is_bot_not_found_message(latest_any):
+                    timeline.append({
+                        "step": steps,
+                        "status": "done",
+                        "reason": "not found message detected; stop",
+                        "message_id": latest_any.get("message_id"),
+                        "text_preview": (latest_any.get("text") or "")[:200]
+                    })
+                    return await _return_ok("not found message detected; stop")
                 if payload.allow_ok_when_no_buttons:
                     return await _return_ok("no bot message found; return collected files")
                 return await _return_fail("no bot message found")
@@ -3476,6 +4448,29 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             total_items = state.get("total_items")
             has_buttons = bool(state.get("has_buttons"))
             is_pagelike = bool(state.get("is_pagination_like")) or bool(pi)
+
+            if pi and not has_buttons:
+                alt_msg_for_state = (
+                    find_latest_pagination_callback_message(
+                        payload.bot_username,
+                        next_keywords=payload.next_text_keywords,
+                        skip_invalid=True,
+                        max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
+                        scan_limit=int(payload.callback_candidate_scan_limit or 0),
+                        min_message_id=int(cleanup_min_mid or 0)
+                    )
+                    or find_latest_callback_message(payload.bot_username, skip_invalid=True)
+                )
+                if alt_msg_for_state:
+                    alt_state = _pagination_state_from_message(alt_msg_for_state, next_keywords=payload.next_text_keywords) or {}
+                    alt_pi = alt_state.get("page_info")
+                    if bool(alt_state.get("has_buttons")) and (bool(alt_state.get("is_pagination_like")) or bool(alt_pi)):
+                        msg_for_state = alt_msg_for_state
+                        state = alt_state
+                        pi = state.get("page_info")
+                        total_items = state.get("total_items")
+                        has_buttons = bool(state.get("has_buttons"))
+                        is_pagelike = bool(state.get("is_pagination_like")) or bool(pi)
 
             if (pi is None) and (not is_pagelike):
                 meta_observed = await _observe_no_controls_and_collect_files(
@@ -3567,11 +4562,13 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
                     if clicked_page_int is not None:
                         last_clicked_page = int(clicked_page_int)
                     timeline.append({"step": steps, "status": "clicked", "mode": "callback", "desc": clicked_or_err})
+                    await _sleep_after_pagination_click()
                 else:
                     if str(clicked_or_err) == "clicked_but_no_change":
                         if payload.text_next_fallback_enabled and bool(state.get("has_next")):
                             await client.send_message(payload.bot_username, payload.text_next_command)
                             timeline.append({"step": steps, "status": "clicked", "mode": "text_next_fallback", "desc": payload.text_next_command})
+                            await _sleep_after_pagination_click()
                             await asyncio.sleep(0.7)
                             await _wait_for_files_or_state_change(
                                 bot_username=payload.bot_username,
@@ -3598,6 +4595,7 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
                     if payload.text_next_fallback_enabled and bool(state.get("has_next")):
                         await client.send_message(payload.bot_username, payload.text_next_command)
                         timeline.append({"step": steps, "status": "clicked", "mode": "text_next_fallback", "desc": payload.text_next_command})
+                        await _sleep_after_pagination_click()
                         await asyncio.sleep(0.7)
                         await _wait_for_files_or_state_change(
                             bot_username=payload.bot_username,
@@ -3621,6 +4619,7 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
                 if pi and payload.text_next_fallback_enabled and bool(state.get("has_next")):
                     await client.send_message(payload.bot_username, payload.text_next_command)
                     timeline.append({"step": steps, "status": "clicked", "mode": "text_next", "desc": payload.text_next_command})
+                    await _sleep_after_pagination_click()
                     await asyncio.sleep(0.7)
                     await _wait_for_files_or_state_change(
                         bot_username=payload.bot_username,
@@ -3660,9 +4659,6 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
                     if payload.allow_ok_when_no_buttons:
                         return await _return_ok("no buttons and no next; return files")
                     return await _return_fail("no buttons and no next; cannot paginate")
-
-            if payload.delay_seconds > 0:
-                await asyncio.sleep(int(payload.delay_seconds))
 
         if payload.allow_ok_when_no_buttons:
             return await _return_ok("reached max_steps; return files")
@@ -4105,9 +5101,14 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
             "timeline": timeline
         }
 
-        if payload.include_files_in_response:
-            files_meta = collect_files_from_store(payload.bot_username, int(payload.max_return_files), int(payload.max_raw_payload_bytes))
-            result["files"] = files_meta
+        result = _attach_bot_result_snapshot(
+            result,
+            bot_username=payload.bot_username,
+            include_files=bool(payload.include_files_in_response),
+            max_return_files=int(payload.max_return_files or 0),
+            max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0),
+            min_message_id=int(cleanup_min_mid or 0)
+        )
 
         if payload.debug:
             result["debug"] = _get_debug_logs(int(payload.debug_max_logs or 0))
@@ -4136,9 +5137,14 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
             "timeline": timeline
         }
 
-        if payload.include_files_in_response:
-            files_meta = collect_files_from_store(payload.bot_username, int(payload.max_return_files), int(payload.max_raw_payload_bytes))
-            result["files"] = files_meta
+        result = _attach_bot_result_snapshot(
+            result,
+            bot_username=payload.bot_username,
+            include_files=bool(payload.include_files_in_response),
+            max_return_files=int(payload.max_return_files or 0),
+            max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0),
+            min_message_id=int(cleanup_min_mid or 0)
+        )
 
         if payload.debug:
             result["debug"] = _get_debug_logs(int(payload.debug_max_logs or 0))
@@ -4189,6 +5195,16 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
         )
 
         if not chosen_first:
+            latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=False)
+            if _is_bot_not_found_message(latest_any):
+                timeline.append({
+                    "step": 0,
+                    "status": "done",
+                    "reason": "not found message detected; stop",
+                    "message_id": latest_any.get("message_id"),
+                    "text_preview": (latest_any.get("text") or "")[:200]
+                })
+                return await _return_ok("not found message detected; stop")
             timeline.append({"step": 0, "status": "fail", "reason": "no callback state message found"})
             return await _return_fail("no callback state message found")
 
@@ -4219,6 +5235,9 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
             "text_preview": (chosen_first.get("text") or "")[:200]
         })
 
+        if _is_bot_not_found_message(chosen_first):
+            return await _return_ok("not found message detected; stop")
+
         no_new_files_rounds = 0
         last_files_unique_count = 0
         assumed_total_items: Optional[int] = None
@@ -4227,15 +5246,46 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
             steps = steps + 1
             await backfill_latest_from_bot(payload.bot_username, limit=460, timeout_seconds=6.0, max_logs=int(payload.debug_max_logs or 0), step=steps, force=True)
 
-            chosen_now = _choose_best_state_message(
-                bot_username=payload.bot_username,
-                next_keywords=payload.next_text_keywords,
-                max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
-                scan_limit=int(payload.callback_candidate_scan_limit or 0),
-                min_message_id=0
+            chosen_now = (
+                find_latest_pagination_callback_message(
+                    payload.bot_username,
+                    next_keywords=payload.next_text_keywords,
+                    skip_invalid=True,
+                    max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
+                    scan_limit=int(payload.callback_candidate_scan_limit or 0),
+                    min_message_id=0
+                )
+                or find_latest_callback_message(payload.bot_username, skip_invalid=True)
+                or _choose_best_state_message(
+                    bot_username=payload.bot_username,
+                    next_keywords=payload.next_text_keywords,
+                    max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
+                    scan_limit=int(payload.callback_candidate_scan_limit or 0),
+                    min_message_id=0
+                )
             )
 
             if not chosen_now:
+                latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=False)
+                if _is_bot_not_found_message(latest_any):
+                    timeline.append({
+                        "step": steps,
+                        "status": "done",
+                        "reason": "not found message detected; stop",
+                        "message_id": latest_any.get("message_id"),
+                        "text_preview": (latest_any.get("text") or "")[:200]
+                    })
+                    return await _return_ok("not found message detected; stop")
+                latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=True)
+                if _is_bot_completion_message(latest_any):
+                    timeline.append({
+                        "step": steps,
+                        "status": "done",
+                        "reason": "completion message detected; stop",
+                        "message_id": latest_any.get("message_id"),
+                        "text_preview": (latest_any.get("text") or "")[:200]
+                    })
+                    return await _return_ok("completion message detected; stop")
                 timeline.append({"step": steps, "status": "observe", "reason": "no state message; sleep"})
                 await asyncio.sleep(float(payload.observe_when_no_controls_poll_seconds or 0.5))
                 continue
@@ -4244,6 +5294,50 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
             state = _pagination_state_from_message(chosen_now, next_keywords=payload.next_text_keywords) or {}
             pi_now = state.get("page_info")
             total_items_now = state.get("total_items")
+
+            if pi_now and not bool(state.get("has_buttons")):
+                alt_chosen_now = (
+                    find_latest_pagination_callback_message(
+                        payload.bot_username,
+                        next_keywords=payload.next_text_keywords,
+                        skip_invalid=True,
+                        max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
+                        scan_limit=int(payload.callback_candidate_scan_limit or 0),
+                        min_message_id=int(cleanup_min_mid or 0)
+                    )
+                    or find_latest_callback_message(payload.bot_username, skip_invalid=True)
+                )
+                if alt_chosen_now:
+                    alt_state = _pagination_state_from_message(alt_chosen_now, next_keywords=payload.next_text_keywords) or {}
+                    alt_pi_now = alt_state.get("page_info")
+                    if bool(alt_state.get("has_buttons")) and (bool(alt_state.get("is_pagination_like")) or bool(alt_pi_now)):
+                        chosen_now = alt_chosen_now
+                        state = alt_state
+                        pi_now = state.get("page_info")
+                        total_items_now = state.get("total_items")
+
+            latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=True)
+            if latest_any:
+                latest_any_mid = int(latest_any.get("message_id", 0) or 0)
+                chosen_now_mid = int(chosen_now.get("message_id", 0) or 0)
+                if latest_any_mid >= chosen_now_mid and _is_bot_not_found_message(latest_any):
+                    timeline.append({
+                        "step": steps,
+                        "status": "done",
+                        "reason": "not found message detected; stop",
+                        "message_id": latest_any.get("message_id"),
+                        "text_preview": (latest_any.get("text") or "")[:200]
+                    })
+                    return await _return_ok("not found message detected; stop")
+                if latest_any_mid > chosen_now_mid and _is_bot_completion_message(latest_any):
+                    timeline.append({
+                        "step": steps,
+                        "status": "done",
+                        "reason": "completion message detected; stop",
+                        "message_id": latest_any.get("message_id"),
+                        "text_preview": (latest_any.get("text") or "")[:200]
+                    })
+                    return await _return_ok("completion message detected; stop")
 
             if assumed_total_items is None and total_items_now is not None:
                 try:

@@ -615,10 +615,31 @@
                     return;
                 }
 
+                $dialoguesMessageId = (int)(DB::table('dialogues')
+                    ->where('chat_id', self::DIALOGUES_CHAT_ID)
+                    ->max('message_id') ?? 0);
+
+                $dialogueRows = [];
+                foreach ($finalRows as $row) {
+                    $dialoguesMessageId++;
+                    $dialogueRows[] = [
+                        'chat_id' => self::DIALOGUES_CHAT_ID,
+                        'message_id' => $dialoguesMessageId,
+                        'text' => (string)$row['token'],
+                        'is_read' => 1,
+                        'created_at' => $createdAt,
+                    ];
+                }
+
                 $chunks = array_chunk($finalRows, self::INSERT_CHUNK_SIZE);
                 foreach ($chunks as $chunk) {
                     $affected = DB::table('token_scan_items')->insertOrIgnore($chunk);
                     $insertedCount = $insertedCount + (int)$affected;
+                }
+
+                $dialogueChunks = array_chunk($dialogueRows, self::INSERT_CHUNK_SIZE);
+                foreach ($dialogueChunks as $chunk) {
+                    DB::table('dialogues')->insert($chunk);
                 }
             });
 

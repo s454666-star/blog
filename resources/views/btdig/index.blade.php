@@ -24,12 +24,21 @@
         .preview-overlay {
             opacity: 0;
             visibility: hidden;
+            overflow: hidden;
             transition: opacity 180ms ease, visibility 180ms ease;
         }
 
         .preview-overlay.is-visible {
             opacity: 1;
             visibility: visible;
+        }
+
+        .preview-overlay img {
+            transform: translate3d(0, 0, 0) scale(2);
+            transform-origin: center center;
+            transition: transform 120ms ease-out;
+            user-select: none;
+            will-change: transform;
         }
     </style>
 </head>
@@ -448,6 +457,7 @@
         <img id="imagePreviewOverlayImage"
              src=""
              alt=""
+             draggable="false"
              class="max-h-[84vh] max-w-[94vw] rounded-2xl object-contain shadow-[0_24px_80px_rgba(15,23,42,0.65)]">
         <div id="imagePreviewOverlayCaption"
              class="rounded-full border border-white/15 bg-slate-900/75 px-4 py-2 text-sm font-semibold text-slate-100">
@@ -463,7 +473,11 @@
     const previewOverlayEl = document.getElementById('imagePreviewOverlay');
     const previewOverlayImageEl = document.getElementById('imagePreviewOverlayImage');
     const previewOverlayCaptionEl = document.getElementById('imagePreviewOverlayCaption');
+    const previewZoomScale = 2;
+    const previewWheelStep = 0.65;
     let previewHideTimer = null;
+    let previewTranslateY = 0;
+    let previewMaxTranslateY = 0;
 
     function showToast(message) {
         toastEl.textContent = message;
@@ -477,6 +491,47 @@
         return Array.from(document.querySelectorAll('.card'));
     }
 
+    function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+    }
+
+    function applyPreviewTransform() {
+        if (!previewOverlayImageEl) {
+            return;
+        }
+
+        previewOverlayImageEl.style.transform = `translate3d(0, ${previewTranslateY}px, 0) scale(${previewZoomScale})`;
+    }
+
+    function updatePreviewPanLimit() {
+        if (!previewOverlayImageEl) {
+            return;
+        }
+
+        const baseHeight = previewOverlayImageEl.clientHeight;
+        previewMaxTranslateY = Math.max(0, ((baseHeight * previewZoomScale) - baseHeight) / 2);
+        previewTranslateY = clamp(previewTranslateY, -previewMaxTranslateY, previewMaxTranslateY);
+        applyPreviewTransform();
+    }
+
+    function resetPreviewTransform() {
+        previewTranslateY = 0;
+        previewMaxTranslateY = 0;
+        applyPreviewTransform();
+    }
+
+    function clearImagePreview() {
+        if (!previewOverlayEl || !previewOverlayImageEl) {
+            return;
+        }
+
+        previewOverlayEl.classList.remove('is-visible');
+        previewOverlayImageEl.src = '';
+        previewOverlayImageEl.alt = '';
+        previewOverlayCaptionEl.textContent = '';
+        resetPreviewTransform();
+    }
+
     function showImagePreview(src, alt) {
         if (!previewOverlayEl || !previewOverlayImageEl || !src) {
             return;
@@ -487,10 +542,15 @@
             previewHideTimer = null;
         }
 
+        resetPreviewTransform();
         previewOverlayImageEl.src = src;
         previewOverlayImageEl.alt = alt || '';
         previewOverlayCaptionEl.textContent = alt || 'Preview';
         previewOverlayEl.classList.add('is-visible');
+
+        if (previewOverlayImageEl.complete && previewOverlayImageEl.naturalWidth > 0) {
+            updatePreviewPanLimit();
+        }
     }
 
     function hideImagePreview() {
@@ -499,11 +559,27 @@
         }
 
         previewHideTimer = setTimeout(() => {
-            previewOverlayEl.classList.remove('is-visible');
-            previewOverlayImageEl.src = '';
-            previewOverlayImageEl.alt = '';
-            previewOverlayCaptionEl.textContent = '';
+            clearImagePreview();
         }, 60);
+    }
+
+    function handlePreviewWheel(event) {
+        if (!previewOverlayEl || !previewOverlayEl.classList.contains('is-visible')) {
+            return;
+        }
+
+        event.preventDefault();
+
+        if (previewMaxTranslateY <= 0) {
+            return;
+        }
+
+        previewTranslateY = clamp(
+            previewTranslateY - (event.deltaY * previewWheelStep),
+            -previewMaxTranslateY,
+            previewMaxTranslateY
+        );
+        applyPreviewTransform();
     }
 
     function wirePreviewHovers() {
@@ -942,16 +1018,29 @@
             });
         }
 
+        if (previewOverlayImageEl) {
+            previewOverlayImageEl.addEventListener('load', function () {
+                if (previewOverlayEl.classList.contains('is-visible')) {
+                    updatePreviewPanLimit();
+                }
+            });
+        }
+
+        window.addEventListener('resize', function () {
+            if (previewOverlayEl.classList.contains('is-visible')) {
+                updatePreviewPanLimit();
+            }
+        });
+
+        window.addEventListener('wheel', handlePreviewWheel, {passive: false});
+
         document.addEventListener('keydown', function (event) {
             if (event.key === 'Escape') {
                 if (previewHideTimer) {
                     clearTimeout(previewHideTimer);
                     previewHideTimer = null;
                 }
-                previewOverlayEl.classList.remove('is-visible');
-                previewOverlayImageEl.src = '';
-                previewOverlayImageEl.alt = '';
-                previewOverlayCaptionEl.textContent = '';
+                clearImagePreview();
             }
         });
     });

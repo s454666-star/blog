@@ -163,6 +163,7 @@
                     'chat_id' => $chatId,
                     'message_id' => $msgId,
                     'text' => $code,
+                    'is_read' => 1,
                     'created_at' => now(),
                 ]);
             }

@@ -594,6 +594,7 @@
                     $dialoguesSet[(string)$t] = true;
                 }
 
+                $createdAt = now();
                 $finalRows = [];
                 foreach ($rowsToInsert as $row) {
                     $token = (string)$row['token'];
@@ -606,6 +607,7 @@
                     $finalRows[] = [
                         'header_id' => (int)$row['header_id'],
                         'token' => $token,
+                        'created_at' => $createdAt,
                     ];
                 }
 

@@ -259,7 +259,15 @@ class DispatchTokenScanItemsCommand extends Command
         $apiReason = trim((string) ($responseJson['reason'] ?? ''));
         $fullyCompleted = $bot['api'] === self::BOT_VIPFILES['api']
             ? $this->isVipfilesRunCompleted($responseJson, $latestMessage, $pageState, $filesUniqueCount)
-            : $this->isMessengerRunCompleted($apiJsonStatus, $latestTextPreview, $latestHasButtons);
+            : $this->isMessengerRunCompleted(
+                $responseJson,
+                $apiJsonStatus,
+                $apiReason,
+                $latestKind,
+                $latestTextPreview,
+                $latestHasButtons,
+                $filesUniqueCount
+            );
 
         if (($apiCall['ok'] ?? false) !== true) {
             $summary = 'api_error=' . ($apiCall['error'] ?? 'unknown');
@@ -487,17 +495,63 @@ class DispatchTokenScanItemsCommand extends Command
         return false;
     }
 
-    private function isMessengerRunCompleted(string $apiJsonStatus, string $latestTextPreview, bool $latestHasButtons): bool
+    private function isMessengerRunCompleted(
+        array $responseJson,
+        string $apiJsonStatus,
+        string $apiReason,
+        string $latestKind,
+        string $latestTextPreview,
+        bool $latestHasButtons,
+        int $filesUniqueCount
+    ): bool
     {
+        if (($responseJson['completed'] ?? false) === true) {
+            return true;
+        }
+
+        $outcome = is_array($responseJson['outcome'] ?? null) ? $responseJson['outcome'] : [];
+        if (($outcome['run_completed'] ?? false) === true) {
+            return true;
+        }
+
+        if ($latestKind === 'completion') {
+            return true;
+        }
+
         if ($apiJsonStatus !== 'ok') {
             return false;
         }
 
-        if ($latestTextPreview === '') {
+        if ($latestHasButtons) {
             return false;
         }
 
-        return $latestHasButtons === false;
+        if ($latestTextPreview !== '') {
+            return true;
+        }
+
+        return $filesUniqueCount > 0 && $this->messengerReasonIndicatesCompletion($apiReason);
+    }
+
+    private function messengerReasonIndicatesCompletion(string $apiReason): bool
+    {
+        $normalized = strtolower(trim($apiReason));
+        if ($normalized === '') {
+            return false;
+        }
+
+        foreach ([
+            'completion message detected',
+            'no page_info and no buttons; observed files collected',
+            'not pagination-like; observed files collected',
+            'no buttons and no next; observed files collected',
+        ] as $marker) {
+            if (Str::contains($normalized, $marker)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isVipfilesRunCompleted(

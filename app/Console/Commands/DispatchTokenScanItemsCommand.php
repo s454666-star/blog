@@ -32,6 +32,7 @@ class DispatchTokenScanItemsCommand extends Command
 
     private const DEFAULT_API_HOST = 'http://127.0.0.1';
     private const DEFAULT_API_PORT = 8000;
+    private const NEXT_TOKEN_DELAY_MICROSECONDS = 2500000;
 
     private const NOT_FOUND_MARKERS = [
         '💔抱歉，未找到可解析内容。',
@@ -70,7 +71,9 @@ class DispatchTokenScanItemsCommand extends Command
             'manual_only' => 0,
         ];
 
-        $this->line('done_action=' . $doneAction . ' jobs=' . count($jobs));
+        $totalJobs = count($jobs);
+
+        $this->line('done_action=' . $doneAction . ' jobs=' . $totalJobs);
 
         foreach ($jobs as $index => $job) {
             $stats['manual_only'] += $job['item'] instanceof TokenScanItem ? 0 : 1;
@@ -79,7 +82,7 @@ class DispatchTokenScanItemsCommand extends Command
             $this->line(sprintf(
                 '[%d/%d] id=%s token=%s',
                 $index + 1,
-                count($jobs),
+                $totalJobs,
                 $job['item'] instanceof TokenScanItem ? (string) $job['item']->id : 'manual',
                 $job['token']
             ));
@@ -122,6 +125,11 @@ class DispatchTokenScanItemsCommand extends Command
 
             $this->printTimelineTail((array) ($result['timeline'] ?? []));
             $this->printDebugTail((array) ($result['debug'] ?? []));
+
+            if ($index < ($totalJobs - 1)) {
+                $this->line('sleep=2.5s before next token');
+                usleep(self::NEXT_TOKEN_DELAY_MICROSECONDS);
+            }
         }
 
         $this->line(str_repeat('=', 100));

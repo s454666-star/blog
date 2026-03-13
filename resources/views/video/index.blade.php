@@ -141,8 +141,46 @@
             background: url('data:image/svg+xml;utf8,\
 <svg xmlns="http://www.w3.org/2000/svg" viewBox=\"0 0 24 24\" fill=\"%23007bff\">\
 <path d=\"M12 16v-6m0 0l-3 3m3-3l3 3m6 1v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4m16-4h-3.586a1 1 0 01-.707-.293l-3.414-3.414a2 2 0 00-2.828 0L6.707 11.707a1 1 0 01-.707.293H4\"/>\
-</svg>') center/18px 18px no-repeat;
+            </svg>') center/18px 18px no-repeat;
             opacity: .85;
+        }
+
+        .face-upload-area.dragover {
+            background: #f0f8ff;
+            border-color: #0056b3;
+        }
+
+        .face-file-input {
+            display: none;
+        }
+
+        .face-paste-target {
+            width: 100%;
+            min-height: 88px;
+            margin-top: 12px;
+            border: 2px dashed #c7d7eb;
+            border-radius: 8px;
+            background: #fff;
+            color: #6c757d;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 14px 18px;
+            cursor: text;
+            outline: none;
+            transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
+        }
+
+        .face-paste-target:empty::before {
+            content: attr(data-placeholder);
+        }
+
+        .face-paste-target:hover,
+        .face-paste-target:focus {
+            border-color: #007bff;
+            background: #f8fbff;
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, .12);
         }
 
         /* === 主面人臉縮圖：常態柔光 + Hover 漸層光環 =================== */
@@ -750,6 +788,9 @@
                 <div class="d-flex flex-wrap face-upload-area" data-video-id="{{ '{id}' }}"
                      style="position: relative; border: 2px dashed #007bff; border-radius: 5px; padding: 10px; min-height: 120px;">
                     {{ '{face_screenshot_images}' }}
+                    <input type="file" class="face-file-input" accept="image/*" multiple>
+                    <div class="face-paste-target" contenteditable="true" tabindex="0"
+                         data-placeholder="點一下後貼上圖片，或按 Enter 選檔上傳"></div>
                     <div class="upload-instructions"
                          style="width: 100%; text-align: center; color: #aaa; margin-top: 10px;">
                         拖曳圖片到此處上傳
@@ -1293,6 +1334,69 @@
         $('#next-video-btn').click(() => currentVideoIndex < videoList.length - 1 ? playAt(currentVideoIndex + 1) : showMessage('error', '已經是最後一部影片'));
 
         /* --- 拖拉上傳人臉截圖 --- */
+        function normalizeFaceUploadFiles(files) {
+            return Array.from(files || [])
+                .filter(file => file && /^image\//.test(file.type || ''))
+                .map((file, index) => {
+                    const ext = (file.type || 'image/png').split('/')[1] || 'png';
+                    const hasName = file.name && /\.[a-z0-9]+$/i.test(file.name);
+                    return hasName ? file : new File([file], `face-upload-${Date.now()}-${index}.${ext}`, {
+                        type: file.type || `image/${ext}`
+                    });
+                });
+        }
+
+        function appendUploadedFaces(vid, faces) {
+            const tpl = $('#face-screenshot-template').html();
+            const $area = $('.face-upload-area[data-video-id="' + vid + '"]');
+            const $pasteTarget = $area.find('.face-paste-target').first();
+
+            faces.forEach(f => {
+                const html = tpl.replace('{master_class}', f.is_master ? 'master' : '')
+                    .replace(/{face_image_path}/g, f.face_image_path)
+                    .replace(/{face_id}/g, f.id)
+                    .replace(/{video_id}/g, vid);
+
+                if ($pasteTarget.length) {
+                    $pasteTarget.before(html);
+                } else {
+                    $area.prepend(html);
+                }
+            });
+
+            applySizes();
+        }
+
+        function uploadFaceImages(vid, files) {
+            const normalizedFiles = normalizeFaceUploadFiles(files);
+            if (!normalizedFiles.length) {
+                showMessage('error', '請貼上或選擇圖片檔案。');
+                return;
+            }
+
+            const fd = new FormData();
+            normalizedFiles.forEach(file => fd.append('face_images[]', file));
+            fd.append('video_id', vid);
+
+            $.ajax({
+                url: "{{ route('video.uploadFaceScreenshot') }}",
+                method: 'POST', data: fd, contentType: false, processData: false,
+                headers: {'X-CSRF-TOKEN': '{{ csrf_token() }}'},
+                success(res) {
+                    if (res && res.success) {
+                        appendUploadedFaces(vid, res.data || []);
+                        showMessage('success', '人臉截圖上傳成功。');
+                    } else {
+                        showMessage('error', res.message);
+                    }
+                },
+                error(xhr) {
+                    const message = xhr?.responseJSON?.message || '上傳失敗，請稍後再試。';
+                    showMessage('error', message);
+                }
+            });
+        }
+
         $(document).on('dragover', '.face-upload-area', function (e) {
             e.preventDefault();
             $(this).addClass('dragover');
@@ -1303,38 +1407,56 @@
             .on('drop', '.face-upload-area', function (e) {
                 e.preventDefault();
                 $(this).removeClass('dragover');
-                const files = e.originalEvent.dataTransfer.files;
-                if (!files.length) return;
-                const vid = $(this).data('video-id');
-                const fd = new FormData();
-                [...files].forEach(f => fd.append('face_images[]', f));
-                fd.append('video_id', vid);
-                $.ajax({
-                    url: "{{ route('video.uploadFaceScreenshot') }}",
-                    method: 'POST', data: fd, contentType: false, processData: false,
-                    headers: {'X-CSRF-TOKEN': '{{ csrf_token() }}'},
-                    success(res) {
-                        if (res && res.success) {
-                            const tpl = $('#face-screenshot-template').html();
-                            res.data.forEach(f => {
-                                $('.face-upload-area[data-video-id="' + vid + '"]').prepend(
-                                    tpl.replace('{master_class}', f.is_master ? 'master' : '')
-                                        .replace(/{face_image_path}/g, f.face_image_path)
-                                        .replace(/{face_id}/g, f.id)
-                                        .replace(/{video_id}/g, vid)
-                                );
-                            });
-                            applySizes();
-                            showMessage('success', '人臉截圖上傳成功！');
-                        } else showMessage('error', res.message);
-                    },
-                    error() {
-                        showMessage('error', '上傳失敗，請稍後再試。');
-                    }
-                });
+                uploadFaceImages($(this).data('video-id'), e.originalEvent.dataTransfer.files);
             });
 
         /* --- 刪除截圖 --- */
+        $(document).on('click', '.face-paste-target', function () {
+            $(this).trigger('focus');
+        });
+
+        $(document).on('keydown', '.face-paste-target', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                $(this).siblings('.face-file-input').trigger('click');
+                return;
+            }
+
+            if (!e.ctrlKey && !e.metaKey && !['Tab', 'Shift', 'Control', 'Meta', 'Alt'].includes(e.key)) {
+                e.preventDefault();
+            }
+        });
+
+        $(document).on('paste', '.face-paste-target', function (e) {
+            e.preventDefault();
+            const files = Array.from(e.originalEvent.clipboardData?.items || [])
+                .filter(item => item.kind === 'file' && /^image\//.test(item.type || ''))
+                .map(item => item.getAsFile())
+                .filter(Boolean);
+
+            if (!files.length) {
+                showMessage('error', '剪貼簿裡沒有可上傳的圖片。');
+                return;
+            }
+
+            uploadFaceImages($(this).closest('.face-upload-area').data('video-id'), files);
+            $(this).empty();
+        });
+
+        $(document).on('input', '.face-paste-target', function () {
+            $(this).empty();
+        });
+
+        $(document).on('change', '.face-file-input', function () {
+            const files = this.files;
+            if (!files || !files.length) {
+                return;
+            }
+
+            uploadFaceImages($(this).closest('.face-upload-area').data('video-id'), files);
+            $(this).val('');
+        });
+
         $(document).on('click', '.delete-icon', function (e) {
             e.stopPropagation();
             const id = $(this).data('id'), type = $(this).data('type');

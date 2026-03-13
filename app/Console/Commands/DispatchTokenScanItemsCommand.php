@@ -12,13 +12,13 @@ class DispatchTokenScanItemsCommand extends Command
 {
     protected $signature = 'tg:dispatch-token-scan-items
         {tokens?* : Tokens to process. If omitted, read from token_scan_items}
-        {--done-action=touch : Action after success: touch or delete}
+        {--done-action=delete : Action after success: delete or touch}
         {--limit=0 : Max rows to read from token_scan_items. 0 means unlimited}
         {--port=8000 : Telegram FastAPI service port. Default 8000}
         {--base-uri=* : Explicit Telegram API base URI(s). Overrides --port}
         {--include-processed : Include rows with updated_at already set}';
 
-    protected $description = 'Dispatch token_scan_items tokens to Telegram bots and touch or delete rows after success.';
+    protected $description = 'Dispatch token_scan_items tokens to Telegram bots and delete or touch rows after success.';
 
     private const BOT_MESSENGER = [
         'api' => 'MessengerCode_bot',

@@ -74,8 +74,10 @@
                         @endforeach
                     @endforeach
 
-                    <input type="file" class="face-file-input" accept="image/*" multiple>
-                    <div class="face-paste-target" contenteditable="true" tabindex="0" data-placeholder="點一下後貼上圖片，或按 Enter 選檔上傳"></div>
+                    <div class="face-paste-target" contenteditable="true" tabindex="0">
+                        <img class="face-paste-preview" alt="貼上預覽">
+                        <span class="face-paste-hint">點一下後貼上，Enter 上傳</span>
+                    </div>
                     <div class="upload-instructions" style="width: 100%; text-align: center; color: #aaa; margin-top: 10px;">
                         拖曳圖片到此處上傳
                     </div>

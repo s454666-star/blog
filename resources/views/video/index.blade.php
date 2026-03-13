@@ -150,30 +150,47 @@
             border-color: #0056b3;
         }
 
-        .face-file-input {
-            display: none;
-        }
-
         .face-paste-target {
-            width: 100%;
-            min-height: 88px;
-            margin-top: 12px;
+            width: 110px;
+            height: 66px;
+            margin: 8px 5px 0;
             border: 2px dashed #c7d7eb;
             border-radius: 8px;
             background: #fff;
             color: #6c757d;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             justify-content: center;
             text-align: center;
-            padding: 14px 18px;
+            padding: 6px;
             cursor: text;
             outline: none;
+            overflow: hidden;
+            position: relative;
             transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
         }
 
-        .face-paste-target:empty::before {
-            content: attr(data-placeholder);
+        .face-paste-hint {
+            font-size: .78rem;
+            line-height: 1.35;
+            color: #6c757d;
+            padding: 0 4px;
+        }
+
+        .face-paste-preview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+            border-radius: 4px;
+        }
+
+        .face-paste-target.has-preview .face-paste-preview {
+            display: block;
+        }
+
+        .face-paste-target.has-preview .face-paste-hint {
+            display: none;
         }
 
         .face-paste-target:hover,
@@ -788,9 +805,10 @@
                 <div class="d-flex flex-wrap face-upload-area" data-video-id="{{ '{id}' }}"
                      style="position: relative; border: 2px dashed #007bff; border-radius: 5px; padding: 10px; min-height: 120px;">
                     {{ '{face_screenshot_images}' }}
-                    <input type="file" class="face-file-input" accept="image/*" multiple>
-                    <div class="face-paste-target" contenteditable="true" tabindex="0"
-                         data-placeholder="點一下後貼上圖片，或按 Enter 選檔上傳"></div>
+                    <div class="face-paste-target" contenteditable="true" tabindex="0">
+                        <img class="face-paste-preview" alt="貼上預覽">
+                        <span class="face-paste-hint">點一下後貼上，Enter 上傳</span>
+                    </div>
                     <div class="upload-instructions"
                          style="width: 100%; text-align: center; color: #aaa; margin-top: 10px;">
                         拖曳圖片到此處上傳
@@ -1346,6 +1364,36 @@
                 });
         }
 
+        function clearFacePastePreview($target) {
+            const previewUrl = $target.data('previewUrl');
+            if (previewUrl) {
+                URL.revokeObjectURL(previewUrl);
+            }
+
+            $target.removeData('pendingFaceFile').removeData('previewUrl').removeClass('has-preview');
+            $target.find('.face-paste-preview').attr('src', '');
+        }
+
+        function setFacePastePreview($target, file) {
+            const normalizedFiles = normalizeFaceUploadFiles([file]);
+            if (!normalizedFiles.length) {
+                showMessage('error', '請貼上圖片檔案。');
+                return false;
+            }
+
+            clearFacePastePreview($target);
+
+            const previewFile = normalizedFiles[0];
+            const previewUrl = URL.createObjectURL(previewFile);
+
+            $target.data('pendingFaceFile', previewFile);
+            $target.data('previewUrl', previewUrl);
+            $target.addClass('has-preview');
+            $target.find('.face-paste-preview').attr('src', previewUrl);
+
+            return true;
+        }
+
         function appendUploadedFaces(vid, faces) {
             const tpl = $('#face-screenshot-template').html();
             const $area = $('.face-upload-area[data-video-id="' + vid + '"]');
@@ -1367,7 +1415,7 @@
             applySizes();
         }
 
-        function uploadFaceImages(vid, files) {
+        function uploadFaceImages(vid, files, options = {}) {
             const normalizedFiles = normalizeFaceUploadFiles(files);
             if (!normalizedFiles.length) {
                 showMessage('error', '請貼上或選擇圖片檔案。');
@@ -1385,6 +1433,9 @@
                 success(res) {
                     if (res && res.success) {
                         appendUploadedFaces(vid, res.data || []);
+                        if (typeof options.onSuccess === 'function') {
+                            options.onSuccess();
+                        }
                         showMessage('success', '人臉截圖上傳成功。');
                     } else {
                         showMessage('error', res.message);
@@ -1418,7 +1469,19 @@
         $(document).on('keydown', '.face-paste-target', function (e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                $(this).siblings('.face-file-input').trigger('click');
+                const $target = $(this);
+                const pendingFile = $target.data('pendingFaceFile');
+
+                if (!pendingFile) {
+                    showMessage('error', '請先貼上圖片預覽。');
+                    return;
+                }
+
+                uploadFaceImages($target.closest('.face-upload-area').data('video-id'), [pendingFile], {
+                    onSuccess() {
+                        clearFacePastePreview($target);
+                    }
+                });
                 return;
             }
 
@@ -1435,26 +1498,11 @@
                 .filter(Boolean);
 
             if (!files.length) {
-                showMessage('error', '剪貼簿裡沒有可上傳的圖片。');
+                showMessage('error', '剪貼簿裡沒有可預覽的圖片。');
                 return;
             }
 
-            uploadFaceImages($(this).closest('.face-upload-area').data('video-id'), files);
-            $(this).empty();
-        });
-
-        $(document).on('input', '.face-paste-target', function () {
-            $(this).empty();
-        });
-
-        $(document).on('change', '.face-file-input', function () {
-            const files = this.files;
-            if (!files || !files.length) {
-                return;
-            }
-
-            uploadFaceImages($(this).closest('.face-upload-area').data('video-id'), files);
-            $(this).val('');
+            setFacePastePreview($(this), files[0]);
         });
 
         $(document).on('click', '.delete-icon', function (e) {

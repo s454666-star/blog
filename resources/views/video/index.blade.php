@@ -151,13 +151,15 @@
         }
 
         .face-paste-target {
-            width: 110px;
-            height: 66px;
-            margin: 8px 5px 0;
-            border: 2px dashed #c7d7eb;
-            border-radius: 8px;
-            background: #fff;
-            color: #6c757d;
+            width: 100px;
+            height: 56px;
+            margin: 5px;
+            border: 2px dashed rgba(0, 123, 255, .55);
+            border-radius: 14px;
+            background:
+                radial-gradient(circle at top left, rgba(255, 255, 255, .95), rgba(255, 255, 255, 0) 45%),
+                linear-gradient(135deg, rgba(235, 247, 255, .98), rgba(214, 237, 255, .92) 48%, rgba(247, 251, 255, .96));
+            color: #4d647d;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -167,14 +169,50 @@
             outline: none;
             overflow: hidden;
             position: relative;
-            transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
+            flex: 0 0 auto;
+            box-shadow: 0 10px 22px rgba(45, 98, 145, .14), inset 0 1px 0 rgba(255, 255, 255, .85);
+            transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
+        }
+
+        .face-paste-target::before {
+            content: '';
+            position: absolute;
+            inset: -30%;
+            background: linear-gradient(115deg, rgba(255, 255, 255, 0) 28%, rgba(255, 255, 255, .55) 50%, rgba(255, 255, 255, 0) 72%);
+            transform: translateX(-65%) rotate(14deg);
+            animation: facePasteSweep 4.6s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        .face-paste-target::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .75);
+            pointer-events: none;
+        }
+
+        @keyframes facePasteSweep {
+            0%,
+            100% {
+                transform: translateX(-68%) rotate(14deg);
+                opacity: .3;
+            }
+            50% {
+                transform: translateX(68%) rotate(14deg);
+                opacity: .85;
+            }
         }
 
         .face-paste-hint {
             font-size: .78rem;
             line-height: 1.35;
-            color: #6c757d;
+            color: #56697f;
             padding: 0 4px;
+            position: relative;
+            z-index: 1;
+            text-shadow: 0 1px 0 rgba(255, 255, 255, .7);
         }
 
         .face-paste-preview {
@@ -182,11 +220,18 @@
             height: 100%;
             object-fit: cover;
             display: none;
-            border-radius: 4px;
+            border-radius: 10px;
+            position: relative;
+            z-index: 1;
         }
 
         .face-paste-target.has-preview .face-paste-preview {
             display: block;
+        }
+
+        .face-paste-target.has-preview::before {
+            animation: none;
+            opacity: 0;
         }
 
         .face-paste-target.has-preview .face-paste-hint {
@@ -196,8 +241,8 @@
         .face-paste-target:hover,
         .face-paste-target:focus {
             border-color: #007bff;
-            background: #f8fbff;
-            box-shadow: 0 0 0 3px rgba(0, 123, 255, .12);
+            box-shadow: 0 14px 28px rgba(28, 91, 143, .2), 0 0 0 4px rgba(0, 123, 255, .14);
+            transform: translateY(-1px);
         }
 
         /* === 主面人臉縮圖：常態柔光 + Hover 漸層光環 =================== */
@@ -1086,7 +1131,7 @@
     function applySizes() {
         $('.video-container').css('width', videoSize + '%');
         $('.images-container').css('width', (100 - videoSize) + '%');
-        $('.screenshot,.face-screenshot').css({
+        $('.screenshot,.face-screenshot,.face-paste-target').css({
             width: imageSize + 'px',
             height: (imageSize * 0.56) + 'px'
         });

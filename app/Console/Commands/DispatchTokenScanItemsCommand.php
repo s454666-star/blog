@@ -32,7 +32,7 @@ class DispatchTokenScanItemsCommand extends Command
 
     private const DEFAULT_API_HOST = 'http://127.0.0.1';
     private const DEFAULT_API_PORT = 8000;
-    private const NEXT_TOKEN_DELAY_MICROSECONDS = 2500000;
+    private const NEXT_TOKEN_DELAY_MICROSECONDS = 5000000;
 
     private const NOT_FOUND_MARKERS = [
         '💔抱歉，未找到可解析内容。',

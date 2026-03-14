@@ -1,68 +1,7 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 
-set "APP_DIR=C:\www\blog"
-set "PHP_EXE=C:\php\php.exe"
-set "LOG_DIR=%APP_DIR%\storage\logs"
-set "LOG_FILE=%LOG_DIR%\tg_scan_dispatch.log"
-set "LOCK_DIR=%LOG_DIR%\tg_scan_dispatch.lock"
-set "PORT_STATE_FILE=%LOG_DIR%\tg_scan_dispatch_next_port.txt"
-set "FASTAPI_HOST=127.0.0.1"
-set "FASTAPI_PORT="
-set "FASTAPI_TASK="
-set "WAIT_SECONDS=30"
-set "SCAN_EXIT=0"
-set "DISPATCH_EXIT=0"
-set "PORT_CHECK_EXIT=0"
-
-if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
-
-mkdir "%LOCK_DIR%" 2>nul
-if errorlevel 1 (
-    echo [%date% %time%] Skip: previous run is still active.>>"%LOG_FILE%"
-    exit /b 0
-)
-
-pushd "%APP_DIR%"
-if errorlevel 1 (
-    echo [%date% %time%] Failed: cannot enter %APP_DIR%.>>"%LOG_FILE%"
-    set "SCAN_EXIT=1"
-    goto cleanup
-)
-
-echo [%date% %time%] Start tg scan dispatch.>>"%LOG_FILE%"
-
-call :select_fastapi_target
-if errorlevel 1 (
-    echo [%date% %time%] Failed: cannot resolve FastAPI target.>>"%LOG_FILE%"
-    set "PORT_CHECK_EXIT=1"
-    goto cleanup
-)
-
-echo [%date% %time%] Selected FastAPI target %FASTAPI_HOST%:%FASTAPI_PORT% task="%FASTAPI_TASK%".>>"%LOG_FILE%"
-
-call :ensure_fastapi_port
-if errorlevel 1 (
-    set "PORT_CHECK_EXIT=%ERRORLEVEL%"
-    goto cleanup
-)
-
-"%PHP_EXE%" artisan tg:scan-group-tokens >>"%LOG_FILE%" 2>&1
-set "SCAN_EXIT=%ERRORLEVEL%"
-
-"%PHP_EXE%" artisan tg:dispatch-token-scan-items --done-action=delete --port=%FASTAPI_PORT% >>"%LOG_FILE%" 2>&1
-set "DISPATCH_EXIT=%ERRORLEVEL%"
-
-echo [%date% %time%] Finished tg scan dispatch. scan_exit=%SCAN_EXIT% dispatch_exit=%DISPATCH_EXIT%>>"%LOG_FILE%"
-
-:cleanup
-popd 2>nul
-rmdir "%LOCK_DIR%" 2>nul
-
-if not "%PORT_CHECK_EXIT%"=="0" exit /b %PORT_CHECK_EXIT%
-if not "%SCAN_EXIT%"=="0" exit /b %SCAN_EXIT%
-if not "%DISPATCH_EXIT%"=="0" exit /b %DISPATCH_EXIT%
-exit /b 0
+goto main
 
 :select_fastapi_target
 set "NEXT_PORT="
@@ -139,3 +78,69 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "  $client.Dispose()" ^
     "}"
 exit /b %ERRORLEVEL%
+
+:cleanup
+popd 2>nul
+rmdir "%LOCK_DIR%" 2>nul
+
+if not "%PORT_CHECK_EXIT%"=="0" exit /b %PORT_CHECK_EXIT%
+if not "%SCAN_EXIT%"=="0" exit /b %SCAN_EXIT%
+if not "%DISPATCH_EXIT%"=="0" exit /b %DISPATCH_EXIT%
+exit /b 0
+
+:main
+
+set "APP_DIR=C:\www\blog"
+set "PHP_EXE=C:\php\php.exe"
+set "LOG_DIR=%APP_DIR%\storage\logs"
+set "LOG_FILE=%LOG_DIR%\tg_scan_dispatch.log"
+set "LOCK_DIR=%LOG_DIR%\tg_scan_dispatch.lock"
+set "PORT_STATE_FILE=%LOG_DIR%\tg_scan_dispatch_next_port.txt"
+set "FASTAPI_HOST=127.0.0.1"
+set "FASTAPI_PORT="
+set "FASTAPI_TASK="
+set "WAIT_SECONDS=30"
+set "SCAN_EXIT=0"
+set "DISPATCH_EXIT=0"
+set "PORT_CHECK_EXIT=0"
+
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
+
+mkdir "%LOCK_DIR%" 2>nul
+if errorlevel 1 (
+    echo [%date% %time%] Skip: previous run is still active.>>"%LOG_FILE%"
+    exit /b 0
+)
+
+pushd "%APP_DIR%"
+if errorlevel 1 (
+    echo [%date% %time%] Failed: cannot enter %APP_DIR%.>>"%LOG_FILE%"
+    set "SCAN_EXIT=1"
+    goto cleanup
+)
+
+echo [%date% %time%] Start tg scan dispatch.>>"%LOG_FILE%"
+
+call :select_fastapi_target
+if errorlevel 1 (
+    echo [%date% %time%] Failed: cannot resolve FastAPI target.>>"%LOG_FILE%"
+    set "PORT_CHECK_EXIT=1"
+    goto cleanup
+)
+
+echo [%date% %time%] Selected FastAPI target %FASTAPI_HOST%:%FASTAPI_PORT% task="%FASTAPI_TASK%".>>"%LOG_FILE%"
+
+call :ensure_fastapi_port
+if errorlevel 1 (
+    set "PORT_CHECK_EXIT=%ERRORLEVEL%"
+    goto cleanup
+)
+
+"%PHP_EXE%" artisan tg:scan-group-tokens >>"%LOG_FILE%" 2>&1
+set "SCAN_EXIT=%ERRORLEVEL%"
+
+"%PHP_EXE%" artisan tg:dispatch-token-scan-items --done-action=delete --port=%FASTAPI_PORT% >>"%LOG_FILE%" 2>&1
+set "DISPATCH_EXIT=%ERRORLEVEL%"
+
+echo [%date% %time%] Finished tg scan dispatch. scan_exit=%SCAN_EXIT% dispatch_exit=%DISPATCH_EXIT%>>"%LOG_FILE%"
+goto cleanup

@@ -4,7 +4,7 @@ setlocal
 set "APP_DIR=C:\www\blog"
 set "PHP_EXE=C:\php\php.exe"
 set "BASE_URI=http://127.0.0.1:8000/"
-set "NEXT_LIMIT=100"
+set "NEXT_LIMIT=20"
 set "EMPTY_EXIT=2"
 
 if not "%~1"=="" set "BASE_URI=%~1"

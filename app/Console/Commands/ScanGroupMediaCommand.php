@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 
 class ScanGroupMediaCommand extends Command
 {
-    protected $signature = 'tg:scan-group-media {--base-uri= : 覆蓋 API base_uri（預設使用程式內設定）} {--until-empty : 持續掃到沒有新媒體為止} {--next-limit=100 : 每次從 groups API 取幾筆訊息} {--exit-code-when-empty=0 : 本次完全沒下載到新媒體時回傳的 exit code}';
+    protected $signature = 'tg:scan-group-media {--base-uri= : 覆蓋 API base_uri（預設使用程式內設定）} {--until-empty : 持續掃到沒有新媒體為止} {--next-limit=20 : 每次從 groups API 取幾筆訊息} {--exit-code-when-empty=0 : 本次完全沒下載到新媒體時回傳的 exit code}';
     protected $description = '逐筆掃描 Telegram 群組媒體訊息，每次只下載一筆到本地，並記錄游標供下次續跑';
 
     private const HTTP_MAX_RETRIES = 3;
@@ -225,6 +225,14 @@ class ScanGroupMediaCommand extends Command
                 if (!$this->messageHasMedia($item)) {
                     $token = $this->extractDispatchableToken($item);
                     if ($token !== null) {
+                        $this->line(sprintf(
+                            'base_uri=%s peer_id=%d message_id=%d token=%s 開始送 bot',
+                            $baseUri,
+                            $peerId,
+                            $messageId,
+                            $token
+                        ));
+
                         $dispatch = $this->dispatchTokenToBot($http, $token);
                         if (($dispatch['classification'] ?? '') === 'failed') {
                             $state->max_message_id = $processedCursor;
@@ -264,6 +272,13 @@ class ScanGroupMediaCommand extends Command
                     $processedCursor = $messageId;
                     continue;
                 }
+
+                $this->line(sprintf(
+                    'base_uri=%s peer_id=%d message_id=%d 開始下載媒體',
+                    $baseUri,
+                    $peerId,
+                    $messageId
+                ));
 
                 $download = $this->downloadGroupMessageMedia($http, $peerId, $messageId, $chatTitle);
                 if (!$download || (string) ($download['status'] ?? '') !== 'ok' || !($download['downloaded'] ?? false)) {
@@ -368,7 +383,7 @@ class ScanGroupMediaCommand extends Command
 
     private function fetchGroupPage(Client $http, int $peerId, int $startMessageId, int $nextLimit): ?array
     {
-        $path = "groups/{$peerId}/{$startMessageId}?next_limit={$nextLimit}";
+        $path = "groups/{$peerId}/{$startMessageId}?next_limit={$nextLimit}&include_raw=false";
         $tries = 0;
 
         while (true) {
@@ -421,6 +436,10 @@ class ScanGroupMediaCommand extends Command
 
     private function messageHasMedia(array $message): bool
     {
+        if (array_key_exists('has_media', $message)) {
+            return (bool) $message['has_media'];
+        }
+
         return array_key_exists('media', $message) && $message['media'] !== null;
     }
 
@@ -428,7 +447,7 @@ class ScanGroupMediaCommand extends Command
     {
         $texts = [];
 
-        $messageText = trim((string) ($message['message'] ?? ''));
+        $messageText = trim((string) ($message['message'] ?? $message['text'] ?? ''));
         if ($messageText !== '') {
             $texts[] = $messageText;
         }

@@ -271,12 +271,12 @@ class DispatchTokenScanItemsCommand extends Command
 
         if (($apiCall['ok'] ?? false) !== true) {
             $summary = 'api_error=' . ($apiCall['error'] ?? 'unknown');
-        } elseif ($notFound) {
-            $classification = 'not_found';
-            $summary = 'Bot returned not found. Keep token_scan_items row untouched.';
         } elseif ($fullyCompleted) {
             $classification = 'success';
             $summary = 'Completed. files_unique_count=' . $filesUniqueCount;
+        } elseif ($notFound) {
+            $classification = 'not_found';
+            $summary = 'Bot returned not found. Keep token_scan_items row untouched.';
         } elseif ($bot['api'] === self::BOT_MESSENGER['api'] && $latestKind === 'completion') {
             $classification = 'success';
             $summary = 'Messenger bot returned completion message.';

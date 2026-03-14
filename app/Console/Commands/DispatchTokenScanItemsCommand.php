@@ -416,7 +416,7 @@ class DispatchTokenScanItemsCommand extends Command
             'include_files_in_response' => true,
             'max_return_files' => 1000,
             'max_raw_payload_bytes' => 0,
-            'cleanup_after_done' => true,
+            'cleanup_after_done' => false,
             'cleanup_scope' => 'run',
             'cleanup_limit' => 500,
             'wait_first_callback_timeout_seconds' => 25,

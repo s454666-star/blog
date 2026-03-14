@@ -10,7 +10,7 @@ use Illuminate\Console\Command;
 
 class ScanGroupMediaCommand extends Command
 {
-    protected $signature = 'tg:scan-group-media {--base-uri= : 覆蓋 API base_uri（預設使用程式內設定）}';
+    protected $signature = 'tg:scan-group-media {--base-uri= : 覆蓋 API base_uri（預設使用程式內設定）} {--until-empty : 持續掃到沒有新媒體為止}';
     protected $description = '逐筆掃描 Telegram 群組媒體訊息，每次只下載一筆到本地，並記錄游標供下次續跑';
 
     private const HTTP_MAX_RETRIES = 3;
@@ -27,27 +27,45 @@ class ScanGroupMediaCommand extends Command
     public function handle(): int
     {
         $overrideBaseUri = trim((string) $this->option('base-uri'));
+        $untilEmpty = (bool) $this->option('until-empty');
         $targetsByBaseUri = $this->resolveTargetsByBaseUri($overrideBaseUri);
 
-        foreach ($targetsByBaseUri as $baseUri => $peerIds) {
-            $baseUri = trim((string) $baseUri);
-            if ($baseUri === '' || empty($peerIds)) {
-                continue;
-            }
+        $round = 0;
 
-            $http = $this->makeHttpClient($baseUri);
-            $this->groupsIndex = $this->fetchGroupsIndex($http);
+        while (true) {
+            $round++;
+            $downloadedThisRound = false;
 
-            foreach ($peerIds as $peerId) {
-                $peerId = (int) $peerId;
-                if ($peerId <= 0) {
+            foreach ($targetsByBaseUri as $baseUri => $peerIds) {
+                $baseUri = trim((string) $baseUri);
+                if ($baseUri === '' || empty($peerIds)) {
                     continue;
                 }
 
-                $downloaded = $this->scanOnePeer($http, $baseUri, $peerId);
-                if ($downloaded) {
-                    return self::SUCCESS;
+                $http = $this->makeHttpClient($baseUri);
+                $this->groupsIndex = $this->fetchGroupsIndex($http);
+
+                foreach ($peerIds as $peerId) {
+                    $peerId = (int) $peerId;
+                    if ($peerId <= 0) {
+                        continue;
+                    }
+
+                    $downloaded = $this->scanOnePeer($http, $baseUri, $peerId);
+                    if ($downloaded) {
+                        $downloadedThisRound = true;
+                        if (!$untilEmpty) {
+                            return self::SUCCESS;
+                        }
+
+                        $this->line("第 {$round} 輪已下載 1 筆媒體，繼續下一輪。");
+                        break 2;
+                    }
                 }
+            }
+
+            if (!$untilEmpty || !$downloadedThisRound) {
+                break;
             }
         }
 

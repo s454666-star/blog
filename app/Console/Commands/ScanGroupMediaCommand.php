@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 
 class ScanGroupMediaCommand extends Command
 {
-    protected $signature = 'tg:scan-group-media {--base-uri= : 覆蓋 API base_uri（預設使用程式內設定）} {--until-empty : 持續掃到沒有新媒體為止} {--next-limit=20 : 每次從 groups API 取幾筆訊息} {--exit-code-when-empty=0 : 本次完全沒下載到新媒體時回傳的 exit code}';
+    protected $signature = 'tg:scan-group-media {--base-uri= : 覆蓋 API base_uri（預設使用程式內設定）} {--until-empty : 持續掃到沒有新媒體為止} {--next-limit=1000 : 每次從 groups API 取幾筆訊息} {--exit-code-when-empty=0 : 本次完全沒下載到新媒體時回傳的 exit code}';
     protected $description = '逐筆掃描 Telegram 群組媒體訊息，每次只下載一筆到本地，並記錄游標供下次續跑';
 
     private const GROUP_FETCH_MAX_RETRIES = 3;
@@ -45,7 +45,6 @@ class ScanGroupMediaCommand extends Command
         ],
     ];
 
-    private array $groupsIndex = [];
     private TelegramCodeTokenService $tokenService;
 
     public function __construct(TelegramCodeTokenService $tokenService)
@@ -76,7 +75,6 @@ class ScanGroupMediaCommand extends Command
                 'base_uri' => $baseUri,
                 'peer_ids' => array_values((array) $peerIds),
                 'http' => $this->makeHttpClient($baseUri),
-                'groups_index' => $this->fetchGroupsIndex($this->makeHttpClient($baseUri)),
             ];
         }
 
@@ -88,7 +86,6 @@ class ScanGroupMediaCommand extends Command
                 $baseUri = (string) $target['base_uri'];
                 $http = $target['http'];
                 $peerIds = (array) $target['peer_ids'];
-                $this->groupsIndex = (array) $target['groups_index'];
 
                 foreach ($peerIds as $peerId) {
                     $peerId = (int) $peerId;
@@ -172,13 +169,13 @@ class ScanGroupMediaCommand extends Command
             ]
         );
 
-        $groupInfo = $this->groupsIndex[$peerId] ?? [];
-        $chatTitle = trim((string) ($groupInfo['title'] ?? ''));
+        $groupInfo = $this->resolveGroupInfo($http, $state, $peerId, $cursor);
+        $chatTitle = trim((string) ($groupInfo['title'] ?? $state->chat_title ?? ''));
         if ($chatTitle !== '' && $state->chat_title !== $chatTitle) {
             $state->chat_title = $chatTitle;
         }
 
-        $latestGroupMessageId = (int) ($groupInfo['last_message_id'] ?? 0);
+        $latestGroupMessageId = (int) ($groupInfo['last_message_id'] ?? $state->last_group_message_id ?? 0);
         if ($latestGroupMessageId > 0) {
             $state->last_group_message_id = $latestGroupMessageId;
         }
@@ -195,7 +192,7 @@ class ScanGroupMediaCommand extends Command
                 return false;
             }
 
-            $payload = $this->fetchGroupPage($http, $peerId, $cursor, $nextLimit);
+            $payload = $this->getCachedOrFetchGroupPage($http, $baseUri, $peerId, $cursor, $nextLimit);
             if (!$payload || (string) ($payload['status'] ?? '') !== 'ok') {
                 $this->line("base_uri={$baseUri} peer_id={$peerId} cursor={$cursor} 取回失敗");
                 return false;
@@ -331,10 +328,68 @@ class ScanGroupMediaCommand extends Command
                 $this->getDateTimeCarbonByMessageId($items, $batchMaxId)
             );
             $state->save();
+            $this->clearBatchCache($baseUri, $peerId);
 
             $this->line("base_uri={$baseUri} peer_id={$peerId} cursor 前進到 {$batchMaxId}，本批沒有媒體");
             $cursor = $batchMaxId;
         }
+    }
+
+    private function resolveGroupInfo(Client $http, GroupMediaScanState $state, int $peerId, int $cursor): array
+    {
+        $lastKnownMessageId = (int) ($state->last_group_message_id ?? 0);
+        $chatTitle = trim((string) ($state->chat_title ?? ''));
+
+        if ($lastKnownMessageId > 0 && $cursor < $lastKnownMessageId) {
+            return [
+                'title' => $chatTitle,
+                'last_message_id' => $lastKnownMessageId,
+            ];
+        }
+
+        $groupsIndex = $this->fetchGroupsIndex($http);
+        $groupInfo = $groupsIndex[$peerId] ?? [];
+
+        return [
+            'title' => trim((string) ($groupInfo['title'] ?? $chatTitle)),
+            'last_message_id' => (int) ($groupInfo['last_message_id'] ?? $lastKnownMessageId),
+        ];
+    }
+
+    private function getCachedOrFetchGroupPage(Client $http, string $baseUri, int $peerId, int $cursor, int $nextLimit): ?array
+    {
+        $cache = $this->loadBatchCache($baseUri, $peerId);
+        if ($this->isReusableBatchCache($cache, $cursor, $nextLimit)) {
+            $batchMaxId = (int) ($cache['batch_max_message_id'] ?? 0);
+            $count = is_array($cache['items'] ?? null) ? count($cache['items']) : 0;
+            $this->line("base_uri={$baseUri} peer_id={$peerId} 使用本地快取 batch_max_id={$batchMaxId} count={$count}");
+
+            return [
+                'status' => 'ok',
+                'items' => (array) ($cache['items'] ?? []),
+                'count' => $count,
+            ];
+        }
+
+        $payload = $this->fetchGroupPage($http, $peerId, $cursor, $nextLimit);
+        if (!is_array($payload) || (string) ($payload['status'] ?? '') !== 'ok') {
+            return $payload;
+        }
+
+        $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+        $batchMaxId = $this->getMaxMessageId($items);
+        $this->saveBatchCache($baseUri, $peerId, [
+            'cursor' => $cursor,
+            'next_limit' => $nextLimit,
+            'batch_max_message_id' => $batchMaxId,
+            'count' => count($items),
+            'items' => $items,
+            'fetched_at' => now()->toIso8601String(),
+        ]);
+
+        $this->line("base_uri={$baseUri} peer_id={$peerId} 重新抓取批次 cursor={$cursor} batch_max_id={$batchMaxId} count=" . count($items));
+
+        return $payload;
     }
 
     private function fetchGroupsIndex(Client $http): array
@@ -769,5 +824,93 @@ class ScanGroupMediaCommand extends Command
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private function batchCachePath(string $baseUri, int $peerId): string
+    {
+        $baseKey = preg_replace('/[^A-Za-z0-9]+/', '_', strtolower($baseUri));
+        $baseKey = trim((string) $baseKey, '_');
+        if ($baseKey === '') {
+            $baseKey = 'default';
+        }
+
+        $dir = storage_path('app/group_media_batches');
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0777, true);
+        }
+
+        return $dir . DIRECTORY_SEPARATOR . $baseKey . '_peer_' . $peerId . '.json';
+    }
+
+    private function loadBatchCache(string $baseUri, int $peerId): ?array
+    {
+        $path = $this->batchCachePath($baseUri, $peerId);
+        if (!is_file($path)) {
+            return null;
+        }
+
+        try {
+            $json = file_get_contents($path);
+            if ($json === false || trim($json) === '') {
+                return null;
+            }
+
+            $data = json_decode($json, true);
+            return is_array($data) ? $data : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function saveBatchCache(string $baseUri, int $peerId, array $payload): void
+    {
+        $path = $this->batchCachePath($baseUri, $peerId);
+
+        try {
+            file_put_contents($path, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        } catch (\Throwable) {
+        }
+    }
+
+    private function clearBatchCache(string $baseUri, int $peerId): void
+    {
+        $path = $this->batchCachePath($baseUri, $peerId);
+
+        try {
+            if (is_file($path)) {
+                @unlink($path);
+            }
+        } catch (\Throwable) {
+        }
+    }
+
+    private function isReusableBatchCache(?array $cache, int $cursor, int $nextLimit): bool
+    {
+        if (!is_array($cache)) {
+            return false;
+        }
+
+        $items = $cache['items'] ?? null;
+        if (!is_array($items) || empty($items)) {
+            return false;
+        }
+
+        $cachedLimit = (int) ($cache['next_limit'] ?? 0);
+        $batchMaxId = (int) ($cache['batch_max_message_id'] ?? 0);
+        $batchCursor = (int) ($cache['cursor'] ?? 0);
+
+        if ($cachedLimit !== $nextLimit) {
+            return false;
+        }
+
+        if ($batchMaxId <= 0 || $cursor >= $batchMaxId) {
+            return false;
+        }
+
+        if ($cursor < $batchCursor) {
+            return false;
+        }
+
+        return true;
     }
 }

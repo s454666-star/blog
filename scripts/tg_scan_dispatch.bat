@@ -6,9 +6,10 @@ set "PHP_EXE=C:\php\php.exe"
 set "LOG_DIR=%APP_DIR%\storage\logs"
 set "LOG_FILE=%LOG_DIR%\tg_scan_dispatch.log"
 set "LOCK_DIR=%LOG_DIR%\tg_scan_dispatch.lock"
+set "PORT_STATE_FILE=%LOG_DIR%\tg_scan_dispatch_next_port.txt"
 set "FASTAPI_HOST=127.0.0.1"
-set "FASTAPI_PORT=8000"
-set "FASTAPI_TASK=Telegram FastAPI Service"
+set "FASTAPI_PORT="
+set "FASTAPI_TASK="
 set "WAIT_SECONDS=30"
 set "SCAN_EXIT=0"
 set "DISPATCH_EXIT=0"
@@ -31,6 +32,15 @@ if errorlevel 1 (
 
 echo [%date% %time%] Start tg scan dispatch.>>"%LOG_FILE%"
 
+call :select_fastapi_target
+if errorlevel 1 (
+    echo [%date% %time%] Failed: cannot resolve FastAPI target.>>"%LOG_FILE%"
+    set "PORT_CHECK_EXIT=1"
+    goto cleanup
+)
+
+echo [%date% %time%] Selected FastAPI target %FASTAPI_HOST%:%FASTAPI_PORT% task="%FASTAPI_TASK%".>>"%LOG_FILE%"
+
 call :ensure_fastapi_port
 if errorlevel 1 (
     set "PORT_CHECK_EXIT=%ERRORLEVEL%"
@@ -40,7 +50,7 @@ if errorlevel 1 (
 "%PHP_EXE%" artisan tg:scan-group-tokens >>"%LOG_FILE%" 2>&1
 set "SCAN_EXIT=%ERRORLEVEL%"
 
-"%PHP_EXE%" artisan tg:dispatch-token-scan-items --done-action=delete --port=8000 >>"%LOG_FILE%" 2>&1
+"%PHP_EXE%" artisan tg:dispatch-token-scan-items --done-action=delete --port=%FASTAPI_PORT% >>"%LOG_FILE%" 2>&1
 set "DISPATCH_EXIT=%ERRORLEVEL%"
 
 echo [%date% %time%] Finished tg scan dispatch. scan_exit=%SCAN_EXIT% dispatch_exit=%DISPATCH_EXIT%>>"%LOG_FILE%"
@@ -52,6 +62,25 @@ rmdir "%LOCK_DIR%" 2>nul
 if not "%PORT_CHECK_EXIT%"=="0" exit /b %PORT_CHECK_EXIT%
 if not "%SCAN_EXIT%"=="0" exit /b %SCAN_EXIT%
 if not "%DISPATCH_EXIT%"=="0" exit /b %DISPATCH_EXIT%
+exit /b 0
+
+:select_fastapi_target
+set "NEXT_PORT="
+
+if exist "%PORT_STATE_FILE%" (
+    set /p NEXT_PORT=<"%PORT_STATE_FILE%"
+)
+
+if /i "%NEXT_PORT%"=="8001" (
+    set "FASTAPI_PORT=8001"
+    set "FASTAPI_TASK=TG API2"
+    >"%PORT_STATE_FILE%" echo 8000
+    exit /b 0
+)
+
+set "FASTAPI_PORT=8000"
+set "FASTAPI_TASK=Telegram FastAPI Service"
+>"%PORT_STATE_FILE%" echo 8001
 exit /b 0
 
 :ensure_fastapi_port

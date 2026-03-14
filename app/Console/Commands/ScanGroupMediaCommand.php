@@ -10,7 +10,7 @@ use Illuminate\Console\Command;
 
 class ScanGroupMediaCommand extends Command
 {
-    protected $signature = 'tg:scan-group-media {--base-uri= : 覆蓋 API base_uri（預設使用程式內設定）} {--until-empty : 持續掃到沒有新媒體為止}';
+    protected $signature = 'tg:scan-group-media {--base-uri= : 覆蓋 API base_uri（預設使用程式內設定）} {--until-empty : 持續掃到沒有新媒體為止} {--next-limit=100 : 每次從 groups API 取幾筆訊息} {--exit-code-when-empty=0 : 本次完全沒下載到新媒體時回傳的 exit code}';
     protected $description = '逐筆掃描 Telegram 群組媒體訊息，每次只下載一筆到本地，並記錄游標供下次續跑';
 
     private const HTTP_MAX_RETRIES = 3;
@@ -28,22 +28,37 @@ class ScanGroupMediaCommand extends Command
     {
         $overrideBaseUri = trim((string) $this->option('base-uri'));
         $untilEmpty = (bool) $this->option('until-empty');
+        $nextLimit = max(1, (int) $this->option('next-limit'));
+        $emptyExitCode = max(0, (int) $this->option('exit-code-when-empty'));
         $targetsByBaseUri = $this->resolveTargetsByBaseUri($overrideBaseUri);
 
         $round = 0;
+        $downloadedAtLeastOnce = false;
+        $preparedTargets = [];
+
+        foreach ($targetsByBaseUri as $baseUri => $peerIds) {
+            $baseUri = trim((string) $baseUri);
+            if ($baseUri === '' || empty($peerIds)) {
+                continue;
+            }
+
+            $preparedTargets[] = [
+                'base_uri' => $baseUri,
+                'peer_ids' => array_values((array) $peerIds),
+                'http' => $this->makeHttpClient($baseUri),
+                'groups_index' => $this->fetchGroupsIndex($this->makeHttpClient($baseUri)),
+            ];
+        }
 
         while (true) {
             $round++;
             $downloadedThisRound = false;
 
-            foreach ($targetsByBaseUri as $baseUri => $peerIds) {
-                $baseUri = trim((string) $baseUri);
-                if ($baseUri === '' || empty($peerIds)) {
-                    continue;
-                }
-
-                $http = $this->makeHttpClient($baseUri);
-                $this->groupsIndex = $this->fetchGroupsIndex($http);
+            foreach ($preparedTargets as $target) {
+                $baseUri = (string) $target['base_uri'];
+                $http = $target['http'];
+                $peerIds = (array) $target['peer_ids'];
+                $this->groupsIndex = (array) $target['groups_index'];
 
                 foreach ($peerIds as $peerId) {
                     $peerId = (int) $peerId;
@@ -51,9 +66,10 @@ class ScanGroupMediaCommand extends Command
                         continue;
                     }
 
-                    $downloaded = $this->scanOnePeer($http, $baseUri, $peerId);
+                    $downloaded = $this->scanOnePeer($http, $baseUri, $peerId, $nextLimit);
                     if ($downloaded) {
                         $downloadedThisRound = true;
+                        $downloadedAtLeastOnce = true;
                         if (!$untilEmpty) {
                             return self::SUCCESS;
                         }
@@ -70,6 +86,10 @@ class ScanGroupMediaCommand extends Command
         }
 
         $this->line('本次沒有可下載的新媒體檔案。');
+
+        if (!$downloadedAtLeastOnce && $emptyExitCode > 0) {
+            return $emptyExitCode;
+        }
 
         return self::SUCCESS;
     }
@@ -104,7 +124,7 @@ class ScanGroupMediaCommand extends Command
         ]);
     }
 
-    private function scanOnePeer(Client $http, string $baseUri, int $peerId): bool
+    private function scanOnePeer(Client $http, string $baseUri, int $peerId, int $nextLimit): bool
     {
         $state = GroupMediaScanState::query()->firstOrCreate(
             [
@@ -146,7 +166,7 @@ class ScanGroupMediaCommand extends Command
                 return false;
             }
 
-            $payload = $this->fetchGroupPage($http, $peerId, $cursor);
+            $payload = $this->fetchGroupPage($http, $peerId, $cursor, $nextLimit);
             if (!$payload || (string) ($payload['status'] ?? '') !== 'ok') {
                 $this->line("base_uri={$baseUri} peer_id={$peerId} cursor={$cursor} 取回失敗");
                 return false;
@@ -283,9 +303,9 @@ class ScanGroupMediaCommand extends Command
         }
     }
 
-    private function fetchGroupPage(Client $http, int $peerId, int $startMessageId): ?array
+    private function fetchGroupPage(Client $http, int $peerId, int $startMessageId, int $nextLimit): ?array
     {
-        $path = "groups/{$peerId}/{$startMessageId}";
+        $path = "groups/{$peerId}/{$startMessageId}?next_limit={$nextLimit}";
         $tries = 0;
 
         while (true) {

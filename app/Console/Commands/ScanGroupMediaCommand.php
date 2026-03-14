@@ -15,8 +15,13 @@ class ScanGroupMediaCommand extends Command
     protected $signature = 'tg:scan-group-media {--base-uri= : 覆蓋 API base_uri（預設使用程式內設定）} {--until-empty : 持續掃到沒有新媒體為止} {--next-limit=20 : 每次從 groups API 取幾筆訊息} {--exit-code-when-empty=0 : 本次完全沒下載到新媒體時回傳的 exit code}';
     protected $description = '逐筆掃描 Telegram 群組媒體訊息，每次只下載一筆到本地，並記錄游標供下次續跑';
 
-    private const HTTP_MAX_RETRIES = 3;
+    private const GROUP_FETCH_MAX_RETRIES = 3;
+    private const BOT_DISPATCH_MAX_RETRIES = 2;
+    private const MEDIA_DOWNLOAD_MAX_RETRIES = 1;
     private const TARGET_TIMEZONE = 'Asia/Taipei';
+    private const FAST_REQUEST_TIMEOUT_SECONDS = 30;
+    private const BOT_REQUEST_TIMEOUT_SECONDS = 600;
+    private const MEDIA_DOWNLOAD_TIMEOUT_SECONDS = 1800;
     private const BOT_VIPFILES = [
         'api' => 'vipfiles2bot',
         'display' => '@vipfiles2bot',
@@ -144,7 +149,6 @@ class ScanGroupMediaCommand extends Command
     {
         return new Client([
             'base_uri' => $baseUri,
-            'timeout' => 60,
             'connect_timeout' => 10,
         ]);
     }
@@ -341,7 +345,10 @@ class ScanGroupMediaCommand extends Command
             $tries++;
 
             try {
-                $res = $http->get('groups');
+                $res = $http->get('groups', [
+                    'timeout' => self::FAST_REQUEST_TIMEOUT_SECONDS,
+                    'connect_timeout' => 10,
+                ]);
                 $json = json_decode((string) $res->getBody(), true);
                 if (!is_array($json)) {
                     return [];
@@ -371,7 +378,7 @@ class ScanGroupMediaCommand extends Command
 
                 return $index;
             } catch (GuzzleException $e) {
-                if ($tries >= self::HTTP_MAX_RETRIES) {
+                if ($tries >= self::GROUP_FETCH_MAX_RETRIES) {
                     $this->line('HTTP 失敗：GET /groups err=' . $e->getMessage());
                     return [];
                 }
@@ -390,11 +397,14 @@ class ScanGroupMediaCommand extends Command
             $tries++;
 
             try {
-                $res = $http->get($path);
+                $res = $http->get($path, [
+                    'timeout' => self::FAST_REQUEST_TIMEOUT_SECONDS,
+                    'connect_timeout' => 10,
+                ]);
                 $json = json_decode((string) $res->getBody(), true);
                 return is_array($json) ? $json : null;
             } catch (GuzzleException $e) {
-                if ($tries >= self::HTTP_MAX_RETRIES) {
+                if ($tries >= self::GROUP_FETCH_MAX_RETRIES) {
                     $this->line("HTTP 失敗：GET {$path} err=" . $e->getMessage());
                     return null;
                 }
@@ -419,12 +429,14 @@ class ScanGroupMediaCommand extends Command
                         'message_id' => $messageId,
                         'folder_label' => "group_{$peerId}_{$folderLabel}",
                     ],
+                    'timeout' => self::MEDIA_DOWNLOAD_TIMEOUT_SECONDS,
+                    'connect_timeout' => 10,
                 ]);
 
                 $json = json_decode((string) $res->getBody(), true);
                 return is_array($json) ? $json : null;
             } catch (GuzzleException $e) {
-                if ($tries >= self::HTTP_MAX_RETRIES) {
+                if ($tries >= self::MEDIA_DOWNLOAD_MAX_RETRIES) {
                     $this->line("HTTP 失敗：POST groups/download-message-media message_id={$messageId} err=" . $e->getMessage());
                     return null;
                 }
@@ -512,6 +524,8 @@ class ScanGroupMediaCommand extends Command
             try {
                 $res = $http->post('bots/send-and-run-all-pages', [
                     'json' => $payload,
+                    'timeout' => self::BOT_REQUEST_TIMEOUT_SECONDS,
+                    'connect_timeout' => 10,
                 ]);
 
                 $json = json_decode((string) $res->getBody(), true);
@@ -550,7 +564,7 @@ class ScanGroupMediaCommand extends Command
                     'bot_display' => (string) $bot['display'],
                 ];
             } catch (GuzzleException $e) {
-                if ($tries >= self::HTTP_MAX_RETRIES) {
+                if ($tries >= self::BOT_DISPATCH_MAX_RETRIES) {
                     return [
                         'classification' => 'failed',
                         'summary' => $e->getMessage(),

@@ -3,10 +3,12 @@
 namespace App\Console\Commands;
 
 use App\Models\GroupMediaScanState;
+use App\Services\TelegramCodeTokenService;
 use Carbon\Carbon;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use Illuminate\Console\Command;
+use Illuminate\Support\Str;
 
 class ScanGroupMediaCommand extends Command
 {
@@ -15,6 +17,22 @@ class ScanGroupMediaCommand extends Command
 
     private const HTTP_MAX_RETRIES = 3;
     private const TARGET_TIMEZONE = 'Asia/Taipei';
+    private const BOT_VIPFILES = [
+        'api' => 'vipfiles2bot',
+        'display' => '@vipfiles2bot',
+    ];
+    private const BOT_SHOWFILES6 = [
+        'api' => 'Showfiles6bot',
+        'display' => '@Showfiles6bot',
+    ];
+    private const NOT_FOUND_MARKERS = [
+        '💔抱歉，未找到可解析内容。',
+        '抱歉，未找到可解析内容。',
+        '抱歉，未找到可解析内容',
+        '未找到可解析内容。已加入缓存列表，稍后进行请求。',
+        '未找到可解析内容',
+        '已加入缓存列表，稍后进行请求。',
+    ];
 
     private array $scanTargetsByBaseUri = [
         'http://127.0.0.1:8000/' => [
@@ -23,6 +41,13 @@ class ScanGroupMediaCommand extends Command
     ];
 
     private array $groupsIndex = [];
+    private TelegramCodeTokenService $tokenService;
+
+    public function __construct(TelegramCodeTokenService $tokenService)
+    {
+        parent::__construct();
+        $this->tokenService = $tokenService;
+    }
 
     public function handle(): int
     {
@@ -33,7 +58,7 @@ class ScanGroupMediaCommand extends Command
         $targetsByBaseUri = $this->resolveTargetsByBaseUri($overrideBaseUri);
 
         $round = 0;
-        $downloadedAtLeastOnce = false;
+        $processedAtLeastOnce = false;
         $preparedTargets = [];
 
         foreach ($targetsByBaseUri as $baseUri => $peerIds) {
@@ -69,7 +94,7 @@ class ScanGroupMediaCommand extends Command
                     $downloaded = $this->scanOnePeer($http, $baseUri, $peerId, $nextLimit);
                     if ($downloaded) {
                         $downloadedThisRound = true;
-                        $downloadedAtLeastOnce = true;
+                        $processedAtLeastOnce = true;
                         if (!$untilEmpty) {
                             return self::SUCCESS;
                         }
@@ -87,7 +112,7 @@ class ScanGroupMediaCommand extends Command
 
         $this->line('本次沒有可下載的新媒體檔案。');
 
-        if (!$downloadedAtLeastOnce && $emptyExitCode > 0) {
+        if (!$processedAtLeastOnce && $emptyExitCode > 0) {
             return $emptyExitCode;
         }
 
@@ -198,6 +223,44 @@ class ScanGroupMediaCommand extends Command
                 }
 
                 if (!$this->messageHasMedia($item)) {
+                    $token = $this->extractDispatchableToken($item);
+                    if ($token !== null) {
+                        $dispatch = $this->dispatchTokenToBot($http, $token);
+                        if (($dispatch['classification'] ?? '') === 'failed') {
+                            $state->max_message_id = $processedCursor;
+                            $state->save();
+                            $this->line(sprintf(
+                                'base_uri=%s peer_id=%d message_id=%d token=%s bot=%s dispatch failed: %s',
+                                $baseUri,
+                                $peerId,
+                                $messageId,
+                                $token,
+                                $dispatch['bot_display'] ?? '-',
+                                $dispatch['summary'] ?? 'unknown'
+                            ));
+                            return false;
+                        }
+
+                        $processedCursor = $messageId;
+                        $state->max_message_id = $processedCursor;
+                        $state->last_message_datetime = $this->convertMessageTimeToTaipei(
+                            $this->parseMessageDate($item['date'] ?? null)
+                        );
+                        $state->save();
+
+                        $this->line(sprintf(
+                            'base_uri=%s peer_id=%d message_id=%d token=%s bot=%s result=%s',
+                            $baseUri,
+                            $peerId,
+                            $messageId,
+                            $token,
+                            $dispatch['bot_display'] ?? '-',
+                            $dispatch['summary'] ?? 'processed'
+                        ));
+
+                        return true;
+                    }
+
                     $processedCursor = $messageId;
                     continue;
                 }
@@ -359,6 +422,259 @@ class ScanGroupMediaCommand extends Command
     private function messageHasMedia(array $message): bool
     {
         return array_key_exists('media', $message) && $message['media'] !== null;
+    }
+
+    private function extractDispatchableToken(array $message): ?string
+    {
+        $texts = [];
+
+        $messageText = trim((string) ($message['message'] ?? ''));
+        if ($messageText !== '') {
+            $texts[] = $messageText;
+        }
+
+        $webpage = is_array($message['media']['webpage'] ?? null) ? $message['media']['webpage'] : [];
+        $title = trim((string) ($webpage['title'] ?? ''));
+        if ($title !== '') {
+            $texts[] = $title;
+        }
+
+        foreach ($texts as $text) {
+            $tokens = $this->tokenService->extractTokens($text);
+            foreach ($tokens as $token) {
+                $token = trim((string) $token);
+                if ($token === '') {
+                    continue;
+                }
+
+                if (
+                    Str::startsWith($token, 'newjmqbot_') ||
+                    Str::startsWith($token, 'showfilesbot_') ||
+                    Str::startsWith($token, 'showfiles3bot_')
+                ) {
+                    return $token;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveBotByToken(string $token): ?array
+    {
+        if (Str::startsWith($token, 'showfiles3bot_')) {
+            return self::BOT_SHOWFILES6;
+        }
+
+        if (Str::startsWith($token, 'newjmqbot_') || Str::startsWith($token, 'showfilesbot_')) {
+            return self::BOT_VIPFILES;
+        }
+
+        return null;
+    }
+
+    private function dispatchTokenToBot(Client $http, string $token): array
+    {
+        $bot = $this->resolveBotByToken($token);
+        if ($bot === null) {
+            return [
+                'classification' => 'failed',
+                'summary' => 'unsupported token prefix',
+                'bot_display' => '-',
+            ];
+        }
+
+        $payload = $this->buildBotApiPayload($token, (string) $bot['api']);
+        $tries = 0;
+
+        while (true) {
+            $tries++;
+
+            try {
+                $res = $http->post('bots/send-and-run-all-pages', [
+                    'json' => $payload,
+                ]);
+
+                $json = json_decode((string) $res->getBody(), true);
+                if (!is_array($json)) {
+                    return [
+                        'classification' => 'failed',
+                        'summary' => 'invalid json response',
+                        'bot_display' => (string) $bot['display'],
+                    ];
+                }
+
+                $latestMessage = is_array($json['latest_message'] ?? null) ? $json['latest_message'] : [];
+                $pageState = is_array($json['page_state'] ?? null) ? $json['page_state'] : [];
+                $filesUniqueCount = (int) ($json['files_unique_count'] ?? 0);
+                $latestTextPreview = trim((string) ($latestMessage['text_preview'] ?? ''));
+
+                if ($this->isVipfilesRunCompleted($json, $latestMessage, $pageState, $filesUniqueCount)) {
+                    return [
+                        'classification' => 'success',
+                        'summary' => 'bot completed',
+                        'bot_display' => (string) $bot['display'],
+                    ];
+                }
+
+                if ($this->responseContainsNotFound($json, $latestTextPreview)) {
+                    return [
+                        'classification' => 'not_found',
+                        'summary' => 'bot returned not found',
+                        'bot_display' => (string) $bot['display'],
+                    ];
+                }
+
+                return [
+                    'classification' => 'failed',
+                    'summary' => trim((string) ($json['reason'] ?? 'run not completed')) ?: 'run not completed',
+                    'bot_display' => (string) $bot['display'],
+                ];
+            } catch (GuzzleException $e) {
+                if ($tries >= self::HTTP_MAX_RETRIES) {
+                    return [
+                        'classification' => 'failed',
+                        'summary' => $e->getMessage(),
+                        'bot_display' => (string) $bot['display'],
+                    ];
+                }
+
+                usleep(250000);
+            }
+        }
+    }
+
+    private function buildBotApiPayload(string $token, string $botApi): array
+    {
+        return [
+            'bot_username' => $botApi,
+            'text' => $token,
+            'clear_previous_replies' => true,
+            'delay_seconds' => 1,
+            'debug' => true,
+            'debug_max_logs' => 2000,
+            'include_files_in_response' => true,
+            'max_return_files' => 1000,
+            'max_raw_payload_bytes' => 0,
+            'cleanup_after_done' => false,
+            'cleanup_scope' => 'run',
+            'cleanup_limit' => 500,
+            'wait_first_callback_timeout_seconds' => 25,
+            'wait_each_page_timeout_seconds' => 25,
+            'callback_message_max_age_seconds' => 30,
+            'callback_candidate_scan_limit' => 40,
+            'max_invalid_callback_rounds' => 2,
+            'max_steps' => 120,
+            'bootstrap_click_get_all' => true,
+            'allow_ok_when_no_buttons' => true,
+            'text_next_fallback_enabled' => true,
+            'text_next_command' => '下一頁',
+            'stop_when_no_new_files_rounds' => 4,
+            'stop_when_reached_total_items' => true,
+            'normalize_to_first_page_when_no_buttons' => true,
+            'normalize_prev_command' => '上一頁',
+            'normalize_max_prev_steps' => 6,
+            'initial_wait_for_controls_seconds' => 6,
+            'observe_when_no_controls_seconds' => 10,
+            'observe_send_get_all_when_no_controls' => true,
+            'observe_get_all_command' => '獲取全部',
+            'observe_send_next_when_no_controls' => false,
+        ];
+    }
+
+    private function responseContainsNotFound(array $responseJson, string $latestTextPreview): bool
+    {
+        $outcome = is_array($responseJson['outcome'] ?? null) ? $responseJson['outcome'] : [];
+        if (($outcome['not_found_message_detected'] ?? false) === true) {
+            return true;
+        }
+
+        $texts = [];
+        if ($latestTextPreview !== '') {
+            $texts[] = $latestTextPreview;
+        }
+
+        $reason = trim((string) ($responseJson['reason'] ?? ''));
+        if ($reason !== '') {
+            $texts[] = $reason;
+        }
+
+        foreach ($texts as $text) {
+            foreach (self::NOT_FOUND_MARKERS as $marker) {
+                if ($marker !== '' && Str::contains($text, $marker)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function isVipfilesRunCompleted(
+        array $responseJson,
+        array $latestMessage,
+        array $pageState,
+        int $filesUniqueCount
+    ): bool {
+        if ($filesUniqueCount <= 0) {
+            return false;
+        }
+
+        $reason = strtolower(trim((string) ($responseJson['reason'] ?? '')));
+        $latestKind = strtolower(trim((string) ($latestMessage['kind'] ?? '')));
+        $latestHasButtons = (bool) ($latestMessage['has_buttons'] ?? false);
+        $pageInfo = is_array($latestMessage['page_info'] ?? null) ? $latestMessage['page_info'] : [];
+
+        if ($latestKind === 'completion') {
+            return true;
+        }
+
+        if ($this->pageInfoReachedLastPage($pageInfo)) {
+            return true;
+        }
+
+        foreach ([
+            'last page confirmed',
+            'all pages visited',
+            'reached total items + last page confirmed',
+            'reached total items + all pages visited',
+            'reached total items after final page click',
+            'completion message detected',
+        ] as $successMarker) {
+            if ($successMarker !== '' && Str::contains($reason, $successMarker)) {
+                return true;
+            }
+        }
+
+        $didAnyPaginationClick = (bool) ($pageState['did_any_pagination_click'] ?? false);
+        $didBootstrapClick = (bool) ($pageState['did_bootstrap_click'] ?? false);
+        $lastClickedPage = (int) ($pageState['last_clicked_page'] ?? 0);
+
+        if (($didAnyPaginationClick || $didBootstrapClick) && $latestHasButtons === false && empty($pageInfo)) {
+            return true;
+        }
+
+        if ($lastClickedPage > 0 && Str::contains($reason, 'final page click')) {
+            return true;
+        }
+
+        return $latestHasButtons === false && empty($pageInfo);
+    }
+
+    private function pageInfoReachedLastPage(array $pageInfo): bool
+    {
+        if (empty($pageInfo)) {
+            return false;
+        }
+
+        $currentPage = $pageInfo['current_page'] ?? null;
+        $totalPages = $pageInfo['total_pages'] ?? null;
+
+        if ($currentPage === null || $totalPages === null) {
+            return false;
+        }
+
+        return (int) $currentPage > 0 && (int) $currentPage >= (int) $totalPages;
     }
 
     private function getMaxMessageId(array $items): int

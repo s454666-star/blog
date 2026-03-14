@@ -30,6 +30,11 @@ class DispatchTokenScanItemsCommand extends Command
         'display' => '@vipfiles2bot',
     ];
 
+    private const BOT_SHOWFILES6 = [
+        'api' => 'Showfiles6bot',
+        'display' => '@Showfiles6bot',
+    ];
+
     private const DEFAULT_API_HOST = 'http://127.0.0.1';
     private const DEFAULT_API_PORT = 8000;
     private const NEXT_TOKEN_DELAY_MICROSECONDS = 5000000;
@@ -257,7 +262,7 @@ class DispatchTokenScanItemsCommand extends Command
         $notFound = $this->responseContainsNotFound($responseJson, $latestTextPreview);
         $apiJsonStatus = (string) ($responseJson['status'] ?? '');
         $apiReason = trim((string) ($responseJson['reason'] ?? ''));
-        $fullyCompleted = $bot['api'] === self::BOT_VIPFILES['api']
+        $fullyCompleted = $this->isVipLikeBot($bot['api'])
             ? $this->isVipfilesRunCompleted($responseJson, $latestMessage, $pageState, $filesUniqueCount)
             : $this->isMessengerRunCompleted(
                 $responseJson,
@@ -281,7 +286,7 @@ class DispatchTokenScanItemsCommand extends Command
             $classification = 'success';
             $summary = 'Messenger bot returned completion message.';
         } else {
-            if ($filesUniqueCount > 0 && $bot['api'] === self::BOT_VIPFILES['api']) {
+            if ($filesUniqueCount > 0 && $this->isVipLikeBot($bot['api'])) {
                 $summary = 'Files were observed, but completion was not confirmed. Keep token_scan_items row untouched.';
             } else {
                 $summary = $apiReason !== ''
@@ -320,6 +325,10 @@ class DispatchTokenScanItemsCommand extends Command
     {
         if (Str::startsWith($token, 'Messengercode_')) {
             return self::BOT_MESSENGER;
+        }
+
+        if (Str::startsWith($token, 'showfiles3bot_')) {
+            return self::BOT_SHOWFILES6;
         }
 
         return self::BOT_VIPFILES;
@@ -459,6 +468,14 @@ class DispatchTokenScanItemsCommand extends Command
             'observe_get_all_command' => '獲取全部',
             'observe_send_next_when_no_controls' => false,
         ];
+    }
+
+    private function isVipLikeBot(string $botApi): bool
+    {
+        return in_array($botApi, [
+            self::BOT_VIPFILES['api'],
+            self::BOT_SHOWFILES6['api'],
+        ], true);
     }
 
     private function responseContainsNotFound(array $responseJson, string $latestTextPreview): bool

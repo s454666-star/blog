@@ -19,7 +19,7 @@ echo [%date% %time%] Start tg scan group media. base_uri=%BASE_URI%
 set "EXIT_CODE=%ERRORLEVEL%"
 
 if "%EXIT_CODE%"=="0" (
-    echo [%date% %time%] Downloaded one media item. Continue.
+    echo [%date% %time%] Processed one item. Continue.
     goto loop
 )
 

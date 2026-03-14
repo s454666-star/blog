@@ -169,6 +169,7 @@ class ScanGroupMediaCommand extends Command
             ]
         );
 
+        $cursor = max(1, (int) ($state->max_message_id ?? 1));
         $groupInfo = $this->resolveGroupInfo($http, $state, $peerId, $cursor);
         $chatTitle = trim((string) ($groupInfo['title'] ?? $state->chat_title ?? ''));
         if ($chatTitle !== '' && $state->chat_title !== $chatTitle) {
@@ -180,8 +181,6 @@ class ScanGroupMediaCommand extends Command
             $state->last_group_message_id = $latestGroupMessageId;
         }
         $state->save();
-
-        $cursor = max(1, (int) ($state->max_message_id ?? 1));
 
         $this->line(str_repeat('-', 80));
         $this->line("base_uri={$baseUri} peer_id={$peerId} cursor={$cursor} 開始掃描媒體");

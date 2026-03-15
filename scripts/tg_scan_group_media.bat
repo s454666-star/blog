@@ -35,9 +35,13 @@ set "FLOOD_WAIT_SECONDS="
 for /f "tokens=2 delims==" %%A in ('findstr /b /c:"FLOOD_WAIT_SECONDS=" "%RUN_LOG%"') do set "FLOOD_WAIT_SECONDS=%%A"
 if defined FLOOD_WAIT_SECONDS (
     echo [%date% %time%] Flood wait detected. Need wait %FLOOD_WAIT_SECONDS% seconds before download can continue.
+    timeout /t %FLOOD_WAIT_SECONDS% /nobreak >nul
+    echo [%date% %time%] Flood wait finished. Retry.
+    goto loop
 )
 
 echo [%date% %time%] tg:scan-group-media failed. exit_code=%EXIT_CODE%
+pause
 
 :finish
 echo [%date% %time%] Finished tg scan group media. exit_code=%EXIT_CODE%

@@ -3,11 +3,14 @@
 namespace App\Console\Commands;
 
 use App\Models\GroupMediaScanState;
+use App\Models\TokenScanHeader;
+use App\Models\TokenScanItem;
 use App\Services\TelegramCodeTokenService;
 use Carbon\Carbon;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class ScanGroupMediaCommand extends Command
@@ -19,6 +22,7 @@ class ScanGroupMediaCommand extends Command
     private const BOT_DISPATCH_MAX_RETRIES = 2;
     private const MEDIA_DOWNLOAD_MAX_RETRIES = 1;
     private const TARGET_TIMEZONE = 'Asia/Taipei';
+    private const DIALOGUES_CHAT_ID = 7702694790;
     private const FAST_REQUEST_TIMEOUT_SECONDS = 30;
     private const BOT_REQUEST_TIMEOUT_SECONDS = 600;
     private const MEDIA_DOWNLOAD_TIMEOUT_SECONDS = 1800;
@@ -234,31 +238,7 @@ class ScanGroupMediaCommand extends Command
                 if (!$this->messageHasMedia($item)) {
                     $token = $this->extractDispatchableToken($item);
                     if ($token !== null) {
-                        $this->line(sprintf(
-                            'base_uri=%s peer_id=%d message_id=%d token=%s 開始送 bot',
-                            $baseUri,
-                            $peerId,
-                            $messageId,
-                            $token
-                        ));
-
-                        $dispatch = $this->dispatchTokenToBot($http, $token);
-                        if (($dispatch['classification'] ?? '') === 'failed') {
-                            $state->max_message_id = $processedCursor;
-                            $state->save();
-                            $failure = sprintf(
-                                'base_uri=%s peer_id=%d message_id=%d token=%s bot=%s dispatch failed: %s',
-                                $baseUri,
-                                $peerId,
-                                $messageId,
-                                $token,
-                                $dispatch['bot_display'] ?? '-',
-                                $dispatch['summary'] ?? 'unknown'
-                            );
-                            $this->lastFailureSummary = $failure;
-                            $this->line($failure);
-                            return false;
-                        }
+                        $queued = $this->queueTokenIfNeeded($peerId, $chatTitle, $token, $messageId);
 
                         $processedCursor = $messageId;
                         $state->max_message_id = $processedCursor;
@@ -268,16 +248,17 @@ class ScanGroupMediaCommand extends Command
                         $state->save();
 
                         $this->line(sprintf(
-                            'base_uri=%s peer_id=%d message_id=%d token=%s bot=%s result=%s',
+                            'base_uri=%s peer_id=%d message_id=%d token=%s %s',
                             $baseUri,
                             $peerId,
                             $messageId,
                             $token,
-                            $dispatch['bot_display'] ?? '-',
-                            $dispatch['summary'] ?? 'processed'
+                            $queued ? '已寫入 token_scan_items' : '已存在 dialogues / token_scan_items，略過'
                         ));
 
-                        return true;
+                        if ($queued) {
+                            return true;
+                        }
                     }
 
                     $processedCursor = $messageId;
@@ -546,6 +527,77 @@ class ScanGroupMediaCommand extends Command
         }
 
         return null;
+    }
+
+    private function queueTokenIfNeeded(int $peerId, string $chatTitle, string $token, int $messageId): bool
+    {
+        $token = trim($token);
+        if ($token === '') {
+            return false;
+        }
+
+        if (TokenScanItem::query()->where('token', $token)->exists()) {
+            return false;
+        }
+
+        if (DB::table('dialogues')
+            ->where('chat_id', self::DIALOGUES_CHAT_ID)
+            ->where('text', $token)
+            ->exists()) {
+            return false;
+        }
+
+        $header = TokenScanHeader::query()->firstOrCreate(
+            ['peer_id' => $peerId],
+            [
+                'chat_title' => trim($chatTitle) !== '' ? $chatTitle : null,
+                'last_start_message_id' => 1,
+                'max_message_id' => 0,
+                'last_batch_count' => 0,
+            ]
+        );
+
+        if (trim((string) ($header->chat_title ?? '')) === '' && trim($chatTitle) !== '') {
+            $header->chat_title = $chatTitle;
+            $header->save();
+        }
+
+        $createdAt = now();
+
+        DB::transaction(function () use ($header, $token, $createdAt) {
+            $alreadyQueued = TokenScanItem::query()->where('token', $token)->exists();
+            $alreadyInDialogues = DB::table('dialogues')
+                ->where('chat_id', self::DIALOGUES_CHAT_ID)
+                ->where('text', $token)
+                ->exists();
+
+            if ($alreadyQueued || $alreadyInDialogues) {
+                return;
+            }
+
+            TokenScanItem::query()->create([
+                'header_id' => (int) $header->id,
+                'token' => $token,
+                'created_at' => $createdAt,
+            ]);
+
+            $dialoguesMessageId = (int) (DB::table('dialogues')
+                ->where('chat_id', self::DIALOGUES_CHAT_ID)
+                ->max('message_id') ?? 0);
+
+            DB::table('dialogues')->insert([
+                'chat_id' => self::DIALOGUES_CHAT_ID,
+                'message_id' => $dialoguesMessageId + 1,
+                'text' => $token,
+                'is_read' => 1,
+                'created_at' => $createdAt,
+            ]);
+        });
+
+        return TokenScanItem::query()
+            ->where('header_id', (int) $header->id)
+            ->where('token', $token)
+            ->exists();
     }
 
     private function messageHasMedia(array $message): bool

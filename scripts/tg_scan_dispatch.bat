@@ -139,7 +139,7 @@ if errorlevel 1 (
 "%PHP_EXE%" artisan tg:scan-group-tokens >>"%LOG_FILE%" 2>&1
 set "SCAN_EXIT=%ERRORLEVEL%"
 
-"%PHP_EXE%" artisan tg:dispatch-token-scan-items --done-action=delete --port=%FASTAPI_PORT% >>"%LOG_FILE%" 2>&1
+"%PHP_EXE%" artisan tg:dispatch-token-scan-items --done-action=delete --fallback-newjmqbot --port=%FASTAPI_PORT% >>"%LOG_FILE%" 2>&1
 set "DISPATCH_EXIT=%ERRORLEVEL%"
 
 echo [%date% %time%] Finished tg scan dispatch. scan_exit=%SCAN_EXIT% dispatch_exit=%DISPATCH_EXIT%>>"%LOG_FILE%"

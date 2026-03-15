@@ -16,6 +16,7 @@ class DispatchTokenScanItemsCommand extends Command
         {--limit=0 : Max rows to read from token_scan_items. 0 means unlimited}
         {--port=8000 : Telegram FastAPI service port. Default 8000}
         {--base-uri=* : Explicit Telegram API base URI(s). Overrides --port}
+        {--fallback-newjmqbot : When @vipfiles2bot returns not found, retry with @newjmqbot}
         {--include-processed : Include rows with updated_at already set}';
 
     protected $description = 'Dispatch token_scan_items tokens to Telegram bots and delete or touch rows after success.';
@@ -28,6 +29,11 @@ class DispatchTokenScanItemsCommand extends Command
     private const BOT_VIPFILES = [
         'api' => 'vipfiles2bot',
         'display' => '@vipfiles2bot',
+    ];
+
+    private const BOT_NEWJMQ = [
+        'api' => 'newjmqbot',
+        'display' => '@newjmqbot',
     ];
 
     private const BOT_SHOWFILES6 = [
@@ -231,9 +237,38 @@ class DispatchTokenScanItemsCommand extends Command
     {
         $token = (string) $job['token'];
         $item = $job['item'];
-        $bot = $this->resolveBotByToken($token);
-        $payload = $this->buildApiPayload($token, $bot['api']);
+        $primaryBot = $this->resolveBotByToken($token);
+        $result = $this->runBotAttempt($token, $primaryBot);
 
+        if (
+            $result['classification'] === 'not_found'
+            && $primaryBot['api'] === self::BOT_VIPFILES['api']
+            && (bool) $this->option('fallback-newjmqbot')
+        ) {
+            $fallback = $this->runBotAttempt($token, self::BOT_NEWJMQ);
+            $fallbackSummary = 'Fallback after @vipfiles2bot not found -> @newjmqbot';
+            $fallback['summary'] = trim($fallbackSummary . '. ' . ($fallback['summary'] ?? ''));
+            $result = $fallback;
+        }
+
+        if ($result['classification'] === 'success' && $item instanceof TokenScanItem) {
+            $result['db_action'] = $this->applyDoneAction($item, $doneAction);
+        }
+
+        if ($result['classification'] === 'success' && !($item instanceof TokenScanItem)) {
+            $result['db_action'] = 'manual';
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array{api:string,display:string} $bot
+     * @return array<string, mixed>
+     */
+    private function runBotAttempt(string $token, array $bot): array
+    {
+        $payload = $this->buildApiPayload($token, $bot['api']);
         $apiCall = $this->callTelegramApi($payload);
         $baseUri = (string) ($apiCall['base_uri'] ?? '');
         $apiStatus = '';
@@ -293,14 +328,6 @@ class DispatchTokenScanItemsCommand extends Command
                     ? ('Run not completed. reason=' . $apiReason)
                     : 'Run not completed. Keep token_scan_items row untouched.';
             }
-        }
-
-        if ($classification === 'success' && $item instanceof TokenScanItem) {
-            $dbAction = $this->applyDoneAction($item, $doneAction);
-        }
-
-        if ($classification === 'success' && !($item instanceof TokenScanItem)) {
-            $dbAction = 'manual';
         }
 
         return [
@@ -436,7 +463,7 @@ class DispatchTokenScanItemsCommand extends Command
         ];
 
         if ($isMessenger) {
-            return $payload + [
+            return array_merge($payload, [
                 'max_steps' => 8,
                 'bootstrap_click_get_all' => false,
                 'allow_ok_when_no_buttons' => true,
@@ -448,10 +475,10 @@ class DispatchTokenScanItemsCommand extends Command
                 'observe_when_no_controls_seconds' => 6,
                 'observe_send_get_all_when_no_controls' => false,
                 'observe_send_next_when_no_controls' => false,
-            ];
+            ]);
         }
 
-        return $payload + [
+        return array_merge($payload, [
             'max_steps' => 120,
             'bootstrap_click_get_all' => true,
             'allow_ok_when_no_buttons' => true,
@@ -467,13 +494,16 @@ class DispatchTokenScanItemsCommand extends Command
             'observe_send_get_all_when_no_controls' => true,
             'observe_get_all_command' => '獲取全部',
             'observe_send_next_when_no_controls' => false,
-        ];
+            'cleanup_after_done' => true,
+            'wait_download_completion' => true,
+        ]);
     }
 
     private function isVipLikeBot(string $botApi): bool
     {
         return in_array($botApi, [
             self::BOT_VIPFILES['api'],
+            self::BOT_NEWJMQ['api'],
             self::BOT_SHOWFILES6['api'],
         ], true);
     }

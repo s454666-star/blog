@@ -306,6 +306,7 @@ class DispatchTokenScanItemsCommand extends Command
         $downloadMeta = is_array($responseJson['download'] ?? null) ? $responseJson['download'] : [];
         $downloadJobId = trim((string) ($downloadMeta['job_id'] ?? ''));
         $downloadStatus = trim((string) ($downloadMeta['status'] ?? ''));
+        $downloadDisabled = $downloadStatus === 'disabled';
         $downloadSkipped = (bool) ($responseJson['download_skipped'] ?? $downloadMeta['skipped'] ?? false);
         $downloadSkippedReason = trim((string) ($responseJson['download_skipped_reason'] ?? $downloadMeta['reason'] ?? ''));
         $downloadSkippedLimitBytes = (int) ($responseJson['download_skipped_limit_bytes'] ?? $downloadMeta['limit_bytes'] ?? 0);
@@ -329,6 +330,7 @@ class DispatchTokenScanItemsCommand extends Command
             ($apiCall['ok'] ?? false) === true
             && $fullyCompleted
             && !$downloadSkipped
+            && !$downloadDisabled
             && $downloadJobId !== ''
             && $filesUniqueCount > 0
             && $downloadStatus !== 'done'
@@ -400,6 +402,9 @@ class DispatchTokenScanItemsCommand extends Command
                 $this->formatBytes($filesTotalBytes),
                 $this->formatBytes($downloadSkippedLimitBytes)
             );
+        } elseif ($fullyCompleted && $downloadDisabled) {
+            $classification = 'success';
+            $summary = 'Completed without local download. files_unique_count=' . $filesUniqueCount;
         } elseif ($fullyCompleted) {
             $classification = 'success';
             $summary = 'Completed. files_unique_count=' . $filesUniqueCount;
@@ -631,6 +636,7 @@ class DispatchTokenScanItemsCommand extends Command
             'observe_send_get_all_when_no_controls' => true,
             'observe_get_all_command' => '獲取全部',
             'observe_send_next_when_no_controls' => false,
+            'download_after_done' => false,
             'cleanup_after_done' => true,
             'wait_download_completion' => false,
             'skip_download_if_total_bytes_exceeds' => self::MAX_DOWNLOAD_TOTAL_BYTES,

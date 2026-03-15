@@ -46,6 +46,8 @@ class ScanGroupMediaCommand extends Command
     ];
 
     private TelegramCodeTokenService $tokenService;
+    private ?int $lastFloodWaitSeconds = null;
+    private string $lastFailureSummary = '';
 
     public function __construct(TelegramCodeTokenService $tokenService)
     {
@@ -55,6 +57,9 @@ class ScanGroupMediaCommand extends Command
 
     public function handle(): int
     {
+        $this->lastFloodWaitSeconds = null;
+        $this->lastFailureSummary = '';
+
         $overrideBaseUri = trim((string) $this->option('base-uri'));
         $untilEmpty = (bool) $this->option('until-empty');
         $nextLimit = max(1, (int) $this->option('next-limit'));
@@ -110,6 +115,10 @@ class ScanGroupMediaCommand extends Command
             if (!$untilEmpty || !$downloadedThisRound) {
                 break;
             }
+        }
+
+        if ($this->lastFailureSummary !== '') {
+            return self::FAILURE;
         }
 
         $this->line('本次沒有可下載的新媒體檔案。');
@@ -237,7 +246,7 @@ class ScanGroupMediaCommand extends Command
                         if (($dispatch['classification'] ?? '') === 'failed') {
                             $state->max_message_id = $processedCursor;
                             $state->save();
-                            $this->line(sprintf(
+                            $failure = sprintf(
                                 'base_uri=%s peer_id=%d message_id=%d token=%s bot=%s dispatch failed: %s',
                                 $baseUri,
                                 $peerId,
@@ -245,7 +254,9 @@ class ScanGroupMediaCommand extends Command
                                 $token,
                                 $dispatch['bot_display'] ?? '-',
                                 $dispatch['summary'] ?? 'unknown'
-                            ));
+                            );
+                            $this->lastFailureSummary = $failure;
+                            $this->line($failure);
                             return false;
                         }
 
@@ -284,7 +295,24 @@ class ScanGroupMediaCommand extends Command
                 if (!$download || (string) ($download['status'] ?? '') !== 'ok' || !($download['downloaded'] ?? false)) {
                     $state->max_message_id = $processedCursor;
                     $state->save();
-                    $this->line("base_uri={$baseUri} peer_id={$peerId} message_id={$messageId} 下載失敗");
+                    $reason = trim((string) ($download['reason'] ?? ''));
+                    $error = trim((string) ($download['error'] ?? ''));
+                    $summary = "base_uri={$baseUri} peer_id={$peerId} message_id={$messageId} 下載失敗";
+                    if ($reason !== '') {
+                        $summary .= " reason={$reason}";
+                    }
+                    if ($error !== '') {
+                        $summary .= " error={$error}";
+                    }
+                    $this->line($summary);
+
+                    $waitSeconds = $this->extractFloodWaitSeconds($error);
+                    if ($waitSeconds !== null) {
+                        $this->lastFloodWaitSeconds = $waitSeconds;
+                        $this->line("FLOOD_WAIT_SECONDS={$waitSeconds}");
+                        $this->line("還需等待 {$waitSeconds} 秒後才能再試下載。");
+                    }
+                    $this->lastFailureSummary = $summary;
                     return false;
                 }
 
@@ -491,13 +519,33 @@ class ScanGroupMediaCommand extends Command
                 return is_array($json) ? $json : null;
             } catch (GuzzleException $e) {
                 if ($tries >= self::MEDIA_DOWNLOAD_MAX_RETRIES) {
-                    $this->line("HTTP 失敗：POST groups/download-message-media message_id={$messageId} err=" . $e->getMessage());
-                    return null;
+                    return [
+                        'status' => 'fail',
+                        'reason' => 'request_error',
+                        'peer_id' => $peerId,
+                        'message_id' => $messageId,
+                        'error' => $e->getMessage(),
+                    ];
                 }
 
                 usleep(250000);
             }
         }
+    }
+
+    private function extractFloodWaitSeconds(string $message): ?int
+    {
+        $message = trim($message);
+        if ($message === '') {
+            return null;
+        }
+
+        if (preg_match('/A wait of\s+(\d+)\s+seconds\s+is required/i', $message, $matches) === 1) {
+            $seconds = (int) ($matches[1] ?? 0);
+            return $seconds > 0 ? $seconds : null;
+        }
+
+        return null;
     }
 
     private function messageHasMedia(array $message): bool

@@ -44,6 +44,7 @@ class DispatchTokenScanItemsCommand extends Command
     private const DEFAULT_API_HOST = 'http://127.0.0.1';
     private const DEFAULT_API_PORT = 8000;
     private const NEXT_TOKEN_DELAY_MICROSECONDS = 5000000;
+    private const MAX_DOWNLOAD_TOTAL_BYTES = 1073741824;
 
     private const NOT_FOUND_MARKERS = [
         '💔抱歉，未找到可解析内容。',
@@ -75,6 +76,7 @@ class DispatchTokenScanItemsCommand extends Command
         $stats = [
             'total' => count($jobs),
             'success' => 0,
+            'skipped_size_limit' => 0,
             'not_found' => 0,
             'failed' => 0,
             'touched' => 0,
@@ -103,6 +105,8 @@ class DispatchTokenScanItemsCommand extends Command
 
             if ($classification === 'success') {
                 $stats['success']++;
+            } elseif ($classification === 'skipped_size_limit') {
+                $stats['skipped_size_limit']++;
             } elseif ($classification === 'not_found') {
                 $stats['not_found']++;
             } else {
@@ -117,11 +121,12 @@ class DispatchTokenScanItemsCommand extends Command
             }
 
             $this->line(sprintf(
-                'bot=%s api=%s status=%s files=%d latest_kind=%s db_action=%s',
+                'bot=%s api=%s status=%s files=%d total_size=%s latest_kind=%s db_action=%s',
                 $result['bot_display'],
                 $result['base_uri'] ?: '-',
                 $result['api_status'] ?: 'fail',
                 (int) $result['files_unique_count'],
+                $this->formatBytes((int) ($result['files_total_bytes'] ?? 0)),
                 $result['latest_kind'] ?: '-',
                 $result['db_action'] ?: 'keep'
             ));
@@ -146,6 +151,7 @@ class DispatchTokenScanItemsCommand extends Command
         $this->line(str_repeat('=', 100));
         $this->line('total=' . $stats['total']);
         $this->line('success=' . $stats['success']);
+        $this->line('skipped_size_limit=' . $stats['skipped_size_limit']);
         $this->line('not_found=' . $stats['not_found']);
         $this->line('failed=' . $stats['failed']);
         $this->line('touched=' . $stats['touched']);
@@ -292,7 +298,12 @@ class DispatchTokenScanItemsCommand extends Command
 
         $filesMeta = is_array($responseJson['files'] ?? null) ? $responseJson['files'] : [];
         $filesUniqueCount = (int) ($responseJson['files_unique_count'] ?? $filesMeta['files_unique_count'] ?? $filesMeta['files_count'] ?? 0);
+        $filesTotalBytes = (int) ($responseJson['files_total_bytes'] ?? 0);
         $pageState = is_array($responseJson['page_state'] ?? null) ? $responseJson['page_state'] : [];
+        $downloadMeta = is_array($responseJson['download'] ?? null) ? $responseJson['download'] : [];
+        $downloadSkipped = (bool) ($responseJson['download_skipped'] ?? $downloadMeta['skipped'] ?? false);
+        $downloadSkippedReason = trim((string) ($responseJson['download_skipped_reason'] ?? $downloadMeta['reason'] ?? ''));
+        $downloadSkippedLimitBytes = (int) ($responseJson['download_skipped_limit_bytes'] ?? $downloadMeta['limit_bytes'] ?? 0);
 
         $notFound = $this->responseContainsNotFound($responseJson, $latestTextPreview);
         $apiJsonStatus = (string) ($responseJson['status'] ?? '');
@@ -311,6 +322,13 @@ class DispatchTokenScanItemsCommand extends Command
 
         if (($apiCall['ok'] ?? false) !== true) {
             $summary = 'api_error=' . ($apiCall['error'] ?? 'unknown');
+        } elseif ($downloadSkipped && $downloadSkippedReason === 'total_bytes_exceeded') {
+            $classification = 'skipped_size_limit';
+            $summary = sprintf(
+                'Pagination completed and chat cleanup executed, but local download was skipped because total_size=%s exceeds limit=%s. Keep token_scan_items row untouched.',
+                $this->formatBytes($filesTotalBytes),
+                $this->formatBytes($downloadSkippedLimitBytes)
+            );
         } elseif ($fullyCompleted) {
             $classification = 'success';
             $summary = 'Completed. files_unique_count=' . $filesUniqueCount;
@@ -337,6 +355,7 @@ class DispatchTokenScanItemsCommand extends Command
             'base_uri' => $baseUri,
             'api_status' => $apiStatus,
             'files_unique_count' => $filesUniqueCount,
+            'files_total_bytes' => $filesTotalBytes,
             'latest_kind' => $latestKind,
             'latest_text_preview' => $latestTextPreview,
             'summary' => $summary,
@@ -496,7 +515,26 @@ class DispatchTokenScanItemsCommand extends Command
             'observe_send_next_when_no_controls' => false,
             'cleanup_after_done' => true,
             'wait_download_completion' => true,
+            'skip_download_if_total_bytes_exceeds' => self::MAX_DOWNLOAD_TOTAL_BYTES,
         ]);
+    }
+
+    private function formatBytes(int $bytes): string
+    {
+        if ($bytes <= 0) {
+            return '0 B';
+        }
+
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $size = (float) $bytes;
+        $unitIndex = 0;
+
+        while ($size >= 1024 && $unitIndex < (count($units) - 1)) {
+            $size /= 1024;
+            $unitIndex++;
+        }
+
+        return number_format($size, $unitIndex === 0 ? 0 : 2) . ' ' . $units[$unitIndex];
     }
 
     private function isVipLikeBot(string $botApi): bool

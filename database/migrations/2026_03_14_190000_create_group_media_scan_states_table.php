@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('group_media_scan_states')) {
+            return;
+        }
+
         Schema::create('group_media_scan_states', function (Blueprint $table) {
             $table->id();
             $table->string('base_uri', 255);

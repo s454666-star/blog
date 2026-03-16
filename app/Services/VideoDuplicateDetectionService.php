@@ -20,8 +20,9 @@ class VideoDuplicateDetectionService
         int $sizePercent = 15,
         int $maxCandidates = 250
     ): array {
-        $frames = $payload['frames'] ?? [];
-        if (!is_array($frames) || $frames === []) {
+        $payloadContext = $this->buildPayloadContext($payload);
+
+        if ($payloadContext['frame_count'] <= 0) {
             return [
                 'best_result' => null,
                 'duplicate_match' => null,
@@ -31,62 +32,29 @@ class VideoDuplicateDetectionService
             ];
         }
 
-        $durationSeconds = (float) ($payload['duration_seconds'] ?? 0);
-        $fileSizeBytes = (int) ($payload['file_size_bytes'] ?? 0);
-
-        $prefixes = [];
-        foreach ($frames as $frame) {
-            $prefix = (string) ($frame['dhash_prefix'] ?? '');
-            if ($prefix !== '') {
-                $prefixes[] = $prefix;
-            }
-        }
-        $prefixes = array_values(array_unique($prefixes));
-
-        $payloadFramesByOrder = [];
-        foreach ($frames as $frame) {
-            $payloadFramesByOrder[(int) $frame['capture_order']] = $frame;
-        }
-
-        if ($prefixes === []) {
+        if ($payloadContext['prefixes'] === []) {
             return [
                 'best_result' => null,
                 'duplicate_match' => null,
                 'candidate_count' => 0,
-                'payload_frame_count' => count($payloadFramesByOrder),
+                'payload_frame_count' => $payloadContext['frame_count'],
                 'requested_min_match' => max(1, $minMatch),
             ];
         }
 
-        $candidateIds = VideoFeatureFrame::query()
-            ->select('video_feature_frames.video_feature_id')
-            ->join('video_features', 'video_features.id', '=', 'video_feature_frames.video_feature_id')
-            ->whereIn('video_feature_frames.dhash_prefix', $prefixes)
-            ->whereBetween('video_features.duration_seconds', [
-                max(0, $durationSeconds - max(0, $windowSeconds)),
-                $durationSeconds + max(0, $windowSeconds),
-            ])
-            ->when($fileSizeBytes > 0, function ($query) use ($fileSizeBytes, $sizePercent) {
-                $ratio = max(0, min(90, $sizePercent)) / 100;
-                $minSize = (int) floor($fileSizeBytes * (1 - $ratio));
-                $maxSize = (int) ceil($fileSizeBytes * (1 + $ratio));
-
-                $query->whereBetween('video_features.file_size_bytes', [$minSize, $maxSize]);
-            })
-            ->groupBy('video_feature_frames.video_feature_id')
-            ->orderByRaw('COUNT(*) DESC')
-            ->orderByRaw('ABS(CAST(video_features.duration_seconds AS DECIMAL(10,3)) - ?) ASC', [$durationSeconds])
-            ->orderByRaw('ABS(CAST(video_features.file_size_bytes AS SIGNED) - ?) ASC', [$fileSizeBytes])
-            ->limit(max(1, $maxCandidates))
-            ->pluck('video_feature_frames.video_feature_id')
-            ->all();
+        $candidateIds = $this->collectCandidateIds(
+            $payloadContext,
+            $windowSeconds,
+            $sizePercent,
+            $maxCandidates
+        );
 
         if ($candidateIds === []) {
             return [
                 'best_result' => null,
                 'duplicate_match' => null,
                 'candidate_count' => 0,
-                'payload_frame_count' => count($payloadFramesByOrder),
+                'payload_frame_count' => $payloadContext['frame_count'],
                 'requested_min_match' => max(1, $minMatch),
             ];
         }
@@ -101,10 +69,10 @@ class VideoDuplicateDetectionService
 
         foreach ($candidates as $candidate) {
             $candidateResult = $this->comparePayloadToFeature(
-                $payloadFramesByOrder,
+                $payloadContext['frames_by_order'],
                 $candidate,
-                $durationSeconds,
-                $fileSizeBytes,
+                $payloadContext['duration_seconds'],
+                $payloadContext['file_size_bytes'],
                 $thresholdPercent,
                 $minMatch
             );
@@ -129,7 +97,51 @@ class VideoDuplicateDetectionService
             'best_result' => $bestResult,
             'duplicate_match' => $bestQualifiedResult,
             'candidate_count' => count($candidateIds),
-            'payload_frame_count' => count($payloadFramesByOrder),
+            'payload_frame_count' => $payloadContext['frame_count'],
+            'requested_min_match' => max(1, $minMatch),
+        ];
+    }
+
+    public function analyzeSpecificFeatureMatch(
+        array $payload,
+        VideoFeature $feature,
+        int $thresholdPercent = 90,
+        int $minMatch = 2,
+        int $windowSeconds = 3,
+        int $sizePercent = 15
+    ): array {
+        $payloadContext = $this->buildPayloadContext($payload);
+
+        $feature->loadMissing(['frames', 'videoMaster']);
+
+        $candidateGate = $this->buildCandidateGateSummary(
+            $payloadContext,
+            $feature,
+            $windowSeconds,
+            $sizePercent
+        );
+
+        $compareResult = null;
+        if ($payloadContext['frame_count'] > 0) {
+            $compareResult = $this->comparePayloadToFeature(
+                $payloadContext['frames_by_order'],
+                $feature,
+                $payloadContext['duration_seconds'],
+                $payloadContext['file_size_bytes'],
+                $thresholdPercent,
+                $minMatch
+            );
+        }
+
+        return [
+            'feature' => $feature,
+            'candidate_gate' => $candidateGate,
+            'compare_result' => $compareResult,
+            'best_result' => $compareResult,
+            'duplicate_match' => is_array($compareResult) && ($compareResult['passes_threshold'] ?? false)
+                ? $compareResult
+                : null,
+            'payload_frame_count' => $payloadContext['frame_count'],
             'requested_min_match' => max(1, $minMatch),
         ];
     }
@@ -228,6 +240,154 @@ class VideoDuplicateDetectionService
             'score' => ($matchedFrames * 1000) + $avgSimilarity,
             'duration_delta_seconds' => $durationDelta,
             'file_size_delta_bytes' => $fileSizeDelta,
+        ];
+    }
+
+    private function buildPayloadContext(array $payload): array
+    {
+        $frames = $payload['frames'] ?? [];
+        if (!is_array($frames)) {
+            $frames = [];
+        }
+
+        $payloadFramesByOrder = [];
+        $prefixes = [];
+
+        foreach ($frames as $frame) {
+            $captureOrder = (int) ($frame['capture_order'] ?? 0);
+            if ($captureOrder > 0) {
+                $payloadFramesByOrder[$captureOrder] = $frame;
+            }
+
+            $prefix = (string) ($frame['dhash_prefix'] ?? '');
+            if ($prefix !== '') {
+                $prefixes[] = $prefix;
+            }
+        }
+
+        return [
+            'frames_by_order' => $payloadFramesByOrder,
+            'frame_count' => count($payloadFramesByOrder),
+            'prefixes' => array_values(array_unique($prefixes)),
+            'duration_seconds' => (float) ($payload['duration_seconds'] ?? 0),
+            'file_size_bytes' => (int) ($payload['file_size_bytes'] ?? 0),
+        ];
+    }
+
+    private function collectCandidateIds(
+        array $payloadContext,
+        int $windowSeconds,
+        int $sizePercent,
+        int $maxCandidates
+    ): array {
+        return VideoFeatureFrame::query()
+            ->select('video_feature_frames.video_feature_id')
+            ->join('video_features', 'video_features.id', '=', 'video_feature_frames.video_feature_id')
+            ->whereIn('video_feature_frames.dhash_prefix', $payloadContext['prefixes'])
+            ->whereBetween('video_features.duration_seconds', [
+                max(0, $payloadContext['duration_seconds'] - max(0, $windowSeconds)),
+                $payloadContext['duration_seconds'] + max(0, $windowSeconds),
+            ])
+            ->when($payloadContext['file_size_bytes'] > 0, function ($query) use ($payloadContext, $sizePercent) {
+                $ratio = max(0, min(90, $sizePercent)) / 100;
+                $minSize = (int) floor($payloadContext['file_size_bytes'] * (1 - $ratio));
+                $maxSize = (int) ceil($payloadContext['file_size_bytes'] * (1 + $ratio));
+
+                $query->whereBetween('video_features.file_size_bytes', [$minSize, $maxSize]);
+            })
+            ->groupBy('video_feature_frames.video_feature_id')
+            ->orderByRaw('COUNT(*) DESC')
+            ->orderByRaw(
+                'ABS(CAST(video_features.duration_seconds AS DECIMAL(10,3)) - ?) ASC',
+                [$payloadContext['duration_seconds']]
+            )
+            ->orderByRaw(
+                'ABS(CAST(video_features.file_size_bytes AS SIGNED) - ?) ASC',
+                [$payloadContext['file_size_bytes']]
+            )
+            ->limit(max(1, $maxCandidates))
+            ->pluck('video_feature_frames.video_feature_id')
+            ->all();
+    }
+
+    private function buildCandidateGateSummary(
+        array $payloadContext,
+        VideoFeature $feature,
+        int $windowSeconds,
+        int $sizePercent
+    ): array {
+        $featurePrefixes = [];
+        foreach ($feature->frames as $frame) {
+            $prefix = trim((string) ($frame->dhash_prefix ?? ''));
+            if ($prefix !== '') {
+                $featurePrefixes[] = $prefix;
+            }
+        }
+
+        $featurePrefixes = array_values(array_unique($featurePrefixes));
+        $sharedPrefixes = array_values(array_intersect($payloadContext['prefixes'], $featurePrefixes));
+
+        $durationMin = max(0, $payloadContext['duration_seconds'] - max(0, $windowSeconds));
+        $durationMax = $payloadContext['duration_seconds'] + max(0, $windowSeconds);
+        $featureDuration = $feature->duration_seconds !== null ? (float) $feature->duration_seconds : null;
+        $durationWithinWindow = $featureDuration !== null
+            ? $featureDuration >= $durationMin && $featureDuration <= $durationMax
+            : false;
+
+        $sizeFilterApplied = $payloadContext['file_size_bytes'] > 0;
+        $sizeWindowMin = null;
+        $sizeWindowMax = null;
+        $featureFileSize = $feature->file_size_bytes !== null ? (int) $feature->file_size_bytes : null;
+        $fileSizeDelta = $featureFileSize !== null && $payloadContext['file_size_bytes'] > 0
+            ? abs($featureFileSize - $payloadContext['file_size_bytes'])
+            : null;
+
+        if ($sizeFilterApplied) {
+            $ratio = max(0, min(90, $sizePercent)) / 100;
+            $sizeWindowMin = (int) floor($payloadContext['file_size_bytes'] * (1 - $ratio));
+            $sizeWindowMax = (int) ceil($payloadContext['file_size_bytes'] * (1 + $ratio));
+            $sizeWithinWindow = $featureFileSize !== null
+                ? $featureFileSize >= $sizeWindowMin && $featureFileSize <= $sizeWindowMax
+                : false;
+        } else {
+            $sizeWithinWindow = true;
+        }
+
+        $prefixEligible = $payloadContext['prefixes'] !== [] && $sharedPrefixes !== [];
+        $eligible = $prefixEligible && $durationWithinWindow && $sizeWithinWindow;
+
+        $reasons = [];
+        if ($payloadContext['prefixes'] === []) {
+            $reasons[] = '來源影片沒有可用的 dHash prefix。';
+        } elseif ($sharedPrefixes === []) {
+            $reasons[] = '來源影片與指定 feature 沒有任何相同的 dHash prefix。';
+        }
+
+        if (!$durationWithinWindow) {
+            $reasons[] = '時長不在正式流程的 window 範圍內。';
+        }
+
+        if ($sizeFilterApplied && !$sizeWithinWindow) {
+            $reasons[] = '檔案大小不在正式流程的 size percent 範圍內。';
+        }
+
+        return [
+            'eligible' => $eligible,
+            'payload_prefixes' => $payloadContext['prefixes'],
+            'feature_prefixes' => $featurePrefixes,
+            'shared_prefixes' => $sharedPrefixes,
+            'duration_within_window' => $durationWithinWindow,
+            'duration_window_min' => round($durationMin, 3),
+            'duration_window_max' => round($durationMax, 3),
+            'duration_delta_seconds' => $featureDuration !== null
+                ? round(abs($featureDuration - $payloadContext['duration_seconds']), 3)
+                : null,
+            'size_filter_applied' => $sizeFilterApplied,
+            'size_within_window' => $sizeWithinWindow,
+            'size_window_min' => $sizeWindowMin,
+            'size_window_max' => $sizeWindowMax,
+            'file_size_delta_bytes' => $fileSizeDelta,
+            'reasons' => $reasons,
         ];
     }
 }

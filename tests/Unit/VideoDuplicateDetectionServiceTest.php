@@ -178,4 +178,58 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         $this->assertSame(1, $analysis['best_result']['required_matches']);
         $this->assertFalse($analysis['best_result']['passes_threshold']);
     }
+
+    public function test_specific_feature_analysis_can_show_forced_match_but_official_gate_blocks_it(): void
+    {
+        DB::table('video_master')->insert([
+            'id' => 103,
+            'video_name' => 'size-blocked.mp4',
+            'video_path' => '\\size-blocked.mp4',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $feature = VideoFeature::query()->create([
+            'video_master_id' => 103,
+            'video_name' => 'size-blocked.mp4',
+            'video_path' => '\\size-blocked.mp4',
+            'file_name' => 'size-blocked.mp4',
+            'file_size_bytes' => 5000,
+            'duration_seconds' => 8.000,
+            'screenshot_count' => 1,
+            'capture_rule' => 'lt_10s_at_3s',
+            'feature_version' => 'v1',
+        ]);
+
+        VideoFeatureFrame::query()->create([
+            'video_feature_id' => $feature->id,
+            'capture_order' => 1,
+            'capture_second' => 3.000,
+            'screenshot_path' => '\\size_blocked_feature_01.jpg',
+            'dhash_hex' => '0011223344556677',
+            'dhash_prefix' => '00',
+            'frame_sha1' => str_repeat('e', 40),
+        ]);
+
+        $payload = [
+            'duration_seconds' => 8.000,
+            'file_size_bytes' => 1000,
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 3.000,
+                'dhash_hex' => '0011223344556677',
+                'dhash_prefix' => '00',
+                'frame_sha1' => str_repeat('f', 40),
+            ]],
+        ];
+
+        $service = new VideoDuplicateDetectionService(new VideoFeatureExtractionService());
+        $analysis = $service->analyzeSpecificFeatureMatch($payload, $feature, 90, 2, 3, 15);
+
+        $this->assertFalse($analysis['candidate_gate']['eligible']);
+        $this->assertFalse($analysis['candidate_gate']['size_within_window']);
+        $this->assertNotNull($analysis['compare_result']);
+        $this->assertTrue($analysis['compare_result']['passes_threshold']);
+        $this->assertNotNull($analysis['duplicate_match']);
+    }
 }

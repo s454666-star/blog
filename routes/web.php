@@ -18,7 +18,6 @@ use App\Http\Controllers\PdfController;
 use App\Http\Controllers\PdfController2;
 use App\Http\Controllers\StaticProxyController;
     use App\Http\Controllers\TdlCommandController;
-    use App\Http\Controllers\TelegramController;
     use App\Http\Controllers\TelegramWebhookController;
     use App\Http\Controllers\TestImageController;
     use App\Http\Controllers\UploadStorageController;
@@ -76,12 +75,8 @@ Route::get('/dashboard', function () {
 })->middleware('auth')->name('dashboard');
 
 Route::get('/login', function () {
-    return view('telegramLogin');
+    return redirect()->route('home');
 })->name('login');
-
-// Telegram 相關路由
-Route::get('/get-chat-list', [ TelegramController::class, 'getChatList' ])->name('telegram.chat-list');
-Route::post('/telegram/auth', [ TelegramController::class, 'authenticate' ])->name('telegram.auth');
 
 // 博客相關路由
 Route::prefix('blog')->group(function () {

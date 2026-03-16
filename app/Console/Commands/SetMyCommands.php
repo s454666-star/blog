@@ -2,8 +2,8 @@
 
     namespace App\Console\Commands;
 
-    use Illuminate\Console\Command;
     use GuzzleHttp\Client;
+    use Illuminate\Console\Command;
 
     class SetMyCommands extends Command
     {
@@ -56,7 +56,6 @@
 
                 $this->error('Failed to set commands: ' . json_encode($data));
                 return self::FAILURE;
-
             } catch (\Exception $e) {
                 $this->error('Error calling Telegram API: ' . $e->getMessage());
                 return self::FAILURE;

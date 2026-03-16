@@ -6,6 +6,10 @@
 
     class Order extends Model
     {
+        protected $casts = [
+            'order_date' => 'datetime',
+        ];
+
         protected $fillable = [
             'member_id',
             'order_number',
@@ -67,9 +71,4 @@
         {
             return $this->deliveryAddress ?? $this->member->defaultDeliveryAddress ?? $this->member->deliveryAddresses()->first();
         }
-
-
-        protected $dates = [
-            'order_date',
-        ];
     }

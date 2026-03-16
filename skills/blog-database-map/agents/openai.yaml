@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blog Database Map"
+  short_description: "Schema and code usage map for C:\\www\\blog"
+  default_prompt: "Use $blog-database-map to inspect the current C:\\www\\blog database schema and code usage before making data-layer changes."

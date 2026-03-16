@@ -92,13 +92,14 @@
 
         .hero,
         .toolbar,
-        .match-card{
+        .match-card,
+        .section-shell{
             backdrop-filter:blur(16px);
         }
 
         .hero{
             display:grid;
-            grid-template-columns:1.5fr 1fr;
+            grid-template-columns:1.45fr 1fr;
             gap:18px;
             padding:22px;
             border:1px solid var(--line);
@@ -152,7 +153,7 @@
 
         .stat-grid{
             display:grid;
-            grid-template-columns:repeat(3, minmax(0,1fr));
+            grid-template-columns:repeat(2, minmax(0,1fr));
             gap:12px;
         }
 
@@ -170,7 +171,7 @@
         }
 
         .stat-value{
-            font-size:1.5rem;
+            font-size:1.4rem;
             font-weight:800;
         }
 
@@ -248,6 +249,50 @@
             box-shadow:0 14px 30px rgba(221,107,123,.24);
         }
 
+        .section-stack{
+            display:grid;
+            gap:22px;
+            margin-top:22px;
+        }
+
+        .section-shell{
+            padding:20px;
+            border-radius:var(--radius-xl);
+            border:1px solid var(--line);
+            background:linear-gradient(180deg, rgba(255,255,255,.92), rgba(255,255,255,.78));
+            box-shadow:var(--shadow);
+            animation:riseIn .4s ease;
+        }
+
+        .section-head{
+            display:flex;
+            justify-content:space-between;
+            gap:18px;
+            align-items:flex-end;
+            flex-wrap:wrap;
+            margin-bottom:18px;
+        }
+
+        .section-kicker{
+            margin:0 0 8px;
+            color:#4a7799;
+            font-size:.78rem;
+            font-weight:700;
+            letter-spacing:.08em;
+            text-transform:uppercase;
+        }
+
+        .section-head h2{
+            margin:0;
+            font-size:1.5rem;
+        }
+
+        .section-copy{
+            margin:8px 0 0;
+            color:var(--muted);
+            line-height:1.7;
+        }
+
         .toolbar{
             position:sticky;
             top:14px;
@@ -256,7 +301,6 @@
             justify-content:space-between;
             align-items:center;
             gap:14px;
-            margin-top:18px;
             margin-bottom:18px;
             padding:14px 18px;
             border-radius:22px;
@@ -572,7 +616,7 @@
         }
 
         .empty{
-            padding:56px 18px;
+            padding:40px 18px;
             text-align:center;
             border-radius:28px;
             border:1px dashed rgba(93,156,236,.24);
@@ -628,50 +672,36 @@
             .toolbar{padding:14px}
             .match-card{padding:18px}
         }
-</style>
+    </style>
 </head>
 <body>
-@php
-    $humanBytes = function ($bytes) {
-        $bytes = (int) ($bytes ?? 0);
-        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        $i = 0;
-        $size = (float) $bytes;
-
-        while ($size >= 1024.0 && $i < count($units) - 1) {
-            $size /= 1024.0;
-            $i++;
-        }
-
-        return $i === 0
-            ? $bytes . ' ' . $units[$i]
-            : number_format($size, 2) . ' ' . $units[$i];
-    };
-@endphp
-
 <div class="page">
     <section class="hero">
         <div class="hero-title">
             <span class="eyebrow">External Duplicate Review</span>
             <h1>外部重複影片審核板</h1>
             <p class="lead">
-                這裡只顯示外部掃描進來後，被判定與 DB 影片重複的檔案。卡片會直接把外部影片、DB 影片和 4 張截圖逐張對照，方便快速確認是否真的該刪。
+                上半部保留「實際被判成重複並搬走」的結果，下半部顯示所有跑過的比對 log。新的比對 log 會把雙方截圖與特徵直接用 base64 存進資料庫，不再額外落地到本機。
             </p>
         </div>
 
         <div class="hero-side">
             <div class="stat-grid">
                 <div class="stat">
-                    <div class="stat-label">符合條件資料</div>
-                    <div class="stat-value">{{ number_format((int) ($stats['total_matches'] ?? 0)) }}</div>
+                    <div class="stat-label">重複結果總數</div>
+                    <div class="stat-value">{{ number_format((int) ($stats['duplicate_count'] ?? 0)) }}</div>
                 </div>
                 <div class="stat">
-                    <div class="stat-label">目前頁面仍存在檔案</div>
-                    <div class="stat-value">{{ number_format((int) ($stats['existing_on_page'] ?? 0)) }}</div>
+                    <div class="stat-label">本頁仍存在檔案</div>
+                    <div class="stat-value">{{ number_format((int) ($stats['duplicates_existing_on_page'] ?? 0)) }}</div>
                 </div>
                 <div class="stat">
-                    <div class="stat-label">平均相似度</div>
-                    <div class="stat-value">{{ number_format((float) ($stats['average_similarity'] ?? 0), 2) }}%</div>
+                    <div class="stat-label">所有 log 總數</div>
+                    <div class="stat-value">{{ number_format((int) ($stats['log_count'] ?? 0)) }}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">log 平均相似度</div>
+                    <div class="stat-value">{{ number_format((float) ($stats['log_average_similarity'] ?? 0), 2) }}%</div>
                 </div>
             </div>
 
@@ -682,7 +712,7 @@
                         type="text"
                         name="q"
                         value="{{ $q }}"
-                        placeholder="搜尋檔名、來源路徑、疑似重複路徑、DB 影片名稱"
+                        placeholder="搜尋檔名、來源路徑、疑似重複路徑、DB 影片名稱、狀態"
                     >
                     <button class="btn btn-primary" type="submit">搜尋</button>
                     @if ($q !== '')
@@ -693,369 +723,227 @@
         </div>
     </section>
 
-    <section class="toolbar">
-        <div class="toolbar-left">
-            <label class="selection-chip">
-                <input id="toggle-all" type="checkbox">
-                <strong>全選本頁</strong>
-            </label>
-            <span class="selection-chip">已勾選 <strong id="selected-count">0</strong> 筆</span>
-        </div>
+    <div class="section-stack">
+        <section class="section-shell">
+            <div class="section-head">
+                <div>
+                    <p class="section-kicker">Moved Duplicates</p>
+                    <h2>有重複的結果</h2>
+                    <p class="section-copy">這一區只放真正命中門檻、且已搬到「疑似重複檔案」資料夾的資料。可直接在這裡做人工確認與批次刪除。</p>
+                </div>
+                <span class="selection-chip">平均相似度 <strong>{{ number_format((float) ($stats['duplicate_average_similarity'] ?? 0), 2) }}%</strong></span>
+            </div>
 
-        <div class="toolbar-right">
-            <span class="selection-chip">批次刪除只會動到 <strong>疑似重複檔案</strong> 裡面的外部影片</span>
-            <button id="batch-delete-btn" class="btn btn-danger" type="button" disabled>刪除勾選影片</button>
-        </div>
-    </section>
+            @if ($duplicateMatches->count() > 0)
+                <section class="toolbar">
+                    <div class="toolbar-left">
+                        <label class="selection-chip">
+                            <input id="toggle-all" type="checkbox">
+                            <strong>全選本頁</strong>
+                        </label>
+                        <span class="selection-chip">已勾選 <strong id="selected-count">0</strong> 筆</span>
+                    </div>
 
-    @if ($matches->count() === 0)
-        <section class="empty">
-            <h2>目前沒有可審核的外部重複影片</h2>
-            <p>先跑 `php artisan video:move-duplicates "D:\incoming"`，命中重複後才會出現在這裡。</p>
+                    <div class="toolbar-right">
+                        <span class="selection-chip">批次刪除只會動到 <strong>疑似重複檔案</strong> 裡面的外部影片</span>
+                        <button id="batch-delete-btn" class="btn btn-danger" type="button" disabled>刪除勾選影片</button>
+                    </div>
+                </section>
+
+                <section class="matches">
+                    @foreach ($duplicateMatches as $entry)
+                        @include('videos.external-duplicates._comparison-card', ['entry' => $entry, 'showCheckbox' => true])
+                    @endforeach
+                </section>
+
+                <div class="footer-pager">
+                    @if ($duplicateMatches->previousPageUrl())
+                        <a class="btn btn-soft" href="{{ $duplicateMatches->previousPageUrl() }}">上一頁</a>
+                    @endif
+
+                    <span class="pager-text">
+                        重複結果 第 {{ $duplicateMatches->currentPage() }} / {{ $duplicateMatches->lastPage() }} 頁，共 {{ number_format($duplicateMatches->total()) }} 筆
+                    </span>
+
+                    @if ($duplicateMatches->nextPageUrl())
+                        <a class="btn btn-soft" href="{{ $duplicateMatches->nextPageUrl() }}">下一頁</a>
+                    @endif
+                </div>
+            @else
+                <section class="empty">
+                    <h2>目前沒有已搬移的重複結果</h2>
+                    <p>先跑 `php artisan video:move-duplicates "D:\incoming"`，命中且搬移成功後才會出現在這裡。</p>
+                </section>
+            @endif
         </section>
-    @else
-        <section class="matches">
-            @foreach ($matches as $match)
-                @php
-                    $feature = $match->matchedFeature;
-                    $dbFrames = $feature?->frames?->keyBy('capture_order') ?? collect();
-                    $toneClass = 'soft';
-                    $similarityValue = (float) ($match->similarity_percent ?? 0);
 
-                    if ($similarityValue >= 95) {
-                        $toneClass = 'excellent';
-                    } elseif ($similarityValue >= 90) {
-                        $toneClass = 'good';
-                    } elseif ($similarityValue >= 80) {
-                        $toneClass = 'warn';
-                    }
-                @endphp
-                <article class="match-card" data-match-id="{{ $match->id }}">
-                    <div class="match-head">
-                        <div class="match-title">
-                            <input class="match-checkbox" data-match-checkbox type="checkbox" value="{{ $match->id }}">
-                            <div>
-                                <h2 class="match-name">{{ $match->file_name }}</h2>
-                                <div class="match-subtitle">{{ $match->source_file_path }}</div>
-                            </div>
-                        </div>
+        <section class="section-shell">
+            <div class="section-head">
+                <div>
+                    <p class="section-kicker">All Comparison Logs</p>
+                    <h2>所有跑過的 log 相似度比對</h2>
+                    <p class="section-copy">這裡會保留每次比對的結果，包含沒過門檻、dry-run、同路徑略過和錯誤案例，方便回頭檢查單張截圖與整體判定。</p>
+                </div>
+                <span class="selection-chip">目前共 <strong>{{ number_format((int) ($stats['log_count'] ?? 0)) }}</strong> 筆 log</span>
+            </div>
 
-                        <div class="match-head-right">
-                            <span class="tone-chip {{ $toneClass }}"><strong>{{ number_format($similarityValue, 2) }}%</strong> 總相似度</span>
-                            <span class="tone-chip"><strong>{{ (int) $match->matched_frames }}/{{ (int) $match->compared_frames }}</strong> 命中張數</span>
-                            @if (!$match->duplicate_file_exists)
-                                <span class="tone-chip bad"><strong>檔案已不存在</strong></span>
-                            @endif
-                        </div>
-                    </div>
+            @if ($comparisonLogs->count() > 0)
+                <section class="matches">
+                    @foreach ($comparisonLogs as $entry)
+                        @include('videos.external-duplicates._comparison-card', ['entry' => $entry, 'showCheckbox' => false])
+                    @endforeach
+                </section>
 
-                    <div class="compare-panels">
-                        <section class="panel">
-                            <div class="panel-head">
-                                <div class="panel-title">
-                                    <strong>外部疑似重複檔</strong>
-                                    <span>目前位於：{{ $match->duplicate_directory_path }}</span>
-                                </div>
-                            </div>
+                <div class="footer-pager">
+                    @if ($comparisonLogs->previousPageUrl())
+                        <a class="btn btn-soft" href="{{ $comparisonLogs->previousPageUrl() }}">上一頁</a>
+                    @endif
 
-                            <div class="video-box">
-                                @if ($match->duplicate_file_exists)
-                                    <video controls preload="metadata" playsinline>
-                                        <source src="{{ $match->external_stream_url }}">
-                                    </video>
-                                @else
-                                    <div class="video-fallback">
-                                        找不到外部影片檔案。<br>
-                                        仍可用下方截圖與 DB 影片做人工確認。
-                                    </div>
-                                @endif
-                            </div>
+                    <span class="pager-text">
+                        log 第 {{ $comparisonLogs->currentPage() }} / {{ $comparisonLogs->lastPage() }} 頁，共 {{ number_format($comparisonLogs->total()) }} 筆
+                    </span>
 
-                            <div class="meta-grid">
-                                <div class="meta">
-                                    <div class="meta-label">外部檔名</div>
-                                    <div class="meta-value">{{ $match->file_name }}</div>
-                                </div>
-                                <div class="meta">
-                                    <div class="meta-label">時長 / 大小</div>
-                                    <div class="meta-value">{{ $match->duration_hms }} / {{ $match->file_size_human }}</div>
-                                </div>
-                                <div class="meta">
-                                    <div class="meta-label">來源建立時間</div>
-                                    <div class="meta-value">{{ $match->file_created_at_human }}</div>
-                                </div>
-                                <div class="meta">
-                                    <div class="meta-label">來源修改時間</div>
-                                    <div class="meta-value">{{ $match->file_modified_at_human }}</div>
-                                </div>
-                                <div class="meta" style="grid-column:1 / -1;">
-                                    <div class="meta-label">目前疑似重複路徑</div>
-                                    <div class="meta-value">{{ $match->duplicate_file_path }}</div>
-                                </div>
-                            </div>
-                        </section>
+                    @if ($comparisonLogs->nextPageUrl())
+                        <a class="btn btn-soft" href="{{ $comparisonLogs->nextPageUrl() }}">下一頁</a>
+                    @endif
+                </div>
+            @else
+                <section class="empty">
+                    <h2>目前還沒有比對 log</h2>
+                    <p>執行 `php artisan video:move-duplicates` 後，所有比對結果都會在這裡留下紀錄。</p>
+                </section>
+            @endif
+        </section>
+    </div>
+</div>
 
-                        <section class="panel">
-                            <div class="panel-head">
-                                <div class="panel-title">
-                                    <strong>
-                                        DB 影片
-                                        @if ($match->videoMaster)
-                                            #{{ $match->videoMaster->id }} {{ $match->videoMaster->video_name }}
-                                        @else
-                                            已不存在
-                                        @endif
-                                    </strong>
-                                    <span>
-                                        @if ($match->videoMaster)
-                                            feature #{{ $feature?->id ?? '-' }}
-                                        @else
-                                            對應的 DB 影片或 feature 已被刪除
-                                        @endif
-                                    </span>
-                                </div>
+<div id="toast" class="toast"></div>
 
-                                @if ($match->db_video_page_url)
-                                    <a class="btn btn-soft" href="{{ $match->db_video_page_url }}" target="_blank" rel="noreferrer">打開 DB 影片頁</a>
-                                @endif
-                            </div>
+<script>
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    const toggleAll = document.getElementById('toggle-all');
+    const selectedCountEl = document.getElementById('selected-count');
+    const batchDeleteBtn = document.getElementById('batch-delete-btn');
+    const toastEl = document.getElementById('toast');
 
-                            <div class="video-box">
-                                @if ($match->db_video_url)
-                                    <video controls preload="metadata" playsinline>
-                                        <source src="{{ $match->db_video_url }}">
-                                    </video>
-                                @else
-                                    <div class="video-fallback">
-                                        找不到 DB 影片或對應播放路徑。<br>
-                                        仍可用下方 DB 截圖確認。
-                                    </div>
-                                @endif
-                            </div>
+    function getCheckboxes() {
+        return Array.from(document.querySelectorAll('[data-match-checkbox]'));
+    }
 
-                            <div class="meta-grid">
-                                <div class="meta">
-                                    <div class="meta-label">DB 影片名稱</div>
-                                    <div class="meta-value">{{ $match->videoMaster?->video_name ?? '-' }}</div>
-                                </div>
-                                <div class="meta">
-                                    <div class="meta-label">DB 時長 / 大小</div>
-                                    <div class="meta-value">
-                                        {{ $feature ? gmdate('H:i:s', (int) round((float) $feature->duration_seconds)) : '-' }}
-                                        /
-                                        {{ $feature ? $humanBytes($feature->file_size_bytes) : '-' }}
-                                    </div>
-                                </div>
-                                <div class="meta">
-                                    <div class="meta-label">相差秒數</div>
-                                    <div class="meta-value">{{ $match->duration_delta_seconds !== null ? number_format((float) $match->duration_delta_seconds, 3) . ' 秒' : '-' }}</div>
-                                </div>
-                                <div class="meta">
-                                    <div class="meta-label">相差大小</div>
-                                    <div class="meta-value">{{ $match->file_size_delta_bytes !== null ? $humanBytes(abs((int) $match->file_size_delta_bytes)) : '-' }}</div>
-                                </div>
-                                <div class="meta" style="grid-column:1 / -1;">
-                                    <div class="meta-label">DB 影片路徑</div>
-                                    <div class="meta-value">{{ $match->videoMaster?->video_path ?? '-' }}</div>
-                                </div>
-                            </div>
-                        </section>
-                    </div>
+    function getSelectedIds() {
+        return getCheckboxes()
+            .filter((checkbox) => checkbox.checked)
+            .map((checkbox) => Number(checkbox.value))
+            .filter((value) => Number.isInteger(value) && value > 0);
+    }
 
-	                    <section class="compare-strip">
-	                        <div class="strip-head">
-	                            <div>
-	                                <h2>逐張截圖對照</h2>
-	                                <p>左邊是外部檔案截圖，右邊是 DB 已存在影片的對應 frame。</p>
-	                            </div>
-	                            <span class="selection-chip">門檻 <strong>{{ (int) $match->threshold_percent }}%</strong></span>
-	                        </div>
-	                        @foreach ($match->frames as $frame)
-	                            @php
-	                                $dbFrame = $frame->comparison_frame ?? $dbFrames->get((int) $frame->capture_order);
-	                                $similarity = $frame->similarity_percent;
-	                                $tone = $frame->similarity_tone ?? 'soft';
-	                            @endphp
-	                            <div class="frame-row">
-	                                <figure class="frame-figure">
-	                                    @if ($frame->external_image_url)
-	                                        <img src="{{ $frame->external_image_url }}" alt="外部截圖 {{ $frame->capture_order }}">
-	                                    @else
-	                                        <div class="missing-box">找不到外部截圖</div>
-	                                    @endif
-	                                    <figcaption class="frame-caption">
-	                                        <span>外部截圖 #{{ $frame->capture_order }}</span>
-	                                        <span>{{ number_format((float) $frame->capture_second, 3) }} 秒</span>
-	                                    </figcaption>
-	                                </figure>
+    function syncSelectionState() {
+        const checkboxes = getCheckboxes();
+        const selectedIds = getSelectedIds();
 
-	                                <div class="frame-center">
-	                                    <div class="score-ring">
-	                                        {{ $similarity !== null ? (int) $similarity . '%' : '--' }}
-	                                    </div>
-	                                    <span class="tone-chip {{ $tone }}">
-	                                        <strong>{{ $frame->is_threshold_match ? '達門檻' : '未達門檻' }}</strong>
-	                                    </span>
-	                                    <div class="score-label">
-	                                        比對截圖 #{{ $frame->capture_order }}<br>
-	                                        {{ $similarity !== null ? '逐張 dHash 相似度 ' . (int) $similarity . '%' : '此張沒有可用相似度' }}
-	                                    </div>
-	                                </div>
+        if (selectedCountEl) {
+            selectedCountEl.textContent = String(selectedIds.length);
+        }
 
-	                                <figure class="frame-figure">
-	                                    @if ($frame->db_image_url)
-	                                        <img src="{{ $frame->db_image_url }}" alt="DB 截圖 {{ $frame->capture_order }}">
-	                                    @elseif ($dbFrame)
-	                                        <div class="missing-box">DB 截圖 URL 無法建立</div>
-	                                    @else
-	                                        <div class="missing-box">找不到對應 DB 截圖</div>
-	                                    @endif
-	                                    <figcaption class="frame-caption">
-	                                        <span>DB 截圖 #{{ $frame->capture_order }}</span>
-	                                        <span>
-	                                            @if ($dbFrame)
-	                                                {{ number_format((float) $dbFrame->capture_second, 3) }} 秒
-	                                            @else
-	                                                -
-	                                            @endif
-	                                        </span>
-	                                    </figcaption>
-	                                </figure>
-	                            </div>
-	                        @endforeach
-	                    </section>
-	                </article>
-	            @endforeach
-	        </section>
+        if (batchDeleteBtn) {
+            batchDeleteBtn.disabled = selectedIds.length === 0;
+        }
 
-	        <div class="footer-pager">
-	            @if ($matches->previousPageUrl())
-	                <a class="btn btn-soft" href="{{ $matches->previousPageUrl() }}">上一頁</a>
-	            @endif
+        if (!toggleAll) {
+            return;
+        }
 
-	            <span class="pager-text">
-	                第 {{ $matches->currentPage() }} / {{ $matches->lastPage() }} 頁，共 {{ number_format($matches->total()) }} 筆
-	            </span>
+        if (checkboxes.length === 0) {
+            toggleAll.checked = false;
+            toggleAll.indeterminate = false;
+            return;
+        }
 
-	            @if ($matches->nextPageUrl())
-	                <a class="btn btn-soft" href="{{ $matches->nextPageUrl() }}">下一頁</a>
-	            @endif
-	        </div>
-	    @endif
-	</div>
+        toggleAll.checked = selectedIds.length === checkboxes.length;
+        toggleAll.indeterminate = selectedIds.length > 0 && selectedIds.length < checkboxes.length;
+    }
 
-	<div id="toast" class="toast"></div>
+    function showToast(message) {
+        if (!toastEl) {
+            return;
+        }
 
-	<script>
-	    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-	    const toggleAll = document.getElementById('toggle-all');
-	    const selectedCountEl = document.getElementById('selected-count');
-	    const batchDeleteBtn = document.getElementById('batch-delete-btn');
-	    const toastEl = document.getElementById('toast');
+        toastEl.textContent = message;
+        toastEl.classList.add('show');
+        window.clearTimeout(showToast._timer);
+        showToast._timer = window.setTimeout(() => {
+            toastEl.classList.remove('show');
+        }, 2600);
+    }
 
-	    function getCheckboxes() {
-	        return Array.from(document.querySelectorAll('[data-match-checkbox]'));
-	    }
+    toggleAll?.addEventListener('change', () => {
+        const checked = toggleAll.checked;
+        getCheckboxes().forEach((checkbox) => {
+            checkbox.checked = checked;
+        });
+        syncSelectionState();
+    });
 
-	    function getSelectedIds() {
-	        return getCheckboxes()
-	            .filter((checkbox) => checkbox.checked)
-	            .map((checkbox) => Number(checkbox.value))
-	            .filter((value) => Number.isInteger(value) && value > 0);
-	    }
+    document.addEventListener('change', (event) => {
+        if (event.target instanceof HTMLInputElement && event.target.matches('[data-match-checkbox]')) {
+            syncSelectionState();
+        }
+    });
 
-	    function syncSelectionState() {
-	        const checkboxes = getCheckboxes();
-	        const selectedIds = getSelectedIds();
+    batchDeleteBtn?.addEventListener('click', async () => {
+        const ids = getSelectedIds();
+        if (ids.length === 0) {
+            return;
+        }
 
-	        selectedCountEl.textContent = String(selectedIds.length);
-	        batchDeleteBtn.disabled = selectedIds.length === 0;
+        if (!window.confirm(`確定要刪除已勾選的 ${ids.length} 支外部疑似重複影片嗎？`)) {
+            return;
+        }
 
-	        if (checkboxes.length === 0) {
-	            toggleAll.checked = false;
-	            toggleAll.indeterminate = false;
-	            return;
-	        }
+        batchDeleteBtn.disabled = true;
 
-	        toggleAll.checked = selectedIds.length === checkboxes.length;
-	        toggleAll.indeterminate = selectedIds.length > 0 && selectedIds.length < checkboxes.length;
-	    }
+        try {
+            const response = await fetch(@json(route('videos.external-duplicates.batch-delete')), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({ ids }),
+            });
 
-	    function showToast(message) {
-	        toastEl.textContent = message;
-	        toastEl.classList.add('show');
-	        window.clearTimeout(showToast._timer);
-	        showToast._timer = window.setTimeout(() => {
-	            toastEl.classList.remove('show');
-	        }, 2600);
-	    }
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload?.message || '批次刪除失敗');
+            }
 
-	    toggleAll?.addEventListener('change', () => {
-	        const checked = toggleAll.checked;
-	        getCheckboxes().forEach((checkbox) => {
-	            checkbox.checked = checked;
-	        });
-	        syncSelectionState();
-	    });
+            (payload.deleted_ids || []).forEach((id) => {
+                const card = document.querySelector(`[data-match-id="${id}"]`);
+                card?.remove();
+            });
 
-	    document.addEventListener('change', (event) => {
-	        if (event.target instanceof HTMLInputElement && event.target.matches('[data-match-checkbox]')) {
-	            syncSelectionState();
-	        }
-	    });
+            syncSelectionState();
+            showToast(payload.message || '刪除完成');
 
-	    batchDeleteBtn?.addEventListener('click', async () => {
-	        const ids = getSelectedIds();
-	        if (ids.length === 0) {
-	            return;
-	        }
+            if ((payload.failed || []).length > 0) {
+                showToast((payload.failed || []).map((item) => `#${item.id} ${item.message}`).join(' / '));
+            }
 
-	        if (!window.confirm(`確定要刪除已勾選的 ${ids.length} 支外部疑似重複影片嗎？`)) {
-	            return;
-	        }
+            if (document.querySelectorAll('[data-match-id]').length === 0) {
+                window.location.reload();
+            }
+        } catch (error) {
+            showToast(error instanceof Error ? error.message : '批次刪除失敗');
+            syncSelectionState();
+        } finally {
+            if (batchDeleteBtn) {
+                batchDeleteBtn.disabled = getSelectedIds().length === 0;
+            }
+        }
+    });
 
-	        batchDeleteBtn.disabled = true;
-
-	        try {
-	            const response = await fetch(@json(route('videos.external-duplicates.batch-delete')), {
-	                method: 'POST',
-	                headers: {
-	                    'Content-Type': 'application/json',
-	                    'X-CSRF-TOKEN': csrfToken,
-	                    'Accept': 'application/json',
-	                },
-	                body: JSON.stringify({ ids }),
-	            });
-
-	            const payload = await response.json();
-	            if (!response.ok) {
-	                throw new Error(payload?.message || '批次刪除失敗');
-	            }
-
-	            (payload.deleted_ids || []).forEach((id) => {
-	                const card = document.querySelector(`[data-match-id="${id}"]`);
-	                card?.remove();
-	            });
-
-	            syncSelectionState();
-	            showToast(payload.message || '刪除完成');
-
-	            if ((payload.failed || []).length > 0) {
-	                showToast((payload.failed || []).map((item) => `#${item.id} ${item.message}`).join(' / '));
-	            }
-
-	            if (document.querySelectorAll('[data-match-id]').length === 0) {
-	                window.location.reload();
-	            }
-	        } catch (error) {
-	            showToast(error instanceof Error ? error.message : '批次刪除失敗');
-	            syncSelectionState();
-	        } finally {
-	            batchDeleteBtn.disabled = getSelectedIds().length === 0;
-	        }
-	    });
-
-	    syncSelectionState();
-	</script>
+    syncSelectionState();
+</script>
 </body>
 </html>

@@ -12,17 +12,23 @@ class VideoDuplicateDetectionService
     ) {
     }
 
-    public function findBestDatabaseMatch(
+    public function analyzeDatabaseMatch(
         array $payload,
         int $thresholdPercent = 90,
         int $minMatch = 2,
         int $windowSeconds = 3,
         int $sizePercent = 15,
         int $maxCandidates = 250
-    ): ?array {
+    ): array {
         $frames = $payload['frames'] ?? [];
         if (!is_array($frames) || $frames === []) {
-            return null;
+            return [
+                'best_result' => null,
+                'duplicate_match' => null,
+                'candidate_count' => 0,
+                'payload_frame_count' => 0,
+                'requested_min_match' => max(1, $minMatch),
+            ];
         }
 
         $durationSeconds = (float) ($payload['duration_seconds'] ?? 0);
@@ -37,8 +43,19 @@ class VideoDuplicateDetectionService
         }
         $prefixes = array_values(array_unique($prefixes));
 
+        $payloadFramesByOrder = [];
+        foreach ($frames as $frame) {
+            $payloadFramesByOrder[(int) $frame['capture_order']] = $frame;
+        }
+
         if ($prefixes === []) {
-            return null;
+            return [
+                'best_result' => null,
+                'duplicate_match' => null,
+                'candidate_count' => 0,
+                'payload_frame_count' => count($payloadFramesByOrder),
+                'requested_min_match' => max(1, $minMatch),
+            ];
         }
 
         $candidateIds = VideoFeatureFrame::query()
@@ -65,15 +82,17 @@ class VideoDuplicateDetectionService
             ->all();
 
         if ($candidateIds === []) {
-            return null;
+            return [
+                'best_result' => null,
+                'duplicate_match' => null,
+                'candidate_count' => 0,
+                'payload_frame_count' => count($payloadFramesByOrder),
+                'requested_min_match' => max(1, $minMatch),
+            ];
         }
 
-        $payloadFramesByOrder = [];
-        foreach ($frames as $frame) {
-            $payloadFramesByOrder[(int) $frame['capture_order']] = $frame;
-        }
-
-        $bestMatch = null;
+        $bestResult = null;
+        $bestQualifiedResult = null;
 
         $candidates = VideoFeature::query()
             ->with(['frames', 'videoMaster'])
@@ -94,12 +113,43 @@ class VideoDuplicateDetectionService
                 continue;
             }
 
-            if ($bestMatch === null || $candidateResult['score'] > $bestMatch['score']) {
-                $bestMatch = $candidateResult;
+            if ($bestResult === null || $candidateResult['score'] > $bestResult['score']) {
+                $bestResult = $candidateResult;
+            }
+
+            if (
+                ($candidateResult['passes_threshold'] ?? false) &&
+                ($bestQualifiedResult === null || $candidateResult['score'] > $bestQualifiedResult['score'])
+            ) {
+                $bestQualifiedResult = $candidateResult;
             }
         }
 
-        return $bestMatch;
+        return [
+            'best_result' => $bestResult,
+            'duplicate_match' => $bestQualifiedResult,
+            'candidate_count' => count($candidateIds),
+            'payload_frame_count' => count($payloadFramesByOrder),
+            'requested_min_match' => max(1, $minMatch),
+        ];
+    }
+
+    public function findBestDatabaseMatch(
+        array $payload,
+        int $thresholdPercent = 90,
+        int $minMatch = 2,
+        int $windowSeconds = 3,
+        int $sizePercent = 15,
+        int $maxCandidates = 250
+    ): ?array {
+        return $this->analyzeDatabaseMatch(
+            $payload,
+            $thresholdPercent,
+            $minMatch,
+            $windowSeconds,
+            $sizePercent,
+            $maxCandidates
+        )['duplicate_match'];
     }
 
     private function comparePayloadToFeature(
@@ -137,10 +187,15 @@ class VideoDuplicateDetectionService
             $comparedFrames++;
             $similarities[] = $similarity;
 
-             $frameMatches[] = [
+            $frameMatches[] = [
                 'capture_order' => $captureOrder,
                 'capture_second' => (float) ($payloadFrame['capture_second'] ?? 0),
                 'matched_video_feature_frame_id' => $candidateFrame->id,
+                'matched_capture_second' => (float) ($candidateFrame->capture_second ?? 0),
+                'payload_dhash_hex' => $payloadHash,
+                'matched_dhash_hex' => $candidateHash,
+                'payload_frame_sha1' => $payloadFrame['frame_sha1'] ?? null,
+                'matched_frame_sha1' => $candidateFrame->frame_sha1,
                 'similarity_percent' => $similarity,
                 'is_threshold_match' => $similarity >= $thresholdPercent,
             ];
@@ -155,21 +210,20 @@ class VideoDuplicateDetectionService
         }
 
         $requiredMatches = min(max(1, $minMatch), $comparedFrames);
-        if ($matchedFrames < $requiredMatches) {
-            return null;
-        }
-
         $avgSimilarity = array_sum($similarities) / max(1, count($similarities));
         $durationDelta = abs((float) $feature->duration_seconds - $payloadDuration);
         $fileSizeDelta = $payloadFileSize > 0 && $feature->file_size_bytes !== null
             ? abs((int) $feature->file_size_bytes - $payloadFileSize)
             : null;
+        $passesThreshold = $matchedFrames >= $requiredMatches;
 
         return [
             'feature' => $feature,
             'similarity_percent' => round($avgSimilarity, 2),
             'matched_frames' => $matchedFrames,
             'compared_frames' => $comparedFrames,
+            'required_matches' => $requiredMatches,
+            'passes_threshold' => $passesThreshold,
             'frame_matches' => $frameMatches,
             'score' => ($matchedFrames * 1000) + $avgSimilarity,
             'duration_delta_seconds' => $durationDelta,

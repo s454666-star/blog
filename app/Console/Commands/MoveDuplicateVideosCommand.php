@@ -16,7 +16,7 @@ class MoveDuplicateVideosCommand extends Command
 {
     /**
      * 範例:
-     * php artisan video:move-duplicates "D:\incoming"
+     * php artisan video:move-duplicates "C:\Users\User\Pictures\train\downloads\group_2755698006_小荷才露尖尖角\videos"
      * php artisan video:move-duplicates "D:\incoming" --recursive=0 --threshold=92
      */
     protected $signature = 'video:move-duplicates
@@ -68,13 +68,14 @@ class MoveDuplicateVideosCommand extends Command
             $this->line($filePath);
 
             $payload = null;
+            $analysis = null;
             $destinationPath = null;
             $movedToDuplicateDir = false;
+            $comparisonLogged = false;
 
             try {
                 $payload = $featureExtractionService->inspectFile($filePath);
-
-                $match = $duplicateDetectionService->findBestDatabaseMatch(
+                $analysis = $duplicateDetectionService->analyzeDatabaseMatch(
                     $payload,
                     $threshold,
                     $minMatch,
@@ -82,8 +83,28 @@ class MoveDuplicateVideosCommand extends Command
                     $sizePercent,
                     $maxCandidates
                 );
+                $match = $analysis['duplicate_match'] ?? null;
+                $baseLogOptions = [
+                    'scan_root_path' => $rootPath,
+                    'threshold_percent' => $threshold,
+                    'min_match_required' => $minMatch,
+                    'window_seconds' => $windowSeconds,
+                    'size_percent' => $sizePercent,
+                    'max_candidates' => $maxCandidates,
+                ];
 
-                if ($match === null) {
+                if (!is_array($match)) {
+                    $externalVideoDuplicateService->persistComparisonLog(
+                        $payload,
+                        $analysis,
+                        $filePath,
+                        $baseLogOptions + [
+                            'is_duplicate_detected' => false,
+                            'operation_status' => 'no_match',
+                            'operation_message' => '未命中重複門檻，保留原位。',
+                        ]
+                    );
+                    $comparisonLogged = true;
                     $kept++;
                     $this->line('  無重複，保留原位');
                     continue;
@@ -102,6 +123,17 @@ class MoveDuplicateVideosCommand extends Command
                 }
 
                 if ($storedVideoPath !== '' && mb_strtolower($storedVideoPath) === mb_strtolower($filePath)) {
+                    $externalVideoDuplicateService->persistComparisonLog(
+                        $payload,
+                        $analysis,
+                        $filePath,
+                        $baseLogOptions + [
+                            'is_duplicate_detected' => true,
+                            'operation_status' => 'same_path_skipped',
+                            'operation_message' => '與 DB 原檔為同一路徑，未搬移。',
+                        ]
+                    );
+                    $comparisonLogged = true;
                     $kept++;
                     $this->line('  與 DB 原檔為同一路徑，跳過');
                     continue;
@@ -118,6 +150,17 @@ class MoveDuplicateVideosCommand extends Command
                 ));
 
                 if ($dryRun) {
+                    $externalVideoDuplicateService->persistComparisonLog(
+                        $payload,
+                        $analysis,
+                        $filePath,
+                        $baseLogOptions + [
+                            'is_duplicate_detected' => true,
+                            'operation_status' => 'dry_run_match',
+                            'operation_message' => 'dry-run 模式，未搬移檔案。',
+                        ]
+                    );
+                    $comparisonLogged = true;
                     continue;
                 }
 
@@ -128,20 +171,28 @@ class MoveDuplicateVideosCommand extends Command
 
                 $movedToDuplicateDir = true;
 
-                $externalVideoDuplicateService->persistMatchResult(
+                $matchRecord = $externalVideoDuplicateService->persistMatchResult(
                     $payload,
                     $match,
                     $filePath,
                     $destinationPath,
-                    [
-                        'scan_root_path' => $rootPath,
+                    $baseLogOptions + [
                         'duplicate_directory_path' => $duplicateDir,
-                        'threshold_percent' => $threshold,
-                        'min_match_required' => $minMatch,
-                        'window_seconds' => $windowSeconds,
-                        'size_percent' => $sizePercent,
                     ]
                 );
+                $externalVideoDuplicateService->persistComparisonLog(
+                    $payload,
+                    $analysis,
+                    $filePath,
+                    $baseLogOptions + [
+                        'external_video_duplicate_match_id' => $matchRecord->id,
+                        'duplicate_file_path' => $destinationPath,
+                        'is_duplicate_detected' => true,
+                        'operation_status' => 'match_moved',
+                        'operation_message' => '命中重複並已搬移到疑似重複檔案資料夾。',
+                    ]
+                );
+                $comparisonLogged = true;
 
                 $moved++;
                 $this->info('  已搬移到：' . $destinationPath);
@@ -154,6 +205,29 @@ class MoveDuplicateVideosCommand extends Command
                     !File::exists($filePath)
                 ) {
                     @rename($destinationPath, $filePath);
+                }
+
+                if (!$comparisonLogged && is_array($payload)) {
+                    try {
+                        $externalVideoDuplicateService->persistComparisonLog(
+                            $payload,
+                            is_array($analysis) ? $analysis : null,
+                            $filePath,
+                            [
+                                'scan_root_path' => $rootPath,
+                                'duplicate_file_path' => $movedToDuplicateDir && is_string($destinationPath) ? $destinationPath : null,
+                                'threshold_percent' => $threshold,
+                                'min_match_required' => $minMatch,
+                                'window_seconds' => $windowSeconds,
+                                'size_percent' => $sizePercent,
+                                'max_candidates' => $maxCandidates,
+                                'is_duplicate_detected' => is_array($analysis) && is_array($analysis['duplicate_match'] ?? null),
+                                'operation_status' => 'error',
+                                'operation_message' => $e->getMessage(),
+                            ]
+                        );
+                    } catch (Throwable) {
+                    }
                 }
 
                 $failed++;

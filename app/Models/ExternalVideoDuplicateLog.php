@@ -6,17 +6,17 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
-class ExternalVideoDuplicateMatch extends Model
+class ExternalVideoDuplicateLog extends Model
 {
     use HasFactory;
 
-    protected $table = 'external_video_duplicate_matches';
+    protected $table = 'external_video_duplicate_logs';
 
     protected $fillable = [
+        'external_video_duplicate_match_id',
         'video_master_id',
         'matched_video_feature_id',
         'scan_root_path',
-        'duplicate_directory_path',
         'source_directory_path',
         'source_file_path',
         'source_path_sha1',
@@ -31,17 +31,27 @@ class ExternalVideoDuplicateMatch extends Model
         'feature_version',
         'capture_rule',
         'threshold_percent',
-        'min_match_required',
+        'requested_min_match',
+        'required_matches',
         'window_seconds',
         'size_percent',
+        'max_candidates',
+        'candidate_count',
         'similarity_percent',
         'matched_frames',
         'compared_frames',
         'duration_delta_seconds',
         'file_size_delta_bytes',
+        'is_duplicate_detected',
+        'operation_status',
+        'operation_message',
+        'source_feature_json',
+        'matched_feature_json',
+        'frame_comparisons_json',
     ];
 
     protected $casts = [
+        'external_video_duplicate_match_id' => 'integer',
         'video_master_id' => 'integer',
         'matched_video_feature_id' => 'integer',
         'file_size_bytes' => 'integer',
@@ -50,31 +60,26 @@ class ExternalVideoDuplicateMatch extends Model
         'file_modified_at' => 'datetime',
         'screenshot_count' => 'integer',
         'threshold_percent' => 'integer',
-        'min_match_required' => 'integer',
+        'requested_min_match' => 'integer',
+        'required_matches' => 'integer',
         'window_seconds' => 'integer',
         'size_percent' => 'integer',
+        'max_candidates' => 'integer',
+        'candidate_count' => 'integer',
         'similarity_percent' => 'decimal:2',
         'matched_frames' => 'integer',
         'compared_frames' => 'integer',
         'duration_delta_seconds' => 'decimal:3',
         'file_size_delta_bytes' => 'integer',
+        'is_duplicate_detected' => 'boolean',
+        'source_feature_json' => 'array',
+        'matched_feature_json' => 'array',
+        'frame_comparisons_json' => 'array',
     ];
 
-    public function frames()
+    public function match()
     {
-        return $this->hasMany(ExternalVideoDuplicateFrame::class, 'external_video_duplicate_match_id', 'id')
-            ->orderBy('capture_order');
-    }
-
-    public function comparisonLogs()
-    {
-        return $this->hasMany(ExternalVideoDuplicateLog::class, 'external_video_duplicate_match_id', 'id');
-    }
-
-    public function latestComparisonLog()
-    {
-        return $this->hasOne(ExternalVideoDuplicateLog::class, 'external_video_duplicate_match_id', 'id')
-            ->latestOfMany();
+        return $this->belongsTo(ExternalVideoDuplicateMatch::class, 'external_video_duplicate_match_id', 'id');
     }
 
     public function videoMaster()
@@ -130,11 +135,5 @@ class ExternalVideoDuplicateMatch extends Model
         }
 
         return $this->file_modified_at->format('Y-m-d H:i:s');
-    }
-
-    public function getDuplicateFileExistsAttribute(): bool
-    {
-        $path = trim((string) $this->duplicate_file_path);
-        return $path !== '' && is_file($path);
     }
 }

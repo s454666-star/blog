@@ -6,6 +6,7 @@
     use App\Models\VideoMaster;
     use App\Models\VideoScreenshot;
     use App\Models\VideoTs;
+    use App\Services\VideoFeatureExtractionService;
     use Illuminate\Http\Request;
     use Illuminate\Pagination\LengthAwarePaginator;
     use Illuminate\Support\Facades\Storage;
@@ -447,7 +448,7 @@
             ], 400);
         }
 
-        public function setMasterFace(Request $request): \Illuminate\Http\JsonResponse
+        public function setMasterFace(Request $request, VideoFeatureExtractionService $videoFeatureExtractionService): \Illuminate\Http\JsonResponse
         {
             $faceId = $request->input('face_id');
 
@@ -470,6 +471,8 @@
                 $face->is_master = 1;
                 $face->save();
             });
+
+            $videoFeatureExtractionService->syncMasterFaceForVideo($face->videoScreenshot->videoMaster->id);
 
             $updatedFace = VideoFaceScreenshot::with(['videoScreenshot.videoMaster'])->find($faceId);
 

@@ -36,4 +36,9 @@
         {
             return $this->hasMany(VideoFaceScreenshot::class, 'video_screenshot_id', 'id');
         }
+
+        public function featureFrames()
+        {
+            return $this->hasMany(VideoFeatureFrame::class, 'video_screenshot_id', 'id');
+        }
     }

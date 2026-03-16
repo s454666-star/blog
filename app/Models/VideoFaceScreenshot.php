@@ -49,4 +49,9 @@
                 'id'
             );
         }
+
+        public function videoFeaturesAsMaster()
+        {
+            return $this->hasMany(VideoFeature::class, 'master_face_screenshot_id', 'id');
+        }
     }

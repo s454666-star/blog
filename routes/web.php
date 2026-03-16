@@ -7,6 +7,7 @@ use App\Http\Controllers\BlogController;
 use App\Http\Controllers\EncryptionController;
 use App\Http\Controllers\ExternalVideoDuplicateController;
 use App\Http\Controllers\ExtractController;
+use App\Http\Controllers\FaceIdentityController;
 use App\Http\Controllers\FetchController;
 use App\Http\Controllers\GalleryController;
     use App\Http\Controllers\IgGrabController;
@@ -165,6 +166,10 @@ Route::post('/videos/duplicates/delete', [VideoDuplicateController::class, 'dele
 Route::get('/videos/external-duplicates', [ExternalVideoDuplicateController::class, 'index'])->name('videos.external-duplicates.index');
 Route::get('/videos/external-duplicates/{match}/stream', [ExternalVideoDuplicateController::class, 'stream'])->name('videos.external-duplicates.stream');
 Route::post('/videos/external-duplicates/batch-delete', [ExternalVideoDuplicateController::class, 'batchDelete'])->name('videos.external-duplicates.batch-delete');
+Route::get('/face-identities', [FaceIdentityController::class, 'index'])->name('face-identities.index');
+Route::get('/face-identities/image', [FaceIdentityController::class, 'image'])->name('face-identities.image');
+Route::get('/face-identities/videos/{video}/stream', [FaceIdentityController::class, 'video'])->name('face-identities.video');
+Route::post('/face-identities/videos/{video}/detach', [FaceIdentityController::class, 'detach'])->name('face-identities.detach');
 
 Route::get('/env-test', function () {
     return config('app.env');

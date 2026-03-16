@@ -1,0 +1,4 @@
+interface:
+  display_name: "Blog Windows Task Flow"
+  short_description: "Inspect blog Windows tasks, bat flow, and TG API wiring"
+  default_prompt: "Use $blog-windows-task-flow to inspect or update the Windows Task Scheduler, batch scripts, Laravel artisan flow, and Telegram FastAPI integration for C:\\www\\blog."

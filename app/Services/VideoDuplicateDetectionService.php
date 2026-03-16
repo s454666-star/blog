@@ -113,6 +113,7 @@ class VideoDuplicateDetectionService
         $comparedFrames = 0;
         $matchedFrames = 0;
         $similarities = [];
+        $frameMatches = [];
 
         foreach ($feature->frames as $candidateFrame) {
             $captureOrder = (int) $candidateFrame->capture_order;
@@ -135,6 +136,14 @@ class VideoDuplicateDetectionService
 
             $comparedFrames++;
             $similarities[] = $similarity;
+
+             $frameMatches[] = [
+                'capture_order' => $captureOrder,
+                'capture_second' => (float) ($payloadFrame['capture_second'] ?? 0),
+                'matched_video_feature_frame_id' => $candidateFrame->id,
+                'similarity_percent' => $similarity,
+                'is_threshold_match' => $similarity >= $thresholdPercent,
+            ];
 
             if ($similarity >= $thresholdPercent) {
                 $matchedFrames++;
@@ -161,6 +170,7 @@ class VideoDuplicateDetectionService
             'similarity_percent' => round($avgSimilarity, 2),
             'matched_frames' => $matchedFrames,
             'compared_frames' => $comparedFrames,
+            'frame_matches' => $frameMatches,
             'score' => ($matchedFrames * 1000) + $avgSimilarity,
             'duration_delta_seconds' => $durationDelta,
             'file_size_delta_bytes' => $fileSizeDelta,

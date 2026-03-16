@@ -44,6 +44,11 @@
             return $this->hasOne(VideoFeature::class, 'video_master_id', 'id');
         }
 
+        public function externalDuplicateMatches()
+        {
+            return $this->hasMany(ExternalVideoDuplicateMatch::class, 'video_master_id', 'id');
+        }
+
         /**
          * 影片的「主面」人臉列表（透過 screenshots）
          * 🚩 不在這裡排序，避免 hasManyThrough 對父表排序的 SQL 問題；排序放查詢端（Controller）做。

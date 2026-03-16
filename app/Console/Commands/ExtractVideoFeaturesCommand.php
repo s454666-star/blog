@@ -12,7 +12,7 @@ class ExtractVideoFeaturesCommand extends Command
     /**
      * 範例:
      * php artisan video:extract-features --limit=100
-     * php artisan video:extract-features --video-id=5147 --refresh
+     * php artisan video:extract-features --limit=1 --video-type=1
      */
     protected $signature = 'video:extract-features
         {--video-id= : 只處理指定的 video_master.id}

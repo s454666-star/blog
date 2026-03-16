@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\ExternalVideoDuplicateService;
 use App\Services\VideoDuplicateDetectionService;
 use App\Services\VideoFeatureExtractionService;
 use Illuminate\Console\Command;
@@ -28,13 +29,14 @@ class MoveDuplicateVideosCommand extends Command
         {--max-candidates=250 : 每支影片最多拉多少 DB 候選}
         {--dry-run : 只顯示結果不搬移}';
 
-    protected $description = '掃描資料夾內影片，若特徵已存在於 DB，搬到「疑似重複檔案」資料夾；不會寫入任何新特徵資料。';
+    protected $description = '掃描資料夾內影片，若特徵已存在於 DB，搬到「疑似重複檔案」資料夾並寫入外部重複檢視資料；不會寫入 video_features。';
 
     private const VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'm4v', 'mpeg', 'mpg'];
 
     public function handle(
         VideoFeatureExtractionService $featureExtractionService,
-        VideoDuplicateDetectionService $duplicateDetectionService
+        VideoDuplicateDetectionService $duplicateDetectionService,
+        ExternalVideoDuplicateService $externalVideoDuplicateService
     ): int {
         $rootPath = $this->normalizeAbsolutePath((string) $this->argument('path'));
         if ($rootPath === '' || !is_dir($rootPath)) {
@@ -66,6 +68,8 @@ class MoveDuplicateVideosCommand extends Command
             $this->line($filePath);
 
             $payload = null;
+            $destinationPath = null;
+            $movedToDuplicateDir = false;
 
             try {
                 $payload = $featureExtractionService->inspectFile($filePath);
@@ -122,9 +126,36 @@ class MoveDuplicateVideosCommand extends Command
                     throw new \RuntimeException('搬移檔案失敗：' . $destinationPath);
                 }
 
+                $movedToDuplicateDir = true;
+
+                $externalVideoDuplicateService->persistMatchResult(
+                    $payload,
+                    $match,
+                    $filePath,
+                    $destinationPath,
+                    [
+                        'scan_root_path' => $rootPath,
+                        'duplicate_directory_path' => $duplicateDir,
+                        'threshold_percent' => $threshold,
+                        'min_match_required' => $minMatch,
+                        'window_seconds' => $windowSeconds,
+                        'size_percent' => $sizePercent,
+                    ]
+                );
+
                 $moved++;
                 $this->info('  已搬移到：' . $destinationPath);
             } catch (Throwable $e) {
+                if (
+                    $movedToDuplicateDir &&
+                    is_string($destinationPath) &&
+                    $destinationPath !== '' &&
+                    File::exists($destinationPath) &&
+                    !File::exists($filePath)
+                ) {
+                    @rename($destinationPath, $filePath);
+                }
+
                 $failed++;
                 $this->error('  失敗：' . $e->getMessage());
             } finally {

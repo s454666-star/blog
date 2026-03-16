@@ -64,4 +64,9 @@ class VideoFeature extends Model
     {
         return $this->hasMany(VideoFeatureMatch::class, 'right_video_feature_id', 'id');
     }
+
+    public function externalDuplicateMatches()
+    {
+        return $this->hasMany(ExternalVideoDuplicateMatch::class, 'matched_video_feature_id', 'id');
+    }
 }

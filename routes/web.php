@@ -4,7 +4,8 @@ use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
     use App\Http\Controllers\BtdigController;
     use App\Http\Controllers\DialogueReadController;
-    use App\Http\Controllers\EncryptionController;
+use App\Http\Controllers\EncryptionController;
+use App\Http\Controllers\ExternalVideoDuplicateController;
 use App\Http\Controllers\ExtractController;
 use App\Http\Controllers\FetchController;
 use App\Http\Controllers\GalleryController;
@@ -161,6 +162,9 @@ Route::post('/videos/duplicates/open', [VideoDuplicateController::class, 'open']
 Route::post('/videos/duplicates/mark-unique', [VideoDuplicateController::class, 'markUnique'])->name('videos.duplicates.markUnique');
 Route::post('/videos/duplicates/mark-group-unique', [VideoDuplicateController::class, 'markGroupUnique'])->name('videos.duplicates.markGroupUnique');
 Route::post('/videos/duplicates/delete', [VideoDuplicateController::class, 'delete'])->name('videos.duplicates.delete');
+Route::get('/videos/external-duplicates', [ExternalVideoDuplicateController::class, 'index'])->name('videos.external-duplicates.index');
+Route::get('/videos/external-duplicates/{match}/stream', [ExternalVideoDuplicateController::class, 'stream'])->name('videos.external-duplicates.stream');
+Route::post('/videos/external-duplicates/batch-delete', [ExternalVideoDuplicateController::class, 'batchDelete'])->name('videos.external-duplicates.batch-delete');
 
 Route::get('/env-test', function () {
     return config('app.env');

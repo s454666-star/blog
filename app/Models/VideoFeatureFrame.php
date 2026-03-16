@@ -42,4 +42,9 @@ class VideoFeatureFrame extends Model
     {
         return $this->belongsTo(VideoScreenshot::class, 'video_screenshot_id', 'id');
     }
+
+    public function externalDuplicateFrames()
+    {
+        return $this->hasMany(ExternalVideoDuplicateFrame::class, 'matched_video_feature_frame_id', 'id');
+    }
 }

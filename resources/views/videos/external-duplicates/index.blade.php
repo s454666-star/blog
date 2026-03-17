@@ -293,6 +293,48 @@
             line-height:1.7;
         }
 
+        .log-panel{
+            padding:0;
+            overflow:hidden;
+        }
+
+        .log-panel > summary{
+            display:flex;
+            justify-content:space-between;
+            gap:18px;
+            align-items:flex-end;
+            flex-wrap:wrap;
+            padding:20px;
+            cursor:pointer;
+            list-style:none;
+        }
+
+        .log-panel > summary::-webkit-details-marker{
+            display:none;
+        }
+
+        .log-panel > summary::after{
+            content:"展開";
+            color:#4a7799;
+            font-size:.82rem;
+            font-weight:800;
+            letter-spacing:.08em;
+            text-transform:uppercase;
+        }
+
+        .log-panel[open] > summary::after{
+            content:"收起";
+        }
+
+        .log-panel-content{
+            padding:0 20px 20px;
+            border-top:1px solid var(--line);
+        }
+
+        .log-panel[open] .log-panel-content{
+            animation:riseIn .25s ease;
+        }
+
         .toolbar{
             position:sticky;
             top:14px;
@@ -778,43 +820,45 @@
             @endif
         </section>
 
-        <section class="section-shell">
-            <div class="section-head">
+        <details class="section-shell log-panel">
+            <summary>
                 <div>
                     <p class="section-kicker">All Comparison Logs</p>
                     <h2>所有跑過的 log 相似度比對</h2>
-                    <p class="section-copy">這裡會保留每次比對的結果，包含沒過門檻、dry-run、同路徑略過和錯誤案例，方便回頭檢查單張截圖與整體判定。</p>
+                    <p class="section-copy">預設收起；要追查沒過門檻、dry-run、同路徑略過或錯誤案例時，再手動展開查看。</p>
                 </div>
                 <span class="selection-chip">目前共 <strong>{{ number_format((int) ($stats['log_count'] ?? 0)) }}</strong> 筆 log</span>
+            </summary>
+
+            <div class="log-panel-content">
+                @if ($comparisonLogs->count() > 0)
+                    <section class="matches">
+                        @foreach ($comparisonLogs as $entry)
+                            @include('videos.external-duplicates._comparison-card', ['entry' => $entry, 'showCheckbox' => false])
+                        @endforeach
+                    </section>
+
+                    <div class="footer-pager">
+                        @if ($comparisonLogs->previousPageUrl())
+                            <a class="btn btn-soft" href="{{ $comparisonLogs->previousPageUrl() }}">上一頁</a>
+                        @endif
+
+                        <span class="pager-text">
+                            log 第 {{ $comparisonLogs->currentPage() }} / {{ $comparisonLogs->lastPage() }} 頁，共 {{ number_format($comparisonLogs->total()) }} 筆
+                        </span>
+
+                        @if ($comparisonLogs->nextPageUrl())
+                            <a class="btn btn-soft" href="{{ $comparisonLogs->nextPageUrl() }}">下一頁</a>
+                        @endif
+                    </div>
+                @else
+                    <section class="empty">
+                        <h2>目前還沒有比對 log</h2>
+                        <p>執行 `php artisan video:move-duplicates` 後，所有比對結果都會在這裡留下紀錄。</p>
+                    </section>
+                @endif
             </div>
-
-            @if ($comparisonLogs->count() > 0)
-                <section class="matches">
-                    @foreach ($comparisonLogs as $entry)
-                        @include('videos.external-duplicates._comparison-card', ['entry' => $entry, 'showCheckbox' => false])
-                    @endforeach
-                </section>
-
-                <div class="footer-pager">
-                    @if ($comparisonLogs->previousPageUrl())
-                        <a class="btn btn-soft" href="{{ $comparisonLogs->previousPageUrl() }}">上一頁</a>
-                    @endif
-
-                    <span class="pager-text">
-                        log 第 {{ $comparisonLogs->currentPage() }} / {{ $comparisonLogs->lastPage() }} 頁，共 {{ number_format($comparisonLogs->total()) }} 筆
-                    </span>
-
-                    @if ($comparisonLogs->nextPageUrl())
-                        <a class="btn btn-soft" href="{{ $comparisonLogs->nextPageUrl() }}">下一頁</a>
-                    @endif
-                </div>
-            @else
-                <section class="empty">
-                    <h2>目前還沒有比對 log</h2>
-                    <p>執行 `php artisan video:move-duplicates` 後，所有比對結果都會在這裡留下紀錄。</p>
-                </section>
-            @endif
-        </section>
+        </details>
     </div>
 </div>
 

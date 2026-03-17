@@ -228,6 +228,9 @@ class VideoDuplicateDetectionServiceTest extends TestCase
 
         $this->assertFalse($analysis['candidate_gate']['eligible']);
         $this->assertFalse($analysis['candidate_gate']['size_within_window']);
+        $this->assertSame(1, $analysis['candidate_gate']['payload_prefix_count']);
+        $this->assertSame(1, $analysis['candidate_gate']['feature_prefix_count']);
+        $this->assertSame(400.0, $analysis['candidate_gate']['required_size_percent_to_pass']);
         $this->assertNotNull($analysis['compare_result']);
         $this->assertTrue($analysis['compare_result']['passes_threshold']);
         $this->assertNotNull($analysis['duplicate_match']);

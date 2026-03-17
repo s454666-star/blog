@@ -373,6 +373,12 @@ class VideoDuplicateDetectionService
 
         return [
             'eligible' => $eligible,
+            'payload_duration_seconds' => round($payloadContext['duration_seconds'], 3),
+            'feature_duration_seconds' => $featureDuration !== null ? round($featureDuration, 3) : null,
+            'payload_file_size_bytes' => $payloadContext['file_size_bytes'] > 0 ? $payloadContext['file_size_bytes'] : null,
+            'feature_file_size_bytes' => $featureFileSize,
+            'payload_prefix_count' => count($payloadContext['prefixes']),
+            'feature_prefix_count' => count($featurePrefixes),
             'payload_prefixes' => $payloadContext['prefixes'],
             'feature_prefixes' => $featurePrefixes,
             'shared_prefixes' => $sharedPrefixes,
@@ -387,6 +393,9 @@ class VideoDuplicateDetectionService
             'size_window_min' => $sizeWindowMin,
             'size_window_max' => $sizeWindowMax,
             'file_size_delta_bytes' => $fileSizeDelta,
+            'required_size_percent_to_pass' => $payloadContext['file_size_bytes'] > 0 && $featureFileSize !== null
+                ? round((abs($featureFileSize - $payloadContext['file_size_bytes']) / max(1, $payloadContext['file_size_bytes'])) * 100, 2)
+                : null,
             'reasons' => $reasons,
         ];
     }

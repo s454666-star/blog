@@ -17,8 +17,9 @@ class MoveDuplicateVideosCommand extends Command
 {
     /**
      * 範例:
-     * php artisan video:move-duplicates "C:\Users\User\Pictures\train\downloads\group_2755698006_小荷才露尖尖角\videos\tmp"
+     * php artisan video:move-duplicates "C:\Users\User\Pictures\train\downloads\group_2755698006_小荷才露尖尖角\videos\tmp" --video-feature-id=3323
      * php artisan video:move-duplicates "C:\incoming\a.mp4" --video-feature-id=123
+     * php artisan video:move-duplicates "C:\incoming\a.mp4" --video-feature-id=123 --skip-log
      * php artisan video:move-duplicates "D:\incoming" --recursive=0 --threshold=92
      */
     protected $signature = 'video:move-duplicates
@@ -30,10 +31,11 @@ class MoveDuplicateVideosCommand extends Command
         {--size-percent=15 : 檔案大小容許百分比}
         {--max-candidates=250 : 每支影片最多拉多少 DB 候選}
         {--video-feature-id= : 指定單一 video_features.id 進入手動 debug 模式}
-        {--write-log : 手動 debug 模式也把分析寫入 external_video_duplicate_logs}
+        {--write-log : 相容舊參數；手動 debug 模式現在預設就會寫 log}
+        {--skip-log : 手動 debug 模式不要寫入 external_video_duplicate_logs}
         {--dry-run : 只顯示結果不搬移}';
 
-    protected $description = '掃描資料夾內影片，若特徵已存在於 DB，搬到「疑似重複檔案」資料夾並寫入外部重複檢視資料；若指定 --video-feature-id，則改為手動分析指定 feature。';
+    protected $description = '掃描資料夾內影片，若特徵已存在於 DB，搬到「疑似重複檔案」資料夾並寫入外部重複檢視資料；若指定 --video-feature-id，則改為手動分析指定 feature，並預設寫入 debug log。';
 
     private const VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'm4v', 'mpeg', 'mpg'];
 
@@ -56,7 +58,10 @@ class MoveDuplicateVideosCommand extends Command
         $sizePercent = max(0, min(90, (int) $this->option('size-percent')));
         $maxCandidates = max(1, (int) $this->option('max-candidates'));
         $dryRun = (bool) $this->option('dry-run');
-        $writeLog = (bool) $this->option('write-log');
+        $writeLog = !(bool) $this->option('skip-log');
+        if ((bool) $this->option('write-log')) {
+            $writeLog = true;
+        }
 
         if ($manualFeatureId !== null) {
             return $this->handleManualFeatureMode(
@@ -329,10 +334,26 @@ class MoveDuplicateVideosCommand extends Command
                     $sizePercent
                 );
 
-                $this->renderOverview($filePath, $feature, $analysis, $threshold, $minMatch, $windowSeconds, $sizePercent);
+                $dbVideoPath = $this->resolveFeatureVideoPath($feature, $featureExtractionService);
+                $isSamePath = $dbVideoPath !== '' && mb_strtolower($dbVideoPath) === mb_strtolower($filePath);
+                $operationStatus = $this->buildManualOperationStatus($analysis, $isSamePath);
+                $operationMessage = $this->buildConclusionMessage($analysis, $isSamePath);
+
+                $this->renderOverview(
+                    $filePath,
+                    $feature,
+                    $analysis,
+                    $threshold,
+                    $minMatch,
+                    $windowSeconds,
+                    $sizePercent,
+                    $dbVideoPath,
+                    $isSamePath
+                );
                 $this->renderCandidateGate($analysis['candidate_gate'] ?? []);
                 $this->renderFrameComparisons($analysis['compare_result'] ?? null);
-                $this->renderConclusion($analysis);
+                $this->renderConclusion($analysis, $isSamePath);
+                $this->renderDebugHints($analysis, $isSamePath);
 
                 if ($writeLog) {
                     $log = $externalVideoDuplicateService->persistComparisonLog(
@@ -346,13 +367,15 @@ class MoveDuplicateVideosCommand extends Command
                             'window_seconds' => $windowSeconds,
                             'size_percent' => $sizePercent,
                             'max_candidates' => 1,
-                            'is_duplicate_detected' => is_array($analysis['duplicate_match'] ?? null),
-                            'operation_status' => 'manual_feature_debug',
-                            'operation_message' => $this->buildConclusionMessage($analysis),
+                            'is_duplicate_detected' => $this->isOfficialDuplicateMatch($analysis, $isSamePath),
+                            'operation_status' => $operationStatus,
+                            'operation_message' => $operationMessage,
                         ]
                     );
 
                     $this->info('已寫入 debug log，ID=' . $log->id);
+                } else {
+                    $this->line('已略過寫 log（--skip-log）');
                 }
 
                 $processed++;
@@ -379,12 +402,18 @@ class MoveDuplicateVideosCommand extends Command
         int $threshold,
         int $minMatch,
         int $windowSeconds,
-        int $sizePercent
+        int $sizePercent,
+        string $dbVideoPath,
+        bool $isSamePath
     ): void {
+        $candidateGate = is_array($analysis['candidate_gate'] ?? null) ? $analysis['candidate_gate'] : [];
+
         $this->info('來源影片：' . $filePath);
         $this->line('指定 feature：#' . $feature->id);
         $this->line('DB video_master：' . ($feature->video_master_id !== null ? '#' . $feature->video_master_id : '-'));
         $this->line('DB 影片名稱：' . ((string) ($feature->video_name ?? '-')));
+        $this->line('DB 影片路徑：' . ($dbVideoPath !== '' ? $dbVideoPath : ((string) ($feature->video_path ?? '-'))));
+        $this->line('來源/DB 同一路徑：' . ($isSamePath ? 'YES' : 'NO'));
         $this->line(sprintf(
             '分析參數：threshold=%d min-match=%d window=%d size=%d%%',
             $threshold,
@@ -399,9 +428,13 @@ class MoveDuplicateVideosCommand extends Command
             [
                 ['來源 frame 數', (string) ($analysis['payload_frame_count'] ?? 0)],
                 ['DB feature frame 數', (string) $feature->frames->count()],
+                ['來源 duration_seconds', $this->formatSeconds($candidateGate['payload_duration_seconds'] ?? null)],
                 ['DB capture_rule', (string) ($feature->capture_rule ?? '-')],
                 ['DB duration_seconds', $feature->duration_seconds !== null ? (string) $feature->duration_seconds : '-'],
+                ['來源 file_size_bytes', $this->formatBytes($candidateGate['payload_file_size_bytes'] ?? null)],
                 ['DB file_size_bytes', $feature->file_size_bytes !== null ? (string) $feature->file_size_bytes : '-'],
+                ['來源 dHash prefix 數', (string) ($candidateGate['payload_prefix_count'] ?? 0)],
+                ['DB dHash prefix 數', (string) ($candidateGate['feature_prefix_count'] ?? 0)],
             ]
         );
     }
@@ -412,28 +445,35 @@ class MoveDuplicateVideosCommand extends Command
         $this->info('正式流程 Candidate Gate');
 
         $rows = [
+            ['source prefixes', empty($candidateGate['payload_prefixes']) ? '-' : implode(', ', $candidateGate['payload_prefixes'])],
+            ['feature prefixes', empty($candidateGate['feature_prefixes']) ? '-' : implode(', ', $candidateGate['feature_prefixes'])],
             ['shared dHash prefix', empty($candidateGate['shared_prefixes']) ? '-' : implode(', ', $candidateGate['shared_prefixes'])],
+            ['source duration', $this->formatSeconds($candidateGate['payload_duration_seconds'] ?? null)],
+            ['feature duration', $this->formatSeconds($candidateGate['feature_duration_seconds'] ?? null)],
             ['duration window', sprintf(
                 '%s (%s ~ %s)',
                 !empty($candidateGate['duration_within_window']) ? 'PASS' : 'BLOCK',
-                isset($candidateGate['duration_window_min']) ? (string) $candidateGate['duration_window_min'] : '-',
-                isset($candidateGate['duration_window_max']) ? (string) $candidateGate['duration_window_max'] : '-'
+                $this->formatSeconds($candidateGate['duration_window_min'] ?? null, false),
+                $this->formatSeconds($candidateGate['duration_window_max'] ?? null, false)
             )],
             ['duration delta', isset($candidateGate['duration_delta_seconds']) && $candidateGate['duration_delta_seconds'] !== null
-                ? (string) $candidateGate['duration_delta_seconds'] . ' sec'
+                ? $this->formatSeconds($candidateGate['duration_delta_seconds'], false) . ' sec'
                 : '-'],
+            ['source size', $this->formatBytes($candidateGate['payload_file_size_bytes'] ?? null)],
+            ['feature size', $this->formatBytes($candidateGate['feature_file_size_bytes'] ?? null)],
             ['size filter', !empty($candidateGate['size_filter_applied']) ? 'ON' : 'OFF'],
             ['size window', !empty($candidateGate['size_filter_applied'])
                 ? sprintf(
                     '%s (%s ~ %s)',
                     !empty($candidateGate['size_within_window']) ? 'PASS' : 'BLOCK',
-                    isset($candidateGate['size_window_min']) ? number_format((int) $candidateGate['size_window_min']) : '-',
-                    isset($candidateGate['size_window_max']) ? number_format((int) $candidateGate['size_window_max']) : '-'
+                    $this->formatBytes($candidateGate['size_window_min'] ?? null),
+                    $this->formatBytes($candidateGate['size_window_max'] ?? null)
                 )
                 : 'SKIP'],
             ['size delta', isset($candidateGate['file_size_delta_bytes']) && $candidateGate['file_size_delta_bytes'] !== null
                 ? number_format((int) $candidateGate['file_size_delta_bytes']) . ' bytes'
                 : '-'],
+            ['至少需要 size %', $this->formatRequiredSizePercent($candidateGate)],
             ['會進正式候選池', !empty($candidateGate['eligible']) ? 'YES' : 'NO'],
         ];
 
@@ -491,45 +531,116 @@ class MoveDuplicateVideosCommand extends Command
         );
     }
 
-    private function renderConclusion(array $analysis): void
+    private function renderConclusion(array $analysis, bool $isSamePath): void
     {
         $this->newLine();
-        $message = $this->buildConclusionMessage($analysis);
+        $message = $this->buildConclusionMessage($analysis, $isSamePath);
 
-        if (is_array($analysis['duplicate_match'] ?? null)) {
+        if ($this->isOfficialDuplicateMatch($analysis, $isSamePath)) {
             $this->info($message);
+            return;
+        }
+
+        if (is_array($analysis['compare_result'] ?? null) && !empty($analysis['compare_result']['passes_threshold'])) {
+            $this->warn($message);
             return;
         }
 
         $this->warn($message);
     }
 
-    private function buildConclusionMessage(array $analysis): string
+    private function buildConclusionMessage(array $analysis, bool $isSamePath = false): string
     {
         $candidateGate = is_array($analysis['candidate_gate'] ?? null) ? $analysis['candidate_gate'] : [];
         $compareResult = is_array($analysis['compare_result'] ?? null) ? $analysis['compare_result'] : null;
+        $reasonText = !empty($candidateGate['reasons']) && is_array($candidateGate['reasons'])
+            ? rtrim(implode('、', $candidateGate['reasons']), '。. ')
+            : '未提供';
+
+        if ($isSamePath) {
+            return '結論：來源檔案和 DB 原檔是同一路徑；正式掃描模式會走 same_path_skipped，只記 log，不會搬移。';
+        }
 
         if (!$compareResult) {
             return '結論：這次強制比對沒有任何可比較的 frame，正式流程自然不會命中。';
         }
 
         if (!empty($candidateGate['eligible']) && !empty($compareResult['passes_threshold'])) {
-            return '結論：正式流程候選條件可通過，且強制比對也達門檻；如果沒抓到，問題應該不在 compare 規則本身。';
-        }
-
-        if (empty($candidateGate['eligible']) && !empty($compareResult['passes_threshold'])) {
-            return '結論：強制比對其實達門檻，但正式流程在 candidate gate 就被擋掉了。';
-        }
-
-        if (!empty($candidateGate['eligible']) && empty($compareResult['passes_threshold'])) {
             return sprintf(
-                '結論：正式流程會拿它來比，但 matched=%d / required=%d，沒有達到門檻。',
+                '結論：正式流程候選條件可通過，且強制比對也達門檻（similarity=%s%%, matched=%d/%d）；如果沒抓到，請回頭檢查當次掃描是否用了不同參數，或是否在後續流程被同路徑略過。',
+                $this->formatPercent($compareResult['similarity_percent'] ?? null),
                 (int) ($compareResult['matched_frames'] ?? 0),
                 (int) ($compareResult['required_matches'] ?? 0)
             );
         }
 
-        return '結論：正式流程前置條件沒過，而且強制比對本身也沒達門檻。';
+        if (empty($candidateGate['eligible']) && !empty($compareResult['passes_threshold'])) {
+            $message = sprintf(
+                '結論：強制比對其實已達門檻（similarity=%s%%, matched=%d/%d），但正式流程在 candidate gate 就被擋掉了：%s。',
+                $this->formatPercent($compareResult['similarity_percent'] ?? null),
+                (int) ($compareResult['matched_frames'] ?? 0),
+                (int) ($compareResult['required_matches'] ?? 0),
+                $reasonText
+            );
+
+            if (!empty($candidateGate['size_filter_applied']) && empty($candidateGate['size_within_window'])) {
+                $message .= ' ' . $this->buildSizeGateHint($candidateGate);
+            }
+
+            if (($compareResult['similarity_percent'] ?? 0) >= 99) {
+                $message .= ' 這是高度疑似同片或同內容重編碼版本。';
+            }
+
+            return $message;
+        }
+
+        if (!empty($candidateGate['eligible']) && empty($compareResult['passes_threshold'])) {
+            return sprintf(
+                '結論：正式流程會拿它來比，但 matched=%d / required=%d，overall similarity=%s%%，沒有達到門檻。',
+                (int) ($compareResult['matched_frames'] ?? 0),
+                (int) ($compareResult['required_matches'] ?? 0),
+                $this->formatPercent($compareResult['similarity_percent'] ?? null)
+            );
+        }
+
+        $message = '結論：正式流程前置條件沒過，而且強制比對本身也沒達門檻。';
+
+        if ($reasonText !== '未提供') {
+            $message .= ' Gate 原因：' . $reasonText . '。';
+        }
+
+        return $message;
+    }
+
+    private function renderDebugHints(array $analysis, bool $isSamePath): void
+    {
+        $hints = $this->buildDebugHints($analysis, $isSamePath);
+        if ($hints === []) {
+            return;
+        }
+
+        $this->newLine();
+        $this->info('Debug 補充');
+
+        foreach ($hints as $hint) {
+            $tone = $hint['tone'] ?? 'line';
+            $message = (string) ($hint['message'] ?? '');
+            if ($message === '') {
+                continue;
+            }
+
+            if ($tone === 'warn') {
+                $this->warn($message);
+                continue;
+            }
+
+            if ($tone === 'info') {
+                $this->info($message);
+                continue;
+            }
+
+            $this->line($message);
+        }
     }
 
     private function buildManualLogAnalysis(array $analysis, VideoFeature $feature, int $minMatch): array
@@ -541,6 +652,7 @@ class MoveDuplicateVideosCommand extends Command
                 'duplicate_match' => $analysis['duplicate_match'] ?? null,
                 'candidate_count' => !empty($analysis['candidate_gate']['eligible']) ? 1 : 0,
                 'requested_min_match' => $analysis['requested_min_match'] ?? max(1, $minMatch),
+                'candidate_gate' => $analysis['candidate_gate'] ?? null,
             ];
         }
 
@@ -559,7 +671,186 @@ class MoveDuplicateVideosCommand extends Command
             'duplicate_match' => null,
             'candidate_count' => !empty($analysis['candidate_gate']['eligible']) ? 1 : 0,
             'requested_min_match' => $analysis['requested_min_match'] ?? max(1, $minMatch),
+            'candidate_gate' => $analysis['candidate_gate'] ?? null,
         ];
+    }
+
+    private function buildManualOperationStatus(array $analysis, bool $isSamePath): string
+    {
+        $candidateGate = is_array($analysis['candidate_gate'] ?? null) ? $analysis['candidate_gate'] : [];
+        $compareResult = is_array($analysis['compare_result'] ?? null) ? $analysis['compare_result'] : null;
+
+        if ($isSamePath) {
+            return 'manual_same_path';
+        }
+
+        if (!$compareResult) {
+            return 'manual_no_frames';
+        }
+
+        if (!empty($candidateGate['eligible']) && !empty($compareResult['passes_threshold'])) {
+            return 'manual_gate_pass';
+        }
+
+        if (empty($candidateGate['eligible']) && !empty($compareResult['passes_threshold'])) {
+            if (!empty($candidateGate['size_filter_applied']) && empty($candidateGate['size_within_window'])) {
+                return 'manual_size_block';
+            }
+
+            return 'manual_gate_block';
+        }
+
+        if (!empty($candidateGate['eligible'])) {
+            return 'manual_compare_fail';
+        }
+
+        return 'manual_gate_and_compare_fail';
+    }
+
+    private function isOfficialDuplicateMatch(array $analysis, bool $isSamePath): bool
+    {
+        if ($isSamePath) {
+            return false;
+        }
+
+        $candidateGate = is_array($analysis['candidate_gate'] ?? null) ? $analysis['candidate_gate'] : [];
+        $compareResult = is_array($analysis['compare_result'] ?? null) ? $analysis['compare_result'] : null;
+
+        return !empty($candidateGate['eligible'])
+            && is_array($compareResult)
+            && !empty($compareResult['passes_threshold']);
+    }
+
+    private function buildDebugHints(array $analysis, bool $isSamePath): array
+    {
+        $candidateGate = is_array($analysis['candidate_gate'] ?? null) ? $analysis['candidate_gate'] : [];
+        $compareResult = is_array($analysis['compare_result'] ?? null) ? $analysis['compare_result'] : null;
+        $hints = [];
+
+        if ($isSamePath) {
+            $hints[] = [
+                'tone' => 'info',
+                'message' => '補充：這筆其實不是「外部重複檔」，而是同一路徑來源；正式掃描只會標成 same_path_skipped。',
+            ];
+        }
+
+        if (($analysis['payload_frame_count'] ?? 0) <= 1) {
+            $hints[] = [
+                'tone' => 'warn',
+                'message' => '補充：這次只有 1 張 frame 可比，判斷力有限；如果要降低誤判，應考慮補更多截圖點位。',
+            ];
+        }
+
+        if (
+            is_array($compareResult)
+            && !empty($compareResult['passes_threshold'])
+            && empty($candidateGate['eligible'])
+            && !empty($candidateGate['size_filter_applied'])
+            && empty($candidateGate['size_within_window'])
+        ) {
+            $requiredPercent = $candidateGate['required_size_percent_to_pass'] ?? null;
+
+            $message = '補充：目前真正擋住這筆的是 size gate，不是 dHash compare。';
+            if ($requiredPercent !== null) {
+                $message .= sprintf(' 這組大小差距至少要 %.2f%% 才會進候選池。', (float) $requiredPercent);
+
+                if ((float) $requiredPercent > 90.0) {
+                    $message .= ' 但系統目前 size percent 上限是 90%，所以只調參數也抓不到，必須改候選篩選規則。';
+                }
+            }
+
+            $hints[] = [
+                'tone' => 'warn',
+                'message' => $message,
+            ];
+        }
+
+        if (
+            is_array($compareResult)
+            && ($compareResult['matched_frames'] ?? 0) === 0
+            && ($compareResult['compared_frames'] ?? 0) > 0
+        ) {
+            $hints[] = [
+                'tone' => 'warn',
+                'message' => '補充：frame 有對上 capture_order，但每張都沒過 threshold；這通常表示不是同片，或擷取點位雖然一致但畫面內容差太多。',
+            ];
+        }
+
+        return $hints;
+    }
+
+    private function buildSizeGateHint(array $candidateGate): string
+    {
+        $requiredPercent = $candidateGate['required_size_percent_to_pass'] ?? null;
+
+        if ($requiredPercent === null) {
+            return 'size gate 被檔案大小差距擋掉。';
+        }
+
+        $message = sprintf('若要單靠 size gate 放行，至少需要 %.2f%%。', (float) $requiredPercent);
+        if ((float) $requiredPercent > 90.0) {
+            $message .= ' 目前系統允許的上限只有 90%，所以這筆在正式流程永遠不會進候選池。';
+        }
+
+        return $message;
+    }
+
+    private function resolveFeatureVideoPath(
+        VideoFeature $feature,
+        VideoFeatureExtractionService $featureExtractionService
+    ): string {
+        if ($feature->videoMaster !== null) {
+            try {
+                return $this->normalizeAbsolutePath($featureExtractionService->resolveAbsoluteVideoPath($feature->videoMaster));
+            } catch (Throwable) {
+            }
+        }
+
+        return $this->normalizeAbsolutePath((string) ($feature->video_path ?? ''));
+    }
+
+    private function formatSeconds(mixed $value, bool $withUnit = true): string
+    {
+        if ($value === null || $value === '') {
+            return '-';
+        }
+
+        $formatted = number_format((float) $value, 3);
+
+        return $withUnit ? $formatted . ' sec' : $formatted;
+    }
+
+    private function formatBytes(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '-';
+        }
+
+        return number_format((int) $value) . ' bytes';
+    }
+
+    private function formatPercent(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '-';
+        }
+
+        return number_format((float) $value, 2);
+    }
+
+    private function formatRequiredSizePercent(array $candidateGate): string
+    {
+        $requiredPercent = $candidateGate['required_size_percent_to_pass'] ?? null;
+        if ($requiredPercent === null) {
+            return '-';
+        }
+
+        $message = number_format((float) $requiredPercent, 2) . '%';
+        if ((float) $requiredPercent > 90.0) {
+            $message .= ' (超過系統上限 90%)';
+        }
+
+        return $message;
     }
 
     private function resolveManualFeatureId(mixed $option): ?int

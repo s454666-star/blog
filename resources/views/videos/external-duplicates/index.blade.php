@@ -213,6 +213,24 @@
             transform:translateY(-1px);
         }
 
+        .search-select{
+            min-width:110px;
+            padding:14px 16px;
+            border-radius:16px;
+            border:1px solid var(--line-strong);
+            background:rgba(255,255,255,.94);
+            color:var(--ink);
+            font-size:.96rem;
+            outline:none;
+            transition:border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+        }
+
+        .search-select:focus{
+            border-color:rgba(93,156,236,.45);
+            box-shadow:0 0 0 5px rgba(93,156,236,.12);
+            transform:translateY(-1px);
+        }
+
         .btn{
             appearance:none;
             border:none;
@@ -756,9 +774,14 @@
                         value="{{ $q }}"
                         placeholder="搜尋檔名、來源路徑、疑似重複路徑、DB 影片名稱、狀態"
                     >
+                    <select class="search-select" name="per_page">
+                        @foreach (($perPageOptions ?? [20, 50, 100, 200, 500]) as $option)
+                            <option value="{{ $option }}" @selected((int) ($perPage ?? 200) === (int) $option)>{{ $option }} 筆</option>
+                        @endforeach
+                    </select>
                     <button class="btn btn-primary" type="submit">搜尋</button>
                     @if ($q !== '')
-                        <a class="btn btn-soft" href="{{ route('videos.external-duplicates.index') }}">清除</a>
+                        <a class="btn btn-soft" href="{{ route('videos.external-duplicates.index', ['per_page' => $perPage ?? 200]) }}">清除</a>
                     @endif
                 </form>
             </div>

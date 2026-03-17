@@ -19,6 +19,9 @@ class ExternalVideoDuplicateController extends Controller
     public function index(Request $request): View
     {
         $q = trim((string) $request->query('q', ''));
+        $perPageOptions = [20, 50, 100, 200, 500];
+        $requestedPerPage = (int) $request->query('per_page', 200);
+        $perPage = in_array($requestedPerPage, $perPageOptions, true) ? $requestedPerPage : 200;
 
         $matchQuery = ExternalVideoDuplicateMatch::query();
         $this->applyMatchSearch($matchQuery, $q);
@@ -40,7 +43,7 @@ class ExternalVideoDuplicateController extends Controller
                 'videoMaster',
             ])
             ->orderByDesc('created_at')
-            ->paginate(4, ['*'], 'duplicates_page')
+            ->paginate($perPage, ['*'], 'duplicates_page')
             ->withQueryString();
 
         $duplicateMatches->setCollection(
@@ -54,7 +57,7 @@ class ExternalVideoDuplicateController extends Controller
                 'videoMaster',
             ])
             ->orderByDesc('created_at')
-            ->paginate(4, ['*'], 'logs_page')
+            ->paginate($perPage, ['*'], 'logs_page')
             ->withQueryString();
 
         $logs->setCollection(
@@ -69,6 +72,8 @@ class ExternalVideoDuplicateController extends Controller
             'duplicateMatches' => $duplicateMatches,
             'comparisonLogs' => $logs,
             'q' => $q,
+            'perPage' => $perPage,
+            'perPageOptions' => $perPageOptions,
             'stats' => [
                 'duplicate_count' => $duplicateCount,
                 'duplicate_average_similarity' => $duplicateAverageSimilarity,

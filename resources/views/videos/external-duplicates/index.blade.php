@@ -412,6 +412,15 @@
             animation:riseIn .4s ease;
         }
 
+        .match-card.is-selected{
+            border-color:rgba(93,156,236,.34);
+            box-shadow:0 18px 42px rgba(93,156,236,.16);
+        }
+
+        .match-card.is-collapsed .match-head{
+            margin-bottom:0;
+        }
+
         .match-head{
             display:flex;
             justify-content:space-between;
@@ -452,6 +461,20 @@
             gap:10px;
             flex-wrap:wrap;
             justify-content:flex-end;
+        }
+
+        .match-body{
+            display:grid;
+            gap:18px;
+        }
+
+        .match-card.is-collapsed .match-body{
+            display:none;
+        }
+
+        .card-toggle-btn{
+            padding:10px 14px;
+            min-width:104px;
         }
 
         .tone-chip.excellent{background:rgba(62,161,223,.13); border-color:rgba(62,161,223,.22)}
@@ -953,15 +976,64 @@
         const checked = toggleAll.checked;
         getCheckboxes().forEach((checkbox) => {
             checkbox.checked = checked;
+            const card = checkbox.closest('[data-collapsible-card]');
+            setCardSelected(card, checked);
+            setCardCollapsed(card, checked);
         });
         syncSelectionState();
     });
 
     document.addEventListener('change', (event) => {
         if (event.target instanceof HTMLInputElement && event.target.matches('[data-match-checkbox]')) {
+            const card = event.target.closest('[data-collapsible-card]');
+            setCardSelected(card, event.target.checked);
+            setCardCollapsed(card, event.target.checked);
             syncSelectionState();
         }
     });
+
+    document.addEventListener('click', (event) => {
+        const toggleButton = event.target instanceof HTMLElement
+            ? event.target.closest('[data-card-toggle]')
+            : null;
+
+        if (!(toggleButton instanceof HTMLButtonElement)) {
+            return;
+        }
+
+        const card = toggleButton.closest('[data-collapsible-card]');
+        if (!(card instanceof HTMLElement)) {
+            return;
+        }
+
+        setCardCollapsed(card, !card.classList.contains('is-collapsed'));
+    });
+
+    function setCardSelected(card, selected) {
+        if (!(card instanceof HTMLElement)) {
+            return;
+        }
+
+        card.classList.toggle('is-selected', selected);
+    }
+
+    function setCardCollapsed(card, collapsed) {
+        if (!(card instanceof HTMLElement)) {
+            return;
+        }
+
+        const body = card.querySelector('[data-card-body]');
+        const toggleButton = card.querySelector('[data-card-toggle]');
+
+        if (!(body instanceof HTMLElement) || !(toggleButton instanceof HTMLButtonElement)) {
+            return;
+        }
+
+        card.classList.toggle('is-collapsed', collapsed);
+        body.hidden = collapsed;
+        toggleButton.textContent = collapsed ? '展開卡片' : '收起卡片';
+        toggleButton.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    }
 
     async function runBatchAction(url, action) {
         const ids = getSelectedIds();

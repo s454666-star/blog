@@ -745,7 +745,8 @@
                     </div>
 
                     <div class="toolbar-right">
-                        <span class="selection-chip">批次刪除只會動到 <strong>疑似重複檔案</strong> 裡面的外部影片</span>
+                        <span class="selection-chip">確認非重複只刪資料；批次刪除才會動到 <strong>疑似重複檔案</strong> 裡的外部影片</span>
+                        <button id="batch-dismiss-btn" class="btn btn-soft" type="button" disabled>確認非重複</button>
                         <button id="batch-delete-btn" class="btn btn-danger" type="button" disabled>刪除勾選影片</button>
                     </div>
                 </section>
@@ -823,6 +824,7 @@
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
     const toggleAll = document.getElementById('toggle-all');
     const selectedCountEl = document.getElementById('selected-count');
+    const batchDismissBtn = document.getElementById('batch-dismiss-btn');
     const batchDeleteBtn = document.getElementById('batch-delete-btn');
     const toastEl = document.getElementById('toast');
 
@@ -843,6 +845,10 @@
 
         if (selectedCountEl) {
             selectedCountEl.textContent = String(selectedIds.length);
+        }
+
+        if (batchDismissBtn) {
+            batchDismissBtn.disabled = selectedIds.length === 0;
         }
 
         if (batchDeleteBtn) {
@@ -890,16 +896,22 @@
         }
     });
 
-    batchDeleteBtn?.addEventListener('click', async () => {
+    async function runBatchAction(url, action) {
         const ids = getSelectedIds();
         if (ids.length === 0) {
             return;
         }
 
-        batchDeleteBtn.disabled = true;
+        if (batchDismissBtn) {
+            batchDismissBtn.disabled = true;
+        }
+
+        if (batchDeleteBtn) {
+            batchDeleteBtn.disabled = true;
+        }
 
         try {
-            const response = await fetch(@json(route('videos.external-duplicates.batch-delete')), {
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -914,7 +926,9 @@
                 throw new Error(payload?.message || '批次刪除失敗');
             }
 
-            (payload.deleted_ids || []).forEach((id) => {
+            const removedIds = payload.dismissed_ids || payload.deleted_ids || [];
+
+            removedIds.forEach((id) => {
                 const card = document.querySelector(`[data-match-id="${id}"]`);
                 card?.remove();
             });
@@ -930,13 +944,26 @@
                 window.location.reload();
             }
         } catch (error) {
-            showToast(error instanceof Error ? error.message : '批次刪除失敗');
+            const fallback = action === 'dismiss' ? '確認非重複失敗' : '批次刪除失敗';
+            showToast(error instanceof Error ? error.message : fallback);
             syncSelectionState();
         } finally {
+            if (batchDismissBtn) {
+                batchDismissBtn.disabled = getSelectedIds().length === 0;
+            }
+
             if (batchDeleteBtn) {
                 batchDeleteBtn.disabled = getSelectedIds().length === 0;
             }
         }
+    }
+
+    batchDismissBtn?.addEventListener('click', async () => {
+        await runBatchAction(@json(route('videos.external-duplicates.batch-dismiss')), 'dismiss');
+    });
+
+    batchDeleteBtn?.addEventListener('click', async () => {
+        await runBatchAction(@json(route('videos.external-duplicates.batch-delete')), 'delete');
     });
 
     syncSelectionState();

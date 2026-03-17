@@ -129,4 +129,40 @@ class ExternalVideoDuplicateServiceTest extends TestCase
         $this->assertDatabaseMissing('external_video_duplicate_logs', ['id' => 1]);
         $this->assertDatabaseHas('external_video_duplicate_logs', ['id' => 2]);
     }
+
+    public function test_batch_dismiss_removes_match_and_logs_but_keeps_file(): void
+    {
+        $duplicateFilePath = $this->tempDir . DIRECTORY_SEPARATOR . 'keep.mp4';
+        file_put_contents($duplicateFilePath, 'keep-video');
+
+        DB::table('external_video_duplicate_matches')->insert([
+            'id' => 300,
+            'duplicate_file_path' => $duplicateFilePath,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('external_video_duplicate_logs')->insert([
+            'id' => 3,
+            'external_video_duplicate_match_id' => 300,
+            'source_file_path' => 'C:\\source\\keep.mp4',
+            'file_name' => 'keep.mp4',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->postJson(route('videos.external-duplicates.batch-dismiss'), [
+            'ids' => [300],
+        ]);
+
+        $response->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'dismissed_ids' => [300],
+            ]);
+
+        $this->assertFileExists($duplicateFilePath);
+        $this->assertDatabaseMissing('external_video_duplicate_matches', ['id' => 300]);
+        $this->assertDatabaseMissing('external_video_duplicate_logs', ['id' => 3]);
+    }
 }

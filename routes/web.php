@@ -166,6 +166,7 @@ Route::post('/videos/duplicates/delete', [VideoDuplicateController::class, 'dele
 Route::get('/videos/external-duplicates', [ExternalVideoDuplicateController::class, 'index'])->name('videos.external-duplicates.index');
 Route::get('/videos/external-duplicates/{match}/stream', [ExternalVideoDuplicateController::class, 'stream'])->name('videos.external-duplicates.stream');
 Route::post('/videos/external-duplicates/batch-delete', [ExternalVideoDuplicateController::class, 'batchDelete'])->name('videos.external-duplicates.batch-delete');
+Route::post('/videos/external-duplicates/batch-dismiss', [ExternalVideoDuplicateController::class, 'batchDismiss'])->name('videos.external-duplicates.batch-dismiss');
 Route::get('/face-identities', [FaceIdentityController::class, 'index'])->name('face-identities.index');
 Route::get('/face-identities/image', [FaceIdentityController::class, 'image'])->name('face-identities.image');
 Route::get('/face-identities/videos/{video}/stream', [FaceIdentityController::class, 'video'])->name('face-identities.video');

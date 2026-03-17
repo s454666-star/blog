@@ -149,6 +149,54 @@ class ExternalVideoDuplicateController extends Controller
         ]);
     }
 
+    public function batchDismiss(Request $request, ExternalVideoDuplicateService $service): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'min:1'],
+        ]);
+
+        $ids = array_values(array_unique(array_map('intval', (array) $validated['ids'])));
+
+        $records = ExternalVideoDuplicateMatch::query()
+            ->with('frames')
+            ->whereIn('id', $ids)
+            ->get()
+            ->keyBy('id');
+
+        $dismissedIds = [];
+        $failed = [];
+
+        foreach ($ids as $id) {
+            $record = $records->get($id);
+            if (!$record instanceof ExternalVideoDuplicateMatch) {
+                $failed[] = [
+                    'id' => $id,
+                    'message' => '找不到指定資料列。',
+                ];
+                continue;
+            }
+
+            $result = $service->dismissRecord($record);
+            if (!($result['ok'] ?? false)) {
+                $failed[] = [
+                    'id' => $id,
+                    'message' => (string) ($result['message'] ?? '確認非重複失敗。'),
+                ];
+                continue;
+            }
+
+            $dismissedIds[] = $id;
+        }
+
+        return response()->json([
+            'ok' => count($dismissedIds) > 0 && count($failed) === 0,
+            'dismissed_ids' => $dismissedIds,
+            'failed' => $failed,
+            'message' => sprintf('已確認非重複 %d 筆，失敗 %d 筆。', count($dismissedIds), count($failed)),
+        ]);
+    }
+
     private function applyMatchSearch(Builder $query, string $q): void
     {
         if ($q === '') {

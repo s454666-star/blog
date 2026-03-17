@@ -174,8 +174,6 @@ class ExternalVideoDuplicateService
     public function deleteRecord(ExternalVideoDuplicateMatch $record): array
     {
         $duplicateFilePath = $this->normalizeAbsolutePath((string) $record->duplicate_file_path);
-        $screenshotPaths = $record->frames()->pluck('screenshot_path')->all();
-
         $fileDeleted = false;
         $fileError = null;
 
@@ -195,21 +193,23 @@ class ExternalVideoDuplicateService
             $fileError = '檔案不存在，改為清理資料列。';
         }
 
-        DB::transaction(function () use ($record): void {
-            $record->comparisonLogs()->delete();
-            $record->delete();
-        });
-
-        foreach ($screenshotPaths as $screenshotPath) {
-            if (is_string($screenshotPath) && $screenshotPath !== '') {
-                $this->deletePublicScreenshot($screenshotPath);
-            }
-        }
+        $this->purgeRecord($record);
 
         return [
             'ok' => true,
             'file_deleted' => $fileDeleted,
             'message' => $fileError,
+        ];
+    }
+
+    public function dismissRecord(ExternalVideoDuplicateMatch $record): array
+    {
+        $this->purgeRecord($record);
+
+        return [
+            'ok' => true,
+            'file_deleted' => false,
+            'message' => null,
         ];
     }
 
@@ -244,6 +244,22 @@ class ExternalVideoDuplicateService
         $absolutePath = Storage::disk('public')->path($relativePath);
         if (File::exists($absolutePath)) {
             File::delete($absolutePath);
+        }
+    }
+
+    private function purgeRecord(ExternalVideoDuplicateMatch $record): void
+    {
+        $screenshotPaths = $record->frames()->pluck('screenshot_path')->all();
+
+        DB::transaction(function () use ($record): void {
+            $record->comparisonLogs()->delete();
+            $record->delete();
+        });
+
+        foreach ($screenshotPaths as $screenshotPath) {
+            if (is_string($screenshotPath) && $screenshotPath !== '') {
+                $this->deletePublicScreenshot($screenshotPath);
+            }
         }
     }
 

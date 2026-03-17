@@ -30,12 +30,12 @@ class MoveDuplicateVideosCommand extends Command
         {--window-seconds=3 : 時長容許秒數}
         {--size-percent=15 : 相容舊參數；正式比對已不使用檔案大小 gate}
         {--max-candidates=250 : 每支影片最多拉多少 DB 候選}
-        {--video-feature-id= : 指定單一 video_features.id 進入手動 debug 模式}
-        {--write-log : 相容舊參數；手動 debug 模式現在預設就會寫 log}
+        {--video-feature-id= : 指定單一 video_features.id 進入手動分析模式；若命中重複仍會搬移}
+        {--write-log : 相容舊參數；手動分析模式現在預設就會寫 log}
         {--skip-log : 手動 debug 模式不要寫入 external_video_duplicate_logs}
         {--dry-run : 只顯示結果不搬移}';
 
-    protected $description = '掃描資料夾內影片，若特徵已存在於 DB，搬到「疑似重複檔案」資料夾並寫入外部重複檢視資料；若指定 --video-feature-id，則改為手動分析指定 feature，並預設寫入 debug log。';
+    protected $description = '掃描資料夾內影片，若特徵已存在於 DB，搬到「疑似重複檔案」資料夾並寫入外部重複檢視資料；若指定 --video-feature-id，則改為手動分析指定 feature，命中重複時同樣搬移並寫入 match/log。';
 
     private const VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'm4v', 'mpeg', 'mpg'];
 
@@ -73,6 +73,7 @@ class MoveDuplicateVideosCommand extends Command
                 $windowSeconds,
                 $sizePercent,
                 $writeLog,
+                $dryRun,
                 $featureExtractionService,
                 $duplicateDetectionService,
                 $externalVideoDuplicateService
@@ -286,6 +287,7 @@ class MoveDuplicateVideosCommand extends Command
         int $windowSeconds,
         int $sizePercent,
         bool $writeLog,
+        bool $dryRun,
         VideoFeatureExtractionService $featureExtractionService,
         VideoDuplicateDetectionService $duplicateDetectionService,
         ExternalVideoDuplicateService $externalVideoDuplicateService
@@ -322,6 +324,11 @@ class MoveDuplicateVideosCommand extends Command
             $this->line($filePath);
 
             $payload = null;
+            $analysis = null;
+            $isSamePath = false;
+            $destinationPath = null;
+            $movedToDuplicateDir = false;
+            $comparisonLogged = false;
 
             try {
                 $payload = $featureExtractionService->inspectFile($filePath);
@@ -338,6 +345,14 @@ class MoveDuplicateVideosCommand extends Command
                 $isSamePath = $dbVideoPath !== '' && mb_strtolower($dbVideoPath) === mb_strtolower($filePath);
                 $operationStatus = $this->buildManualOperationStatus($analysis, $isSamePath);
                 $operationMessage = $this->buildConclusionMessage($analysis, $isSamePath);
+                $baseLogOptions = [
+                    'scan_root_path' => is_dir($path) ? $path : dirname($filePath),
+                    'threshold_percent' => $threshold,
+                    'min_match_required' => $minMatch,
+                    'window_seconds' => $windowSeconds,
+                    'size_percent' => $sizePercent,
+                    'max_candidates' => 1,
+                ];
 
                 $this->renderOverview(
                     $filePath,
@@ -355,24 +370,80 @@ class MoveDuplicateVideosCommand extends Command
                 $this->renderConclusion($analysis, $isSamePath);
                 $this->renderDebugHints($analysis, $isSamePath);
 
-                if ($writeLog) {
+                if ($this->isOfficialDuplicateMatch($analysis, $isSamePath)) {
+                    $match = $analysis['duplicate_match'] ?? null;
+                    if (!is_array($match)) {
+                        throw new \RuntimeException('判定為重複，但 duplicate_match 資料不存在。');
+                    }
+
+                    if ($dryRun) {
+                        if ($writeLog) {
+                            $externalVideoDuplicateService->persistComparisonLog(
+                                $payload,
+                                $this->buildManualLogAnalysis($analysis, $feature, $minMatch),
+                                $filePath,
+                                $baseLogOptions + [
+                                    'is_duplicate_detected' => true,
+                                    'operation_status' => 'dry_run_match',
+                                    'operation_message' => 'dry-run 模式，未搬移檔案。',
+                                ]
+                            );
+                            $comparisonLogged = true;
+                        }
+
+                        $this->warn('dry-run 模式，未搬移檔案。');
+                    } else {
+                        $duplicateDir = $this->buildDuplicateDirectory($path, $filePath);
+                        $destinationPath = $this->buildUniqueDestination($duplicateDir, basename($filePath));
+
+                        File::ensureDirectoryExists($duplicateDir);
+                        if (!@rename($filePath, $destinationPath)) {
+                            throw new \RuntimeException('搬移檔案失敗：' . $destinationPath);
+                        }
+
+                        $movedToDuplicateDir = true;
+
+                        $matchRecord = $externalVideoDuplicateService->persistMatchResult(
+                            $payload,
+                            $match,
+                            $filePath,
+                            $destinationPath,
+                            $baseLogOptions + [
+                                'duplicate_directory_path' => $duplicateDir,
+                            ]
+                        );
+
+                        if ($writeLog) {
+                            $externalVideoDuplicateService->persistComparisonLog(
+                                $payload,
+                                $this->buildManualLogAnalysis($analysis, $feature, $minMatch),
+                                $filePath,
+                                $baseLogOptions + [
+                                    'external_video_duplicate_match_id' => $matchRecord->id,
+                                    'duplicate_file_path' => $destinationPath,
+                                    'is_duplicate_detected' => true,
+                                    'operation_status' => 'match_moved',
+                                    'operation_message' => '手動分析確認重複，已搬移到疑似重複檔案資料夾。',
+                                ]
+                            );
+                            $comparisonLogged = true;
+                        }
+
+                        $this->info('已搬移到：' . $destinationPath);
+                    }
+                } elseif ($writeLog) {
                     $log = $externalVideoDuplicateService->persistComparisonLog(
                         $payload,
                         $this->buildManualLogAnalysis($analysis, $feature, $minMatch),
                         $filePath,
-                        [
-                            'scan_root_path' => is_dir($path) ? $path : dirname($filePath),
-                            'threshold_percent' => $threshold,
-                            'min_match_required' => $minMatch,
-                            'window_seconds' => $windowSeconds,
-                            'size_percent' => $sizePercent,
-                            'max_candidates' => 1,
+                        $baseLogOptions + [
                             'is_duplicate_detected' => $this->isOfficialDuplicateMatch($analysis, $isSamePath),
                             'operation_status' => $operationStatus,
                             'operation_message' => $operationMessage,
                         ]
                     );
 
+                    $comparisonLogged = true;
                     $this->info('已寫入 debug log，ID=' . $log->id);
                 } else {
                     $this->line('已略過寫 log（--skip-log）');
@@ -380,6 +451,43 @@ class MoveDuplicateVideosCommand extends Command
 
                 $processed++;
             } catch (Throwable $e) {
+                if (
+                    $movedToDuplicateDir &&
+                    is_string($destinationPath) &&
+                    $destinationPath !== '' &&
+                    File::exists($destinationPath) &&
+                    !File::exists($filePath)
+                ) {
+                    @rename($destinationPath, $filePath);
+                }
+
+                if (!$comparisonLogged && is_array($payload)) {
+                    try {
+                        $externalVideoDuplicateService->persistComparisonLog(
+                            $payload,
+                            isset($analysis) && is_array($analysis)
+                                ? $this->buildManualLogAnalysis($analysis, $feature, $minMatch)
+                                : null,
+                            $filePath,
+                            [
+                                'scan_root_path' => is_dir($path) ? $path : dirname($filePath),
+                                'duplicate_file_path' => $movedToDuplicateDir && is_string($destinationPath) ? $destinationPath : null,
+                                'threshold_percent' => $threshold,
+                                'min_match_required' => $minMatch,
+                                'window_seconds' => $windowSeconds,
+                                'size_percent' => $sizePercent,
+                                'max_candidates' => 1,
+                                'is_duplicate_detected' => isset($analysis) && is_array($analysis)
+                                    ? $this->isOfficialDuplicateMatch($analysis, $isSamePath)
+                                    : false,
+                                'operation_status' => 'error',
+                                'operation_message' => $e->getMessage(),
+                            ]
+                        );
+                    } catch (Throwable) {
+                    }
+                }
+
                 $failed++;
                 $this->error('分析失敗：' . $e->getMessage());
             } finally {
@@ -558,7 +666,7 @@ class MoveDuplicateVideosCommand extends Command
 
         if (!empty($candidateGate['eligible']) && !empty($compareResult['passes_threshold'])) {
             return sprintf(
-                '結論：正式流程候選條件可通過，且強制比對也達門檻（similarity=%s%%, matched=%d/%d）；如果沒抓到，請回頭檢查當次掃描是否用了不同參數，或是否在後續流程被同路徑略過。',
+                '結論：正式流程候選條件可通過，且強制比對也達門檻（similarity=%s%%, matched=%d/%d）；非 dry-run 時會直接搬移到疑似重複檔案資料夾，並寫入 match/log。',
                 $this->formatPercent($compareResult['similarity_percent'] ?? null),
                 (int) ($compareResult['matched_frames'] ?? 0),
                 (int) ($compareResult['required_matches'] ?? 0)
@@ -792,6 +900,15 @@ class MoveDuplicateVideosCommand extends Command
         }
 
         return (int) $option;
+    }
+
+    private function buildDuplicateDirectory(string $inputPath, string $filePath): string
+    {
+        if (is_dir($inputPath)) {
+            return $this->normalizeAbsolutePath($inputPath . DIRECTORY_SEPARATOR . '疑似重複檔案');
+        }
+
+        return $this->normalizeAbsolutePath(dirname($filePath) . DIRECTORY_SEPARATOR . '疑似重複檔案');
     }
 
     private function collectVideoFiles(string $rootPath, bool $recursive, string $duplicateDir): array

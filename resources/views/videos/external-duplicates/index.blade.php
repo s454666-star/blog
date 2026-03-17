@@ -896,10 +896,6 @@
             return;
         }
 
-        if (!window.confirm(`確定要刪除已勾選的 ${ids.length} 支外部疑似重複影片嗎？`)) {
-            return;
-        }
-
         batchDeleteBtn.disabled = true;
 
         try {

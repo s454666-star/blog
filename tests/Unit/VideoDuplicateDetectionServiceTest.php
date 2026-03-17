@@ -179,10 +179,63 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         $this->assertFalse($analysis['best_result']['passes_threshold']);
     }
 
-    public function test_specific_feature_analysis_can_show_forced_match_but_official_gate_blocks_it(): void
+    public function test_database_match_ignores_size_difference_when_frames_match(): void
     {
         DB::table('video_master')->insert([
             'id' => 103,
+            'video_name' => 'size-ignored.mp4',
+            'video_path' => '\\size-ignored.mp4',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $feature = VideoFeature::query()->create([
+            'video_master_id' => 103,
+            'video_name' => 'size-ignored.mp4',
+            'video_path' => '\\size-ignored.mp4',
+            'file_name' => 'size-ignored.mp4',
+            'file_size_bytes' => 5000,
+            'duration_seconds' => 8.000,
+            'screenshot_count' => 1,
+            'capture_rule' => 'lt_10s_at_3s',
+            'feature_version' => 'v1',
+        ]);
+
+        VideoFeatureFrame::query()->create([
+            'video_feature_id' => $feature->id,
+            'capture_order' => 1,
+            'capture_second' => 3.000,
+            'screenshot_path' => '\\size_ignored_feature_01.jpg',
+            'dhash_hex' => '0011223344556677',
+            'dhash_prefix' => '00',
+            'frame_sha1' => str_repeat('e', 40),
+        ]);
+
+        $payload = [
+            'duration_seconds' => 8.000,
+            'file_size_bytes' => 1000,
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 3.000,
+                'dhash_hex' => '0011223344556677',
+                'dhash_prefix' => '00',
+                'frame_sha1' => str_repeat('f', 40),
+            ]],
+        ];
+
+        $service = new VideoDuplicateDetectionService(new VideoFeatureExtractionService());
+        $analysis = $service->analyzeDatabaseMatch($payload, 90, 2, 3, 15, 250);
+
+        $this->assertSame(1, $analysis['candidate_count']);
+        $this->assertNotNull($analysis['duplicate_match']);
+        $this->assertTrue($analysis['duplicate_match']['passes_threshold']);
+        $this->assertSame(4000, $analysis['duplicate_match']['file_size_delta_bytes']);
+    }
+
+    public function test_specific_feature_analysis_no_longer_blocks_by_size_difference(): void
+    {
+        DB::table('video_master')->insert([
+            'id' => 104,
             'video_name' => 'size-blocked.mp4',
             'video_path' => '\\size-blocked.mp4',
             'created_at' => now(),
@@ -190,7 +243,7 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         ]);
 
         $feature = VideoFeature::query()->create([
-            'video_master_id' => 103,
+            'video_master_id' => 104,
             'video_name' => 'size-blocked.mp4',
             'video_path' => '\\size-blocked.mp4',
             'file_name' => 'size-blocked.mp4',
@@ -226,11 +279,13 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         $service = new VideoDuplicateDetectionService(new VideoFeatureExtractionService());
         $analysis = $service->analyzeSpecificFeatureMatch($payload, $feature, 90, 2, 3, 15);
 
-        $this->assertFalse($analysis['candidate_gate']['eligible']);
-        $this->assertFalse($analysis['candidate_gate']['size_within_window']);
+        $this->assertTrue($analysis['candidate_gate']['eligible']);
+        $this->assertFalse($analysis['candidate_gate']['size_filter_applied']);
+        $this->assertNull($analysis['candidate_gate']['size_within_window']);
         $this->assertSame(1, $analysis['candidate_gate']['payload_prefix_count']);
         $this->assertSame(1, $analysis['candidate_gate']['feature_prefix_count']);
-        $this->assertSame(400.0, $analysis['candidate_gate']['required_size_percent_to_pass']);
+        $this->assertNull($analysis['candidate_gate']['required_size_percent_to_pass']);
+        $this->assertTrue($analysis['candidate_gate']['size_gate_ignored']);
         $this->assertNotNull($analysis['compare_result']);
         $this->assertTrue($analysis['compare_result']['passes_threshold']);
         $this->assertNotNull($analysis['duplicate_match']);

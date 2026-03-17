@@ -45,7 +45,6 @@ class VideoDuplicateDetectionService
         $candidateIds = $this->collectCandidateIds(
             $payloadContext,
             $windowSeconds,
-            $sizePercent,
             $maxCandidates
         );
 
@@ -117,8 +116,7 @@ class VideoDuplicateDetectionService
         $candidateGate = $this->buildCandidateGateSummary(
             $payloadContext,
             $feature,
-            $windowSeconds,
-            $sizePercent
+            $windowSeconds
         );
 
         $compareResult = null;
@@ -277,7 +275,6 @@ class VideoDuplicateDetectionService
     private function collectCandidateIds(
         array $payloadContext,
         int $windowSeconds,
-        int $sizePercent,
         int $maxCandidates
     ): array {
         return VideoFeatureFrame::query()
@@ -288,22 +285,11 @@ class VideoDuplicateDetectionService
                 max(0, $payloadContext['duration_seconds'] - max(0, $windowSeconds)),
                 $payloadContext['duration_seconds'] + max(0, $windowSeconds),
             ])
-            ->when($payloadContext['file_size_bytes'] > 0, function ($query) use ($payloadContext, $sizePercent) {
-                $ratio = max(0, min(90, $sizePercent)) / 100;
-                $minSize = (int) floor($payloadContext['file_size_bytes'] * (1 - $ratio));
-                $maxSize = (int) ceil($payloadContext['file_size_bytes'] * (1 + $ratio));
-
-                $query->whereBetween('video_features.file_size_bytes', [$minSize, $maxSize]);
-            })
             ->groupBy('video_feature_frames.video_feature_id')
             ->orderByRaw('COUNT(*) DESC')
             ->orderByRaw(
                 'ABS(CAST(video_features.duration_seconds AS DECIMAL(10,3)) - ?) ASC',
                 [$payloadContext['duration_seconds']]
-            )
-            ->orderByRaw(
-                'ABS(CAST(video_features.file_size_bytes AS SIGNED) - ?) ASC',
-                [$payloadContext['file_size_bytes']]
             )
             ->limit(max(1, $maxCandidates))
             ->pluck('video_feature_frames.video_feature_id')
@@ -313,8 +299,7 @@ class VideoDuplicateDetectionService
     private function buildCandidateGateSummary(
         array $payloadContext,
         VideoFeature $feature,
-        int $windowSeconds,
-        int $sizePercent
+        int $windowSeconds
     ): array {
         $featurePrefixes = [];
         foreach ($feature->frames as $frame) {
@@ -334,27 +319,17 @@ class VideoDuplicateDetectionService
             ? $featureDuration >= $durationMin && $featureDuration <= $durationMax
             : false;
 
-        $sizeFilterApplied = $payloadContext['file_size_bytes'] > 0;
         $sizeWindowMin = null;
         $sizeWindowMax = null;
         $featureFileSize = $feature->file_size_bytes !== null ? (int) $feature->file_size_bytes : null;
         $fileSizeDelta = $featureFileSize !== null && $payloadContext['file_size_bytes'] > 0
             ? abs($featureFileSize - $payloadContext['file_size_bytes'])
             : null;
-
-        if ($sizeFilterApplied) {
-            $ratio = max(0, min(90, $sizePercent)) / 100;
-            $sizeWindowMin = (int) floor($payloadContext['file_size_bytes'] * (1 - $ratio));
-            $sizeWindowMax = (int) ceil($payloadContext['file_size_bytes'] * (1 + $ratio));
-            $sizeWithinWindow = $featureFileSize !== null
-                ? $featureFileSize >= $sizeWindowMin && $featureFileSize <= $sizeWindowMax
-                : false;
-        } else {
-            $sizeWithinWindow = true;
-        }
+        $sizeFilterApplied = false;
+        $sizeWithinWindow = null;
 
         $prefixEligible = $payloadContext['prefixes'] !== [] && $sharedPrefixes !== [];
-        $eligible = $prefixEligible && $durationWithinWindow && $sizeWithinWindow;
+        $eligible = $prefixEligible && $durationWithinWindow;
 
         $reasons = [];
         if ($payloadContext['prefixes'] === []) {
@@ -365,10 +340,6 @@ class VideoDuplicateDetectionService
 
         if (!$durationWithinWindow) {
             $reasons[] = '時長不在正式流程的 window 範圍內。';
-        }
-
-        if ($sizeFilterApplied && !$sizeWithinWindow) {
-            $reasons[] = '檔案大小不在正式流程的 size percent 範圍內。';
         }
 
         return [
@@ -393,9 +364,8 @@ class VideoDuplicateDetectionService
             'size_window_min' => $sizeWindowMin,
             'size_window_max' => $sizeWindowMax,
             'file_size_delta_bytes' => $fileSizeDelta,
-            'required_size_percent_to_pass' => $payloadContext['file_size_bytes'] > 0 && $featureFileSize !== null
-                ? round((abs($featureFileSize - $payloadContext['file_size_bytes']) / max(1, $payloadContext['file_size_bytes'])) * 100, 2)
-                : null,
+            'required_size_percent_to_pass' => null,
+            'size_gate_ignored' => true,
             'reasons' => $reasons,
         ];
     }

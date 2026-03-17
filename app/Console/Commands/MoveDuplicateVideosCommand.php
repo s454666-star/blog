@@ -28,7 +28,7 @@ class MoveDuplicateVideosCommand extends Command
         {--threshold=90 : dHash 相似度門檻}
         {--min-match=2 : 至少幾張截圖達標}
         {--window-seconds=3 : 時長容許秒數}
-        {--size-percent=15 : 檔案大小容許百分比}
+        {--size-percent=15 : 相容舊參數；正式比對已不使用檔案大小 gate}
         {--max-candidates=250 : 每支影片最多拉多少 DB 候選}
         {--video-feature-id= : 指定單一 video_features.id 進入手動 debug 模式}
         {--write-log : 相容舊參數；手動 debug 模式現在預設就會寫 log}
@@ -415,7 +415,7 @@ class MoveDuplicateVideosCommand extends Command
         $this->line('DB 影片路徑：' . ($dbVideoPath !== '' ? $dbVideoPath : ((string) ($feature->video_path ?? '-'))));
         $this->line('來源/DB 同一路徑：' . ($isSamePath ? 'YES' : 'NO'));
         $this->line(sprintf(
-            '分析參數：threshold=%d min-match=%d window=%d size=%d%%',
+            '分析參數：threshold=%d min-match=%d window=%d size=%d%% (ignored)',
             $threshold,
             $minMatch,
             $windowSeconds,
@@ -461,19 +461,10 @@ class MoveDuplicateVideosCommand extends Command
                 : '-'],
             ['source size', $this->formatBytes($candidateGate['payload_file_size_bytes'] ?? null)],
             ['feature size', $this->formatBytes($candidateGate['feature_file_size_bytes'] ?? null)],
-            ['size filter', !empty($candidateGate['size_filter_applied']) ? 'ON' : 'OFF'],
-            ['size window', !empty($candidateGate['size_filter_applied'])
-                ? sprintf(
-                    '%s (%s ~ %s)',
-                    !empty($candidateGate['size_within_window']) ? 'PASS' : 'BLOCK',
-                    $this->formatBytes($candidateGate['size_window_min'] ?? null),
-                    $this->formatBytes($candidateGate['size_window_max'] ?? null)
-                )
-                : 'SKIP'],
             ['size delta', isset($candidateGate['file_size_delta_bytes']) && $candidateGate['file_size_delta_bytes'] !== null
                 ? number_format((int) $candidateGate['file_size_delta_bytes']) . ' bytes'
                 : '-'],
-            ['至少需要 size %', $this->formatRequiredSizePercent($candidateGate)],
+            ['size gate', !empty($candidateGate['size_gate_ignored']) ? 'IGNORED' : 'OFF'],
             ['會進正式候選池', !empty($candidateGate['eligible']) ? 'YES' : 'NO'],
         ];
 
@@ -583,10 +574,6 @@ class MoveDuplicateVideosCommand extends Command
                 $reasonText
             );
 
-            if (!empty($candidateGate['size_filter_applied']) && empty($candidateGate['size_within_window'])) {
-                $message .= ' ' . $this->buildSizeGateHint($candidateGate);
-            }
-
             if (($compareResult['similarity_percent'] ?? 0) >= 99) {
                 $message .= ' 這是高度疑似同片或同內容重編碼版本。';
             }
@@ -693,10 +680,6 @@ class MoveDuplicateVideosCommand extends Command
         }
 
         if (empty($candidateGate['eligible']) && !empty($compareResult['passes_threshold'])) {
-            if (!empty($candidateGate['size_filter_applied']) && empty($candidateGate['size_within_window'])) {
-                return 'manual_size_block';
-            }
-
             return 'manual_gate_block';
         }
 
@@ -743,30 +726,6 @@ class MoveDuplicateVideosCommand extends Command
 
         if (
             is_array($compareResult)
-            && !empty($compareResult['passes_threshold'])
-            && empty($candidateGate['eligible'])
-            && !empty($candidateGate['size_filter_applied'])
-            && empty($candidateGate['size_within_window'])
-        ) {
-            $requiredPercent = $candidateGate['required_size_percent_to_pass'] ?? null;
-
-            $message = '補充：目前真正擋住這筆的是 size gate，不是 dHash compare。';
-            if ($requiredPercent !== null) {
-                $message .= sprintf(' 這組大小差距至少要 %.2f%% 才會進候選池。', (float) $requiredPercent);
-
-                if ((float) $requiredPercent > 90.0) {
-                    $message .= ' 但系統目前 size percent 上限是 90%，所以只調參數也抓不到，必須改候選篩選規則。';
-                }
-            }
-
-            $hints[] = [
-                'tone' => 'warn',
-                'message' => $message,
-            ];
-        }
-
-        if (
-            is_array($compareResult)
             && ($compareResult['matched_frames'] ?? 0) === 0
             && ($compareResult['compared_frames'] ?? 0) > 0
         ) {
@@ -777,22 +736,6 @@ class MoveDuplicateVideosCommand extends Command
         }
 
         return $hints;
-    }
-
-    private function buildSizeGateHint(array $candidateGate): string
-    {
-        $requiredPercent = $candidateGate['required_size_percent_to_pass'] ?? null;
-
-        if ($requiredPercent === null) {
-            return 'size gate 被檔案大小差距擋掉。';
-        }
-
-        $message = sprintf('若要單靠 size gate 放行，至少需要 %.2f%%。', (float) $requiredPercent);
-        if ((float) $requiredPercent > 90.0) {
-            $message .= ' 目前系統允許的上限只有 90%，所以這筆在正式流程永遠不會進候選池。';
-        }
-
-        return $message;
     }
 
     private function resolveFeatureVideoPath(
@@ -836,21 +779,6 @@ class MoveDuplicateVideosCommand extends Command
         }
 
         return number_format((float) $value, 2);
-    }
-
-    private function formatRequiredSizePercent(array $candidateGate): string
-    {
-        $requiredPercent = $candidateGate['required_size_percent_to_pass'] ?? null;
-        if ($requiredPercent === null) {
-            return '-';
-        }
-
-        $message = number_format((float) $requiredPercent, 2) . '%';
-        if ((float) $requiredPercent > 90.0) {
-            $message .= ' (超過系統上限 90%)';
-        }
-
-        return $message;
     }
 
     private function resolveManualFeatureId(mixed $option): ?int

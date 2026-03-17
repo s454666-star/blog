@@ -196,6 +196,7 @@ class ExternalVideoDuplicateService
         }
 
         DB::transaction(function () use ($record): void {
+            $record->comparisonLogs()->delete();
             $record->delete();
         });
 

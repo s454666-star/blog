@@ -691,10 +691,17 @@
                         name="q"
                         value="{{ $q }}"
                         placeholder="搜尋人物編號、影片檔名、路徑或來源資料夾">
+                    <select class="search-input" name="per_page" aria-label="每頁筆數">
+                        @foreach (($perPageOptions ?? [50, 100, 200, 500]) as $option)
+                            <option value="{{ $option }}" @selected((int) ($perPage ?? 50) === (int) $option)>
+                                每頁 {{ $option }} 群
+                            </option>
+                        @endforeach
+                    </select>
                     <button class="btn btn-primary" type="submit">查詢分群</button>
                 </form>
                 @if ($q !== '')
-                    <a class="btn btn-soft" href="{{ route('face-identities.index') }}">清除搜尋</a>
+                    <a class="btn btn-soft" href="{{ route('face-identities.index', ['per_page' => $perPage ?? 50]) }}">清除搜尋</a>
                 @endif
             </div>
         </div>
@@ -703,7 +710,7 @@
     <section class="toolbar">
         <div class="chip-row">
             <span class="chip"><strong>抽樣規則</strong> 每 1 秒檢查一次；抓到一張後往後跳 20 秒，最多收 20 張清晰人臉，明顯側臉會剃除</span>
-            <span class="chip"><strong>比對方式</strong> Facenet embedding + 人物群組 centroid</span>
+            <span class="chip"><strong>比對方式</strong> Facenet embedding + 影片對影片交叉驗證，重建群組時會避免鏈式誤併</span>
         </div>
         <div class="chip-row">
             <span class="chip"><strong>解除分群</strong> 點作品右上角 `X` 即拆成新編號</span>

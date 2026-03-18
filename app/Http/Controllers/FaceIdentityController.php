@@ -19,6 +19,11 @@ class FaceIdentityController extends Controller
     public function index(Request $request): View
     {
         $q = trim((string) $request->query('q', ''));
+        $perPageOptions = [50, 100, 200, 500];
+        $perPage = (int) $request->query('per_page', 50);
+        if (!in_array($perPage, $perPageOptions, true)) {
+            $perPage = 50;
+        }
 
         $peopleQuery = FaceIdentityPerson::query()
             ->where('video_count', '>', 0);
@@ -58,12 +63,14 @@ class FaceIdentityController extends Controller
             ])
             ->orderByDesc('last_seen_at')
             ->orderByDesc('id')
-            ->paginate(8)
+            ->paginate($perPage)
             ->withQueryString();
 
         return view('face-identities.index', [
             'people' => $people,
             'q' => $q,
+            'perPage' => $perPage,
+            'perPageOptions' => $perPageOptions,
             'stats' => [
                 'people_count' => FaceIdentityPerson::query()->where('video_count', '>', 0)->count(),
                 'video_count' => FaceIdentityVideo::query()->count(),

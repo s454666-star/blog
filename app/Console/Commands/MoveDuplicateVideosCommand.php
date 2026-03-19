@@ -18,6 +18,8 @@ class MoveDuplicateVideosCommand extends Command
     /**
      * 範例:
      * php artisan video:move-duplicates "C:\Users\User\Pictures\train\downloads\group_2755698006_小荷才露尖尖角\videos\tmp" --video-feature-id=3323
+     * php artisan video:move-duplicates "C:\Users\User\Videos\暫"
+     * php artisan video:move-duplicates "C:\Users\User\Downloads\Video"
      * php artisan video:move-duplicates "C:\incoming\a.mp4" --video-feature-id=123
      * php artisan video:move-duplicates "C:\incoming\a.mp4" --video-feature-id=123 --skip-log
      * php artisan video:move-duplicates "D:\incoming" --recursive=0 --threshold=92

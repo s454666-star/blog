@@ -277,14 +277,26 @@ class VideoDuplicateDetectionService
         int $windowSeconds,
         int $maxCandidates
     ): array {
+        $durationMin = max(0, $payloadContext['duration_seconds'] - max(0, $windowSeconds));
+        $durationMax = $payloadContext['duration_seconds'] + max(0, $windowSeconds);
+
+        if ($this->shouldBypassPrefixGate($payloadContext)) {
+            return VideoFeature::query()
+                ->whereBetween('duration_seconds', [$durationMin, $durationMax])
+                ->orderByRaw(
+                    'ABS(CAST(video_features.duration_seconds AS DECIMAL(10,3)) - ?) ASC',
+                    [$payloadContext['duration_seconds']]
+                )
+                ->limit(max(1, $maxCandidates))
+                ->pluck('id')
+                ->all();
+        }
+
         return VideoFeatureFrame::query()
             ->select('video_feature_frames.video_feature_id')
             ->join('video_features', 'video_features.id', '=', 'video_feature_frames.video_feature_id')
             ->whereIn('video_feature_frames.dhash_prefix', $payloadContext['prefixes'])
-            ->whereBetween('video_features.duration_seconds', [
-                max(0, $payloadContext['duration_seconds'] - max(0, $windowSeconds)),
-                $payloadContext['duration_seconds'] + max(0, $windowSeconds),
-            ])
+            ->whereBetween('video_features.duration_seconds', [$durationMin, $durationMax])
             ->groupBy('video_feature_frames.video_feature_id')
             ->orderByRaw('COUNT(*) DESC')
             ->orderByRaw(
@@ -329,12 +341,13 @@ class VideoDuplicateDetectionService
         $sizeWithinWindow = null;
 
         $prefixEligible = $payloadContext['prefixes'] !== [] && $sharedPrefixes !== [];
-        $eligible = $prefixEligible && $durationWithinWindow;
+        $prefixGateBypassed = !$prefixEligible && $this->shouldBypassPrefixGate($payloadContext);
+        $eligible = ($prefixEligible || $prefixGateBypassed) && $durationWithinWindow;
 
         $reasons = [];
         if ($payloadContext['prefixes'] === []) {
             $reasons[] = '來源影片沒有可用的 dHash prefix。';
-        } elseif ($sharedPrefixes === []) {
+        } elseif ($sharedPrefixes === [] && !$prefixGateBypassed) {
             $reasons[] = '來源影片與指定 feature 沒有任何相同的 dHash prefix。';
         }
 
@@ -353,6 +366,7 @@ class VideoDuplicateDetectionService
             'payload_prefixes' => $payloadContext['prefixes'],
             'feature_prefixes' => $featurePrefixes,
             'shared_prefixes' => $sharedPrefixes,
+            'prefix_gate_bypassed' => $prefixGateBypassed,
             'duration_within_window' => $durationWithinWindow,
             'duration_window_min' => round($durationMin, 3),
             'duration_window_max' => round($durationMax, 3),
@@ -368,5 +382,11 @@ class VideoDuplicateDetectionService
             'size_gate_ignored' => true,
             'reasons' => $reasons,
         ];
+    }
+
+    private function shouldBypassPrefixGate(array $payloadContext): bool
+    {
+        return (int) ($payloadContext['frame_count'] ?? 0) === 1
+            && !empty($payloadContext['prefixes']);
     }
 }

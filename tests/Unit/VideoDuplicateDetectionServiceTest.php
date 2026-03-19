@@ -290,4 +290,112 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         $this->assertTrue($analysis['compare_result']['passes_threshold']);
         $this->assertNotNull($analysis['duplicate_match']);
     }
+
+    public function test_single_frame_database_match_can_fall_back_to_duration_when_prefix_differs(): void
+    {
+        DB::table('video_master')->insert([
+            'id' => 105,
+            'video_name' => 'prefix-fallback.mp4',
+            'video_path' => '\\prefix-fallback.mp4',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $feature = VideoFeature::query()->create([
+            'video_master_id' => 105,
+            'video_name' => 'prefix-fallback.mp4',
+            'video_path' => '\\prefix-fallback.mp4',
+            'file_name' => 'prefix-fallback.mp4',
+            'file_size_bytes' => 5000,
+            'duration_seconds' => 10.050,
+            'screenshot_count' => 1,
+            'capture_rule' => '10s_x4',
+            'feature_version' => 'v1',
+        ]);
+
+        VideoFeatureFrame::query()->create([
+            'video_feature_id' => $feature->id,
+            'capture_order' => 1,
+            'capture_second' => 9.800,
+            'screenshot_path' => '\\prefix_fallback_feature_01.jpg',
+            'dhash_hex' => '1f0d1814d4cc7bd3',
+            'dhash_prefix' => '1f',
+            'frame_sha1' => str_repeat('1', 40),
+        ]);
+
+        $payload = [
+            'duration_seconds' => 10.077,
+            'file_size_bytes' => 1000,
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 9.827,
+                'dhash_hex' => '0f181cd494cc7b53',
+                'dhash_prefix' => '0f',
+                'frame_sha1' => str_repeat('2', 40),
+            ]],
+        ];
+
+        $service = new VideoDuplicateDetectionService(new VideoFeatureExtractionService());
+        $analysis = $service->analyzeDatabaseMatch($payload, 80, 2, 3, 15, 250);
+
+        $this->assertSame(1, $analysis['candidate_count']);
+        $this->assertNotNull($analysis['duplicate_match']);
+        $this->assertSame($feature->id, $analysis['duplicate_match']['feature']->id);
+        $this->assertSame(85.0, $analysis['duplicate_match']['similarity_percent']);
+        $this->assertTrue($analysis['duplicate_match']['passes_threshold']);
+    }
+
+    public function test_single_frame_specific_feature_analysis_marks_prefix_gate_as_bypassed(): void
+    {
+        DB::table('video_master')->insert([
+            'id' => 106,
+            'video_name' => 'prefix-gate-bypass.mp4',
+            'video_path' => '\\prefix-gate-bypass.mp4',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $feature = VideoFeature::query()->create([
+            'video_master_id' => 106,
+            'video_name' => 'prefix-gate-bypass.mp4',
+            'video_path' => '\\prefix-gate-bypass.mp4',
+            'file_name' => 'prefix-gate-bypass.mp4',
+            'file_size_bytes' => 5000,
+            'duration_seconds' => 10.050,
+            'screenshot_count' => 1,
+            'capture_rule' => '10s_x4',
+            'feature_version' => 'v1',
+        ]);
+
+        VideoFeatureFrame::query()->create([
+            'video_feature_id' => $feature->id,
+            'capture_order' => 1,
+            'capture_second' => 9.800,
+            'screenshot_path' => '\\prefix_gate_bypass_feature_01.jpg',
+            'dhash_hex' => '1f0d1814d4cc7bd3',
+            'dhash_prefix' => '1f',
+            'frame_sha1' => str_repeat('3', 40),
+        ]);
+
+        $payload = [
+            'duration_seconds' => 10.077,
+            'file_size_bytes' => 1000,
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 9.827,
+                'dhash_hex' => '0f181cd494cc7b53',
+                'dhash_prefix' => '0f',
+                'frame_sha1' => str_repeat('4', 40),
+            ]],
+        ];
+
+        $service = new VideoDuplicateDetectionService(new VideoFeatureExtractionService());
+        $analysis = $service->analyzeSpecificFeatureMatch($payload, $feature, 80, 2, 3, 15);
+
+        $this->assertTrue($analysis['candidate_gate']['eligible']);
+        $this->assertTrue($analysis['candidate_gate']['prefix_gate_bypassed']);
+        $this->assertSame([], $analysis['candidate_gate']['reasons']);
+        $this->assertNotNull($analysis['compare_result']);
+        $this->assertTrue($analysis['compare_result']['passes_threshold']);
+    }
 }

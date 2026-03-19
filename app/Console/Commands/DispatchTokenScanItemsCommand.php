@@ -44,10 +44,7 @@ class DispatchTokenScanItemsCommand extends Command
     private const DEFAULT_API_HOST = 'http://127.0.0.1';
     private const DEFAULT_API_PORT = 8000;
     private const NEXT_TOKEN_DELAY_MICROSECONDS = 5000000;
-    private const MAX_DOWNLOAD_TOTAL_BYTES = 1073741824;
     private const INITIAL_API_TIMEOUT_SECONDS = 60;
-    private const DOWNLOAD_JOB_POLL_TIMEOUT_SECONDS = 60;
-    private const DOWNLOAD_JOB_POLL_SLEEP_SECONDS = 2;
 
     private const NOT_FOUND_MARKERS = [
         '💔抱歉，未找到可解析内容。',
@@ -277,8 +274,9 @@ class DispatchTokenScanItemsCommand extends Command
      */
     private function runBotAttempt(string $token, array $bot): array
     {
-        $payload = $this->buildApiPayload($token, $bot['api']);
-        $apiCall = $this->callTelegramApi($payload);
+        $sendPayload = $this->buildSendPayload($token, $bot['api']);
+        $paginationPayload = $this->buildPaginationPayload($bot['api']);
+        $apiCall = $this->callTelegramApi($sendPayload, $paginationPayload);
         $baseUri = (string) ($apiCall['base_uri'] ?? '');
         $apiStatus = '';
         $responseJson = [];
@@ -303,13 +301,6 @@ class DispatchTokenScanItemsCommand extends Command
         $filesUniqueCount = (int) ($responseJson['files_unique_count'] ?? $filesMeta['files_unique_count'] ?? $filesMeta['files_count'] ?? 0);
         $filesTotalBytes = (int) ($responseJson['files_total_bytes'] ?? 0);
         $pageState = is_array($responseJson['page_state'] ?? null) ? $responseJson['page_state'] : [];
-        $downloadMeta = is_array($responseJson['download'] ?? null) ? $responseJson['download'] : [];
-        $downloadJobId = trim((string) ($downloadMeta['job_id'] ?? ''));
-        $downloadStatus = trim((string) ($downloadMeta['status'] ?? ''));
-        $downloadDisabled = $downloadStatus === 'disabled';
-        $downloadSkipped = (bool) ($responseJson['download_skipped'] ?? $downloadMeta['skipped'] ?? false);
-        $downloadSkippedReason = trim((string) ($responseJson['download_skipped_reason'] ?? $downloadMeta['reason'] ?? ''));
-        $downloadSkippedLimitBytes = (int) ($responseJson['download_skipped_limit_bytes'] ?? $downloadMeta['limit_bytes'] ?? 0);
 
         $notFound = $this->responseContainsNotFound($responseJson, $latestTextPreview);
         $apiJsonStatus = (string) ($responseJson['status'] ?? '');
@@ -326,94 +317,17 @@ class DispatchTokenScanItemsCommand extends Command
                 $filesUniqueCount
             );
 
-        if (
-            ($apiCall['ok'] ?? false) === true
-            && $fullyCompleted
-            && !$downloadSkipped
-            && !$downloadDisabled
-            && $downloadJobId !== ''
-            && $filesUniqueCount > 0
-            && $downloadStatus !== 'done'
-        ) {
-            $downloadJob = $this->waitForDownloadJob($baseUri, $downloadJobId);
-
-            if (($downloadJob['ok'] ?? false) !== true) {
-                $summary = 'download_job_error=' . ($downloadJob['error'] ?? 'unknown');
-
-                return [
-                    'classification' => 'failed',
-                    'db_action' => $dbAction,
-                    'bot_display' => $bot['display'],
-                    'base_uri' => $baseUri,
-                    'api_status' => $apiStatus,
-                    'files_unique_count' => $filesUniqueCount,
-                    'files_total_bytes' => $filesTotalBytes,
-                    'latest_kind' => $latestKind,
-                    'latest_text_preview' => $latestTextPreview,
-                    'summary' => $summary,
-                    'timeline' => $timeline,
-                    'debug' => $debug,
-                ];
-            }
-
-            $jobJson = is_array($downloadJob['job'] ?? null) ? $downloadJob['job'] : [];
-            $downloadStatus = trim((string) ($jobJson['status'] ?? ''));
-            $downloadFailed = (int) ($jobJson['failed'] ?? 0);
-            $downloadDone = (int) ($jobJson['done'] ?? 0);
-            $downloadTotal = (int) ($jobJson['total'] ?? 0);
-            $downloadLastError = trim((string) ($jobJson['last_error'] ?? ''));
-
-            if ($downloadStatus === 'skipped_size_limit') {
-                $downloadSkipped = true;
-                $downloadSkippedReason = 'total_bytes_exceeded';
-                $downloadSkippedLimitBytes = (int) ($jobJson['download_skipped_limit_bytes'] ?? $downloadSkippedLimitBytes);
-            } elseif ($downloadStatus === 'fail' || $downloadFailed > 0) {
-                $summary = 'download failed';
-                if ($downloadLastError !== '') {
-                    $summary .= ': ' . $downloadLastError;
-                }
-                if ($downloadTotal > 0) {
-                    $summary .= sprintf(' (done=%d/%d failed=%d)', $downloadDone, $downloadTotal, $downloadFailed);
-                }
-
-                return [
-                    'classification' => 'failed',
-                    'db_action' => $dbAction,
-                    'bot_display' => $bot['display'],
-                    'base_uri' => $baseUri,
-                    'api_status' => $apiStatus,
-                    'files_unique_count' => $filesUniqueCount,
-                    'files_total_bytes' => $filesTotalBytes,
-                    'latest_kind' => $latestKind,
-                    'latest_text_preview' => $latestTextPreview,
-                    'summary' => $summary,
-                    'timeline' => $timeline,
-                    'debug' => $debug,
-                ];
-            }
-        }
-
         if (($apiCall['ok'] ?? false) !== true) {
             $summary = 'api_error=' . ($apiCall['error'] ?? 'unknown');
-        } elseif ($downloadSkipped && $downloadSkippedReason === 'total_bytes_exceeded') {
-            $classification = 'skipped_size_limit';
-            $summary = sprintf(
-                'Pagination completed and chat cleanup executed, but local download was skipped because total_size=%s exceeds limit=%s. Keep token_scan_items row untouched.',
-                $this->formatBytes($filesTotalBytes),
-                $this->formatBytes($downloadSkippedLimitBytes)
-            );
-        } elseif ($fullyCompleted && $downloadDisabled) {
-            $classification = 'success';
-            $summary = 'Completed without local download. files_unique_count=' . $filesUniqueCount;
-        } elseif ($fullyCompleted) {
-            $classification = 'success';
-            $summary = 'Completed. files_unique_count=' . $filesUniqueCount;
         } elseif ($notFound) {
             $classification = 'not_found';
             $summary = 'Bot returned not found. Keep token_scan_items row untouched.';
+        } elseif ($fullyCompleted) {
+            $classification = 'success';
+            $summary = 'Completed without local download. files_unique_count=' . $filesUniqueCount;
         } elseif ($bot['api'] === self::BOT_MESSENGER['api'] && $latestKind === 'completion') {
             $classification = 'success';
-            $summary = 'Messenger bot returned completion message.';
+            $summary = 'Messenger bot returned completion message without local download.';
         } else {
             if ($filesUniqueCount > 0 && $this->isVipLikeBot($bot['api'])) {
                 $summary = 'Files were observed, but completion was not confirmed. Keep token_scan_items row untouched.';
@@ -459,34 +373,51 @@ class DispatchTokenScanItemsCommand extends Command
     /**
      * @return array<string, mixed>
      */
-    private function callTelegramApi(array $payload): array
+    private function callTelegramApi(array $sendPayload, array $paginationPayload): array
     {
         $lastError = 'unknown';
 
         foreach ($this->getApiBaseUris() as $baseUri) {
-            $url = rtrim($baseUri, '/') . '/bots/send-and-run-all-pages';
+            $sendUrl = rtrim($baseUri, '/') . '/bots/send';
+            $paginationUrl = rtrim($baseUri, '/') . '/bots/run-all-pages-by-bot';
 
             try {
-                $response = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
+                $sendResponse = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
                     ->acceptJson()
                     ->asJson()
-                    ->post($url, $payload);
+                    ->post($sendUrl, $sendPayload);
 
-                if (!$response->ok()) {
-                    $lastError = 'HTTP ' . $response->status() . ' ' . Str::limit((string) $response->body(), 300);
+                if (!$sendResponse->ok()) {
+                    $lastError = 'send HTTP ' . $sendResponse->status() . ' ' . Str::limit((string) $sendResponse->body(), 300);
                     continue;
                 }
 
-                $json = $response->json();
+                $sendJson = $sendResponse->json();
+                if (!is_array($sendJson) || (string) ($sendJson['status'] ?? '') !== 'ok') {
+                    $lastError = 'send invalid json response';
+                    continue;
+                }
+
+                $paginationResponse = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
+                    ->acceptJson()
+                    ->asJson()
+                    ->post($paginationUrl, $paginationPayload);
+
+                if (!$paginationResponse->ok()) {
+                    $lastError = 'pagination HTTP ' . $paginationResponse->status() . ' ' . Str::limit((string) $paginationResponse->body(), 300);
+                    continue;
+                }
+
+                $json = $paginationResponse->json();
                 if (!is_array($json)) {
-                    $lastError = 'invalid json response';
+                    $lastError = 'pagination invalid json response';
                     continue;
                 }
 
                 return [
                     'ok' => true,
                     'base_uri' => $baseUri,
-                    'http_status' => $response->status(),
+                    'http_status' => $paginationResponse->status(),
                     'json' => $json,
                 ];
             } catch (Throwable $e) {
@@ -498,53 +429,6 @@ class DispatchTokenScanItemsCommand extends Command
             'ok' => false,
             'error' => $lastError,
         ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function waitForDownloadJob(string $baseUri, string $jobId): array
-    {
-        $url = rtrim($baseUri, '/') . '/bots/download-jobs/' . rawurlencode($jobId);
-
-        while (true) {
-            try {
-                $response = Http::timeout(self::DOWNLOAD_JOB_POLL_TIMEOUT_SECONDS)
-                    ->acceptJson()
-                    ->get($url);
-
-                if (!$response->ok()) {
-                    return [
-                        'ok' => false,
-                        'error' => 'HTTP ' . $response->status() . ' ' . Str::limit((string) $response->body(), 300),
-                    ];
-                }
-
-                $json = $response->json();
-                if (!is_array($json)) {
-                    return [
-                        'ok' => false,
-                        'error' => 'invalid json response',
-                    ];
-                }
-
-                $status = trim((string) ($json['status'] ?? ''));
-                if ($status === '' || in_array($status, ['pending', 'collecting', 'queued', 'running'], true)) {
-                    sleep(self::DOWNLOAD_JOB_POLL_SLEEP_SECONDS);
-                    continue;
-                }
-
-                return [
-                    'ok' => true,
-                    'job' => $json,
-                ];
-            } catch (Throwable $e) {
-                return [
-                    'ok' => false,
-                    'error' => $e->getMessage(),
-                ];
-            }
-        }
     }
 
     /**
@@ -580,41 +464,41 @@ class DispatchTokenScanItemsCommand extends Command
         return [rtrim(self::DEFAULT_API_HOST, '/') . ':' . $port];
     }
 
-    private function buildApiPayload(string $token, string $botUsername): array
+    private function buildSendPayload(string $token, string $botUsername): array
+    {
+        return [
+            'bot_username' => $botUsername,
+            'text' => $token,
+            'clear_previous_replies' => true,
+        ];
+    }
+
+    private function buildPaginationPayload(string $botUsername): array
     {
         $isMessenger = $botUsername === self::BOT_MESSENGER['api'];
 
         $payload = [
             'bot_username' => $botUsername,
-            'text' => $token,
-            'clear_previous_replies' => true,
+            'clear_previous_replies' => false,
             'delay_seconds' => 1,
             'debug' => true,
             'debug_max_logs' => 2000,
             'include_files_in_response' => true,
             'max_return_files' => 1000,
             'max_raw_payload_bytes' => 0,
-            'cleanup_after_done' => false,
+            'cleanup_after_done' => true,
             'cleanup_scope' => 'run',
             'cleanup_limit' => 500,
-            'wait_first_callback_timeout_seconds' => 25,
             'wait_each_page_timeout_seconds' => 25,
             'callback_message_max_age_seconds' => 30,
             'callback_candidate_scan_limit' => 40,
-            'max_invalid_callback_rounds' => 2,
         ];
 
         if ($isMessenger) {
             return array_merge($payload, [
                 'max_steps' => 8,
-                'bootstrap_click_get_all' => false,
-                'allow_ok_when_no_buttons' => true,
-                'text_next_fallback_enabled' => false,
                 'stop_when_no_new_files_rounds' => 1,
                 'stop_when_reached_total_items' => false,
-                'normalize_to_first_page_when_no_buttons' => false,
-                'initial_wait_for_controls_seconds' => 3,
-                'observe_when_no_controls_seconds' => 6,
                 'observe_send_get_all_when_no_controls' => false,
                 'observe_send_next_when_no_controls' => false,
             ]);
@@ -622,24 +506,11 @@ class DispatchTokenScanItemsCommand extends Command
 
         return array_merge($payload, [
             'max_steps' => 120,
-            'bootstrap_click_get_all' => true,
-            'allow_ok_when_no_buttons' => true,
-            'text_next_fallback_enabled' => true,
-            'text_next_command' => '下一頁',
             'stop_when_no_new_files_rounds' => 4,
             'stop_when_reached_total_items' => true,
-            'normalize_to_first_page_when_no_buttons' => true,
-            'normalize_prev_command' => '上一頁',
-            'normalize_max_prev_steps' => 6,
-            'initial_wait_for_controls_seconds' => 6,
-            'observe_when_no_controls_seconds' => 10,
             'observe_send_get_all_when_no_controls' => true,
             'observe_get_all_command' => '獲取全部',
             'observe_send_next_when_no_controls' => false,
-            'download_after_done' => false,
-            'cleanup_after_done' => true,
-            'wait_download_completion' => false,
-            'skip_download_if_total_bytes_exceeds' => self::MAX_DOWNLOAD_TOTAL_BYTES,
         ]);
     }
 

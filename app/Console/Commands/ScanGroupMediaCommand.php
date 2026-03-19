@@ -235,7 +235,7 @@ class ScanGroupMediaCommand extends Command
                     continue;
                 }
 
-                if (!$this->messageHasMedia($item)) {
+                if (!$this->messageHasDownloadableVideo($item)) {
                     $token = $this->extractDispatchableToken($item);
                     if ($token !== null) {
                         $queued = $this->queueTokenIfNeeded($peerId, $chatTitle, $token, $messageId);
@@ -338,7 +338,7 @@ class ScanGroupMediaCommand extends Command
             $state->save();
             $this->clearBatchCache($baseUri, $peerId);
 
-            $this->line("base_uri={$baseUri} peer_id={$peerId} cursor 前進到 {$batchMaxId}，本批沒有媒體");
+            $this->line("base_uri={$baseUri} peer_id={$peerId} cursor 前進到 {$batchMaxId}，本批沒有影片媒體");
             $cursor = $batchMaxId;
         }
     }
@@ -453,7 +453,7 @@ class ScanGroupMediaCommand extends Command
 
     private function fetchGroupPage(Client $http, int $peerId, int $startMessageId, int $nextLimit): ?array
     {
-        $path = "groups/{$peerId}/{$startMessageId}?next_limit={$nextLimit}&include_raw=false";
+        $path = "groups/{$peerId}/{$startMessageId}?next_limit={$nextLimit}&include_raw=true";
         $tries = 0;
 
         while (true) {
@@ -600,13 +600,38 @@ class ScanGroupMediaCommand extends Command
             ->exists();
     }
 
-    private function messageHasMedia(array $message): bool
+    private function messageHasDownloadableVideo(array $message): bool
     {
-        if (array_key_exists('has_media', $message)) {
-            return (bool) $message['has_media'];
+        $media = $message['media'] ?? null;
+        if (!is_array($media)) {
+            return false;
         }
 
-        return array_key_exists('media', $message) && $message['media'] !== null;
+        $mediaType = strtolower((string) ($media['_'] ?? ''));
+        if ($mediaType === 'messagemediaphoto') {
+            return false;
+        }
+
+        $document = is_array($media['document'] ?? null) ? $media['document'] : [];
+        $mimeType = strtolower((string) ($document['mime_type'] ?? ''));
+        if (str_starts_with($mimeType, 'video/')) {
+            return true;
+        }
+
+        $attributes = $document['attributes'] ?? [];
+        if (is_array($attributes)) {
+            foreach ($attributes as $attribute) {
+                if (!is_array($attribute)) {
+                    continue;
+                }
+
+                if (strtolower((string) ($attribute['_'] ?? '')) === 'documentattributevideo') {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function extractDispatchableToken(array $message): ?string

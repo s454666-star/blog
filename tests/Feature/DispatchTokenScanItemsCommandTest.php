@@ -134,4 +134,95 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             return str_contains($request->url(), '/bots/send-and-run-all-pages');
         });
     }
+
+    public function test_dispatch_falls_back_to_newjmq_when_vipfiles_returns_no_data(): void
+    {
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'newjmqbot_abc123',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        Http::fake(function ($request) {
+            $url = $request->url();
+            $botUsername = (string) ($request['bot_username'] ?? '');
+
+            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'vipfiles2bot') {
+                return Http::response(['status' => 'ok'], 200);
+            }
+
+            if ($url === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot' && $botUsername === 'vipfiles2bot') {
+                return Http::response([
+                    'status' => 'fail',
+                    'reason' => 'no callback state message found',
+                    'files_unique_count' => 0,
+                    'files_total_bytes' => 0,
+                    'latest_message' => [],
+                    'timeline' => [
+                        ['step' => 0, 'status' => 'fail', 'reason' => 'no callback state message found'],
+                    ],
+                    'debug' => [],
+                    'page_state' => [],
+                ], 200);
+            }
+
+            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'newjmqbot') {
+                return Http::response(['status' => 'ok'], 200);
+            }
+
+            if ($url === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot' && $botUsername === 'newjmqbot') {
+                return Http::response([
+                    'status' => 'ok',
+                    'reason' => 'completion message detected',
+                    'files_unique_count' => 6,
+                    'files_total_bytes' => 0,
+                    'latest_message' => [
+                        'kind' => 'completion',
+                        'text_preview' => '完成',
+                        'has_buttons' => false,
+                        'page_info' => [],
+                    ],
+                    'timeline' => [],
+                    'debug' => [],
+                    'page_state' => [],
+                    'completed' => true,
+                    'outcome' => [
+                        'run_completed' => true,
+                    ],
+                ], 200);
+            }
+
+            return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
+        });
+
+        $this->artisan('tg:dispatch-token-scan-items', [
+            '--fallback-newjmqbot' => true,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/send'
+                && $request['bot_username'] === 'vipfiles2bot'
+                && $request['text'] === 'newjmqbot_abc123';
+        });
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
+                && $request['bot_username'] === 'vipfiles2bot';
+        });
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/send'
+                && $request['bot_username'] === 'newjmqbot'
+                && $request['text'] === 'newjmqbot_abc123';
+        });
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
+                && $request['bot_username'] === 'newjmqbot';
+        });
+    }
 }

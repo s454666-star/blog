@@ -246,13 +246,9 @@ class DispatchTokenScanItemsCommand extends Command
         $primaryBot = $this->resolveBotByToken($token);
         $result = $this->runBotAttempt($token, $primaryBot);
 
-        if (
-            $result['classification'] === 'not_found'
-            && $primaryBot['api'] === self::BOT_VIPFILES['api']
-            && (bool) $this->option('fallback-newjmqbot')
-        ) {
+        if ($this->shouldFallbackToNewjmqbot($primaryBot, $result)) {
             $fallback = $this->runBotAttempt($token, self::BOT_NEWJMQ);
-            $fallbackSummary = 'Fallback after @vipfiles2bot not found -> @newjmqbot';
+            $fallbackSummary = 'Fallback after @vipfiles2bot returned no data -> @newjmqbot';
             $fallback['summary'] = trim($fallbackSummary . '. ' . ($fallback['summary'] ?? ''));
             $result = $fallback;
         }
@@ -344,6 +340,7 @@ class DispatchTokenScanItemsCommand extends Command
             'bot_display' => $bot['display'],
             'base_uri' => $baseUri,
             'api_status' => $apiStatus,
+            'api_reason' => $apiReason,
             'files_unique_count' => $filesUniqueCount,
             'files_total_bytes' => $filesTotalBytes,
             'latest_kind' => $latestKind,
@@ -352,6 +349,48 @@ class DispatchTokenScanItemsCommand extends Command
             'timeline' => $timeline,
             'debug' => $debug,
         ];
+    }
+
+    /**
+     * @param array{api:string,display:string} $primaryBot
+     * @param array<string, mixed> $result
+     */
+    private function shouldFallbackToNewjmqbot(array $primaryBot, array $result): bool
+    {
+        if (!(bool) $this->option('fallback-newjmqbot')) {
+            return false;
+        }
+
+        if (($primaryBot['api'] ?? '') !== self::BOT_VIPFILES['api']) {
+            return false;
+        }
+
+        if (($result['classification'] ?? '') === 'success') {
+            return false;
+        }
+
+        if (($result['classification'] ?? '') === 'not_found') {
+            return true;
+        }
+
+        if ((int) ($result['files_unique_count'] ?? 0) > 0) {
+            return false;
+        }
+
+        $apiStatus = trim((string) ($result['api_status'] ?? ''));
+        $apiReason = strtolower(trim((string) ($result['api_reason'] ?? '')));
+
+        if ($apiStatus === '') {
+            return false;
+        }
+
+        return $apiReason === ''
+            || Str::contains($apiReason, [
+                'no callback state message found',
+                'timeout waiting for first bot message after sending',
+                'no reply after text sent',
+                'run not completed',
+            ]);
     }
 
     /**

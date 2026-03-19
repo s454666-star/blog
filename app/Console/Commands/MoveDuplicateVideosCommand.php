@@ -25,7 +25,7 @@ class MoveDuplicateVideosCommand extends Command
     protected $signature = 'video:move-duplicates
         {path : 必填資料夾路徑；搭配 --video-feature-id 時也可直接給單一影片檔}
         {--recursive=1 : 1=掃子資料夾，0=只掃一層}
-        {--threshold=90 : dHash 相似度門檻}
+        {--threshold=80 : dHash 相似度門檻}
         {--min-match=2 : 至少幾張截圖達標}
         {--window-seconds=3 : 時長容許秒數}
         {--size-percent=15 : 相容舊參數；正式比對已不使用檔案大小 gate}

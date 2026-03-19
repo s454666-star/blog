@@ -198,7 +198,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
             ->with(
                 $payload,
                 Mockery::on(fn ($model): bool => $model instanceof VideoFeature && $model->id === $feature->id),
-                90,
+                80,
                 2,
                 3,
                 15

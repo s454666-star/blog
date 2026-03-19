@@ -547,6 +547,11 @@
             background:linear-gradient(145deg, rgba(255,255,255,.92), rgba(167,201,242,.18));
         }
 
+        .sample-thumb:focus-visible{
+            outline:3px solid rgba(97,159,231,.42);
+            outline-offset:4px;
+        }
+
         .sample-thumb img{
             width:100%;
             height:100%;
@@ -565,6 +570,45 @@
             color:#fff;
             background:rgba(27,45,64,.62);
             backdrop-filter:blur(10px);
+        }
+
+        .sample-zoom-overlay{
+            position:fixed;
+            inset:0;
+            z-index:2200;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            padding:32px;
+            background:rgba(11,18,28,.46);
+            backdrop-filter:blur(6px);
+            opacity:0;
+            visibility:hidden;
+            transition:opacity .14s ease, visibility .14s ease;
+            pointer-events:none;
+        }
+
+        .sample-zoom-overlay.is-visible{
+            opacity:1;
+            visibility:visible;
+        }
+
+        .sample-zoom-frame{
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            width:100%;
+        }
+
+        .sample-zoom-frame img{
+            width:min(84vw, 840px);
+            max-width:100%;
+            max-height:84vh;
+            border-radius:24px;
+            border:1px solid rgba(255,255,255,.48);
+            box-shadow:0 34px 90px rgba(5,10,18,.42);
+            background:#fff;
+            object-fit:contain;
         }
 
         .meta-box{
@@ -815,6 +859,8 @@
                                                 @foreach ($video->samples as $sample)
                                                     <a
                                                         class="sample-thumb"
+                                                        data-sample-thumb
+                                                        data-zoom-src="{{ $sample->image_url }}"
                                                         href="{{ $sample->image_url }}"
                                                         target="_blank"
                                                         rel="noreferrer">
@@ -841,10 +887,55 @@
     @endif
 </div>
 
+<div class="sample-zoom-overlay" data-sample-zoom>
+    <div class="sample-zoom-frame">
+        <img src="" alt="">
+    </div>
+</div>
+
 <script>
     (() => {
         const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
         const buttons = document.querySelectorAll('[data-detach-button]');
+        const zoomOverlay = document.querySelector('[data-sample-zoom]');
+        const zoomImage = zoomOverlay?.querySelector('img');
+        const sampleThumbs = document.querySelectorAll('[data-sample-thumb]');
+
+        const hideZoom = () => {
+            if (!zoomOverlay || !zoomImage) {
+                return;
+            }
+
+            zoomOverlay.classList.remove('is-visible');
+            zoomImage.removeAttribute('src');
+        };
+
+        const showZoom = (thumb) => {
+            if (!zoomOverlay || !zoomImage) {
+                return;
+            }
+
+            const source = thumb.getAttribute('data-zoom-src');
+            if (!source) {
+                return;
+            }
+
+            const previewImage = thumb.querySelector('img');
+            const rect = thumb.getBoundingClientRect();
+            const zoomWidth = Math.min(window.innerWidth * 0.84, rect.width * 5);
+
+            zoomImage.src = source;
+            zoomImage.alt = previewImage?.getAttribute('alt') || '';
+            zoomImage.style.width = `${Math.max(zoomWidth, rect.width)}px`;
+            zoomOverlay.classList.add('is-visible');
+        };
+
+        sampleThumbs.forEach((thumb) => {
+            thumb.addEventListener('mouseenter', () => showZoom(thumb));
+            thumb.addEventListener('focusin', () => showZoom(thumb));
+            thumb.addEventListener('mouseleave', hideZoom);
+            thumb.addEventListener('focusout', hideZoom);
+        });
 
         buttons.forEach((button) => {
             button.addEventListener('click', async () => {

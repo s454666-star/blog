@@ -69,9 +69,11 @@ class VideoFeatureExtractionService
 
         $tmpDir = storage_path('app/video_features/tmp/' . uniqid('feature_', true));
         File::ensureDirectoryExists($tmpDir);
+        $tmpDir = $this->normalizeAbsolutePath($tmpDir);
 
         $frames = [];
         $baseName = (string) pathinfo($absolutePath, PATHINFO_FILENAME);
+        $usedCaptureSecondKeys = [];
 
         foreach ($capturePlan as $framePlan) {
             $captureOrder = (int) $framePlan['capture_order'];
@@ -79,14 +81,15 @@ class VideoFeatureExtractionService
             $captureSecond = (float) $framePlan['capture_second'];
             $tmpPath = $tmpDir . DIRECTORY_SEPARATOR . sprintf('frame_%02d.jpg', $captureOrder);
 
-            $this->captureFrame($absolutePath, $captureSecond, $tmpPath);
+            $capturedSecond = $this->captureFrame($absolutePath, $captureSecond, $tmpPath, $usedCaptureSecondKeys);
+            $usedCaptureSecondKeys[number_format($capturedSecond, 3, '.', '')] = true;
 
             $imageInfo = @getimagesize($tmpPath);
             $dhashHex = $this->computeDhashHexFromJpeg($tmpPath);
             $frames[] = [
                 'capture_order' => $captureOrder,
                 'label_second' => $labelSecond,
-                'capture_second' => $captureSecond,
+                'capture_second' => $capturedSecond,
                 'temp_path' => $tmpPath,
                 'suggested_filename' => $this->buildFeatureScreenshotFilename($baseName, $captureOrder, $labelSecond),
                 'dhash_hex' => $dhashHex,
@@ -223,7 +226,7 @@ class VideoFeatureExtractionService
                         'image_height' => $frame['image_height'],
                     ]);
                 }
-            });
+            }, 3);
         } catch (Throwable $e) {
             foreach ($createdFiles as $createdFile) {
                 if (is_string($createdFile) && $createdFile !== '' && File::exists($createdFile)) {
@@ -326,47 +329,140 @@ class VideoFeatureExtractionService
         return $faceId !== null ? (int) $faceId : null;
     }
 
-    private function captureFrame(string $absolutePath, float $captureSecond, string $outputPath): void
+    private function captureFrame(
+        string $absolutePath,
+        float $captureSecond,
+        string $outputPath,
+        array $excludedCaptureSecondKeys = []
+    ): float
     {
-        $lastError = '';
+        $outputPath = $this->normalizeCaptureOutputPath($outputPath);
+        $failureMessages = [];
 
-        foreach ([false, true] as $forceCompatibleColorspace) {
-            if ($forceCompatibleColorspace && !$this->shouldRetryFrameCaptureWithCompatibleColorspace($lastError)) {
-                break;
+        foreach ($this->buildCaptureSecondCandidates($captureSecond, $excludedCaptureSecondKeys) as $candidateSecond) {
+            $lastError = '';
+
+            foreach (['default', 'compatible_colorspace', 'compatible_mjpeg'] as $captureMode) {
+                if (!$this->shouldAttemptFrameCaptureMode($captureMode, $lastError)) {
+                    continue;
+                }
+
+                $errorOutput = $this->runCaptureFrameAttempt(
+                    $absolutePath,
+                    $candidateSecond,
+                    $outputPath,
+                    $captureMode
+                );
+
+                if ($errorOutput === null) {
+                    return $candidateSecond;
+                }
+
+                $lastError = $errorOutput;
+                $failureMessages[] = sprintf(
+                    '[%ss/%s] %s',
+                    number_format($candidateSecond, 3, '.', ''),
+                    $captureMode,
+                    $errorOutput
+                );
             }
-
-            if (is_file($outputPath)) {
-                @unlink($outputPath);
-            }
-
-            $process = new Process(
-                $this->buildCaptureFrameCommand($absolutePath, $captureSecond, $outputPath, $forceCompatibleColorspace)
-            );
-
-            $process->setTimeout(180);
-            $process->run();
-
-            if ($process->isSuccessful() && is_file($outputPath) && (int) @filesize($outputPath) > 0) {
-                return;
-            }
-
-            $lastError = trim($process->getErrorOutput() ?: $process->getOutput());
         }
 
-        throw new RuntimeException('ffmpeg 擷取截圖失敗：' . $lastError);
+        $lastFailure = $failureMessages !== [] ? (string) end($failureMessages) : 'ffmpeg 未輸出任何畫面';
+        throw new RuntimeException('ffmpeg 擷取截圖失敗：' . $lastFailure);
+    }
+
+    private function runCaptureFrameAttempt(
+        string $absolutePath,
+        float $captureSecond,
+        string $outputPath,
+        string $captureMode
+    ): ?string {
+        if (is_file($outputPath)) {
+            @unlink($outputPath);
+        }
+        clearstatcache(true, $outputPath);
+
+        $process = new Process(
+            $this->buildCaptureFrameCommand($absolutePath, $captureSecond, $outputPath, $captureMode)
+        );
+
+        $process->setTimeout(180);
+        $process->run();
+
+        if ($process->isSuccessful() && $this->hasUsableCapturedFrame($outputPath)) {
+            return null;
+        }
+
+        $errorOutput = trim($process->getErrorOutput() ?: $process->getOutput());
+        if ($errorOutput !== '') {
+            return $errorOutput;
+        }
+
+        if ($process->isSuccessful()) {
+            return 'ffmpeg 未輸出任何畫面（可能命中損毀影格或過近 EOF）';
+        }
+
+        $exitCode = $process->getExitCode();
+        return $exitCode === null
+            ? 'ffmpeg 失敗，未回傳錯誤訊息'
+            : 'ffmpeg 失敗，未回傳錯誤訊息 (exit_code=' . $exitCode . ')';
+    }
+
+    private function buildCaptureSecondCandidates(float $captureSecond, array $excludedCaptureSecondKeys = []): array
+    {
+        $captureSecond = max(0.0, round($captureSecond, 3));
+        $rawCandidates = [$captureSecond, floor($captureSecond)];
+
+        if (abs($captureSecond - floor($captureSecond)) >= 0.001) {
+            $rawCandidates[] = $captureSecond - 0.5;
+        }
+
+        for ($offset = 1; $offset <= 15; $offset++) {
+            $rawCandidates[] = floor($captureSecond) - $offset;
+        }
+
+        $candidates = [];
+
+        foreach ($rawCandidates as $candidate) {
+            $candidate = round(max(0.0, (float) $candidate), 3);
+            $key = number_format($candidate, 3, '.', '');
+
+            if (array_key_exists($key, $candidates)) {
+                continue;
+            }
+
+            if (array_key_exists($key, $excludedCaptureSecondKeys)) {
+                continue;
+            }
+
+            $candidates[$key] = $candidate;
+        }
+
+        return array_values($candidates);
+    }
+
+    private function normalizeCaptureOutputPath(string $outputPath): string
+    {
+        $directory = dirname($outputPath);
+        File::ensureDirectoryExists($directory);
+
+        $normalizedDirectory = $this->normalizeAbsolutePath($directory);
+
+        return $normalizedDirectory . DIRECTORY_SEPARATOR . basename($outputPath);
     }
 
     private function buildCaptureFrameCommand(
         string $absolutePath,
         float $captureSecond,
         string $outputPath,
-        bool $forceCompatibleColorspace
+        string $captureMode
     ): array {
         $command = [
             (string) env('FFMPEG_BIN', 'ffmpeg'),
             '-hide_banner',
             '-loglevel',
-            'error',
+            'warning',
             '-y',
             '-ss',
             number_format($captureSecond, 3, '.', ''),
@@ -374,10 +470,15 @@ class VideoFeatureExtractionService
             $absolutePath,
         ];
 
-        if ($forceCompatibleColorspace) {
+        if ($captureMode === 'compatible_colorspace') {
             // Some uploads carry uncommon colorspace metadata that ffmpeg cannot auto-convert to mjpeg.
             $command[] = '-vf';
             $command[] = 'colorspace=all=bt709:iall=bt709,format=yuv420p';
+        } elseif ($captureMode === 'compatible_mjpeg') {
+            $command[] = '-strict';
+            $command[] = 'unofficial';
+            $command[] = '-vf';
+            $command[] = 'colorspace=all=bt709:iall=bt709,format=yuvj420p';
         }
 
         $command[] = '-frames:v';
@@ -389,12 +490,66 @@ class VideoFeatureExtractionService
         return $command;
     }
 
+    private function shouldAttemptFrameCaptureMode(string $captureMode, string $lastError): bool
+    {
+        if ($captureMode === 'default') {
+            return true;
+        }
+
+        if ($captureMode === 'compatible_colorspace') {
+            return $this->shouldRetryFrameCaptureWithCompatibleColorspace($lastError);
+        }
+
+        if ($captureMode === 'compatible_mjpeg') {
+            return $this->shouldRetryFrameCaptureWithUnofficialMjpeg($lastError);
+        }
+
+        return false;
+    }
+
     private function shouldRetryFrameCaptureWithCompatibleColorspace(string $errorOutput): bool
     {
         $errorOutput = strtolower($errorOutput);
 
         return str_contains($errorOutput, 'impossible to convert between the formats supported by the filter')
             || (str_contains($errorOutput, 'auto_scale') && str_contains($errorOutput, 'function not implemented'));
+    }
+
+    private function shouldRetryFrameCaptureWithUnofficialMjpeg(string $errorOutput): bool
+    {
+        $errorOutput = strtolower($errorOutput);
+
+        return str_contains($errorOutput, 'non full-range yuv is non-standard')
+            || str_contains($errorOutput, 'strict_std_compliance')
+            || (str_contains($errorOutput, 'mjpeg') && str_contains($errorOutput, 'error while opening encoder'));
+    }
+
+    private function hasUsableCapturedFrame(string $outputPath): bool
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            clearstatcache();
+
+            if (is_file($outputPath)) {
+                $size = @filesize($outputPath);
+                if (is_int($size) && $size > 0) {
+                    return true;
+                }
+
+                $handle = @fopen($outputPath, 'rb');
+                if ($handle !== false) {
+                    $stat = @fstat($handle);
+                    @fclose($handle);
+
+                    if (is_array($stat) && (int) ($stat['size'] ?? 0) > 0) {
+                        return true;
+                    }
+                }
+            }
+
+            usleep(100000);
+        }
+
+        return false;
     }
 
     private function probeDurationSeconds(string $absolutePath): float

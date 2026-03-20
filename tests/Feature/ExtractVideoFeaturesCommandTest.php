@@ -92,27 +92,27 @@ class ExtractVideoFeaturesCommandTest extends TestCase
         });
     }
 
-    public function test_default_command_only_retries_failed_features(): void
+    public function test_default_command_processes_missing_and_failed_features_without_touching_complete_ones(): void
     {
         $successfulVideo = VideoMaster::query()->create([
             'id' => 1,
             'video_name' => 'success.mp4',
             'video_path' => '\\success.mp4',
-            'duration' => 120.000,
+            'duration' => 15.000,
         ]);
 
         $failedVideo = VideoMaster::query()->create([
             'id' => 2,
             'video_name' => 'failed.mp4',
             'video_path' => '\\failed.mp4',
-            'duration' => 120.000,
+            'duration' => 15.000,
         ]);
 
-        VideoMaster::query()->create([
+        $missingVideo = VideoMaster::query()->create([
             'id' => 3,
-            'video_name' => 'untouched.mp4',
-            'video_path' => '\\untouched.mp4',
-            'duration' => 120.000,
+            'video_name' => 'missing.mp4',
+            'video_path' => '\\missing.mp4',
+            'duration' => 15.000,
         ]);
 
         $successfulFeature = VideoFeature::query()->create([
@@ -120,8 +120,8 @@ class ExtractVideoFeaturesCommandTest extends TestCase
             'video_name' => 'success.mp4',
             'video_path' => '\\success.mp4',
             'file_name' => 'success.mp4',
-            'duration_seconds' => 120.000,
-            'screenshot_count' => 2,
+            'duration_seconds' => 15.000,
+            'screenshot_count' => 1,
             'feature_version' => 'v1',
             'capture_rule' => '10s_x4',
             'last_error' => null,
@@ -134,11 +134,117 @@ class ExtractVideoFeaturesCommandTest extends TestCase
             'screenshot_path' => '\\success_01.jpg',
         ]);
 
+        $failedFeature = VideoFeature::query()->create([
+            'video_master_id' => $failedVideo->id,
+            'video_name' => 'failed.mp4',
+            'video_path' => '\\failed.mp4',
+            'file_name' => 'failed.mp4',
+            'duration_seconds' => 15.000,
+            'screenshot_count' => 1,
+            'feature_version' => 'v1',
+            'capture_rule' => '10s_x4',
+            'last_error' => 'ffmpeg 擷取截圖失敗：boom',
+        ]);
+
+        VideoFeatureFrame::query()->create([
+            'video_feature_id' => $failedFeature->id,
+            'capture_order' => 1,
+            'capture_second' => 10.000,
+            'screenshot_path' => '\\failed_01.jpg',
+        ]);
+
+        $service = Mockery::mock(VideoFeatureExtractionService::class);
+        $service->shouldReceive('buildCapturePlan')
+            ->times(3)
+            ->with(Mockery::type('float'))
+            ->andReturn([
+                ['capture_order' => 1, 'label_second' => 10.0, 'capture_second' => 10.0],
+            ]);
+        $service->shouldReceive('extractForVideo')
+            ->twice()
+            ->andReturnUsing(function (VideoMaster $video, bool $refresh) use ($failedVideo, $failedFeature, $missingVideo): VideoFeature {
+                if ($video->id === $failedVideo->id) {
+                    TestCase::assertTrue($refresh);
+                    return $failedFeature->fresh('frames');
+                }
+
+                if ($video->id === $missingVideo->id) {
+                    TestCase::assertFalse($refresh);
+
+                    $feature = VideoFeature::query()->create([
+                        'video_master_id' => $missingVideo->id,
+                        'video_name' => 'missing.mp4',
+                        'video_path' => '\\missing.mp4',
+                        'file_name' => 'missing.mp4',
+                        'duration_seconds' => 15.000,
+                        'screenshot_count' => 1,
+                        'feature_version' => 'v1',
+                        'capture_rule' => '10s_x4',
+                        'last_error' => null,
+                    ]);
+
+                    VideoFeatureFrame::query()->create([
+                        'video_feature_id' => $feature->id,
+                        'capture_order' => 1,
+                        'capture_second' => 10.000,
+                        'screenshot_path' => '\\missing_01.jpg',
+                    ]);
+
+                    return $feature->fresh('frames');
+                }
+
+                throw new RuntimeException('Unexpected video id: ' . $video->id);
+            });
+        $this->app->instance(VideoFeatureExtractionService::class, $service);
+
+        $this->artisan('video:extract-features')
+            ->expectsOutputToContain('[2] 完成 failed.mp4')
+            ->expectsOutputToContain('[3] 完成 missing.mp4')
+            ->expectsOutputToContain('[1] 已有 1/1 張特徵截圖，跳過 success.mp4')
+            ->expectsOutputToContain('完成，processed=2 skipped=1 failed=0')
+            ->assertExitCode(0);
+    }
+
+    public function test_failed_only_option_only_retries_failed_features(): void
+    {
+        $successfulVideo = VideoMaster::query()->create([
+            'id' => 1,
+            'video_name' => 'success.mp4',
+            'video_path' => '\\success.mp4',
+            'duration' => 15.000,
+        ]);
+
+        $failedVideo = VideoMaster::query()->create([
+            'id' => 2,
+            'video_name' => 'failed.mp4',
+            'video_path' => '\\failed.mp4',
+            'duration' => 15.000,
+        ]);
+
+        VideoMaster::query()->create([
+            'id' => 3,
+            'video_name' => 'missing.mp4',
+            'video_path' => '\\missing.mp4',
+            'duration' => 15.000,
+        ]);
+
+        $successfulFeature = VideoFeature::query()->create([
+            'video_master_id' => $successfulVideo->id,
+            'video_name' => 'success.mp4',
+            'video_path' => '\\success.mp4',
+            'file_name' => 'success.mp4',
+            'duration_seconds' => 15.000,
+            'screenshot_count' => 1,
+            'feature_version' => 'v1',
+            'capture_rule' => '10s_x4',
+            'last_error' => null,
+        ]);
+
         VideoFeatureFrame::query()->create([
             'video_feature_id' => $successfulFeature->id,
-            'capture_order' => 2,
-            'capture_second' => 20.000,
-            'screenshot_path' => '\\success_02.jpg',
+            'capture_order' => 1,
+            'capture_second' => 10.000,
+            'screenshot_path' => '\\success_01.jpg',
         ]);
 
         $failedFeature = VideoFeature::query()->create([
@@ -146,7 +252,7 @@ class ExtractVideoFeaturesCommandTest extends TestCase
             'video_name' => 'failed.mp4',
             'video_path' => '\\failed.mp4',
             'file_name' => 'failed.mp4',
-            'duration_seconds' => 120.000,
+            'duration_seconds' => 15.000,
             'screenshot_count' => 1,
             'feature_version' => 'v1',
             'capture_rule' => '10s_x4',
@@ -166,7 +272,6 @@ class ExtractVideoFeaturesCommandTest extends TestCase
             ->with(Mockery::type('float'))
             ->andReturn([
                 ['capture_order' => 1, 'label_second' => 10.0, 'capture_second' => 10.0],
-                ['capture_order' => 2, 'label_second' => 20.0, 'capture_second' => 20.0],
             ]);
         $service->shouldReceive('extractForVideo')
             ->once()
@@ -177,7 +282,7 @@ class ExtractVideoFeaturesCommandTest extends TestCase
             ->andReturn($failedFeature->fresh('frames'));
         $this->app->instance(VideoFeatureExtractionService::class, $service);
 
-        $this->artisan('video:extract-features')
+        $this->artisan('video:extract-features', ['--failed-only' => 1])
             ->expectsOutputToContain('[2] 完成 failed.mp4')
             ->expectsOutputToContain('完成，processed=1 skipped=0 failed=0')
             ->assertExitCode(0);

@@ -494,32 +494,87 @@
 
         private function captureSnapshot(string $ffmpegBin, string $videoPath, int $captureSecond, string $outPath): bool
         {
-            $lastError = '';
+            foreach ($this->buildSnapshotCaptureSecondCandidates($captureSecond) as $candidateSecond) {
+                $lastError = '';
 
-            foreach ([false, true] as $forceCompatibleColorspace) {
-                if ($forceCompatibleColorspace && !$this->shouldRetrySnapshotWithCompatibleColorspace($lastError)) {
-                    break;
+                foreach ([false, true] as $forceCompatibleColorspace) {
+                    if ($forceCompatibleColorspace && !$this->shouldRetrySnapshotWithCompatibleColorspace($lastError)) {
+                        break;
+                    }
+
+                    $errorOutput = $this->runSnapshotCaptureAttempt(
+                        $ffmpegBin,
+                        $videoPath,
+                        $candidateSecond,
+                        $outPath,
+                        $forceCompatibleColorspace
+                    );
+
+                    if ($errorOutput === null) {
+                        return true;
+                    }
+
+                    $lastError = $errorOutput;
                 }
-
-                if (is_file($outPath)) {
-                    @unlink($outPath);
-                }
-
-                $process = new Process(
-                    $this->buildSnapshotCommand($ffmpegBin, $videoPath, $captureSecond, $outPath, $forceCompatibleColorspace)
-                );
-
-                $process->setTimeout(180);
-                $process->run();
-
-                if ($process->isSuccessful() && is_file($outPath) && (int) @filesize($outPath) > 0) {
-                    return true;
-                }
-
-                $lastError = trim($process->getErrorOutput() ?: $process->getOutput());
             }
 
             return false;
+        }
+
+        private function runSnapshotCaptureAttempt(
+            string $ffmpegBin,
+            string $videoPath,
+            int $captureSecond,
+            string $outPath,
+            bool $forceCompatibleColorspace
+        ): ?string {
+            if (is_file($outPath)) {
+                @unlink($outPath);
+            }
+
+            $process = new Process(
+                $this->buildSnapshotCommand($ffmpegBin, $videoPath, $captureSecond, $outPath, $forceCompatibleColorspace)
+            );
+
+            $process->setTimeout(180);
+            $process->run();
+
+            if ($process->isSuccessful() && is_file($outPath) && (int) @filesize($outPath) > 0) {
+                return null;
+            }
+
+            $errorOutput = trim($process->getErrorOutput() ?: $process->getOutput());
+            if ($errorOutput !== '') {
+                return $errorOutput;
+            }
+
+            if ($process->isSuccessful()) {
+                return 'ffmpeg 未輸出任何畫面（可能命中損毀影格或過近 EOF）';
+            }
+
+            $exitCode = $process->getExitCode();
+            return $exitCode === null
+                ? 'ffmpeg 失敗，未回傳錯誤訊息'
+                : 'ffmpeg 失敗，未回傳錯誤訊息 (exit_code=' . $exitCode . ')';
+        }
+
+        private function buildSnapshotCaptureSecondCandidates(int $captureSecond): array
+        {
+            $captureSecond = max(0, $captureSecond);
+            $rawCandidates = [$captureSecond];
+
+            for ($offset = 1; $offset <= 15; $offset++) {
+                $rawCandidates[] = $captureSecond - $offset;
+            }
+
+            $candidates = [];
+
+            foreach ($rawCandidates as $candidate) {
+                $candidate = max(0, (int) $candidate);
+                $candidates[$candidate] = $candidate;
+            }
+
+            return array_values($candidates);
         }
 
         private function buildSnapshotCommand(
@@ -532,7 +587,7 @@
             $command = [
                 $ffmpegBin,
                 '-hide_banner',
-                '-loglevel', 'error',
+                '-loglevel', 'warning',
                 '-y',
                 '-ss', (string) $captureSecond,
                 '-i', $videoPath,

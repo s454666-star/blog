@@ -23,6 +23,19 @@ if (-not (Test-Path -LiteralPath $logDir)) {
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 }
 
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$script:logStream = [System.IO.File]::Open($logPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+$script:logWriter = New-Object System.IO.StreamWriter($script:logStream, $utf8NoBom)
+$script:logWriter.AutoFlush = $true
+
+function Write-LogLine {
+    param(
+        [string] $Line
+    )
+
+    $script:logWriter.WriteLine($Line)
+}
+
 function Write-Log {
     param(
         [string] $Message
@@ -31,7 +44,7 @@ function Write-Log {
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     $line = "[${timestamp}] $Message"
     Write-Host $line
-    Add-Content -Path $logPath -Value $line -Encoding UTF8
+    Write-LogLine -Line $line
 }
 
 function Format-ArgumentList {
@@ -55,17 +68,21 @@ function Invoke-Artisan {
     )
 
     $renderedArgs = Format-ArgumentList -Arguments $Arguments
-    Write-Log "Start $StepName: php artisan $renderedArgs"
+    Write-Log "Start ${StepName}: php artisan $renderedArgs"
 
     Push-Location $appDir
     try {
-        & $phpExe 'artisan' @Arguments 2>&1 | Tee-Object -FilePath $logPath -Append
+        & $phpExe 'artisan' @Arguments 2>&1 | ForEach-Object {
+            $line = $_.ToString()
+            Write-Host $line
+            Write-LogLine -Line $line
+        }
         $exitCode = $LASTEXITCODE
     } finally {
         Pop-Location
     }
 
-    Write-Log "Finish $StepName: exit_code=$exitCode"
+    Write-Log "Finish ${StepName}: exit_code=$exitCode"
     return $exitCode
 }
 
@@ -88,21 +105,37 @@ if (-not (Test-Path -LiteralPath $TargetPath -PathType Container)) {
     exit 1
 }
 
-Write-Log "Target folder: $TargetPath"
+try {
+    Write-Log "Target folder: $TargetPath"
 
-$extractExit = Invoke-Artisan -StepName 'extract failed features' -Arguments @(
-    'video:extract-features',
-    '--failed-only=1'
-)
+    $extractExit = Invoke-Artisan -StepName 'extract needed features (video_type=1)' -Arguments @(
+        'video:extract-features',
+        '--video-type=1'
+    )
 
-if ($extractExit -ne 0) {
-    Write-Log 'Abort move-duplicates because extract failed.'
-    exit $extractExit
+    if ($extractExit -ne 0) {
+        Write-Log 'Extract step reported failures. Continue to move-duplicates.'
+    }
+
+    $moveExit = Invoke-Artisan -StepName 'move duplicates' -Arguments @(
+        'video:move-duplicates',
+        $TargetPath
+    )
+
+    if ($moveExit -ne 0) {
+        exit $moveExit
+    }
+
+    if ($extractExit -ne 0) {
+        Write-Log 'Finished with extract warnings.'
+    }
+
+    exit 0
+} finally {
+    if ($null -ne $script:logWriter) {
+        $script:logWriter.Dispose()
+    }
+    if ($null -ne $script:logStream) {
+        $script:logStream.Dispose()
+    }
 }
-
-$moveExit = Invoke-Artisan -StepName 'move duplicates' -Arguments @(
-    'video:move-duplicates',
-    $TargetPath
-)
-
-exit $moveExit

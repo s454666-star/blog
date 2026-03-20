@@ -437,10 +437,16 @@ class DispatchTokenScanItemsCommand extends Command
                     continue;
                 }
 
+                $paginationPayloadWithContext = $paginationPayload;
+                $sentMessageId = (int) ($sendJson['sent_message_id'] ?? 0);
+                if ($sentMessageId > 0) {
+                    $paginationPayloadWithContext['sent_message_id'] = $sentMessageId;
+                }
+
                 $paginationResponse = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
                     ->acceptJson()
                     ->asJson()
-                    ->post($paginationUrl, $paginationPayload);
+                    ->post($paginationUrl, $paginationPayloadWithContext);
 
                 if (!$paginationResponse->ok()) {
                     $lastError = 'pagination HTTP ' . $paginationResponse->status() . ' ' . Str::limit((string) $paginationResponse->body(), 300);
@@ -679,10 +685,6 @@ class DispatchTokenScanItemsCommand extends Command
         array $pageState,
         int $filesUniqueCount
     ): bool {
-        if ($filesUniqueCount <= 0) {
-            return false;
-        }
-
         $reason = strtolower(trim((string) ($responseJson['reason'] ?? '')));
         $latestKind = strtolower(trim((string) ($latestMessage['kind'] ?? '')));
         $latestHasButtons = (bool) ($latestMessage['has_buttons'] ?? false);
@@ -690,6 +692,14 @@ class DispatchTokenScanItemsCommand extends Command
 
         if ($latestKind === 'completion') {
             return true;
+        }
+
+        if (Str::contains($reason, 'completion message detected')) {
+            return true;
+        }
+
+        if ($filesUniqueCount <= 0) {
+            return false;
         }
 
         if ($this->pageInfoReachedLastPage($pageInfo)) {

@@ -5124,6 +5124,7 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
                     scope=payload.cleanup_scope,
                     limit=int(payload.cleanup_limit or 0),
                     min_message_id=int(cleanup_min_mid or 0),
+                    preserve_file_messages=True,
                     max_logs=int(payload.debug_max_logs or 0)
                 )
             except Exception:

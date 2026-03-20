@@ -479,23 +479,7 @@
 
                 $outPath = $tmpDir . DIRECTORY_SEPARATOR . 'shot_' . ($i + 1) . '_' . uniqid('', true) . '.jpg';
 
-                $process = new Process([
-                    $ffmpegBin,
-                    '-hide_banner',
-                    '-loglevel', 'error',
-                    '-y',
-                    '-ss', (string) $ss,
-                    '-i', $videoPath,
-                    '-frames:v', '1',
-                    '-vf', 'scale=-2:' . (string) self::SNAPSHOT_HEIGHT,
-                    '-q:v', '6',
-                    $outPath,
-                ]);
-
-                $process->setTimeout(180);
-                $process->run();
-
-                if (!$process->isSuccessful() || !is_file($outPath) || (int) filesize($outPath) <= 0) {
+                if (!$this->captureSnapshot($ffmpegBin, $videoPath, $ss, $outPath)) {
                     $shots[$i] = null;
                     $i += 1;
                     continue;
@@ -506,6 +490,76 @@
             }
 
             return $shots;
+        }
+
+        private function captureSnapshot(string $ffmpegBin, string $videoPath, int $captureSecond, string $outPath): bool
+        {
+            $lastError = '';
+
+            foreach ([false, true] as $forceCompatibleColorspace) {
+                if ($forceCompatibleColorspace && !$this->shouldRetrySnapshotWithCompatibleColorspace($lastError)) {
+                    break;
+                }
+
+                if (is_file($outPath)) {
+                    @unlink($outPath);
+                }
+
+                $process = new Process(
+                    $this->buildSnapshotCommand($ffmpegBin, $videoPath, $captureSecond, $outPath, $forceCompatibleColorspace)
+                );
+
+                $process->setTimeout(180);
+                $process->run();
+
+                if ($process->isSuccessful() && is_file($outPath) && (int) @filesize($outPath) > 0) {
+                    return true;
+                }
+
+                $lastError = trim($process->getErrorOutput() ?: $process->getOutput());
+            }
+
+            return false;
+        }
+
+        private function buildSnapshotCommand(
+            string $ffmpegBin,
+            string $videoPath,
+            int $captureSecond,
+            string $outPath,
+            bool $forceCompatibleColorspace
+        ): array {
+            $command = [
+                $ffmpegBin,
+                '-hide_banner',
+                '-loglevel', 'error',
+                '-y',
+                '-ss', (string) $captureSecond,
+                '-i', $videoPath,
+                '-frames:v', '1',
+            ];
+
+            if ($forceCompatibleColorspace) {
+                $command[] = '-vf';
+                $command[] = 'colorspace=all=bt709:iall=bt709,scale=-2:' . (string) self::SNAPSHOT_HEIGHT . ',format=yuv420p';
+            } else {
+                $command[] = '-vf';
+                $command[] = 'scale=-2:' . (string) self::SNAPSHOT_HEIGHT;
+            }
+
+            $command[] = '-q:v';
+            $command[] = '6';
+            $command[] = $outPath;
+
+            return $command;
+        }
+
+        private function shouldRetrySnapshotWithCompatibleColorspace(string $errorOutput): bool
+        {
+            $errorOutput = strtolower($errorOutput);
+
+            return str_contains($errorOutput, 'impossible to convert between the formats supported by the filter')
+                || (str_contains($errorOutput, 'auto_scale') && str_contains($errorOutput, 'function not implemented'));
         }
 
         private function normalizeJpegInPlace(string $jpegPath, int $quality): void

@@ -123,15 +123,18 @@ class VideoFeatureExtractionService
             }
         }
 
-        $payload = $this->inspectFile($this->resolveAbsoluteVideoPath($video));
+        $payload = null;
 
         try {
+            $payload = $this->inspectFile($this->resolveAbsoluteVideoPath($video));
             return $this->persistPayloadForVideo($video, $payload);
         } catch (Throwable $e) {
             $this->markVideoError($video, $e->getMessage());
             throw $e;
         } finally {
-            $this->cleanupPayload($payload);
+            if (is_array($payload)) {
+                $this->cleanupPayload($payload);
+            }
         }
     }
 
@@ -325,7 +328,41 @@ class VideoFeatureExtractionService
 
     private function captureFrame(string $absolutePath, float $captureSecond, string $outputPath): void
     {
-        $process = new Process([
+        $lastError = '';
+
+        foreach ([false, true] as $forceCompatibleColorspace) {
+            if ($forceCompatibleColorspace && !$this->shouldRetryFrameCaptureWithCompatibleColorspace($lastError)) {
+                break;
+            }
+
+            if (is_file($outputPath)) {
+                @unlink($outputPath);
+            }
+
+            $process = new Process(
+                $this->buildCaptureFrameCommand($absolutePath, $captureSecond, $outputPath, $forceCompatibleColorspace)
+            );
+
+            $process->setTimeout(180);
+            $process->run();
+
+            if ($process->isSuccessful() && is_file($outputPath) && (int) @filesize($outputPath) > 0) {
+                return;
+            }
+
+            $lastError = trim($process->getErrorOutput() ?: $process->getOutput());
+        }
+
+        throw new RuntimeException('ffmpeg 擷取截圖失敗：' . $lastError);
+    }
+
+    private function buildCaptureFrameCommand(
+        string $absolutePath,
+        float $captureSecond,
+        string $outputPath,
+        bool $forceCompatibleColorspace
+    ): array {
+        $command = [
             (string) env('FFMPEG_BIN', 'ffmpeg'),
             '-hide_banner',
             '-loglevel',
@@ -335,19 +372,29 @@ class VideoFeatureExtractionService
             number_format($captureSecond, 3, '.', ''),
             '-i',
             $absolutePath,
-            '-frames:v',
-            '1',
-            '-q:v',
-            '3',
-            $outputPath,
-        ]);
+        ];
 
-        $process->setTimeout(180);
-        $process->run();
-
-        if (!$process->isSuccessful() || !is_file($outputPath) || (int) @filesize($outputPath) <= 0) {
-            throw new RuntimeException('ffmpeg 擷取截圖失敗：' . trim($process->getErrorOutput() ?: $process->getOutput()));
+        if ($forceCompatibleColorspace) {
+            // Some uploads carry uncommon colorspace metadata that ffmpeg cannot auto-convert to mjpeg.
+            $command[] = '-vf';
+            $command[] = 'colorspace=all=bt709:iall=bt709,format=yuv420p';
         }
+
+        $command[] = '-frames:v';
+        $command[] = '1';
+        $command[] = '-q:v';
+        $command[] = '3';
+        $command[] = $outputPath;
+
+        return $command;
+    }
+
+    private function shouldRetryFrameCaptureWithCompatibleColorspace(string $errorOutput): bool
+    {
+        $errorOutput = strtolower($errorOutput);
+
+        return str_contains($errorOutput, 'impossible to convert between the formats supported by the filter')
+            || (str_contains($errorOutput, 'auto_scale') && str_contains($errorOutput, 'function not implemented'));
     }
 
     private function probeDurationSeconds(string $absolutePath): float

@@ -50,7 +50,7 @@ class DispatchTokenScanItemsCommand extends Command
 
     private const DEFAULT_API_HOST = 'http://127.0.0.1';
     private const DEFAULT_API_PORT = 8000;
-    private const NEXT_TOKEN_DELAY_MICROSECONDS = 5000000;
+    private const QQ_YZ_NEXT_TOKEN_DELAY_MICROSECONDS = 8000000;
     private const INITIAL_API_TIMEOUT_SECONDS = 60;
     private const QQ_YZ_SYNC_MARKER = '当前解码器未完成同步';
     private const PUSH_ALL_BUTTON_KEYWORDS = ['推送全部'];
@@ -152,8 +152,8 @@ class DispatchTokenScanItemsCommand extends Command
             $this->printDebugTail((array) ($result['debug'] ?? []));
 
             if ($index < ($totalJobs - 1)) {
-                $this->line('sleep=2.5s before next token');
-                usleep(self::NEXT_TOKEN_DELAY_MICROSECONDS);
+                $nextJob = $jobs[$index + 1] ?? null;
+                $this->sleepBeforeNextJobIfNeeded($result, is_array($nextJob) ? $nextJob : null);
             }
         }
 
@@ -361,6 +361,7 @@ class DispatchTokenScanItemsCommand extends Command
         return [
             'classification' => $classification,
             'db_action' => $dbAction,
+            'bot_api' => $bot['api'],
             'bot_display' => $bot['display'],
             'base_uri' => $baseUri,
             'api_status' => $apiStatus,
@@ -597,6 +598,55 @@ class DispatchTokenScanItemsCommand extends Command
         ];
     }
 
+    /**
+     * @param array<string, mixed> $currentResult
+     * @param array{token:string,item:TokenScanItem|null}|null $nextJob
+     */
+    private function sleepBeforeNextJobIfNeeded(array $currentResult, ?array $nextJob): void
+    {
+        $delayMicroseconds = $this->determineDelayBeforeNextJob($currentResult, $nextJob);
+        if ($delayMicroseconds <= 0) {
+            return;
+        }
+
+        $this->line(sprintf(
+            'sleep=%.0fs before next QQ/yz token',
+            $delayMicroseconds / 1000000
+        ));
+
+        usleep($delayMicroseconds);
+    }
+
+    /**
+     * @param array<string, mixed> $currentResult
+     * @param array{token:string,item:TokenScanItem|null}|null $nextJob
+     */
+    private function determineDelayBeforeNextJob(array $currentResult, ?array $nextJob): int
+    {
+        if ($nextJob === null) {
+            return 0;
+        }
+
+        $currentBotApi = trim((string) ($currentResult['bot_api'] ?? ''));
+        if (!$this->isQqOrYzBotApi($currentBotApi)) {
+            return 0;
+        }
+
+        $nextToken = trim((string) ($nextJob['token'] ?? ''));
+        if ($nextToken === '') {
+            return 0;
+        }
+
+        $nextBot = $this->resolveBotByToken($nextToken);
+        $nextBotApi = trim((string) ($nextBot['api'] ?? ''));
+
+        if (!$this->isQqOrYzBotApi($nextBotApi)) {
+            return 0;
+        }
+
+        return self::QQ_YZ_NEXT_TOKEN_DELAY_MICROSECONDS;
+    }
+
     private function formatBytes(int $bytes): string
     {
         if ($bytes <= 0) {
@@ -618,6 +668,14 @@ class DispatchTokenScanItemsCommand extends Command
     private function isVipfilesBot(string $botApi): bool
     {
         return $botApi === self::BOT_VIPFILES['api'];
+    }
+
+    private function isQqOrYzBotApi(string $botApi): bool
+    {
+        return in_array($botApi, [
+            self::BOT_QQFILE['api'],
+            self::BOT_YZFILE['api'],
+        ], true);
     }
 
     private function responseContainsNotFound(array $responseJson, string $latestTextPreview): bool

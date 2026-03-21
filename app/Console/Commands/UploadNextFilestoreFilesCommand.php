@@ -6,6 +6,7 @@ use App\Models\TelegramFilestoreFile;
 use App\Models\TelegramFilestoreSession;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Symfony\Component\Process\Process;
 
 class UploadNextFilestoreFilesCommand extends Command
@@ -13,14 +14,20 @@ class UploadNextFilestoreFilesCommand extends Command
     private const DEFAULT_CHAT_ID = 7702694790;
     private const DEFAULT_SOURCE_DIR = 'Z:\\video(重跑)';
     private const DEFAULT_TDL_PATH = 'C:\\Users\\User\\Videos\\Captures\\tdl.exe';
+    private const DEFAULT_FASTAPI_BASE_URI = 'http://127.0.0.1:8000/';
+    private const DEFAULT_FASTAPI_FALLBACK_BASE_URI = 'http://127.0.0.1:8001/';
     private const DEFAULT_BOT_USERNAME = 'filestoebot';
     private const POLL_INTERVAL_MICROSECONDS = 1500000;
 
     protected $signature = 'filestore:upload-next
         {--limit=100 : 本次最多上傳幾筆}
+        {--method=tdl : 上傳方法：tdl 或 api-video}
         {--chat-id=7702694790 : 寫入 filestore 的 Telegram chat_id}
         {--source=Z:\\video(重跑) : 來源資料夾}
-        {--bot=filestoebot : tdl upload 目標 bot username（可帶或不帶 @）}
+        {--bot=filestoebot : Telegram bot username（可帶或不帶 @）}
+        {--base-uri=http://127.0.0.1:8000/ : 本機 Telegram FastAPI base uri}
+        {--fallback-base-uri=http://127.0.0.1:8001/ : api-video 失敗時改打的備援 FastAPI base uri}
+        {--api-timeout-seconds=120 : api-video 每次 HTTP 請求 timeout 秒數}
         {--tdl=C:\\Users\\User\\Videos\\Captures\\tdl.exe : tdl.exe 路徑}
         {--tdl-storage= : 傳給 tdl 的 --storage 規格，留空用目前預設已登入 storage}
         {--tdl-namespace=default : 傳給 tdl 的 namespace}
@@ -28,13 +35,17 @@ class UploadNextFilestoreFilesCommand extends Command
         {--sleep-ms=1200 : 每筆上傳之間暫停毫秒數}
         {--dry-run : 只列出將上傳的檔案，不真的送出}';
 
-    protected $description = '從 telegram_filestore 最新已上傳檔名續跑，依來源資料夾修改日期排序後用 tdl 上傳下一批檔案到 @filestoebot';
+    protected $description = '從 telegram_filestore 最新已上傳檔名續跑，依來源資料夾修改日期排序後，用 tdl 或本機 Telegram FastAPI(api-video) 上傳下一批檔案到 @filestoebot';
 
     public function handle(): int
     {
         $chatId = max(1, (int) ($this->option('chat-id') ?: self::DEFAULT_CHAT_ID));
         $limit = max(1, (int) $this->option('limit'));
+        $method = strtolower(trim((string) $this->option('method')));
         $sourceDir = trim((string) ($this->option('source') ?: self::DEFAULT_SOURCE_DIR));
+        $baseUri = rtrim(trim((string) ($this->option('base-uri') ?: self::DEFAULT_FASTAPI_BASE_URI)), '/') . '/';
+        $fallbackBaseUri = rtrim(trim((string) ($this->option('fallback-base-uri') ?: self::DEFAULT_FASTAPI_FALLBACK_BASE_URI)), '/') . '/';
+        $apiTimeoutSeconds = max(10, (int) $this->option('api-timeout-seconds'));
         $tdlPath = trim((string) ($this->option('tdl') ?: self::DEFAULT_TDL_PATH));
         $tdlStorage = trim((string) $this->option('tdl-storage'));
         $tdlNamespace = trim((string) $this->option('tdl-namespace'));
@@ -53,13 +64,25 @@ class UploadNextFilestoreFilesCommand extends Command
             return self::FAILURE;
         }
 
-        if ($tdlPath === '' || !File::exists($tdlPath)) {
-            $this->error("找不到 tdl.exe：{$tdlPath}");
+        if (!in_array($method, ['tdl', 'api-video'], true)) {
+            $this->error("不支援的 method：{$method}，只支援 tdl 或 api-video。");
             return self::FAILURE;
         }
 
         if ($botUsername === '') {
             $this->error('bot username 不可為空。');
+            return self::FAILURE;
+        }
+
+        if ($method === 'tdl') {
+            if ($tdlPath === '' || !File::exists($tdlPath)) {
+                $this->error("找不到 tdl.exe：{$tdlPath}");
+                return self::FAILURE;
+            }
+        }
+
+        if ($method === 'api-video' && $baseUri === '/') {
+            $this->error('base-uri 不可為空。');
             return self::FAILURE;
         }
 
@@ -90,7 +113,15 @@ class UploadNextFilestoreFilesCommand extends Command
         $this->line('chat_id=' . $chatId);
         $this->line('source=' . $sourceDir);
         $this->line('bot=@' . $botUsername);
-        $this->line('tdl=' . $tdlPath);
+        $this->line('method=' . $method);
+        if ($method === 'api-video') {
+            $this->line('base_uri=' . $baseUri);
+            if ($fallbackBaseUri !== '/') {
+                $this->line('fallback_base_uri=' . $fallbackBaseUri);
+            }
+        } else {
+            $this->line('tdl=' . $tdlPath);
+        }
         $this->line('latest_session_id=' . (string) ($latestSession?->id ?? 'null'));
         $this->line('latest_session_status=' . (string) ($latestSession?->status ?? 'null'));
         $this->line('anchor=' . (string) ($anchorFile['file_name'] ?? '(最前面開始)'));
@@ -140,23 +171,45 @@ class UploadNextFilestoreFilesCommand extends Command
                 $file['name']
             ));
 
-            $process = $this->makeTdlProcess(
-                $tdlPath,
-                $tdlNamespace,
-                $tdlStorage,
-                $botUsername,
-                $file['path']
-            );
-            $process->setTimeout(null);
-            $process->setIdleTimeout(null);
+            if ($method === 'api-video') {
+                try {
+                    $apiResult = $this->uploadVideoViaFastApiWithFallback(
+                        $baseUri,
+                        $fallbackBaseUri,
+                        $botUsername,
+                        $file['path'],
+                        $apiTimeoutSeconds
+                    );
+                } catch (\RuntimeException $e) {
+                    $this->error($e->getMessage());
+                    return self::FAILURE;
+                }
 
-            $exitCode = $process->run(function (string $type, string $buffer): void {
-                $this->streamTdlOutput($type, $buffer);
-            });
+                $this->line(sprintf(
+                    'api used_base_uri=%s sent_message_id=%d sent_as_video=%s',
+                    (string) ($apiResult['used_base_uri'] ?? $baseUri),
+                    (int) ($apiResult['sent_message_id'] ?? 0),
+                    !empty($apiResult['sent_as_video']) ? 'true' : 'false'
+                ));
+            } else {
+                $process = $this->makeTdlProcess(
+                    $tdlPath,
+                    $tdlNamespace,
+                    $tdlStorage,
+                    $botUsername,
+                    $file['path']
+                );
+                $process->setTimeout(null);
+                $process->setIdleTimeout(null);
 
-            if ($exitCode !== 0) {
-                $this->error('tdl upload 失敗，停止續傳。');
-                return self::FAILURE;
+                $exitCode = $process->run(function (string $type, string $buffer): void {
+                    $this->streamTdlOutput($type, $buffer);
+                });
+
+                if ($exitCode !== 0) {
+                    $this->error('tdl upload 失敗，停止續傳。');
+                    return self::FAILURE;
+                }
             }
 
             $verified = $this->waitForUploadedRow(
@@ -177,6 +230,15 @@ class UploadNextFilestoreFilesCommand extends Command
 
             $targetSessionId = (int) $verified['session_id'];
             $verifiedRows[] = $verified;
+
+            if ($method === 'api-video' && (string) ($verified['file_type'] ?? '') !== 'video') {
+                $this->error(sprintf(
+                    'Webhook 已寫入，但 file_type=%s，不是 video：%s',
+                    (string) ($verified['file_type'] ?? 'unknown'),
+                    $file['name']
+                ));
+                return self::FAILURE;
+            }
 
             $this->info(sprintf(
                 '已驗證 session_id=%d file_id=%d file_name=%s file_type=%s',
@@ -358,6 +420,93 @@ class UploadNextFilestoreFilesCommand extends Command
         }
 
         return false;
+    }
+
+    private function uploadVideoViaFastApi(string $baseUri, string $botUsername, string $filePath, int $timeoutSeconds): array
+    {
+        try {
+            $response = Http::baseUrl($baseUri)
+                ->connectTimeout(10)
+                ->timeout($timeoutSeconds)
+                ->acceptJson()
+                ->post('bots/upload-video', [
+                    'bot_username' => $botUsername,
+                    'file_path' => $filePath,
+                    'supports_streaming' => true,
+                ]);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException(sprintf(
+                'FastAPI upload-video 連線失敗：base_uri=%s error=%s',
+                $baseUri,
+                $e->getMessage()
+            ));
+        }
+
+        if (!$response->successful()) {
+            throw new \RuntimeException(sprintf(
+                'FastAPI upload-video 失敗：HTTP %d body=%s',
+                $response->status(),
+                $this->truncateText($response->body())
+            ));
+        }
+
+        $json = $response->json();
+        if (!is_array($json)) {
+            throw new \RuntimeException('FastAPI upload-video 回應不是 JSON 物件。');
+        }
+
+        if ((string) ($json['status'] ?? '') !== 'ok') {
+            throw new \RuntimeException(sprintf(
+                'FastAPI upload-video 回傳錯誤：reason=%s error=%s',
+                (string) ($json['reason'] ?? 'unknown'),
+                (string) ($json['error'] ?? '')
+            ));
+        }
+
+        return $json;
+    }
+
+    private function uploadVideoViaFastApiWithFallback(
+        string $baseUri,
+        string $fallbackBaseUri,
+        string $botUsername,
+        string $filePath,
+        int $timeoutSeconds
+    ): array {
+        $uris = [rtrim($baseUri, '/') . '/'];
+        $normalizedFallback = rtrim($fallbackBaseUri, '/') . '/';
+        if ($normalizedFallback !== '/' && !in_array($normalizedFallback, $uris, true)) {
+            $uris[] = $normalizedFallback;
+        }
+
+        $errors = [];
+
+        foreach ($uris as $uri) {
+            try {
+                $result = $this->uploadVideoViaFastApi($uri, $botUsername, $filePath, $timeoutSeconds);
+                $result['used_base_uri'] = $uri;
+                return $result;
+            } catch (\RuntimeException $e) {
+                $errors[] = $uri . ' => ' . $e->getMessage();
+                $this->warn('api-video 失敗，改試下一個 base uri：' . $uri);
+            }
+        }
+
+        throw new \RuntimeException('api-video 全部失敗：' . implode(' | ', $errors));
+    }
+
+    private function truncateText(string $text, int $limit = 800): string
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return '';
+        }
+
+        if (strlen($text) <= $limit) {
+            return $text;
+        }
+
+        return substr($text, 0, $limit) . '...';
     }
 
     private function waitForUploadedRow(

@@ -25,7 +25,7 @@ class ScanGroupMediaCommand extends Command
     private const DIALOGUES_CHAT_ID = 7702694790;
     private const FAST_REQUEST_TIMEOUT_SECONDS = 30;
     private const BOT_REQUEST_TIMEOUT_SECONDS = 600;
-    private const MEDIA_DOWNLOAD_TIMEOUT_SECONDS = 1800;
+    private const MEDIA_DOWNLOAD_TIMEOUT_SECONDS = 600;
     private const BOT_VIPFILES = [
         'api' => 'vipfiles2bot',
         'display' => '@vipfiles2bot',
@@ -293,7 +293,27 @@ class ScanGroupMediaCommand extends Command
                         $this->lastFloodWaitSeconds = $waitSeconds;
                         $this->line("FLOOD_WAIT_SECONDS={$waitSeconds}");
                         $this->line("還需等待 {$waitSeconds} 秒後才能再試下載。");
+                        $this->lastFailureSummary = $summary;
+                        return false;
                     }
+
+                    if ($this->shouldSkipFailedMediaDownload($download, $error)) {
+                        $processedCursor = $messageId;
+                        $state->max_message_id = $processedCursor;
+                        $state->last_message_datetime = $this->convertMessageTimeToTaipei(
+                            $this->parseMessageDate($item['date'] ?? null)
+                        );
+                        $state->save();
+
+                        $this->line(sprintf(
+                            'base_uri=%s peer_id=%d message_id=%d 略過卡住媒體，繼續掃描。',
+                            $baseUri,
+                            $peerId,
+                            $messageId
+                        ));
+                        continue;
+                    }
+
                     $this->lastFailureSummary = $summary;
                     return false;
                 }
@@ -528,6 +548,30 @@ class ScanGroupMediaCommand extends Command
         }
 
         return null;
+    }
+
+    private function shouldSkipFailedMediaDownload(?array $download, string $error): bool
+    {
+        if (!is_array($download)) {
+            return false;
+        }
+
+        if ($this->extractFloodWaitSeconds($error) !== null) {
+            return false;
+        }
+
+        $reason = trim((string) ($download['reason'] ?? ''));
+        if ($reason === '') {
+            return false;
+        }
+
+        return in_array($reason, [
+            'telethon_download_timeout',
+            'telethon_download_error',
+            'message_not_found',
+            'entity_not_found',
+            'no_media',
+        ], true);
     }
 
     private function queueTokenIfNeeded(int $peerId, string $chatTitle, string $token, int $messageId): bool

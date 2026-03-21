@@ -135,10 +135,10 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         });
     }
 
-    public function test_dispatch_falls_back_to_newjmq_when_vipfiles_returns_no_data(): void
+    public function test_dispatch_sends_qqfile_tokens_to_qqfile_bot_and_clicks_push_all(): void
     {
         $itemId = DB::table('token_scan_items')->insertGetId([
-            'token' => 'newjmqbot_abc123',
+            'token' => 'QQfile_bot:14120_108172_755-39P_10V',
             'created_at' => now(),
             'updated_at' => null,
         ]);
@@ -147,45 +147,31 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             $url = $request->url();
             $botUsername = (string) ($request['bot_username'] ?? '');
 
-            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'vipfiles2bot') {
-                return Http::response(['status' => 'ok'], 200);
-            }
-
-            if ($url === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot' && $botUsername === 'vipfiles2bot') {
+            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'QQfile_bot') {
                 return Http::response([
-                    'status' => 'fail',
-                    'reason' => 'no callback state message found',
-                    'files_unique_count' => 0,
-                    'files_total_bytes' => 0,
-                    'latest_message' => [],
-                    'timeline' => [
-                        ['step' => 0, 'status' => 'fail', 'reason' => 'no callback state message found'],
-                    ],
-                    'debug' => [],
-                    'page_state' => [],
+                    'status' => 'ok',
+                    'sent_message_id' => 321,
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'newjmqbot') {
-                return Http::response(['status' => 'ok'], 200);
-            }
-
-            if ($url === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot' && $botUsername === 'newjmqbot') {
+            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
                 return Http::response([
                     'status' => 'ok',
-                    'reason' => 'completion message detected',
-                    'files_unique_count' => 6,
+                    'reason' => 'clicked matching button',
+                    'button_clicked' => true,
+                    'clicked_button_text' => '推送全部',
+                    'files_unique_count' => 0,
                     'files_total_bytes' => 0,
                     'latest_message' => [
-                        'kind' => 'completion',
-                        'text_preview' => '完成',
+                        'kind' => 'state',
+                        'text_preview' => '已點擊',
                         'has_buttons' => false,
-                        'page_info' => [],
+                        'buttons_text' => [],
                     ],
-                    'timeline' => [],
+                    'timeline' => [
+                        ['step' => 0, 'status' => 'clicked', 'clicked_button_text' => '推送全部'],
+                    ],
                     'debug' => [],
-                    'page_state' => [],
-                    'completed' => true,
                     'outcome' => [
                         'run_completed' => true,
                     ],
@@ -195,9 +181,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
         });
 
-        $this->artisan('tg:dispatch-token-scan-items', [
-            '--fallback-newjmqbot' => true,
-        ])->assertExitCode(0);
+        $this->artisan('tg:dispatch-token-scan-items')->assertExitCode(0);
 
         $this->assertDatabaseMissing('token_scan_items', [
             'id' => $itemId,
@@ -205,31 +189,27 @@ class DispatchTokenScanItemsCommandTest extends TestCase
 
         Http::assertSent(function ($request): bool {
             return $request->url() === 'http://127.0.0.1:8000/bots/send'
-                && $request['bot_username'] === 'vipfiles2bot'
-                && $request['text'] === 'newjmqbot_abc123';
+                && $request['bot_username'] === 'QQfile_bot'
+                && $request['text'] === 'QQfile_bot:14120_108172_755-39P_10V';
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
-                && $request['bot_username'] === 'vipfiles2bot';
+            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+                && $request['bot_username'] === 'QQfile_bot'
+                && $request['sent_message_id'] === 321
+                && $request['button_keywords'] === ['推送全部'];
         });
 
-        Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/send'
-                && $request['bot_username'] === 'newjmqbot'
-                && $request['text'] === 'newjmqbot_abc123';
-        });
-
-        Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
-                && $request['bot_username'] === 'newjmqbot';
+        Http::assertNotSent(function ($request): bool {
+            $botUsername = (string) ($request['bot_username'] ?? '');
+            return in_array($botUsername, ['newjmqbot', 'Showfiles6bot'], true);
         });
     }
 
-    public function test_dispatch_treats_newjmq_completion_without_files_as_success_and_forwards_sent_message_id(): void
+    public function test_dispatch_falls_back_from_qqfile_to_yzfile_with_start_command(): void
     {
         $itemId = DB::table('token_scan_items')->insertGetId([
-            'token' => 'newjmqbot_text_only',
+            'token' => 'QQfile_bot:14191_108172_777-22P',
             'created_at' => now(),
             'updated_at' => null,
         ]);
@@ -238,57 +218,60 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             $url = $request->url();
             $botUsername = (string) ($request['bot_username'] ?? '');
 
-            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'vipfiles2bot') {
+            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'QQfile_bot') {
                 return Http::response([
                     'status' => 'ok',
                     'sent_message_id' => 101,
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot' && $botUsername === 'vipfiles2bot') {
+            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
                 return Http::response([
                     'status' => 'fail',
-                    'reason' => 'no callback state message found',
+                    'reason' => 'no matching button found',
                     'files_unique_count' => 0,
                     'files_total_bytes' => 0,
-                    'latest_message' => [],
-                    'timeline' => [
-                        ['step' => 0, 'status' => 'fail', 'reason' => 'no callback state message found'],
+                    'button_clicked' => false,
+                    'clicked_button_text' => '',
+                    'latest_message' => [
+                        'kind' => 'other',
+                        'text_preview' => '当前解码器未完成同步，请使用 yzfile_bot (https://t.me/yzfile_bot?start=14120_76302_755)  解码此资源或24小时后重试',
+                        'has_buttons' => false,
+                        'buttons_text' => [],
                     ],
+                    'timeline' => [],
                     'debug' => [],
-                    'page_state' => [],
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'newjmqbot') {
+            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'yzfile_bot') {
                 return Http::response([
                     'status' => 'ok',
                     'sent_message_id' => 202,
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot' && $botUsername === 'newjmqbot') {
+            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'yzfile_bot') {
                 return Http::response([
                     'status' => 'ok',
-                    'reason' => 'no_click',
+                    'reason' => 'clicked matching button',
+                    'button_clicked' => true,
+                    'clicked_button_text' => '推送全部',
                     'files_unique_count' => 0,
                     'files_total_bytes' => 0,
                     'latest_message' => [
-                        'kind' => 'completion',
-                        'text_preview' => '✅ 以下代码的内容发送完成',
+                        'kind' => 'state',
+                        'text_preview' => '已點擊',
                         'has_buttons' => false,
-                        'page_info' => [],
+                        'buttons_text' => [],
                     ],
                     'timeline' => [
-                        ['step' => 0, 'status' => 'first_state'],
-                        ['step' => 1, 'status' => 'done', 'reason' => 'no_click'],
+                        ['step' => 0, 'status' => 'clicked', 'clicked_button_text' => '推送全部'],
                     ],
                     'debug' => [],
-                    'page_state' => [],
                     'completed' => true,
                     'outcome' => [
                         'run_completed' => true,
-                        'latest_message_kind' => 'completion',
                     ],
                 ], 200);
             }
@@ -296,23 +279,27 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
         });
 
-        $this->artisan('tg:dispatch-token-scan-items', [
-            '--fallback-newjmqbot' => true,
-        ])->assertExitCode(0);
+        $this->artisan('tg:dispatch-token-scan-items')->assertExitCode(0);
 
         $this->assertDatabaseMissing('token_scan_items', [
             'id' => $itemId,
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
-                && $request['bot_username'] === 'vipfiles2bot'
+            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+                && $request['bot_username'] === 'QQfile_bot'
                 && $request['sent_message_id'] === 101;
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
-                && $request['bot_username'] === 'newjmqbot'
+            return $request->url() === 'http://127.0.0.1:8000/bots/send'
+                && $request['bot_username'] === 'yzfile_bot'
+                && $request['text'] === '/start 14120_76302_755';
+        });
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+                && $request['bot_username'] === 'yzfile_bot'
                 && $request['sent_message_id'] === 202;
         });
     }

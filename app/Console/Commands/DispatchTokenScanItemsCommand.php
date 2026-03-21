@@ -16,35 +16,44 @@ class DispatchTokenScanItemsCommand extends Command
         {--limit=0 : Max rows to read from token_scan_items. 0 means unlimited}
         {--port=8000 : Telegram FastAPI service port. Default 8000}
         {--base-uri=* : Explicit Telegram API base URI(s). Overrides --port}
-        {--fallback-newjmqbot : When @vipfiles2bot returns not found, retry with @newjmqbot}
+        {--fallback-newjmqbot : Deprecated and ignored. @newjmqbot is disabled.}
         {--include-processed : Include rows with updated_at already set}';
 
     protected $description = 'Dispatch token_scan_items tokens to Telegram bots and delete or touch rows after success.';
 
+    private const BOT_MODE_PAGINATE = 'paginate';
+    private const BOT_MODE_CLICK_BUTTON = 'click_button';
+
     private const BOT_MESSENGER = [
         'api' => 'MessengerCode_bot',
         'display' => '@MessengerCode_bot',
+        'mode' => self::BOT_MODE_PAGINATE,
     ];
 
     private const BOT_VIPFILES = [
         'api' => 'vipfiles2bot',
         'display' => '@vipfiles2bot',
+        'mode' => self::BOT_MODE_PAGINATE,
     ];
 
-    private const BOT_NEWJMQ = [
-        'api' => 'newjmqbot',
-        'display' => '@newjmqbot',
+    private const BOT_QQFILE = [
+        'api' => 'QQfile_bot',
+        'display' => '@QQfile_bot',
+        'mode' => self::BOT_MODE_CLICK_BUTTON,
     ];
 
-    private const BOT_SHOWFILES6 = [
-        'api' => 'Showfiles6bot',
-        'display' => '@Showfiles6bot',
+    private const BOT_YZFILE = [
+        'api' => 'yzfile_bot',
+        'display' => '@yzfile_bot',
+        'mode' => self::BOT_MODE_CLICK_BUTTON,
     ];
 
     private const DEFAULT_API_HOST = 'http://127.0.0.1';
     private const DEFAULT_API_PORT = 8000;
     private const NEXT_TOKEN_DELAY_MICROSECONDS = 5000000;
     private const INITIAL_API_TIMEOUT_SECONDS = 60;
+    private const QQ_YZ_SYNC_MARKER = '当前解码器未完成同步';
+    private const PUSH_ALL_BUTTON_KEYWORDS = ['推送全部'];
 
     private const NOT_FOUND_MARKERS = [
         '💔抱歉，未找到可解析内容。',
@@ -246,9 +255,13 @@ class DispatchTokenScanItemsCommand extends Command
         $primaryBot = $this->resolveBotByToken($token);
         $result = $this->runBotAttempt($token, $primaryBot);
 
-        if ($this->shouldFallbackToNewjmqbot($primaryBot, $result)) {
-            $fallback = $this->runBotAttempt($token, self::BOT_NEWJMQ);
-            $fallbackSummary = 'Fallback after @vipfiles2bot returned no data -> @newjmqbot';
+        if ($this->shouldFallbackToYzfile($primaryBot, $result)) {
+            $fallback = $this->runBotAttempt(
+                $token,
+                self::BOT_YZFILE,
+                (string) ($result['yz_start_command'] ?? '')
+            );
+            $fallbackSummary = 'Fallback after @QQfile_bot requested @yzfile_bot';
             $fallback['summary'] = trim($fallbackSummary . '. ' . ($fallback['summary'] ?? ''));
             $result = $fallback;
         }
@@ -268,11 +281,12 @@ class DispatchTokenScanItemsCommand extends Command
      * @param array{api:string,display:string} $bot
      * @return array<string, mixed>
      */
-    private function runBotAttempt(string $token, array $bot): array
+    private function runBotAttempt(string $token, array $bot, ?string $sendText = null): array
     {
-        $sendPayload = $this->buildSendPayload($token, $bot['api']);
-        $paginationPayload = $this->buildPaginationPayload($bot['api']);
-        $apiCall = $this->callTelegramApi($sendPayload, $paginationPayload);
+        $textToSend = trim((string) ($sendText ?? '')) !== ''
+            ? trim((string) $sendText)
+            : $token;
+        $apiCall = $this->callTelegramApi($bot, $textToSend);
         $baseUri = (string) ($apiCall['base_uri'] ?? '');
         $apiStatus = '';
         $responseJson = [];
@@ -292,6 +306,9 @@ class DispatchTokenScanItemsCommand extends Command
         $latestKind = (string) ($latestMessage['kind'] ?? '');
         $latestTextPreview = trim((string) ($latestMessage['text_preview'] ?? ''));
         $latestHasButtons = (bool) ($latestMessage['has_buttons'] ?? false);
+        $buttonClicked = (bool) ($responseJson['button_clicked'] ?? false);
+        $clickedButtonText = trim((string) ($responseJson['clicked_button_text'] ?? ''));
+        $yzStartCommand = $this->extractYzStartCommand($responseJson, $latestTextPreview);
 
         $filesMeta = is_array($responseJson['files'] ?? null) ? $responseJson['files'] : [];
         $filesUniqueCount = (int) ($responseJson['files_unique_count'] ?? $filesMeta['files_unique_count'] ?? $filesMeta['files_count'] ?? 0);
@@ -301,7 +318,7 @@ class DispatchTokenScanItemsCommand extends Command
         $notFound = $this->responseContainsNotFound($responseJson, $latestTextPreview);
         $apiJsonStatus = (string) ($responseJson['status'] ?? '');
         $apiReason = trim((string) ($responseJson['reason'] ?? ''));
-        $fullyCompleted = $this->isVipLikeBot($bot['api'])
+        $fullyCompleted = $this->isVipfilesBot($bot['api'])
             ? $this->isVipfilesRunCompleted($responseJson, $latestMessage, $pageState, $filesUniqueCount)
             : $this->isMessengerRunCompleted(
                 $responseJson,
@@ -318,6 +335,11 @@ class DispatchTokenScanItemsCommand extends Command
         } elseif ($notFound) {
             $classification = 'not_found';
             $summary = 'Bot returned not found. Keep token_scan_items row untouched.';
+        } elseif (($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON && $buttonClicked) {
+            $classification = 'success';
+            $summary = 'Clicked button ' . ($clickedButtonText !== '' ? $clickedButtonText : '推送全部') . '.';
+        } elseif (($bot['api'] ?? '') === self::BOT_QQFILE['api'] && $this->responseRequestsYzFallback($latestTextPreview, $apiReason) && $yzStartCommand !== null) {
+            $summary = 'QQ bot requested yzfile_bot redirect.';
         } elseif ($fullyCompleted) {
             $classification = 'success';
             $summary = 'Completed without local download. files_unique_count=' . $filesUniqueCount;
@@ -325,12 +347,14 @@ class DispatchTokenScanItemsCommand extends Command
             $classification = 'success';
             $summary = 'Messenger bot returned completion message without local download.';
         } else {
-            if ($filesUniqueCount > 0 && $this->isVipLikeBot($bot['api'])) {
+            if ($filesUniqueCount > 0 && $this->isVipfilesBot($bot['api'])) {
                 $summary = 'Files were observed, but completion was not confirmed. Keep token_scan_items row untouched.';
             } else {
                 $summary = $apiReason !== ''
-                    ? ('Run not completed. reason=' . $apiReason)
-                    : 'Run not completed. Keep token_scan_items row untouched.';
+                    ? ((($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON ? 'Button click not completed. reason=' : 'Run not completed. reason=') . $apiReason)
+                    : (($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON
+                        ? 'Button click not completed. Keep token_scan_items row untouched.'
+                        : 'Run not completed. Keep token_scan_items row untouched.');
             }
         }
 
@@ -348,6 +372,9 @@ class DispatchTokenScanItemsCommand extends Command
             'summary' => $summary,
             'timeline' => $timeline,
             'debug' => $debug,
+            'button_clicked' => $buttonClicked,
+            'clicked_button_text' => $clickedButtonText,
+            'yz_start_command' => $yzStartCommand,
         ];
     }
 
@@ -355,42 +382,25 @@ class DispatchTokenScanItemsCommand extends Command
      * @param array{api:string,display:string} $primaryBot
      * @param array<string, mixed> $result
      */
-    private function shouldFallbackToNewjmqbot(array $primaryBot, array $result): bool
+    private function shouldFallbackToYzfile(array $primaryBot, array $result): bool
     {
-        if (!(bool) $this->option('fallback-newjmqbot')) {
+        if (($primaryBot['api'] ?? '') !== self::BOT_QQFILE['api']) {
             return false;
         }
 
-        if (($primaryBot['api'] ?? '') !== self::BOT_VIPFILES['api']) {
+        if ((bool) ($result['button_clicked'] ?? false)) {
             return false;
         }
 
-        if (($result['classification'] ?? '') === 'success') {
+        $yzStartCommand = trim((string) ($result['yz_start_command'] ?? ''));
+        if ($yzStartCommand === '') {
             return false;
         }
 
-        if (($result['classification'] ?? '') === 'not_found') {
-            return true;
-        }
-
-        if ((int) ($result['files_unique_count'] ?? 0) > 0) {
-            return false;
-        }
-
-        $apiStatus = trim((string) ($result['api_status'] ?? ''));
-        $apiReason = strtolower(trim((string) ($result['api_reason'] ?? '')));
-
-        if ($apiStatus === '') {
-            return false;
-        }
-
-        return $apiReason === ''
-            || Str::contains($apiReason, [
-                'no callback state message found',
-                'timeout waiting for first bot message after sending',
-                'no reply after text sent',
-                'run not completed',
-            ]);
+        return $this->responseRequestsYzFallback(
+            (string) ($result['latest_text_preview'] ?? ''),
+            (string) ($result['api_reason'] ?? '')
+        );
     }
 
     /**
@@ -402,8 +412,8 @@ class DispatchTokenScanItemsCommand extends Command
             return self::BOT_MESSENGER;
         }
 
-        if (Str::startsWith($token, 'showfiles3bot_')) {
-            return self::BOT_SHOWFILES6;
+        if (Str::startsWith(Str::lower($token), 'qqfile_bot:')) {
+            return self::BOT_QQFILE;
         }
 
         return self::BOT_VIPFILES;
@@ -412,13 +422,20 @@ class DispatchTokenScanItemsCommand extends Command
     /**
      * @return array<string, mixed>
      */
-    private function callTelegramApi(array $sendPayload, array $paginationPayload): array
+    private function callTelegramApi(array $bot, string $text): array
     {
         $lastError = 'unknown';
+        $sendPayload = $this->buildSendPayload($text, (string) $bot['api']);
+        $followupPayload = (($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON)
+            ? $this->buildButtonClickPayload((string) $bot['api'])
+            : $this->buildPaginationPayload((string) $bot['api']);
+        $followupPath = (($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON)
+            ? '/bots/click-matching-button'
+            : '/bots/run-all-pages-by-bot';
 
         foreach ($this->getApiBaseUris() as $baseUri) {
             $sendUrl = rtrim($baseUri, '/') . '/bots/send';
-            $paginationUrl = rtrim($baseUri, '/') . '/bots/run-all-pages-by-bot';
+            $followupUrl = rtrim($baseUri, '/') . $followupPath;
 
             try {
                 $sendResponse = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
@@ -437,25 +454,25 @@ class DispatchTokenScanItemsCommand extends Command
                     continue;
                 }
 
-                $paginationPayloadWithContext = $paginationPayload;
+                $followupPayloadWithContext = $followupPayload;
                 $sentMessageId = (int) ($sendJson['sent_message_id'] ?? 0);
                 if ($sentMessageId > 0) {
-                    $paginationPayloadWithContext['sent_message_id'] = $sentMessageId;
+                    $followupPayloadWithContext['sent_message_id'] = $sentMessageId;
                 }
 
                 $paginationResponse = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
                     ->acceptJson()
                     ->asJson()
-                    ->post($paginationUrl, $paginationPayloadWithContext);
+                    ->post($followupUrl, $followupPayloadWithContext);
 
                 if (!$paginationResponse->ok()) {
-                    $lastError = 'pagination HTTP ' . $paginationResponse->status() . ' ' . Str::limit((string) $paginationResponse->body(), 300);
+                    $lastError = 'followup HTTP ' . $paginationResponse->status() . ' ' . Str::limit((string) $paginationResponse->body(), 300);
                     continue;
                 }
 
                 $json = $paginationResponse->json();
                 if (!is_array($json)) {
-                    $lastError = 'pagination invalid json response';
+                    $lastError = 'followup invalid json response';
                     continue;
                 }
 
@@ -559,6 +576,27 @@ class DispatchTokenScanItemsCommand extends Command
         ]);
     }
 
+    private function buildButtonClickPayload(string $botUsername): array
+    {
+        return [
+            'bot_username' => $botUsername,
+            'clear_previous_replies' => false,
+            'delay_seconds' => 1,
+            'button_keywords' => self::PUSH_ALL_BUTTON_KEYWORDS,
+            'debug' => true,
+            'debug_max_logs' => 2000,
+            'include_files_in_response' => true,
+            'max_return_files' => 1000,
+            'max_raw_payload_bytes' => 0,
+            'wait_after_click_timeout_seconds' => 12,
+            'cleanup_after_done' => true,
+            'cleanup_scope' => 'run',
+            'cleanup_limit' => 500,
+            'callback_message_max_age_seconds' => 60,
+            'callback_candidate_scan_limit' => 60,
+        ];
+    }
+
     private function formatBytes(int $bytes): string
     {
         if ($bytes <= 0) {
@@ -577,13 +615,9 @@ class DispatchTokenScanItemsCommand extends Command
         return number_format($size, $unitIndex === 0 ? 0 : 2) . ' ' . $units[$unitIndex];
     }
 
-    private function isVipLikeBot(string $botApi): bool
+    private function isVipfilesBot(string $botApi): bool
     {
-        return in_array($botApi, [
-            self::BOT_VIPFILES['api'],
-            self::BOT_NEWJMQ['api'],
-            self::BOT_SHOWFILES6['api'],
-        ], true);
+        return $botApi === self::BOT_VIPFILES['api'];
     }
 
     private function responseContainsNotFound(array $responseJson, string $latestTextPreview): bool
@@ -618,6 +652,51 @@ class DispatchTokenScanItemsCommand extends Command
         }
 
         return false;
+    }
+
+    private function responseRequestsYzFallback(string $latestTextPreview, string $apiReason): bool
+    {
+        $texts = [
+            $latestTextPreview,
+            $apiReason,
+        ];
+
+        foreach ($texts as $text) {
+            $normalized = trim($text);
+            if ($normalized === '') {
+                continue;
+            }
+
+            if (Str::contains($normalized, self::QQ_YZ_SYNC_MARKER) && Str::contains(Str::lower($normalized), 'yzfile_bot')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function extractYzStartCommand(array $responseJson, string $latestTextPreview): ?string
+    {
+        $texts = [
+            $latestTextPreview,
+            trim((string) ($responseJson['reason'] ?? '')),
+        ];
+
+        foreach ($texts as $text) {
+            if ($text === '') {
+                continue;
+            }
+
+            if (preg_match('~https?://t\.me/yzfile_bot\?start=([A-Za-z0-9_\-]+)~iu', $text, $matches) === 1) {
+                return '/start ' . $matches[1];
+            }
+
+            if (preg_match('~yzfile_bot\?start=([A-Za-z0-9_\-]+)~iu', $text, $matches) === 1) {
+                return '/start ' . $matches[1];
+            }
+        }
+
+        return null;
     }
 
     private function isMessengerRunCompleted(

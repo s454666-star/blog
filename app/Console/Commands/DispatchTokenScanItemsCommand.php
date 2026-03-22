@@ -50,10 +50,47 @@ class DispatchTokenScanItemsCommand extends Command
 
     private const DEFAULT_API_HOST = 'http://127.0.0.1';
     private const DEFAULT_API_PORT = 8000;
+    private const BOT_REPLIES_FETCH_LIMIT = 300;
+    private const QQ_YZ_MAX_ATTEMPTS = 20;
+    private const QQ_YZ_INITIAL_OBSERVE_TIMEOUT_SECONDS = 30;
+    private const QQ_YZ_COMPLETION_TIMEOUT_SECONDS = 900;
+    private const QQ_YZ_COMPLETION_POLL_MICROSECONDS = 5000000;
+    private const QQ_YZ_RETRY_BUDGET_SECONDS = 300;
     private const QQ_YZ_NEXT_TOKEN_DELAY_MICROSECONDS = 8000000;
     private const INITIAL_API_TIMEOUT_SECONDS = 60;
     private const QQ_YZ_SYNC_MARKER = '当前解码器未完成同步';
     private const PUSH_ALL_BUTTON_KEYWORDS = ['推送全部'];
+    private const QQ_YZ_ACCEPTED_MARKERS = [
+        '添加成功，任务处理中',
+        '添加成功,任务处理中',
+        '添加成功，任务处理',
+    ];
+    private const QQ_YZ_QUEUE_BUSY_MARKERS = [
+        '您当前仍有推送队列正在处理',
+        '当前仍有推送队列正在处理',
+    ];
+    private const QQ_YZ_RETRY_LATER_MARKERS = [
+        '当前资源已经获取，请24小时后重试',
+        '当前资源已经获取,请24小时后重试',
+    ];
+    private const QQ_YZ_ALREADY_PARSED_MARKERS = [
+        '解析过此资源',
+        '解析過此資源',
+    ];
+    private const QQ_YZ_COMPLETION_MARKERS = [
+        '文件获取完毕',
+    ];
+    private const QQ_YZ_TOTAL_MARKERS = [
+        '文件总数',
+        '文件總數',
+    ];
+    private const QQ_YZ_FALLBACK_BUTTON_KEYWORDS = [
+        '查看全部文件',
+    ];
+    private const QQ_YZ_CALLBACK_RETRY_MARKERS = [
+        'invalid_callback',
+        'did not answer to the callback query in time',
+    ];
 
     private const NOT_FOUND_MARKERS = [
         '💔抱歉，未找到可解析内容。',
@@ -94,6 +131,8 @@ class DispatchTokenScanItemsCommand extends Command
         ];
 
         $totalJobs = count($jobs);
+        $remainingUnprocessed = 0;
+        $stoppedEarly = false;
 
         $this->line('done_action=' . $doneAction . ' jobs=' . $totalJobs);
 
@@ -151,6 +190,13 @@ class DispatchTokenScanItemsCommand extends Command
             $this->printTimelineTail((array) ($result['timeline'] ?? []));
             $this->printDebugTail((array) ($result['debug'] ?? []));
 
+            if (($result['stop_processing'] ?? false) === true) {
+                $remainingUnprocessed = max(0, $totalJobs - ($index + 1));
+                $stoppedEarly = true;
+                $this->warn('Stopping dispatch after unresolved QQ/yz run so the next token does not start early.');
+                break;
+            }
+
             if ($index < ($totalJobs - 1)) {
                 $nextJob = $jobs[$index + 1] ?? null;
                 $this->sleepBeforeNextJobIfNeeded($result, is_array($nextJob) ? $nextJob : null);
@@ -166,6 +212,10 @@ class DispatchTokenScanItemsCommand extends Command
         $this->line('touched=' . $stats['touched']);
         $this->line('deleted=' . $stats['deleted']);
         $this->line('manual_only=' . $stats['manual_only']);
+        if ($stoppedEarly) {
+            $this->line('stopped_early=1');
+            $this->line('remaining_unprocessed=' . $remainingUnprocessed);
+        }
 
         return self::SUCCESS;
     }
@@ -253,17 +303,60 @@ class DispatchTokenScanItemsCommand extends Command
         $token = (string) $job['token'];
         $item = $job['item'];
         $primaryBot = $this->resolveBotByToken($token);
-        $result = $this->runBotAttempt($token, $primaryBot);
+        $bot = $primaryBot;
+        $dispatchText = null;
+        $attempt = 0;
+        $retryDeadline = microtime(true) + self::QQ_YZ_RETRY_BUDGET_SECONDS;
 
-        if ($this->shouldFallbackToYzfile($primaryBot, $result)) {
-            $fallback = $this->runBotAttempt(
-                $token,
-                self::BOT_YZFILE,
-                (string) ($result['yz_start_command'] ?? '')
-            );
-            $fallbackSummary = 'Fallback after @QQfile_bot requested @yzfile_bot';
-            $fallback['summary'] = trim($fallbackSummary . '. ' . ($fallback['summary'] ?? ''));
-            $result = $fallback;
+        while (true) {
+            $attempt++;
+            $result = $this->runBotAttempt($token, $bot, $dispatchText);
+
+            if ($this->shouldFallbackToYzfile($bot, $result)) {
+                $bot = self::BOT_YZFILE;
+                $dispatchText = (string) ($result['yz_start_command'] ?? '');
+                $fallback = $this->runBotAttempt($token, $bot, $dispatchText);
+                $fallbackSummary = 'Fallback after @QQfile_bot requested @yzfile_bot';
+                $fallback['summary'] = trim($fallbackSummary . '. ' . ($fallback['summary'] ?? ''));
+                $result = $fallback;
+            }
+
+            if ($this->isQqOrYzBotApi((string) ($result['bot_api'] ?? ''))) {
+                $result = $this->waitForQqYzCompletion($result);
+
+                if (
+                    ($result['retry_after_rate_limit'] ?? false) === true
+                    && $attempt < self::QQ_YZ_MAX_ATTEMPTS
+                    && microtime(true) < $retryDeadline
+                ) {
+                    $waitSeconds = max(1, (int) ($result['retry_after_seconds'] ?? 0));
+                    $this->line('qq_yz_rate_limit_wait=' . $waitSeconds . ' retry_current_token=1');
+                    sleep($waitSeconds);
+                    continue;
+                }
+
+                if (
+                    ($result['retry_after_callback_error'] ?? false) === true
+                    && $attempt < self::QQ_YZ_MAX_ATTEMPTS
+                    && microtime(true) < $retryDeadline
+                ) {
+                    $this->line('qq_yz_callback_retry=1 retry_current_token=1');
+                    sleep(2);
+                    continue;
+                }
+
+                if (
+                    ($result['retry_after_queue_clear'] ?? false) === true
+                    && $attempt < self::QQ_YZ_MAX_ATTEMPTS
+                    && microtime(true) < $retryDeadline
+                ) {
+                    $this->line('qq_yz_queue_cleared=1 retry_current_token=1');
+                    sleep(3);
+                    continue;
+                }
+            }
+
+            break;
         }
 
         if ($result['classification'] === 'success' && $item instanceof TokenScanItem) {
@@ -309,6 +402,7 @@ class DispatchTokenScanItemsCommand extends Command
         $buttonClicked = (bool) ($responseJson['button_clicked'] ?? false);
         $clickedButtonText = trim((string) ($responseJson['clicked_button_text'] ?? ''));
         $yzStartCommand = $this->extractYzStartCommand($responseJson, $latestTextPreview);
+        $sentMessageId = (int) ($apiCall['sent_message_id'] ?? 0);
 
         $filesMeta = is_array($responseJson['files'] ?? null) ? $responseJson['files'] : [];
         $filesUniqueCount = (int) ($responseJson['files_unique_count'] ?? $filesMeta['files_unique_count'] ?? $filesMeta['files_count'] ?? 0);
@@ -335,11 +429,10 @@ class DispatchTokenScanItemsCommand extends Command
         } elseif ($notFound) {
             $classification = 'not_found';
             $summary = 'Bot returned not found. Keep token_scan_items row untouched.';
-        } elseif (($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON && $buttonClicked) {
-            $classification = 'success';
-            $summary = 'Clicked button ' . ($clickedButtonText !== '' ? $clickedButtonText : '推送全部') . '.';
         } elseif (($bot['api'] ?? '') === self::BOT_QQFILE['api'] && $this->responseRequestsYzFallback($latestTextPreview, $apiReason) && $yzStartCommand !== null) {
             $summary = 'QQ bot requested yzfile_bot redirect.';
+        } elseif (($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON && $buttonClicked) {
+            $summary = 'Clicked button ' . ($clickedButtonText !== '' ? $clickedButtonText : '推送全部') . '. Waiting for completion marker.';
         } elseif ($fullyCompleted) {
             $classification = 'success';
             $summary = 'Completed without local download. files_unique_count=' . $filesUniqueCount;
@@ -375,6 +468,12 @@ class DispatchTokenScanItemsCommand extends Command
             'debug' => $debug,
             'button_clicked' => $buttonClicked,
             'clicked_button_text' => $clickedButtonText,
+            'sent_message_id' => $sentMessageId,
+            'dispatch_text' => $textToSend,
+            'stop_processing' => false,
+            'retry_after_queue_clear' => false,
+            'retry_after_rate_limit' => false,
+            'retry_after_callback_error' => false,
             'yz_start_command' => $yzStartCommand,
         ];
     }
@@ -477,10 +576,37 @@ class DispatchTokenScanItemsCommand extends Command
                     continue;
                 }
 
+                if (
+                    (($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON)
+                    && $this->isQqOrYzBotApi((string) $bot['api'])
+                    && $this->shouldRetryQqYzWithFallbackButtons($json)
+                ) {
+                    $fallbackPayload = $this->buildButtonClickPayload(
+                        (string) $bot['api'],
+                        self::QQ_YZ_FALLBACK_BUTTON_KEYWORDS
+                    );
+                    if ($sentMessageId > 0) {
+                        $fallbackPayload['sent_message_id'] = $sentMessageId;
+                    }
+
+                    $fallbackResponse = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
+                        ->acceptJson()
+                        ->asJson()
+                        ->post($followupUrl, $fallbackPayload);
+
+                    if ($fallbackResponse->ok()) {
+                        $fallbackJson = $fallbackResponse->json();
+                        if (is_array($fallbackJson)) {
+                            $json = $fallbackJson;
+                        }
+                    }
+                }
+
                 return [
                     'ok' => true,
                     'base_uri' => $baseUri,
                     'http_status' => $paginationResponse->status(),
+                    'sent_message_id' => $sentMessageId,
                     'json' => $json,
                 ];
             } catch (Throwable $e) {
@@ -577,20 +703,21 @@ class DispatchTokenScanItemsCommand extends Command
         ]);
     }
 
-    private function buildButtonClickPayload(string $botUsername): array
+    private function buildButtonClickPayload(string $botUsername, array $buttonKeywords = self::PUSH_ALL_BUTTON_KEYWORDS): array
     {
         return [
             'bot_username' => $botUsername,
             'clear_previous_replies' => false,
             'delay_seconds' => 1,
-            'button_keywords' => self::PUSH_ALL_BUTTON_KEYWORDS,
+            'button_keywords' => $buttonKeywords,
             'debug' => true,
             'debug_max_logs' => 2000,
             'include_files_in_response' => true,
             'max_return_files' => 1000,
             'max_raw_payload_bytes' => 0,
             'wait_after_click_timeout_seconds' => 12,
-            'cleanup_after_done' => true,
+            // Preserve the detail message so follow-up completion/progress can still be traced.
+            'cleanup_after_done' => false,
             'cleanup_scope' => 'run',
             'cleanup_limit' => 500,
             'callback_message_max_age_seconds' => 60,
@@ -645,6 +772,453 @@ class DispatchTokenScanItemsCommand extends Command
         }
 
         return self::QQ_YZ_NEXT_TOKEN_DELAY_MICROSECONDS;
+    }
+
+    private function shouldRetryQqYzWithFallbackButtons(array $responseJson): bool
+    {
+        if (($responseJson['button_clicked'] ?? false) === true) {
+            return false;
+        }
+
+        $reason = strtolower(trim((string) ($responseJson['reason'] ?? '')));
+        if ($reason === '') {
+            return false;
+        }
+
+        return Str::contains($reason, 'no matching button found');
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     */
+    private function shouldRetryQqYzAfterCallbackError(array $result): bool
+    {
+        $reason = strtolower(trim((string) ($result['api_reason'] ?? '')));
+        if ($reason === '') {
+            return false;
+        }
+
+        foreach (self::QQ_YZ_CALLBACK_RETRY_MARKERS as $marker) {
+            if ($marker !== '' && Str::contains($reason, strtolower($marker))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    private function waitForQqYzCompletion(array $result): array
+    {
+        $baseUri = trim((string) ($result['base_uri'] ?? ''));
+        $botApi = trim((string) ($result['bot_api'] ?? ''));
+        $sentMessageId = (int) ($result['sent_message_id'] ?? 0);
+
+        if ($baseUri === '' || !$this->isQqOrYzBotApi($botApi) || $sentMessageId <= 0) {
+            $result['stop_processing'] = ($result['classification'] ?? '') !== 'success';
+            return $result;
+        }
+
+        $deadline = microtime(true) + self::QQ_YZ_INITIAL_OBSERVE_TIMEOUT_SECONDS;
+        $extendedDeadline = false;
+        $lastState = $this->inspectQqYzReplyState([], $botApi, $sentMessageId);
+
+        while (true) {
+            $replies = $this->fetchRecentBotReplies($baseUri);
+            if (!empty($replies)) {
+                $lastState = $this->inspectQqYzReplyState($replies, $botApi, $sentMessageId);
+            }
+
+            if (!$extendedDeadline && (
+                ($lastState['accepted_observed'] ?? false)
+                || ($lastState['progress_observed'] ?? false)
+                || ($lastState['queue_busy_observed'] ?? false)
+            )) {
+                $deadline = microtime(true) + self::QQ_YZ_COMPLETION_TIMEOUT_SECONDS;
+                $extendedDeadline = true;
+            }
+
+            if (($lastState['completion_found'] ?? false) === true) {
+                $result['qq_yz_completion_confirmed'] = true;
+                $result['qq_yz_queue_busy'] = (bool) ($lastState['queue_busy_observed'] ?? false);
+                $result['qq_yz_accepted_observed'] = (bool) ($lastState['accepted_observed'] ?? false);
+                $result['qq_yz_progress_observed'] = (bool) ($lastState['progress_observed'] ?? false);
+                $result['latest_text_preview'] = (string) ($lastState['completion_preview'] ?: $lastState['latest_text_preview'] ?: $result['latest_text_preview']);
+
+                if (
+                    ($lastState['queue_busy_observed'] ?? false) === true
+                    && ($lastState['accepted_observed'] ?? false) === false
+                    && ($lastState['progress_observed'] ?? false) === false
+                ) {
+                    $result['classification'] = 'failed';
+                    $result['summary'] = 'Observed an existing QQ/yz queue finish, but the current token was not accepted yet. Retry current token.';
+                    $result['stop_processing'] = true;
+                    $result['retry_after_queue_clear'] = true;
+
+                    return $result;
+                }
+
+                $result['classification'] = 'success';
+                $result['summary'] = 'Completion confirmed: ' . (string) ($lastState['completion_preview'] ?: '文件获取完毕');
+                $result['stop_processing'] = false;
+
+                return $result;
+            }
+
+            if (($lastState['retry_after_seconds'] ?? 0) > 0) {
+                $retryAfterSeconds = max(1, (int) ($lastState['retry_after_seconds'] ?? 0));
+                $result['classification'] = 'failed';
+                $result['summary'] = 'Decode rate limited. Wait ' . $retryAfterSeconds . ' seconds and retry the current token.';
+                $result['latest_text_preview'] = (string) ($lastState['rate_limit_preview'] ?: $lastState['latest_text_preview'] ?: $result['latest_text_preview']);
+                $result['stop_processing'] = true;
+                $result['retry_after_rate_limit'] = true;
+                $result['retry_after_seconds'] = $retryAfterSeconds;
+                $result['retry_after_queue_clear'] = false;
+
+                return $result;
+            }
+
+            if (($lastState['retry_later_observed'] ?? false) === true) {
+                $result['classification'] = 'failed';
+                $result['summary'] = 'Current resource already fetched. Retry this token after 24 hours and keep token_scan_items row untouched.';
+                $result['latest_text_preview'] = (string) ($lastState['retry_later_preview'] ?: $lastState['latest_text_preview'] ?: $result['latest_text_preview']);
+                $result['stop_processing'] = false;
+                $result['retry_after_queue_clear'] = false;
+                $result['retry_after_rate_limit'] = false;
+                $result['retry_after_callback_error'] = false;
+
+                return $result;
+            }
+
+            if (
+                ($lastState['already_parsed_observed'] ?? false) === true
+                && ($lastState['accepted_observed'] ?? false) === false
+                && ($lastState['progress_observed'] ?? false) === false
+                && ($lastState['completion_found'] ?? false) === false
+            ) {
+                $result['classification'] = 'failed';
+                $result['summary'] = 'Resource was already parsed recently. Keep token_scan_items row untouched and continue to the next token.';
+                $result['latest_text_preview'] = (string) ($lastState['already_parsed_preview'] ?: $lastState['latest_text_preview'] ?: $result['latest_text_preview']);
+                $result['stop_processing'] = false;
+                $result['retry_after_queue_clear'] = false;
+                $result['retry_after_rate_limit'] = false;
+                $result['retry_after_callback_error'] = false;
+
+                return $result;
+            }
+
+            if (
+                $this->shouldRetryQqYzAfterCallbackError($result)
+                && ($lastState['accepted_observed'] ?? false) === false
+                && ($lastState['progress_observed'] ?? false) === false
+                && ($lastState['completion_found'] ?? false) === false
+                && !empty($lastState['latest_buttons'])
+            ) {
+                $result['classification'] = 'failed';
+                $result['summary'] = 'QQ/yz callback was stale or timed out. Refresh and retry the current token.';
+                $result['latest_text_preview'] = (string) ($lastState['latest_text_preview'] ?: $result['latest_text_preview']);
+                $result['stop_processing'] = true;
+                $result['retry_after_callback_error'] = true;
+                $result['retry_after_queue_clear'] = false;
+                $result['retry_after_rate_limit'] = false;
+
+                return $result;
+            }
+
+            if (microtime(true) >= $deadline) {
+                $result['qq_yz_completion_confirmed'] = false;
+                $result['qq_yz_queue_busy'] = (bool) ($lastState['queue_busy_observed'] ?? false);
+                $result['qq_yz_accepted_observed'] = (bool) ($lastState['accepted_observed'] ?? false);
+                $result['qq_yz_progress_observed'] = (bool) ($lastState['progress_observed'] ?? false);
+                $result['latest_text_preview'] = (string) ($lastState['latest_text_preview'] ?: $result['latest_text_preview']);
+                $result['classification'] = ($result['classification'] ?? '') === 'not_found' ? 'not_found' : 'failed';
+                $result['summary'] = $this->buildQqYzIncompleteSummary($lastState);
+                $result['stop_processing'] = true;
+
+                return $result;
+            }
+
+            usleep(self::QQ_YZ_COMPLETION_POLL_MICROSECONDS);
+        }
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchRecentBotReplies(string $baseUri): array
+    {
+        try {
+            $response = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
+                ->acceptJson()
+                ->get(rtrim($baseUri, '/') . '/bots/replies', [
+                    'limit' => self::BOT_REPLIES_FETCH_LIMIT,
+                ]);
+
+            if (!$response->ok()) {
+                return [];
+            }
+
+            $json = $response->json();
+
+            if (is_array($json)) {
+                return $json;
+            }
+        } catch (Throwable) {
+        }
+
+        return [];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $replies
+     * @return array<string, mixed>
+     */
+    private function inspectQqYzReplyState(array $replies, string $botApi, int $minMessageId): array
+    {
+        $filtered = [];
+
+        foreach ($replies as $reply) {
+            if (!is_array($reply)) {
+                continue;
+            }
+
+            if ((string) ($reply['bot_username'] ?? '') !== $botApi) {
+                continue;
+            }
+
+            $messageId = (int) ($reply['message_id'] ?? 0);
+            if ($messageId > 0 && $messageId < $minMessageId) {
+                continue;
+            }
+
+            $filtered[] = $reply;
+        }
+
+        usort($filtered, static function (array $left, array $right): int {
+            return ((int) ($left['message_id'] ?? 0)) <=> ((int) ($right['message_id'] ?? 0));
+        });
+
+        $latestTextPreview = '';
+        $completionPreview = '';
+        $progressPreview = '';
+        $acceptedPreview = '';
+        $queueBusyPreview = '';
+        $retryLaterPreview = '';
+        $alreadyParsedPreview = '';
+        $rateLimitPreview = '';
+        $retryAfterSeconds = 0;
+        $latestButtons = [];
+
+        foreach ($filtered as $reply) {
+            $text = $this->normalizePreviewText((string) ($reply['text'] ?? ''));
+            if ($text !== '') {
+                $latestTextPreview = Str::limit($text, 240);
+            }
+
+            $buttons = $this->extractReplyButtonTexts($reply);
+            if (!empty($buttons)) {
+                $latestButtons = $buttons;
+            }
+
+            if ($text !== '' && $this->isQqYzCompletionText($text)) {
+                $completionPreview = Str::limit($text, 240);
+            }
+
+            if ($text !== '' && $this->isQqYzProgressText($text)) {
+                $progressPreview = Str::limit($text, 240);
+            }
+
+            if ($text !== '' && $this->isQqYzAcceptedText($text)) {
+                $acceptedPreview = Str::limit($text, 240);
+            }
+
+            if ($text !== '' && $this->isQqYzQueueBusyText($text)) {
+                $queueBusyPreview = Str::limit($text, 240);
+            }
+
+            if ($text !== '' && $this->isQqYzRetryLaterText($text)) {
+                $retryLaterPreview = Str::limit($text, 240);
+            }
+
+            if ($text !== '' && $this->isQqYzAlreadyParsedText($text)) {
+                $alreadyParsedPreview = Str::limit($text, 240);
+            }
+
+            if ($text !== '') {
+                $seconds = $this->extractQqYzRetryAfterSeconds($text);
+                if ($seconds > 0) {
+                    $retryAfterSeconds = $seconds;
+                    $rateLimitPreview = Str::limit($text, 240);
+                }
+            }
+        }
+
+        return [
+            'latest_text_preview' => $latestTextPreview,
+            'completion_found' => $completionPreview !== '',
+            'completion_preview' => $completionPreview,
+            'progress_observed' => $progressPreview !== '',
+            'progress_preview' => $progressPreview,
+            'accepted_observed' => $acceptedPreview !== '',
+            'accepted_preview' => $acceptedPreview,
+            'queue_busy_observed' => $queueBusyPreview !== '',
+            'queue_busy_preview' => $queueBusyPreview,
+            'retry_later_observed' => $retryLaterPreview !== '',
+            'retry_later_preview' => $retryLaterPreview,
+            'already_parsed_observed' => $alreadyParsedPreview !== '',
+            'already_parsed_preview' => $alreadyParsedPreview,
+            'retry_after_seconds' => $retryAfterSeconds,
+            'rate_limit_preview' => $rateLimitPreview,
+            'push_all_available' => $this->buttonTextsContainKeyword($latestButtons, self::PUSH_ALL_BUTTON_KEYWORDS),
+            'latest_buttons' => $latestButtons,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $reply
+     * @return array<int, string>
+     */
+    private function extractReplyButtonTexts(array $reply): array
+    {
+        $texts = [];
+
+        foreach ((array) ($reply['buttons'] ?? []) as $button) {
+            if (!is_array($button)) {
+                continue;
+            }
+
+            $text = $this->normalizePreviewText((string) ($button['text'] ?? ''));
+            if ($text === '') {
+                continue;
+            }
+
+            $texts[] = $text;
+        }
+
+        return $texts;
+    }
+
+    private function buttonTextsContainKeyword(array $buttonTexts, array $keywords): bool
+    {
+        foreach ($buttonTexts as $buttonText) {
+            foreach ($keywords as $keyword) {
+                if ($keyword !== '' && Str::contains($buttonText, $keyword)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function normalizePreviewText(string $text): string
+    {
+        $normalized = preg_replace('/\s+/u', ' ', trim($text));
+
+        return $normalized === null ? trim($text) : trim($normalized);
+    }
+
+    private function isQqYzCompletionText(string $text): bool
+    {
+        $normalized = $this->normalizePreviewText($text);
+        if ($normalized === '') {
+            return false;
+        }
+
+        if (!Str::contains($normalized, self::QQ_YZ_COMPLETION_MARKERS)) {
+            return false;
+        }
+
+        return Str::contains($normalized, self::QQ_YZ_TOTAL_MARKERS);
+    }
+
+    private function isQqYzProgressText(string $text): bool
+    {
+        return preg_match('/第\s*\d+\s*\/\s*\d+\s*[页頁].*(文件总数|文件總數)/u', $text) === 1;
+    }
+
+    private function isQqYzAcceptedText(string $text): bool
+    {
+        foreach (self::QQ_YZ_ACCEPTED_MARKERS as $marker) {
+            if ($marker !== '' && Str::contains($text, $marker)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isQqYzQueueBusyText(string $text): bool
+    {
+        foreach (self::QQ_YZ_QUEUE_BUSY_MARKERS as $marker) {
+            if ($marker !== '' && Str::contains($text, $marker)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isQqYzRetryLaterText(string $text): bool
+    {
+        foreach (self::QQ_YZ_RETRY_LATER_MARKERS as $marker) {
+            if ($marker !== '' && Str::contains($text, $marker)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isQqYzAlreadyParsedText(string $text): bool
+    {
+        foreach (self::QQ_YZ_ALREADY_PARSED_MARKERS as $marker) {
+            if ($marker !== '' && Str::contains($text, $marker)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function extractQqYzRetryAfterSeconds(string $text): int
+    {
+        if (preg_match('/解码频繁，请\s*(\d+)\s*秒后重试/u', $text, $matches) !== 1) {
+            return 0;
+        }
+
+        return max((int) ($matches[1] ?? 0), 0);
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     */
+    private function buildQqYzIncompleteSummary(array $state): string
+    {
+        $summary = 'QQ/yz completion marker not observed. Keep token_scan_items row untouched.';
+        $details = [];
+
+        if (($state['queue_busy_observed'] ?? false) === true) {
+            $details[] = 'queue still busy';
+        }
+        if (($state['accepted_observed'] ?? false) === true) {
+            $details[] = 'token accepted';
+        }
+        if (($state['progress_observed'] ?? false) === true && !empty($state['progress_preview'])) {
+            $details[] = 'last_progress=' . $state['progress_preview'];
+        }
+        if (!empty($state['latest_text_preview'])) {
+            $details[] = 'latest=' . $state['latest_text_preview'];
+        }
+
+        if (!empty($details)) {
+            $summary .= ' ' . implode('; ', $details);
+        }
+
+        return $summary;
     }
 
     private function formatBytes(int $bytes): string

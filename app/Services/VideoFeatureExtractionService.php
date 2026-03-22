@@ -569,7 +569,15 @@ class VideoFeatureExtractionService
         $process->run();
 
         if (!$process->isSuccessful()) {
-            throw new RuntimeException('ffprobe 失敗：' . trim($process->getErrorOutput() ?: $process->getOutput()));
+            $errorOutput = trim($process->getErrorOutput() ?: $process->getOutput());
+            if ($errorOutput === '') {
+                $exitCode = $process->getExitCode();
+                $errorOutput = $exitCode === null
+                    ? '未回傳錯誤訊息'
+                    : '未回傳錯誤訊息 (exit_code=' . $exitCode . ')';
+            }
+
+            throw new RuntimeException('ffprobe 失敗：' . $errorOutput);
         }
 
         $output = trim($process->getOutput());

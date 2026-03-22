@@ -332,7 +332,7 @@ def parse_migrations(repo_root: Path) -> tuple[dict[str, TableRecord], dict[str,
         content = path.read_text(encoding="utf-8", errors="ignore")
 
         for match in re.finditer(
-            r"Schema::create\(\s*'([^']+)'\s*,\s*function\s*\(Blueprint \$table\)\s*\{(.*?)\n\s*\}\s*\);",
+            r"Schema::create\(\s*'([^']+)'\s*,\s*function\s*\(Blueprint \$table\)\s*(?::\s*[^{]+)?\{(.*?)\n\s*\}\s*\);",
             content,
             re.S,
         ):

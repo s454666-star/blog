@@ -9,7 +9,7 @@
         \b(?:@?filepan_bot:|link:\s*|[vV]i_|[iI]v_|pk_|p_|d_|
         showfilesbot_|showfiles3bot_|Save2BoxBot|
         ntmjmqbot_|newjmqbot_|filestoebot_|
-        Messengercode_|QQfile_bot:|
+        Messengercode_|QQfile_bot:|atfileslinksbot_|
         [vVpPdD]_?datapanbot_)
         [A-Za-z0-9_\+\-]+(?:=_grp|=_mda)?\b
     )
@@ -28,6 +28,7 @@
             'newjmqbot_',
             'Messengercode_',
             'QQfile_bot:',
+            'atfileslinksbot_',
             'datapanbot_',
             'vi_',
             'iv_',
@@ -58,6 +59,7 @@
             $isMessengerCode = strpos($s, 'Messengercode_') === 0;
             $isNewJmqbot = strpos($s, 'newjmqbot_') === 0;
             $isQqFileBot = stripos($s, 'QQfile_bot:') === 0;
+            $isAtfileslinksbot = stripos($s, 'atfileslinksbot_') === 0;
 
             if (
                 !$isShowfilesbot &&
@@ -66,6 +68,7 @@
                 !$isMessengerCode &&
                 !$isNewJmqbot &&
                 !$isQqFileBot &&
+                !$isAtfileslinksbot &&
                 strpos($s, 'filestoebot_') !== 0 &&
                 strpos($s, 'ntmjmqbot_') !== 0 &&
                 strpos($s, 'datapanbot_') === false &&
@@ -104,6 +107,10 @@
 
             if ($isQqFileBot) {
                 return preg_match('/^QQfile_bot:[A-Za-z0-9_\+\-]{6,}$/iu', $s) === 1;
+            }
+
+            if ($isAtfileslinksbot) {
+                return preg_match('/^atfileslinksbot_[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/iu', $s) === 1;
             }
 
             if (strpos($s, 'filestoebot_') === 0) {

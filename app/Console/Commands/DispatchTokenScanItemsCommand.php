@@ -36,6 +36,12 @@ class DispatchTokenScanItemsCommand extends Command
         'mode' => self::BOT_MODE_PAGINATE,
     ];
 
+    private const BOT_ATFILESLINKS = [
+        'api' => 'atfileslinksbot',
+        'display' => '@atfileslinksbot',
+        'mode' => self::BOT_MODE_PAGINATE,
+    ];
+
     private const BOT_QQFILE = [
         'api' => 'QQfile_bot',
         'display' => '@QQfile_bot',
@@ -50,14 +56,16 @@ class DispatchTokenScanItemsCommand extends Command
 
     private const DEFAULT_API_HOST = 'http://127.0.0.1';
     private const DEFAULT_API_PORT = 8000;
-    private const BOT_REPLIES_FETCH_LIMIT = 300;
+    private const BOT_REPLIES_FETCH_LIMIT = 80;
     private const QQ_YZ_MAX_ATTEMPTS = 20;
     private const QQ_YZ_INITIAL_OBSERVE_TIMEOUT_SECONDS = 30;
     private const QQ_YZ_COMPLETION_TIMEOUT_SECONDS = 900;
     private const QQ_YZ_COMPLETION_POLL_MICROSECONDS = 5000000;
     private const QQ_YZ_RETRY_BUDGET_SECONDS = 300;
+    private const QQ_YZ_MAX_CONTINUE_PUSH_CLICKS = 20;
     private const QQ_YZ_NEXT_TOKEN_DELAY_MICROSECONDS = 8000000;
     private const INITIAL_API_TIMEOUT_SECONDS = 60;
+    private const FOLLOWUP_API_TIMEOUT_SECONDS = 900;
     private const QQ_YZ_SYNC_MARKER = '当前解码器未完成同步';
     private const PUSH_ALL_BUTTON_KEYWORDS = ['推送全部'];
     private const QQ_YZ_ACCEPTED_MARKERS = [
@@ -80,9 +88,16 @@ class DispatchTokenScanItemsCommand extends Command
     private const QQ_YZ_COMPLETION_MARKERS = [
         '文件获取完毕',
     ];
+    private const QQ_YZ_CONTINUE_PUSH_STOP_MARKERS = [
+        '推送已停止',
+        '最大推送页数',
+    ];
     private const QQ_YZ_TOTAL_MARKERS = [
         '文件总数',
         '文件總數',
+    ];
+    private const QQ_YZ_CONTINUE_PUSH_BUTTON_KEYWORDS = [
+        '继续推送',
     ];
     private const QQ_YZ_FALLBACK_BUTTON_KEYWORDS = [
         '查看全部文件',
@@ -516,6 +531,10 @@ class DispatchTokenScanItemsCommand extends Command
             return self::BOT_QQFILE;
         }
 
+        if (Str::startsWith(Str::lower($token), 'atfileslinksbot_')) {
+            return self::BOT_ATFILESLINKS;
+        }
+
         return self::BOT_VIPFILES;
     }
 
@@ -560,7 +579,7 @@ class DispatchTokenScanItemsCommand extends Command
                     $followupPayloadWithContext['sent_message_id'] = $sentMessageId;
                 }
 
-                $paginationResponse = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
+                $paginationResponse = Http::timeout(self::FOLLOWUP_API_TIMEOUT_SECONDS)
                     ->acceptJson()
                     ->asJson()
                     ->post($followupUrl, $followupPayloadWithContext);
@@ -589,7 +608,7 @@ class DispatchTokenScanItemsCommand extends Command
                         $fallbackPayload['sent_message_id'] = $sentMessageId;
                     }
 
-                    $fallbackResponse = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
+                    $fallbackResponse = Http::timeout(self::FOLLOWUP_API_TIMEOUT_SECONDS)
                         ->acceptJson()
                         ->asJson()
                         ->post($followupUrl, $fallbackPayload);
@@ -665,6 +684,7 @@ class DispatchTokenScanItemsCommand extends Command
     private function buildPaginationPayload(string $botUsername): array
     {
         $isMessenger = $botUsername === self::BOT_MESSENGER['api'];
+        $isAtfileslinks = $botUsername === self::BOT_ATFILESLINKS['api'];
 
         $payload = [
             'bot_username' => $botUsername,
@@ -690,6 +710,30 @@ class DispatchTokenScanItemsCommand extends Command
                 'stop_when_reached_total_items' => false,
                 'observe_send_get_all_when_no_controls' => false,
                 'observe_send_next_when_no_controls' => false,
+            ]);
+        }
+
+        if ($isAtfileslinks) {
+            return array_merge($payload, [
+                'max_steps' => 120,
+                'stop_when_no_new_files_rounds' => 4,
+                'stop_when_reached_total_items' => true,
+                'observe_send_get_all_when_no_controls' => false,
+                'observe_send_next_when_no_controls' => false,
+                'next_text_keywords' => [
+                    '加载下一组',
+                    '繼續加載',
+                    '继续加载',
+                    '下一组',
+                    '下一頁',
+                    '下一页',
+                    '下頁',
+                    '下页',
+                    'Next',
+                    'next',
+                    '➡',
+                    '▶',
+                ],
             ]);
         }
 
@@ -824,12 +868,33 @@ class DispatchTokenScanItemsCommand extends Command
 
         $deadline = microtime(true) + self::QQ_YZ_INITIAL_OBSERVE_TIMEOUT_SECONDS;
         $extendedDeadline = false;
+        $continuePushClicks = 0;
         $lastState = $this->inspectQqYzReplyState([], $botApi, $sentMessageId);
 
         while (true) {
             $replies = $this->fetchRecentBotReplies($baseUri);
             if (!empty($replies)) {
                 $lastState = $this->inspectQqYzReplyState($replies, $botApi, $sentMessageId);
+            }
+
+            if (
+                ($lastState['continue_push_required'] ?? false) === true
+                && $continuePushClicks < self::QQ_YZ_MAX_CONTINUE_PUSH_CLICKS
+            ) {
+                $continuePushClicks++;
+                $continueResult = $this->clickQqYzButton(
+                    $baseUri,
+                    $botApi,
+                    $sentMessageId,
+                    self::QQ_YZ_CONTINUE_PUSH_BUTTON_KEYWORDS
+                );
+
+                if (($continueResult['button_clicked'] ?? false) === true) {
+                    $deadline = microtime(true) + self::QQ_YZ_COMPLETION_TIMEOUT_SECONDS;
+                    $extendedDeadline = true;
+                    usleep(2000000);
+                    continue;
+                }
             }
 
             if (!$extendedDeadline && (
@@ -846,6 +911,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $result['qq_yz_queue_busy'] = (bool) ($lastState['queue_busy_observed'] ?? false);
                 $result['qq_yz_accepted_observed'] = (bool) ($lastState['accepted_observed'] ?? false);
                 $result['qq_yz_progress_observed'] = (bool) ($lastState['progress_observed'] ?? false);
+                $result['qq_yz_continue_push_clicks'] = $continuePushClicks;
                 $result['latest_text_preview'] = (string) ($lastState['completion_preview'] ?: $lastState['latest_text_preview'] ?: $result['latest_text_preview']);
 
                 if (
@@ -933,6 +999,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $result['qq_yz_queue_busy'] = (bool) ($lastState['queue_busy_observed'] ?? false);
                 $result['qq_yz_accepted_observed'] = (bool) ($lastState['accepted_observed'] ?? false);
                 $result['qq_yz_progress_observed'] = (bool) ($lastState['progress_observed'] ?? false);
+                $result['qq_yz_continue_push_clicks'] = $continuePushClicks;
                 $result['latest_text_preview'] = (string) ($lastState['latest_text_preview'] ?: $result['latest_text_preview']);
                 $result['classification'] = ($result['classification'] ?? '') === 'not_found' ? 'not_found' : 'failed';
                 $result['summary'] = $this->buildQqYzIncompleteSummary($lastState);
@@ -1009,6 +1076,8 @@ class DispatchTokenScanItemsCommand extends Command
         $retryLaterPreview = '';
         $alreadyParsedPreview = '';
         $rateLimitPreview = '';
+        $continuePushPreview = '';
+        $continuePushRequired = false;
         $retryAfterSeconds = 0;
         $rateLimitObserved = false;
         $latestButtons = [];
@@ -1019,9 +1088,9 @@ class DispatchTokenScanItemsCommand extends Command
                 $latestTextPreview = Str::limit($text, 240);
             }
 
-            $buttons = $this->extractReplyButtonTexts($reply);
-            if (!empty($buttons)) {
-                $latestButtons = $buttons;
+            $messageButtons = $this->extractReplyButtonTexts($reply);
+            if (!empty($messageButtons)) {
+                $latestButtons = $messageButtons;
             }
 
             if ($text !== '' && $this->isQqYzCompletionText($text)) {
@@ -1049,6 +1118,14 @@ class DispatchTokenScanItemsCommand extends Command
             }
 
             if ($text !== '') {
+                $continuePushRequired = $this->isQqYzContinuePushText($text)
+                    && $this->buttonTextsContainKeyword($messageButtons, self::QQ_YZ_CONTINUE_PUSH_BUTTON_KEYWORDS);
+                if ($continuePushRequired) {
+                    $continuePushPreview = Str::limit($text, 240);
+                }
+            }
+
+            if ($text !== '') {
                 $seconds = $this->extractQqYzRetryAfterSeconds($text);
                 if ($seconds !== null) {
                     $rateLimitObserved = true;
@@ -1072,12 +1149,55 @@ class DispatchTokenScanItemsCommand extends Command
             'retry_later_preview' => $retryLaterPreview,
             'already_parsed_observed' => $alreadyParsedPreview !== '',
             'already_parsed_preview' => $alreadyParsedPreview,
+            'continue_push_required' => $continuePushRequired,
+            'continue_push_preview' => $continuePushPreview,
             'rate_limit_observed' => $rateLimitObserved,
             'retry_after_seconds' => $retryAfterSeconds,
             'rate_limit_preview' => $rateLimitPreview,
             'push_all_available' => $this->buttonTextsContainKeyword($latestButtons, self::PUSH_ALL_BUTTON_KEYWORDS),
             'latest_buttons' => $latestButtons,
         ];
+    }
+
+    /**
+     * @param array<int, string> $buttonKeywords
+     * @return array<string, mixed>
+     */
+    private function clickQqYzButton(string $baseUri, string $botApi, int $sentMessageId, array $buttonKeywords): array
+    {
+        try {
+            $payload = $this->buildButtonClickPayload($botApi, $buttonKeywords);
+            if ($sentMessageId > 0) {
+                $payload['sent_message_id'] = $sentMessageId;
+            }
+
+            $response = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
+                ->acceptJson()
+                ->asJson()
+                ->post(rtrim($baseUri, '/') . '/bots/click-matching-button', $payload);
+
+            if (!$response->ok()) {
+                return [
+                    'ok' => false,
+                    'reason' => 'followup HTTP ' . $response->status() . ' ' . Str::limit((string) $response->body(), 300),
+                ];
+            }
+
+            $json = $response->json();
+            if (!is_array($json)) {
+                return [
+                    'ok' => false,
+                    'reason' => 'followup invalid json response',
+                ];
+            }
+
+            return $json;
+        } catch (Throwable $e) {
+            return [
+                'ok' => false,
+                'reason' => $e->getMessage(),
+            ];
+        }
     }
 
     /**
@@ -1136,6 +1256,22 @@ class DispatchTokenScanItemsCommand extends Command
         }
 
         return Str::contains($normalized, self::QQ_YZ_TOTAL_MARKERS);
+    }
+
+    private function isQqYzContinuePushText(string $text): bool
+    {
+        $normalized = $this->normalizePreviewText($text);
+        if ($normalized === '') {
+            return false;
+        }
+
+        foreach (self::QQ_YZ_CONTINUE_PUSH_STOP_MARKERS as $marker) {
+            if ($marker !== '' && !Str::contains($normalized, $marker)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function isQqYzProgressText(string $text): bool
@@ -1244,7 +1380,10 @@ class DispatchTokenScanItemsCommand extends Command
 
     private function isVipfilesBot(string $botApi): bool
     {
-        return $botApi === self::BOT_VIPFILES['api'];
+        return in_array($botApi, [
+            self::BOT_VIPFILES['api'],
+            self::BOT_ATFILESLINKS['api'],
+        ], true);
     }
 
     private function isQqOrYzBotApi(string $botApi): bool

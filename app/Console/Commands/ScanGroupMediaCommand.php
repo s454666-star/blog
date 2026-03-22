@@ -706,7 +706,9 @@ class ScanGroupMediaCommand extends Command
                 if (
                     Str::startsWith($token, 'newjmqbot_') ||
                     Str::startsWith($token, 'showfilesbot_') ||
-                    Str::startsWith($token, 'showfiles3bot_')
+                    Str::startsWith($token, 'showfiles3bot_') ||
+                    Str::startsWith(Str::lower($token), 'qqfile_bot:') ||
+                    Str::startsWith(Str::lower($token), 'atfileslinksbot_')
                 ) {
                     return $token;
                 }

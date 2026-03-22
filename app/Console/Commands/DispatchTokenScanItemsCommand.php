@@ -868,7 +868,7 @@ class DispatchTokenScanItemsCommand extends Command
                 return $result;
             }
 
-            if (($lastState['retry_after_seconds'] ?? 0) > 0) {
+            if (($lastState['rate_limit_observed'] ?? false) === true) {
                 $retryAfterSeconds = max(1, (int) ($lastState['retry_after_seconds'] ?? 0));
                 $result['classification'] = 'failed';
                 $result['summary'] = 'Decode rate limited. Wait ' . $retryAfterSeconds . ' seconds and retry the current token.';
@@ -1010,6 +1010,7 @@ class DispatchTokenScanItemsCommand extends Command
         $alreadyParsedPreview = '';
         $rateLimitPreview = '';
         $retryAfterSeconds = 0;
+        $rateLimitObserved = false;
         $latestButtons = [];
 
         foreach ($filtered as $reply) {
@@ -1049,7 +1050,8 @@ class DispatchTokenScanItemsCommand extends Command
 
             if ($text !== '') {
                 $seconds = $this->extractQqYzRetryAfterSeconds($text);
-                if ($seconds > 0) {
+                if ($seconds !== null) {
+                    $rateLimitObserved = true;
                     $retryAfterSeconds = $seconds;
                     $rateLimitPreview = Str::limit($text, 240);
                 }
@@ -1070,6 +1072,7 @@ class DispatchTokenScanItemsCommand extends Command
             'retry_later_preview' => $retryLaterPreview,
             'already_parsed_observed' => $alreadyParsedPreview !== '',
             'already_parsed_preview' => $alreadyParsedPreview,
+            'rate_limit_observed' => $rateLimitObserved,
             'retry_after_seconds' => $retryAfterSeconds,
             'rate_limit_preview' => $rateLimitPreview,
             'push_all_available' => $this->buttonTextsContainKeyword($latestButtons, self::PUSH_ALL_BUTTON_KEYWORDS),
@@ -1184,10 +1187,10 @@ class DispatchTokenScanItemsCommand extends Command
         return false;
     }
 
-    private function extractQqYzRetryAfterSeconds(string $text): int
+    private function extractQqYzRetryAfterSeconds(string $text): ?int
     {
         if (preg_match('/解码频繁，请\s*(\d+)\s*秒后重试/u', $text, $matches) !== 1) {
-            return 0;
+            return null;
         }
 
         return max((int) ($matches[1] ?? 0), 0);

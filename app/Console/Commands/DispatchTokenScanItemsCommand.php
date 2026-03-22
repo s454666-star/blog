@@ -537,6 +537,10 @@ class DispatchTokenScanItemsCommand extends Command
             return self::BOT_QQFILE;
         }
 
+        if (Str::startsWith(Str::lower($token), 'yzfile_bot:')) {
+            return self::BOT_YZFILE;
+        }
+
         if (Str::startsWith(Str::lower($token), 'atfileslinksbot_')) {
             return self::BOT_ATFILESLINKS;
         }

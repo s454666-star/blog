@@ -708,6 +708,7 @@ class ScanGroupMediaCommand extends Command
                     Str::startsWith($token, 'showfilesbot_') ||
                     Str::startsWith($token, 'showfiles3bot_') ||
                     Str::startsWith(Str::lower($token), 'qqfile_bot:') ||
+                    Str::startsWith(Str::lower($token), 'yzfile_bot:') ||
                     Str::startsWith(Str::lower($token), 'atfileslinksbot_') ||
                     Str::startsWith(Str::lower($token), 'lddeebot_')
                 ) {

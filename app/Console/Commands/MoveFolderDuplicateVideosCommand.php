@@ -15,6 +15,11 @@ use Throwable;
 
 class MoveFolderDuplicateVideosCommand extends Command
 {
+    /**
+     * 範例:
+     * php artisan video:move-folder-duplicates "C:\Users\User\Pictures\train\downloads\group_3406828124_xsmyyds会员群\videos\tmp"
+     * video:move-folder-duplicates
+ */
     protected $signature = 'video:move-folder-duplicates
         {path : 必填資料夾路徑}
         {--recursive=1 : 1=掃子資料夾，0=只掃一層}

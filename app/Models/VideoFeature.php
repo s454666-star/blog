@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\RelativeMediaPath;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -73,5 +74,25 @@ class VideoFeature extends Model
     public function externalDuplicateLogs()
     {
         return $this->hasMany(ExternalVideoDuplicateLog::class, 'matched_video_feature_id', 'id');
+    }
+
+    public function getVideoPathAttribute($value): string
+    {
+        return RelativeMediaPath::normalize($value) ?? '';
+    }
+
+    public function setVideoPathAttribute($value): void
+    {
+        $this->attributes['video_path'] = RelativeMediaPath::normalize($value) ?? '';
+    }
+
+    public function getDirectoryPathAttribute($value): ?string
+    {
+        return RelativeMediaPath::normalizeDirectory($value);
+    }
+
+    public function setDirectoryPathAttribute($value): void
+    {
+        $this->attributes['directory_path'] = RelativeMediaPath::normalizeDirectory($value);
     }
 }

@@ -2,6 +2,7 @@
 
     namespace App\Models;
 
+    use App\Support\RelativeMediaPath;
     use Illuminate\Database\Eloquent\Factories\HasFactory;
     use Illuminate\Database\Eloquent\Model;
 
@@ -40,5 +41,15 @@
         public function featureFrames()
         {
             return $this->hasMany(VideoFeatureFrame::class, 'video_screenshot_id', 'id');
+        }
+
+        public function getScreenshotPathAttribute($value): string
+        {
+            return RelativeMediaPath::normalize($value) ?? '';
+        }
+
+        public function setScreenshotPathAttribute($value): void
+        {
+            $this->attributes['screenshot_path'] = RelativeMediaPath::normalize($value) ?? '';
         }
     }

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\RelativeMediaPath;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -46,5 +47,15 @@ class VideoFeatureFrame extends Model
     public function externalDuplicateFrames()
     {
         return $this->hasMany(ExternalVideoDuplicateFrame::class, 'matched_video_feature_frame_id', 'id');
+    }
+
+    public function getScreenshotPathAttribute($value): string
+    {
+        return RelativeMediaPath::normalize($value) ?? '';
+    }
+
+    public function setScreenshotPathAttribute($value): void
+    {
+        $this->attributes['screenshot_path'] = RelativeMediaPath::normalize($value) ?? '';
     }
 }

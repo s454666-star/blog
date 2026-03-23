@@ -7,6 +7,7 @@ use App\Models\VideoFeature;
 use App\Models\VideoFeatureFrame;
 use App\Models\VideoMaster;
 use App\Models\VideoScreenshot;
+use App\Support\RelativeMediaPath;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -692,14 +693,14 @@ class VideoFeatureExtractionService
 
     private function buildFeatureScreenshotDbPath(?string $directoryPath, string $filename): string
     {
-        $filename = trim(str_replace('/', '\\', $filename), '\\/');
-        $directoryPath = trim(str_replace('/', '\\', (string) $directoryPath), '\\/');
+        $filename = RelativeMediaPath::normalize($filename) ?? '';
+        $directoryPath = RelativeMediaPath::normalizeDirectory($directoryPath);
 
-        if ($directoryPath === '') {
-            return '\\' . $filename;
+        if ($directoryPath === null || $directoryPath === '') {
+            return $filename;
         }
 
-        return '\\' . $directoryPath . '\\' . $filename;
+        return $directoryPath . '/' . ltrim($filename, '/');
     }
 
     private function absolutePathFromDbPath(string $dbPath): string
@@ -710,16 +711,17 @@ class VideoFeatureExtractionService
 
     private function normalizeDbRelativePath(string $path): string
     {
-        $path = trim(str_replace('/', '\\', $path), '\\/');
-        return '\\' . $path;
+        return RelativeMediaPath::normalize($path) ?? '';
     }
 
     private function extractDirectoryPath(string $dbPath): ?string
     {
-        $path = ltrim(str_replace('\\', '/', $dbPath), '/');
+        $path = RelativeMediaPath::normalize($dbPath) ?? '';
         $directory = trim((string) pathinfo($path, PATHINFO_DIRNAME), '/');
 
-        return $directory === '' || $directory === '.' ? null : str_replace('/', '\\', $directory);
+        return $directory === '' || $directory === '.'
+            ? null
+            : RelativeMediaPath::normalizeDirectory($directory);
     }
 
     private function normalizeAbsolutePath(string $path): string

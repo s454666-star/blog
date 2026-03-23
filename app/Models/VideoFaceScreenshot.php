@@ -2,6 +2,7 @@
 
     namespace App\Models;
 
+    use App\Support\RelativeMediaPath;
     use Illuminate\Database\Eloquent\Factories\HasFactory;
     use Illuminate\Database\Eloquent\Model;
 
@@ -53,5 +54,15 @@
         public function videoFeaturesAsMaster()
         {
             return $this->hasMany(VideoFeature::class, 'master_face_screenshot_id', 'id');
+        }
+
+        public function getFaceImagePathAttribute($value): string
+        {
+            return RelativeMediaPath::normalize($value) ?? '';
+        }
+
+        public function setFaceImagePathAttribute($value): void
+        {
+            $this->attributes['face_image_path'] = RelativeMediaPath::normalize($value) ?? '';
         }
     }

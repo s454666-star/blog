@@ -2,6 +2,7 @@
 
     namespace App\Models;
 
+    use App\Support\RelativeMediaPath;
     use Illuminate\Database\Eloquent\Factories\HasFactory;
     use Illuminate\Database\Eloquent\Model;
 
@@ -63,5 +64,15 @@
                 'id',
                 'id'
             )->where('is_master', 1);
+        }
+
+        public function getVideoPathAttribute($value): string
+        {
+            return RelativeMediaPath::normalize($value) ?? '';
+        }
+
+        public function setVideoPathAttribute($value): void
+        {
+            $this->attributes['video_path'] = RelativeMediaPath::normalize($value) ?? '';
         }
     }

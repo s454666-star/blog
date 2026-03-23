@@ -7,6 +7,7 @@
     use App\Models\VideoScreenshot;
     use App\Models\VideoTs;
     use App\Services\VideoFeatureExtractionService;
+    use App\Support\RelativeMediaPath;
     use Illuminate\Http\Request;
     use Illuminate\Pagination\LengthAwarePaginator;
     use Illuminate\Support\Facades\Storage;
@@ -198,6 +199,8 @@
                 'duration'   => 'required|numeric',
                 'video_type' => 'required|in:1,2,3,4',
             ]);
+
+            $validated['video_path'] = RelativeMediaPath::normalize((string) $validated['video_path']) ?? '';
 
             $duplicate = VideoMaster::where('video_path', $validated['video_path'])
                 ->where('duration', $validated['duration'])
@@ -476,7 +479,7 @@
 
             $updatedFace = VideoFaceScreenshot::with(['videoScreenshot.videoMaster'])->find($faceId);
 
-            $imagePath = public_path($updatedFace->face_image_path);
+            $imagePath = $this->resolveVideoDiskAbsolutePath($updatedFace->face_image_path);
             if (file_exists($imagePath)) {
                 list($width, $height) = getimagesize($imagePath);
                 $updatedFace->width = $width;
@@ -513,7 +516,7 @@
                 }, SORT_NUMERIC, $sortDir === 'desc');
 
             foreach ($masterFaces as $face) {
-                $imagePath = public_path($face->face_image_path);
+                $imagePath = $this->resolveVideoDiskAbsolutePath($face->face_image_path);
                 if (file_exists($imagePath)) {
                     list($width, $height) = getimagesize($imagePath);
                     $face->width = $width;
@@ -858,5 +861,15 @@
             // 讓像 C: 這種磁碟標示不被 trim 影響
             $joined = str_replace([':/', ':\\'], ':/', $joined);
             return $joined;
+        }
+
+        private function resolveVideoDiskAbsolutePath(?string $relativePath): string
+        {
+            $normalizedPath = RelativeMediaPath::normalize($relativePath);
+            if ($normalizedPath === null || $normalizedPath === '') {
+                return '';
+            }
+
+            return Storage::disk('videos')->path($normalizedPath);
         }
     }

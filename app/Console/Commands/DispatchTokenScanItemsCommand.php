@@ -333,6 +333,18 @@ class DispatchTokenScanItemsCommand extends Command
             $attempt++;
             $result = $this->runBotAttempt($token, $bot, $dispatchText);
 
+            if (
+                ($result['retry_after_rate_limit'] ?? false) === true
+                && ($result['bot_api'] ?? '') === self::BOT_MESSENGER['api']
+                && $attempt < self::QQ_YZ_MAX_ATTEMPTS
+                && microtime(true) < $retryDeadline
+            ) {
+                $waitSeconds = max(1, (int) ($result['retry_after_seconds'] ?? 0));
+                $this->line('messenger_rate_limit_wait=' . $waitSeconds . ' retry_current_token=1');
+                sleep($waitSeconds);
+                continue;
+            }
+
             if ($this->shouldFallbackToYzfile($bot, $result)) {
                 $bot = self::BOT_YZFILE;
                 $dispatchText = (string) ($result['yz_start_command'] ?? '');
@@ -450,6 +462,8 @@ class DispatchTokenScanItemsCommand extends Command
         } elseif ($notFound) {
             $classification = 'not_found';
             $summary = 'Bot returned not found. Keep token_scan_items row untouched.';
+        } elseif (($bot['api'] ?? '') === self::BOT_MESSENGER['api'] && ($retryAfterSeconds = $this->extractMessengerRetryAfterSeconds($latestTextPreview)) !== null) {
+            $summary = 'Messenger bot rate limited. Wait ' . $retryAfterSeconds . ' seconds and retry the current token.';
         } elseif (($bot['api'] ?? '') === self::BOT_QQFILE['api'] && $this->responseRequestsYzFallback($latestTextPreview, $apiReason) && $yzStartCommand !== null) {
             $summary = 'QQ bot requested yzfile_bot redirect.';
         } elseif (($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON && $buttonClicked) {
@@ -493,7 +507,8 @@ class DispatchTokenScanItemsCommand extends Command
             'dispatch_text' => $textToSend,
             'stop_processing' => false,
             'retry_after_queue_clear' => false,
-            'retry_after_rate_limit' => false,
+            'retry_after_rate_limit' => isset($retryAfterSeconds) && $retryAfterSeconds !== null,
+            'retry_after_seconds' => $retryAfterSeconds ?? 0,
             'retry_after_callback_error' => false,
             'yz_start_command' => $yzStartCommand,
         ];
@@ -1340,6 +1355,15 @@ class DispatchTokenScanItemsCommand extends Command
     private function extractQqYzRetryAfterSeconds(string $text): ?int
     {
         if (preg_match('/解码频繁，请\s*(\d+)\s*秒后重试/u', $text, $matches) !== 1) {
+            return null;
+        }
+
+        return max((int) ($matches[1] ?? 0), 0);
+    }
+
+    private function extractMessengerRetryAfterSeconds(string $text): ?int
+    {
+        if (preg_match('/取件太快了，\s*(\d+)\s*秒后再试/u', $text, $matches) !== 1) {
             return null;
         }
 

@@ -178,6 +178,17 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
+            if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                return Http::response([
+                    [
+                        'bot_username' => 'QQfile_bot',
+                        'message_id' => 322,
+                        'text' => '文件获取完毕，文件总数 3',
+                        'buttons' => [],
+                    ],
+                ], 200);
+            }
+
             return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
         });
 
@@ -276,6 +287,17 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
+            if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                return Http::response([
+                    [
+                        'bot_username' => 'yzfile_bot',
+                        'message_id' => 203,
+                        'text' => '文件获取完毕，文件总数 2',
+                        'buttons' => [],
+                    ],
+                ], 200);
+            }
+
             return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
         });
 
@@ -302,5 +324,78 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 && $request['bot_username'] === 'yzfile_bot'
                 && $request['sent_message_id'] === 202;
         });
+    }
+
+    public function test_dispatch_retries_current_messenger_token_when_take_too_fast_message_is_observed(): void
+    {
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'Messengercode_retry_after_take_too_fast',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        $sendCount = 0;
+        $runCount = 0;
+
+        Http::fake(function ($request) use (&$sendCount, &$runCount) {
+            $url = $request->url();
+            $botUsername = (string) ($request['bot_username'] ?? '');
+
+            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'MessengerCode_bot') {
+                $sendCount++;
+
+                return Http::response([
+                    'status' => 'ok',
+                    'sent_message_id' => 500 + $sendCount,
+                ], 200);
+            }
+
+            if ($url === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot' && $botUsername === 'MessengerCode_bot') {
+                $runCount++;
+
+                if ($runCount === 1) {
+                    return Http::response([
+                        'status' => 'ok',
+                        'reason' => 'rate limited',
+                        'files_unique_count' => 0,
+                        'files_total_bytes' => 0,
+                        'latest_message' => [
+                            'kind' => 'other',
+                            'text_preview' => '取件太快了，1 秒后再试。',
+                            'has_buttons' => false,
+                            'page_info' => [],
+                        ],
+                        'timeline' => [],
+                        'debug' => [],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'status' => 'ok',
+                    'reason' => 'completion message detected',
+                    'files_unique_count' => 0,
+                    'files_total_bytes' => 0,
+                    'latest_message' => [
+                        'kind' => 'completion',
+                        'text_preview' => '完成',
+                        'has_buttons' => false,
+                        'page_info' => [],
+                    ],
+                    'timeline' => [],
+                    'debug' => [],
+                    'page_state' => [],
+                ], 200);
+            }
+
+            return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
+        });
+
+        $this->artisan('tg:dispatch-token-scan-items')->assertExitCode(0);
+
+        $this->assertSame(2, $sendCount);
+        $this->assertSame(2, $runCount);
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
     }
 }

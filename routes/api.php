@@ -7,6 +7,7 @@
     use App\Http\Controllers\CreditCardController;
     use App\Http\Controllers\DeliveryAddressController;
     use App\Http\Controllers\FileScreenshotController;
+    use App\Http\Controllers\FolderVideoController;
     use App\Http\Controllers\MemberController;
     use App\Http\Controllers\OrderController;
     use App\Http\Controllers\ProductCategoryController;
@@ -106,3 +107,7 @@
     Route::get('/token-scan/items/{peerId}', [TokenScanController::class, 'items']);
     Route::post('/telegram/webhook/mystar-secure', [TelegramWebhookController::class, 'handle']);
     Route::get('/telegram/run-all-pages', [TelegramBotPaginationController::class, 'runAllPagesByBot']);
+    Route::get('/folder-videos', [FolderVideoController::class, 'index'])->name('folder-videos.index');
+    Route::get('/folder-videos/{id}/stream', [FolderVideoController::class, 'stream'])->name('folder-videos.stream');
+    Route::post('/folder-videos/{id}/like', [FolderVideoController::class, 'like'])->name('folder-videos.like');
+    Route::delete('/folder-videos/{id}', [FolderVideoController::class, 'destroy'])->name('folder-videos.destroy');

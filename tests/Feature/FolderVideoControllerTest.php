@@ -132,4 +132,13 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.1.filename', 'long.mp4')
             ->assertJsonPath('data.2.filename', 'unknown.mp4');
     }
+
+    public function test_folder_video_routes_are_not_rate_limited(): void
+    {
+        for ($attempt = 0; $attempt < 80; $attempt++) {
+            $this->getJson('/api/folder-videos?limit=1')
+                ->assertOk()
+                ->assertJsonPath('data.0.filename', 'short.mp4');
+        }
+    }
 }

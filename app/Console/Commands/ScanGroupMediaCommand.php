@@ -30,10 +30,6 @@ class ScanGroupMediaCommand extends Command
         'api' => 'vipfiles2bot',
         'display' => '@vipfiles2bot',
     ];
-    private const BOT_SHOWFILES6 = [
-        'api' => 'Showfiles6bot',
-        'display' => '@Showfiles6bot',
-    ];
     private const NOT_FOUND_MARKERS = [
         '💔抱歉，未找到可解析内容。',
         '抱歉，未找到可解析内容。',
@@ -722,11 +718,11 @@ class ScanGroupMediaCommand extends Command
 
     private function resolveBotByToken(string $token): ?array
     {
-        if (Str::startsWith($token, 'showfiles3bot_')) {
-            return self::BOT_SHOWFILES6;
-        }
-
-        if (Str::startsWith($token, 'newjmqbot_') || Str::startsWith($token, 'showfilesbot_')) {
+        if (
+            Str::startsWith($token, 'newjmqbot_') ||
+            Str::startsWith($token, 'showfilesbot_') ||
+            Str::startsWith($token, 'showfiles3bot_')
+        ) {
             return self::BOT_VIPFILES;
         }
 

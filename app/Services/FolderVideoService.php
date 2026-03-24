@@ -5,7 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\HttpFoundation\File\Exception\FileException;
-use Symfony\Component\Process\Process;
+use Throwable;
 
 class FolderVideoService
 {
@@ -208,25 +208,16 @@ class FolderVideoService
             return 0.0;
         }
 
-        $process = new Process([
-            $binary,
-            '-v',
-            'quiet',
-            '-print_format',
-            'json',
-            '-show_format',
-            $path,
-        ]);
-        $process->setTimeout(30);
-        $process->run();
-
-        if (! $process->isSuccessful()) {
+        try {
+            return round(app(MediaDurationProbeService::class)->probeDurationSeconds(
+                $path,
+                $binary,
+                null,
+                30
+            ), 3);
+        } catch (Throwable) {
             return 0.0;
         }
-
-        $payload = json_decode($process->getOutput(), true);
-
-        return round((float) data_get($payload, 'format.duration', 0), 3);
     }
 
     protected function formatDuration(float $durationSeconds): string

@@ -6,6 +6,7 @@
     use App\Models\VideoMaster;
     use App\Models\VideoScreenshot;
     use App\Models\VideoTs;
+    use App\Services\MediaDurationProbeService;
     use App\Services\VideoFeatureExtractionService;
     use App\Support\RelativeMediaPath;
     use Illuminate\Http\Request;
@@ -535,9 +536,11 @@
 
         private function getVideoDuration($filePath)
         {
-            $cmd = "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"{$filePath}\"";
-            $output = shell_exec($cmd);
-            return round(floatval($output), 2);
+            try {
+                return round(app(MediaDurationProbeService::class)->probeDurationSeconds($filePath), 2);
+            } catch (\Throwable) {
+                return 0.0;
+            }
         }
 
         public function getRandomVideos(): \Illuminate\Http\JsonResponse

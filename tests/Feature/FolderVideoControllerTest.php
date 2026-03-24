@@ -26,10 +26,10 @@ class FolderVideoControllerTest extends TestCase
         file_put_contents(
             $this->fakeFfprobe,
             "@echo off\r\n".
-            "set file=%~nx6\r\n".
-            "if /I \"%file%\"==\"short.mp4\" echo {\"format\":{\"duration\":\"5.0\"}}\r\n".
-            "if /I \"%file%\"==\"mid.mp4\" echo {\"format\":{\"duration\":\"12.0\"}}\r\n".
-            "if /I \"%file%\"==\"long.mp4\" echo {\"format\":{\"duration\":\"20.0\"}}\r\n"
+            "set file=%~nx7\r\n".
+            "if /I \"%file%\"==\"short.mp4\" echo 5.0\r\n".
+            "if /I \"%file%\"==\"mid.mp4\" echo 12.0\r\n".
+            "if /I \"%file%\"==\"long.mp4\" echo 20.0\r\n"
         );
 
         config()->set('folder_video.root', $this->tempRoot);

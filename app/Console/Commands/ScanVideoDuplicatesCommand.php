@@ -5,6 +5,7 @@
     namespace App\Console\Commands;
 
     use App\Models\VideoDuplicate;
+    use App\Services\MediaDurationProbeService;
     use Illuminate\Console\Command;
     use Illuminate\Support\Carbon;
     use Illuminate\Support\Facades\DB;
@@ -43,6 +44,7 @@
         private const SCORE_PREFIX = 4;
         private const SCORE_WINDOW = 8;
         private const SCORE_SIZE = 8;
+        private const TRANSIENT_PROCESS_RETRY_ATTEMPTS = 3;
 
         public function handle(): int
         {
@@ -171,7 +173,7 @@
                         }
                     }
 
-                    $durationSeconds = $this->probeDurationSeconds($ffprobeBin, $fullPath);
+                    $durationSeconds = $this->probeDurationSeconds($ffprobeBin, $ffmpegBin, $fullPath);
                     if ($durationSeconds <= 0) {
                         $this->markError($pathSha1, 'ffprobe 取得 duration 失敗或 duration=0');
                         $failed += 1;
@@ -432,30 +434,20 @@
             return $ext === 'mp4';
         }
 
-        private function probeDurationSeconds(string $ffprobeBin, string $videoPath): int
+        private function probeDurationSeconds(string $ffprobeBin, string $ffmpegBin, string $videoPath): int
         {
-            $process = new Process([
-                $ffprobeBin,
-                '-v', 'error',
-                '-show_entries', 'format=duration',
-                '-of', 'default=nokey=1:noprint_wrappers=1',
-                $videoPath,
-            ]);
-
-            $process->setTimeout(60);
-            $process->run();
-
-            if (!$process->isSuccessful()) {
+            try {
+                $seconds = app(MediaDurationProbeService::class)->probeDurationSeconds(
+                    $videoPath,
+                    $ffprobeBin,
+                    $ffmpegBin,
+                    60
+                );
+            } catch (Throwable) {
                 return 0;
             }
 
-            $out = trim($process->getOutput());
-            if ($out === '' || !is_numeric($out)) {
-                return 0;
-            }
-
-            $seconds = (int) floor((float) $out);
-            return max(0, $seconds);
+            return max(0, (int) floor($seconds));
         }
 
         private function makeSnapshotsFixedMinutesAllowShort(string $ffmpegBin, string $tmpDir, string $videoPath, int $durationSeconds): array
@@ -528,34 +520,69 @@
             string $outPath,
             bool $forceCompatibleColorspace
         ): ?string {
-            if (is_file($outPath)) {
-                @unlink($outPath);
+            $lastError = '';
+
+            for ($attempt = 1; $attempt <= self::TRANSIENT_PROCESS_RETRY_ATTEMPTS; $attempt++) {
+                if (is_file($outPath)) {
+                    @unlink($outPath);
+                }
+
+                $process = new Process(
+                    $this->buildSnapshotCommand($ffmpegBin, $videoPath, $captureSecond, $outPath, $forceCompatibleColorspace)
+                );
+
+                $process->setTimeout(180);
+                $process->run();
+
+                if ($process->isSuccessful() && is_file($outPath) && (int) @filesize($outPath) > 0) {
+                    return null;
+                }
+
+                $lastError = $this->buildMediaProcessFailureMessage($process, 'ffmpeg 未輸出任何畫面（可能命中損毀影格或過近 EOF）');
+                if (!$this->shouldRetryTransientMediaFailure($process, $lastError, $attempt)) {
+                    return $lastError;
+                }
+
+                usleep(200000);
             }
 
-            $process = new Process(
-                $this->buildSnapshotCommand($ffmpegBin, $videoPath, $captureSecond, $outPath, $forceCompatibleColorspace)
-            );
+            return $lastError !== '' ? $lastError : 'ffmpeg 未輸出任何畫面（可能命中損毀影格或過近 EOF）';
+        }
 
-            $process->setTimeout(180);
-            $process->run();
-
-            if ($process->isSuccessful() && is_file($outPath) && (int) @filesize($outPath) > 0) {
-                return null;
-            }
-
+        private function buildMediaProcessFailureMessage(Process $process, string $successfulNoOutputMessage): string
+        {
             $errorOutput = trim($process->getErrorOutput() ?: $process->getOutput());
             if ($errorOutput !== '') {
                 return $errorOutput;
             }
 
             if ($process->isSuccessful()) {
-                return 'ffmpeg 未輸出任何畫面（可能命中損毀影格或過近 EOF）';
+                return $successfulNoOutputMessage;
             }
 
             $exitCode = $process->getExitCode();
             return $exitCode === null
                 ? 'ffmpeg 失敗，未回傳錯誤訊息'
                 : 'ffmpeg 失敗，未回傳錯誤訊息 (exit_code=' . $exitCode . ')';
+        }
+
+        private function shouldRetryTransientMediaFailure(Process $process, string $errorOutput, int $attempt): bool
+        {
+            if ($attempt >= self::TRANSIENT_PROCESS_RETRY_ATTEMPTS) {
+                return false;
+            }
+
+            $exitCode = $process->getExitCode();
+            if (is_int($exitCode) && $exitCode < 0) {
+                return true;
+            }
+
+            $errorOutput = strtolower($errorOutput);
+            return $errorOutput === ''
+                || str_contains($errorOutput, 'access violation')
+                || str_contains($errorOutput, 'segmentation fault')
+                || str_contains($errorOutput, 'stack overflow')
+                || str_contains($errorOutput, 'bad allocation');
         }
 
         private function buildSnapshotCaptureSecondCandidates(int $captureSecond): array

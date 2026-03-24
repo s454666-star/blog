@@ -19,6 +19,7 @@ use Throwable;
 class VideoFeatureExtractionService
 {
     private const HASH_BITS = 64;
+    private const TRANSIENT_PROCESS_RETRY_ATTEMPTS = 3;
 
     public function buildCapturePlan(float $durationSeconds): array
     {
@@ -379,35 +380,34 @@ class VideoFeatureExtractionService
         string $outputPath,
         string $captureMode
     ): ?string {
-        if (is_file($outputPath)) {
-            @unlink($outputPath);
+        $lastError = '';
+
+        for ($attempt = 1; $attempt <= self::TRANSIENT_PROCESS_RETRY_ATTEMPTS; $attempt++) {
+            if (is_file($outputPath)) {
+                @unlink($outputPath);
+            }
+            clearstatcache(true, $outputPath);
+
+            $process = new Process(
+                $this->buildCaptureFrameCommand($absolutePath, $captureSecond, $outputPath, $captureMode)
+            );
+
+            $process->setTimeout(180);
+            $process->run();
+
+            if ($process->isSuccessful() && $this->hasUsableCapturedFrame($outputPath)) {
+                return null;
+            }
+
+            $lastError = $this->buildMediaProcessFailureMessage($process, 'ffmpeg 未輸出任何畫面（可能命中損毀影格或過近 EOF）');
+            if (!$this->shouldRetryTransientMediaFailure($process, $lastError, $attempt)) {
+                return $lastError;
+            }
+
+            usleep(200000);
         }
-        clearstatcache(true, $outputPath);
 
-        $process = new Process(
-            $this->buildCaptureFrameCommand($absolutePath, $captureSecond, $outputPath, $captureMode)
-        );
-
-        $process->setTimeout(180);
-        $process->run();
-
-        if ($process->isSuccessful() && $this->hasUsableCapturedFrame($outputPath)) {
-            return null;
-        }
-
-        $errorOutput = trim($process->getErrorOutput() ?: $process->getOutput());
-        if ($errorOutput !== '') {
-            return $errorOutput;
-        }
-
-        if ($process->isSuccessful()) {
-            return 'ffmpeg 未輸出任何畫面（可能命中損毀影格或過近 EOF）';
-        }
-
-        $exitCode = $process->getExitCode();
-        return $exitCode === null
-            ? 'ffmpeg 失敗，未回傳錯誤訊息'
-            : 'ffmpeg 失敗，未回傳錯誤訊息 (exit_code=' . $exitCode . ')';
+        return $lastError !== '' ? $lastError : 'ffmpeg 未輸出任何畫面（可能命中損毀影格或過近 EOF）';
     }
 
     private function buildCaptureSecondCandidates(float $captureSecond, array $excludedCaptureSecondKeys = []): array
@@ -553,40 +553,50 @@ class VideoFeatureExtractionService
         return false;
     }
 
-    private function probeDurationSeconds(string $absolutePath): float
+    protected function probeDurationSeconds(string $absolutePath): float
     {
-        $process = new Process([
-            (string) env('FFPROBE_BIN', 'ffprobe'),
-            '-v',
-            'error',
-            '-show_entries',
-            'format=duration',
-            '-of',
-            'default=nokey=1:noprint_wrappers=1',
+        return app(MediaDurationProbeService::class)->probeDurationSeconds(
             $absolutePath,
-        ]);
+            (string) env('FFPROBE_BIN', 'ffprobe'),
+            (string) env('FFMPEG_BIN', 'ffmpeg'),
+            60
+        );
+    }
 
-        $process->setTimeout(60);
-        $process->run();
-
-        if (!$process->isSuccessful()) {
-            $errorOutput = trim($process->getErrorOutput() ?: $process->getOutput());
-            if ($errorOutput === '') {
-                $exitCode = $process->getExitCode();
-                $errorOutput = $exitCode === null
-                    ? '未回傳錯誤訊息'
-                    : '未回傳錯誤訊息 (exit_code=' . $exitCode . ')';
-            }
-
-            throw new RuntimeException('ffprobe 失敗：' . $errorOutput);
+    private function buildMediaProcessFailureMessage(Process $process, string $successfulNoOutputMessage): string
+    {
+        $errorOutput = trim($process->getErrorOutput() ?: $process->getOutput());
+        if ($errorOutput !== '') {
+            return $errorOutput;
         }
 
-        $output = trim($process->getOutput());
-        if ($output === '' || !is_numeric($output)) {
-            throw new RuntimeException('ffprobe 未回傳有效的 duration');
+        if ($process->isSuccessful()) {
+            return $successfulNoOutputMessage;
         }
 
-        return max(0.0, (float) $output);
+        $exitCode = $process->getExitCode();
+        return $exitCode === null
+            ? 'ffmpeg 失敗，未回傳錯誤訊息'
+            : 'ffmpeg 失敗，未回傳錯誤訊息 (exit_code=' . $exitCode . ')';
+    }
+
+    private function shouldRetryTransientMediaFailure(Process $process, string $errorOutput, int $attempt): bool
+    {
+        if ($attempt >= self::TRANSIENT_PROCESS_RETRY_ATTEMPTS) {
+            return false;
+        }
+
+        $exitCode = $process->getExitCode();
+        if (is_int($exitCode) && $exitCode < 0) {
+            return true;
+        }
+
+        $errorOutput = strtolower($errorOutput);
+        return $errorOutput === ''
+            || str_contains($errorOutput, 'access violation')
+            || str_contains($errorOutput, 'segmentation fault')
+            || str_contains($errorOutput, 'stack overflow')
+            || str_contains($errorOutput, 'bad allocation');
     }
 
     private function computeDhashHexFromJpeg(string $jpegPath): string

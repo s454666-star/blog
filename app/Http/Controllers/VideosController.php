@@ -233,8 +233,7 @@
                 ], 400);
             }
 
-            // 預設根目錄（可用 .env 覆寫）
-            $videoRoot = rtrim(env('VIDEO_SOURCE_ROOT', 'D:/video'), '/\\');
+            $videoRoot = $this->videoDiskRoot();
             $m3u8Root  = rtrim(env('M3U8_TARGET_ROOT', 'Z:/m3u8'), '/\\');
 
             $videos = VideoMaster::whereIn('id', $ids)->with('screenshots.faceScreenshots')->get();
@@ -243,7 +242,7 @@
                 DB::beginTransaction();
                 try {
                     // 1) 刪除原影片與其截圖、人臉檔案
-                    $this->deleteVideoPhysicalFiles($video, $videoRoot);
+                    $this->deleteVideoPhysicalFiles($video);
 
                     // 2) 若有 m3u8，刪除 videos_ts 與 Z:\m3u8 的檔案與資料夾
                     $this->deleteM3u8AssetsAndRows($video, $m3u8Root);
@@ -259,6 +258,9 @@
                     // 4) 刪除 video_master
                     $video->delete();
 
+                    // 5) 刪除影片資料夾；若資料夾仍在，視為刪除失敗並回滾 DB
+                    $this->deleteVideoFolderIfExists($video, $videoRoot);
+
                     DB::commit();
                 } catch (\Throwable $e) {
                     DB::rollBack();
@@ -267,9 +269,6 @@
                         'message' => '刪除影片時發生錯誤：' . $e->getMessage(),
                     ], 500);
                 }
-
-                // 5) 嘗試刪除空資料夾（原影片資料夾）
-                $this->deleteVideoFolderIfExists($video, $videoRoot);
             }
 
             return response()->json([
@@ -297,7 +296,7 @@
                 $filename = time() . '_' . $file->getClientOriginalName();
                 Storage::disk('videos')->putFileAs($videoFolder, $file, $filename);
 
-                $duration = $this->getVideoDuration("D:/video/{$videoFolder}/{$filename}");
+                $duration = $this->getVideoDuration($this->resolveVideoDiskAbsolutePath("{$videoFolder}/{$filename}"));
 
                 $video = VideoMaster::create([
                     'video_name' => $videoName,
@@ -335,7 +334,7 @@
             $type = $request->input('type');
 
             if ($type === 'screenshot') {
-                $screenshot = VideoScreenshot::find($id);
+                $screenshot = VideoScreenshot::with('faceScreenshots')->find($id);
                 if (!$screenshot) {
                     return response()->json([
                         'success' => false,
@@ -343,20 +342,23 @@
                     ], 404);
                 }
 
-                $screenshotFile = "D:/video/" . $screenshot->screenshot_path;
-                if (File::exists($screenshotFile)) {
-                    File::delete($screenshotFile);
-                }
+                try {
+                    DB::transaction(function () use ($screenshot) {
+                        $this->deleteVideoDiskPathOrFail($screenshot->screenshot_path);
 
-                foreach ($screenshot->faceScreenshots as $face) {
-                    $faceFile = "D:/video/" . $face->face_image_path;
-                    if (File::exists($faceFile)) {
-                        File::delete($faceFile);
-                    }
-                    $face->delete();
-                }
+                        foreach ($screenshot->faceScreenshots as $face) {
+                            $this->deleteVideoDiskPathOrFail($face->face_image_path);
+                            $face->delete();
+                        }
 
-                $screenshot->delete();
+                        $screenshot->delete();
+                    });
+                } catch (\Throwable $e) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '刪除截圖時發生錯誤：' . $e->getMessage(),
+                    ], 500);
+                }
 
                 return response()->json([
                     'success' => true,
@@ -371,12 +373,17 @@
                     ], 404);
                 }
 
-                $faceFile = "D:/video/" . $face->face_image_path;
-                if (File::exists($faceFile)) {
-                    File::delete($faceFile);
+                try {
+                    DB::transaction(function () use ($face) {
+                        $this->deleteVideoDiskPathOrFail($face->face_image_path);
+                        $face->delete();
+                    });
+                } catch (\Throwable $e) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => '刪除人臉截圖時發生錯誤：' . $e->getMessage(),
+                    ], 500);
                 }
-
-                $face->delete();
 
                 return response()->json([
                     'success' => true,
@@ -664,8 +671,7 @@
          */
         public function destroy($id)
         {
-            // 預設根目錄（可用 .env 覆寫）
-            $videoRoot = rtrim(env('VIDEO_SOURCE_ROOT', 'D:/video'), '/\\');
+            $videoRoot = $this->videoDiskRoot();
             $m3u8Root  = rtrim(env('M3U8_TARGET_ROOT', 'Z:/m3u8'), '/\\');
 
             // 查找影片
@@ -682,7 +688,7 @@
 
             try {
                 // 1) 刪除原影片與其截圖、人臉檔案
-                $this->deleteVideoPhysicalFiles($video, $videoRoot);
+                $this->deleteVideoPhysicalFiles($video);
 
                 // 2) 若有 m3u8，刪除 videos_ts 與 Z:\m3u8 的檔案與資料夾
                 $this->deleteM3u8AssetsAndRows($video, $m3u8Root);
@@ -698,6 +704,9 @@
                 // 4) 刪除影片主檔
                 $video->delete();
 
+                // 5) 刪除影片資料夾；若資料夾仍在，視為刪除失敗並回滾 DB
+                $this->deleteVideoFolderIfExists($video, $videoRoot);
+
                 DB::commit();
             } catch (\Exception $e) {
                 DB::rollBack();
@@ -707,9 +716,6 @@
                     'message' => '刪除影片時發生錯誤，請稍後再試。',
                 ], 500);
             }
-
-            // 5) 刪除空的影片資料夾（若存在）
-            $this->deleteVideoFolderIfExists($video, $videoRoot);
 
             return response()->json([
                 'success' => true,
@@ -777,28 +783,19 @@
          * ============================== */
 
         /**
-         * 刪除影片本體與其關聯的截圖、人臉檔案（F:\video 之下）。
+         * 刪除影片本體與其關聯的截圖、人臉檔案（videos disk root 之下）。
          */
-        private function deleteVideoPhysicalFiles(VideoMaster $video, string $videoRoot): void
+        private function deleteVideoPhysicalFiles(VideoMaster $video): void
         {
-            // 刪影片檔
-            $videoFile = $this->joinPaths($videoRoot, $video->video_path);
-            if (File::exists($videoFile)) {
-                File::delete($videoFile);
-            }
+            $this->deleteVideoDiskPathOrFail($video->video_path);
 
             // 刪截圖與人臉
             $screenshots = $video->relationLoaded('screenshots') ? $video->screenshots : $video->screenshots()->with('faceScreenshots')->get();
             foreach ($screenshots as $screenshot) {
-                $screenshotFile = $this->joinPaths($videoRoot, $screenshot->screenshot_path);
-                if (File::exists($screenshotFile)) {
-                    File::delete($screenshotFile);
-                }
+                $this->deleteVideoDiskPathOrFail($screenshot->screenshot_path);
+
                 foreach ($screenshot->faceScreenshots as $face) {
-                    $faceFile = $this->joinPaths($videoRoot, $face->face_image_path);
-                    if (File::exists($faceFile)) {
-                        File::delete($faceFile);
-                    }
+                    $this->deleteVideoDiskPathOrFail($face->face_image_path);
                 }
             }
         }
@@ -828,9 +825,7 @@
 
             // 2) 刪實體檔案：Z:\m3u8\<folder>
             $targetDir = $this->joinPaths($m3u8Root, $folder);
-            if (File::exists($targetDir)) {
-                File::deleteDirectory($targetDir);
-            }
+            $this->deletePathWithRetries($targetDir, true);
         }
 
         /**
@@ -845,10 +840,7 @@
             }
 
             $folderPath = $this->joinPaths($videoRoot, $videoFolder);
-            if (File::exists($folderPath)) {
-                // 直接刪整個資料夾（不管內部是否仍有殘留）
-                File::deleteDirectory($folderPath);
-            }
+            $this->deletePathWithRetries($folderPath, true);
         }
 
         /**
@@ -874,5 +866,54 @@
             }
 
             return Storage::disk('videos')->path($normalizedPath);
+        }
+
+        private function videoDiskRoot(): string
+        {
+            return rtrim((string) config('filesystems.disks.videos.root', 'D:/video'), '/\\');
+        }
+
+        private function deleteVideoDiskPathOrFail(?string $relativePath): void
+        {
+            $absolutePath = $this->resolveVideoDiskAbsolutePath($relativePath);
+            if ($absolutePath === '') {
+                return;
+            }
+
+            $this->deletePathWithRetries($absolutePath);
+        }
+
+        private function deletePathWithRetries(string $path, bool $directory = false, int $attempts = 6, int $sleepMilliseconds = 250): void
+        {
+            if ($path === '') {
+                return;
+            }
+
+            for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+                clearstatcache(true, $path);
+
+                if (! file_exists($path)) {
+                    return;
+                }
+
+                if ($directory) {
+                    File::deleteDirectory($path);
+                } else {
+                    File::delete($path);
+                }
+
+                clearstatcache(true, $path);
+
+                if (! file_exists($path)) {
+                    return;
+                }
+
+                if ($attempt < $attempts) {
+                    usleep($sleepMilliseconds * 1000);
+                }
+            }
+
+            $kind = $directory ? '資料夾' : '檔案';
+            throw new \RuntimeException($kind . '刪除失敗，可能仍被瀏覽器或靜態檔案服務占用：' . $path);
         }
     }

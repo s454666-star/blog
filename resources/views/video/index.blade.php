@@ -1148,6 +1148,76 @@
         c.scrollTo({top: $t[0].offsetTop - c.clientHeight / 2 + $t[0].clientHeight / 2, behavior: 'smooth'});
     }
 
+    function releaseRowMediaSources($row) {
+        const states = [];
+
+        $row.find('video').each(function () {
+            const video = this;
+            const sourceStates = Array.from(video.querySelectorAll('source')).map(source => ({
+                element: source,
+                src: source.getAttribute('src'),
+                type: source.getAttribute('type'),
+            }));
+
+            states.push({
+                element: video,
+                src: video.getAttribute('src'),
+                poster: video.getAttribute('poster'),
+                preload: video.getAttribute('preload'),
+                sourceStates,
+            });
+
+            try {
+                video.pause();
+            } catch (err) {
+                console.warn('pause video failed before delete', err);
+            }
+
+            video.removeAttribute('src');
+            video.removeAttribute('poster');
+            sourceStates.forEach(({element}) => element.removeAttribute('src'));
+            video.load();
+        });
+
+        return function restore() {
+            states.forEach(({element, src, poster, preload, sourceStates}) => {
+                if (src) {
+                    element.setAttribute('src', src);
+                } else {
+                    element.removeAttribute('src');
+                }
+
+                if (poster) {
+                    element.setAttribute('poster', poster);
+                } else {
+                    element.removeAttribute('poster');
+                }
+
+                if (preload) {
+                    element.setAttribute('preload', preload);
+                } else {
+                    element.removeAttribute('preload');
+                }
+
+                sourceStates.forEach(({element: sourceEl, src: sourceSrc, type}) => {
+                    if (sourceSrc) {
+                        sourceEl.setAttribute('src', sourceSrc);
+                    } else {
+                        sourceEl.removeAttribute('src');
+                    }
+
+                    if (type) {
+                        sourceEl.setAttribute('type', type);
+                    } else {
+                        sourceEl.removeAttribute('type');
+                    }
+                });
+
+                element.load();
+            });
+        };
+    }
+
     /* --------------------------------------------------
      * 全螢幕播放
      * -------------------------------------------------- */
@@ -1249,14 +1319,31 @@
                 return;
             }
             if (!confirm('確定要刪除聚焦的影片嗎？此操作無法撤銷。')) return;
+            const restoreMedia = releaseRowMediaSources($f);
             $.post("{{ route('video.deleteSelected') }}", {ids: [$f.data('id')], _token: '{{ csrf_token() }}'}, res => {
                 if (res?.success) {
                     $f.remove();
                     showMessage('success', res.message);
                     rebuildAndSort();
-                    $('.video-row').first().addClass('focused');
-                } else showMessage('error', res.message);
-            }).fail(() => showMessage('error', '刪除失敗，請稍後再試。'));
+                    const $next = $('.video-row').first();
+                    if ($next.length) {
+                        const nextId = $next.data('id');
+                        $next.addClass('focused');
+                        $('#focus-id').val(nextId);
+                        focusMasterFace(nextId);
+                    } else {
+                        $('#focus-id').val('');
+                        $('.master-face-img').removeClass('focused');
+                    }
+                } else {
+                    restoreMedia();
+                    showMessage('error', res.message);
+                }
+            }).fail(xhr => {
+                restoreMedia();
+                const message = xhr?.responseJSON?.message || '刪除失敗，請稍後再試。';
+                showMessage('error', message);
+            });
         });
 
         /* --- 影片列點擊 --- */
@@ -1445,7 +1532,7 @@
             const $pasteTarget = $area.find('.face-paste-target').first();
 
             faces.forEach(f => {
-                const html = tpl.replace('{master_class}', f.is_master ? 'master' : '')
+                const html = tpl.replace('{is_master_class}', f.is_master ? 'master' : '')
                     .replace(/{face_image_path}/g, f.face_image_path)
                     .replace(/{face_id}/g, f.id)
                     .replace(/{video_id}/g, vid);
@@ -1574,9 +1661,20 @@
             }).fail(() => showMessage('error', '更新失敗，請稍後再試。'));
         }
 
-        $(document).on('dblclick', '.face-screenshot', function (e) {
+        $(document).on('click', '.face-screenshot', function (e) {
             e.stopPropagation();
-            setMaster($(this).data('id'), $(this).data('video-id'));
+            const $img = $(this);
+            const vid = $img.data('video-id');
+            const $row = $img.closest('.video-row');
+
+            $('.video-row').removeClass('focused');
+            $row.addClass('focused');
+            $('#focus-id').val(vid);
+            focusMasterFace(vid);
+
+            if (!$img.hasClass('master')) {
+                setMaster($img.data('id'), vid);
+            }
         });
         $(document).on('click', '.set-master-btn', function (e) {
             e.stopPropagation();

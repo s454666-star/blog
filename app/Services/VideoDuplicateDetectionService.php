@@ -7,6 +7,8 @@ use App\Models\VideoFeatureFrame;
 
 class VideoDuplicateDetectionService
 {
+    private const DURATION_FALLBACK_CANDIDATES = 25;
+
     public function __construct(
         private readonly VideoFeatureExtractionService $featureExtractionService
     ) {
@@ -279,6 +281,7 @@ class VideoDuplicateDetectionService
     ): array {
         $durationMin = max(0, $payloadContext['duration_seconds'] - max(0, $windowSeconds));
         $durationMax = $payloadContext['duration_seconds'] + max(0, $windowSeconds);
+        $limit = max(1, $maxCandidates);
 
         if ($this->shouldBypassPrefixGate($payloadContext)) {
             return VideoFeature::query()
@@ -287,12 +290,12 @@ class VideoDuplicateDetectionService
                     'ABS(CAST(video_features.duration_seconds AS DECIMAL(10,3)) - ?) ASC',
                     [$payloadContext['duration_seconds']]
                 )
-                ->limit(max(1, $maxCandidates))
+                ->limit($limit)
                 ->pluck('id')
                 ->all();
         }
 
-        return VideoFeatureFrame::query()
+        $prefixMatchedIds = VideoFeatureFrame::query()
             ->select('video_feature_frames.video_feature_id')
             ->join('video_features', 'video_features.id', '=', 'video_feature_frames.video_feature_id')
             ->whereIn('video_feature_frames.dhash_prefix', $payloadContext['prefixes'])
@@ -303,9 +306,33 @@ class VideoDuplicateDetectionService
                 'ABS(CAST(video_features.duration_seconds AS DECIMAL(10,3)) - ?) ASC',
                 [$payloadContext['duration_seconds']]
             )
-            ->limit(max(1, $maxCandidates))
+            ->limit($limit)
             ->pluck('video_feature_frames.video_feature_id')
             ->all();
+
+        if (count($prefixMatchedIds) >= $limit) {
+            return $prefixMatchedIds;
+        }
+
+        $fallbackLimit = min($limit, self::DURATION_FALLBACK_CANDIDATES);
+        $durationFallbackIds = VideoFeature::query()
+            ->whereBetween('duration_seconds', [$durationMin, $durationMax])
+            ->when($prefixMatchedIds !== [], function ($query) use ($prefixMatchedIds) {
+                $query->whereNotIn('id', $prefixMatchedIds);
+            })
+            ->orderByRaw(
+                'ABS(CAST(video_features.duration_seconds AS DECIMAL(10,3)) - ?) ASC',
+                [$payloadContext['duration_seconds']]
+            )
+            ->limit($fallbackLimit)
+            ->pluck('id')
+            ->all();
+
+        return array_slice(
+            array_values(array_unique(array_merge($prefixMatchedIds, $durationFallbackIds))),
+            0,
+            $limit
+        );
     }
 
     private function buildCandidateGateSummary(
@@ -341,7 +368,10 @@ class VideoDuplicateDetectionService
         $sizeWithinWindow = null;
 
         $prefixEligible = $payloadContext['prefixes'] !== [] && $sharedPrefixes !== [];
-        $prefixGateBypassed = !$prefixEligible && $this->shouldBypassPrefixGate($payloadContext);
+        $prefixGateBypassed = !$prefixEligible && (
+            $this->shouldBypassPrefixGate($payloadContext)
+            || $this->shouldFallbackToDurationCandidates($payloadContext)
+        );
         $eligible = ($prefixEligible || $prefixGateBypassed) && $durationWithinWindow;
 
         $reasons = [];
@@ -387,6 +417,12 @@ class VideoDuplicateDetectionService
     private function shouldBypassPrefixGate(array $payloadContext): bool
     {
         return (int) ($payloadContext['frame_count'] ?? 0) === 1
+            && !empty($payloadContext['prefixes']);
+    }
+
+    private function shouldFallbackToDurationCandidates(array $payloadContext): bool
+    {
+        return (int) ($payloadContext['frame_count'] ?? 0) >= 2
             && !empty($payloadContext['prefixes']);
     }
 }

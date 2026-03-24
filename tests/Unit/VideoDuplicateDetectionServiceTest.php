@@ -398,4 +398,95 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         $this->assertNotNull($analysis['compare_result']);
         $this->assertTrue($analysis['compare_result']['passes_threshold']);
     }
+
+    public function test_multi_frame_database_match_can_fall_back_to_duration_when_prefixes_do_not_overlap(): void
+    {
+        DB::table('video_master')->insert([
+            'id' => 107,
+            'video_name' => 'duration-fallback.mp4',
+            'video_path' => '\\duration-fallback.mp4',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $feature = VideoFeature::query()->create([
+            'video_master_id' => 107,
+            'video_name' => 'duration-fallback.mp4',
+            'video_path' => '\\duration-fallback.mp4',
+            'file_name' => 'duration-fallback.mp4',
+            'file_size_bytes' => 409117139,
+            'duration_seconds' => 180.117,
+            'screenshot_count' => 4,
+            'capture_rule' => '10s_x4',
+            'feature_version' => 'v1',
+        ]);
+
+        foreach ([
+            [1, 10.000, '26e6c06125534b87', '26'],
+            [2, 20.000, '07c6c6e161d54b07', '07'],
+            [3, 30.000, '16cec6c326c0430f', '16'],
+            [4, 40.000, '07c6c0c410135145', '07'],
+        ] as [$order, $second, $hex, $prefix]) {
+            VideoFeatureFrame::query()->create([
+                'video_feature_id' => $feature->id,
+                'capture_order' => $order,
+                'capture_second' => $second,
+                'screenshot_path' => sprintf('\\duration_fallback_feature_%02d.jpg', $order),
+                'dhash_hex' => $hex,
+                'dhash_prefix' => $prefix,
+                'frame_sha1' => str_repeat((string) $order, 40),
+            ]);
+        }
+
+        $payload = [
+            'duration_seconds' => 180.033,
+            'file_size_bytes' => 68886379,
+            'frames' => [
+                [
+                    'capture_order' => 1,
+                    'capture_second' => 10.000,
+                    'dhash_hex' => '6666e0e0655642c7',
+                    'dhash_prefix' => '66',
+                    'frame_sha1' => str_repeat('a', 40),
+                ],
+                [
+                    'capture_order' => 2,
+                    'capture_second' => 20.000,
+                    'dhash_hex' => '0bc6c2e1a5534b87',
+                    'dhash_prefix' => '0b',
+                    'frame_sha1' => str_repeat('b', 40),
+                ],
+                [
+                    'capture_order' => 3,
+                    'capture_second' => 30.000,
+                    'dhash_hex' => '0666c2e136cd450f',
+                    'dhash_prefix' => '06',
+                    'frame_sha1' => str_repeat('c', 40),
+                ],
+                [
+                    'capture_order' => 4,
+                    'capture_second' => 40.000,
+                    'dhash_hex' => '03c680c411135145',
+                    'dhash_prefix' => '03',
+                    'frame_sha1' => str_repeat('d', 40),
+                ],
+            ],
+        ];
+
+        $service = new VideoDuplicateDetectionService(new VideoFeatureExtractionService());
+        $analysis = $service->analyzeDatabaseMatch($payload, 80, 2, 3, 15, 250);
+        $specificAnalysis = $service->analyzeSpecificFeatureMatch($payload, $feature, 80, 2, 3, 15);
+
+        $this->assertSame(1, $analysis['candidate_count']);
+        $this->assertNotNull($analysis['duplicate_match']);
+        $this->assertSame($feature->id, $analysis['duplicate_match']['feature']->id);
+        $this->assertSame(85.0, $analysis['duplicate_match']['similarity_percent']);
+        $this->assertSame(3, $analysis['duplicate_match']['matched_frames']);
+        $this->assertTrue($analysis['duplicate_match']['passes_threshold']);
+
+        $this->assertTrue($specificAnalysis['candidate_gate']['eligible']);
+        $this->assertTrue($specificAnalysis['candidate_gate']['prefix_gate_bypassed']);
+        $this->assertSame([], $specificAnalysis['candidate_gate']['shared_prefixes']);
+        $this->assertSame([], $specificAnalysis['candidate_gate']['reasons']);
+    }
 }

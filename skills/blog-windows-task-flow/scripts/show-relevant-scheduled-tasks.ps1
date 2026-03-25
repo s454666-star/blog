@@ -6,7 +6,12 @@ $taskNames = @(
     'Telegram FastAPI Service',
     'TG API2',
     'Telegram FastAPI Services',
-    'Blog Get BT'
+    'Blog Get BT',
+    'Project Log Cleanup',
+    'CaddyServer',
+    'LaravelBlogServer',
+    'VideoHTTPServer',
+    'Blog Folder Video API Caddy'
 )
 
 foreach ($taskName in $taskNames) {
@@ -17,5 +22,6 @@ foreach ($taskName in $taskNames) {
         schtasks.exe /Query /TN $taskName /V /FO LIST
     } catch {
         Write-Host "Task not found or cannot be queried: $taskName"
+        Write-Host "Fallback: inspect live process / listener / wrapper chain for this task."
     }
 }

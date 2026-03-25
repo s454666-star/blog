@@ -1,6 +1,17 @@
 # Current Task Flow
 
-Observed and cross-checked on 2026-03-16 in `C:\www\blog`.
+Observed and cross-checked on 2026-03-25 in `C:\www\blog`.
+
+## First Pitfall: Task Query Can Be Incomplete
+
+- Some visible Task Scheduler entries can return `Access is denied` to `schtasks` or `Get-ScheduledTask` even though their processes are running.
+- When that happens, reconstruct the live flow from:
+  - `Win32_Process` command lines and parent processes
+  - `Get-NetTCPConnection` / `netstat`
+  - wrapper `.bat` / `.ps1`
+  - runtime state files such as `storage\app\folder-video-server\Caddyfile`
+  - recent logs
+- As of `2026-03-25`, this fallback is required for tasks visible in the GUI such as `CaddyServer`, `LaravelBlogServer`, and `VideoHTTPServer`.
 
 ## Relevant Windows Scheduled Tasks
 
@@ -25,7 +36,7 @@ Observed and cross-checked on 2026-03-16 in `C:\www\blog`.
 
 ### `Telegram FastAPI Service`
 
-- State observed: task disabled, but process was still running
+- State observed on `2026-03-25`: task disabled, but the runtime can still exist separately
 - Trigger:
   - system startup
 - Task action:
@@ -38,7 +49,7 @@ Observed and cross-checked on 2026-03-16 in `C:\www\blog`.
 
 ### `TG API2`
 
-- State: enabled, ready
+- State observed on `2026-03-25`: enabled, running
 - Trigger:
   - system startup
 - Task action:
@@ -51,7 +62,7 @@ Observed and cross-checked on 2026-03-16 in `C:\www\blog`.
 
 ### `Telegram FastAPI Services`
 
-- State: enabled, ready
+- State observed on `2026-03-25`: enabled, ready
 - Schedule:
   - started on `2026-03-15 16:40`
   - repeats every hour
@@ -69,6 +80,52 @@ Observed and cross-checked on 2026-03-16 in `C:\www\blog`.
   - daily at `17:00`
 - Task action:
   - `cmd.exe /c "C:\www\blog\scripts\run_get_bt.bat"`
+
+### `Project Log Cleanup`
+
+- State observed on `2026-03-25`: enabled, ready
+- Schedule:
+  - every `2` days at `03:00`
+- Task action:
+  - `cmd.exe /c "C:\www\blog\scripts\clear_project_logs.bat"`
+- Purpose:
+  - remove untracked `*.log` files under `C:\www\blog` and `C:\Users\User\Pictures\train`
+
+## Relevant Live Processes And Listeners
+
+### Telegram FastAPI runtime
+
+- `TG API2` currently owns the stable listener:
+  - `0.0.0.0:8001`
+  - parent chain: `cmd.exe /c "C:\Users\User\Pictures\train\start_telegram_service2.bat"` -> `python.exe -m uvicorn telegram_service2:app --port 8001`
+- `Telegram FastAPI Service` can be disabled in Task Scheduler while a live runtime still exists:
+  - parent chain: `cmd.exe /c "C:\Users\User\Pictures\train\start_telegram_service.bat"` -> `python.exe -m uvicorn telegram_service:app --port 8000`
+- Important:
+  - do not trust only the task state
+  - verify both listener and HTTP response
+  - `8000` has shown unstable behavior on `2026-03-25`: `/docs` responded with `200`, but media download also hit `cURL error 7` / connection reset against `http://127.0.0.1:8000/groups/download-message-media`
+
+### Folder video / Caddy runtime
+
+- Live listeners observed on `2026-03-25`:
+  - `127.0.0.1:2019`
+  - `0.0.0.0:8090`
+  - `0.0.0.0:9005`
+  - `0.0.0.0:450`
+- Current repo-managed folder-video bootstrap files:
+  - `C:\www\blog\scripts\start-folder-video-api.bat`
+  - `C:\www\blog\scripts\start-folder-video-api.ps1`
+  - `C:\www\blog\scripts\register-folder-video-api-caddy-startup-task.ps1`
+- Current generated runtime config:
+  - `C:\www\blog\storage\app\folder-video-server\Caddyfile`
+  - reverse proxies `:8090` to `https://127.0.0.1:443` with host `blog.test`
+- Important:
+  - GUI may show `CaddyServer` / `VideoHTTPServer`, but when direct task query is blocked, the better source of truth is listener + wrapper + Caddy state
+
+### Laravel local server runtime
+
+- A PHP process was listening on `127.0.0.1:8081` on `2026-03-25`.
+- The exact visible task name in GUI may be `LaravelBlogServer`, but if task query is denied, confirm it from the listener and related wrapper/config chain instead of assuming the task is missing.
 
 ## Flow 1: Token Scan Dispatch
 
@@ -89,7 +146,7 @@ Observed and cross-checked on 2026-03-16 in `C:\www\blog`.
 
 - After FastAPI is ready, the batch runs:
   - `php artisan tg:scan-group-tokens`
-  - `php artisan tg:dispatch-token-scan-items --done-action=delete --fallback-newjmqbot --port=<selected-port>`
+  - `php artisan tg:dispatch-token-scan-items --done-action=delete --port=<selected-port>`
 
 ### Laravel to TG API
 
@@ -98,8 +155,9 @@ Observed and cross-checked on 2026-03-16 in `C:\www\blog`.
   - `http://127.0.0.1:8001/`
 - It scans Telegram group messages, extracts tokens, and inserts new rows into `token_scan_items`.
 - `DispatchTokenScanItemsCommand` posts to:
-  - `POST /bots/send-and-run-all-pages`
-  - `GET /bots/download-jobs/{jobId}`
+  - `POST /bots/send`
+  - `POST /bots/run-all-pages-by-bot` for `@vipfiles2bot` and `@MessengerCode_bot`
+  - `POST /bots/click-matching-button` for `@QQfile_bot` and `@yzfile_bot`
 - Default API host is `http://127.0.0.1`, with the port supplied by the batch file.
 
 ## Flow 2: Group Media Download
@@ -131,9 +189,15 @@ Observed and cross-checked on 2026-03-16 in `C:\www\blog`.
   - `POST /groups/download-message-media`
 - For text-only messages it may extract tokens and queue them into `token_scan_items`.
 
+### Current runtime note
+
+- `ensure_tg_scan_group_media.log` shows the hourly wrapper is doing its job: it avoids duplicate launches when an older scan is still running.
+- `tg_scan_group_media_runtime.log` on `2026-03-25` shows the command was actively downloading media from `http://127.0.0.1:8000/`, but later hit a connection reset on `/groups/download-message-media`.
+- For this flow, "port open" is not enough. Confirm an actual media endpoint call can complete.
+
 ## Flow 3: Telegram FastAPI Services Outside Repo
 
-The blog repo does not contain the FastAPI source. The currently observed runtime layout is:
+The currently observed runtime layout is:
 
 - Base directory:
   - `C:\Users\User\Pictures\train`
@@ -148,6 +212,8 @@ The blog repo does not contain the FastAPI source. The currently observed runtim
 - Watchdog batch:
   - `start_telegram_services.bat`
   - starts service 1 or service 2 if their ports are not listening
+- Note:
+  - the same FastAPI source files also exist in `C:\www\blog\python\telegram_service.py` and `C:\www\blog\python\telegram_service2.py`, but the live scheduled tasks currently launch the copies under `C:\Users\User\Pictures\train`
 
 ## Flow 4: `get-bt`
 
@@ -176,6 +242,48 @@ The blog repo does not contain the FastAPI source. The currently observed runtim
 - Requests pages `1` to `3`
 - Parses HTML for `/view/` detail links
 - Passes each detail page URL to `GetBtDataDetailController::fetchDetail()`
+
+## Flow 5: Project Log Cleanup
+
+### Scheduler to batch and PowerShell
+
+- Task Scheduler runs `C:\www\blog\scripts\clear_project_logs.bat`.
+- The batch runs `C:\www\blog\scripts\clear_project_logs.ps1`.
+
+### Cleanup behavior
+
+- The PowerShell script scans:
+  - `C:\www\blog`
+  - `C:\Users\User\Pictures\train`
+- It deletes `*.log` files except those tracked by git in each repo.
+- This task can affect investigation data, so check it before assuming missing logs mean a flow never ran.
+
+## Flow 6: Folder Video LAN API Through Caddy
+
+### Wrapper to PowerShell
+
+- `C:\www\blog\scripts\start-folder-video-api.bat`
+  - `cd /d C:\www\blog`
+  - `powershell -ExecutionPolicy Bypass -File C:\www\blog\scripts\start-folder-video-api.ps1`
+
+### PowerShell to live Caddy
+
+- `start-folder-video-api.ps1`:
+  - ensures a local Caddy binary under `storage\bin\caddy`
+  - writes runtime config to `storage\app\folder-video-server\Caddyfile`
+  - stops legacy `artisan serve` on the target port
+  - starts `caddy.exe run --config <Caddyfile>`
+- Default port:
+  - `8090`
+- Reverse proxy target:
+  - `https://127.0.0.1:443`
+  - host header `blog.test`
+
+### Registration helper
+
+- `register-folder-video-api-caddy-startup-task.ps1` registers a startup task named:
+  - `Blog Folder Video API Caddy`
+- If GUI instead shows older or manually created tasks such as `CaddyServer` / `VideoHTTPServer`, compare them against this wrapper and the live listeners before changing anything.
 
 ## Important Note About Laravel Internal Scheduling
 

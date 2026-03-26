@@ -629,7 +629,7 @@ class DispatchTokenScanItemsCommand extends Command
                     ->post($sendUrl, $sendPayload);
 
                 if (!$sendResponse->ok()) {
-                    $lastError = 'send HTTP ' . $sendResponse->status() . ' ' . Str::limit((string) $sendResponse->body(), 300);
+                    $lastError = 'send HTTP ' . $sendResponse->status();
                     continue;
                 }
 
@@ -651,7 +651,7 @@ class DispatchTokenScanItemsCommand extends Command
                     ->post($followupUrl, $followupPayloadWithContext);
 
                 if (!$paginationResponse->ok()) {
-                    $lastError = 'followup HTTP ' . $paginationResponse->status() . ' ' . Str::limit((string) $paginationResponse->body(), 300);
+                    $lastError = 'followup HTTP ' . $paginationResponse->status();
                     continue;
                 }
 
@@ -821,9 +821,9 @@ class DispatchTokenScanItemsCommand extends Command
             'delay_seconds' => 1,
             'button_keywords' => $buttonKeywords,
             'debug' => true,
-            'debug_max_logs' => 2000,
-            'include_files_in_response' => true,
-            'max_return_files' => 1000,
+            'debug_max_logs' => 200,
+            'include_files_in_response' => false,
+            'max_return_files' => 0,
             'max_raw_payload_bytes' => 0,
             'wait_after_click_timeout_seconds' => 12,
             // Preserve the detail message so follow-up completion/progress can still be traced.
@@ -938,7 +938,7 @@ class DispatchTokenScanItemsCommand extends Command
         $lastState = $this->inspectQqYzReplyState([], $botApi, $sentMessageId);
 
         while (true) {
-            $replies = $this->fetchRecentBotReplies($baseUri);
+                $replies = $this->fetchRecentBotReplies($baseUri, $botApi, $sentMessageId);
             if (!empty($replies)) {
                 $lastState = $this->inspectQqYzReplyState($replies, $botApi, $sentMessageId);
             }
@@ -1081,13 +1081,16 @@ class DispatchTokenScanItemsCommand extends Command
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function fetchRecentBotReplies(string $baseUri): array
+    private function fetchRecentBotReplies(string $baseUri, string $botApi, int $minMessageId): array
     {
         try {
             $response = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
                 ->acceptJson()
                 ->get(rtrim($baseUri, '/') . '/bots/replies', [
                     'limit' => self::BOT_REPLIES_FETCH_LIMIT,
+                    'bot_username' => $botApi,
+                    'min_message_id' => max($minMessageId, 0),
+                    'summary_only' => 1,
                 ]);
 
             if (!$response->ok()) {
@@ -1245,7 +1248,7 @@ class DispatchTokenScanItemsCommand extends Command
             if (!$response->ok()) {
                 return [
                     'ok' => false,
-                    'reason' => 'followup HTTP ' . $response->status() . ' ' . Str::limit((string) $response->body(), 300),
+                    'reason' => 'followup HTTP ' . $response->status(),
                 ];
             }
 

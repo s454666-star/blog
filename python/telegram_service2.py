@@ -197,6 +197,22 @@ def get_last_messages(limit: int) -> List[Dict[str, Any]]:
     return msgs[-limit:]
 
 
+def _summarize_reply_message(msg: Dict[str, Any]) -> Dict[str, Any]:
+    buttons = []
+    for btn in get_callback_buttons(msg):
+        buttons.append({
+            "text": str(btn.get("text") or ""),
+        })
+
+    return {
+        "bot_username": msg.get("bot_username"),
+        "message_id": int(msg.get("message_id", 0) or 0),
+        "reply_to_message_id": int(msg.get("reply_to_message_id", 0) or 0),
+        "text": str(msg.get("text") or ""),
+        "buttons": buttons,
+    }
+
+
 @app.on_event("startup")
 async def startup():
     await client.start()
@@ -2239,8 +2255,29 @@ async def clear_replies():
 
 
 @app.get("/bots/replies")
-async def get_bot_replies(limit: int = 20):
-    return get_last_messages(limit)
+async def get_bot_replies(
+    limit: int = 20,
+    bot_username: str = "",
+    min_message_id: int = 0,
+    summary_only: bool = False,
+):
+    msgs = get_all_messages_sorted()
+    normalized_bot = str(bot_username or "").strip()
+    lower_bound = int(min_message_id or 0)
+    max_items = max(int(limit or 20), 1)
+
+    if normalized_bot:
+        msgs = [msg for msg in msgs if _message_matches_bot(msg, normalized_bot)]
+
+    if lower_bound > 0:
+        msgs = [msg for msg in msgs if int(msg.get("message_id", 0) or 0) >= lower_bound]
+
+    msgs = msgs[-max_items:]
+
+    if summary_only:
+        return [_summarize_reply_message(msg) for msg in msgs]
+
+    return msgs
 
 
 @app.get("/bots/debug-logs")

@@ -32,7 +32,7 @@ return [
         'videos' => [
             'driver' => 'local',
             'root' => 'D:\video', // Windows 系統下的絕對路徑
-            'url' => 'https://video.test/', // 對應的基礎 URL
+            'url' => env('VIDEO_BASE_URL', 'https://blog.test/video'),
             'visibility' => 'public',
         ],
         'local' => [

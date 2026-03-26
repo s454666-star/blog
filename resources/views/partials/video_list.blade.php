@@ -2,6 +2,10 @@
 
 <div class="row">
     @forelse($videos as $video)
+        @php
+            $baseUrl = rtrim((string) config('app.video_base_url', ''), '/');
+            $videoPath = ltrim((string) $video->video_path, '/');
+        @endphp
         <div class="col-md-4" id="video-card-{{ $video->id }}">
             <div class="video-card">
                 <!-- 刪除按鈕 -->
@@ -9,9 +13,8 @@
                     <i class="fas fa-trash-alt"></i>
                 </button>
                 <div class="video-thumbnail">
-                    {{-- 設定影片播放路徑為固定的基礎 URL https://video.test/ 加上 video_path --}}
                     <video width="100%" height="200" controls>
-                        <source src="https://video.test/{{ $video->video_path }}" type="video/mp4">
+                        <source src="{{ $baseUrl }}/{{ $videoPath }}" type="video/mp4">
                         您的瀏覽器不支援影片播放。
                     </video>
                 </div>

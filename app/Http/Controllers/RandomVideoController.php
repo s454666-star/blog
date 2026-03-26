@@ -4,6 +4,7 @@
 
     use App\Models\VideoMaster;
     use Illuminate\Http\JsonResponse;
+    use Illuminate\Support\Facades\Config;
 
     class RandomVideoController extends Controller
     {
@@ -30,7 +31,7 @@
             }
 
             // 加上環境變數的基底 URL
-            $baseUrl = rtrim(env('VIDEO_BASE_URL'), '/');
+            $baseUrl = rtrim((string) Config::get('app.video_base_url', ''), '/');
 
             // 轉換路徑中的反斜線 -> 正斜線，並清理多餘的斜線
             $formattedPath = str_replace('\\', '/', $video->video_path);

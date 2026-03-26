@@ -17,7 +17,9 @@ class DispatchTokenScanItemsCommand extends Command
         {--port=8000 : Telegram FastAPI service port. Default 8000}
         {--base-uri=* : Explicit Telegram API base URI(s). Overrides --port}
         {--fallback-newjmqbot : Deprecated and ignored. @newjmqbot is disabled.}
-        {--include-processed : Include rows with updated_at already set}';
+        {--include-processed : Include rows with updated_at already set}
+        {--stopped-early-retry-delay=180 : Wait seconds before retrying unresolved QQ/yz token}
+        {--stopped-early-max-retries=5 : Max extra retries for unresolved QQ/yz token before exiting with code 3}';
 
     protected $description = 'Dispatch token_scan_items tokens to Telegram bots and delete or touch rows after success.';
 
@@ -68,6 +70,7 @@ class DispatchTokenScanItemsCommand extends Command
     private const QQ_YZ_COMPLETION_TIMEOUT_SECONDS = 900;
     private const QQ_YZ_COMPLETION_POLL_MICROSECONDS = 5000000;
     private const QQ_YZ_RETRY_BUDGET_SECONDS = 300;
+    private const STOPPED_EARLY_EXIT = 3;
     private const QQ_YZ_MAX_CONTINUE_PUSH_CLICKS = 20;
     private const QQ_YZ_NEXT_TOKEN_DELAY_MICROSECONDS = 8000000;
     private const INITIAL_API_TIMEOUT_SECONDS = 60;
@@ -133,6 +136,8 @@ class DispatchTokenScanItemsCommand extends Command
         $manualTokens = $this->normalizeTokenInputs((array) $this->argument('tokens'));
         $limit = max((int) $this->option('limit'), 0);
         $includeProcessed = (bool) $this->option('include-processed');
+        $stoppedEarlyRetryDelaySeconds = max((int) $this->option('stopped-early-retry-delay'), 0);
+        $stoppedEarlyMaxRetries = max((int) $this->option('stopped-early-max-retries'), 0);
         $jobs = $this->buildJobs($manualTokens, $limit, $includeProcessed);
 
         if (empty($jobs)) {
@@ -151,15 +156,21 @@ class DispatchTokenScanItemsCommand extends Command
             'manual_only' => 0,
         ];
 
+        foreach ($jobs as $job) {
+            if (!($job['item'] instanceof TokenScanItem)) {
+                $stats['manual_only']++;
+            }
+        }
+
         $totalJobs = count($jobs);
         $remainingUnprocessed = 0;
         $stoppedEarly = false;
+        $stoppedEarlyRetriesByJob = [];
 
         $this->line('done_action=' . $doneAction . ' jobs=' . $totalJobs);
 
-        foreach ($jobs as $index => $job) {
-            $stats['manual_only'] += $job['item'] instanceof TokenScanItem ? 0 : 1;
-
+        for ($index = 0; $index < $totalJobs; $index++) {
+            $job = $jobs[$index];
             $this->line(str_repeat('-', 100));
             $this->line(sprintf(
                 '[%d/%d] id=%s token=%s',
@@ -169,25 +180,12 @@ class DispatchTokenScanItemsCommand extends Command
                 $job['token']
             ));
 
+            $retryAttempt = (($stoppedEarlyRetriesByJob[$index] ?? 0) + 1);
+            if ($retryAttempt > 1) {
+                $this->line('retry_attempt=' . $retryAttempt . '/' . ($stoppedEarlyMaxRetries + 1));
+            }
+
             $result = $this->processOneToken($job, $doneAction);
-            $classification = (string) $result['classification'];
-
-            if ($classification === 'success') {
-                $stats['success']++;
-            } elseif ($classification === 'skipped_size_limit') {
-                $stats['skipped_size_limit']++;
-            } elseif ($classification === 'not_found') {
-                $stats['not_found']++;
-            } else {
-                $stats['failed']++;
-            }
-
-            if (($result['db_action'] ?? '') === 'touch') {
-                $stats['touched']++;
-            }
-            if (($result['db_action'] ?? '') === 'delete') {
-                $stats['deleted']++;
-            }
 
             $this->line(sprintf(
                 'bot=%s api=%s status=%s files=%d total_size=%s latest_kind=%s db_action=%s',
@@ -212,9 +210,47 @@ class DispatchTokenScanItemsCommand extends Command
             $this->printDebugTail((array) ($result['debug'] ?? []));
 
             if (($result['stop_processing'] ?? false) === true) {
+                $retryCount = (int) ($stoppedEarlyRetriesByJob[$index] ?? 0);
+                if ($retryCount < $stoppedEarlyMaxRetries) {
+                    $retryCount++;
+                    $stoppedEarlyRetriesByJob[$index] = $retryCount;
+                    $this->warn(sprintf(
+                        'Unresolved QQ/yz run detected. Wait %d seconds and retry the current token. retry=%d/%d',
+                        $stoppedEarlyRetryDelaySeconds,
+                        $retryCount,
+                        $stoppedEarlyMaxRetries
+                    ));
+                    if ($stoppedEarlyRetryDelaySeconds > 0) {
+                        sleep($stoppedEarlyRetryDelaySeconds);
+                    }
+                    $index--;
+                    continue;
+                }
+            }
+
+            $classification = (string) $result['classification'];
+
+            if ($classification === 'success') {
+                $stats['success']++;
+            } elseif ($classification === 'skipped_size_limit') {
+                $stats['skipped_size_limit']++;
+            } elseif ($classification === 'not_found') {
+                $stats['not_found']++;
+            } else {
+                $stats['failed']++;
+            }
+
+            if (($result['db_action'] ?? '') === 'touch') {
+                $stats['touched']++;
+            }
+            if (($result['db_action'] ?? '') === 'delete') {
+                $stats['deleted']++;
+            }
+
+            if (($result['stop_processing'] ?? false) === true) {
                 $remainingUnprocessed = max(0, $totalJobs - ($index + 1));
                 $stoppedEarly = true;
-                $this->warn('Stopping dispatch after unresolved QQ/yz run so the next token does not start early.');
+                $this->warn('Stopping dispatch after unresolved QQ/yz run reached the retry limit so the next token does not start early.');
                 break;
             }
 
@@ -236,6 +272,7 @@ class DispatchTokenScanItemsCommand extends Command
         if ($stoppedEarly) {
             $this->line('stopped_early=1');
             $this->line('remaining_unprocessed=' . $remainingUnprocessed);
+            return self::STOPPED_EARLY_EXIT;
         }
 
         return self::SUCCESS;

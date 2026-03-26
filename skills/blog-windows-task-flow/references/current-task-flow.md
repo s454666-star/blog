@@ -147,6 +147,7 @@ Observed and cross-checked on 2026-03-25 in `C:\www\blog`.
 - After FastAPI is ready, the batch runs:
   - `php artisan tg:scan-group-tokens`
   - `php artisan tg:dispatch-token-scan-items --done-action=delete --port=<selected-port>`
+- `tg:dispatch-token-scan-items` itself waits `180` seconds and retries the same unresolved QQ/yz token up to `5` extra times; if the token still cannot finish, the command exits with code `3`.
 
 ### Laravel to TG API
 

@@ -398,4 +398,152 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             'id' => $itemId,
         ]);
     }
+
+    public function test_dispatch_retries_current_unresolved_qq_token_inside_the_same_command(): void
+    {
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'QQfile_bot:17051_63359_820-2V',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        $sendCount = 0;
+        $clickCount = 0;
+
+        Http::fake(function ($request) use (&$sendCount, &$clickCount) {
+            $url = $request->url();
+            $botUsername = (string) ($request['bot_username'] ?? '');
+
+            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'QQfile_bot') {
+                $sendCount++;
+
+                if ($sendCount === 1) {
+                    return Http::response([
+                        'status' => 'ok',
+                    ], 200);
+                }
+
+                return Http::response([
+                    'status' => 'ok',
+                    'sent_message_id' => 321,
+                ], 200);
+            }
+
+            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
+                $clickCount++;
+
+                if ($clickCount === 1) {
+                    return Http::response([
+                        'status' => 'fail',
+                        'reason' => 'no matching button found',
+                        'files_unique_count' => 0,
+                        'files_total_bytes' => 0,
+                        'button_clicked' => false,
+                        'clicked_button_text' => '',
+                        'latest_message' => [
+                            'kind' => 'other',
+                            'text_preview' => '未找到可點擊的推送按鈕',
+                            'has_buttons' => false,
+                            'buttons_text' => [],
+                        ],
+                        'timeline' => [
+                            ['step' => 0, 'status' => 'fail', 'reason' => 'no matching button found'],
+                        ],
+                        'debug' => [],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'status' => 'ok',
+                    'reason' => 'clicked matching button',
+                    'button_clicked' => true,
+                    'clicked_button_text' => '推送全部',
+                    'files_unique_count' => 0,
+                    'files_total_bytes' => 0,
+                    'latest_message' => [
+                        'kind' => 'state',
+                        'text_preview' => '已點擊',
+                        'has_buttons' => false,
+                        'buttons_text' => [],
+                    ],
+                    'timeline' => [
+                        ['step' => 0, 'status' => 'clicked', 'clicked_button_text' => '推送全部'],
+                    ],
+                    'debug' => [],
+                ], 200);
+            }
+
+            if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                return Http::response([
+                    [
+                        'bot_username' => 'QQfile_bot',
+                        'message_id' => 322,
+                        'text' => '文件获取完毕，文件总数 3',
+                        'buttons' => [],
+                    ],
+                ], 200);
+            }
+
+            return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
+        });
+
+        $this->artisan('tg:dispatch-token-scan-items --stopped-early-retry-delay=0')
+            ->assertExitCode(0);
+
+        $this->assertSame(2, $sendCount);
+        $this->assertGreaterThanOrEqual(2, $clickCount);
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+    }
+
+    public function test_dispatch_returns_retry_exit_code_when_it_stops_early_for_unresolved_qq_run(): void
+    {
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'QQfile_bot:17051_63359_820-2V',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        Http::fake(function ($request) {
+            $url = $request->url();
+            $botUsername = (string) ($request['bot_username'] ?? '');
+
+            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'QQfile_bot') {
+                return Http::response([
+                    'status' => 'ok',
+                ], 200);
+            }
+
+            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
+                return Http::response([
+                    'status' => 'fail',
+                    'reason' => 'no matching button found',
+                    'files_unique_count' => 0,
+                    'files_total_bytes' => 0,
+                    'button_clicked' => false,
+                    'clicked_button_text' => '',
+                    'latest_message' => [
+                        'kind' => 'other',
+                        'text_preview' => '未找到可點擊的推送按鈕',
+                        'has_buttons' => false,
+                        'buttons_text' => [],
+                    ],
+                    'timeline' => [
+                        ['step' => 0, 'status' => 'fail', 'reason' => 'no matching button found'],
+                    ],
+                    'debug' => [],
+                ], 200);
+            }
+
+            return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
+        });
+
+        $this->artisan('tg:dispatch-token-scan-items --stopped-early-retry-delay=0 --stopped-early-max-retries=0')
+            ->assertExitCode(3);
+
+        $this->assertDatabaseHas('token_scan_items', [
+            'id' => $itemId,
+        ]);
+    }
 }

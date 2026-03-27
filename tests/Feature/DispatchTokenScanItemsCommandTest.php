@@ -82,7 +82,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         });
     }
 
-    public function test_dispatch_uses_send_then_pagination_only_for_mtfxq_bot(): void
+    public function test_dispatch_uses_send_and_run_all_pages_for_mtfxq_bot(): void
     {
         $itemId = DB::table('token_scan_items')->insertGetId([
             'token' => 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
@@ -91,29 +91,25 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send' => Http::response([
+            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
-                'sent_message_id' => 94270,
-            ], 200),
-            'http://127.0.0.1:8000/bots/run-all-pages-by-bot' => Http::response([
-                'status' => 'ok',
-                'reason' => 'no_click',
-                'files_unique_count' => 14,
-                'files_total_bytes' => 0,
+                'reason' => 'reached total items after final page click; stop',
+                'files_unique_count' => 61,
+                'files_total_bytes' => 123,
                 'latest_message' => [
-                    'kind' => 'other',
-                    'text_preview' => '',
+                    'kind' => 'state',
+                    'text_preview' => '✅ 第 **7**/7 页 📀全部类型',
                     'has_buttons' => false,
-                    'page_info' => [],
+                    'page_info' => [
+                        'current_page' => 7,
+                        'total_pages' => 7,
+                    ],
                 ],
                 'timeline' => [
                     [
                         'step' => 0,
-                        'status' => 'first_state',
-                        'page_info' => [
-                            'current_page' => 1,
-                            'total_pages' => 2,
-                        ],
+                        'status' => 'bootstrap_clicked_anytime',
+                        'clicked_text' => '📀获取全部(61)',
                     ],
                     [
                         'step' => 1,
@@ -121,13 +117,17 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                         'clicked' => '2',
                     ],
                     [
-                        'step' => 2,
+                        'step' => 7,
                         'status' => 'done',
-                        'reason' => 'no_click',
+                        'reason' => 'reached total items after final page click; stop',
                     ],
                 ],
                 'debug' => [],
-                'page_state' => [],
+                'page_state' => [
+                    'did_bootstrap_click' => true,
+                    'did_any_pagination_click' => true,
+                    'last_clicked_page' => 7,
+                ],
             ], 200),
         ]);
 
@@ -139,17 +139,21 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/send'
+            return $request->url() === 'http://127.0.0.1:8000/bots/send-and-run-all-pages'
                 && $request['bot_username'] === 'mtfxqbot'
                 && $request['text'] === 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2'
-                && $request['clear_previous_replies'] === true;
+                && $request['clear_previous_replies'] === true
+                && $request['download_after_done'] === false
+                && $request['wait_download_completion'] === false;
         });
 
-        Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
-                && $request['bot_username'] === 'mtfxqbot'
-                && $request['clear_previous_replies'] === false
-                && !isset($request['text']);
+        Http::assertNotSent(function ($request): bool {
+            return str_contains($request->url(), '/bots/send')
+                && !str_contains($request->url(), '/bots/send-and-run-all-pages');
+        });
+
+        Http::assertNotSent(function ($request): bool {
+            return str_contains($request->url(), '/bots/run-all-pages-by-bot');
         });
     }
 

@@ -619,6 +619,13 @@ class DispatchTokenScanItemsCommand extends Command
      */
     private function callTelegramApi(array $bot, string $text): array
     {
+        if (
+            ($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_PAGINATE
+            && $this->shouldUseCombinedPaginationEndpoint((string) ($bot['api'] ?? ''))
+        ) {
+            return $this->callCombinedPaginationApi((string) $bot['api'], $text);
+        }
+
         $lastError = 'unknown';
         $sendPayload = $this->buildSendPayload($text, (string) $bot['api']);
         $followupPayload = (($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON)
@@ -716,6 +723,61 @@ class DispatchTokenScanItemsCommand extends Command
     }
 
     /**
+     * MTFXQ first returns a file-type selector with a "獲取全部" callback button.
+     * The combined endpoint can bootstrap that click before entering the page loop.
+     */
+    private function shouldUseCombinedPaginationEndpoint(string $botUsername): bool
+    {
+        return $botUsername === self::BOT_MTFXQ['api'];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function callCombinedPaginationApi(string $botUsername, string $text): array
+    {
+        $lastError = 'unknown';
+        $payload = $this->buildSendAndPaginationPayload($text, $botUsername);
+
+        foreach ($this->getApiBaseUris() as $baseUri) {
+            $url = rtrim($baseUri, '/') . '/bots/send-and-run-all-pages';
+
+            try {
+                $response = Http::timeout(self::FOLLOWUP_API_TIMEOUT_SECONDS)
+                    ->acceptJson()
+                    ->asJson()
+                    ->post($url, $payload);
+
+                if (!$response->ok()) {
+                    $lastError = 'send_and_run HTTP ' . $response->status();
+                    continue;
+                }
+
+                $json = $response->json();
+                if (!is_array($json)) {
+                    $lastError = 'send_and_run invalid json response';
+                    continue;
+                }
+
+                return [
+                    'ok' => true,
+                    'base_uri' => $baseUri,
+                    'http_status' => $response->status(),
+                    'sent_message_id' => (int) ($json['sent_message_id'] ?? 0),
+                    'json' => $json,
+                ];
+            } catch (Throwable $e) {
+                $lastError = $e->getMessage();
+            }
+        }
+
+        return [
+            'ok' => false,
+            'error' => $lastError,
+        ];
+    }
+
+    /**
      * @return array<int, string>
      */
     private function getApiBaseUris(): array
@@ -755,6 +817,20 @@ class DispatchTokenScanItemsCommand extends Command
             'text' => $token,
             'clear_previous_replies' => true,
         ];
+    }
+
+    private function buildSendAndPaginationPayload(string $token, string $botUsername): array
+    {
+        return array_merge(
+            $this->buildPaginationPayload($botUsername),
+            [
+                'bot_username' => $botUsername,
+                'text' => $token,
+                'clear_previous_replies' => true,
+                'download_after_done' => false,
+                'wait_download_completion' => false,
+            ]
+        );
     }
 
     private function buildPaginationPayload(string $botUsername): array

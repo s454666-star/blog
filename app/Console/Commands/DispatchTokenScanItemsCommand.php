@@ -18,7 +18,7 @@ class DispatchTokenScanItemsCommand extends Command
         {--base-uri=* : Explicit Telegram API base URI(s). Overrides --port}
         {--fallback-newjmqbot : Deprecated and ignored. @newjmqbot is disabled.}
         {--include-processed : Include rows with updated_at already set}
-        {--stopped-early-retry-delay=30 : Wait seconds before retrying unresolved QQ/yz token}
+        {--stopped-early-retry-delay=10 : Wait seconds before retrying unresolved QQ/yz token}
         {--stopped-early-max-retries=5 : Max extra retries for unresolved QQ/yz token before exiting with code 3}';
 
     protected $description = 'Dispatch token_scan_items tokens to Telegram bots and delete or touch rows after success.';

@@ -117,7 +117,6 @@
                 if (!empty($imageUrls)) {
                     foreach ($imageUrls as $imageUrl) {
                         try {
-                            var_dump($imageUrl);
                             $realUrl = $this->getRealImageController->processImage($imageUrl);
 
                             $existingImage = $article->images()->where('image_path', $realUrl)->first();

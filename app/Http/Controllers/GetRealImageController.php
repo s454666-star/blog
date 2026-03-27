@@ -34,12 +34,22 @@ class GetRealImageController
 
             $status = $response->getStatusCode();
             $html   = (string) $response->getBody();
+            $contentType = strtolower(trim((string) $response->getHeaderLine('Content-Type')));
             Log::info('processImage HTTP 回應', compact('detailPageUrl','status') + ['body_len'=>strlen($html)]);
 
             // 只在 5xx（真正的 Server Error）才跳過
             if ($status >= 500) {
                 Log::warning('processImage HTTP ≥500，跳過解析', compact('detailPageUrl','status'));
                 return null;
+            }
+
+            // 某些圖床連結會直接回傳圖片，不會有可解析的 HTML。
+            if (str_starts_with($contentType, 'image/')) {
+                Log::info('processImage 偵測到直接圖片回應', [
+                    'detailPageUrl' => $detailPageUrl,
+                    'content_type' => $contentType,
+                ]);
+                return $detailPageUrl;
             }
 
             $crawler = new Crawler($html);

@@ -121,6 +121,16 @@ class DispatchTokenScanItemsCommand extends Command
         'invalid_callback',
         'did not answer to the callback query in time',
     ];
+    private const QQ_YZ_VERIFICATION_MARKERS = [
+        '触发风控验证',
+        '觸發風控驗證',
+        '请选择正确的计算结果',
+        '請選擇正確的計算結果',
+    ];
+    private const QQ_YZ_VERIFICATION_POST_CLICK_DELAY_MICROSECONDS = 1000000;
+    private const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
+    private const OPENAI_MODEL = 'gpt-4o-mini';
+    private const OPENAI_TIMEOUT_SECONDS = 60;
 
     private const NOT_FOUND_MARKERS = [
         '💔抱歉，未找到可解析内容。',
@@ -1012,21 +1022,111 @@ class DispatchTokenScanItemsCommand extends Command
         $baseUri = trim((string) ($result['base_uri'] ?? ''));
         $botApi = trim((string) ($result['bot_api'] ?? ''));
         $sentMessageId = (int) ($result['sent_message_id'] ?? 0);
+        $dispatchText = trim((string) ($result['dispatch_text'] ?? ''));
 
         if ($baseUri === '' || !$this->isQqOrYzBotApi($botApi) || $sentMessageId <= 0) {
             $result['stop_processing'] = ($result['classification'] ?? '') !== 'success';
             return $result;
         }
 
+        $activeSentMessageId = $sentMessageId;
         $deadline = microtime(true) + self::QQ_YZ_INITIAL_OBSERVE_TIMEOUT_SECONDS;
         $extendedDeadline = false;
         $continuePushClicks = 0;
-        $lastState = $this->inspectQqYzReplyState([], $botApi, $sentMessageId);
+        $lastState = $this->inspectQqYzReplyState([], $botApi, $activeSentMessageId);
+        $pushAllClicked = $this->buttonTextMatchesAnyKeyword(
+            (string) ($result['clicked_button_text'] ?? ''),
+            self::PUSH_ALL_BUTTON_KEYWORDS
+        );
+        $fallbackButtonClicked = $this->buttonTextMatchesAnyKeyword(
+            (string) ($result['clicked_button_text'] ?? ''),
+            self::QQ_YZ_FALLBACK_BUTTON_KEYWORDS
+        );
+        $verificationSolvedButtonText = '';
+        $handledVerificationFingerprints = [];
 
         while (true) {
-                $replies = $this->fetchRecentBotReplies($baseUri, $botApi, $sentMessageId);
+            $replies = $this->fetchRecentBotReplies($baseUri, $botApi, $activeSentMessageId);
             if (!empty($replies)) {
-                $lastState = $this->inspectQqYzReplyState($replies, $botApi, $sentMessageId);
+                $lastState = $this->inspectQqYzReplyState($replies, $botApi, $activeSentMessageId);
+            }
+
+            if (($lastState['verification_required'] ?? false) === true) {
+                $verificationFingerprint = trim((string) ($lastState['verification_fingerprint'] ?? ''));
+
+                if ($verificationFingerprint !== '' && !isset($handledVerificationFingerprints[$verificationFingerprint])) {
+                    $handledVerificationFingerprints[$verificationFingerprint] = true;
+
+                    $verificationResult = $this->solveAndClickQqYzVerificationChallenge(
+                        $baseUri,
+                        $botApi,
+                        $activeSentMessageId,
+                        $lastState
+                    );
+
+                    $resolvedButtonText = trim((string) ($verificationResult['resolved_button_text'] ?? $verificationResult['clicked_button_text'] ?? ''));
+                    if (($verificationResult['button_clicked'] ?? false) === true && $resolvedButtonText !== '') {
+                        $verificationSolvedButtonText = $resolvedButtonText;
+                    }
+
+                    if (($verificationResult['button_clicked'] ?? false) === true) {
+                        $resentToken = $this->resendQqYzDispatchText($baseUri, $botApi, $dispatchText);
+                        if (($resentToken['sent_message_id'] ?? 0) > 0) {
+                            $activeSentMessageId = (int) $resentToken['sent_message_id'];
+                            $continuePushClicks = 0;
+                            $lastState = $this->inspectQqYzReplyState([], $botApi, $activeSentMessageId);
+                        }
+
+                        $pushAllClicked = false;
+                        $fallbackButtonClicked = false;
+                        $deadline = microtime(true) + self::QQ_YZ_INITIAL_OBSERVE_TIMEOUT_SECONDS;
+                        $extendedDeadline = false;
+                        usleep(self::QQ_YZ_VERIFICATION_POST_CLICK_DELAY_MICROSECONDS);
+                        continue;
+                    }
+                }
+            }
+
+            $primaryButtonKeywords = null;
+
+            if (
+                !$pushAllClicked
+                && ($lastState['push_all_available'] ?? false) === true
+                && ($lastState['accepted_observed'] ?? false) === false
+                && ($lastState['progress_observed'] ?? false) === false
+            ) {
+                $primaryButtonKeywords = self::PUSH_ALL_BUTTON_KEYWORDS;
+            } elseif (
+                !$fallbackButtonClicked
+                && ($lastState['fallback_available'] ?? false) === true
+                && ($lastState['accepted_observed'] ?? false) === false
+                && ($lastState['progress_observed'] ?? false) === false
+            ) {
+                $primaryButtonKeywords = self::QQ_YZ_FALLBACK_BUTTON_KEYWORDS;
+            }
+
+            if ($primaryButtonKeywords !== null) {
+                $primaryButtonResult = $this->clickQqYzButton(
+                    $baseUri,
+                    $botApi,
+                    $activeSentMessageId,
+                    $primaryButtonKeywords
+                );
+
+                if (($primaryButtonResult['button_clicked'] ?? false) === true) {
+                    if ($primaryButtonKeywords === self::PUSH_ALL_BUTTON_KEYWORDS) {
+                        $pushAllClicked = true;
+                    }
+
+                    if ($primaryButtonKeywords === self::QQ_YZ_FALLBACK_BUTTON_KEYWORDS) {
+                        $fallbackButtonClicked = true;
+                    }
+
+                    $deadline = microtime(true) + self::QQ_YZ_COMPLETION_TIMEOUT_SECONDS;
+                    $extendedDeadline = true;
+                    usleep(self::QQ_YZ_VERIFICATION_POST_CLICK_DELAY_MICROSECONDS);
+                    continue;
+                }
             }
 
             if (
@@ -1037,7 +1137,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $continueResult = $this->clickQqYzButton(
                     $baseUri,
                     $botApi,
-                    $sentMessageId,
+                    $activeSentMessageId,
                     self::QQ_YZ_CONTINUE_PUSH_BUTTON_KEYWORDS
                 );
 
@@ -1076,14 +1176,14 @@ class DispatchTokenScanItemsCommand extends Command
                     $result['stop_processing'] = true;
                     $result['retry_after_queue_clear'] = true;
 
-                    return $result;
+                    return $this->prependQqYzVerificationSummary($result, $verificationSolvedButtonText);
                 }
 
                 $result['classification'] = 'success';
                 $result['summary'] = 'Completion confirmed: ' . (string) ($lastState['completion_preview'] ?: '文件获取完毕');
                 $result['stop_processing'] = false;
 
-                return $result;
+                return $this->prependQqYzVerificationSummary($result, $verificationSolvedButtonText);
             }
 
             if (($lastState['rate_limit_observed'] ?? false) === true) {
@@ -1096,7 +1196,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $result['retry_after_seconds'] = $retryAfterSeconds;
                 $result['retry_after_queue_clear'] = false;
 
-                return $result;
+                return $this->prependQqYzVerificationSummary($result, $verificationSolvedButtonText);
             }
 
             if (($lastState['retry_later_observed'] ?? false) === true) {
@@ -1108,7 +1208,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $result['retry_after_rate_limit'] = false;
                 $result['retry_after_callback_error'] = false;
 
-                return $result;
+                return $this->prependQqYzVerificationSummary($result, $verificationSolvedButtonText);
             }
 
             if (
@@ -1125,7 +1225,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $result['retry_after_rate_limit'] = false;
                 $result['retry_after_callback_error'] = false;
 
-                return $result;
+                return $this->prependQqYzVerificationSummary($result, $verificationSolvedButtonText);
             }
 
             if (
@@ -1143,7 +1243,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $result['retry_after_queue_clear'] = false;
                 $result['retry_after_rate_limit'] = false;
 
-                return $result;
+                return $this->prependQqYzVerificationSummary($result, $verificationSolvedButtonText);
             }
 
             if (microtime(true) >= $deadline) {
@@ -1157,7 +1257,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $result['summary'] = $this->buildQqYzIncompleteSummary($lastState);
                 $result['stop_processing'] = true;
 
-                return $result;
+                return $this->prependQqYzVerificationSummary($result, $verificationSolvedButtonText);
             }
 
             usleep(self::QQ_YZ_COMPLETION_POLL_MICROSECONDS);
@@ -1236,6 +1336,10 @@ class DispatchTokenScanItemsCommand extends Command
         $retryAfterSeconds = 0;
         $rateLimitObserved = false;
         $latestButtons = [];
+        $verificationRequired = false;
+        $verificationPreview = '';
+        $verificationButtons = [];
+        $verificationMessageId = 0;
 
         foreach ($filtered as $reply) {
             $text = $this->normalizePreviewText((string) ($reply['text'] ?? ''));
@@ -1243,9 +1347,17 @@ class DispatchTokenScanItemsCommand extends Command
                 $latestTextPreview = Str::limit($text, 240);
             }
 
+            $messageId = (int) ($reply['message_id'] ?? 0);
             $messageButtons = $this->extractReplyButtonTexts($reply);
             if (!empty($messageButtons)) {
                 $latestButtons = $messageButtons;
+            }
+
+            if ($text !== '' && !empty($messageButtons) && $this->isQqYzVerificationPrompt($text)) {
+                $verificationRequired = true;
+                $verificationPreview = Str::limit($text, 240);
+                $verificationButtons = $messageButtons;
+                $verificationMessageId = $messageId;
             }
 
             if ($text !== '' && $this->isQqYzCompletionText($text)) {
@@ -1310,7 +1422,19 @@ class DispatchTokenScanItemsCommand extends Command
             'retry_after_seconds' => $retryAfterSeconds,
             'rate_limit_preview' => $rateLimitPreview,
             'push_all_available' => $this->buttonTextsContainKeyword($latestButtons, self::PUSH_ALL_BUTTON_KEYWORDS),
+            'fallback_available' => $this->buttonTextsContainKeyword($latestButtons, self::QQ_YZ_FALLBACK_BUTTON_KEYWORDS),
             'latest_buttons' => $latestButtons,
+            'verification_required' => $verificationRequired,
+            'verification_preview' => $verificationPreview,
+            'verification_buttons' => $verificationButtons,
+            'verification_message_id' => $verificationMessageId,
+            'verification_fingerprint' => $verificationRequired
+                ? sha1(json_encode([
+                    'message_id' => $verificationMessageId,
+                    'text' => $verificationPreview,
+                    'buttons' => $verificationButtons,
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: ($verificationPreview . '|' . implode('|', $verificationButtons)))
+                : '',
         ];
     }
 
@@ -1356,6 +1480,316 @@ class DispatchTokenScanItemsCommand extends Command
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    private function resendQqYzDispatchText(string $baseUri, string $botApi, string $dispatchText): array
+    {
+        $normalizedText = trim($dispatchText);
+        if ($normalizedText === '') {
+            return [
+                'ok' => false,
+                'reason' => 'dispatch text missing',
+            ];
+        }
+
+        try {
+            $response = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
+                ->acceptJson()
+                ->asJson()
+                ->post(rtrim($baseUri, '/') . '/bots/send', $this->buildSendPayload($normalizedText, $botApi));
+
+            if (!$response->ok()) {
+                return [
+                    'ok' => false,
+                    'reason' => 'send HTTP ' . $response->status(),
+                ];
+            }
+
+            $json = $response->json();
+            if (!is_array($json)) {
+                return [
+                    'ok' => false,
+                    'reason' => 'send invalid json response',
+                ];
+            }
+
+            return [
+                'ok' => (string) ($json['status'] ?? '') === 'ok',
+                'reason' => trim((string) ($json['reason'] ?? '')),
+                'sent_message_id' => (int) ($json['sent_message_id'] ?? 0),
+            ];
+        } catch (Throwable $e) {
+            return [
+                'ok' => false,
+                'reason' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     * @return array<string, mixed>
+     */
+    private function solveAndClickQqYzVerificationChallenge(string $baseUri, string $botApi, int $sentMessageId, array $state): array
+    {
+        $verificationPrompt = trim((string) ($state['verification_preview'] ?? $state['latest_text_preview'] ?? ''));
+        $buttonTexts = [];
+
+        foreach ((array) ($state['verification_buttons'] ?? []) as $buttonText) {
+            $normalized = trim((string) $buttonText);
+            if ($normalized !== '' && !in_array($normalized, $buttonTexts, true)) {
+                $buttonTexts[] = $normalized;
+            }
+        }
+
+        $answerButtonTexts = $this->filterVerificationAnswerButtons($buttonTexts);
+        if (!empty($answerButtonTexts)) {
+            $buttonTexts = $answerButtonTexts;
+        }
+
+        if ($verificationPrompt === '' || empty($buttonTexts)) {
+            return [
+                'ok' => false,
+                'reason' => 'verification prompt/buttons missing',
+            ];
+        }
+
+        $openAiChoice = $this->selectVerificationButtonWithOpenAi($verificationPrompt, $buttonTexts);
+        $resolvedButtonText = $this->matchVerificationAnswerToButton($openAiChoice, $buttonTexts);
+
+        if ($resolvedButtonText === null) {
+            $localAnswer = $this->solveVerificationMathExpressionLocally($verificationPrompt);
+            $resolvedButtonText = $this->matchVerificationAnswerToButton($localAnswer, $buttonTexts);
+        }
+
+        if ($resolvedButtonText === null) {
+            return [
+                'ok' => false,
+                'reason' => 'verification answer unresolved',
+            ];
+        }
+
+        $clickResult = $this->clickQqYzButton($baseUri, $botApi, $sentMessageId, [$resolvedButtonText]);
+        $clickResult['resolved_button_text'] = $resolvedButtonText;
+
+        return $clickResult;
+    }
+
+    /**
+     * @param array<int, string> $buttonTexts
+     */
+    private function selectVerificationButtonWithOpenAi(string $verificationPrompt, array $buttonTexts): ?string
+    {
+        $apiKey = trim((string) env('GPT_API_KEY', ''));
+        if ($apiKey === '') {
+            return null;
+        }
+
+        $buttonsSummary = [];
+        foreach ($buttonTexts as $index => $buttonText) {
+            $buttonsSummary[] = ($index + 1) . '. ' . $buttonText;
+        }
+
+        try {
+            $response = Http::timeout(self::OPENAI_TIMEOUT_SECONDS)
+                ->withOptions(['verify' => false])
+                ->acceptJson()
+                ->withToken($apiKey)
+                ->asJson()
+                ->post(self::OPENAI_CHAT_COMPLETIONS_URL, [
+                    'model' => self::OPENAI_MODEL,
+                    'temperature' => 0,
+                    'messages' => [
+                        [
+                            'role' => 'system',
+                            'content' => 'You solve Telegram verification arithmetic. Choose the correct answer from the provided buttons. Reply with exactly one button text from the candidate list and nothing else.',
+                        ],
+                        [
+                            'role' => 'user',
+                            'content' => implode("\n", [
+                                'Verification prompt:',
+                                $verificationPrompt,
+                                '',
+                                'Candidate buttons:',
+                                implode("\n", $buttonsSummary),
+                                '',
+                                'Return exactly one candidate button text.',
+                            ]),
+                        ],
+                    ],
+                ]);
+
+            if (!$response->ok()) {
+                return null;
+            }
+
+            $json = $response->json();
+            if (!is_array($json)) {
+                return null;
+            }
+
+            $content = trim((string) ($json['choices'][0]['message']['content'] ?? ''));
+
+            return trim($content, " \t\n\r\0\x0B`'\"");
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @param array<int, string> $buttonTexts
+     */
+    private function matchVerificationAnswerToButton(?string $answer, array $buttonTexts): ?string
+    {
+        $normalizedAnswer = trim((string) $answer);
+        if ($normalizedAnswer === '') {
+            return null;
+        }
+
+        $answerButtonTexts = $this->filterVerificationAnswerButtons($buttonTexts);
+        if (!empty($answerButtonTexts)) {
+            $buttonTexts = $answerButtonTexts;
+        }
+
+        foreach ($buttonTexts as $buttonText) {
+            if ($normalizedAnswer === $buttonText) {
+                return $buttonText;
+            }
+        }
+
+        foreach ($buttonTexts as $buttonText) {
+            if (mb_strtolower($normalizedAnswer) === mb_strtolower($buttonText)) {
+                return $buttonText;
+            }
+        }
+
+        foreach ($buttonTexts as $buttonText) {
+            if (Str::contains($normalizedAnswer, $buttonText) || Str::contains($buttonText, $normalizedAnswer)) {
+                return $buttonText;
+            }
+        }
+
+        $comparableAnswer = $this->normalizeVerificationComparableText($normalizedAnswer);
+        if ($comparableAnswer === '') {
+            return null;
+        }
+
+        foreach ($buttonTexts as $buttonText) {
+            $comparableButton = $this->normalizeVerificationComparableText($buttonText);
+            if ($comparableButton === '') {
+                continue;
+            }
+
+            if (
+                $comparableButton === $comparableAnswer
+                || Str::contains($comparableAnswer, $comparableButton)
+                || Str::contains($comparableButton, $comparableAnswer)
+            ) {
+                return $buttonText;
+            }
+        }
+
+        return null;
+    }
+
+    private function solveVerificationMathExpressionLocally(string $text): ?string
+    {
+        $normalized = $this->normalizeVerificationMathText($text);
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (preg_match('/(\d+)\s*([+\-*\/])\s*(\d+)/u', $normalized, $matches) !== 1) {
+            return null;
+        }
+
+        $left = (int) ($matches[1] ?? 0);
+        $operator = (string) ($matches[2] ?? '');
+        $right = (int) ($matches[3] ?? 0);
+
+        $value = match ($operator) {
+            '+' => $left + $right,
+            '-' => $left - $right,
+            '*' => $left * $right,
+            '/' => $right === 0 ? null : $left / $right,
+            default => null,
+        };
+
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_float($value) && floor($value) === $value) {
+            $value = (int) $value;
+        }
+
+        return (string) $value;
+    }
+
+    private function normalizeVerificationComparableText(string $text): string
+    {
+        $normalized = $this->normalizeVerificationMathText($text);
+        $normalized = mb_strtolower($normalized);
+        $normalized = preg_replace('/[^\p{L}\p{N}\+\-\*\/\.]+/u', '', $normalized);
+
+        return $normalized === null ? '' : trim($normalized);
+    }
+
+    private function normalizeVerificationMathText(string $text): string
+    {
+        $normalized = str_replace(
+            ['🔟', '0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'],
+            ['10', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+            $text
+        );
+
+        $normalized = str_replace(
+            ['０', '１', '２', '３', '４', '５', '６', '７', '８', '９', '①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'],
+            ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
+            $normalized
+        );
+
+        $normalized = str_replace(
+            ['×', '✖', '✕', 'x', 'X', '＊', '÷', '／', '＋', '－', '❓', '?'],
+            ['*', '*', '*', '*', '*', '*', '/', '/', '+', '-', '?', '?'],
+            $normalized
+        );
+
+        $normalized = preg_replace('/\s+/u', ' ', trim($normalized));
+
+        return $normalized === null ? trim($text) : trim($normalized);
+    }
+
+    /**
+     * @param array<int, string> $buttonTexts
+     * @return array<int, string>
+     */
+    private function filterVerificationAnswerButtons(array $buttonTexts): array
+    {
+        $answerButtons = [];
+
+        foreach ($buttonTexts as $buttonText) {
+            if ($this->isLikelyVerificationAnswerButton($buttonText)) {
+                $answerButtons[] = $buttonText;
+            }
+        }
+
+        return $answerButtons;
+    }
+
+    private function isLikelyVerificationAnswerButton(string $buttonText): bool
+    {
+        $normalized = $this->normalizeVerificationMathText($buttonText);
+        $normalized = preg_replace('/\s+/u', '', $normalized);
+
+        if ($normalized === null || $normalized === '') {
+            return false;
+        }
+
+        return preg_match('/^\d+$/u', $normalized) === 1;
+    }
+
+    /**
      * @param array<string, mixed> $reply
      * @return array<int, string>
      */
@@ -1379,6 +1813,23 @@ class DispatchTokenScanItemsCommand extends Command
         return $texts;
     }
 
+    private function buttonTextMatchesAnyKeyword(string $buttonText, array $keywords): bool
+    {
+        $normalizedButtonText = trim($buttonText);
+        if ($normalizedButtonText === '') {
+            return false;
+        }
+
+        foreach ($keywords as $keyword) {
+            $normalizedKeyword = trim((string) $keyword);
+            if ($normalizedKeyword !== '' && Str::contains($normalizedButtonText, $normalizedKeyword)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function buttonTextsContainKeyword(array $buttonTexts, array $keywords): bool
     {
         foreach ($buttonTexts as $buttonText) {
@@ -1397,6 +1848,28 @@ class DispatchTokenScanItemsCommand extends Command
         $normalized = preg_replace('/\s+/u', ' ', trim($text));
 
         return $normalized === null ? trim($text) : trim($normalized);
+    }
+
+    private function isQqYzVerificationPrompt(string $text): bool
+    {
+        $normalized = $this->normalizePreviewText($text);
+        if ($normalized === '') {
+            return false;
+        }
+
+        $hasMarker = false;
+        foreach (self::QQ_YZ_VERIFICATION_MARKERS as $marker) {
+            if ($marker !== '' && Str::contains($normalized, $marker)) {
+                $hasMarker = true;
+                break;
+            }
+        }
+
+        if (!$hasMarker) {
+            return false;
+        }
+
+        return $this->solveVerificationMathExpressionLocally($normalized) !== null;
     }
 
     private function isQqYzCompletionText(string $text): bool
@@ -1513,6 +1986,12 @@ class DispatchTokenScanItemsCommand extends Command
         if (($state['progress_observed'] ?? false) === true && !empty($state['progress_preview'])) {
             $details[] = 'last_progress=' . $state['progress_preview'];
         }
+        if (($state['verification_required'] ?? false) === true) {
+            $details[] = 'verification challenge detected';
+            if (!empty($state['verification_buttons'])) {
+                $details[] = 'buttons=' . Str::limit(implode(' / ', (array) $state['verification_buttons']), 120);
+            }
+        }
         if (!empty($state['latest_text_preview'])) {
             $details[] = 'latest=' . $state['latest_text_preview'];
         }
@@ -1522,6 +2001,25 @@ class DispatchTokenScanItemsCommand extends Command
         }
 
         return $summary;
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    private function prependQqYzVerificationSummary(array $result, string $verificationSolvedButtonText): array
+    {
+        $normalizedButtonText = trim($verificationSolvedButtonText);
+        if ($normalizedButtonText === '') {
+            return $result;
+        }
+
+        $prefix = 'Solved verification with button ' . $normalizedButtonText . '.';
+        $summary = trim((string) ($result['summary'] ?? ''));
+        $result['summary'] = $summary !== '' ? ($prefix . ' ' . $summary) : $prefix;
+        $result['qq_yz_verification_button'] = $normalizedButtonText;
+
+        return $result;
     }
 
     private function formatBytes(int $bytes): string

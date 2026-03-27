@@ -292,6 +292,210 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         });
     }
 
+    public function test_dispatch_solves_qqfile_verification_with_openai_then_resends_token(): void
+    {
+        putenv('GPT_API_KEY=test-openai-key');
+        $_ENV['GPT_API_KEY'] = 'test-openai-key';
+        $_SERVER['GPT_API_KEY'] = 'test-openai-key';
+
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'QQfile_bot:17013_137025_248-4V',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        $sendCount = 0;
+        $openAiCount = 0;
+        $verificationAnswered = false;
+        $fallbackClickedAfterResend = false;
+
+        Http::fake(function ($request) use (&$sendCount, &$openAiCount, &$verificationAnswered, &$fallbackClickedAfterResend) {
+            $url = $request->url();
+            $botUsername = (string) ($request['bot_username'] ?? '');
+
+            if ($url === 'https://api.openai.com/v1/chat/completions') {
+                $openAiCount++;
+
+                return Http::response([
+                    'choices' => [
+                        [
+                            'message' => [
+                                'content' => '5️⃣',
+                            ],
+                        ],
+                    ],
+                ], 200);
+            }
+
+            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'QQfile_bot') {
+                $sendCount++;
+
+                return Http::response([
+                    'status' => 'ok',
+                    'sent_message_id' => $sendCount === 1 ? 321 : 654,
+                ], 200);
+            }
+
+            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
+                $buttonKeywords = $request['button_keywords'] ?? [];
+
+                if ($buttonKeywords === ['推送全部'] && !$verificationAnswered) {
+                    return Http::response([
+                        'status' => 'fail',
+                        'reason' => 'no matching button found',
+                        'files_unique_count' => 0,
+                        'files_total_bytes' => 0,
+                        'button_clicked' => false,
+                        'clicked_button_text' => '',
+                        'latest_message' => [
+                            'kind' => 'state',
+                            'text_preview' => '--触发风控验证-- 4️⃣ x 5️⃣ = ❓ 请选择正确的计算结果',
+                            'has_buttons' => true,
+                            'buttons_text' => ['1️⃣0️⃣', '2️⃣0️⃣', '2️⃣5️⃣'],
+                        ],
+                        'timeline' => [
+                            ['step' => 0, 'status' => 'fail', 'reason' => 'no matching button found'],
+                        ],
+                        'debug' => [],
+                    ], 200);
+                }
+
+                if ($buttonKeywords === ['5️⃣']) {
+                    $verificationAnswered = true;
+
+                    return Http::response([
+                        'status' => 'ok',
+                        'reason' => 'clicked matching button',
+                        'button_clicked' => true,
+                        'clicked_button_text' => '5️⃣',
+                        'files_unique_count' => 0,
+                        'files_total_bytes' => 0,
+                        'latest_message' => [
+                            'kind' => 'state',
+                            'text_preview' => '验证通过',
+                            'has_buttons' => false,
+                            'buttons_text' => [],
+                        ],
+                        'timeline' => [
+                            ['step' => 0, 'status' => 'clicked', 'clicked_button_text' => '5️⃣'],
+                        ],
+                        'debug' => [],
+                    ], 200);
+                }
+
+                if ($buttonKeywords === ['查看全部文件'] && $verificationAnswered) {
+                    $fallbackClickedAfterResend = true;
+
+                    return Http::response([
+                        'status' => 'ok',
+                        'reason' => 'clicked matching button',
+                        'button_clicked' => true,
+                        'clicked_button_text' => '📁查看全部文件',
+                        'files_unique_count' => 0,
+                        'files_total_bytes' => 0,
+                        'latest_message' => [
+                            'kind' => 'state',
+                            'text_preview' => '已點擊',
+                            'has_buttons' => false,
+                            'buttons_text' => [],
+                        ],
+                        'timeline' => [
+                            ['step' => 0, 'status' => 'clicked', 'clicked_button_text' => '📁查看全部文件'],
+                        ],
+                        'debug' => [],
+                    ], 200);
+                }
+            }
+
+            if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                $minMessageId = (int) ($request->data()['min_message_id'] ?? 0);
+
+                if (!$verificationAnswered && $minMessageId === 321) {
+                    return Http::response([
+                        [
+                            'bot_username' => 'QQfile_bot',
+                            'message_id' => 322,
+                            'text' => '--触发风控验证-- 5️⃣ x 1️⃣ = ❓ 请选择正确的计算结果',
+                            'buttons' => [
+                                ['text' => '4️⃣'],
+                                ['text' => '5️⃣'],
+                                ['text' => '6️⃣'],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                if ($verificationAnswered && !$fallbackClickedAfterResend && $minMessageId === 654) {
+                    return Http::response([
+                        [
+                            'bot_username' => 'QQfile_bot',
+                            'message_id' => 655,
+                            'text' => "**资源详情**\n资源编号：17167_115106_006\n资源文件：🎬2 \n资源热度：1\n\n分享代码：`QQfile_bot:17167_115106_006-2V`\n分享链接：`https://t.me/QQfile_bot?start=17167_115106_006`\n成功分享给好友得0.0008USDT/次",
+                            'buttons' => [
+                                ['text' => '📁查看全部文件'],
+                                ['text' => '📀收藏文件码'],
+                                ['text' => '👍1'],
+                                ['text' => '👎0'],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                if ($fallbackClickedAfterResend && $minMessageId === 654) {
+                    return Http::response([
+                        [
+                            'bot_username' => 'QQfile_bot',
+                            'message_id' => 656,
+                            'text' => '文件获取完毕，文件总数 4',
+                            'buttons' => [],
+                        ],
+                        [
+                            'bot_username' => 'QQfile_bot',
+                            'message_id' => 657,
+                            'text' => "**资源详情**\n资源编号：17167_115106_006\n资源文件：🎬2 \n资源热度：1\n\n分享代码：`QQfile_bot:17167_115106_006-2V`\n分享链接：`https://t.me/QQfile_bot?start=17167_115106_006`\n成功分享给好友得0.0008USDT/次\n\n您已于2026-03-27 19:56:54解析过此资源",
+                            'buttons' => [
+                                ['text' => '📁查看全部文件'],
+                                ['text' => '📀收藏文件码'],
+                                ['text' => '👍1'],
+                                ['text' => '👎0'],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                return Http::response([], 200);
+            }
+
+            return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
+        });
+
+        $this->artisan('tg:dispatch-token-scan-items')->assertExitCode(0);
+
+        $this->assertSame(2, $sendCount);
+        $this->assertSame(1, $openAiCount);
+        $this->assertTrue($verificationAnswered);
+        $this->assertTrue($fallbackClickedAfterResend);
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'https://api.openai.com/v1/chat/completions';
+        });
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+                && $request['bot_username'] === 'QQfile_bot'
+                && $request['button_keywords'] === ['5️⃣'];
+        });
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+                && $request['bot_username'] === 'QQfile_bot'
+                && $request['button_keywords'] === ['查看全部文件'];
+        });
+    }
+
     public function test_dispatch_falls_back_from_qqfile_to_yzfile_with_start_command(): void
     {
         $itemId = DB::table('token_scan_items')->insertGetId([

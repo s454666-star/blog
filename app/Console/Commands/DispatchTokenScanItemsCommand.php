@@ -38,6 +38,12 @@ class DispatchTokenScanItemsCommand extends Command
         'mode' => self::BOT_MODE_PAGINATE,
     ];
 
+    private const BOT_MTFXQ = [
+        'api' => 'mtfxqbot',
+        'display' => '@mtfxqbot',
+        'mode' => self::BOT_MODE_PAGINATE,
+    ];
+
     private const BOT_ATFILESLINKS = [
         'api' => 'atfileslinksbot',
         'display' => '@atfileslinksbot',
@@ -599,6 +605,10 @@ class DispatchTokenScanItemsCommand extends Command
 
         if (Str::startsWith(Str::lower($token), 'lddeebot_')) {
             return self::BOT_LDDEE;
+        }
+
+        if (Str::startsWith(Str::lower($token), 'mtfxqbot_')) {
+            return self::BOT_MTFXQ;
         }
 
         return self::BOT_VIPFILES;
@@ -1460,6 +1470,7 @@ class DispatchTokenScanItemsCommand extends Command
     {
         return in_array($botApi, [
             self::BOT_VIPFILES['api'],
+            self::BOT_MTFXQ['api'],
             self::BOT_ATFILESLINKS['api'],
             self::BOT_LDDEE['api'],
         ], true);

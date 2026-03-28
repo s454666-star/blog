@@ -127,7 +127,7 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
                 $this->assertSame($sourceChatId, $request['source_chat_id']);
                 $this->assertSame($sourceFileMessageIds, $request['message_ids']);
                 $this->assertSame('filestoebot', $request['target_bot_username']);
-                $this->assertStringContainsString('__filestore_bridge__|', (string) $request['bridge_control_text']);
+                $this->assertStringContainsString('filestorebridge|', (string) $request['bridge_control_text']);
                 $this->assertStringContainsString($token, (string) $request['bridge_control_text']);
 
                 $session = TelegramFilestoreSession::query()

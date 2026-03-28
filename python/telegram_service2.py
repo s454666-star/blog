@@ -3230,7 +3230,7 @@ async def forward_messages_to_bot(payload: ForwardBotMessagesRequest):
 
         bridge_control_message_id = 0
         if bridge_control_text:
-            control_message = await client.send_message(target_entity, bridge_control_text)
+            control_message = await client.send_message(target_entity, bridge_control_text, parse_mode=None)
             try:
                 bridge_control_message_id = int(getattr(control_message, "id", 0) or 0)
             except Exception:

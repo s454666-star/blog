@@ -176,7 +176,7 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
                     'username' => 's4546663',
                     'type' => 'private',
                 ],
-                'text' => '__filestore_bridge__|' . $session->id . '|mtfxqbot_3V_bridgechat400',
+                'text' => 'filestorebridge|' . $session->id . '|mtfxqbot_3V_bridgechat400',
             ],
         ]);
 

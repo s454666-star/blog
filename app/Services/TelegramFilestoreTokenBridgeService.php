@@ -767,7 +767,7 @@ class TelegramFilestoreTokenBridgeService
 
     private function buildBridgeControlText(int $sessionId, string $sourceToken): string
     {
-        return sprintf('__filestore_bridge__|%d|%s', max(0, $sessionId), trim($sourceToken));
+        return sprintf('filestorebridge|%d|%s', max(0, $sessionId), trim($sourceToken));
     }
 
     private function generateUniquePublicTokenWithCounts(int $videoCount, int $photoCount, int $documentCount): string

@@ -30,7 +30,7 @@
 
         private const MYFILES_PAGE_SIZE = 30;
         private const MYFILES_MAX_PAGES_SHOWN = 7;
-        private const BRIDGE_CONTROL_PREFIX = '__filestore_bridge__|';
+        private const BRIDGE_CONTROL_PREFIX = 'filestorebridge|';
 
         /**
          * 避免短時間內重複送出「是否結束上傳？」的去重視窗（秒）

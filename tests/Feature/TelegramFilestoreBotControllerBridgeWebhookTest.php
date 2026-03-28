@@ -6,6 +6,7 @@ use App\Jobs\TelegramFilestoreDebouncedPromptJob;
 use App\Models\TelegramFilestoreFile;
 use App\Models\TelegramFilestoreSession;
 use App\Services\TelegramFilestoreBridgeContextService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -26,6 +27,7 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
 
         Schema::dropIfExists('telegram_filestore_files');
         Schema::dropIfExists('telegram_filestore_sessions');
+        Schema::dropIfExists('telegram_filestore_bridge_contexts');
 
         Schema::create('telegram_filestore_sessions', function (Blueprint $table): void {
             $table->id();
@@ -62,6 +64,17 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
             $table->text('raw_payload')->nullable();
             $table->dateTime('created_at')->nullable();
         });
+
+        Schema::create('telegram_filestore_bridge_contexts', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('session_id');
+            $table->string('context_type', 32);
+            $table->char('context_hash', 64);
+            $table->string('context_value')->nullable();
+            $table->dateTime('expires_at');
+            $table->dateTime('created_at')->nullable();
+            $table->unique(['context_type', 'context_hash']);
+        });
     }
 
     public function test_webhook_uses_pending_bridge_session_for_forwarded_file_without_scheduling_close_prompt(): void
@@ -85,6 +98,7 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
             (int) $session->id,
             ['bridge-uniq-0007']
         );
+        Cache::flush();
 
         $response = $this->postJson('/api/telegram/filestore/webhook', [
             'message' => [
@@ -194,6 +208,7 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
             (int) $session->id,
             [888196]
         );
+        Cache::flush();
 
         $response = $this->postJson('/api/telegram/filestore/webhook', [
             'message' => [

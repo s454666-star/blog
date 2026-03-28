@@ -27,6 +27,7 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
 
         Schema::dropIfExists('telegram_filestore_files');
         Schema::dropIfExists('telegram_filestore_sessions');
+        Schema::dropIfExists('telegram_filestore_bridge_contexts');
 
         Schema::create('telegram_filestore_sessions', function (Blueprint $table): void {
             $table->id();
@@ -62,6 +63,17 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
             $table->string('file_type')->default('document');
             $table->text('raw_payload')->nullable();
             $table->dateTime('created_at')->nullable();
+        });
+
+        Schema::create('telegram_filestore_bridge_contexts', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('session_id');
+            $table->string('context_type', 32);
+            $table->char('context_hash', 64);
+            $table->string('context_value')->nullable();
+            $table->dateTime('expires_at');
+            $table->dateTime('created_at')->nullable();
+            $table->unique(['context_type', 'context_hash']);
         });
     }
 

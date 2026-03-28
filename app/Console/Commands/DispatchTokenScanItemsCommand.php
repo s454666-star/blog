@@ -18,6 +18,7 @@ class DispatchTokenScanItemsCommand extends Command
         {--port=8000 : Telegram FastAPI service port. Default 8000}
         {--base-uri=* : Explicit Telegram API base URI(s). Overrides --port}
         {--fallback-newjmqbot : Deprecated and ignored. @newjmqbot is disabled.}
+        {--filestore-delete-source-messages : After successful filestore sync, also delete the source bot file messages used for this token}
         {--include-processed : Include rows with updated_at already set}
         {--stopped-early-retry-delay=10 : Wait seconds before retrying unresolved QQ/yz token}
         {--stopped-early-max-retries=5 : Max extra retries for unresolved QQ/yz token before exiting with code 3}';
@@ -477,7 +478,13 @@ class DispatchTokenScanItemsCommand extends Command
 
         /** @var TelegramFilestoreTokenBridgeService $bridge */
         $bridge = app(TelegramFilestoreTokenBridgeService::class);
-        $bridgeResult = $bridge->sync($token, $baseUri, $botApi, $sentMessageId);
+        $bridgeResult = $bridge->sync(
+            $token,
+            $baseUri,
+            $botApi,
+            $sentMessageId,
+            (bool) $this->option('filestore-delete-source-messages')
+        );
 
         $result['filestore_status'] = (string) ($bridgeResult['status'] ?? '');
         $result['filestore_session_id'] = (int) ($bridgeResult['session_id'] ?? 0);

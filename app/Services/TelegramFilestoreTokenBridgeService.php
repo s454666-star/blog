@@ -19,7 +19,13 @@ class TelegramFilestoreTokenBridgeService
     /**
      * @return array<string, mixed>
      */
-    public function sync(string $sourceToken, string $baseUri, string $sourceBotUsername, int $minMessageId = 0): array
+    public function sync(
+        string $sourceToken,
+        string $baseUri,
+        string $sourceBotUsername,
+        int $minMessageId = 0,
+        bool $deleteSourceMessages = false
+    ): array
     {
         $token = trim($sourceToken);
         $normalizedBaseUri = rtrim(trim($baseUri), '/');
@@ -93,6 +99,8 @@ class TelegramFilestoreTokenBridgeService
                 'summary' => 'filestore sync skipped: source chat id missing',
             ];
         }
+
+        $sourceMessageIds = $this->collectSourceMessageIds($files, $sourceChatId);
 
         [$forwardableMessageIds, $skippedByPrecheck] = $this->splitForwardableMessageIds($files, $sourceChatId);
         if ($forwardableMessageIds === []) {
@@ -177,6 +185,20 @@ class TelegramFilestoreTokenBridgeService
             (string) config('telegram.filestore_sync_bot_username', 'filestoebot'),
             $forwardedMessageIds
         );
+        $deleteSourceSummary = [
+            'enabled' => $deleteSourceMessages,
+            'ok' => true,
+            'summary' => 'source delete disabled',
+        ];
+
+        if ($deleteSourceMessages) {
+            $deleteSourceSummary = $this->deleteForwardedMessages(
+                $normalizedBaseUri,
+                $normalizedSourceBotUsername,
+                $sourceMessageIds
+            );
+            $deleteSourceSummary['enabled'] = true;
+        }
 
         $storedFiles = (int) ($closed->total_files ?? 0);
         $summary = sprintf(
@@ -194,6 +216,14 @@ class TelegramFilestoreTokenBridgeService
 
         if (($deleteSummary['ok'] ?? false) !== true && !empty($deleteSummary['summary'])) {
             $summary .= ' delete_note=' . (string) $deleteSummary['summary'];
+        }
+
+        if ($deleteSourceMessages) {
+            $summary .= ' deleted_source=' . ((($deleteSourceSummary['ok'] ?? false) === true) ? 'yes' : 'no');
+
+            if (($deleteSourceSummary['ok'] ?? false) !== true && !empty($deleteSourceSummary['summary'])) {
+                $summary .= ' delete_source_note=' . (string) $deleteSourceSummary['summary'];
+            }
         }
 
         return [
@@ -294,6 +324,30 @@ class TelegramFilestoreTokenBridgeService
         }
 
         return 0;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, int>
+     */
+    private function collectSourceMessageIds(array $files, int $sourceChatId): array
+    {
+        $messageIds = [];
+        $seen = [];
+
+        foreach ($files as $file) {
+            $chatId = (int) ($file['chat_id'] ?? 0);
+            $messageId = (int) ($file['message_id'] ?? 0);
+
+            if ($chatId !== $sourceChatId || $messageId <= 0 || isset($seen[$messageId])) {
+                continue;
+            }
+
+            $seen[$messageId] = true;
+            $messageIds[] = $messageId;
+        }
+
+        return $messageIds;
     }
 
     /**

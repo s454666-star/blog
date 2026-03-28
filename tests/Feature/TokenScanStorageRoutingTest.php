@@ -56,7 +56,7 @@ class TokenScanStorageRoutingTest extends TestCase
         });
     }
 
-    public function test_scan_group_tokens_store_messenger_qq_and_yz_only_in_dialogues(): void
+    public function test_scan_group_tokens_store_messenger_qq_yz_and_vipfiles_family_only_in_dialogues(): void
     {
         $command = $this->app->make(ScanGroupTokensCommand::class);
         $command->setOutput(new OutputStyle(new ArrayInput([]), new BufferedOutput()));
@@ -64,11 +64,11 @@ class TokenScanStorageRoutingTest extends TestCase
         $method->setAccessible(true);
 
         $inserted = $method->invoke($command, 99, [[
-            'message' => 'Messengercode_abc123 showfilesbot_123P_abcdef QQfile_bot:14120_108172_755-39P_10V yzfile_bot:abc123',
+            'message' => 'Messengercode_abc123 showfilesbot_123P_abcdef QQfile_bot:14120_108172_755-39P_10V yzfile_bot:abc123 mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
         ]]);
 
-        $this->assertSame(4, $inserted);
-        $this->assertDatabaseCount('dialogues', 4);
+        $this->assertSame(5, $inserted);
+        $this->assertDatabaseCount('dialogues', 5);
         $this->assertDatabaseCount('token_scan_items', 1);
 
         $this->assertDatabaseHas('dialogues', [
@@ -95,13 +95,22 @@ class TokenScanStorageRoutingTest extends TestCase
             'text' => 'yzfile_bot:abc123',
             'is_read' => 1,
         ]);
+        $this->assertDatabaseHas('dialogues', [
+            'chat_id' => 7702694790,
+            'message_id' => 5,
+            'text' => 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
+            'is_read' => 1,
+        ]);
 
         $this->assertDatabaseHas('token_scan_items', [
             'header_id' => 99,
-            'token' => 'showfilesbot_123P_abcdef',
+            'token' => 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
         ]);
         $this->assertDatabaseMissing('token_scan_items', [
             'token' => 'Messengercode_abc123',
+        ]);
+        $this->assertDatabaseMissing('token_scan_items', [
+            'token' => 'showfilesbot_123P_abcdef',
         ]);
         $this->assertDatabaseMissing('token_scan_items', [
             'token' => 'QQfile_bot:14120_108172_755-39P_10V',
@@ -111,7 +120,7 @@ class TokenScanStorageRoutingTest extends TestCase
         ]);
     }
 
-    public function test_scan_group_media_stores_special_prefixes_in_dialogues_without_queueing_them(): void
+    public function test_scan_group_media_stores_special_and_vipfiles_prefixes_in_dialogues_without_queueing_them(): void
     {
         $command = $this->app->make(ScanGroupMediaCommand::class);
         $method = new ReflectionMethod($command, 'queueTokenIfNeeded');
@@ -120,14 +129,16 @@ class TokenScanStorageRoutingTest extends TestCase
         $messengerResult = $method->invoke($command, 321, 'Media Chat', 'Messengercode_abc123', 1001);
         $qqResult = $method->invoke($command, 321, 'Media Chat', 'QQfile_bot:14120_108172_755-39P_10V', 1002);
         $yzResult = $method->invoke($command, 321, 'Media Chat', 'yzfile_bot:abc123', 1003);
-        $normalResult = $method->invoke($command, 321, 'Media Chat', 'showfilesbot_123P_abcdef', 1004);
+        $vipfilesResult = $method->invoke($command, 321, 'Media Chat', 'showfilesbot_123P_abcdef', 1004);
+        $normalResult = $method->invoke($command, 321, 'Media Chat', 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2', 1005);
 
         $this->assertSame('dialogues_only', $messengerResult);
         $this->assertSame('dialogues_only', $qqResult);
         $this->assertSame('dialogues_only', $yzResult);
+        $this->assertSame('dialogues_only', $vipfilesResult);
         $this->assertSame('queued', $normalResult);
 
-        $this->assertDatabaseCount('dialogues', 4);
+        $this->assertDatabaseCount('dialogues', 5);
         $this->assertDatabaseCount('token_scan_items', 1);
         $this->assertDatabaseCount('token_scan_headers', 1);
 
@@ -155,13 +166,19 @@ class TokenScanStorageRoutingTest extends TestCase
             'text' => 'showfilesbot_123P_abcdef',
             'is_read' => 1,
         ]);
+        $this->assertDatabaseHas('dialogues', [
+            'chat_id' => 7702694790,
+            'message_id' => 5,
+            'text' => 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
+            'is_read' => 1,
+        ]);
 
         $this->assertDatabaseHas('token_scan_headers', [
             'peer_id' => 321,
             'chat_title' => 'Media Chat',
         ]);
         $this->assertDatabaseHas('token_scan_items', [
-            'token' => 'showfilesbot_123P_abcdef',
+            'token' => 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
         ]);
         $this->assertDatabaseMissing('token_scan_items', [
             'token' => 'Messengercode_abc123',
@@ -171,6 +188,9 @@ class TokenScanStorageRoutingTest extends TestCase
         ]);
         $this->assertDatabaseMissing('token_scan_items', [
             'token' => 'yzfile_bot:abc123',
+        ]);
+        $this->assertDatabaseMissing('token_scan_items', [
+            'token' => 'showfilesbot_123P_abcdef',
         ]);
     }
 }

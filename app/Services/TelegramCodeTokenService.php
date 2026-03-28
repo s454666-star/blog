@@ -224,8 +224,8 @@
                 return false;
             }
 
-            return strpos($token, 'Messengercode_') === 0
-                || stripos($token, 'QQfile_bot:') === 0
-                || stripos($token, 'yzfile_bot:') === 0;
+            return stripos($token, 'mtfxqbot_') !== 0
+                && stripos($token, 'atfileslinksbot_') !== 0
+                && stripos($token, 'lddeebot_') !== 0;
         }
     }

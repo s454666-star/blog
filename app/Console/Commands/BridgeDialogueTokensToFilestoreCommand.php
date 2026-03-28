@@ -18,7 +18,9 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
         {--row-chunk=500 : Dialogue rows to read per batch}
         {--port=8000 : Telegram FastAPI service port. Ignored when --base-uri is provided}
         {--base-uri=* : Explicit Telegram API base URI(s). Overrides --port}
-        {--max-dialogue-id=0 : Optional max dialogues.id to scan from}';
+        {--max-dialogue-id=0 : Optional max dialogues.id to scan from}
+        {--retry-delay=5 : Wait seconds before retrying a token that still has no files}
+        {--max-retries=5 : Max extra retries for no-file or not-found token before marking dialogues.is_sync=1}';
 
     protected $description = 'Scan dialogues newest-first, extract matching source tokens, and bridge missing ones into telegram_filestore via @filestoebot.';
 
@@ -46,6 +48,8 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
         $limit = max((int) $this->option('limit'), 0);
         $rowChunk = max((int) $this->option('row-chunk'), 1);
         $maxDialogueId = max((int) $this->option('max-dialogue-id'), 0);
+        $retryDelaySeconds = max((int) $this->option('retry-delay'), 0);
+        $maxRetries = max((int) $this->option('max-retries'), 0);
         $dispatchOptions = [
             '--port' => max((int) $this->option('port'), 1),
             '--base-uri' => (array) $this->option('base-uri'),
@@ -61,20 +65,28 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
             'skipped_dup_in_run' => 0,
             'attempted' => 0,
             'synced' => 0,
+            'terminal_no_files' => 0,
             'failed' => 0,
+            'rows_marked_sync' => 0,
         ];
+        $tokenDecisions = [];
 
         $this->line(sprintf(
-            'prefix=%s search=%s limit=%d row_chunk=%d existing_source_tokens=%d',
+            'prefix=%s search=%s limit=%d row_chunk=%d existing_source_tokens=%d retry_delay=%d max_retries=%d',
             $prefix,
             $searchNeedle,
             $limit,
             $rowChunk,
-            count($existingTokens)
+            count($existingTokens),
+            $retryDelaySeconds,
+            $maxRetries
         ));
 
         $query = Dialogue::query()
             ->select(['id', 'text'])
+            ->where(function ($builder): void {
+                $builder->whereNull('is_sync')->orWhere('is_sync', false);
+            })
             ->where('text', 'like', '%' . $searchNeedle . '%');
 
         if ($maxDialogueId > 0) {
@@ -94,6 +106,9 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
             $rows = Dialogue::query()
                 ->select(['id', 'text'])
                 ->where('id', '<=', $cursorId)
+                ->where(function ($builder): void {
+                    $builder->whereNull('is_sync')->orWhere('is_sync', false);
+                })
                 ->where('text', 'like', '%' . $searchNeedle . '%')
                 ->orderByDesc('id')
                 ->limit($rowChunk)
@@ -113,25 +128,42 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
                     $minIdInBatch = $rowId;
                 }
 
-                foreach ($this->extractMatchingTokens((string) ($row->text ?? ''), $normalizedPrefix) as $token) {
+                $rowTokens = $this->extractMatchingTokens((string) ($row->text ?? ''), $normalizedPrefix);
+                if ($rowTokens === []) {
+                    continue;
+                }
+
+                $canMarkRowAsSynced = true;
+
+                foreach ($rowTokens as $token) {
                     $stats['matched_tokens']++;
 
                     $normalizedToken = Str::lower($token);
 
                     if (isset($seenTokens[$normalizedToken])) {
                         $stats['skipped_dup_in_run']++;
+
+                        if (!(($tokenDecisions[$normalizedToken]['mark_is_sync'] ?? false) === true)) {
+                            $canMarkRowAsSynced = false;
+                        }
+
                         continue;
                     }
                     $seenTokens[$normalizedToken] = true;
 
                     if (isset($existingTokens[$normalizedToken])) {
                         $stats['skipped_existing']++;
+                        $tokenDecisions[$normalizedToken] = [
+                            'mark_is_sync' => true,
+                            'reason' => 'existing_session',
+                        ];
                         $this->line(sprintf('skip_existing dialogue_id=%d token=%s', $rowId, $token));
                         continue;
                     }
 
                     if ($limit > 0 && $stats['attempted'] >= $limit) {
                         $limitReached = true;
+                        $canMarkRowAsSynced = false;
                         break 2;
                     }
 
@@ -144,28 +176,55 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
                         $token
                     ));
 
-                    $result = $this->dispatchService->dispatchToken($token, $dispatchOptions, $this->output);
-                    $session = TelegramFilestoreSession::query()
-                        ->where('source_token', $token)
-                        ->orderByDesc('id')
-                        ->first(['id', 'public_token', 'status', 'total_files']);
+                    $result = $this->dispatchTokenWithRetry(
+                        $token,
+                        $dispatchOptions,
+                        $retryDelaySeconds,
+                        $maxRetries
+                    );
 
-                    if (($result['ok'] ?? false) === true && $session) {
+                    if (($result['ok'] ?? false) === true) {
                         $existingTokens[$normalizedToken] = true;
                         $stats['synced']++;
+                        $tokenDecisions[$normalizedToken] = [
+                            'mark_is_sync' => true,
+                            'reason' => 'synced',
+                        ];
                         $this->info(sprintf(
                             'synced dialogue_id=%d token=%s session_id=%d public_token=%s total_files=%d status=%s exit_code=%d',
                             $rowId,
                             $token,
-                            (int) $session->id,
-                            (string) ($session->public_token ?? '-'),
-                            (int) ($session->total_files ?? 0),
-                            (string) ($session->status ?? '-'),
+                            (int) ($result['session_id'] ?? 0),
+                            (string) ($result['public_token'] ?? '-'),
+                            (int) ($result['total_files'] ?? 0),
+                            (string) ($result['session_status'] ?? '-'),
                             (int) ($result['exit_code'] ?? 0)
                         ));
                         continue;
                     }
 
+                    if ($this->shouldMarkDialogueAsSyncedForResult($result)) {
+                        $stats['terminal_no_files']++;
+                        $tokenDecisions[$normalizedToken] = [
+                            'mark_is_sync' => true,
+                            'reason' => (string) ($result['status'] ?? 'no_files'),
+                        ];
+                        $this->warn(sprintf(
+                            'terminal_no_files dialogue_id=%d token=%s exit_code=%d status=%s summary=%s',
+                            $rowId,
+                            $token,
+                            (int) ($result['exit_code'] ?? 1),
+                            (string) ($result['status'] ?? '-'),
+                            trim((string) ($result['summary'] ?? 'dispatch finished without files'))
+                        ));
+                        continue;
+                    }
+
+                    $tokenDecisions[$normalizedToken] = [
+                        'mark_is_sync' => false,
+                        'reason' => (string) ($result['status'] ?? 'failed'),
+                    ];
+                    $canMarkRowAsSynced = false;
                     $stats['failed']++;
                     $this->warn(sprintf(
                         'failed dialogue_id=%d token=%s exit_code=%d summary=%s',
@@ -174,6 +233,11 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
                         (int) ($result['exit_code'] ?? 1),
                         trim((string) ($result['summary'] ?? 'dispatch failed'))
                     ));
+                }
+
+                if ($canMarkRowAsSynced && $this->markDialogueAsSynced($rowId)) {
+                    $stats['rows_marked_sync']++;
+                    $this->line(sprintf('marked_is_sync dialogue_id=%d', $rowId));
                 }
             }
 
@@ -240,6 +304,82 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
         $this->line('skipped_dup_in_run=' . $stats['skipped_dup_in_run']);
         $this->line('attempted=' . $stats['attempted']);
         $this->line('synced=' . $stats['synced']);
+        $this->line('terminal_no_files=' . $stats['terminal_no_files']);
         $this->line('failed=' . $stats['failed']);
+        $this->line('rows_marked_sync=' . $stats['rows_marked_sync']);
+    }
+
+    /**
+     * @param  array<string, mixed>  $dispatchOptions
+     * @return array<string, mixed>
+     */
+    private function dispatchTokenWithRetry(
+        string $token,
+        array $dispatchOptions,
+        int $retryDelaySeconds,
+        int $maxRetries
+    ): array {
+        $retryCount = 0;
+
+        while (true) {
+            $attempt = $retryCount + 1;
+            if ($attempt > 1) {
+                $this->line('retry_attempt=' . $attempt . '/' . ($maxRetries + 1));
+            }
+
+            $result = $this->dispatchService->dispatchToken($token, $dispatchOptions, $this->output);
+            $result['attempts'] = $attempt;
+
+            if (
+                !$this->shouldRetryNoFileResult($result)
+                || $retryCount >= $maxRetries
+            ) {
+                return $result;
+            }
+
+            $retryCount++;
+            $this->warn(sprintf(
+                'No files yet for token=%s. Wait %d seconds and retry. retry=%d/%d status=%s',
+                $token,
+                $retryDelaySeconds,
+                $retryCount,
+                $maxRetries,
+                (string) ($result['status'] ?? '-')
+            ));
+
+            if ($retryDelaySeconds > 0) {
+                sleep($retryDelaySeconds);
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     */
+    private function shouldRetryNoFileResult(array $result): bool
+    {
+        return in_array((string) ($result['status'] ?? ''), ['not_found', 'no_files'], true);
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     */
+    private function shouldMarkDialogueAsSyncedForResult(array $result): bool
+    {
+        return $this->shouldRetryNoFileResult($result);
+    }
+
+    private function markDialogueAsSynced(int $dialogueId): bool
+    {
+        if ($dialogueId <= 0) {
+            return false;
+        }
+
+        return Dialogue::query()
+                ->whereKey($dialogueId)
+                ->where(function ($builder): void {
+                    $builder->whereNull('is_sync')->orWhere('is_sync', false);
+                })
+                ->update(['is_sync' => true]) > 0;
     }
 }

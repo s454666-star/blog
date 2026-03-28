@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\TelegramFilestoreSession;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Str;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 
 class DialogueFilestoreDispatchService
@@ -45,7 +47,21 @@ class DialogueFilestoreDispatchService
             $parameters['--filestore-delete-source-messages'] = true;
         }
 
-        $exitCode = Artisan::call('tg:dispatch-token-scan-items', $parameters, $output);
+        $buffer = new BufferedOutput(
+            $output?->getVerbosity() ?? OutputInterface::VERBOSITY_NORMAL,
+            $output?->isDecorated() ?? false,
+            $output?->getFormatter()
+        );
+
+        $exitCode = Artisan::call('tg:dispatch-token-scan-items', $parameters, $buffer);
+        $capturedOutput = $buffer->fetch();
+
+        if ($output !== null && $capturedOutput !== '') {
+            $output->write($capturedOutput);
+            if (!Str::endsWith($capturedOutput, ["\n", "\r"])) {
+                $output->writeln('');
+            }
+        }
 
         $session = TelegramFilestoreSession::query()
             ->where('source_token', $token)
@@ -53,11 +69,13 @@ class DialogueFilestoreDispatchService
             ->first(['id', 'public_token', 'status', 'total_files']);
 
         if (!$session) {
+            $terminal = $this->inferTerminalStatusFromOutput($capturedOutput);
+
             return [
                 'ok' => false,
-                'status' => 'missing_after_dispatch',
+                'status' => $terminal['status'],
                 'exit_code' => $exitCode,
-                'summary' => 'dispatch finished without creating telegram_filestore_sessions row',
+                'summary' => $terminal['summary'],
             ];
         }
 
@@ -76,6 +94,44 @@ class DialogueFilestoreDispatchService
                 (string) ($session->status ?? '-'),
                 (int) ($session->total_files ?? 0)
             ),
+        ];
+    }
+
+    /**
+     * @return array{status:string,summary:string}
+     */
+    private function inferTerminalStatusFromOutput(string $capturedOutput): array
+    {
+        $normalizedOutput = Str::lower($capturedOutput);
+
+        if (Str::contains($normalizedOutput, 'bot returned not found')) {
+            return [
+                'status' => 'not_found',
+                'summary' => 'Bot returned not found. Keep token_scan_items row untouched.',
+            ];
+        }
+
+        foreach ([
+            'filestore sync skipped: no files observed',
+            'filestore sync skipped: no forwardable files',
+            'filestore sync skipped: no messages were forwarded',
+        ] as $marker) {
+            if (Str::contains($normalizedOutput, $marker)) {
+                return [
+                    'status' => 'no_files',
+                    'summary' => $marker,
+                ];
+            }
+        }
+
+        $lines = preg_split('/\r\n|\r|\n/', trim($capturedOutput)) ?: [];
+        $lastLine = trim((string) end($lines));
+
+        return [
+            'status' => 'missing_after_dispatch',
+            'summary' => $lastLine !== ''
+                ? $lastLine
+                : 'dispatch finished without creating telegram_filestore_sessions row',
         ];
     }
 }

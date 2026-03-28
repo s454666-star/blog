@@ -30,6 +30,7 @@ class BridgeDialogueTokensToFilestoreCommandTest extends TestCase
             $table->unsignedBigInteger('message_id')->nullable();
             $table->string('text', 255);
             $table->boolean('is_read')->default(false);
+            $table->boolean('is_sync')->default(false);
             $table->dateTime('created_at')->nullable();
         });
 
@@ -114,7 +115,7 @@ class BridgeDialogueTokensToFilestoreCommandTest extends TestCase
         $mock = Mockery::mock(DialogueFilestoreDispatchService::class);
         $mock->shouldReceive('dispatchToken')
             ->twice()
-            ->andReturnUsing(function (string $token, array $options) use (&$dispatches): array {
+            ->andReturnUsing(function (string $token, array $options, $output = null) use (&$dispatches): array {
                 $dispatches[] = $token;
                 $this->assertTrue($options['--filestore-delete-source-messages'] ?? false);
 
@@ -159,5 +160,105 @@ class BridgeDialogueTokensToFilestoreCommandTest extends TestCase
         ]);
 
         $this->assertDatabaseCount('telegram_filestore_sessions', 3);
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 10,
+            'is_sync' => 1,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 12,
+            'is_sync' => 1,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 13,
+            'is_sync' => 1,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 14,
+            'is_sync' => 1,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 11,
+            'is_sync' => 0,
+        ]);
+    }
+
+    public function test_command_retries_not_found_then_marks_dialogue_synced_after_retry_limit(): void
+    {
+        DB::table('dialogues')->insert([
+            'id' => 20,
+            'chat_id' => 1,
+            'message_id' => 20,
+            'text' => 'mtfxqbot_4V_notfound0004',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        $dispatches = 0;
+
+        $mock = Mockery::mock(DialogueFilestoreDispatchService::class);
+        $mock->shouldReceive('dispatchToken')
+            ->times(3)
+            ->andReturnUsing(function (string $token, array $options, $output = null) use (&$dispatches): array {
+                $dispatches++;
+
+                return [
+                    'ok' => false,
+                    'status' => 'not_found',
+                    'exit_code' => 0,
+                    'summary' => 'Bot returned not found. Keep token_scan_items row untouched.',
+                ];
+            });
+
+        $this->app->instance(DialogueFilestoreDispatchService::class, $mock);
+
+        $this->artisan('filestore:bridge-dialogues-tokens --prefix=mtfxqbot_ --retry-delay=0 --max-retries=2')
+            ->expectsOutputToContain('retry_attempt=2/3')
+            ->expectsOutputToContain('retry_attempt=3/3')
+            ->expectsOutputToContain('terminal_no_files=1')
+            ->expectsOutputToContain('failed=0')
+            ->assertExitCode(0);
+
+        $this->assertSame(3, $dispatches);
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 20,
+            'is_sync' => 1,
+        ]);
+        $this->assertDatabaseCount('telegram_filestore_sessions', 0);
+    }
+
+    public function test_command_keeps_dialogue_unsynced_when_dispatch_fails_without_terminal_no_file_status(): void
+    {
+        DB::table('dialogues')->insert([
+            'id' => 21,
+            'chat_id' => 1,
+            'message_id' => 21,
+            'text' => 'mtfxqbot_4V_failed0005',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        $mock = Mockery::mock(DialogueFilestoreDispatchService::class);
+        $mock->shouldReceive('dispatchToken')
+            ->once()
+            ->andReturn([
+                'ok' => false,
+                'status' => 'missing_after_dispatch',
+                'exit_code' => 1,
+                'summary' => 'dispatch finished without creating telegram_filestore_sessions row',
+            ]);
+
+        $this->app->instance(DialogueFilestoreDispatchService::class, $mock);
+
+        $this->artisan('filestore:bridge-dialogues-tokens --prefix=mtfxqbot_ --retry-delay=0 --max-retries=0')
+            ->expectsOutputToContain('terminal_no_files=0')
+            ->expectsOutputToContain('failed=1')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 21,
+            'is_sync' => 0,
+        ]);
     }
 }

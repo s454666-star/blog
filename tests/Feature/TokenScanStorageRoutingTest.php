@@ -52,6 +52,7 @@ class TokenScanStorageRoutingTest extends TestCase
             $table->unsignedBigInteger('message_id');
             $table->string('text', 255);
             $table->boolean('is_read')->default(false);
+            $table->boolean('is_sync')->default(false);
             $table->dateTime('created_at')->nullable();
         });
     }

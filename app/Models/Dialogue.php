@@ -19,6 +19,7 @@ class Dialogue extends Model
         'chat_id' => 'integer',
         'message_id' => 'integer',
         'is_read' => 'boolean',
+        'is_sync' => 'boolean',
         'created_at' => 'datetime',
     ];
 }

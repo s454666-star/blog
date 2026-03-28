@@ -16,6 +16,7 @@ class TelegramFilestoreSession extends Model
         'username',
         'encrypt_token',
         'public_token',
+        'source_token',
         'status',
         'total_files',
         'total_size',
@@ -23,6 +24,10 @@ class TelegramFilestoreSession extends Model
         'created_at',
         'closed_at',
         'last_shared_at',
+        'close_upload_prompted_at',
+        'is_sending',
+        'sending_started_at',
+        'sending_finished_at',
     ];
 
     protected $casts = [
@@ -30,6 +35,7 @@ class TelegramFilestoreSession extends Model
         'total_files' => 'integer',
         'total_size' => 'integer',
         'share_count' => 'integer',
+        'is_sending' => 'integer',
     ];
 
     public function files(): HasMany

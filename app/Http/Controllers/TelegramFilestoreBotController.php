@@ -162,6 +162,7 @@
                             'message_id' => $messageId,
                             'file_id' => $filePayload['file_id'],
                             'file_unique_id' => $filePayload['file_unique_id'],
+                            'source_token' => $session->source_token,
                             'file_name' => $filePayload['file_name'],
                             'mime_type' => $filePayload['mime_type'],
                             'file_size' => (int)($filePayload['file_size'] ?? 0),
@@ -657,6 +658,7 @@
                 'username' => $username,
                 'encrypt_token' => null,
                 'public_token' => null,
+                'source_token' => null,
                 'status' => 'uploading',
                 'total_files' => 0,
                 'total_size' => 0,
@@ -1291,7 +1293,10 @@
 
             $query = TelegramFilestoreSession::query()
                 ->where('status', 'closed')
-                ->whereIn('public_token', $candidates);
+                ->where(function ($builder) use ($candidates, $t) {
+                    $builder->whereIn('public_token', $candidates);
+                    $builder->orWhere('source_token', $t);
+                });
 
             if ($chatId !== null) {
                 $query->where('chat_id', $chatId);

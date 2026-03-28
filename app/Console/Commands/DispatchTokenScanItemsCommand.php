@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\TokenScanItem;
+use App\Services\TelegramFilestoreTokenBridgeService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -445,6 +446,10 @@ class DispatchTokenScanItemsCommand extends Command
             break;
         }
 
+        if ($result['classification'] === 'success') {
+            $result = $this->syncSuccessfulTokenToFilestore($token, $result);
+        }
+
         if ($result['classification'] === 'success' && $item instanceof TokenScanItem) {
             $result['db_action'] = $this->applyDoneAction($item, $doneAction);
         }
@@ -452,6 +457,69 @@ class DispatchTokenScanItemsCommand extends Command
         if ($result['classification'] === 'success' && !($item instanceof TokenScanItem)) {
             $result['db_action'] = 'manual';
         }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    private function syncSuccessfulTokenToFilestore(string $token, array $result): array
+    {
+        $baseUri = trim((string) ($result['base_uri'] ?? ''));
+        $botApi = trim((string) ($result['bot_api'] ?? ''));
+        $sentMessageId = (int) ($result['sent_message_id'] ?? 0);
+
+        if ($baseUri === '' || $botApi === '' || $sentMessageId <= 0) {
+            return $this->appendSummaryToResult($result, 'filestore sync skipped: bridge context missing');
+        }
+
+        /** @var TelegramFilestoreTokenBridgeService $bridge */
+        $bridge = app(TelegramFilestoreTokenBridgeService::class);
+        $bridgeResult = $bridge->sync($token, $baseUri, $botApi, $sentMessageId);
+
+        $result['filestore_status'] = (string) ($bridgeResult['status'] ?? '');
+        $result['filestore_session_id'] = (int) ($bridgeResult['session_id'] ?? 0);
+        $result['filestore_public_token'] = (string) ($bridgeResult['public_token'] ?? '');
+
+        $observedFiles = (int) ($bridgeResult['observed_files'] ?? 0);
+        if ($observedFiles > (int) ($result['files_unique_count'] ?? 0)) {
+            $result['files_unique_count'] = $observedFiles;
+        }
+
+        $observedTotalBytes = (int) ($bridgeResult['observed_total_bytes'] ?? 0);
+        if ($observedTotalBytes > (int) ($result['files_total_bytes'] ?? 0)) {
+            $result['files_total_bytes'] = $observedTotalBytes;
+        }
+
+        $result = $this->appendSummaryToResult($result, (string) ($bridgeResult['summary'] ?? ''));
+
+        if (($bridgeResult['ok'] ?? false) !== true) {
+            $result['classification'] = 'failed';
+            $result['db_action'] = '';
+            $result = $this->appendSummaryToResult(
+                $result,
+                'Keep token_scan_items row untouched because filestore sync failed.'
+            );
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    private function appendSummaryToResult(array $result, string $extraSummary): array
+    {
+        $extraSummary = trim($extraSummary);
+        if ($extraSummary === '') {
+            return $result;
+        }
+
+        $summary = trim((string) ($result['summary'] ?? ''));
+        $result['summary'] = $summary !== '' ? ($summary . ' ' . $extraSummary) : $extraSummary;
 
         return $result;
     }
@@ -1086,6 +1154,8 @@ class DispatchTokenScanItemsCommand extends Command
                     }
                 }
             }
+
+            $result['sent_message_id'] = $activeSentMessageId;
 
             $primaryButtonKeywords = null;
 

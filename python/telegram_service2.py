@@ -3,7 +3,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from telethon import TelegramClient, events
 from telethon.tl.functions.messages import GetBotCallbackAnswerRequest, DeleteHistoryRequest
-from telethon.tl.types import Message
+from telethon.tl.types import Message, DocumentAttributeFilename, DocumentAttributeVideo
 from telethon.errors.rpcerrorlist import MessageIdInvalidError
 from telethon.errors import FloodWaitError
 
@@ -14,6 +14,9 @@ import time
 import traceback
 import zipfile
 import os
+import subprocess
+import json
+import mimetypes
 from typing import Optional, List, Dict, Any, Tuple, Set
 from datetime import datetime, date
 
@@ -42,12 +45,119 @@ DOWNLOAD_RESERVED_PATHS_BY_JOB: Dict[str, Set[str]] = {}
 DOWNLOAD_JOBS: Dict[str, Dict[str, Any]] = {}
 DOWNLOAD_SEEN_KEYS: Set[str] = set()
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
+BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
+GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180
+
+TDL_EXE_PATH = r"C:\Users\User\Videos\Captures\tdl.exe"
+TDL_DOWNLOAD_THREADS = 12
+TDL_DOWNLOAD_LIMIT = 32
+FFPROBE_EXE_PATH = r"C:\ffmpeg\bin\ffprobe.exe"
+
+
+def _probe_video_metadata(file_path: str) -> Tuple[Optional[float], Optional[int], Optional[int]]:
+    if not os.path.isfile(file_path) or not os.path.isfile(FFPROBE_EXE_PATH):
+        return None, None, None
+
+    try:
+        proc = subprocess.run(
+            [
+                FFPROBE_EXE_PATH,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,duration",
+                "-of",
+                "json",
+                file_path,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=20,
+            check=True,
+        )
+        payload = json.loads(proc.stdout or "{}")
+        streams = payload.get("streams") or []
+        if not streams:
+            return None, None, None
+
+        stream = streams[0] or {}
+        width = int(stream.get("width") or 0) or None
+        height = int(stream.get("height") or 0) or None
+        duration_raw = stream.get("duration")
+        duration = float(duration_raw) if duration_raw not in (None, "") else None
+        if duration is not None and duration < 0:
+            duration = None
+        return duration, width, height
+    except Exception as e:
+        push_log(
+            stage="probe_video_metadata",
+            result="error",
+            extra={
+                "file_path": file_path,
+                "error": str(e),
+                "trace": traceback.format_exc()[:1200],
+            },
+        )
+        return None, None, None
 
 def _clear_debug_logs():
     try:
         DEBUG_LOGS.clear()
     except Exception:
         pass
+
+
+def _is_disconnected_error(err: Exception) -> bool:
+    text = str(err or "").strip().lower()
+    if not text:
+        return False
+    return (
+        "cannot send requests while disconnected" in text
+        or "disconnected" in text
+        or "connection was closed" in text
+        or "not connected" in text
+    )
+
+
+async def _ensure_client_connected(force_reconnect: bool = False) -> bool:
+    try:
+        is_connected = bool(client.is_connected())
+    except Exception:
+        is_connected = False
+
+    if is_connected and not force_reconnect:
+        return True
+
+    if is_connected and force_reconnect:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
+    try:
+        await client.connect()
+    except Exception as e:
+        push_log(stage="client_connect", result="connect_error", extra={"error": str(e), "trace": traceback.format_exc()[:1200]})
+        return False
+
+    try:
+        if client.is_connected():
+            push_log(stage="client_connect", result="ok", extra={"force_reconnect": bool(force_reconnect)})
+            return True
+    except Exception:
+        pass
+
+    try:
+        await client.start()
+        push_log(stage="client_connect", result="start_ok", extra={"force_reconnect": bool(force_reconnect)})
+        return bool(client.is_connected())
+    except Exception as e:
+        push_log(stage="client_connect", result="start_error", extra={"error": str(e), "trace": traceback.format_exc()[:1200]})
+        return False
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
@@ -466,6 +576,7 @@ async def save_message(message: Message, forced_sender_username: Optional[str] =
         "id": str(uuid.uuid4()),
         "message_id": message.id,
         "chat_id": message.chat_id,
+        "bot_username": forced_sender_username or sender_username,
         "sender_username": sender_username,
         "is_bot": is_bot,
         "date": message.date.isoformat() if message.date else None,
@@ -473,6 +584,9 @@ async def save_message(message: Message, forced_sender_username: Optional[str] =
         "buttons": [],
         "is_edited": is_edited,
         "saved_at_ms": _now_ms(),
+        "reply_to_message_id": int(
+            getattr(getattr(message, "reply_to", None), "reply_to_msg_id", 0) or 0
+        ) if getattr(message, "reply_to", None) else None,
         "file": file_meta,
         "raw_payload": file_meta.get("raw_payload") if file_meta else _safe_message_payload(message),
     }
@@ -495,6 +609,22 @@ async def save_message(message: Message, forced_sender_username: Optional[str] =
 
     key = (int(message.chat_id or 0), int(message.id or 0))
     MESSAGE_STORE[key] = data
+
+
+def _normalize_bot_username(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _message_matches_bot(msg: Optional[Dict[str, Any]], bot_username: str) -> bool:
+    if not msg:
+        return False
+
+    target = _normalize_bot_username(bot_username)
+    if not target:
+        return False
+
+    source = _normalize_bot_username(msg.get("bot_username") or msg.get("sender_username"))
+    return source == target
 
 
 @client.on(events.NewMessage)
@@ -683,6 +813,19 @@ def callback_fingerprint(msg: Dict[str, Any]) -> str:
 
 def _normalize_button_text(s: Optional[str]) -> str:
     return (str(s or "")).strip().lower()
+
+
+def _button_text_contains_keywords(text: Optional[str], keywords: List[str]) -> bool:
+    normalized_text = _normalize_button_text(text)
+    if not normalized_text:
+        return False
+
+    for kw in (keywords or []):
+        normalized_kw = _normalize_button_text(kw)
+        if normalized_kw and normalized_kw in normalized_text:
+            return True
+
+    return False
 
 def _extract_first_int_from_text(s: Optional[str]) -> Optional[int]:
     if not s:
@@ -1178,11 +1321,14 @@ def _is_pagination_callback_message(callback_msg: Dict[str, Any], next_keywords:
 def _is_meaningful_state_message_for_pagination(bot_username: str, msg: Optional[Dict[str, Any]]) -> bool:
     if not msg:
         return False
-    if msg.get("sender_username") != bot_username:
+    if not _message_matches_bot(msg, bot_username):
         return False
 
     buttons = get_callback_buttons(msg)
     if buttons:
+        return True
+
+    if msg.get("file"):
         return True
 
     t = (msg.get("text") or "").strip()
@@ -1228,6 +1374,10 @@ def _is_bot_completion_message(msg: Optional[Dict[str, Any]]) -> bool:
         "全部发送完成",
         "以下代碼的內容發送完成",
         "以下代码的内容发送完成",
+        "所有資源已加載完畢",
+        "所有资源已加载完毕",
+        "所有資源已加載完成",
+        "所有资源已加载完成",
         "完成",
     ]
 
@@ -1319,7 +1469,7 @@ def _is_bot_not_found_message(msg: Optional[Dict[str, Any]]) -> bool:
 def find_latest_callback_message(bot_username: str, skip_invalid: bool = False) -> Optional[Dict[str, Any]]:
     latest = None
     for msg in MESSAGE_STORE.values():
-        if msg.get("sender_username") != bot_username:
+        if not _message_matches_bot(msg, bot_username):
             continue
         if not get_callback_buttons(msg):
             continue
@@ -1351,7 +1501,7 @@ def find_latest_pagination_callback_message(
     msgs: List[Dict[str, Any]] = []
 
     for msg in MESSAGE_STORE.values():
-        if msg.get("sender_username") != bot_username:
+        if not _message_matches_bot(msg, bot_username):
             continue
 
         mid = int(msg.get("message_id", 0) or 0)
@@ -1394,7 +1544,7 @@ def find_latest_pagination_callback_message(
 def find_latest_bot_message_any(bot_username: str, require_meaningful: bool = False) -> Optional[Dict[str, Any]]:
     latest = None
     for msg in MESSAGE_STORE.values():
-        if msg.get("sender_username") != bot_username:
+        if not _message_matches_bot(msg, bot_username):
             continue
 
         if require_meaningful:
@@ -1409,7 +1559,7 @@ def find_latest_bot_message_any(bot_username: str, require_meaningful: bool = Fa
 def find_latest_bot_message_with_page_info(bot_username: str) -> Optional[Dict[str, Any]]:
     latest = None
     for msg in MESSAGE_STORE.values():
-        if msg.get("sender_username") != bot_username:
+        if not _message_matches_bot(msg, bot_username):
             continue
         pi = extract_page_info(msg.get("text"))
         if not pi:
@@ -1480,6 +1630,13 @@ def _pagination_state_from_message(msg: Optional[Dict[str, Any]], next_keywords:
     has_next = False
     if buttons:
         has_next = _has_next_by_buttons(buttons, effective_next_keywords)
+    elif pi and pi.get("current_page") is not None and pi.get("total_pages") is not None:
+        try:
+            cur = int(pi.get("current_page") or 0)
+            total = int(pi.get("total_pages") or 0)
+            has_next = total > 0 and cur < total
+        except Exception:
+            has_next = False
 
     is_pagination_like = False
     if buttons:
@@ -1605,7 +1762,7 @@ def collect_files_from_store(
     raw_files: List[Dict[str, Any]] = []
 
     for m in reversed(msgs):
-        if m.get("sender_username") != bot_username:
+        if not _message_matches_bot(m, bot_username):
             continue
 
         mid = int(m.get("message_id") or 0)
@@ -1680,7 +1837,7 @@ def summarize_latest_bot_message(bot_username: str, min_message_id: int = 0) -> 
     latest = None
 
     for msg in MESSAGE_STORE.values():
-        if msg.get("sender_username") != bot_username:
+        if not _message_matches_bot(msg, bot_username):
             continue
 
         mid = int(msg.get("message_id", 0) or 0)
@@ -1723,7 +1880,9 @@ def _attach_bot_result_snapshot(
         "files_unique_count": files_unique_count,
         "not_found_message_detected": bool(latest_message and latest_message.get("kind") == "not_found"),
         "latest_message_kind": latest_message.get("kind") if latest_message else None,
+        "run_completed": str(result.get("status") or "").lower() == "ok",
     }
+    result["completed"] = bool(result["outcome"]["run_completed"])
 
     return result
 
@@ -1765,11 +1924,23 @@ async def _get_peer_for_bot(bot_username: str):
         return None
     if key in _PEER_CACHE:
         return _PEER_CACHE[key]
+    if not await _ensure_client_connected():
+        return None
     try:
         peer = await client.get_input_entity(key)
         _PEER_CACHE[key] = peer
         return peer
     except Exception as e:
+        if _is_disconnected_error(e):
+            _PEER_CACHE.pop(key, None)
+            if await _ensure_client_connected(force_reconnect=True):
+                try:
+                    peer = await client.get_input_entity(key)
+                    _PEER_CACHE[key] = peer
+                    return peer
+                except Exception as retry_error:
+                    push_log(stage="peer_resolve", result="retry_error", extra={"bot_username": key, "error": str(retry_error), "trace": traceback.format_exc()[:1200]})
+                    return None
         push_log(stage="peer_resolve", result="error", extra={"bot_username": key, "error": str(e), "trace": traceback.format_exc()[:1200]})
         return None
 
@@ -1885,59 +2056,266 @@ async def _delete_messages_in_batches(bot_username: str, message_ids: List[int],
         await asyncio.sleep(0.2)
 
 
-async def _cleanup_chat_after_run(bot_username: str, min_mid: int, scope: str, limit: int):
+async def _cleanup_chat_after_run(
+    bot_username: str,
+    min_mid: int = 0,
+    scope: str = "run",
+    limit: int = 300,
+    max_mid: int = 0,
+    min_message_id: Optional[int] = None,
+    max_message_id: Optional[int] = None,
+    preserve_file_messages: bool = False,
+    max_logs: int = 2000
+):
     scope = (scope or "run").strip().lower()
     if scope not in ["run", "all"]:
         scope = "run"
 
+    lower_bound = int(min_message_id if min_message_id is not None else (min_mid or 0))
+    upper_bound = int(max_message_id if max_message_id is not None else (max_mid or 0))
+    if upper_bound > 0 and upper_bound < lower_bound:
+        upper_bound = lower_bound
+
     peer = await _get_peer_for_bot(bot_username)
     if peer is None:
-        push_log(stage="cleanup", result="no_peer", extra={"bot_username": bot_username, "scope": scope})
+        push_log(stage="cleanup", result="no_peer", extra={"bot_username": bot_username, "scope": scope}, max_logs=max_logs)
         return
 
     if scope == "all":
         try:
             await client(DeleteHistoryRequest(peer=peer, max_id=0, just_clear=False, revoke=True))
-            push_log(stage="cleanup", result="delete_history_ok", extra={"scope": "all"})
+            push_log(stage="cleanup", result="delete_history_ok", extra={"scope": "all"}, max_logs=max_logs)
         except FloodWaitError as e:
             wait_s = int(getattr(e, "seconds", 5) or 5)
-            push_log(stage="cleanup", result="delete_history_flood_wait", extra={"seconds": wait_s})
+            push_log(stage="cleanup", result="delete_history_flood_wait", extra={"seconds": wait_s}, max_logs=max_logs)
             await asyncio.sleep(min(wait_s + 1, 20))
             try:
                 await client(DeleteHistoryRequest(peer=peer, max_id=0, just_clear=False, revoke=True))
-                push_log(stage="cleanup", result="delete_history_ok_after_wait", extra={"scope": "all"})
+                push_log(stage="cleanup", result="delete_history_ok_after_wait", extra={"scope": "all"}, max_logs=max_logs)
             except Exception as e2:
-                push_log(stage="cleanup", result="delete_history_error", extra={"error": str(e2), "trace": traceback.format_exc()[:800]})
+                push_log(stage="cleanup", result="delete_history_error", extra={"error": str(e2), "trace": traceback.format_exc()[:800]}, max_logs=max_logs)
         except Exception as e:
-            push_log(stage="cleanup", result="delete_history_error", extra={"error": str(e), "trace": traceback.format_exc()[:800]})
+            push_log(stage="cleanup", result="delete_history_error", extra={"error": str(e), "trace": traceback.format_exc()[:800]}, max_logs=max_logs)
         return
 
+    push_log(
+        stage="cleanup_snapshot",
+        result="before_range_delete",
+        extra={
+            "bot_username": bot_username,
+            "scope": scope,
+            "min_mid": lower_bound,
+            "max_mid": upper_bound,
+            "store_recent": _recent_store_snapshot(bot_username, limit=8, min_message_id=max(lower_bound - 3, 0)),
+            "live_recent": await _recent_live_snapshot(bot_username, limit=8),
+        },
+        max_logs=max_logs,
+    )
+
     ids: List[int] = []
+    preserved_file_ids: List[int] = []
     try:
         async for msg in client.iter_messages(peer, limit=max(int(limit or 300), 50)):
             try:
                 mid = int(msg.id or 0)
             except Exception:
                 continue
-            if mid >= int(min_mid or 0):
-                ids.append(mid)
+            if mid < lower_bound:
+                continue
+            if upper_bound > 0 and mid > upper_bound:
+                continue
+            if preserve_file_messages and (
+                bool(getattr(msg, "media", None))
+                or _store_message_has_file(bot_username, mid)
+            ):
+                preserved_file_ids.append(mid)
+                continue
+            ids.append(mid)
     except Exception as e:
-        push_log(stage="cleanup", result="iter_messages_error", extra={"error": str(e), "trace": traceback.format_exc()[:800]})
+        push_log(stage="cleanup", result="iter_messages_error", extra={"error": str(e), "trace": traceback.format_exc()[:800]}, max_logs=max_logs)
         return
 
     if not ids:
-        push_log(stage="cleanup", result="no_messages_to_delete", extra={"scope": "run", "min_mid": min_mid})
+        push_log(stage="cleanup", result="no_messages_to_delete", extra={"scope": "run", "min_mid": lower_bound, "max_mid": upper_bound, "preserved_file_ids": preserved_file_ids[:120]}, max_logs=max_logs)
         return
 
     ids_sorted = sorted(ids)
-    push_log(stage="cleanup", result="collected", extra={"scope": "run", "count": len(ids_sorted), "from": ids_sorted[0], "to": ids_sorted[-1], "min_mid": min_mid})
+    push_log(stage="cleanup", result="collected", extra={"scope": "run", "count": len(ids_sorted), "from": ids_sorted[0], "to": ids_sorted[-1], "min_mid": lower_bound, "max_mid": upper_bound, "preserved_file_ids": preserved_file_ids[:120]}, max_logs=max_logs)
     await _delete_messages_in_batches(bot_username, ids_sorted, revoke=True)
+    push_log(
+        stage="cleanup_snapshot",
+        result="after_range_delete",
+        extra={
+            "bot_username": bot_username,
+            "scope": scope,
+            "deleted_message_ids": ids_sorted[:120],
+            "preserved_file_ids": preserved_file_ids[:120],
+            "min_mid": lower_bound,
+            "max_mid": upper_bound,
+            "store_recent": _recent_store_snapshot(bot_username, limit=8, min_message_id=max(lower_bound - 3, 0)),
+            "live_recent": await _recent_live_snapshot(bot_username, limit=8),
+        },
+        max_logs=max_logs,
+    )
+
+
+async def _cleanup_not_found_messages(
+    bot_username: str,
+    trigger_msg: Optional[Dict[str, Any]],
+    min_message_id: int = 0,
+    sent_message_id: int = 0
+):
+    msg = trigger_msg or {}
+    ids: List[int] = []
+    run_floor_mid = int(min_message_id or 0)
+    sent_mid = int(sent_message_id or 0)
+
+    try:
+        trigger_mid = int(msg.get("message_id", 0) or 0)
+    except Exception:
+        trigger_mid = 0
+
+    try:
+        reply_mid = int(msg.get("reply_to_message_id", 0) or 0)
+    except Exception:
+        reply_mid = 0
+
+    if trigger_mid > 0 and (run_floor_mid <= 0 or trigger_mid >= run_floor_mid):
+        ids.append(trigger_mid)
+    if sent_mid > 0:
+        ids.append(sent_mid)
+    elif reply_mid > 0 and (run_floor_mid <= 0 or reply_mid >= run_floor_mid):
+        ids.append(reply_mid)
+    elif run_floor_mid > 0:
+        ids.append(run_floor_mid)
+
+    deduped: List[int] = []
+    seen: Set[int] = set()
+    for mid in ids:
+        if mid <= 0 or mid in seen:
+            continue
+        seen.add(mid)
+        deduped.append(mid)
+
+    if not deduped:
+        push_log(stage="cleanup_not_found", result="skip_no_ids", extra={"bot_username": bot_username})
+        return
+
+    push_log(
+        stage="cleanup_not_found",
+        result="delete_targeted",
+        extra={
+            "bot_username": bot_username,
+            "message_ids": deduped,
+            "sent_message_id": sent_mid,
+            "trigger_message_id": trigger_mid,
+            "candidate_reply_to_message_id": reply_mid,
+            "fallback_min_message_id": run_floor_mid,
+            "trigger_message": _message_debug_summary(msg),
+            "store_recent": _recent_store_snapshot(bot_username, limit=8, min_message_id=max(run_floor_mid - 3, 0)),
+            "live_recent": await _recent_live_snapshot(bot_username, limit=8),
+        }
+    )
+    await _delete_messages_in_batches(bot_username, deduped, revoke=True)
+    push_log(
+        stage="cleanup_not_found",
+        result="delete_targeted_done",
+        extra={
+            "bot_username": bot_username,
+            "message_ids": deduped,
+            "sent_message_id": sent_mid,
+            "store_recent": _recent_store_snapshot(bot_username, limit=8, min_message_id=max(run_floor_mid - 3, 0)),
+            "live_recent": await _recent_live_snapshot(bot_username, limit=8),
+        }
+    )
 
 def _get_debug_logs(limit: int = 200) -> List[Dict[str, Any]]:
     try:
         return DEBUG_LOGS[-max(int(limit or 200), 1):]
     except Exception:
         return []
+
+
+def _message_debug_summary(msg: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not msg:
+        return None
+
+    text = str(msg.get("text") or "").replace("\r", " ").replace("\n", " ").strip()
+    buttons = get_callback_buttons(msg)
+
+    return {
+        "message_id": int(msg.get("message_id", 0) or 0),
+        "reply_to_message_id": int(msg.get("reply_to_message_id", 0) or 0),
+        "chat_id": int(msg.get("chat_id", 0) or 0),
+        "bot_username": msg.get("bot_username"),
+        "sender_username": msg.get("sender_username"),
+        "has_file": bool(msg.get("file")),
+        "has_buttons": bool(buttons),
+        "buttons_text": summarize_buttons(buttons) if buttons else "",
+        "text_preview": text[:180],
+        "date": msg.get("date"),
+    }
+
+
+def _recent_store_snapshot(bot_username: str, limit: int = 8, min_message_id: int = 0) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for msg in get_all_messages_sorted():
+        if not _message_matches_bot(msg, bot_username):
+            continue
+        mid = int(msg.get("message_id", 0) or 0)
+        if int(min_message_id or 0) > 0 and mid < int(min_message_id or 0):
+            continue
+        summary = _message_debug_summary(msg)
+        if summary:
+            items.append(summary)
+
+    if limit > 0:
+        items = items[-limit:]
+    return items
+
+
+def _store_message_has_file(bot_username: str, message_id: int) -> bool:
+    target_mid = int(message_id or 0)
+    if target_mid <= 0:
+        return False
+
+    for msg in MESSAGE_STORE.values():
+        try:
+            if not _message_matches_bot(msg, bot_username):
+                continue
+            if int(msg.get("message_id", 0) or 0) != target_mid:
+                continue
+            return bool(msg.get("file"))
+        except Exception:
+            continue
+
+    return False
+
+
+async def _recent_live_snapshot(bot_username: str, limit: int = 8) -> List[Dict[str, Any]]:
+    peer = await _get_peer_for_bot(bot_username)
+    if peer is None:
+        return []
+
+    out: List[Dict[str, Any]] = []
+    try:
+        async for msg in client.iter_messages(peer, limit=max(int(limit or 8), 1)):
+            try:
+                text = str(getattr(msg, "text", "") or "").replace("\r", " ").replace("\n", " ").strip()
+                out.append({
+                    "message_id": int(getattr(msg, "id", 0) or 0),
+                    "reply_to_message_id": int(getattr(getattr(msg, "reply_to", None), "reply_to_msg_id", 0) or 0),
+                    "has_file": bool(getattr(msg, "media", None)),
+                    "text_preview": text[:180],
+                    "date": getattr(msg, "date", None).isoformat() if getattr(msg, "date", None) else None,
+                })
+            except Exception:
+                continue
+    except Exception as e:
+        return [{"_error": str(e)}]
+
+    out.reverse()
+    return out
 
 def _sanitize_for_path(s: str, max_len: int = 80) -> str:
     s = (s or "").strip()
@@ -1974,6 +2352,176 @@ def _ensure_download_folder_for_text(text: str) -> str:
         os.makedirs(tmp, exist_ok=True)
         folder_path = tmp
     return folder_path
+
+
+def _media_download_subdir(file_type: Optional[str], mime_type: Optional[str]) -> str:
+    ft = str(file_type or "").strip().lower()
+    mt = str(mime_type or "").strip().lower()
+
+    if ft in ["photo", "image"] or mt.startswith("image/"):
+        return "images"
+    if ft == "video" or mt.startswith("video/"):
+        return "videos"
+    return "files"
+
+
+def _ensure_download_folder_for_media(text: str, file_type: Optional[str], mime_type: Optional[str]) -> str:
+    base_folder = _ensure_download_folder_for_text(text)
+    target_folder = os.path.join(base_folder, _media_download_subdir(file_type, mime_type))
+    os.makedirs(target_folder, exist_ok=True)
+    return target_folder
+
+
+def _run_tdl_download_url(
+    url: str,
+    folder_path: str,
+    reserved_path: str
+) -> Dict[str, Any]:
+    exe_path = str(TDL_EXE_PATH or "").strip()
+    if not exe_path or not os.path.isfile(exe_path):
+        return {
+            "ok": False,
+            "reason": "tdl_missing",
+            "exe_path": exe_path,
+        }
+
+    os.makedirs(folder_path, exist_ok=True)
+    before_entries: Set[str] = set()
+    try:
+        before_entries = set(os.listdir(folder_path))
+    except Exception:
+        before_entries = set()
+
+    cmd = [
+        exe_path,
+        "dl",
+        "-u",
+        url,
+        "-d",
+        folder_path,
+        "-t",
+        str(TDL_DOWNLOAD_THREADS),
+        "-l",
+        str(TDL_DOWNLOAD_LIMIT),
+        "--skip-same",
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    except Exception as e:
+        return {
+            "ok": False,
+            "reason": "tdl_exec_error",
+            "error": str(e),
+        }
+
+    stdout = str(proc.stdout or "")
+    stderr = str(proc.stderr or "")
+    after_paths: List[str] = []
+
+    try:
+        for name in os.listdir(folder_path):
+            if name in before_entries:
+                continue
+            full_path = os.path.join(folder_path, name)
+            if os.path.isfile(full_path):
+                after_paths.append(full_path)
+    except Exception:
+        after_paths = []
+
+    if proc.returncode != 0:
+        return {
+            "ok": False,
+            "reason": "tdl_failed",
+            "returncode": int(proc.returncode),
+            "stdout": stdout[-2000:],
+            "stderr": stderr[-2000:],
+        }
+
+    if not after_paths:
+        if os.path.isfile(reserved_path):
+            return {
+                "ok": True,
+                "saved_path": reserved_path,
+                "saved_name": os.path.basename(reserved_path),
+                "stdout": stdout[-1000:],
+                "stderr": stderr[-1000:],
+            }
+        return {
+            "ok": False,
+            "reason": "tdl_no_new_file",
+            "stdout": stdout[-2000:],
+            "stderr": stderr[-2000:],
+        }
+
+    after_paths.sort(key=lambda path: os.path.getmtime(path), reverse=True)
+    downloaded_path = after_paths[0]
+
+    final_path = reserved_path
+    try:
+        if os.path.normcase(downloaded_path) != os.path.normcase(final_path):
+            if os.path.isfile(final_path):
+                os.remove(final_path)
+            os.replace(downloaded_path, final_path)
+            for extra_path in after_paths[1:]:
+                try:
+                    if os.path.isfile(extra_path):
+                        os.remove(extra_path)
+                except Exception:
+                    pass
+        else:
+            final_path = downloaded_path
+    except Exception as e:
+        return {
+            "ok": False,
+            "reason": "tdl_rename_failed",
+            "downloaded_path": downloaded_path,
+            "target_path": final_path,
+            "error": str(e),
+            "stdout": stdout[-2000:],
+            "stderr": stderr[-2000:],
+        }
+
+    return {
+        "ok": True,
+        "saved_path": final_path,
+        "saved_name": os.path.basename(final_path),
+        "stdout": stdout[-1000:],
+        "stderr": stderr[-1000:],
+    }
+
+
+def _run_tdl_download(
+    peer_id: int,
+    message_id: int,
+    folder_path: str,
+    reserved_path: str
+) -> Dict[str, Any]:
+    url = f"https://t.me/c/{int(peer_id)}/{int(message_id)}"
+    return _run_tdl_download_url(url, folder_path, reserved_path)
+
+
+def _run_tdl_download_for_bot_message(
+    bot_username: str,
+    message_id: int,
+    folder_path: str,
+    reserved_path: str
+) -> Dict[str, Any]:
+    username = str(bot_username or "").strip().lstrip("@")
+    if not username:
+        return {
+            "ok": False,
+            "reason": "bot_username_missing",
+        }
+
+    url = f"https://t.me/{username}/{int(message_id)}"
+    return _run_tdl_download_url(url, folder_path, reserved_path)
 
 
 def _guess_ext_from_name_or_mime(file_name: Optional[str], mime_type: Optional[str]) -> str:
@@ -2048,6 +2596,54 @@ def _reserve_download_file_path(
         return candidate_path
 
 
+def _cleanup_partial_download_path(file_path: Optional[str]) -> None:
+    try:
+        if file_path and os.path.isfile(file_path):
+            os.remove(file_path)
+    except Exception:
+        pass
+
+
+async def _download_media_with_telethon_timeout(
+    message: Message,
+    file_path: str,
+    timeout_seconds: int
+) -> Dict[str, Any]:
+    started_at = time.time()
+
+    try:
+        await asyncio.wait_for(
+            client.download_media(message, file=file_path),
+            timeout=float(timeout_seconds or 0),
+        )
+        return {
+            "ok": True,
+            "saved_path": file_path,
+            "saved_name": os.path.basename(file_path),
+            "elapsed_seconds": round(time.time() - started_at, 3),
+        }
+    except asyncio.TimeoutError:
+        _cleanup_partial_download_path(file_path)
+        return {
+            "ok": False,
+            "reason": "telethon_download_timeout",
+            "timeout_seconds": int(timeout_seconds or 0),
+            "saved_path": file_path,
+            "saved_name": os.path.basename(file_path),
+            "elapsed_seconds": round(time.time() - started_at, 3),
+        }
+    except Exception as e:
+        _cleanup_partial_download_path(file_path)
+        return {
+            "ok": False,
+            "reason": "telethon_download_error",
+            "error": str(e),
+            "saved_path": file_path,
+            "saved_name": os.path.basename(file_path),
+            "elapsed_seconds": round(time.time() - started_at, 3),
+        }
+
+
 async def _download_one_file_by_message_id(
     bot_username: str,
     peer: Any,
@@ -2087,14 +2683,52 @@ async def _download_one_file_by_message_id(
                 job_id=job_id
             )
 
-            await client.download_media(one, file=file_path)
+            downloader = "telethon"
+            telethon_result: Dict[str, Any] = {"ok": False, "reason": "not_attempted"}
+            tdl_result = await asyncio.to_thread(
+                _run_tdl_download_for_bot_message,
+                bot_username,
+                mid,
+                folder_path,
+                file_path,
+            )
+
+            if bool(tdl_result.get("ok")):
+                downloader = "tdl"
+                file_path = str(tdl_result.get("saved_path") or file_path)
+            else:
+                telethon_result = await _download_media_with_telethon_timeout(
+                    one,
+                    file_path,
+                    BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS,
+                )
+                if bool(telethon_result.get("ok")):
+                    file_path = str(telethon_result.get("saved_path") or file_path)
+                else:
+                    reason = str(telethon_result.get("reason") or "telethon_download_failed")
+                    error = str(telethon_result.get("error") or "").strip()
+                    if error:
+                        raise RuntimeError(f"{reason}: {error}")
+                    raise RuntimeError(reason)
 
             job = DOWNLOAD_JOBS.get(job_id) or {}
             job["done"] = int(job.get("done", 0)) + 1
             job["last_saved_path"] = file_path
+            job["last_downloader"] = downloader
             DOWNLOAD_JOBS[job_id] = job
 
-            push_log(stage="download_local", result="ok", extra={"job_id": job_id, "mid": mid, "path": file_path})
+            push_log(
+                stage="download_local",
+                result="ok",
+                extra={
+                    "job_id": job_id,
+                    "mid": mid,
+                    "path": file_path,
+                    "downloader": downloader,
+                    "tdl": _json_sanitize(tdl_result),
+                    "telethon": _json_sanitize(telethon_result),
+                }
+            )
 
         except Exception as e:
             job = DOWNLOAD_JOBS.get(job_id) or {}
@@ -2105,6 +2739,129 @@ async def _download_one_file_by_message_id(
         finally:
             if slow_seconds and slow_seconds > 0:
                 await asyncio.sleep(float(slow_seconds))
+
+
+async def _download_group_message_media_to_local(
+    peer_id: int,
+    message_id: int,
+    folder_label: Optional[str] = None
+) -> Dict[str, Any]:
+    ent = await _resolve_any_entity_by_id(peer_id)
+    if ent is None:
+        return {
+            "status": "fail",
+            "reason": "entity_not_found",
+            "peer_id": int(peer_id),
+            "message_id": int(message_id),
+        }
+
+    group_title = getattr(ent, "title", None) or getattr(ent, "first_name", None) or getattr(ent, "username", None)
+
+    msg = await client.get_messages(ent, ids=int(message_id))
+    if msg is None:
+        return {
+            "status": "fail",
+            "reason": "message_not_found",
+            "peer_id": int(peer_id),
+            "message_id": int(message_id),
+            "group_title": group_title,
+        }
+
+    file_obj = _extract_file_meta_mtproto(msg)
+    if not file_obj:
+        return {
+            "status": "ok",
+            "downloaded": False,
+            "reason": "no_media",
+            "peer_id": int(peer_id),
+            "message_id": int(message_id),
+            "group_title": group_title,
+        }
+
+    label = str(folder_label or "").strip()
+    if not label:
+        title_for_path = str(group_title or f"group_{int(peer_id)}").strip()
+        label = f"group_{int(peer_id)}_{title_for_path}"
+
+    folder_path = _ensure_download_folder_for_media(
+        label,
+        file_obj.get("file_type"),
+        file_obj.get("mime_type"),
+    )
+    job_id = f"group-download-{int(peer_id)}-{int(message_id)}-{uuid.uuid4().hex}"
+    file_path = _reserve_download_file_path(
+        folder_path=folder_path,
+        file_obj=file_obj,
+        base_name=str(file_obj.get("file_name") or f"message_{int(message_id)}"),
+        index=1,
+        job_id=job_id,
+    )
+
+    downloader = "telethon"
+    telethon_result: Dict[str, Any] = {"ok": False, "reason": "not_attempted"}
+    tdl_result = await asyncio.to_thread(
+        _run_tdl_download,
+        int(peer_id),
+        int(message_id),
+        folder_path,
+        file_path,
+    )
+
+    if bool(tdl_result.get("ok")):
+        downloader = "tdl"
+        file_path = str(tdl_result.get("saved_path") or file_path)
+    else:
+        telethon_result = await _download_media_with_telethon_timeout(
+            msg,
+            file_path,
+            GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS,
+        )
+        if bool(telethon_result.get("ok")):
+            file_path = str(telethon_result.get("saved_path") or file_path)
+        else:
+            return {
+                "status": "fail",
+                "downloaded": False,
+                "reason": str(telethon_result.get("reason") or "telethon_download_failed"),
+                "error": str(telethon_result.get("error") or ""),
+                "peer_id": int(peer_id),
+                "message_id": int(message_id),
+                "group_title": group_title,
+                "folder_path": folder_path,
+                "saved_path": telethon_result.get("saved_path"),
+                "saved_name": telethon_result.get("saved_name"),
+                "downloader": downloader,
+                "tdl": _json_sanitize(tdl_result),
+                "telethon": _json_sanitize(telethon_result),
+                "file": {
+                    "file_name": file_obj.get("file_name"),
+                    "mime_type": file_obj.get("mime_type"),
+                    "file_size": int(file_obj.get("file_size", 0) or 0),
+                    "file_type": file_obj.get("file_type"),
+                    "file_unique_id": file_obj.get("file_unique_id"),
+                },
+            }
+
+    return {
+        "status": "ok",
+        "downloaded": True,
+        "peer_id": int(peer_id),
+        "message_id": int(message_id),
+        "group_title": group_title,
+        "folder_path": folder_path,
+        "saved_path": file_path,
+        "saved_name": os.path.basename(file_path),
+        "downloader": downloader,
+        "tdl": _json_sanitize(tdl_result),
+        "telethon": _json_sanitize(telethon_result),
+        "file": {
+            "file_name": file_obj.get("file_name"),
+            "mime_type": file_obj.get("mime_type"),
+            "file_size": int(file_obj.get("file_size", 0) or 0),
+            "file_type": file_obj.get("file_type"),
+            "file_unique_id": file_obj.get("file_unique_id"),
+        },
+    }
 
 
 
@@ -2232,6 +2989,35 @@ class SendBotMessageRequest(BaseModel):
     clear_previous_replies: bool = True
 
 
+class UploadBotVideoRequest(BaseModel):
+    bot_username: str
+    file_path: str
+    caption: Optional[str] = None
+    clear_previous_replies: bool = False
+    supports_streaming: bool = True
+
+
+class GetBotFilesRequest(BaseModel):
+    bot_username: str
+    min_message_id: int = 0
+    max_return_files: int = 1000
+    max_raw_payload_bytes: int = 0
+    backfill_limit: int = 360
+    backfill_timeout_seconds: float = 6.0
+    force_backfill: bool = True
+
+
+class ForwardBotMessagesRequest(BaseModel):
+    source_chat_id: int
+    message_ids: List[int]
+    target_bot_username: str
+
+
+class DeleteMessagesRequest(BaseModel):
+    chat_peer: str
+    message_ids: List[int]
+
+
 @app.post("/bots/send")
 async def send_message_to_bot(payload: SendBotMessageRequest):
     if payload.clear_previous_replies:
@@ -2245,6 +3031,407 @@ async def send_message_to_bot(payload: SendBotMessageRequest):
         sent_message_id = 0
     await backfill_latest_from_bot(payload.bot_username, limit=160, timeout_seconds=6.0, force=True)
     return {"status": "ok", "sent_message_id": sent_message_id}
+
+
+@app.post("/bots/files")
+async def get_bot_files(payload: GetBotFilesRequest):
+    bot_username = str(payload.bot_username or "").strip()
+    if not bot_username:
+        return {
+            "status": "error",
+            "reason": "bot_username_required",
+        }
+
+    connected = await _ensure_client_connected()
+    if not connected:
+        return {
+            "status": "error",
+            "reason": "client_not_connected",
+            "bot_username": bot_username,
+        }
+
+    try:
+        await backfill_latest_from_bot(
+            bot_username,
+            limit=max(int(payload.backfill_limit or 0), 1),
+            timeout_seconds=float(payload.backfill_timeout_seconds or 6.0),
+            force=bool(payload.force_backfill),
+            min_message_id=max(int(payload.min_message_id or 0), 0),
+        )
+
+        files_meta = collect_files_from_store(
+            bot_username,
+            max(int(payload.max_return_files or 0), 1),
+            max(int(payload.max_raw_payload_bytes or 0), 0),
+            min_message_id=max(int(payload.min_message_id or 0), 0),
+        )
+
+        files = list(files_meta.get("files") or [])
+        files_total_bytes = 0
+        source_chat_id = 0
+
+        for file_obj in files:
+            try:
+                files_total_bytes = files_total_bytes + int(file_obj.get("file_size", 0) or 0)
+            except Exception:
+                pass
+
+            if source_chat_id > 0:
+                continue
+
+            try:
+                candidate_chat_id = int(file_obj.get("chat_id", 0) or 0)
+            except Exception:
+                candidate_chat_id = 0
+
+            if candidate_chat_id > 0:
+                source_chat_id = candidate_chat_id
+
+        return {
+            "status": "ok",
+            "bot_username": bot_username,
+            "min_message_id": max(int(payload.min_message_id or 0), 0),
+            "source_chat_id": source_chat_id,
+            "files_total_bytes": files_total_bytes,
+            **files_meta,
+        }
+    except Exception as e:
+        push_log(
+            stage="bots_files",
+            result="files_error",
+            extra={
+                "bot_username": bot_username,
+                "min_message_id": max(int(payload.min_message_id or 0), 0),
+                "error": str(e),
+                "trace": traceback.format_exc()[:1200],
+            },
+        )
+        return {
+            "status": "error",
+            "reason": "files_fetch_failed",
+            "error": str(e),
+            "bot_username": bot_username,
+        }
+
+
+@app.post("/bots/forward-messages")
+async def forward_messages_to_bot(payload: ForwardBotMessagesRequest):
+    source_chat_id = int(payload.source_chat_id or 0)
+    target_bot_username = str(payload.target_bot_username or "").strip()
+    raw_message_ids = list(payload.message_ids or [])
+
+    if source_chat_id <= 0:
+        return {
+            "status": "error",
+            "reason": "invalid_source_chat_id",
+        }
+
+    if not target_bot_username:
+        return {
+            "status": "error",
+            "reason": "target_bot_username_required",
+        }
+
+    message_ids: List[int] = []
+    seen_ids = set()
+
+    for raw_mid in raw_message_ids:
+        try:
+            mid = int(raw_mid or 0)
+        except Exception:
+            continue
+
+        if mid <= 0 or mid in seen_ids:
+            continue
+
+        seen_ids.add(mid)
+        message_ids.append(mid)
+
+    if not message_ids:
+        return {
+            "status": "error",
+            "reason": "message_ids_required",
+        }
+
+    connected = await _ensure_client_connected()
+    if not connected:
+        return {
+            "status": "error",
+            "reason": "client_not_connected",
+            "source_chat_id": source_chat_id,
+            "target_bot_username": target_bot_username,
+        }
+
+    try:
+        source_entity = await client.get_input_entity(source_chat_id)
+        target_entity = await client.get_input_entity(target_bot_username)
+        fetched = await client.get_messages(source_entity, ids=message_ids)
+
+        if isinstance(fetched, list):
+            fetched_messages = fetched
+        elif fetched is None:
+            fetched_messages = []
+        else:
+            fetched_messages = [fetched]
+
+        messages_by_id: Dict[int, Message] = {}
+        for msg in fetched_messages:
+            try:
+                mid = int(getattr(msg, "id", 0) or 0)
+            except Exception:
+                mid = 0
+
+            if mid > 0:
+                messages_by_id[mid] = msg
+
+        ordered_messages = [messages_by_id[mid] for mid in message_ids if mid in messages_by_id]
+        missing_message_ids = [mid for mid in message_ids if mid not in messages_by_id]
+        unforwardable_message_ids: List[int] = []
+
+        for msg in ordered_messages:
+            try:
+                mid = int(getattr(msg, "id", 0) or 0)
+            except Exception:
+                mid = 0
+
+            if mid <= 0:
+                continue
+
+            if not getattr(msg, "media", None) or bool(getattr(msg, "noforwards", False)):
+                unforwardable_message_ids.append(mid)
+
+        if not ordered_messages:
+            return {
+                "status": "error",
+                "reason": "source_messages_not_found",
+                "source_chat_id": source_chat_id,
+                "target_bot_username": target_bot_username,
+                "requested_message_ids": message_ids,
+                "missing_message_ids": missing_message_ids,
+            }
+
+        forwardable_messages = [
+            msg for msg in ordered_messages
+            if int(getattr(msg, "id", 0) or 0) not in set(unforwardable_message_ids)
+        ]
+
+        if not forwardable_messages:
+            return {
+                "status": "error",
+                "reason": "no_forwardable_messages",
+                "source_chat_id": source_chat_id,
+                "target_bot_username": target_bot_username,
+                "requested_message_ids": message_ids,
+                "missing_message_ids": missing_message_ids,
+                "unforwardable_message_ids": unforwardable_message_ids,
+            }
+
+        forwarded = await client.forward_messages(target_entity, forwardable_messages)
+        if isinstance(forwarded, list):
+            forwarded_messages = forwarded
+        elif forwarded is None:
+            forwarded_messages = []
+        else:
+            forwarded_messages = [forwarded]
+
+        forwarded_message_ids: List[int] = []
+        for msg in forwarded_messages:
+            try:
+                mid = int(getattr(msg, "id", 0) or 0)
+            except Exception:
+                mid = 0
+
+            if mid > 0:
+                forwarded_message_ids.append(mid)
+
+        return {
+            "status": "ok",
+            "source_chat_id": source_chat_id,
+            "target_bot_username": target_bot_username,
+            "requested_message_ids": message_ids,
+            "missing_message_ids": missing_message_ids,
+            "unforwardable_message_ids": unforwardable_message_ids,
+            "forwarded_message_ids": forwarded_message_ids,
+            "forwarded_count": len(forwarded_message_ids),
+        }
+    except Exception as e:
+        push_log(
+            stage="bots_forward_messages",
+            result="forward_error",
+            extra={
+                "source_chat_id": source_chat_id,
+                "target_bot_username": target_bot_username,
+                "message_ids": message_ids[:120],
+                "error": str(e),
+                "trace": traceback.format_exc()[:1200],
+            },
+        )
+        return {
+            "status": "error",
+            "reason": "forward_failed",
+            "error": str(e),
+            "source_chat_id": source_chat_id,
+            "target_bot_username": target_bot_username,
+            "requested_message_ids": message_ids,
+            "unforwardable_message_ids": [],
+        }
+
+
+@app.post("/bots/delete-messages")
+async def delete_messages_from_chat(payload: DeleteMessagesRequest):
+    chat_peer = str(payload.chat_peer or "").strip()
+    raw_message_ids = list(payload.message_ids or [])
+
+    if not chat_peer:
+        return {
+            "status": "error",
+            "reason": "chat_peer_required",
+        }
+
+    message_ids: List[int] = []
+    seen_ids = set()
+
+    for raw_mid in raw_message_ids:
+        try:
+            mid = int(raw_mid or 0)
+        except Exception:
+            continue
+
+        if mid <= 0 or mid in seen_ids:
+            continue
+
+        seen_ids.add(mid)
+        message_ids.append(mid)
+
+    if not message_ids:
+        return {
+            "status": "error",
+            "reason": "message_ids_required",
+            "chat_peer": chat_peer,
+        }
+
+    connected = await _ensure_client_connected()
+    if not connected:
+        return {
+            "status": "error",
+            "reason": "client_not_connected",
+            "chat_peer": chat_peer,
+            "message_ids": message_ids,
+        }
+
+    try:
+        try:
+            resolved_peer: Any = await client.get_input_entity(int(chat_peer))
+        except Exception:
+            resolved_peer = await client.get_input_entity(chat_peer)
+
+        await client.delete_messages(resolved_peer, message_ids, revoke=True)
+
+        return {
+            "status": "ok",
+            "chat_peer": chat_peer,
+            "deleted_message_ids": message_ids,
+            "deleted_count": len(message_ids),
+        }
+    except Exception as e:
+        push_log(
+            stage="bots_delete_messages",
+            result="delete_error",
+            extra={
+                "chat_peer": chat_peer,
+                "message_ids": message_ids[:120],
+                "error": str(e),
+                "trace": traceback.format_exc()[:1200],
+            },
+        )
+        return {
+            "status": "error",
+            "reason": "delete_failed",
+            "error": str(e),
+            "chat_peer": chat_peer,
+            "message_ids": message_ids,
+        }
+
+
+@app.post("/bots/upload-video")
+async def upload_video_to_bot(payload: UploadBotVideoRequest):
+    if payload.clear_previous_replies:
+        clear_all_replies()
+        clear_invalid_callback_cache()
+
+    file_path = os.path.abspath(os.path.expanduser((payload.file_path or "").strip()))
+    if not file_path or not os.path.isfile(file_path):
+        return {
+            "status": "error",
+            "reason": "file_not_found",
+            "file_path": file_path,
+        }
+
+    connected = await _ensure_client_connected()
+    if not connected:
+        return {
+            "status": "error",
+            "reason": "client_not_connected",
+            "file_path": file_path,
+        }
+
+    try:
+        duration, width, height = _probe_video_metadata(file_path)
+        mime_type = mimetypes.guess_type(file_path)[0] or "video/mp4"
+        attributes = [
+            DocumentAttributeFilename(os.path.basename(file_path)),
+            DocumentAttributeVideo(
+                duration=duration or 0,
+                w=width or 0,
+                h=height or 0,
+                supports_streaming=bool(payload.supports_streaming),
+            ),
+        ]
+
+        sent = await client.send_file(
+            payload.bot_username,
+            file_path,
+            caption=payload.caption,
+            mime_type=mime_type,
+            attributes=attributes,
+            allow_cache=False,
+            file_size=os.path.getsize(file_path),
+            force_document=False,
+            supports_streaming=bool(payload.supports_streaming),
+            video_note=False,
+        )
+
+        try:
+            sent_message_id = int(getattr(sent, "id", 0) or 0)
+        except Exception:
+            sent_message_id = 0
+
+        sent_as_video = bool(getattr(sent, "video", None))
+
+        return {
+            "status": "ok",
+            "sent_message_id": sent_message_id,
+            "sent_as_video": sent_as_video,
+            "file_path": file_path,
+            "file_name": os.path.basename(file_path),
+        }
+    except Exception as e:
+        push_log(
+            stage="bots_upload_video",
+            result="send_error",
+            extra={
+                "bot_username": payload.bot_username,
+                "file_path": file_path,
+                "error": str(e),
+                "trace": traceback.format_exc()[:1200],
+            },
+        )
+        return {
+            "status": "error",
+            "reason": "send_failed",
+            "error": str(e),
+            "file_path": file_path,
+        }
 
 
 @app.post("/bots/clear-replies")
@@ -2302,6 +3489,17 @@ async def get_download_jobs(limit: int = 30):
     return out
 
 
+@app.get("/bots/download-jobs/{job_id}")
+async def get_download_job(job_id: str):
+    job = DOWNLOAD_JOBS.get(str(job_id))
+    if not job:
+        return {"status": "error", "message": "job_not_found", "job_id": str(job_id)}
+
+    obj = dict(job)
+    obj["job_id"] = str(job_id)
+    return obj
+
+
 
 class DownloadAllMediaRequest(BaseModel):
     bot_username: str
@@ -2316,6 +3514,9 @@ async def download_all_media_from_chat(payload: DownloadAllMediaRequest):
     bot_username = str(payload.bot_username or "").strip()
     if not bot_username:
         return {"status": "error", "message": "bot_username_required"}
+
+    if not await _ensure_client_connected():
+        return {"status": "error", "message": "client_disconnected"}
 
     peer = await _get_peer_for_bot(bot_username)
     if peer is None:
@@ -2347,45 +3548,58 @@ async def download_all_media_from_chat(payload: DownloadAllMediaRequest):
     files: List[Dict[str, Any]] = []
     scanned = 0
 
-    try:
-        async for msg in client.iter_messages(peer, limit=limit):
-            scanned = scanned + 1
+    for attempt in (1, 2):
+        try:
+            async for msg in client.iter_messages(peer, limit=limit):
+                scanned = scanned + 1
 
-            try:
-                if (not bool(payload.include_out)) and bool(getattr(msg, "out", False)):
+                try:
+                    if (not bool(payload.include_out)) and bool(getattr(msg, "out", False)):
+                        continue
+                    if getattr(msg, "media", None) is None:
+                        continue
+                except Exception:
                     continue
-                if getattr(msg, "media", None) is None:
+
+                fm = _extract_file_meta_mtproto(msg)
+                if not fm:
                     continue
-            except Exception:
-                continue
 
-            fm = _extract_file_meta_mtproto(msg)
-            if not fm:
-                continue
+                files.append(fm)
 
-            files.append(fm)
+                if len(files) % 100 == 0:
+                    job = DOWNLOAD_JOBS.get(job_id) or {}
+                    job["status"] = "collecting"
+                    job["total"] = len(files)
+                    job["scanned_messages"] = scanned
+                    DOWNLOAD_JOBS[job_id] = job
 
-            if len(files) % 100 == 0:
-                job = DOWNLOAD_JOBS.get(job_id) or {}
-                job["status"] = "collecting"
-                job["total"] = len(files)
-                job["scanned_messages"] = scanned
-                DOWNLOAD_JOBS[job_id] = job
+            break
 
-    except FloodWaitError as e:
-        wait_s = int(getattr(e, "seconds", 5) or 5)
-        job = DOWNLOAD_JOBS.get(job_id) or {}
-        job["status"] = "fail"
-        job["last_error"] = f"FloodWaitError: {wait_s}"
-        DOWNLOAD_JOBS[job_id] = job
-        return {"status": "error", "job_id": job_id, "message": "flood_wait", "seconds": wait_s}
+        except FloodWaitError as e:
+            wait_s = int(getattr(e, "seconds", 5) or 5)
+            job = DOWNLOAD_JOBS.get(job_id) or {}
+            job["status"] = "fail"
+            job["last_error"] = f"FloodWaitError: {wait_s}"
+            DOWNLOAD_JOBS[job_id] = job
+            return {"status": "error", "job_id": job_id, "message": "flood_wait", "seconds": wait_s}
 
-    except Exception as e:
-        job = DOWNLOAD_JOBS.get(job_id) or {}
-        job["status"] = "fail"
-        job["last_error"] = str(e)
-        DOWNLOAD_JOBS[job_id] = job
-        return {"status": "error", "job_id": job_id, "message": "collect_failed"}
+        except Exception as e:
+            if attempt == 1 and _is_disconnected_error(e):
+                push_log(stage="download_collect", result="retry_after_reconnect", extra={"bot_username": bot_username, "error": str(e)})
+                _PEER_CACHE.pop(bot_username, None)
+                files = []
+                scanned = 0
+                if await _ensure_client_connected(force_reconnect=True):
+                    peer = await _get_peer_for_bot(bot_username)
+                    if peer is not None:
+                        continue
+
+            job = DOWNLOAD_JOBS.get(job_id) or {}
+            job["status"] = "fail"
+            job["last_error"] = str(e)
+            DOWNLOAD_JOBS[job_id] = job
+            return {"status": "error", "job_id": job_id, "message": "collect_failed"}
 
     files.reverse()
 
@@ -2442,6 +3656,9 @@ class SendAndRunAllPagesRequest(BaseModel):
     bot_username: str
     text: str
     clear_previous_replies: bool = True
+    download_after_done: bool = True
+    wait_download_completion: bool = False
+    skip_download_if_total_bytes_exceeds: int = 0
     delay_seconds: int = 0
     max_steps: int = 80
 
@@ -2646,7 +3863,7 @@ async def _wait_for_files_or_state_change(
     if prev_msg is None:
         try:
             for m in MESSAGE_STORE.values():
-                if m.get("sender_username") != bot_username:
+                if not _message_matches_bot(m, bot_username):
                     continue
                 if int(m.get("message_id", 0) or 0) == int(prev_state_msg_id or 0):
                     prev_msg = m
@@ -2885,7 +4102,7 @@ def _find_best_callback_candidate(
     candidates: List[Dict[str, Any]] = []
 
     for m in reversed(msgs):
-        if m.get("sender_username") != bot_username:
+        if not _message_matches_bot(m, bot_username):
             continue
         buttons = get_callback_buttons(m)
         if not buttons:
@@ -3545,7 +4762,7 @@ def _is_pagination_controls_message(callback_msg: Dict[str, Any]) -> bool:
 def _message_store_max_mid_for_bot(bot_username: str) -> int:
     mx = 0
     for msg in MESSAGE_STORE.values():
-        if msg.get("sender_username") != bot_username:
+        if not _message_matches_bot(msg, bot_username):
             continue
         try:
             mid = int(msg.get("message_id", 0))
@@ -3772,9 +4989,10 @@ async def _observe_no_controls_and_collect_files(
             except Exception:
                 pass
 
-        if try_send_get_all and (not sent_get_all) and elapsed >= 1.0:
+        if try_send_get_all and (not sent_get_all) and elapsed >= 1.0 and int(best_count) <= 0:
             try:
                 await client.send_message(bot_username, get_all_command)
+                push_log(stage="observe_no_controls", result="sent_get_all", step=step, extra={"best_count": int(best_count), "command": get_all_command}, max_logs=max_logs)
                 sent_get_all = True
             except Exception:
                 pass
@@ -4118,7 +5336,12 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
     last_clicked_page: Optional[int] = None
     last_clicked_desc: str = ""
     cleanup_min_mid = 0
-
+    cleanup_max_mid = 0
+    background_cleanup_enabled = True
+    skip_cleanup_due_to_files = False
+    skip_cleanup_due_to_size_limit = False
+    skip_cleanup_files_count = 0
+    skip_cleanup_total_bytes = 0
     download_job_id = uuid.uuid4().hex
     folder_path = _ensure_download_folder_for_text(payload.text)
     DOWNLOAD_JOBS[download_job_id] = {
@@ -4138,11 +5361,18 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
         if not payload.include_files_in_response:
             return resp
         meta = collect_files_from_store(payload.bot_username, int(payload.max_return_files), int(payload.max_raw_payload_bytes))
+        files_total_bytes = 0
+        for one in meta.get("files") or []:
+            try:
+                files_total_bytes += int(one.get("file_size", 0) or 0)
+            except Exception:
+                pass
         resp["files"] = meta["files"]
         resp["files_count"] = meta["files_count"]
         resp["files_unique_count"] = meta.get("files_unique_count", meta["files_count"])
         resp["files_raw_count"] = meta.get("files_raw_count", meta["files_count"])
         resp["files_truncated"] = meta["files_truncated"]
+        resp["files_total_bytes"] = int(files_total_bytes)
         resp["page_state"] = {
             "visited_pages": sorted(list(visited_pages)),
             "did_any_pagination_click": bool(did_any_pagination_click),
@@ -4153,35 +5383,154 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
         resp["download"] = {"job_id": download_job_id, "folder_path": folder_path, "base_name": payload.text}
         return resp
 
+    def _freeze_cleanup_window() -> None:
+        nonlocal cleanup_max_mid
+        lower_bound = int(cleanup_min_mid or 0)
+        if lower_bound <= 0:
+            cleanup_max_mid = 0
+            return
+
+        cleanup_max_mid = max(lower_bound, int(_message_store_max_mid_for_bot(payload.bot_username) or 0))
+
     async def _maybe_cleanup():
-        if not payload.cleanup_after_done:
+        if not payload.cleanup_after_done or not background_cleanup_enabled:
+            return
+        files_meta_for_cleanup = collect_files_from_store(
+            payload.bot_username,
+            int(payload.max_return_files or 0),
+            int(payload.max_raw_payload_bytes or 0),
+            min_message_id=int(cleanup_min_mid or 0),
+        )
+        current_run_files_count = int(files_meta_for_cleanup.get("files_unique_count", files_meta_for_cleanup.get("files_count", 0)) or 0)
+        if (not payload.wait_download_completion) and (current_run_files_count > 0 or skip_cleanup_due_to_files):
+            push_log(
+                stage="cleanup",
+                result="preserve_files_skip",
+                extra={
+                    "bot_username": payload.bot_username,
+                    "files_unique_count": max(int(skip_cleanup_files_count or 0), current_run_files_count),
+                    "cleanup_min_mid": int(cleanup_min_mid or 0),
+                    "cleanup_max_mid": int(cleanup_max_mid or 0),
+                },
+                max_logs=int(payload.debug_max_logs or 0),
+            )
             return
         try:
             if int(cleanup_min_mid or 0) <= 0:
                 return
-            await _cleanup_chat_after_run(payload.bot_username, int(cleanup_min_mid or 0), str(payload.cleanup_scope or "run"), int(payload.cleanup_limit or 500))
+            await _cleanup_chat_after_run(
+                payload.bot_username,
+                int(cleanup_min_mid or 0),
+                str(payload.cleanup_scope or "run"),
+                int(payload.cleanup_limit or 500),
+                max_mid=int(cleanup_max_mid or 0),
+                preserve_file_messages=not bool(payload.wait_download_completion),
+                max_logs=int(payload.debug_max_logs or 0),
+            )
         except Exception as e:
             push_log(stage="cleanup", result="exception", extra={"error": str(e), "trace": traceback.format_exc()[:900]})
 
-    async def _start_background_download_and_cleanup():
-        meta = collect_files_from_store(payload.bot_username, int(payload.max_return_files), int(payload.max_raw_payload_bytes))
-        files = meta.get("files") or []
+    async def _prepare_download_job_and_maybe_cleanup() -> Dict[str, Any]:
+        nonlocal skip_cleanup_due_to_size_limit, skip_cleanup_total_bytes
+        files_meta = collect_files_from_store(
+            payload.bot_username,
+            int(payload.max_return_files or 0),
+            int(payload.max_raw_payload_bytes or 0),
+            min_message_id=int(cleanup_min_mid or 0),
+        )
+        files = files_meta.get("files") or []
+        total_bytes = 0
+        for one in files:
+            try:
+                total_bytes += int(one.get("file_size", 0) or 0)
+            except Exception:
+                pass
         job = DOWNLOAD_JOBS.get(download_job_id) or {}
         job["total"] = len(files)
+        job["total_bytes"] = int(total_bytes)
         job["status"] = "queued" if files else "done"
         DOWNLOAD_JOBS[download_job_id] = job
 
-        if files:
-            try:
-                await _background_download_files(payload.bot_username, files, folder_path, payload.text, download_job_id, slow_seconds=0.8)
-            finally:
-                await _maybe_cleanup()
-        else:
+        if not bool(payload.download_after_done):
+            job["status"] = "disabled"
+            job["reason"] = "download_disabled"
+            DOWNLOAD_JOBS[download_job_id] = job
+            await _maybe_cleanup()
+            return {
+                "mode": "disabled",
+                "files": [],
+                "files_count": len(files),
+                "total_bytes": int(total_bytes),
+            }
+
+        download_limit_bytes = int(payload.skip_download_if_total_bytes_exceeds or 0)
+        if files and download_limit_bytes > 0 and int(total_bytes) > download_limit_bytes:
+            skip_cleanup_due_to_size_limit = True
+            skip_cleanup_total_bytes = int(total_bytes)
+            job["status"] = "skipped_size_limit"
+            job["reason"] = "total_bytes_exceeded"
+            job["download_skipped"] = True
+            job["download_skipped_limit_bytes"] = download_limit_bytes
+            DOWNLOAD_JOBS[download_job_id] = job
+            push_log(
+                stage="download_local",
+                result="skipped_size_limit",
+                extra={
+                    "job_id": download_job_id,
+                    "files_total_bytes": int(total_bytes),
+                    "download_limit_bytes": download_limit_bytes,
+                    "files_count": len(files),
+                },
+                max_logs=int(payload.debug_max_logs or 0),
+            )
+            await _maybe_cleanup()
+            return {
+                "mode": "skipped_size_limit",
+                "files": [],
+                "files_count": len(files),
+                "total_bytes": int(total_bytes),
+            }
+
+        if not files:
+            await _maybe_cleanup()
+            return {
+                "mode": "done",
+                "files": [],
+                "files_count": 0,
+                "total_bytes": int(total_bytes),
+            }
+
+        return {
+            "mode": "queued",
+            "files": files,
+            "files_count": len(files),
+            "total_bytes": int(total_bytes),
+        }
+
+    async def _run_prepared_download_and_cleanup(prepared: Dict[str, Any]) -> None:
+        files = prepared.get("files") or []
+        if not files:
+            await _maybe_cleanup()
+            return
+
+        try:
+            await _background_download_files(
+                payload.bot_username,
+                files,
+                folder_path,
+                payload.text,
+                download_job_id,
+                slow_seconds=0.8,
+            )
+        finally:
             await _maybe_cleanup()
 
     async def _return_ok(reason: str) -> Dict[str, Any]:
+        nonlocal skip_cleanup_due_to_files, skip_cleanup_due_to_size_limit, skip_cleanup_files_count, skip_cleanup_total_bytes
         timeline.append({"step": steps, "status": "done", "reason": reason})
+        _freeze_cleanup_window()
         resp = _attach_files({"status": "ok", "reason": reason, "steps": steps, "timeline": timeline})
+        resp["sent_message_id"] = int(cleanup_min_mid or 0)
         resp = _attach_bot_result_snapshot(
             resp,
             bot_username=payload.bot_username,
@@ -4190,14 +5539,38 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0),
             min_message_id=int(cleanup_min_mid or 0)
         )
-        asyncio.create_task(_start_background_download_and_cleanup())
+        skip_cleanup_files_count = int(resp.get("files_unique_count", 0) or 0)
+        skip_cleanup_total_bytes = int(resp.get("files_total_bytes", 0) or 0)
+        skip_cleanup_due_to_files = skip_cleanup_files_count > 0
+        prepared_download = await _prepare_download_job_and_maybe_cleanup()
+        download_resp = resp.get("download") if isinstance(resp.get("download"), dict) else {}
+        download_resp["status"] = str(prepared_download.get("mode") or "")
+        download_resp["total"] = int(prepared_download.get("files_count", 0) or 0)
+        download_resp["files_total_bytes"] = int(prepared_download.get("total_bytes", 0) or 0)
+        resp["download"] = download_resp
+        if str(prepared_download.get("mode") or "") == "queued":
+            if payload.wait_download_completion:
+                await _run_prepared_download_and_cleanup(prepared_download)
+            else:
+                asyncio.create_task(_run_prepared_download_and_cleanup(prepared_download))
+        if skip_cleanup_due_to_size_limit:
+            download_resp["skipped"] = True
+            download_resp["reason"] = "total_bytes_exceeded"
+            download_resp["limit_bytes"] = int(payload.skip_download_if_total_bytes_exceeds or 0)
+            download_resp["files_total_bytes"] = int(skip_cleanup_total_bytes or 0)
+            resp["download"] = download_resp
+            resp["download_skipped"] = True
+            resp["download_skipped_reason"] = "total_bytes_exceeded"
+            resp["download_skipped_limit_bytes"] = int(payload.skip_download_if_total_bytes_exceeds or 0)
         return resp
 
     async def _return_fail(reason: str, error: Optional[str] = None) -> Dict[str, Any]:
         resp: Dict[str, Any] = {"status": "fail", "reason": reason, "steps": steps, "timeline": timeline}
         if error:
             resp["error"] = error
+        _freeze_cleanup_window()
         resp = _attach_files(resp)
+        resp["sent_message_id"] = int(cleanup_min_mid or 0)
         resp = _attach_bot_result_snapshot(
             resp,
             bot_username=payload.bot_username,
@@ -4206,7 +5579,26 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0),
             min_message_id=int(cleanup_min_mid or 0)
         )
-        asyncio.create_task(_start_background_download_and_cleanup())
+        prepared_download = await _prepare_download_job_and_maybe_cleanup()
+        download_resp = resp.get("download") if isinstance(resp.get("download"), dict) else {}
+        download_resp["status"] = str(prepared_download.get("mode") or "")
+        download_resp["total"] = int(prepared_download.get("files_count", 0) or 0)
+        download_resp["files_total_bytes"] = int(prepared_download.get("total_bytes", 0) or 0)
+        resp["download"] = download_resp
+        if str(prepared_download.get("mode") or "") == "queued":
+            if payload.wait_download_completion:
+                await _run_prepared_download_and_cleanup(prepared_download)
+            else:
+                asyncio.create_task(_run_prepared_download_and_cleanup(prepared_download))
+        if skip_cleanup_due_to_size_limit:
+            download_resp["skipped"] = True
+            download_resp["reason"] = "total_bytes_exceeded"
+            download_resp["limit_bytes"] = int(payload.skip_download_if_total_bytes_exceeds or 0)
+            download_resp["files_total_bytes"] = int(skip_cleanup_total_bytes or 0)
+            resp["download"] = download_resp
+            resp["download_skipped"] = True
+            resp["download_skipped_reason"] = "total_bytes_exceeded"
+            resp["download_skipped_limit_bytes"] = int(payload.skip_download_if_total_bytes_exceeds or 0)
         return resp
 
     async def _sleep_after_pagination_click() -> None:
@@ -4228,6 +5620,20 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             cleanup_min_mid = 0
         if int(cleanup_min_mid or 0) <= 0:
             cleanup_min_mid = int(before_mid_pre_send or 0)
+        push_log(
+            stage="run_send",
+            result="sent",
+            step=0,
+            extra={
+                "bot_username": payload.bot_username,
+                "text": str(payload.text or "")[:180],
+                "before_mid_pre_send": int(before_mid_pre_send or 0),
+                "sent_message_id": int(getattr(sent, "id", 0) or 0),
+                "cleanup_min_mid": int(cleanup_min_mid or 0),
+                "store_recent": _recent_store_snapshot(payload.bot_username, limit=6, min_message_id=max(int(cleanup_min_mid or 0) - 3, 0)),
+            },
+            max_logs=payload.debug_max_logs,
+        )
 
         first_any = await wait_for_first_bot_message(
             bot_username=payload.bot_username,
@@ -4239,8 +5645,26 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
         )
         if not first_any:
             return await _return_fail("timeout waiting for first bot message after sending")
+        push_log(
+            stage="run_first_message",
+            result="received",
+            step=0,
+            extra={
+                "bot_username": payload.bot_username,
+                "first_message": _message_debug_summary(first_any),
+                "store_recent": _recent_store_snapshot(payload.bot_username, limit=8, min_message_id=max(int(cleanup_min_mid or 0) - 3, 0)),
+            },
+            max_logs=payload.debug_max_logs,
+        )
 
         if _is_bot_not_found_message(first_any):
+            background_cleanup_enabled = False
+            await _cleanup_not_found_messages(
+                payload.bot_username,
+                first_any,
+                min_message_id=int(cleanup_min_mid or 0),
+                sent_message_id=int(cleanup_min_mid or 0)
+            )
             timeline.append({
                 "step": 0,
                 "status": "done",
@@ -4285,6 +5709,13 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
         })
 
         if _is_bot_not_found_message(chosen_first):
+            background_cleanup_enabled = False
+            await _cleanup_not_found_messages(
+                payload.bot_username,
+                chosen_first,
+                min_message_id=int(cleanup_min_mid or 0),
+                sent_message_id=int(cleanup_min_mid or 0)
+            )
             return await _return_ok("not found message detected; stop")
 
         clicked_get_all = False
@@ -4374,6 +5805,73 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
                     target_total_items=first_total_items
                 )
                 files_unique_count_observed = int(meta_observed.get("files_unique_count", meta_observed.get("files_count", 0)))
+                if files_unique_count_observed > 0:
+                    await asyncio.sleep(1.2)
+                    await backfill_latest_from_bot(
+                        payload.bot_username,
+                        limit=360,
+                        timeout_seconds=6.0,
+                        max_logs=payload.debug_max_logs,
+                        step=0,
+                        force=True
+                    )
+                    late_state = _choose_best_state_message(
+                        bot_username=payload.bot_username,
+                        next_keywords=payload.next_text_keywords,
+                        max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
+                        scan_limit=int(payload.callback_candidate_scan_limit or 20),
+                        min_message_id=int(cleanup_min_mid or 0)
+                    )
+                    if late_state:
+                        late_buttons = get_callback_buttons(late_state)
+                        late_pi = extract_page_info(late_state.get("text"))
+                        late_is_pagelike = _is_pagination_callback_message(late_state, next_keywords=payload.next_text_keywords) if late_buttons else bool(late_pi)
+                        if late_is_pagelike or late_pi or late_buttons:
+                            chosen_first = late_state
+                            first_buttons = late_buttons
+                            first_pi = late_pi
+                            first_total_items = extract_total_items(late_state.get("text"))
+                            first_is_pagelike = late_is_pagelike
+                            if first_pi and first_pi.get("current_page"):
+                                try:
+                                    visited_pages.add(int(first_pi.get("current_page")))
+                                except Exception:
+                                    pass
+                            timeline.append({
+                                "step": 0,
+                                "status": "late_state_detected_after_file_observe",
+                                "message_id": late_state.get("message_id"),
+                                "chat_id": late_state.get("chat_id"),
+                                "has_buttons": bool(late_buttons),
+                                "is_pagination_like": bool(late_is_pagelike),
+                                "page_info": late_pi,
+                                "total_items": first_total_items,
+                                "buttons_text": summarize_buttons(late_buttons),
+                                "text_preview": (late_state.get("text") or "")[:200]
+                            })
+                            loop_result = await _continue_pagination_from_current_state(
+                                bot_username=payload.bot_username,
+                                next_keywords=payload.next_text_keywords,
+                                max_steps=int(payload.max_steps or 0),
+                                wait_each_page_timeout_seconds=int(payload.wait_each_page_timeout_seconds),
+                                max_logs=int(payload.debug_max_logs or 0),
+                                max_return_files=int(payload.max_return_files or 0),
+                                max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0),
+                                stop_when_no_new_files_rounds=int(payload.stop_when_no_new_files_rounds or 0),
+                                stop_when_reached_total_items=bool(payload.stop_when_reached_total_items),
+                                stop_need_confirm_pagination_done=bool(payload.stop_need_confirm_pagination_done),
+                                stop_need_last_page_or_all_pages=bool(payload.stop_need_last_page_or_all_pages),
+                                callback_message_max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
+                                callback_candidate_scan_limit=int(payload.callback_candidate_scan_limit or 0),
+                                observe_when_no_controls_poll_seconds=float(payload.observe_when_no_controls_poll_seconds or 0.5),
+                                min_message_id=int(cleanup_min_mid or 0),
+                                timeline=timeline,
+                                visited_pages=visited_pages,
+                                initial_assumed_total_items=seed_total_items,
+                            )
+                            if loop_result["status"] == "ok":
+                                return await _return_ok(loop_result["reason"])
+                            return await _return_fail(loop_result["reason"], loop_result.get("error"))
                 if first_total_items is not None:
                     try:
                         if int(first_total_items) > 0 and files_unique_count_observed >= int(first_total_items):
@@ -4471,6 +5969,13 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             if not msg_for_state:
                 latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=False)
                 if _is_bot_not_found_message(latest_any):
+                    background_cleanup_enabled = False
+                    await _cleanup_not_found_messages(
+                        payload.bot_username,
+                        latest_any,
+                        min_message_id=int(cleanup_min_mid or 0),
+                        sent_message_id=int(cleanup_min_mid or 0)
+                    )
                     timeline.append({
                         "step": steps,
                         "status": "done",
@@ -4707,6 +6212,274 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
     except Exception as e:
         push_log(stage="fatal_exception", step=steps, extra={"error": str(e), "trace": traceback.format_exc()}, max_logs=payload.debug_max_logs)
         return await _return_fail("fatal_exception", str(e))
+
+
+class ClickMatchingButtonRequest(BaseModel):
+    bot_username: str
+    sent_message_id: int = 0
+    clear_previous_replies: bool = False
+    delay_seconds: int = 0
+    button_keywords: List[str] = []
+
+    debug: bool = True
+    debug_max_logs: int = 2000
+
+    include_files_in_response: bool = True
+    max_return_files: int = 500
+    max_raw_payload_bytes: int = 0
+
+    wait_after_click_timeout_seconds: int = 8
+
+    cleanup_after_done: bool = False
+    cleanup_scope: str = "run"
+    cleanup_limit: int = 500
+
+    callback_message_max_age_seconds: int = 25
+    callback_candidate_scan_limit: int = 30
+
+
+@app.post("/bots/click-matching-button")
+async def click_matching_button(payload: ClickMatchingButtonRequest) -> Dict[str, Any]:
+    timeline: List[Dict[str, Any]] = []
+    steps = 0
+    cleanup_min_mid = int(payload.sent_message_id or 0)
+    cleanup_max_mid = 0
+    cleanup_after_return_enabled = True
+
+    button_keywords: List[str] = []
+    for kw in (payload.button_keywords or []):
+        normalized = str(kw or "").strip()
+        if normalized and normalized not in button_keywords:
+            button_keywords.append(normalized)
+
+    def _freeze_cleanup_window() -> None:
+        nonlocal cleanup_max_mid
+        lower_bound = int(cleanup_min_mid or 0)
+        if lower_bound <= 0:
+            cleanup_max_mid = 0
+            return
+
+        cleanup_max_mid = max(lower_bound, int(_message_store_max_mid_for_bot(payload.bot_username) or 0))
+
+    async def _build_response(
+        status: str,
+        reason: str,
+        button_clicked: bool = False,
+        clicked_button_text: str = "",
+        clicked_message_id: int = 0,
+        click_effect_observed: bool = False,
+        click_effect_reason: str = ""
+    ) -> Dict[str, Any]:
+        _freeze_cleanup_window()
+        result: Dict[str, Any] = {
+            "status": status,
+            "reason": reason,
+            "steps": steps,
+            "timeline": timeline,
+            "button_clicked": bool(button_clicked),
+            "clicked_button_text": clicked_button_text,
+            "clicked_message_id": int(clicked_message_id or 0),
+            "button_keywords": button_keywords,
+            "click_effect_observed": bool(click_effect_observed),
+            "click_effect_reason": click_effect_reason,
+        }
+
+        result = _attach_bot_result_snapshot(
+            result,
+            bot_username=payload.bot_username,
+            include_files=bool(payload.include_files_in_response),
+            max_return_files=int(payload.max_return_files or 0),
+            max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0),
+            min_message_id=int(cleanup_min_mid or 0)
+        )
+
+        if payload.debug:
+            result["debug"] = _get_debug_logs(int(payload.debug_max_logs or 0))
+
+        if payload.cleanup_after_done and cleanup_after_return_enabled:
+            try:
+                await _cleanup_chat_after_run(
+                    bot_username=payload.bot_username,
+                    scope=payload.cleanup_scope,
+                    limit=int(payload.cleanup_limit or 0),
+                    min_message_id=int(cleanup_min_mid or 0),
+                    max_message_id=int(cleanup_max_mid or 0),
+                    preserve_file_messages=True,
+                    max_logs=int(payload.debug_max_logs or 0)
+                )
+            except Exception:
+                push_log(stage="cleanup", result="cleanup_error", step=steps, extra={
+                    "err": traceback.format_exc()
+                }, max_logs=int(payload.debug_max_logs or 0))
+
+        return result
+
+    try:
+        if int(payload.delay_seconds or 0) > 0:
+            await asyncio.sleep(float(payload.delay_seconds))
+
+        if payload.clear_previous_replies:
+            try:
+                clear_reply_cache_for_bot(payload.bot_username)
+            except Exception:
+                pass
+
+        if payload.debug:
+            _clear_debug_logs()
+
+        push_log(stage="click_matching_button_start", result="start", step=0, extra={
+            "bot": payload.bot_username,
+            "button_keywords": button_keywords,
+            "cleanup_after_done": bool(payload.cleanup_after_done),
+        }, max_logs=int(payload.debug_max_logs or 0))
+
+        if not button_keywords:
+            timeline.append({"step": 0, "status": "fail", "reason": "button_keywords required"})
+            return await _build_response("fail", "button_keywords required")
+
+        await backfill_latest_from_bot(
+            payload.bot_username,
+            limit=420,
+            timeout_seconds=6.0,
+            max_logs=int(payload.debug_max_logs or 0),
+            step=0,
+            force=True,
+            min_message_id=int(cleanup_min_mid or 0)
+        )
+
+        candidates: List[Dict[str, Any]] = []
+        for msg in MESSAGE_STORE.values():
+            if not _message_matches_bot(msg, payload.bot_username):
+                continue
+
+            mid = int(msg.get("message_id", 0) or 0)
+            if int(cleanup_min_mid or 0) > 0 and mid < int(cleanup_min_mid or 0):
+                continue
+
+            chat_id = int(msg.get("chat_id", 0) or 0)
+            if is_invalid_callback(payload.bot_username, chat_id, mid):
+                continue
+
+            buttons = get_callback_buttons(msg)
+            if not buttons:
+                continue
+
+            for btn in buttons:
+                btn_text = str(btn.get("text", "") or "")
+                if _button_text_contains_keywords(btn_text, button_keywords):
+                    candidates.append({
+                        "message": msg,
+                        "button": btn,
+                        "button_text": btn_text,
+                        "message_id": mid,
+                    })
+                    break
+
+        candidates.sort(key=lambda item: int(item.get("message_id", 0) or 0), reverse=True)
+
+        if not candidates:
+            timeline.append({"step": 0, "status": "fail", "reason": "no matching button found", "button_keywords": button_keywords})
+            return await _build_response("fail", "no matching button found")
+
+        chosen = candidates[0]
+        chosen_msg = chosen["message"]
+        chosen_btn = chosen["button"]
+        chosen_text = str(chosen.get("button_text") or "").strip()
+        chosen_mid = int(chosen.get("message_id", 0) or 0)
+        chosen_chat_id = int(chosen_msg.get("chat_id", 0) or 0)
+
+        if cleanup_min_mid <= 0 or chosen_mid < cleanup_min_mid:
+            cleanup_min_mid = chosen_mid
+
+        timeline.append({
+            "step": 0,
+            "status": "button_candidate",
+            "message_id": chosen_mid,
+            "chat_id": chosen_chat_id,
+            "button_text": chosen_text,
+            "buttons_text": summarize_buttons(get_callback_buttons(chosen_msg)),
+        })
+
+        data_hex = str(chosen_btn.get("data") or "")
+        if not data_hex:
+            timeline.append({"step": 0, "status": "fail", "reason": "matching button missing callback data"})
+            return await _build_response("fail", "matching button missing callback data")
+
+        marker = _pagination_action_marker_from_message(chosen_msg, buttons=get_callback_buttons(chosen_msg))
+        if is_recent_used_callback_action(payload.bot_username, chosen_chat_id, chosen_mid, data_hex, marker=marker):
+            timeline.append({"step": 0, "status": "fail", "reason": "recent_used"})
+            return await _build_response("fail", "recent_used")
+
+        files_meta_before = collect_files_from_store(
+            payload.bot_username,
+            int(payload.max_return_files or 0),
+            int(payload.max_raw_payload_bytes or 0),
+            min_message_id=int(cleanup_min_mid or 0)
+        )
+        files_unique_before = int(files_meta_before.get("files_unique_count", files_meta_before.get("files_count", 0)) or 0)
+
+        await click_callback(payload.bot_username, chosen_chat_id, chosen_mid, data_hex)
+        mark_recent_used_callback_action(payload.bot_username, chosen_chat_id, chosen_mid, data_hex, marker=marker)
+
+        steps = 1
+        timeline.append({
+            "step": steps,
+            "status": "clicked",
+            "message_id": chosen_mid,
+            "chat_id": chosen_chat_id,
+            "button_text": chosen_text,
+        })
+
+        click_effect_observed = False
+        click_effect_reason = ""
+        if int(payload.wait_after_click_timeout_seconds or 0) > 0:
+            click_effect_observed, click_effect_reason = await _wait_for_files_or_state_change(
+                bot_username=payload.bot_username,
+                prev_state_msg_id=chosen_mid,
+                prev_state=chosen_msg,
+                prev_files_unique_count=files_unique_before,
+                min_message_id=int(cleanup_min_mid or 0),
+                timeout_seconds=int(payload.wait_after_click_timeout_seconds or 0),
+                poll_interval=0.35,
+                max_logs=int(payload.debug_max_logs or 0),
+                step=steps,
+                next_keywords=[],
+                max_return_files=int(payload.max_return_files or 0),
+                max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0)
+            )
+
+        await backfill_latest_from_bot(
+            payload.bot_username,
+            limit=420,
+            timeout_seconds=6.0,
+            max_logs=int(payload.debug_max_logs or 0),
+            step=steps,
+            force=True,
+            min_message_id=int(cleanup_min_mid or 0)
+        )
+
+        timeline.append({
+            "step": steps,
+            "status": "after_click",
+            "reason": click_effect_reason or "clicked",
+            "effect_observed": bool(click_effect_observed),
+        })
+
+        return await _build_response(
+            "ok",
+            "clicked matching button",
+            button_clicked=True,
+            clicked_button_text=chosen_text,
+            clicked_message_id=chosen_mid,
+            click_effect_observed=bool(click_effect_observed),
+            click_effect_reason=click_effect_reason,
+        )
+    except MessageIdInvalidError:
+        timeline.append({"step": max(steps, 1), "status": "fail", "reason": "invalid_callback"})
+        return await _build_response("fail", "invalid_callback")
+    except Exception as e:
+        timeline.append({"step": steps, "status": "fail", "reason": "exception", "err": traceback.format_exc()})
+        return await _build_response("fail", str(e) or "exception")
 
 
 @app.get("/bots/health")
@@ -5008,6 +6781,48 @@ async def get_group_message_by_id(
         "count": len(items),
         "items": items
     }
+
+
+class GroupMessageDownloadRequest(BaseModel):
+    peer_id: int
+    message_id: int
+    folder_label: Optional[str] = None
+
+
+@app.post("/groups/download-message-media")
+async def download_group_message_media(payload: GroupMessageDownloadRequest):
+    try:
+        result = await _download_group_message_media_to_local(
+            peer_id=int(payload.peer_id),
+            message_id=int(payload.message_id),
+            folder_label=payload.folder_label,
+        )
+        push_log(
+            stage="group_download",
+            result="ok" if bool(result.get("downloaded")) else str(result.get("reason") or result.get("status") or "ok"),
+            extra=_json_sanitize(result),
+        )
+        return result
+    except Exception as e:
+        push_log(
+            stage="group_download",
+            result="error",
+            extra={
+                "peer_id": int(payload.peer_id),
+                "message_id": int(payload.message_id),
+                "error": str(e),
+                "trace": traceback.format_exc()[:800],
+            },
+        )
+        return {
+            "status": "fail",
+            "reason": "download_error",
+            "peer_id": int(payload.peer_id),
+            "message_id": int(payload.message_id),
+            "error": str(e),
+        }
+
+
 @app.get("/bots/dialogs")
 async def list_bot_dialogs(limit: int = 300):
     items: List[Dict[str, Any]] = []
@@ -5133,8 +6948,20 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
     steps = 0
     visited_pages: Set[int] = set()
     cleanup_min_mid = int(payload.sent_message_id or 0)
+    cleanup_max_mid = 0
+    cleanup_after_return_enabled = True
+
+    def _freeze_cleanup_window() -> None:
+        nonlocal cleanup_max_mid
+        lower_bound = int(cleanup_min_mid or 0)
+        if lower_bound <= 0:
+            cleanup_max_mid = 0
+            return
+
+        cleanup_max_mid = max(lower_bound, int(_message_store_max_mid_for_bot(payload.bot_username) or 0))
 
     async def _return_ok(reason: str) -> Dict[str, Any]:
+        _freeze_cleanup_window()
         result: Dict[str, Any] = {
             "status": "ok",
             "reason": reason,
@@ -5154,13 +6981,15 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
         if payload.debug:
             result["debug"] = _get_debug_logs(int(payload.debug_max_logs or 0))
 
-        if payload.cleanup_after_done:
+        files_unique_count = int(result.get("files_unique_count", 0) or 0)
+        if payload.cleanup_after_done and cleanup_after_return_enabled:
             try:
                 await _cleanup_chat_after_run(
                     bot_username=payload.bot_username,
                     scope=payload.cleanup_scope,
                     limit=int(payload.cleanup_limit or 0),
                     min_message_id=int(cleanup_min_mid or 0),
+                    max_message_id=int(cleanup_max_mid or 0),
                     preserve_file_messages=True,
                     max_logs=int(payload.debug_max_logs or 0)
                 )
@@ -5168,10 +6997,18 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
                 push_log(stage="cleanup", result="cleanup_error", step=steps, extra={
                     "err": traceback.format_exc()
                 }, max_logs=int(payload.debug_max_logs or 0))
+        elif payload.cleanup_after_done and files_unique_count > 0:
+            push_log(stage="cleanup", result="preserve_files_only", step=steps, extra={
+                "bot_username": payload.bot_username,
+                "files_unique_count": files_unique_count,
+                "cleanup_min_mid": int(cleanup_min_mid or 0),
+                "cleanup_max_mid": int(cleanup_max_mid or 0),
+            }, max_logs=int(payload.debug_max_logs or 0))
 
         return result
 
     async def _return_fail(reason: str) -> Dict[str, Any]:
+        _freeze_cleanup_window()
         result: Dict[str, Any] = {
             "status": "fail",
             "reason": reason,
@@ -5191,13 +7028,15 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
         if payload.debug:
             result["debug"] = _get_debug_logs(int(payload.debug_max_logs or 0))
 
-        if payload.cleanup_after_done:
+        if payload.cleanup_after_done and cleanup_after_return_enabled:
             try:
                 await _cleanup_chat_after_run(
                     bot_username=payload.bot_username,
                     scope=payload.cleanup_scope,
                     limit=int(payload.cleanup_limit or 0),
                     min_message_id=int(cleanup_min_mid or 0),
+                    max_message_id=int(cleanup_max_mid or 0),
+                    preserve_file_messages=True,
                     max_logs=int(payload.debug_max_logs or 0)
                 )
             except Exception:
@@ -5239,6 +7078,12 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
         if not chosen_first:
             latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=False)
             if _is_bot_not_found_message(latest_any):
+                cleanup_after_return_enabled = False
+                await _cleanup_not_found_messages(
+                    payload.bot_username,
+                    latest_any,
+                    min_message_id=int(cleanup_min_mid or 0)
+                )
                 timeline.append({
                     "step": 0,
                     "status": "done",
@@ -5280,6 +7125,12 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
         })
 
         if _is_bot_not_found_message(chosen_first):
+            cleanup_after_return_enabled = False
+            await _cleanup_not_found_messages(
+                payload.bot_username,
+                chosen_first,
+                min_message_id=int(cleanup_min_mid or 0)
+            )
             return await _return_ok("not found message detected; stop")
 
         no_new_files_rounds = 0
@@ -5312,6 +7163,13 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
             if not chosen_now:
                 latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=False)
                 if _is_bot_not_found_message(latest_any):
+                    cleanup_after_return_enabled = False
+                    await _cleanup_not_found_messages(
+                        payload.bot_username,
+                        latest_any,
+                        min_message_id=int(cleanup_min_mid or 0),
+                        sent_message_id=int(cleanup_min_mid or 0)
+                    )
                     timeline.append({
                         "step": steps,
                         "status": "done",
@@ -5365,6 +7223,12 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
                 latest_any_mid = int(latest_any.get("message_id", 0) or 0)
                 chosen_now_mid = int(chosen_now.get("message_id", 0) or 0)
                 if latest_any_mid >= chosen_now_mid and _is_bot_not_found_message(latest_any):
+                    cleanup_after_return_enabled = False
+                    await _cleanup_not_found_messages(
+                        payload.bot_username,
+                        latest_any,
+                        min_message_id=int(cleanup_min_mid or 0)
+                    )
                     timeline.append({
                         "step": steps,
                         "status": "done",

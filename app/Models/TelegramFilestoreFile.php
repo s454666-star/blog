@@ -17,6 +17,7 @@ class TelegramFilestoreFile extends Model
         'message_id',
         'file_id',
         'file_unique_id',
+        'source_token',
         'file_name',
         'mime_type',
         'file_size',

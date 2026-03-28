@@ -216,4 +216,16 @@
 
             return $result;
         }
+
+        public function shouldStoreOnlyInDialogues(string $token): bool
+        {
+            $token = trim($token);
+            if ($token === '') {
+                return false;
+            }
+
+            return strpos($token, 'Messengercode_') === 0
+                || stripos($token, 'QQfile_bot:') === 0
+                || stripos($token, 'yzfile_bot:') === 0;
+        }
     }

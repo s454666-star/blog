@@ -42,6 +42,9 @@ class ScanGroupMediaCommand extends Command
         '未找到可解析内容',
         '已加入缓存列表，稍后进行请求。',
     ];
+    private const TOKEN_STORE_EXISTS = 'exists';
+    private const TOKEN_STORE_DIALOGUES_ONLY = 'dialogues_only';
+    private const TOKEN_STORE_QUEUED = 'queued';
 
     private array $scanTargetsByBaseUri = [
         'http://127.0.0.1:8000/' => [
@@ -240,7 +243,7 @@ class ScanGroupMediaCommand extends Command
                 if (!$this->messageHasDownloadableVideo($item)) {
                     $token = $this->extractDispatchableToken($item);
                     if ($token !== null) {
-                        $queued = $this->queueTokenIfNeeded($peerId, $chatTitle, $token, $messageId);
+                        $storageResult = $this->queueTokenIfNeeded($peerId, $chatTitle, $token, $messageId);
 
                         $processedCursor = $messageId;
                         $state->max_message_id = $processedCursor;
@@ -255,10 +258,10 @@ class ScanGroupMediaCommand extends Command
                             $peerId,
                             $messageId,
                             $token,
-                            $queued ? '已寫入 token_scan_items' : '已存在 dialogues / token_scan_items，略過'
+                            $this->describeTokenStorageResult($storageResult)
                         ));
 
-                        if ($queued) {
+                        if ($storageResult !== self::TOKEN_STORE_EXISTS) {
                             return true;
                         }
                     }
@@ -575,42 +578,29 @@ class ScanGroupMediaCommand extends Command
         ], true);
     }
 
-    private function queueTokenIfNeeded(int $peerId, string $chatTitle, string $token, int $messageId): bool
+    private function queueTokenIfNeeded(int $peerId, string $chatTitle, string $token, int $messageId): string
     {
         $token = trim($token);
         if ($token === '') {
-            return false;
+            return self::TOKEN_STORE_EXISTS;
         }
 
         if (TokenScanItem::query()->where('token', $token)->exists()) {
-            return false;
+            return self::TOKEN_STORE_EXISTS;
         }
 
         if (DB::table('dialogues')
             ->where('chat_id', self::DIALOGUES_CHAT_ID)
             ->where('text', $token)
             ->exists()) {
-            return false;
-        }
-
-        $header = TokenScanHeader::query()->firstOrCreate(
-            ['peer_id' => $peerId],
-            [
-                'chat_title' => trim($chatTitle) !== '' ? $chatTitle : null,
-                'last_start_message_id' => 1,
-                'max_message_id' => 0,
-                'last_batch_count' => 0,
-            ]
-        );
-
-        if (trim((string) ($header->chat_title ?? '')) === '' && trim($chatTitle) !== '') {
-            $header->chat_title = $chatTitle;
-            $header->save();
+            return self::TOKEN_STORE_EXISTS;
         }
 
         $createdAt = now();
+        $storeOnlyInDialogues = $this->tokenService->shouldStoreOnlyInDialogues($token);
+        $storageResult = self::TOKEN_STORE_EXISTS;
 
-        DB::transaction(function () use ($header, $token, $createdAt) {
+        DB::transaction(function () use ($peerId, $chatTitle, $token, $createdAt, $storeOnlyInDialogues, &$storageResult) {
             $alreadyQueued = TokenScanItem::query()->where('token', $token)->exists();
             $alreadyInDialogues = DB::table('dialogues')
                 ->where('chat_id', self::DIALOGUES_CHAT_ID)
@@ -620,12 +610,6 @@ class ScanGroupMediaCommand extends Command
             if ($alreadyQueued || $alreadyInDialogues) {
                 return;
             }
-
-            TokenScanItem::query()->create([
-                'header_id' => (int) $header->id,
-                'token' => $token,
-                'created_at' => $createdAt,
-            ]);
 
             $dialoguesMessageId = (int) (DB::table('dialogues')
                 ->where('chat_id', self::DIALOGUES_CHAT_ID)
@@ -638,12 +622,46 @@ class ScanGroupMediaCommand extends Command
                 'is_read' => 1,
                 'created_at' => $createdAt,
             ]);
+
+            if ($storeOnlyInDialogues) {
+                $storageResult = self::TOKEN_STORE_DIALOGUES_ONLY;
+                return;
+            }
+
+            $header = TokenScanHeader::query()->firstOrCreate(
+                ['peer_id' => $peerId],
+                [
+                    'chat_title' => trim($chatTitle) !== '' ? $chatTitle : null,
+                    'last_start_message_id' => 1,
+                    'max_message_id' => 0,
+                    'last_batch_count' => 0,
+                ]
+            );
+
+            if (trim((string) ($header->chat_title ?? '')) === '' && trim($chatTitle) !== '') {
+                $header->chat_title = $chatTitle;
+                $header->save();
+            }
+
+            TokenScanItem::query()->create([
+                'header_id' => (int) $header->id,
+                'token' => $token,
+                'created_at' => $createdAt,
+            ]);
+
+            $storageResult = self::TOKEN_STORE_QUEUED;
         });
 
-        return TokenScanItem::query()
-            ->where('header_id', (int) $header->id)
-            ->where('token', $token)
-            ->exists();
+        return $storageResult;
+    }
+
+    private function describeTokenStorageResult(string $storageResult): string
+    {
+        return match ($storageResult) {
+            self::TOKEN_STORE_DIALOGUES_ONLY => '已寫入 dialogues',
+            self::TOKEN_STORE_QUEUED => '已寫入 token_scan_items + dialogues',
+            default => '已存在 dialogues / token_scan_items，略過',
+        };
     }
 
     private function messageHasDownloadableVideo(array $message): bool

@@ -14,7 +14,7 @@
     class ScanGroupTokensCommand extends Command
     {
         protected $signature = 'tg:scan-group-tokens {times? : 打 API 次數（不填=全跑）}';
-        protected $description = '掃描 Telegram 群組聊天資料並抽取 token，去重後寫入 token_scan_items（可限制 API 次數）';
+        protected $description = '掃描 Telegram 群組聊天資料並抽取 token，去重後寫入 dialogues，必要時同步寫入 token_scan_items（可限制 API 次數）';
 
         private TelegramCodeTokenService $tokenService;
 
@@ -533,7 +533,7 @@
                 }
             }
 
-            $rowsToInsert = [];
+            $tokensToInsert = [];
             $insertedTokensForPrint = [];
 
             foreach ($candidateTokens as $token) {
@@ -545,10 +545,7 @@
                     continue;
                 }
 
-                $rowsToInsert[] = [
-                    'header_id' => $headerId,
-                    'token' => $token,
-                ];
+                $tokensToInsert[] = $token;
 
                 $insertedTokensForPrint[] = [
                     '表頭id' => $headerId,
@@ -556,19 +553,14 @@
                 ];
             }
 
-            if (empty($rowsToInsert)) {
+            if (empty($tokensToInsert)) {
                 return 0;
             }
 
             $insertedCount = 0;
 
-            DB::transaction(function () use ($rowsToInsert, &$insertedCount) {
-                $tokens = [];
-                foreach ($rowsToInsert as $row) {
-                    $tokens[] = (string)$row['token'];
-                }
-                $tokens = array_values(array_unique($tokens));
-
+            DB::transaction(function () use ($headerId, $tokensToInsert, &$insertedCount) {
+                $tokens = array_values(array_unique($tokensToInsert));
                 if (empty($tokens)) {
                     return;
                 }
@@ -595,23 +587,31 @@
                 }
 
                 $createdAt = now();
-                $finalRows = [];
-                foreach ($rowsToInsert as $row) {
-                    $token = (string)$row['token'];
+                $tokensForDialogues = [];
+                $tokenScanItemRows = [];
+
+                foreach ($tokens as $token) {
                     if (isset($existingSet[$token])) {
                         continue;
                     }
                     if (isset($dialoguesSet[$token])) {
                         continue;
                     }
-                    $finalRows[] = [
-                        'header_id' => (int)$row['header_id'],
+
+                    $tokensForDialogues[] = $token;
+
+                    if ($this->tokenService->shouldStoreOnlyInDialogues($token)) {
+                        continue;
+                    }
+
+                    $tokenScanItemRows[] = [
+                        'header_id' => $headerId,
                         'token' => $token,
                         'created_at' => $createdAt,
                     ];
                 }
 
-                if (empty($finalRows)) {
+                if (empty($tokensForDialogues)) {
                     return;
                 }
 
@@ -620,27 +620,32 @@
                     ->max('message_id') ?? 0);
 
                 $dialogueRows = [];
-                foreach ($finalRows as $row) {
+                foreach ($tokensForDialogues as $token) {
                     $dialoguesMessageId++;
                     $dialogueRows[] = [
                         'chat_id' => self::DIALOGUES_CHAT_ID,
                         'message_id' => $dialoguesMessageId,
-                        'text' => (string)$row['token'],
+                        'text' => $token,
                         'is_read' => 1,
                         'created_at' => $createdAt,
                     ];
-                }
-
-                $chunks = array_chunk($finalRows, self::INSERT_CHUNK_SIZE);
-                foreach ($chunks as $chunk) {
-                    $affected = DB::table('token_scan_items')->insertOrIgnore($chunk);
-                    $insertedCount = $insertedCount + (int)$affected;
                 }
 
                 $dialogueChunks = array_chunk($dialogueRows, self::INSERT_CHUNK_SIZE);
                 foreach ($dialogueChunks as $chunk) {
                     DB::table('dialogues')->insert($chunk);
                 }
+
+                $chunks = array_chunk($tokenScanItemRows, self::INSERT_CHUNK_SIZE);
+                foreach ($chunks as $chunk) {
+                    if (empty($chunk)) {
+                        continue;
+                    }
+
+                    DB::table('token_scan_items')->insertOrIgnore($chunk);
+                }
+
+                $insertedCount = count($tokensForDialogues);
             });
 
             if (!empty($insertedTokensForPrint)) {

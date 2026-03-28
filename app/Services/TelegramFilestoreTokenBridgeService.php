@@ -35,6 +35,7 @@ class TelegramFilestoreTokenBridgeService
         $token = trim($sourceToken);
         $normalizedBaseUri = rtrim(trim($baseUri), '/');
         $normalizedSourceBotUsername = ltrim(trim($sourceBotUsername), '@');
+        $targetBotUsername = ltrim((string) config('telegram.filestore_sync_bot_username', 'filestoebot'), '@');
         $normalizedMinMessageId = max($minMessageId, 0);
 
         if ($token === '' || $normalizedBaseUri === '' || $normalizedSourceBotUsername === '') {
@@ -59,7 +60,8 @@ class TelegramFilestoreTokenBridgeService
                 'stored_files' => (int) ($existing->total_files ?? 0),
                 'skipped_files' => 0,
                 'summary' => sprintf(
-                    'filestore existing session_id=%d public_token=%s files=%d',
+                    'filestore existing target=@%s session_id=%d public_token=%s files=%d',
+                    $targetBotUsername,
                     (int) $existing->id,
                     (string) ($existing->public_token ?? '-'),
                     (int) ($existing->total_files ?? 0)
@@ -118,7 +120,15 @@ class TelegramFilestoreTokenBridgeService
                 'status' => 'no_forwardable_files',
                 'observed_files' => $observedFiles,
                 'observed_total_bytes' => $observedTotalBytes,
-                'summary' => $this->buildSkipSummary('filestore sync skipped: no forwardable files', $skippedByPrecheck),
+                'summary' => $this->buildSkipSummary(
+                    sprintf(
+                        'filestore sync skipped before upload to @%s: no forwardable files observed=%d source_bot=@%s',
+                        $targetBotUsername,
+                        $observedFiles,
+                        $normalizedSourceBotUsername
+                    ),
+                    $skippedByPrecheck
+                ),
                 'skipped_files' => count($skippedByPrecheck),
             ];
         }
@@ -130,7 +140,10 @@ class TelegramFilestoreTokenBridgeService
                 'status' => 'bridge_busy',
                 'observed_files' => $observedFiles,
                 'observed_total_bytes' => $observedTotalBytes,
-                'summary' => 'filestore sync skipped: bridge uploader chat already has another uploading session',
+                'summary' => sprintf(
+                    'filestore sync skipped before upload to @%s: bridge uploader chat already has another uploading session',
+                    $targetBotUsername
+                ),
             ];
         }
 
@@ -153,7 +166,14 @@ class TelegramFilestoreTokenBridgeService
                 'status' => (string) ($forwardResult['status'] ?? 'forward_failed'),
                 'observed_files' => $observedFiles,
                 'observed_total_bytes' => $observedTotalBytes,
-                'summary' => (string) ($forwardResult['summary'] ?? 'filestore sync skipped: forward api failed'),
+                'summary' => sprintf(
+                    '%s target=@%s session_id=%d source_bot=@%s attempted=%d',
+                    (string) ($forwardResult['summary'] ?? 'filestore sync skipped: forward api failed'),
+                    $targetBotUsername,
+                    (int) $session->id,
+                    $normalizedSourceBotUsername,
+                    count($forwardableMessageIds)
+                ),
             ];
         }
 
@@ -179,7 +199,17 @@ class TelegramFilestoreTokenBridgeService
                 'status' => 'no_forwardable_files',
                 'observed_files' => $observedFiles,
                 'observed_total_bytes' => $observedTotalBytes,
-                'summary' => $this->buildSkipSummary('filestore sync skipped: no messages were forwarded', $runtimeSkipped),
+                'summary' => $this->buildSkipSummary(
+                    sprintf(
+                        'filestore sync skipped after attempting @%s session_id=%d: no messages were forwarded source_bot=@%s attempted=%d observed=%d',
+                        $targetBotUsername,
+                        (int) $session->id,
+                        $normalizedSourceBotUsername,
+                        count($forwardableMessageIds),
+                        $observedFiles
+                    ),
+                    $runtimeSkipped
+                ),
                 'skipped_files' => count($runtimeSkipped),
             ];
         }
@@ -191,7 +221,15 @@ class TelegramFilestoreTokenBridgeService
                 'status' => 'wait_timeout',
                 'observed_files' => $observedFiles,
                 'observed_total_bytes' => $observedTotalBytes,
-                'summary' => 'filestore sync skipped: webhook write did not finish before timeout',
+                'summary' => sprintf(
+                    'filestore sync skipped after forwarding to @%s session_id=%d source_bot=@%s forwarded=%d expected=%d observed=%d reason=webhook write did not finish before timeout',
+                    $targetBotUsername,
+                    (int) $session->id,
+                    $normalizedSourceBotUsername,
+                    count($forwardedMessageIds),
+                    $beforeCount + count($forwardedMessageIds),
+                    $afterCount
+                ),
             ];
         }
 
@@ -199,7 +237,7 @@ class TelegramFilestoreTokenBridgeService
         $this->bridgeContextService->forgetPendingSession((int) $session->id);
         $deleteSummary = $this->deleteForwardedMessages(
             $normalizedBaseUri,
-            (string) config('telegram.filestore_sync_bot_username', 'filestoebot'),
+            $targetBotUsername,
             $forwardedMessageIds
         );
         $deleteSourceSummary = [
@@ -219,9 +257,11 @@ class TelegramFilestoreTokenBridgeService
 
         $storedFiles = (int) ($closed->total_files ?? 0);
         $summary = sprintf(
-            'filestore synced session_id=%d public_token=%s stored=%d skipped=%d deleted_forwarded=%s',
+            'filestore synced target=@%s session_id=%d public_token=%s forwarded=%d stored=%d skipped=%d deleted_forwarded=%s',
+            $targetBotUsername,
             (int) $closed->id,
             (string) ($closed->public_token ?? '-'),
+            count($forwardedMessageIds),
             $storedFiles,
             count($runtimeSkipped),
             ($deleteSummary['ok'] ?? false) === true ? 'yes' : 'no'

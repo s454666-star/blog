@@ -177,6 +177,8 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
         $this->assertTrue($result['ok']);
         $this->assertSame('synced', $result['status']);
         $this->assertSame(2, $result['stored_files']);
+        $this->assertStringContainsString('target=@filestoebot', (string) $result['summary']);
+        $this->assertStringContainsString('forwarded=2', (string) $result['summary']);
         $this->assertStringContainsString('deleted_forwarded=yes', (string) $result['summary']);
         $this->assertStringContainsString('deleted_source=yes', (string) $result['summary']);
 

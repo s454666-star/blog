@@ -100,7 +100,11 @@ class TelegramFilestoreTokenBridgeService
             ];
         }
 
-        $sourceMessageIds = $this->collectSourceMessageIds($files, $sourceChatId);
+        $sourceMessageIds = $this->collectSourceMessageIds(
+            $files,
+            $sourceChatId,
+            $normalizedMinMessageId
+        );
 
         [$forwardableMessageIds, $skippedByPrecheck] = $this->splitForwardableMessageIds($files, $sourceChatId);
         if ($forwardableMessageIds === []) {
@@ -330,10 +334,15 @@ class TelegramFilestoreTokenBridgeService
      * @param array<int, array<string, mixed>> $files
      * @return array<int, int>
      */
-    private function collectSourceMessageIds(array $files, int $sourceChatId): array
+    private function collectSourceMessageIds(array $files, int $sourceChatId, int $sentMessageId = 0): array
     {
         $messageIds = [];
         $seen = [];
+
+        if ($sentMessageId > 0) {
+            $seen[$sentMessageId] = true;
+            $messageIds[] = $sentMessageId;
+        }
 
         foreach ($files as $file) {
             $chatId = (int) ($file['chat_id'] ?? 0);

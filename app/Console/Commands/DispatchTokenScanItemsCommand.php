@@ -85,6 +85,11 @@ class DispatchTokenScanItemsCommand extends Command
     private const QQ_YZ_NEXT_TOKEN_DELAY_MICROSECONDS = 8000000;
     private const INITIAL_API_TIMEOUT_SECONDS = 60;
     private const FOLLOWUP_API_TIMEOUT_SECONDS = 900;
+    private const LOCAL_FASTAPI_RESTART_WAIT_SECONDS = 20;
+    private const LOCAL_FASTAPI_RESTART_BATCH_BY_PORT = [
+        8000 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service.bat',
+        8001 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service2.bat',
+    ];
     private const QQ_YZ_SYNC_MARKER = '当前解码器未完成同步';
     private const PUSH_ALL_BUTTON_KEYWORDS = ['推送全部'];
     private const QQ_YZ_ACCEPTED_MARKERS = [
@@ -809,81 +814,95 @@ class DispatchTokenScanItemsCommand extends Command
         foreach ($this->getApiBaseUris() as $baseUri) {
             $sendUrl = rtrim($baseUri, '/') . '/bots/send';
             $followupUrl = rtrim($baseUri, '/') . $followupPath;
+            $restartAttempted = false;
 
-            try {
-                $sendResponse = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
-                    ->acceptJson()
-                    ->asJson()
-                    ->post($sendUrl, $sendPayload);
-
-                if (!$sendResponse->ok()) {
-                    $lastError = 'send HTTP ' . $sendResponse->status();
-                    continue;
-                }
-
-                $sendJson = $sendResponse->json();
-                if (!is_array($sendJson) || (string) ($sendJson['status'] ?? '') !== 'ok') {
-                    $lastError = 'send invalid json response';
-                    continue;
-                }
-
-                $followupPayloadWithContext = $followupPayload;
-                $sentMessageId = (int) ($sendJson['sent_message_id'] ?? 0);
-                if ($sentMessageId > 0) {
-                    $followupPayloadWithContext['sent_message_id'] = $sentMessageId;
-                }
-
-                $paginationResponse = Http::timeout(self::FOLLOWUP_API_TIMEOUT_SECONDS)
-                    ->acceptJson()
-                    ->asJson()
-                    ->post($followupUrl, $followupPayloadWithContext);
-
-                if (!$paginationResponse->ok()) {
-                    $lastError = 'followup HTTP ' . $paginationResponse->status();
-                    continue;
-                }
-
-                $json = $paginationResponse->json();
-                if (!is_array($json)) {
-                    $lastError = 'followup invalid json response';
-                    continue;
-                }
-
-                if (
-                    (($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON)
-                    && $this->isQqOrYzBotApi((string) $bot['api'])
-                    && $this->shouldRetryQqYzWithFallbackButtons($json)
-                ) {
-                    $fallbackPayload = $this->buildButtonClickPayload(
-                        (string) $bot['api'],
-                        self::QQ_YZ_FALLBACK_BUTTON_KEYWORDS
-                    );
-                    if ($sentMessageId > 0) {
-                        $fallbackPayload['sent_message_id'] = $sentMessageId;
-                    }
-
-                    $fallbackResponse = Http::timeout(self::FOLLOWUP_API_TIMEOUT_SECONDS)
+            while (true) {
+                try {
+                    $sendResponse = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
                         ->acceptJson()
                         ->asJson()
-                        ->post($followupUrl, $fallbackPayload);
+                        ->post($sendUrl, $sendPayload);
 
-                    if ($fallbackResponse->ok()) {
-                        $fallbackJson = $fallbackResponse->json();
-                        if (is_array($fallbackJson)) {
-                            $json = $fallbackJson;
+                    if (!$sendResponse->ok()) {
+                        $lastError = 'send HTTP ' . $sendResponse->status();
+                        break;
+                    }
+
+                    $sendJson = $sendResponse->json();
+                    if (!is_array($sendJson) || (string) ($sendJson['status'] ?? '') !== 'ok') {
+                        $lastError = 'send invalid json response';
+                        break;
+                    }
+
+                    $followupPayloadWithContext = $followupPayload;
+                    $sentMessageId = (int) ($sendJson['sent_message_id'] ?? 0);
+                    if ($sentMessageId > 0) {
+                        $followupPayloadWithContext['sent_message_id'] = $sentMessageId;
+                    }
+
+                    $paginationResponse = Http::timeout(self::FOLLOWUP_API_TIMEOUT_SECONDS)
+                        ->acceptJson()
+                        ->asJson()
+                        ->post($followupUrl, $followupPayloadWithContext);
+
+                    if (!$paginationResponse->ok()) {
+                        $lastError = 'followup HTTP ' . $paginationResponse->status();
+                        break;
+                    }
+
+                    $json = $paginationResponse->json();
+                    if (!is_array($json)) {
+                        $lastError = 'followup invalid json response';
+                        break;
+                    }
+
+                    if (
+                        (($bot['mode'] ?? self::BOT_MODE_PAGINATE) === self::BOT_MODE_CLICK_BUTTON)
+                        && $this->isQqOrYzBotApi((string) $bot['api'])
+                        && $this->shouldRetryQqYzWithFallbackButtons($json)
+                    ) {
+                        $fallbackPayload = $this->buildButtonClickPayload(
+                            (string) $bot['api'],
+                            self::QQ_YZ_FALLBACK_BUTTON_KEYWORDS
+                        );
+                        if ($sentMessageId > 0) {
+                            $fallbackPayload['sent_message_id'] = $sentMessageId;
                         }
+
+                        $fallbackResponse = Http::timeout(self::FOLLOWUP_API_TIMEOUT_SECONDS)
+                            ->acceptJson()
+                            ->asJson()
+                            ->post($followupUrl, $fallbackPayload);
+
+                        if ($fallbackResponse->ok()) {
+                            $fallbackJson = $fallbackResponse->json();
+                            if (is_array($fallbackJson)) {
+                                $json = $fallbackJson;
+                            }
+                        }
+                    }
+
+                    return [
+                        'ok' => true,
+                        'base_uri' => $baseUri,
+                        'http_status' => $paginationResponse->status(),
+                        'sent_message_id' => $sentMessageId,
+                        'json' => $json,
+                    ];
+                } catch (Throwable $e) {
+                    $lastError = $e->getMessage();
+
+                    if (
+                        !$restartAttempted
+                        && $this->shouldRestartLocalFastApi($baseUri, $lastError)
+                        && $this->restartLocalFastApiService($baseUri, $lastError)
+                    ) {
+                        $restartAttempted = true;
+                        continue;
                     }
                 }
 
-                return [
-                    'ok' => true,
-                    'base_uri' => $baseUri,
-                    'http_status' => $paginationResponse->status(),
-                    'sent_message_id' => $sentMessageId,
-                    'json' => $json,
-                ];
-            } catch (Throwable $e) {
-                $lastError = $e->getMessage();
+                break;
             }
         }
 
@@ -912,33 +931,47 @@ class DispatchTokenScanItemsCommand extends Command
 
         foreach ($this->getApiBaseUris() as $baseUri) {
             $url = rtrim($baseUri, '/') . '/bots/send-and-run-all-pages';
+            $restartAttempted = false;
 
-            try {
-                $response = Http::timeout(self::FOLLOWUP_API_TIMEOUT_SECONDS)
-                    ->acceptJson()
-                    ->asJson()
-                    ->post($url, $payload);
+            while (true) {
+                try {
+                    $response = Http::timeout(self::FOLLOWUP_API_TIMEOUT_SECONDS)
+                        ->acceptJson()
+                        ->asJson()
+                        ->post($url, $payload);
 
-                if (!$response->ok()) {
-                    $lastError = 'send_and_run HTTP ' . $response->status();
-                    continue;
+                    if (!$response->ok()) {
+                        $lastError = 'send_and_run HTTP ' . $response->status();
+                        break;
+                    }
+
+                    $json = $response->json();
+                    if (!is_array($json)) {
+                        $lastError = 'send_and_run invalid json response';
+                        break;
+                    }
+
+                    return [
+                        'ok' => true,
+                        'base_uri' => $baseUri,
+                        'http_status' => $response->status(),
+                        'sent_message_id' => (int) ($json['sent_message_id'] ?? 0),
+                        'json' => $json,
+                    ];
+                } catch (Throwable $e) {
+                    $lastError = $e->getMessage();
+
+                    if (
+                        !$restartAttempted
+                        && $this->shouldRestartLocalFastApi($baseUri, $lastError)
+                        && $this->restartLocalFastApiService($baseUri, $lastError)
+                    ) {
+                        $restartAttempted = true;
+                        continue;
+                    }
                 }
 
-                $json = $response->json();
-                if (!is_array($json)) {
-                    $lastError = 'send_and_run invalid json response';
-                    continue;
-                }
-
-                return [
-                    'ok' => true,
-                    'base_uri' => $baseUri,
-                    'http_status' => $response->status(),
-                    'sent_message_id' => (int) ($json['sent_message_id'] ?? 0),
-                    'json' => $json,
-                ];
-            } catch (Throwable $e) {
-                $lastError = $e->getMessage();
+                break;
             }
         }
 
@@ -979,6 +1012,97 @@ class DispatchTokenScanItemsCommand extends Command
         }
 
         return [rtrim(self::DEFAULT_API_HOST, '/') . ':' . $port];
+    }
+
+    private function shouldRestartLocalFastApi(string $baseUri, string $error): bool
+    {
+        if (!$this->isLocalFastApiBaseUri($baseUri)) {
+            return false;
+        }
+
+        $port = $this->extractLocalFastApiPort($baseUri);
+        if (!isset(self::LOCAL_FASTAPI_RESTART_BATCH_BY_PORT[$port])) {
+            return false;
+        }
+
+        $normalizedError = Str::lower(trim($error));
+
+        return Str::contains($normalizedError, [
+            'curl error 7',
+            'curl error 56',
+            'couldn\'t connect to server',
+            'connection was reset',
+            'recv failure',
+        ]);
+    }
+
+    private function restartLocalFastApiService(string $baseUri, string $error = ''): bool
+    {
+        $port = $this->extractLocalFastApiPort($baseUri);
+        $batchPath = self::LOCAL_FASTAPI_RESTART_BATCH_BY_PORT[$port] ?? '';
+        if ($batchPath === '' || !is_file($batchPath)) {
+            return false;
+        }
+
+        $escapedBatchPath = str_replace('"', '""', $batchPath);
+        $command = 'cmd /c start "" /min "' . $escapedBatchPath . '"';
+
+        try {
+            @pclose(@popen($command, 'r'));
+        } catch (Throwable) {
+            return false;
+        }
+
+        $ready = $this->waitForLocalFastApiPort(
+            $port,
+            self::LOCAL_FASTAPI_RESTART_WAIT_SECONDS
+        );
+
+        if ($ready) {
+            $this->line(sprintf(
+                'fastapi_restart base_uri=%s reason=%s',
+                $baseUri,
+                $error === '' ? 'unknown' : $error
+            ));
+        }
+
+        return $ready;
+    }
+
+    private function waitForLocalFastApiPort(int $port, int $timeoutSeconds): bool
+    {
+        if ($port <= 0) {
+            return false;
+        }
+
+        $deadline = microtime(true) + max($timeoutSeconds, 1);
+
+        while (microtime(true) < $deadline) {
+            $socket = @fsockopen('127.0.0.1', $port, $errorNumber, $errorString, 1.0);
+            if (is_resource($socket)) {
+                fclose($socket);
+
+                return true;
+            }
+
+            usleep(500000);
+        }
+
+        return false;
+    }
+
+    private function isLocalFastApiBaseUri(string $baseUri): bool
+    {
+        $host = (string) parse_url($baseUri, PHP_URL_HOST);
+
+        return in_array(Str::lower($host), ['127.0.0.1', 'localhost'], true);
+    }
+
+    private function extractLocalFastApiPort(string $baseUri): int
+    {
+        $port = (int) parse_url($baseUri, PHP_URL_PORT);
+
+        return $port > 0 ? $port : self::DEFAULT_API_PORT;
     }
 
     private function buildSendPayload(string $token, string $botUsername): array

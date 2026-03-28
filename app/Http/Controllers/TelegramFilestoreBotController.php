@@ -150,11 +150,13 @@
             }
 
             $sessionId = null;
+            $shouldDispatchDebouncePrompt = false;
 
             try {
-                DB::transaction(function () use ($chatId, $username, $messageId, $filePayload, $message, &$sessionId) {
+                DB::transaction(function () use ($chatId, $username, $messageId, $filePayload, $message, &$sessionId, &$shouldDispatchDebouncePrompt) {
                     $session = $this->resolveUploadingSession($chatId, $username, $filePayload);
                     $sessionId = (int)$session->id;
+                    $shouldDispatchDebouncePrompt = !$this->shouldSkipDebouncePromptForSession($session);
 
                     $exists = TelegramFilestoreFile::query()
                         ->where('session_id', $session->id)
@@ -195,7 +197,7 @@
                 return response()->json(['ok' => true]);
             }
 
-            if ($sessionId !== null) {
+            if ($sessionId !== null && $shouldDispatchDebouncePrompt) {
                 try {
                     $this->touchSessionLastFileAtAndDispatchDebounceJob($sessionId, $chatId);
                 } catch (Throwable $e) {
@@ -692,6 +694,11 @@
             }
 
             return $this->getOrCreateUploadingSession($chatId, $username);
+        }
+
+        private function shouldSkipDebouncePromptForSession(TelegramFilestoreSession $session): bool
+        {
+            return trim((string) ($session->source_token ?? '')) !== '';
         }
 
         /**

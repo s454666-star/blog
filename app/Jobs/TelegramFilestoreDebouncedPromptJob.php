@@ -89,6 +89,10 @@
                     return;
                 }
 
+                if (trim((string)($session->source_token ?? '')) !== '') {
+                    return;
+                }
+
                 $fileCount = (int)TelegramFilestoreFile::query()
                     ->where('session_id', $this->sessionId)
                     ->count();

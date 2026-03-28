@@ -132,6 +132,27 @@ class DispatchTokenScanItemsCommand extends Command
         '請選擇正確的計算結果',
     ];
     private const QQ_YZ_VERIFICATION_POST_CLICK_DELAY_MICROSECONDS = 1000000;
+    private const MTFXQ_CAPTCHA_MARKERS = [
+        '请计算图中',
+        '請計算圖中',
+        'count how many',
+    ];
+    private const MTFXQ_CAPTCHA_BLOCK_MARKERS = [
+        '请先完成验证码',
+        '請先完成驗證碼',
+        'please complete the captcha',
+    ];
+    private const MTFXQ_CAPTCHA_DENIED_MARKERS = [
+        '您多次验证码失败。服务已拒绝1小时',
+        'you have failed the captcha too many times. service denied for 1 hour',
+        '由于验证码失败次数过多，服务已被拒绝。请在',
+        'service currently denied due to too many failed captcha attempts. please try again after',
+    ];
+    private const MTFXQ_CAPTCHA_MAX_ATTEMPTS = 3;
+    private const MTFXQ_CAPTCHA_POST_CLICK_DELAY_MICROSECONDS = 2000000;
+    private const MTFXQ_CAPTCHA_REFRESH_DELAY_MICROSECONDS = 1500000;
+    private const MTFXQ_DETAILED_REPLIES_FETCH_LIMIT = 40;
+    private const MTFXQ_CAPTCHA_DOWNLOAD_LABEL = 'mtfxq_captcha';
     private const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
     private const OPENAI_MODEL = 'gpt-4o-mini';
     private const OPENAI_TIMEOUT_SECONDS = 60;
@@ -229,7 +250,7 @@ class DispatchTokenScanItemsCommand extends Command
             $this->printTimelineTail((array) ($result['timeline'] ?? []));
             $this->printDebugTail((array) ($result['debug'] ?? []));
 
-            if (($result['stop_processing'] ?? false) === true) {
+            if (($result['stop_processing'] ?? false) === true && ($result['stop_processing_retryable'] ?? false) === true) {
                 $retryCount = (int) ($stoppedEarlyRetriesByJob[$index] ?? 0);
                 if ($retryCount < $stoppedEarlyMaxRetries) {
                     $retryCount++;
@@ -270,7 +291,10 @@ class DispatchTokenScanItemsCommand extends Command
             if (($result['stop_processing'] ?? false) === true) {
                 $remainingUnprocessed = max(0, $totalJobs - ($index + 1));
                 $stoppedEarly = true;
-                $this->warn('Stopping dispatch after unresolved QQ/yz run reached the retry limit so the next token does not start early.');
+                $stopSummary = trim((string) ($result['stop_processing_summary'] ?? ''));
+                $this->warn($stopSummary !== ''
+                    ? $stopSummary
+                    : 'Stopping dispatch after unresolved QQ/yz run reached the retry limit so the next token does not start early.');
                 break;
             }
 
@@ -385,6 +409,8 @@ class DispatchTokenScanItemsCommand extends Command
         $dispatchText = null;
         $attempt = 0;
         $retryDeadline = microtime(true) + self::QQ_YZ_RETRY_BUDGET_SECONDS;
+        $mtfxqCaptchaRetries = 0;
+        $mtfxqCaptchaSolvedSummaries = [];
 
         while (true) {
             $attempt++;
@@ -446,7 +472,45 @@ class DispatchTokenScanItemsCommand extends Command
                 }
             }
 
+            if (
+                ($result['bot_api'] ?? '') === self::BOT_MTFXQ['api']
+                && ($result['classification'] ?? '') !== 'success'
+                && !$this->isMtfxqCaptchaDeniedText((string) ($result['latest_text_preview'] ?? ''))
+                && $mtfxqCaptchaRetries < self::MTFXQ_CAPTCHA_MAX_ATTEMPTS
+            ) {
+                $captchaResult = $this->solveMtfxqCaptchaChallenge($result);
+                if (($captchaResult['solved'] ?? false) === true) {
+                    $mtfxqCaptchaRetries++;
+
+                    $captchaSummary = trim((string) ($captchaResult['summary'] ?? ''));
+                    if ($captchaSummary !== '') {
+                        $mtfxqCaptchaSolvedSummaries[] = $captchaSummary;
+                    }
+
+                    usleep(self::MTFXQ_CAPTCHA_POST_CLICK_DELAY_MICROSECONDS);
+                    continue;
+                }
+
+                $captchaSummary = trim((string) ($captchaResult['summary'] ?? ''));
+                if ($captchaSummary !== '') {
+                    $result = $this->appendSummaryToResult($result, $captchaSummary);
+                }
+            }
+
+            if (
+                ($result['bot_api'] ?? '') === self::BOT_MTFXQ['api']
+                && $this->isMtfxqCaptchaDeniedText((string) ($result['latest_text_preview'] ?? ''))
+            ) {
+                $result['stop_processing'] = true;
+                $result['stop_processing_retryable'] = false;
+                $result['stop_processing_summary'] = 'Stopping dispatch because mtfxqbot temporarily denied captcha requests after too many failures.';
+            }
+
             break;
+        }
+
+        foreach ($mtfxqCaptchaSolvedSummaries as $captchaSummary) {
+            $result = $this->appendSummaryToResult($result, $captchaSummary);
         }
 
         if ($result['classification'] === 'success') {
@@ -566,6 +630,9 @@ class DispatchTokenScanItemsCommand extends Command
         $classification = 'failed';
         $dbAction = '';
         $summary = '';
+        $stopProcessing = false;
+        $stopProcessingRetryable = false;
+        $stopProcessingSummary = '';
         $timeline = is_array($responseJson['timeline'] ?? null) ? $responseJson['timeline'] : [];
         $debug = is_array($responseJson['debug'] ?? null) ? $responseJson['debug'] : [];
 
@@ -603,6 +670,10 @@ class DispatchTokenScanItemsCommand extends Command
         } elseif ($notFound) {
             $classification = 'not_found';
             $summary = 'Bot returned not found. Keep token_scan_items row untouched.';
+        } elseif (($bot['api'] ?? '') === self::BOT_MTFXQ['api'] && $this->isMtfxqCaptchaDeniedText($latestTextPreview)) {
+            $summary = 'MTFXQ captcha requests are temporarily denied after too many failures. Stop the command and retry later.';
+            $stopProcessing = true;
+            $stopProcessingSummary = 'Stopping dispatch because mtfxqbot temporarily denied captcha requests after too many failures.';
         } elseif (($bot['api'] ?? '') === self::BOT_MESSENGER['api'] && ($retryAfterSeconds = $this->extractMessengerRetryAfterSeconds($latestTextPreview)) !== null) {
             $summary = 'Messenger bot rate limited. Wait ' . $retryAfterSeconds . ' seconds and retry the current token.';
         } elseif (($bot['api'] ?? '') === self::BOT_QQFILE['api'] && $this->responseRequestsYzFallback($latestTextPreview, $apiReason) && $yzStartCommand !== null) {
@@ -646,7 +717,9 @@ class DispatchTokenScanItemsCommand extends Command
             'clicked_button_text' => $clickedButtonText,
             'sent_message_id' => $sentMessageId,
             'dispatch_text' => $textToSend,
-            'stop_processing' => false,
+            'stop_processing' => $stopProcessing,
+            'stop_processing_retryable' => $stopProcessingRetryable,
+            'stop_processing_summary' => $stopProcessingSummary,
             'retry_after_queue_clear' => false,
             'retry_after_rate_limit' => isset($retryAfterSeconds) && $retryAfterSeconds !== null,
             'retry_after_seconds' => $retryAfterSeconds ?? 0,
@@ -1114,6 +1187,7 @@ class DispatchTokenScanItemsCommand extends Command
 
         if ($baseUri === '' || !$this->isQqOrYzBotApi($botApi) || $sentMessageId <= 0) {
             $result['stop_processing'] = ($result['classification'] ?? '') !== 'success';
+            $result['stop_processing_retryable'] = ($result['stop_processing'] ?? false) === true;
             return $result;
         }
 
@@ -1264,6 +1338,7 @@ class DispatchTokenScanItemsCommand extends Command
                     $result['classification'] = 'failed';
                     $result['summary'] = 'Observed an existing QQ/yz queue finish, but the current token was not accepted yet. Retry current token.';
                     $result['stop_processing'] = true;
+                    $result['stop_processing_retryable'] = true;
                     $result['retry_after_queue_clear'] = true;
 
                     return $this->prependQqYzVerificationSummary($result, $verificationSolvedButtonText);
@@ -1282,6 +1357,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $result['summary'] = 'Decode rate limited. Wait ' . $retryAfterSeconds . ' seconds and retry the current token.';
                 $result['latest_text_preview'] = (string) ($lastState['rate_limit_preview'] ?: $lastState['latest_text_preview'] ?: $result['latest_text_preview']);
                 $result['stop_processing'] = true;
+                $result['stop_processing_retryable'] = true;
                 $result['retry_after_rate_limit'] = true;
                 $result['retry_after_seconds'] = $retryAfterSeconds;
                 $result['retry_after_queue_clear'] = false;
@@ -1329,6 +1405,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $result['summary'] = 'QQ/yz callback was stale or timed out. Refresh and retry the current token.';
                 $result['latest_text_preview'] = (string) ($lastState['latest_text_preview'] ?: $result['latest_text_preview']);
                 $result['stop_processing'] = true;
+                $result['stop_processing_retryable'] = true;
                 $result['retry_after_callback_error'] = true;
                 $result['retry_after_queue_clear'] = false;
                 $result['retry_after_rate_limit'] = false;
@@ -1346,6 +1423,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $result['classification'] = ($result['classification'] ?? '') === 'not_found' ? 'not_found' : 'failed';
                 $result['summary'] = $this->buildQqYzIncompleteSummary($lastState);
                 $result['stop_processing'] = true;
+                $result['stop_processing_retryable'] = true;
 
                 return $this->prependQqYzVerificationSummary($result, $verificationSolvedButtonText);
             }
@@ -1382,6 +1460,33 @@ class DispatchTokenScanItemsCommand extends Command
         }
 
         return [];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchDetailedBotReplies(string $baseUri, string $botApi, int $minMessageId): array
+    {
+        try {
+            $response = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
+                ->acceptJson()
+                ->get(rtrim($baseUri, '/') . '/bots/replies', [
+                    'limit' => self::MTFXQ_DETAILED_REPLIES_FETCH_LIMIT,
+                    'bot_username' => $botApi,
+                    'min_message_id' => max($minMessageId, 0),
+                    'summary_only' => 0,
+                ]);
+
+            if (!$response->ok()) {
+                return [];
+            }
+
+            $json = $response->json();
+
+            return is_array($json) ? $json : [];
+        } catch (Throwable) {
+            return [];
+        }
     }
 
     /**
@@ -1705,6 +1810,429 @@ class DispatchTokenScanItemsCommand extends Command
                                 '',
                                 'Return exactly one candidate button text.',
                             ]),
+                        ],
+                    ],
+                ]);
+
+            if (!$response->ok()) {
+                return null;
+            }
+
+            $json = $response->json();
+            if (!is_array($json)) {
+                return null;
+            }
+
+            $content = trim((string) ($json['choices'][0]['message']['content'] ?? ''));
+
+            return trim($content, " \t\n\r\0\x0B`'\"");
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     * @return array{solved: bool, summary: string}
+     */
+    private function solveMtfxqCaptchaChallenge(array $result): array
+    {
+        $baseUri = trim((string) ($result['base_uri'] ?? ''));
+        $botApi = trim((string) ($result['bot_api'] ?? ''));
+
+        if ($baseUri === '' || $botApi !== self::BOT_MTFXQ['api']) {
+            return ['solved' => false, 'summary' => ''];
+        }
+
+        $challenge = $this->inspectMtfxqCaptchaChallenge(
+            $this->fetchDetailedBotReplies($baseUri, $botApi, 0),
+            $botApi,
+            0
+        );
+
+        if (($challenge['required'] ?? false) !== true) {
+            return ['solved' => false, 'summary' => ''];
+        }
+
+        $refreshSummary = '';
+        if (($challenge['blocked'] ?? false) === true) {
+            $refreshResult = $this->refreshMtfxqCaptchaChallenge($baseUri, $botApi, $challenge);
+            if (($refreshResult['ok'] ?? false) !== true) {
+                return [
+                    'solved' => false,
+                    'summary' => trim((string) ($refreshResult['summary'] ?? 'mtfxq captcha is blocked and previous captcha refresh failed')),
+                ];
+            }
+
+            $refreshSummary = trim((string) ($refreshResult['summary'] ?? ''));
+            usleep(self::MTFXQ_CAPTCHA_REFRESH_DELAY_MICROSECONDS);
+
+            $challenge = $this->inspectMtfxqCaptchaChallenge(
+                $this->fetchDetailedBotReplies($baseUri, $botApi, 0),
+                $botApi,
+                0
+            );
+
+            if (($challenge['required'] ?? false) !== true) {
+                return [
+                    'solved' => true,
+                    'summary' => trim($refreshSummary !== ''
+                        ? ($refreshSummary . ' Cleared the previous mtfxq captcha and will retry the token.')
+                        : 'Cleared the previous mtfxq captcha and will retry the token.'),
+                ];
+            }
+        }
+
+        $download = $this->downloadBotMessageMedia(
+            $baseUri,
+            $botApi,
+            (int) ($challenge['message_id'] ?? 0)
+        );
+
+        $savedPath = trim((string) ($download['saved_path'] ?? ''));
+        if (($download['ok'] ?? false) !== true || $savedPath === '' || !is_file($savedPath)) {
+            return [
+                'solved' => false,
+                'summary' => 'mtfxq captcha detected but image download failed: ' . trim((string) ($download['reason'] ?? 'unknown')),
+            ];
+        }
+
+        try {
+            $openAiChoice = $this->selectMtfxqCaptchaButtonWithOpenAi(
+                (string) ($challenge['prompt'] ?? ''),
+                (array) ($challenge['buttons'] ?? []),
+                $savedPath
+            );
+        } finally {
+            @unlink($savedPath);
+        }
+
+        $resolvedButtonText = $this->matchVerificationAnswerToButton(
+            $openAiChoice,
+            (array) ($challenge['buttons'] ?? [])
+        );
+
+        if ($resolvedButtonText === null) {
+            return [
+                'solved' => false,
+                'summary' => 'mtfxq captcha detected but OpenAI answer was not matched to any button',
+            ];
+        }
+
+        $challengeMessageId = (int) ($challenge['message_id'] ?? 0);
+        $clickResult = $this->clickQqYzButton($baseUri, $botApi, $challengeMessageId, [$resolvedButtonText]);
+        if (($clickResult['button_clicked'] ?? false) !== true) {
+            return [
+                'solved' => false,
+                'summary' => 'mtfxq captcha detected but clicking answer failed: ' . trim((string) ($clickResult['reason'] ?? 'unknown')),
+            ];
+        }
+
+        $summaryParts = [];
+        if ($refreshSummary !== '') {
+            $summaryParts[] = $refreshSummary;
+        }
+        $summaryParts[] = 'Solved mtfxq captcha with button ' . $resolvedButtonText . '.';
+
+        return [
+            'solved' => true,
+            'summary' => implode(' ', $summaryParts),
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $replies
+     * @return array{
+     *     required: bool,
+     *     prompt: string,
+     *     buttons: array<int, string>,
+     *     message_id: int,
+     *     blocked: bool,
+     *     blocked_message_id: int,
+     *     blocked_buttons: array<int, string>
+     * }
+     */
+    private function inspectMtfxqCaptchaChallenge(array $replies, string $botApi, int $minMessageId): array
+    {
+        $filtered = [];
+
+        foreach ($replies as $reply) {
+            if (!is_array($reply)) {
+                continue;
+            }
+
+            if ((string) ($reply['bot_username'] ?? '') !== $botApi) {
+                continue;
+            }
+
+            $messageId = (int) ($reply['message_id'] ?? 0);
+            if ($messageId > 0 && $messageId < $minMessageId) {
+                continue;
+            }
+
+            $filtered[] = $reply;
+        }
+
+        usort($filtered, static function (array $left, array $right): int {
+            return ((int) ($right['message_id'] ?? 0)) <=> ((int) ($left['message_id'] ?? 0));
+        });
+
+        $state = [
+            'required' => false,
+            'prompt' => '',
+            'buttons' => [],
+            'message_id' => 0,
+            'blocked' => false,
+            'blocked_message_id' => 0,
+            'blocked_buttons' => [],
+        ];
+
+        foreach ($filtered as $reply) {
+            $text = $this->normalizePreviewText((string) ($reply['text'] ?? ''));
+            $messageId = (int) ($reply['message_id'] ?? 0);
+            $buttons = $this->extractReplyButtonTexts($reply);
+
+            if (($state['blocked'] ?? false) !== true && $this->isMtfxqCaptchaBlockedText($text)) {
+                $state['blocked'] = true;
+                $state['blocked_message_id'] = $messageId;
+                $state['blocked_buttons'] = $buttons;
+            }
+
+            if (($state['required'] ?? false) === true || !$this->isMtfxqCaptchaPrompt($text)) {
+                continue;
+            }
+
+            $answerButtons = $this->filterVerificationAnswerButtons($buttons);
+            if (empty($answerButtons)) {
+                continue;
+            }
+
+            $file = is_array($reply['file'] ?? null) ? $reply['file'] : [];
+            if (empty($file)) {
+                continue;
+            }
+
+            $fileType = trim((string) ($file['file_type'] ?? ''));
+            if ($fileType !== 'photo' && $fileType !== 'document') {
+                continue;
+            }
+
+            $state['required'] = true;
+            $state['prompt'] = $text;
+            $state['buttons'] = $answerButtons;
+            $state['message_id'] = $messageId;
+        }
+
+        return $state;
+    }
+
+    /**
+     * @param array<string, mixed> $challenge
+     * @return array{ok: bool, summary: string}
+     */
+    private function refreshMtfxqCaptchaChallenge(string $baseUri, string $botApi, array $challenge): array
+    {
+        $challengeMessageId = (int) ($challenge['message_id'] ?? 0);
+        $buttonText = $this->pickDisposableMtfxqCaptchaButton((array) ($challenge['buttons'] ?? []));
+
+        if ($challengeMessageId <= 0 || $buttonText === null) {
+            return [
+                'ok' => false,
+                'summary' => 'mtfxq captcha is blocked but no previous captcha button is available to refresh it',
+            ];
+        }
+
+        $clickResult = $this->clickQqYzButton($baseUri, $botApi, $challengeMessageId, [$buttonText]);
+        if (($clickResult['button_clicked'] ?? false) !== true) {
+            return [
+                'ok' => false,
+                'summary' => 'mtfxq captcha is blocked and clicking a previous captcha button failed: ' . trim((string) ($clickResult['reason'] ?? 'unknown')),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'summary' => 'Clicked a previous mtfxq captcha button (' . $buttonText . ') to force a fresh captcha image.',
+        ];
+    }
+
+    /**
+     * @param array<int, string> $buttonTexts
+     */
+    private function pickDisposableMtfxqCaptchaButton(array $buttonTexts): ?string
+    {
+        foreach ($buttonTexts as $buttonText) {
+            $normalized = trim((string) $buttonText);
+            if ($normalized !== '') {
+                return $normalized;
+            }
+        }
+
+        return null;
+    }
+
+    private function isMtfxqCaptchaPrompt(string $text): bool
+    {
+        $normalized = $this->normalizePreviewText($text);
+        if ($normalized === '') {
+            return false;
+        }
+
+        foreach (self::MTFXQ_CAPTCHA_MARKERS as $marker) {
+            if ($marker !== '' && Str::contains(mb_strtolower($normalized), mb_strtolower($marker))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isMtfxqCaptchaBlockedText(string $text): bool
+    {
+        $normalized = $this->normalizePreviewText($text);
+        if ($normalized === '') {
+            return false;
+        }
+
+        foreach (self::MTFXQ_CAPTCHA_BLOCK_MARKERS as $marker) {
+            if ($marker !== '' && Str::contains(mb_strtolower($normalized), mb_strtolower($marker))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isMtfxqCaptchaDeniedText(string $text): bool
+    {
+        $normalized = $this->normalizePreviewText($text);
+        if ($normalized === '') {
+            return false;
+        }
+
+        foreach (self::MTFXQ_CAPTCHA_DENIED_MARKERS as $marker) {
+            if ($marker !== '' && Str::contains(mb_strtolower($normalized), mb_strtolower($marker))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array{ok: bool, saved_path: string, reason: string}
+     */
+    private function downloadBotMessageMedia(string $baseUri, string $botApi, int $messageId): array
+    {
+        if ($baseUri === '' || $botApi === '' || $messageId <= 0) {
+            return [
+                'ok' => false,
+                'saved_path' => '',
+                'reason' => 'download context missing',
+            ];
+        }
+
+        try {
+            $response = Http::timeout(self::FOLLOWUP_API_TIMEOUT_SECONDS)
+                ->acceptJson()
+                ->asJson()
+                ->post(rtrim($baseUri, '/') . '/bots/download-message-media', [
+                    'bot_username' => $botApi,
+                    'message_id' => $messageId,
+                    'folder_label' => self::MTFXQ_CAPTCHA_DOWNLOAD_LABEL,
+                ]);
+
+            if (!$response->ok()) {
+                return [
+                    'ok' => false,
+                    'saved_path' => '',
+                    'reason' => 'download HTTP ' . $response->status(),
+                ];
+            }
+
+            $json = $response->json();
+            if (!is_array($json)) {
+                return [
+                    'ok' => false,
+                    'saved_path' => '',
+                    'reason' => 'download invalid json response',
+                ];
+            }
+
+            return [
+                'ok' => (string) ($json['status'] ?? '') === 'ok',
+                'saved_path' => trim((string) ($json['saved_path'] ?? '')),
+                'reason' => trim((string) ($json['reason'] ?? '')),
+            ];
+        } catch (Throwable $e) {
+            return [
+                'ok' => false,
+                'saved_path' => '',
+                'reason' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * @param array<int, string> $buttonTexts
+     */
+    private function selectMtfxqCaptchaButtonWithOpenAi(string $verificationPrompt, array $buttonTexts, string $imagePath): ?string
+    {
+        $apiKey = trim((string) env('GPT_API_KEY', ''));
+        if ($apiKey === '' || $imagePath === '' || !is_file($imagePath)) {
+            return null;
+        }
+
+        $imageBytes = @file_get_contents($imagePath);
+        if ($imageBytes === false || $imageBytes === '') {
+            return null;
+        }
+
+        $mimeType = @mime_content_type($imagePath);
+        $mimeType = is_string($mimeType) && trim($mimeType) !== '' ? trim($mimeType) : 'image/jpeg';
+        $imageUrl = 'data:' . $mimeType . ';base64,' . base64_encode($imageBytes);
+
+        $buttonsSummary = [];
+        foreach ($buttonTexts as $index => $buttonText) {
+            $buttonsSummary[] = ($index + 1) . '. ' . $buttonText;
+        }
+
+        try {
+            $response = Http::timeout(self::OPENAI_TIMEOUT_SECONDS)
+                ->withOptions(['verify' => false])
+                ->acceptJson()
+                ->withToken($apiKey)
+                ->asJson()
+                ->post(self::OPENAI_CHAT_COMPLETIONS_URL, [
+                    'model' => self::OPENAI_MODEL,
+                    'temperature' => 0,
+                    'messages' => [
+                        [
+                            'role' => 'system',
+                            'content' => 'You solve Telegram image captcha challenges. Read the question, inspect the image, count the requested objects, and reply with digits only. Return only the final number, with no words, punctuation, explanation, or extra text.',
+                        ],
+                        [
+                            'role' => 'user',
+                            'content' => [
+                                [
+                                    'type' => 'text',
+                                    'text' => implode("\n", [
+                                        'Captcha question:',
+                                        $verificationPrompt,
+                                        '',
+                                        'Candidate buttons:',
+                                        implode("\n", $buttonsSummary),
+                                        '',
+                                        'Return only the number as plain digits. Do not repeat the question or button text.',
+                                    ]),
+                                ],
+                                [
+                                    'type' => 'image_url',
+                                    'image_url' => [
+                                        'url' => $imageUrl,
+                                    ],
+                                ],
+                            ],
                         ],
                     ],
                 ]);

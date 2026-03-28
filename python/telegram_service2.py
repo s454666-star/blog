@@ -6789,6 +6789,12 @@ class GroupMessageDownloadRequest(BaseModel):
     folder_label: Optional[str] = None
 
 
+class BotMessageDownloadRequest(BaseModel):
+    bot_username: str
+    message_id: int
+    folder_label: Optional[str] = None
+
+
 @app.post("/groups/download-message-media")
 async def download_group_message_media(payload: GroupMessageDownloadRequest):
     try:
@@ -6819,6 +6825,118 @@ async def download_group_message_media(payload: GroupMessageDownloadRequest):
             "reason": "download_error",
             "peer_id": int(payload.peer_id),
             "message_id": int(payload.message_id),
+            "error": str(e),
+        }
+
+
+@app.post("/bots/download-message-media")
+async def download_bot_message_media(payload: BotMessageDownloadRequest):
+    bot_username = str(payload.bot_username or "").strip()
+    message_id = int(payload.message_id or 0)
+
+    if not bot_username:
+        return {
+            "status": "fail",
+            "reason": "bot_username_required",
+        }
+
+    if message_id <= 0:
+        return {
+            "status": "fail",
+            "reason": "message_id_required",
+            "bot_username": bot_username,
+        }
+
+    try:
+        connected = await _ensure_client_connected()
+        if not connected:
+            return {
+                "status": "fail",
+                "reason": "client_not_connected",
+                "bot_username": bot_username,
+                "message_id": message_id,
+            }
+
+        peer = await _get_peer_for_bot(bot_username)
+        if peer is None:
+            return {
+                "status": "fail",
+                "reason": "bot_not_found",
+                "bot_username": bot_username,
+                "message_id": message_id,
+            }
+
+        one = await client.get_messages(peer, ids=message_id)
+        if one is None:
+            return {
+                "status": "fail",
+                "reason": "message_not_found",
+                "bot_username": bot_username,
+                "message_id": message_id,
+            }
+
+        msg = one if isinstance(one, Message) else None
+        if msg is None:
+            return {
+                "status": "fail",
+                "reason": "message_not_found",
+                "bot_username": bot_username,
+                "message_id": message_id,
+            }
+
+        file_meta = _extract_file_meta_mtproto(msg)
+        if not file_meta:
+            return {
+                "status": "fail",
+                "reason": "message_has_no_file",
+                "bot_username": bot_username,
+                "message_id": message_id,
+            }
+
+        label = payload.folder_label or bot_username
+        rel_path = _run_tdl_download_for_bot_message(msg, label)
+        saved_path = _download_media_with_telethon_timeout(
+            msg,
+            file_meta,
+            folder_label=label,
+            preferred_rel_path=rel_path,
+        )
+
+        if not saved_path:
+            return {
+                "status": "fail",
+                "reason": "download_failed",
+                "bot_username": bot_username,
+                "message_id": message_id,
+                "file": file_meta,
+            }
+
+        return {
+            "status": "ok",
+            "downloaded": True,
+            "bot_username": bot_username,
+            "message_id": message_id,
+            "saved_path": saved_path,
+            "saved_name": os.path.basename(saved_path),
+            "folder_path": os.path.dirname(saved_path),
+            "file": file_meta,
+        }
+    except Exception as e:
+        push_log(
+            stage="bot_download",
+            result="error",
+            extra={
+                "bot_username": bot_username,
+                "message_id": message_id,
+                "error": str(e),
+                "trace": traceback.format_exc()[:800],
+            },
+        )
+        return {
+            "status": "fail",
+            "reason": "download_error",
+            "bot_username": bot_username,
+            "message_id": message_id,
             "error": str(e),
         }
 

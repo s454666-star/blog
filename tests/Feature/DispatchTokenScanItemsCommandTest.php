@@ -228,6 +228,446 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
     }
 
+    public function test_dispatch_solves_mtfxq_image_captcha_with_openai_number_only(): void
+    {
+        putenv('GPT_API_KEY=test-openai-key');
+        $_ENV['GPT_API_KEY'] = 'test-openai-key';
+        $_SERVER['GPT_API_KEY'] = 'test-openai-key';
+
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'mtfxqbot_41P_36V_E1J7z7H4G6X8o0i8s5w7',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        DB::table('dialogues')->insert([
+            'chat_id' => 7702694790,
+            'message_id' => 3,
+            'text' => 'mtfxqbot_41P_36V_E1J7z7H4G6X8o0i8s5w7',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        $tempFile = tempnam(sys_get_temp_dir(), 'mtfxq_');
+        $imagePath = $tempFile . '.jpg';
+        @rename($tempFile, $imagePath);
+        file_put_contents($imagePath, base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAVEQEBAAAAAAAAAAAAAAAAAAABAP/aAAwDAQACEAMQAAAB6AAAAP/EABQQAQAAAAAAAAAAAAAAAAAAACD/2gAIAQEAAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAACD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAACD/2gAIAQMBAT8Af//Z'));
+
+        $sendAndRunCount = 0;
+        $captchaAnswered = false;
+        $openAiCount = 0;
+
+        try {
+            Http::fake(function ($request) use (&$sendAndRunCount, &$captchaAnswered, &$openAiCount, $imagePath) {
+                $url = $request->url();
+                $botUsername = (string) ($request['bot_username'] ?? '');
+
+                if ($url === 'http://127.0.0.1:8000/bots/send-and-run-all-pages' && $botUsername === 'mtfxqbot') {
+                    $sendAndRunCount++;
+
+                    if ($sendAndRunCount === 1) {
+                        return Http::response([
+                            'status' => 'ok',
+                            'sent_message_id' => 473200,
+                            'reason' => 'captcha required',
+                            'files_unique_count' => 0,
+                            'files_total_bytes' => 0,
+                            'latest_message' => [
+                                'kind' => 'other',
+                                'text_preview' => 'To continue, please count how many **🐷 Pig** are shown in the image: 请计算图中**🐷 Pig**的数量以继续操作：',
+                                'has_buttons' => true,
+                                'page_info' => [],
+                            ],
+                            'timeline' => [],
+                            'debug' => [],
+                            'page_state' => [],
+                        ], 200);
+                    }
+
+                    return Http::response([
+                        'status' => 'ok',
+                        'sent_message_id' => 473200,
+                        'reason' => 'reached total items after final page click; stop',
+                        'files_unique_count' => 4,
+                        'files_total_bytes' => 1024,
+                        'latest_message' => [
+                            'kind' => 'state',
+                            'text_preview' => '✅共找到 **4** 个媒体',
+                            'has_buttons' => false,
+                            'page_info' => [],
+                        ],
+                        'timeline' => [],
+                        'debug' => [],
+                        'page_state' => [],
+                    ], 200);
+                }
+
+                if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                    if (!$captchaAnswered) {
+                        return Http::response([
+                            [
+                                'bot_username' => 'mtfxqbot',
+                                'message_id' => 473115,
+                                'text' => 'To continue, please count how many **🐷 Pig** are shown in the image:' . "\n" . '请计算图中**🐷 Pig**的数量以继续操作：',
+                                'buttons' => [
+                                    ['text' => '2'],
+                                    ['text' => '4'],
+                                    ['text' => '5'],
+                                    ['text' => '3'],
+                                ],
+                                'file' => [
+                                    'file_type' => 'photo',
+                                    'mime_type' => 'image/jpeg',
+                                ],
+                            ],
+                        ], 200);
+                    }
+
+                    return Http::response([], 200);
+                }
+
+                if ($url === 'http://127.0.0.1:8000/bots/download-message-media') {
+                    return Http::response([
+                        'status' => 'ok',
+                        'saved_path' => $imagePath,
+                    ], 200);
+                }
+
+                if ($url === 'https://api.openai.com/v1/chat/completions') {
+                    $openAiCount++;
+
+                    return Http::response([
+                        'choices' => [
+                            [
+                                'message' => [
+                                    'content' => '4',
+                                ],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'mtfxqbot') {
+                    $captchaAnswered = true;
+
+                    return Http::response([
+                        'status' => 'ok',
+                        'reason' => 'clicked matching button',
+                        'button_clicked' => true,
+                        'clicked_button_text' => '4',
+                        'files_unique_count' => 0,
+                        'files_total_bytes' => 0,
+                        'latest_message' => [
+                            'kind' => 'state',
+                            'text_preview' => 'captcha solved',
+                            'has_buttons' => false,
+                            'buttons_text' => [],
+                        ],
+                        'timeline' => [],
+                        'debug' => [],
+                    ], 200);
+                }
+
+                return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
+            });
+
+            $this->artisan('tg:dispatch-token-scan-items')->assertExitCode(0);
+        } finally {
+            @unlink($imagePath);
+        }
+
+        $this->assertSame(2, $sendAndRunCount);
+        $this->assertSame(1, $openAiCount);
+        $this->assertTrue($captchaAnswered);
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'text' => 'mtfxqbot_41P_36V_E1J7z7H4G6X8o0i8s5w7',
+            'is_sync' => 1,
+        ]);
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/download-message-media'
+                && $request['bot_username'] === 'mtfxqbot'
+                && $request['message_id'] === 473115;
+        });
+
+        Http::assertSent(function ($request): bool {
+            if ($request->url() !== 'https://api.openai.com/v1/chat/completions') {
+                return false;
+            }
+
+            $payload = $request->data();
+            $systemPrompt = (string) ($payload['messages'][0]['content'] ?? '');
+            $userPrompt = (string) ($payload['messages'][1]['content'][0]['text'] ?? '');
+            $imageUrl = (string) ($payload['messages'][1]['content'][1]['image_url']['url'] ?? '');
+
+            return str_contains($systemPrompt, 'reply with digits only')
+                && str_contains($userPrompt, 'Return only the number as plain digits')
+                && str_starts_with($imageUrl, 'data:image/jpeg;base64,');
+        });
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+                && $request['bot_username'] === 'mtfxqbot'
+                && $request['sent_message_id'] === 473115
+                && $request['button_keywords'] === ['4'];
+        });
+    }
+
+    public function test_dispatch_refreshes_previous_mtfxq_captcha_before_solving_new_image(): void
+    {
+        putenv('GPT_API_KEY=test-openai-key');
+        $_ENV['GPT_API_KEY'] = 'test-openai-key';
+        $_SERVER['GPT_API_KEY'] = 'test-openai-key';
+
+        DB::table('token_scan_items')->insert([
+            'token' => 'mtfxqbot_refresh_case',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        $tempFile = tempnam(sys_get_temp_dir(), 'mtfxq_');
+        $imagePath = $tempFile . '.jpg';
+        @rename($tempFile, $imagePath);
+        file_put_contents($imagePath, base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAVEQEBAAAAAAAAAAAAAAAAAAABAP/aAAwDAQACEAMQAAAB6AAAAP/EABQQAQAAAAAAAAAAAAAAAAAAACD/2gAIAQEAAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAACD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAACD/2gAIAQMBAT8Af//Z'));
+
+        $sendAndRunCount = 0;
+        $staleCaptchaClicked = false;
+        $newCaptchaSolved = false;
+
+        try {
+            Http::fake(function ($request) use (&$sendAndRunCount, &$staleCaptchaClicked, &$newCaptchaSolved, $imagePath) {
+                $url = $request->url();
+                $botUsername = (string) ($request['bot_username'] ?? '');
+
+                if ($url === 'http://127.0.0.1:8000/bots/send-and-run-all-pages' && $botUsername === 'mtfxqbot') {
+                    $sendAndRunCount++;
+
+                    if ($sendAndRunCount === 1) {
+                        return Http::response([
+                            'status' => 'ok',
+                            'sent_message_id' => 473250,
+                            'reason' => 'no_click',
+                            'files_unique_count' => 0,
+                            'files_total_bytes' => 0,
+                            'latest_message' => [
+                                'kind' => 'other',
+                                'text_preview' => "请先完成验证码，再发送其他消息。\nPlease complete the captcha first before sending other messages.",
+                                'has_buttons' => true,
+                                'page_info' => [],
+                            ],
+                            'timeline' => [],
+                            'debug' => [],
+                            'page_state' => [],
+                        ], 200);
+                    }
+
+                    return Http::response([
+                        'status' => 'ok',
+                        'sent_message_id' => 473250,
+                        'reason' => 'reached total items after final page click; stop',
+                        'files_unique_count' => 2,
+                        'files_total_bytes' => 2048,
+                        'latest_message' => [
+                            'kind' => 'state',
+                            'text_preview' => '✅共找到 **2** 个媒体',
+                            'has_buttons' => false,
+                            'page_info' => [],
+                        ],
+                        'timeline' => [],
+                        'debug' => [],
+                        'page_state' => [],
+                    ], 200);
+                }
+
+                if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                    if (!$staleCaptchaClicked) {
+                        return Http::response([
+                            [
+                                'bot_username' => 'mtfxqbot',
+                                'message_id' => 473121,
+                                'text' => "请先完成验证码，再发送其他消息。\nPlease complete the captcha first before sending other messages.",
+                                'buttons' => [
+                                    ['text' => '重新生成验证码'],
+                                ],
+                            ],
+                            [
+                                'bot_username' => 'mtfxqbot',
+                                'message_id' => 473115,
+                                'text' => 'To continue, please count how many **🐷 Pig** are shown in the image:' . "\n" . '请计算图中**🐷 Pig**的数量以继续操作：',
+                                'buttons' => [
+                                    ['text' => '2'],
+                                    ['text' => '4'],
+                                    ['text' => '5'],
+                                ],
+                                'file' => [
+                                    'file_type' => 'photo',
+                                    'mime_type' => 'image/jpeg',
+                                ],
+                            ],
+                        ], 200);
+                    }
+
+                    if (!$newCaptchaSolved) {
+                        return Http::response([
+                            [
+                                'bot_username' => 'mtfxqbot',
+                                'message_id' => 473130,
+                                'text' => 'To continue, please count how many **🐷 Pig** are shown in the image:' . "\n" . '请计算图中**🐷 Pig**的数量以继续操作：',
+                                'buttons' => [
+                                    ['text' => '1'],
+                                    ['text' => '4'],
+                                    ['text' => '6'],
+                                ],
+                                'file' => [
+                                    'file_type' => 'photo',
+                                    'mime_type' => 'image/jpeg',
+                                ],
+                            ],
+                        ], 200);
+                    }
+
+                    return Http::response([], 200);
+                }
+
+                if ($url === 'http://127.0.0.1:8000/bots/download-message-media') {
+                    return Http::response([
+                        'status' => 'ok',
+                        'saved_path' => $imagePath,
+                    ], 200);
+                }
+
+                if ($url === 'https://api.openai.com/v1/chat/completions') {
+                    return Http::response([
+                        'choices' => [
+                            [
+                                'message' => [
+                                    'content' => '4',
+                                ],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'mtfxqbot') {
+                    if (($request['sent_message_id'] ?? 0) === 473115) {
+                        $staleCaptchaClicked = true;
+
+                        return Http::response([
+                            'status' => 'ok',
+                            'reason' => 'clicked matching button',
+                            'button_clicked' => true,
+                            'clicked_button_text' => '2',
+                            'timeline' => [],
+                            'debug' => [],
+                        ], 200);
+                    }
+
+                    if (($request['sent_message_id'] ?? 0) === 473130) {
+                        $newCaptchaSolved = true;
+
+                        return Http::response([
+                            'status' => 'ok',
+                            'reason' => 'clicked matching button',
+                            'button_clicked' => true,
+                            'clicked_button_text' => '4',
+                            'timeline' => [],
+                            'debug' => [],
+                        ], 200);
+                    }
+                }
+
+                return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
+            });
+
+            $this->artisan('tg:dispatch-token-scan-items')->assertExitCode(0);
+        } finally {
+            @unlink($imagePath);
+        }
+
+        $this->assertSame(2, $sendAndRunCount);
+        $this->assertTrue($staleCaptchaClicked);
+        $this->assertTrue($newCaptchaSolved);
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+                && $request['bot_username'] === 'mtfxqbot'
+                && $request['sent_message_id'] === 473115
+                && $request['button_keywords'] === ['2'];
+        });
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+                && $request['bot_username'] === 'mtfxqbot'
+                && $request['sent_message_id'] === 473130
+                && $request['button_keywords'] === ['4'];
+        });
+    }
+
+    public function test_dispatch_stops_early_when_mtfxq_denies_after_too_many_captcha_failures(): void
+    {
+        $secondId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'mtfxqbot_should_not_run',
+            'created_at' => now()->subSecond(),
+            'updated_at' => null,
+        ]);
+
+        $firstId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'mtfxqbot_denied_case',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        Http::fake(function ($request) {
+            if ($request->url() !== 'http://127.0.0.1:8000/bots/send-and-run-all-pages') {
+                return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
+            }
+
+            if (($request['text'] ?? '') !== 'mtfxqbot_denied_case') {
+                return Http::response(['status' => 'fail', 'reason' => 'should_not_run_next_token'], 500);
+            }
+
+            return Http::response([
+                'status' => 'ok',
+                'sent_message_id' => 474000,
+                'reason' => 'service denied',
+                'files_unique_count' => 0,
+                'files_total_bytes' => 0,
+                'latest_message' => [
+                    'kind' => 'other',
+                    'text_preview' => '由于验证码失败次数过多，服务已被拒绝。请在 119m 38s 后重试。' . "\n" . 'Service currently denied due to too many failed captcha attempts. Please try again after 119m 38s.',
+                    'has_buttons' => false,
+                    'page_info' => [],
+                ],
+                'timeline' => [],
+                'debug' => [],
+                'page_state' => [],
+            ], 200);
+        });
+
+        $this->artisan('tg:dispatch-token-scan-items')->assertExitCode(3);
+
+        $this->assertDatabaseHas('token_scan_items', [
+            'id' => $firstId,
+        ]);
+        $this->assertDatabaseHas('token_scan_items', [
+            'id' => $secondId,
+        ]);
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/send-and-run-all-pages'
+                && $request['text'] === 'mtfxqbot_denied_case';
+        });
+
+        Http::assertNotSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/send-and-run-all-pages'
+                && ($request['text'] ?? '') === 'mtfxqbot_should_not_run';
+        });
+    }
+
     public function test_dispatch_uses_send_then_pagination_only_for_messenger_bot(): void
     {
         $itemId = DB::table('token_scan_items')->insertGetId([

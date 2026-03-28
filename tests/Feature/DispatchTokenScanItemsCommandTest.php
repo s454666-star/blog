@@ -181,7 +181,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         });
     }
 
-    public function test_dispatch_does_not_mark_dialogue_synced_when_token_is_not_found(): void
+    public function test_dispatch_moves_explicit_mtfxq_not_found_token_into_dialogues_and_deletes_queue_row(): void
     {
         $itemId = DB::table('token_scan_items')->insertGetId([
             'token' => 'mtfxqbot_1V_notfound0008',
@@ -193,6 +193,53 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             'chat_id' => 7702694790,
             'message_id' => 2,
             'text' => 'mtfxqbot_1V_notfound0008',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        Http::fake([
+            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+                'status' => 'ok',
+                'reason' => 'not found',
+                'files_unique_count' => 0,
+                'files_total_bytes' => 0,
+                'latest_message' => [
+                    'kind' => 'other',
+                    'text_preview' => '💔抱歉，未找到可解析内容。本机器人只能解析 mtfxq_ 代码，满血版免费领取需达到分享活跃度 /start，免分享VIP：/pay',
+                    'has_buttons' => false,
+                    'page_info' => [],
+                ],
+                'timeline' => [],
+                'debug' => [],
+                'page_state' => [],
+            ], 200),
+        ]);
+
+        $this->artisan('tg:dispatch-token-scan-items')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'text' => 'mtfxqbot_1V_notfound0008',
+            'is_sync' => 1,
+        ]);
+    }
+
+    public function test_dispatch_keeps_queue_row_for_non_explicit_not_found_message(): void
+    {
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'mtfxqbot_1V_notfound0009',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        DB::table('dialogues')->insert([
+            'chat_id' => 7702694790,
+            'message_id' => 3,
+            'text' => 'mtfxqbot_1V_notfound0009',
             'is_read' => 1,
             'is_sync' => 0,
             'created_at' => now(),
@@ -223,7 +270,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             'id' => $itemId,
         ]);
         $this->assertDatabaseHas('dialogues', [
-            'text' => 'mtfxqbot_1V_notfound0008',
+            'text' => 'mtfxqbot_1V_notfound0009',
             'is_sync' => 0,
         ]);
     }

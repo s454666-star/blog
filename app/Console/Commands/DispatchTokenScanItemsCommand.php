@@ -74,6 +74,7 @@ class DispatchTokenScanItemsCommand extends Command
 
     private const DEFAULT_API_HOST = 'http://127.0.0.1';
     private const DEFAULT_API_PORT = 8000;
+    private const DIALOGUES_CHAT_ID = 7702694790;
     private const BOT_REPLIES_FETCH_LIMIT = 80;
     private const QQ_YZ_MAX_ATTEMPTS = 20;
     private const QQ_YZ_INITIAL_OBSERVE_TIMEOUT_SECONDS = 30;
@@ -169,6 +170,11 @@ class DispatchTokenScanItemsCommand extends Command
         '未找到可解析内容。已加入缓存列表，稍后进行请求。',
         '未找到可解析内容',
         '已加入缓存列表，稍后进行请求。',
+    ];
+    private const MTFXQ_EXPLICIT_NOT_FOUND_MARKERS = [
+        '💔抱歉，未找到可解析内容。本机器人只能解析',
+        '抱歉，未找到可解析内容。本机器人只能解析',
+        '未找到可解析内容。本机器人只能解析',
     ];
 
     public function handle(): int
@@ -528,6 +534,10 @@ class DispatchTokenScanItemsCommand extends Command
 
         if ($result['classification'] === 'success' && !($item instanceof TokenScanItem)) {
             $result['db_action'] = 'manual';
+        }
+
+        if ($this->shouldStoreExplicitMtfxqNotFoundInDialogues($result)) {
+            $result = $this->storeExplicitMtfxqNotFoundInDialogues($token, $item, $result);
         }
 
         if ($this->shouldMarkDialogueAsSynced($result)) {
@@ -3068,6 +3078,64 @@ class DispatchTokenScanItemsCommand extends Command
         return (string) ($result['classification'] ?? '') === 'success';
     }
 
+    /**
+     * @param array<string, mixed> $result
+     */
+    private function shouldStoreExplicitMtfxqNotFoundInDialogues(array $result): bool
+    {
+        if ((string) ($result['classification'] ?? '') !== 'not_found') {
+            return false;
+        }
+
+        if ((string) ($result['bot_api'] ?? '') !== self::BOT_MTFXQ['api']) {
+            return false;
+        }
+
+        $latestTextPreview = trim((string) ($result['latest_text_preview'] ?? ''));
+        if ($latestTextPreview === '') {
+            return false;
+        }
+
+        foreach (self::MTFXQ_EXPLICIT_NOT_FOUND_MARKERS as $marker) {
+            if ($marker !== '' && Str::contains($latestTextPreview, $marker)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     * @return array<string, mixed>
+     */
+    private function storeExplicitMtfxqNotFoundInDialogues(string $token, ?TokenScanItem $item, array $result): array
+    {
+        $dialogueSync = $this->ensureDialogueStoredAsSynced($token);
+
+        if (($dialogueSync['ok'] ?? false) !== true) {
+            return $this->appendSummaryToResult(
+                $result,
+                'Could not move explicit mtfxq not-found token into dialogues, so token_scan_items was left untouched.'
+            );
+        }
+
+        $changedCount = (int) ($dialogueSync['changed_count'] ?? 0);
+        if ($changedCount > 0) {
+            $result['dialogues_marked_sync'] = $changedCount;
+        }
+
+        if ($item instanceof TokenScanItem) {
+            $result['db_action'] = $this->applyDoneAction($item, 'delete');
+            $result['summary'] = 'Bot returned explicit mtfxq unsupported-content message. Deleted token_scan_items row and stored token in dialogues with is_sync=1.';
+        } else {
+            $result['db_action'] = 'manual';
+            $result['summary'] = 'Bot returned explicit mtfxq unsupported-content message. Stored token in dialogues with is_sync=1.';
+        }
+
+        return $result;
+    }
+
     private function markDialoguesAsSynced(string $token): int
     {
         $normalizedToken = trim($token);
@@ -3085,6 +3153,66 @@ class DispatchTokenScanItemsCommand extends Command
                 $builder->whereNull('is_sync')->orWhere('is_sync', false);
             })
             ->update(['is_sync' => true]);
+    }
+
+    /**
+     * @return array{ok:bool,changed_count:int}
+     */
+    private function ensureDialogueStoredAsSynced(string $token): array
+    {
+        $normalizedToken = trim($token);
+        if ($normalizedToken === '') {
+            return ['ok' => false, 'changed_count' => 0];
+        }
+
+        if (!Schema::hasTable('dialogues')) {
+            return ['ok' => false, 'changed_count' => 0];
+        }
+
+        $hasIsSyncColumn = Schema::hasColumn('dialogues', 'is_sync');
+        if (!$hasIsSyncColumn) {
+            return ['ok' => false, 'changed_count' => 0];
+        }
+
+        $existingCount = Dialogue::query()
+            ->where('text', $normalizedToken)
+            ->count();
+
+        $markedCount = 0;
+        $markedCount = Dialogue::query()
+            ->where('text', $normalizedToken)
+            ->where(function ($builder): void {
+                $builder->whereNull('is_sync')->orWhere('is_sync', false);
+            })
+            ->update(['is_sync' => true]);
+
+        if ($existingCount > 0) {
+            return [
+                'ok' => true,
+                'changed_count' => $markedCount,
+            ];
+        }
+
+        $nextMessageId = (int) (Dialogue::query()
+            ->where('chat_id', self::DIALOGUES_CHAT_ID)
+            ->max('message_id') ?? 0) + 1;
+
+        $payload = [
+            'chat_id' => self::DIALOGUES_CHAT_ID,
+            'message_id' => $nextMessageId,
+            'text' => $normalizedToken,
+            'is_read' => 1,
+            'created_at' => now(),
+        ];
+
+        $payload['is_sync'] = true;
+
+        Dialogue::query()->create($payload);
+
+        return [
+            'ok' => true,
+            'changed_count' => $markedCount > 0 ? $markedCount : 1,
+        ];
     }
 
     private function filestoreBridgeTablesAvailable(): bool

@@ -12,6 +12,7 @@ class TelegramFilestoreBridgeContextService
     private const TABLE_NAME = 'telegram_filestore_bridge_contexts';
     private const TYPE_FILE_UNIQUE_ID = 'file_unique_id';
     private const TYPE_MESSAGE_ID = 'message_id';
+    private const TYPE_CHAT_ID = 'chat_id';
     private const FILE_KEY_PREFIX = 'telegram_filestore_bridge_file:';
     private const MESSAGE_KEY_PREFIX = 'telegram_filestore_bridge_message:';
     private const SESSION_KEY_PREFIX = 'telegram_filestore_bridge_session:';
@@ -114,6 +115,19 @@ class TelegramFilestoreBridgeContextService
         );
     }
 
+    public function rememberPendingChatId(int $sessionId, int $chatId): void
+    {
+        if ($sessionId <= 0 || $chatId <= 0) {
+            return;
+        }
+
+        $this->upsertBridgeContexts(
+            $sessionId,
+            self::TYPE_CHAT_ID,
+            [(string) $chatId]
+        );
+    }
+
     public function resolvePendingSessionId(string $fileUniqueId): int
     {
         $normalized = trim($fileUniqueId);
@@ -145,6 +159,15 @@ class TelegramFilestoreBridgeContextService
         $value = Cache::get($this->messageKey($messageId));
 
         return max(0, (int) $value);
+    }
+
+    public function resolvePendingSessionIdForChatId(int $chatId): int
+    {
+        if ($chatId <= 0) {
+            return 0;
+        }
+
+        return $this->resolveFromDatabase(self::TYPE_CHAT_ID, (string) $chatId);
     }
 
     public function forgetPendingSession(int $sessionId): void

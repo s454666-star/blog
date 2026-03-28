@@ -84,13 +84,15 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
         $sentMessageId = 321;
         $sourceFileMessageIds = [401, 402];
         $forwardedMessageIds = [9001, 9002];
+        $bridgeControlMessageId = 8999;
 
         Http::fake(function ($request) use (
             $token,
             $sourceChatId,
             $sentMessageId,
             $sourceFileMessageIds,
-            $forwardedMessageIds
+            $forwardedMessageIds,
+            $bridgeControlMessageId
         ) {
             if ($request->url() === 'http://127.0.0.1:8000/bots/files') {
                 $this->assertSame('mtfxqbot', $request['bot_username']);
@@ -125,6 +127,8 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
                 $this->assertSame($sourceChatId, $request['source_chat_id']);
                 $this->assertSame($sourceFileMessageIds, $request['message_ids']);
                 $this->assertSame('filestoebot', $request['target_bot_username']);
+                $this->assertStringContainsString('__filestore_bridge__|', (string) $request['bridge_control_text']);
+                $this->assertStringContainsString($token, (string) $request['bridge_control_text']);
 
                 $session = TelegramFilestoreSession::query()
                     ->where('source_token', $token)
@@ -151,6 +155,7 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
                 return Http::response([
                     'status' => 'ok',
                     'forwarded_message_ids' => $forwardedMessageIds,
+                    'bridge_control_message_id' => $bridgeControlMessageId,
                     'missing_message_ids' => [],
                     'unforwardable_message_ids' => [],
                 ], 200);
@@ -158,16 +163,28 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
 
             if ($request->url() === 'http://127.0.0.1:8000/bots/delete-messages') {
                 if ($request['chat_peer'] === 'filestoebot') {
-                    $this->assertSame($forwardedMessageIds, $request['message_ids']);
+                    $expectedMessageIds = array_merge($forwardedMessageIds, [$bridgeControlMessageId]);
+                    sort($expectedMessageIds);
+
+                    $actualMessageIds = array_map('intval', (array) $request['message_ids']);
+                    sort($actualMessageIds);
+
+                    $this->assertSame($expectedMessageIds, $actualMessageIds);
 
                     return Http::response([
                         'status' => 'ok',
-                        'deleted_count' => count($forwardedMessageIds),
+                        'deleted_count' => count($forwardedMessageIds) + 1,
                     ], 200);
                 }
 
                 if ($request['chat_peer'] === 'mtfxqbot') {
-                    $this->assertSame(array_merge([$sentMessageId], $sourceFileMessageIds), $request['message_ids']);
+                    $expectedMessageIds = array_merge([$sentMessageId], $sourceFileMessageIds);
+                    sort($expectedMessageIds);
+
+                    $actualMessageIds = array_map('intval', (array) $request['message_ids']);
+                    sort($actualMessageIds);
+
+                    $this->assertSame($expectedMessageIds, $actualMessageIds);
 
                     return Http::response([
                         'status' => 'ok',

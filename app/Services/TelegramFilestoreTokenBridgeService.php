@@ -157,7 +157,12 @@ class TelegramFilestoreTokenBridgeService
             ->where('session_id', $session->id)
             ->count();
 
-        $forwardResult = $this->forwardMessages($normalizedBaseUri, $sourceChatId, $forwardableMessageIds);
+        $forwardResult = $this->forwardMessages(
+            $normalizedBaseUri,
+            $sourceChatId,
+            $forwardableMessageIds,
+            $this->buildBridgeControlText((int) $session->id, $token)
+        );
         if (($forwardResult['ok'] ?? false) !== true) {
             $this->bridgeContextService->forgetPendingSession((int) $session->id);
             $this->cleanupEmptyUploadingSession((int) $session->id);
@@ -182,6 +187,12 @@ class TelegramFilestoreTokenBridgeService
             'intval',
             (array) ($forwardResult['forwarded_message_ids'] ?? [])
         )));
+        $forwardCleanupMessageIds = $forwardedMessageIds;
+        $bridgeControlMessageId = (int) ($forwardResult['bridge_control_message_id'] ?? 0);
+        if ($bridgeControlMessageId > 0) {
+            $forwardCleanupMessageIds[] = $bridgeControlMessageId;
+            $forwardCleanupMessageIds = array_values(array_unique($forwardCleanupMessageIds));
+        }
         $this->bridgeContextService->rememberPendingForwardedMessageIds(
             (int) $session->id,
             $forwardedMessageIds
@@ -251,7 +262,7 @@ class TelegramFilestoreTokenBridgeService
         $deleteSummary = $this->deleteForwardedMessages(
             $normalizedBaseUri,
             $targetBotUsername,
-            $forwardedMessageIds
+            $forwardCleanupMessageIds
         );
         $deleteSourceSummary = [
             'enabled' => $deleteSourceMessages,
@@ -543,7 +554,7 @@ class TelegramFilestoreTokenBridgeService
      * @param array<int, int> $messageIds
      * @return array<string, mixed>
      */
-    private function forwardMessages(string $baseUri, int $sourceChatId, array $messageIds): array
+    private function forwardMessages(string $baseUri, int $sourceChatId, array $messageIds, string $bridgeControlText = ''): array
     {
         try {
             $response = Http::timeout(self::FORWARD_TIMEOUT_SECONDS)
@@ -553,6 +564,7 @@ class TelegramFilestoreTokenBridgeService
                     'source_chat_id' => $sourceChatId,
                     'message_ids' => array_values($messageIds),
                     'target_bot_username' => ltrim((string) config('telegram.filestore_sync_bot_username', 'filestoebot'), '@'),
+                    'bridge_control_text' => $bridgeControlText,
                 ]);
 
             if (!$response->ok()) {
@@ -751,6 +763,11 @@ class TelegramFilestoreTokenBridgeService
     private function syncChatId(): int
     {
         return max(1, (int) config('telegram.filestore_sync_chat_id', 7702694790));
+    }
+
+    private function buildBridgeControlText(int $sessionId, string $sourceToken): string
+    {
+        return sprintf('__filestore_bridge__|%d|%s', max(0, $sessionId), trim($sourceToken));
     }
 
     private function generateUniquePublicTokenWithCounts(int $videoCount, int $photoCount, int $documentCount): string

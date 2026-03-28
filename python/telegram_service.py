@@ -3011,6 +3011,7 @@ class ForwardBotMessagesRequest(BaseModel):
     source_chat_id: int
     message_ids: List[int]
     target_bot_username: str
+    bridge_control_text: Optional[str] = None
 
 
 class DeleteMessagesRequest(BaseModel):
@@ -3119,6 +3120,7 @@ async def forward_messages_to_bot(payload: ForwardBotMessagesRequest):
     source_chat_id = int(payload.source_chat_id or 0)
     target_bot_username = str(payload.target_bot_username or "").strip()
     raw_message_ids = list(payload.message_ids or [])
+    bridge_control_text = str(payload.bridge_control_text or "").strip()
 
     if source_chat_id <= 0:
         return {
@@ -3226,6 +3228,14 @@ async def forward_messages_to_bot(payload: ForwardBotMessagesRequest):
                 "unforwardable_message_ids": unforwardable_message_ids,
             }
 
+        bridge_control_message_id = 0
+        if bridge_control_text:
+            control_message = await client.send_message(target_entity, bridge_control_text)
+            try:
+                bridge_control_message_id = int(getattr(control_message, "id", 0) or 0)
+            except Exception:
+                bridge_control_message_id = 0
+
         forwarded = await client.forward_messages(target_entity, forwardable_messages)
         if isinstance(forwarded, list):
             forwarded_messages = forwarded
@@ -3252,6 +3262,7 @@ async def forward_messages_to_bot(payload: ForwardBotMessagesRequest):
             "missing_message_ids": missing_message_ids,
             "unforwardable_message_ids": unforwardable_message_ids,
             "forwarded_message_ids": forwarded_message_ids,
+            "bridge_control_message_id": bridge_control_message_id,
             "forwarded_count": len(forwarded_message_ids),
         }
     except Exception as e:

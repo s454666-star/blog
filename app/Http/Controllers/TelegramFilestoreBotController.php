@@ -30,6 +30,7 @@
 
         private const MYFILES_PAGE_SIZE = 30;
         private const MYFILES_MAX_PAGES_SHOWN = 7;
+        private const BRIDGE_CONTROL_PREFIX = '__filestore_bridge__|';
 
         /**
          * 避免短時間內重複送出「是否結束上傳？」的去重視窗（秒）
@@ -87,6 +88,10 @@
 
             if (isset($message['text'])) {
                 $text = trim((string)$message['text']);
+
+                if ($this->handleBridgeControlMessage($chatId, $username, $text)) {
+                    return response()->json(['ok' => true]);
+                }
 
                 if ($text === '/start') {
                     $this->sendMessage(
@@ -682,6 +687,17 @@
          */
         private function resolveUploadingSession(int $chatId, ?string $username, array $filePayload): TelegramFilestoreSession
         {
+            $bridgeSessionByChat = $this->findPendingBridgeUploadingSessionForChatId($chatId);
+            if ($bridgeSessionByChat) {
+                if ((int) $bridgeSessionByChat->chat_id !== $chatId || $bridgeSessionByChat->username !== $username) {
+                    $bridgeSessionByChat->chat_id = $chatId;
+                    $bridgeSessionByChat->username = $username;
+                    $bridgeSessionByChat->save();
+                }
+
+                return $bridgeSessionByChat;
+            }
+
             $bridgeSession = $this->findPendingBridgeUploadingSession($filePayload);
             if ($bridgeSession) {
                 if ((int) $bridgeSession->chat_id !== $chatId || $bridgeSession->username !== $username) {
@@ -731,6 +747,61 @@
                 ->whereKey($sessionId)
                 ->where('status', 'uploading')
                 ->first();
+        }
+
+        private function findPendingBridgeUploadingSessionForChatId(int $chatId): ?TelegramFilestoreSession
+        {
+            if ($chatId <= 0) {
+                return null;
+            }
+
+            $sessionId = $this->bridgeContextService->resolvePendingSessionIdForChatId($chatId);
+            if ($sessionId <= 0) {
+                return null;
+            }
+
+            return TelegramFilestoreSession::query()
+                ->whereKey($sessionId)
+                ->where('status', 'uploading')
+                ->first();
+        }
+
+        private function handleBridgeControlMessage(int $chatId, ?string $username, string $text): bool
+        {
+            if (!Str::startsWith($text, self::BRIDGE_CONTROL_PREFIX)) {
+                return false;
+            }
+
+            $parts = explode('|', $text, 3);
+            $sessionId = (int) ($parts[1] ?? 0);
+            $sourceToken = trim((string) ($parts[2] ?? ''));
+
+            if ($sessionId <= 0 || $sourceToken === '') {
+                return true;
+            }
+
+            $session = TelegramFilestoreSession::query()
+                ->whereKey($sessionId)
+                ->where('status', 'uploading')
+                ->first();
+
+            if (!$session) {
+                return true;
+            }
+
+            if (trim((string) ($session->source_token ?? '')) !== $sourceToken) {
+                return true;
+            }
+
+            if ((int) $session->chat_id !== $chatId || $session->username !== $username) {
+                $session->chat_id = $chatId;
+                $session->username = $username;
+                $session->save();
+            }
+
+            $this->bridgeContextService->rememberPendingChatId($sessionId, $chatId);
+
+            return true;
         }
 
         private function closeSessionAndReturnToken(int $chatId): void

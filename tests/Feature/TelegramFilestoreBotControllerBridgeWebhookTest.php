@@ -146,6 +146,88 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
         Queue::assertNotPushed(TelegramFilestoreDebouncedPromptJob::class);
     }
 
+    public function test_webhook_binds_bridge_session_from_control_text_then_accepts_following_media_by_chat_id(): void
+    {
+        Queue::fake();
+
+        $session = TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => null,
+            'encrypt_token' => null,
+            'public_token' => null,
+            'source_token' => 'mtfxqbot_3V_bridgechat400',
+            'status' => 'uploading',
+            'total_files' => 0,
+            'total_size' => 0,
+            'share_count' => 0,
+            'created_at' => now(),
+        ]);
+
+        $controlResponse = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9100,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'text' => '__filestore_bridge__|' . $session->id . '|mtfxqbot_3V_bridgechat400',
+            ],
+        ]);
+
+        $controlResponse->assertOk();
+
+        Cache::flush();
+
+        $fileResponse = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9101,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'video' => [
+                    'file_id' => 'BAAC-bridge-chat-bind-video',
+                    'file_unique_id' => 'bot-api-unique-id-9101',
+                    'mime_type' => 'video/mp4',
+                    'file_size' => 8192,
+                ],
+                'forward_from' => [
+                    'id' => 8781063603,
+                    'is_bot' => true,
+                    'username' => 'mtfxqbot',
+                ],
+            ],
+        ]);
+
+        $fileResponse->assertOk();
+
+        $session->refresh();
+
+        $this->assertSame(8491679630, (int) $session->chat_id);
+        $this->assertSame('s4546663', $session->username);
+        $this->assertSame(1, (int) $session->total_files);
+        $this->assertSame(8192, (int) $session->total_size);
+
+        $file = TelegramFilestoreFile::query()->where('session_id', $session->id)->firstOrFail();
+        $this->assertSame(9101, (int) $file->message_id);
+        $this->assertSame('bot-api-unique-id-9101', $file->file_unique_id);
+        $this->assertSame('mtfxqbot_3V_bridgechat400', $file->source_token);
+
+        Queue::assertNotPushed(TelegramFilestoreDebouncedPromptJob::class);
+    }
+
     public function test_webhook_schedules_close_prompt_for_regular_upload_session(): void
     {
         Queue::fake();

@@ -16,6 +16,11 @@ class TelegramFilestoreTokenBridgeService
     private const WAIT_TIMEOUT_SECONDS = 45;
     private const WAIT_INTERVAL_MICROSECONDS = 500000;
 
+    public function __construct(
+        private TelegramFilestoreBridgeContextService $bridgeContextService
+    ) {
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -129,12 +134,18 @@ class TelegramFilestoreTokenBridgeService
             ];
         }
 
+        $this->bridgeContextService->rememberPendingSession(
+            (int) $session->id,
+            $this->collectForwardableFileUniqueIds($files, $sourceChatId)
+        );
+
         $beforeCount = (int) TelegramFilestoreFile::query()
             ->where('session_id', $session->id)
             ->count();
 
         $forwardResult = $this->forwardMessages($normalizedBaseUri, $sourceChatId, $forwardableMessageIds);
         if (($forwardResult['ok'] ?? false) !== true) {
+            $this->bridgeContextService->forgetPendingSession((int) $session->id);
             $this->cleanupEmptyUploadingSession((int) $session->id);
 
             return [
@@ -160,6 +171,7 @@ class TelegramFilestoreTokenBridgeService
         )));
 
         if ($forwardedMessageIds === []) {
+            $this->bridgeContextService->forgetPendingSession((int) $session->id);
             $this->cleanupEmptyUploadingSession((int) $session->id);
 
             return [
@@ -184,6 +196,7 @@ class TelegramFilestoreTokenBridgeService
         }
 
         $closed = $this->closeUploadingSession((int) $session->id, $token);
+        $this->bridgeContextService->forgetPendingSession((int) $session->id);
         $deleteSummary = $this->deleteForwardedMessages(
             $normalizedBaseUri,
             (string) config('telegram.filestore_sync_bot_username', 'filestoebot'),
@@ -393,10 +406,34 @@ class TelegramFilestoreTokenBridgeService
         return [$forwardable, array_values(array_unique($skipped))];
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function collectForwardableFileUniqueIds(array $files, int $sourceChatId): array
+    {
+        $result = [];
+        $seen = [];
+
+        foreach ($files as $file) {
+            $chatId = (int) ($file['chat_id'] ?? 0);
+            $rawPayload = $file['raw_payload'] ?? null;
+            $noForwards = is_array($rawPayload) ? (bool) ($rawPayload['noforwards'] ?? false) : false;
+            $fileUniqueId = trim((string) ($file['file_unique_id'] ?? ''));
+
+            if ($chatId !== $sourceChatId || $noForwards || $fileUniqueId === '' || isset($seen[$fileUniqueId])) {
+                continue;
+            }
+
+            $seen[$fileUniqueId] = true;
+            $result[] = $fileUniqueId;
+        }
+
+        return $result;
+    }
+
     private function getOrCreateUploadingSession(string $sourceToken): ?TelegramFilestoreSession
     {
-        $syncChatId = $this->syncChatId();
-
         $existing = TelegramFilestoreSession::query()
             ->where('source_token', $sourceToken)
             ->where('status', 'uploading')
@@ -407,17 +444,8 @@ class TelegramFilestoreTokenBridgeService
             return $existing;
         }
 
-        $conflict = TelegramFilestoreSession::query()
-            ->where('chat_id', $syncChatId)
-            ->where('status', 'uploading')
-            ->exists();
-
-        if ($conflict) {
-            return null;
-        }
-
         return TelegramFilestoreSession::query()->create([
-            'chat_id' => $syncChatId,
+            'chat_id' => $this->syncChatId(),
             'username' => null,
             'encrypt_token' => null,
             'public_token' => null,
@@ -449,6 +477,8 @@ class TelegramFilestoreTokenBridgeService
         if ($count > 0) {
             return;
         }
+
+        $this->bridgeContextService->forgetPendingSession($sessionId);
 
         TelegramFilestoreSession::query()
             ->where('id', $sessionId)

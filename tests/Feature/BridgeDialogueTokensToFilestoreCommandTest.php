@@ -261,4 +261,69 @@ class BridgeDialogueTokensToFilestoreCommandTest extends TestCase
             'is_sync' => 0,
         ]);
     }
+
+    public function test_command_does_not_skip_uploading_source_token_sessions(): void
+    {
+        DB::table('dialogues')->insert([
+            'id' => 30,
+            'chat_id' => 1,
+            'message_id' => 30,
+            'text' => 'mtfxqbot_2V_uploading0006',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_sessions')->insert([
+            'chat_id' => 123,
+            'public_token' => null,
+            'source_token' => 'mtfxqbot_2V_uploading0006',
+            'status' => 'uploading',
+            'total_files' => 0,
+            'created_at' => now(),
+        ]);
+
+        $dispatches = [];
+
+        $mock = Mockery::mock(DialogueFilestoreDispatchService::class);
+        $mock->shouldReceive('dispatchToken')
+            ->once()
+            ->andReturnUsing(function (string $token, array $options, $output = null) use (&$dispatches): array {
+                $dispatches[] = $token;
+
+                $sessionId = DB::table('telegram_filestore_sessions')->insertGetId([
+                    'chat_id' => 123,
+                    'public_token' => 'filestoebot_retried0006',
+                    'source_token' => $token,
+                    'status' => 'closed',
+                    'total_files' => 2,
+                    'created_at' => now(),
+                    'closed_at' => now(),
+                ]);
+
+                return [
+                    'ok' => true,
+                    'exit_code' => 0,
+                    'session_id' => $sessionId,
+                    'public_token' => 'filestoebot_retried0006',
+                    'session_status' => 'closed',
+                    'total_files' => 2,
+                    'summary' => 'mock synced after retrying uploading session token',
+                ];
+            });
+
+        $this->app->instance(DialogueFilestoreDispatchService::class, $mock);
+
+        $this->artisan('filestore:bridge-dialogues-tokens --prefix=mtfxqbot_ --limit=1 --retry-delay=0 --max-retries=0')
+            ->expectsOutputToContain('skipped_existing=0')
+            ->expectsOutputToContain('attempted=1')
+            ->expectsOutputToContain('synced=1')
+            ->assertExitCode(0);
+
+        $this->assertSame(['mtfxqbot_2V_uploading0006'], $dispatches);
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 30,
+            'is_sync' => 1,
+        ]);
+    }
 }

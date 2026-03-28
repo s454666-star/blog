@@ -6,6 +6,7 @@
     use App\Jobs\TelegramFilestoreDebouncedPromptJob;
     use App\Models\TelegramFilestoreFile;
     use App\Models\TelegramFilestoreSession;
+    use App\Services\TelegramFilestoreBridgeContextService;
     use Illuminate\Http\Request;
     use Illuminate\Support\Facades\Cache;
     use Illuminate\Support\Facades\DB;
@@ -16,6 +17,11 @@
 
     class TelegramFilestoreBotController extends Controller
     {
+        public function __construct(
+            private TelegramFilestoreBridgeContextService $bridgeContextService
+        ) {
+        }
+
         /**
          * 只有「加密文件」才固定使用此前綴。
          * 但「解碼/貼代碼取檔」時，不應該強制要求使用者一定要帶此前綴。
@@ -147,7 +153,7 @@
 
             try {
                 DB::transaction(function () use ($chatId, $username, $messageId, $filePayload, $message, &$sessionId) {
-                    $session = $this->getOrCreateUploadingSession($chatId, $username);
+                    $session = $this->resolveUploadingSession($chatId, $username, $filePayload);
                     $sessionId = (int)$session->id;
 
                     $exists = TelegramFilestoreFile::query()
@@ -667,6 +673,46 @@
                 'closed_at' => null,
                 'last_shared_at' => null,
             ]);
+        }
+
+        /**
+         * @param array<string, mixed> $filePayload
+         */
+        private function resolveUploadingSession(int $chatId, ?string $username, array $filePayload): TelegramFilestoreSession
+        {
+            $bridgeSession = $this->findPendingBridgeUploadingSession($filePayload);
+            if ($bridgeSession) {
+                if ((int) $bridgeSession->chat_id !== $chatId || $bridgeSession->username !== $username) {
+                    $bridgeSession->chat_id = $chatId;
+                    $bridgeSession->username = $username;
+                    $bridgeSession->save();
+                }
+
+                return $bridgeSession;
+            }
+
+            return $this->getOrCreateUploadingSession($chatId, $username);
+        }
+
+        /**
+         * @param array<string, mixed> $filePayload
+         */
+        private function findPendingBridgeUploadingSession(array $filePayload): ?TelegramFilestoreSession
+        {
+            $fileUniqueId = trim((string) ($filePayload['file_unique_id'] ?? ''));
+            if ($fileUniqueId === '') {
+                return null;
+            }
+
+            $sessionId = $this->bridgeContextService->resolvePendingSessionId($fileUniqueId);
+            if ($sessionId <= 0) {
+                return null;
+            }
+
+            return TelegramFilestoreSession::query()
+                ->whereKey($sessionId)
+                ->where('status', 'uploading')
+                ->first();
         }
 
         private function closeSessionAndReturnToken(int $chatId): void

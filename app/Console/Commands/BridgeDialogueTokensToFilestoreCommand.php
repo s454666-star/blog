@@ -275,7 +275,12 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
     {
         $existing = [];
 
-        foreach (TelegramFilestoreSession::query()->whereNotNull('source_token')->pluck('source_token') as $token) {
+        foreach (
+            TelegramFilestoreSession::query()
+                ->where('status', 'closed')
+                ->whereNotNull('source_token')
+                ->pluck('source_token') as $token
+        ) {
             $value = trim((string) $token);
             if ($value === '') {
                 continue;

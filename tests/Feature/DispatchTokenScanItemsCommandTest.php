@@ -20,12 +20,23 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         DB::purge('sqlite');
         DB::reconnect('sqlite');
 
+        Schema::dropIfExists('dialogues');
         Schema::dropIfExists('token_scan_items');
         Schema::create('token_scan_items', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('header_id')->nullable();
             $table->string('token', 255);
             $table->timestamps();
+        });
+
+        Schema::create('dialogues', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('chat_id')->nullable();
+            $table->unsignedBigInteger('message_id')->nullable();
+            $table->string('text', 255);
+            $table->boolean('is_read')->default(false);
+            $table->boolean('is_sync')->default(false);
+            $table->dateTime('created_at')->nullable();
         });
     }
 
@@ -90,6 +101,15 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             'updated_at' => null,
         ]);
 
+        DB::table('dialogues')->insert([
+            'chat_id' => 7702694790,
+            'message_id' => 1,
+            'text' => 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
         Http::fake([
             'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
@@ -137,6 +157,10 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         $this->assertDatabaseMissing('token_scan_items', [
             'id' => $itemId,
         ]);
+        $this->assertDatabaseHas('dialogues', [
+            'text' => 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
+            'is_sync' => 1,
+        ]);
 
         Http::assertSent(function ($request): bool {
             return $request->url() === 'http://127.0.0.1:8000/bots/send-and-run-all-pages'
@@ -155,6 +179,53 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         Http::assertNotSent(function ($request): bool {
             return str_contains($request->url(), '/bots/run-all-pages-by-bot');
         });
+    }
+
+    public function test_dispatch_does_not_mark_dialogue_synced_when_token_is_not_found(): void
+    {
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'mtfxqbot_1V_notfound0008',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        DB::table('dialogues')->insert([
+            'chat_id' => 7702694790,
+            'message_id' => 2,
+            'text' => 'mtfxqbot_1V_notfound0008',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        Http::fake([
+            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+                'status' => 'ok',
+                'reason' => 'not found',
+                'files_unique_count' => 0,
+                'files_total_bytes' => 0,
+                'latest_message' => [
+                    'kind' => 'other',
+                    'text_preview' => '💔抱歉，未找到可解析内容。',
+                    'has_buttons' => false,
+                    'page_info' => [],
+                ],
+                'timeline' => [],
+                'debug' => [],
+                'page_state' => [],
+            ], 200),
+        ]);
+
+        $this->artisan('tg:dispatch-token-scan-items')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('token_scan_items', [
+            'id' => $itemId,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'text' => 'mtfxqbot_1V_notfound0008',
+            'is_sync' => 0,
+        ]);
     }
 
     public function test_dispatch_uses_send_then_pagination_only_for_messenger_bot(): void

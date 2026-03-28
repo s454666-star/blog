@@ -2,10 +2,12 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Dialogue;
 use App\Models\TokenScanItem;
 use App\Services\TelegramFilestoreTokenBridgeService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -459,6 +461,13 @@ class DispatchTokenScanItemsCommand extends Command
             $result['db_action'] = 'manual';
         }
 
+        if ($this->shouldMarkDialogueAsSynced($result)) {
+            $markedCount = $this->markDialoguesAsSynced($token);
+            if ($markedCount > 0) {
+                $result['dialogues_marked_sync'] = $markedCount;
+            }
+        }
+
         return $result;
     }
 
@@ -471,6 +480,10 @@ class DispatchTokenScanItemsCommand extends Command
         $baseUri = trim((string) ($result['base_uri'] ?? ''));
         $botApi = trim((string) ($result['bot_api'] ?? ''));
         $sentMessageId = (int) ($result['sent_message_id'] ?? 0);
+
+        if (!$this->filestoreBridgeTablesAvailable()) {
+            return $this->appendSummaryToResult($result, 'filestore sync skipped: bridge tables missing');
+        }
 
         if ($baseUri === '' || $botApi === '' || $sentMessageId <= 0) {
             return $this->appendSummaryToResult($result, 'filestore sync skipped: bridge context missing');
@@ -2393,6 +2406,39 @@ class DispatchTokenScanItemsCommand extends Command
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     */
+    private function shouldMarkDialogueAsSynced(array $result): bool
+    {
+        return (string) ($result['classification'] ?? '') === 'success';
+    }
+
+    private function markDialoguesAsSynced(string $token): int
+    {
+        $normalizedToken = trim($token);
+        if ($normalizedToken === '') {
+            return 0;
+        }
+
+        if (!Schema::hasTable('dialogues') || !Schema::hasColumn('dialogues', 'is_sync')) {
+            return 0;
+        }
+
+        return Dialogue::query()
+            ->where('text', $normalizedToken)
+            ->where(function ($builder): void {
+                $builder->whereNull('is_sync')->orWhere('is_sync', false);
+            })
+            ->update(['is_sync' => true]);
+    }
+
+    private function filestoreBridgeTablesAvailable(): bool
+    {
+        return Schema::hasTable('telegram_filestore_sessions')
+            && Schema::hasTable('telegram_filestore_files');
     }
 
     /**

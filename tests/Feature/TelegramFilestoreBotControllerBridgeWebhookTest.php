@@ -172,4 +172,70 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
         Queue::assertPushed(TelegramFilestoreDebouncedPromptJob::class);
         Queue::assertPushedTimes(TelegramFilestoreDebouncedPromptJob::class, 1);
     }
+
+    public function test_webhook_uses_pending_forwarded_message_id_for_bridge_session_without_scheduling_close_prompt(): void
+    {
+        Queue::fake();
+
+        $session = TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => null,
+            'encrypt_token' => null,
+            'public_token' => null,
+            'source_token' => 'mtfxqbot_2V_bridge374',
+            'status' => 'uploading',
+            'total_files' => 0,
+            'total_size' => 0,
+            'share_count' => 0,
+            'created_at' => now(),
+        ]);
+
+        app(TelegramFilestoreBridgeContextService::class)->rememberPendingForwardedMessageIds(
+            (int) $session->id,
+            [888196]
+        );
+
+        $response = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 888196,
+                'from' => [
+                    'id' => 7702694790,
+                    'is_bot' => false,
+                    'username' => 's4546662',
+                ],
+                'chat' => [
+                    'id' => 7702694790,
+                    'username' => 's4546662',
+                    'type' => 'private',
+                ],
+                'video' => [
+                    'file_id' => 'BAAC-forwarded-video-id',
+                    'file_unique_id' => 'forwarded-bridge-uniq-888196',
+                    'mime_type' => 'video/mp4',
+                    'file_size' => 1200,
+                ],
+                'forward_from' => [
+                    'id' => 8781063603,
+                    'is_bot' => true,
+                    'username' => 'mtfxqbot',
+                ],
+            ],
+        ]);
+
+        $response->assertOk();
+
+        $session->refresh();
+
+        $this->assertSame(7702694790, (int) $session->chat_id);
+        $this->assertSame('s4546662', $session->username);
+        $this->assertSame(1, (int) $session->total_files);
+        $this->assertSame(1200, (int) $session->total_size);
+
+        $file = TelegramFilestoreFile::query()->where('session_id', $session->id)->firstOrFail();
+        $this->assertSame(888196, (int) $file->message_id);
+        $this->assertSame('forwarded-bridge-uniq-888196', $file->file_unique_id);
+        $this->assertSame('mtfxqbot_2V_bridge374', $file->source_token);
+
+        Queue::assertNotPushed(TelegramFilestoreDebouncedPromptJob::class);
+    }
 }

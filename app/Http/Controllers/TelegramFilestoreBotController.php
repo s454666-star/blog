@@ -706,6 +706,17 @@
          */
         private function findPendingBridgeUploadingSession(array $filePayload): ?TelegramFilestoreSession
         {
+            $messageId = (int) ($filePayload['message_id'] ?? 0);
+            if ($messageId > 0) {
+                $sessionId = $this->bridgeContextService->resolvePendingSessionIdForMessageId($messageId);
+                if ($sessionId > 0) {
+                    return TelegramFilestoreSession::query()
+                        ->whereKey($sessionId)
+                        ->where('status', 'uploading')
+                        ->first();
+                }
+            }
+
             $fileUniqueId = trim((string) ($filePayload['file_unique_id'] ?? ''));
             if ($fileUniqueId === '') {
                 return null;
@@ -914,6 +925,8 @@
 
         private function extractTelegramFilePayload(array $message): ?array
         {
+            $messageId = (int) ($message['message_id'] ?? 0);
+
             if (isset($message['photo']) && is_array($message['photo']) && count($message['photo']) > 0) {
                 $photo = end($message['photo']);
 
@@ -928,6 +941,7 @@
                     'file_name' => null,
                     'mime_type' => null,
                     'file_size' => (int)($photo['file_size'] ?? 0),
+                    'message_id' => $messageId,
                 ];
             }
 
@@ -945,6 +959,7 @@
                     'file_name' => $video['file_name'] ?? null,
                     'mime_type' => $video['mime_type'] ?? null,
                     'file_size' => (int)($video['file_size'] ?? 0),
+                    'message_id' => $messageId,
                 ];
             }
 
@@ -962,6 +977,7 @@
                     'file_name' => $doc['file_name'] ?? null,
                     'mime_type' => $doc['mime_type'] ?? null,
                     'file_size' => (int)($doc['file_size'] ?? 0),
+                    'message_id' => $messageId,
                 ];
             }
 

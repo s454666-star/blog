@@ -14,6 +14,7 @@ class TelegramFilestoreTokenBridgeService
     private const FORWARD_TIMEOUT_SECONDS = 120;
     private const DELETE_TIMEOUT_SECONDS = 60;
     private const WAIT_TIMEOUT_SECONDS = 45;
+    private const WAIT_TIMEOUT_MAX_SECONDS = 300;
     private const WAIT_INTERVAL_MICROSECONDS = 500000;
 
     public function __construct(
@@ -181,6 +182,10 @@ class TelegramFilestoreTokenBridgeService
             'intval',
             (array) ($forwardResult['forwarded_message_ids'] ?? [])
         )));
+        $this->bridgeContextService->rememberPendingForwardedMessageIds(
+            (int) $session->id,
+            $forwardedMessageIds
+        );
         $runtimeSkipped = array_values(array_unique(array_map(
             'intval',
             array_merge(
@@ -214,21 +219,29 @@ class TelegramFilestoreTokenBridgeService
             ];
         }
 
-        $afterCount = $this->waitForFileCount((int) $session->id, $beforeCount + count($forwardedMessageIds));
-        if ($afterCount <= $beforeCount) {
+        $expectedStoredCount = max($beforeCount, count($forwardedMessageIds));
+        $waitTimeoutSeconds = $this->resolveWaitTimeoutSeconds($expectedStoredCount, $observedTotalBytes);
+        $afterCount = $this->waitForFileCount((int) $session->id, $expectedStoredCount, $waitTimeoutSeconds);
+        if ($afterCount !== $expectedStoredCount) {
+            $reason = $afterCount < $expectedStoredCount
+                ? 'webhook write did not finish before timeout'
+                : 'unexpected extra files were written to session';
+
             return [
                 'ok' => false,
-                'status' => 'wait_timeout',
+                'status' => $afterCount < $expectedStoredCount ? 'wait_timeout' : 'unexpected_file_count',
                 'observed_files' => $observedFiles,
                 'observed_total_bytes' => $observedTotalBytes,
                 'summary' => sprintf(
-                    'filestore sync skipped after forwarding to @%s session_id=%d source_bot=@%s forwarded=%d expected=%d observed=%d reason=webhook write did not finish before timeout',
+                    'filestore sync skipped after forwarding to @%s session_id=%d source_bot=@%s forwarded=%d expected=%d observed=%d wait_timeout=%ds reason=%s',
                     $targetBotUsername,
                     (int) $session->id,
                     $normalizedSourceBotUsername,
                     count($forwardedMessageIds),
-                    $beforeCount + count($forwardedMessageIds),
-                    $afterCount
+                    $expectedStoredCount,
+                    $afterCount,
+                    $waitTimeoutSeconds,
+                    $reason
                 ),
             ];
         }
@@ -579,9 +592,9 @@ class TelegramFilestoreTokenBridgeService
         }
     }
 
-    private function waitForFileCount(int $sessionId, int $expectedCount): int
+    private function waitForFileCount(int $sessionId, int $expectedCount, int $timeoutSeconds): int
     {
-        $deadline = microtime(true) + self::WAIT_TIMEOUT_SECONDS;
+        $deadline = microtime(true) + max($timeoutSeconds, 1);
         $latestCount = 0;
 
         while (microtime(true) < $deadline) {
@@ -599,6 +612,18 @@ class TelegramFilestoreTokenBridgeService
         return (int) TelegramFilestoreFile::query()
             ->where('session_id', $sessionId)
             ->count();
+    }
+
+    private function resolveWaitTimeoutSeconds(int $expectedStoredCount, int $observedTotalBytes): int
+    {
+        $forwardedCount = max($expectedStoredCount, 0);
+        $sizeGigabytes = (int) ceil(max($observedTotalBytes, 0) / 1073741824);
+        $calculated = 20 + $forwardedCount + ($sizeGigabytes * 10);
+
+        return max(
+            self::WAIT_TIMEOUT_SECONDS,
+            min(self::WAIT_TIMEOUT_MAX_SECONDS, $calculated)
+        );
     }
 
     private function closeUploadingSession(int $sessionId, string $sourceToken): TelegramFilestoreSession

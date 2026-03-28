@@ -2056,6 +2056,39 @@ async def _delete_messages_in_batches(bot_username: str, message_ids: List[int],
         await asyncio.sleep(0.2)
 
 
+async def _find_remaining_message_ids(peer: Any, message_ids: List[int]) -> List[int]:
+    if not message_ids:
+        return []
+
+    try:
+        fetched = await client.get_messages(peer, ids=message_ids)
+    except Exception:
+        return list(message_ids)
+
+    if fetched is None:
+        return []
+
+    fetched_messages = fetched if isinstance(fetched, list) else [fetched]
+    remaining: List[int] = []
+
+    for msg in fetched_messages:
+        if msg is None:
+            continue
+
+        if type(msg).__name__ == "MessageEmpty":
+            continue
+
+        try:
+            mid = int(getattr(msg, "id", 0) or 0)
+        except Exception:
+            mid = 0
+
+        if mid > 0:
+            remaining.append(mid)
+
+    return sorted(list(set(remaining)))
+
+
 async def _cleanup_chat_after_run(
     bot_username: str,
     min_mid: int = 0,
@@ -3336,13 +3369,50 @@ async def delete_messages_from_chat(payload: DeleteMessagesRequest):
         except Exception:
             resolved_peer = await client.get_input_entity(chat_peer)
 
-        await client.delete_messages(resolved_peer, message_ids, revoke=True)
+        remaining_message_ids = list(message_ids)
+        for _ in range(3):
+            if not remaining_message_ids:
+                break
+
+            await client.delete_messages(resolved_peer, remaining_message_ids, revoke=True)
+            await asyncio.sleep(0.6)
+            remaining_message_ids = await _find_remaining_message_ids(
+                resolved_peer,
+                remaining_message_ids,
+            )
+
+        deleted_message_ids = [
+            mid for mid in message_ids
+            if mid not in set(remaining_message_ids)
+        ]
+
+        if remaining_message_ids:
+            push_log(
+                stage="bots_delete_messages",
+                result="delete_incomplete",
+                extra={
+                    "chat_peer": chat_peer,
+                    "deleted_message_ids": deleted_message_ids[:120],
+                    "undeleted_message_ids": remaining_message_ids[:120],
+                },
+            )
+
+            return {
+                "status": "error",
+                "reason": "delete_incomplete",
+                "chat_peer": chat_peer,
+                "message_ids": message_ids,
+                "deleted_message_ids": deleted_message_ids,
+                "deleted_count": len(deleted_message_ids),
+                "undeleted_message_ids": remaining_message_ids,
+            }
 
         return {
             "status": "ok",
             "chat_peer": chat_peer,
-            "deleted_message_ids": message_ids,
-            "deleted_count": len(message_ids),
+            "deleted_message_ids": deleted_message_ids,
+            "deleted_count": len(deleted_message_ids),
+            "undeleted_message_ids": [],
         }
     except Exception as e:
         push_log(

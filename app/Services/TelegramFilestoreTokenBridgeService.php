@@ -736,9 +736,27 @@ class TelegramFilestoreTokenBridgeService
                 ];
             }
 
+            $deletedCount = (int) ($json['deleted_count'] ?? 0);
+            $undeletedMessageIds = array_values(array_unique(array_map(
+                'intval',
+                (array) ($json['undeleted_message_ids'] ?? [])
+            )));
+
+            if ($deletedCount < count($messageIds) || !empty($undeletedMessageIds)) {
+                return [
+                    'ok' => false,
+                    'summary' => sprintf(
+                        'delete incomplete deleted_count=%d requested=%d undeleted_message_ids=%s',
+                        $deletedCount,
+                        count($messageIds),
+                        implode(',', array_slice($undeletedMessageIds, 0, 20))
+                    ),
+                ];
+            }
+
             return [
                 'ok' => true,
-                'summary' => 'deleted_count=' . (int) ($json['deleted_count'] ?? 0),
+                'summary' => 'deleted_count=' . $deletedCount,
             ];
         } catch (\Throwable $e) {
             return [

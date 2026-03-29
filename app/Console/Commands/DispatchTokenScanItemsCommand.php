@@ -171,8 +171,8 @@ class DispatchTokenScanItemsCommand extends Command
     private const MTFXQ_DETAILED_REPLIES_FETCH_LIMIT = 40;
     private const MTFXQ_CAPTCHA_DOWNLOAD_LABEL = 'mtfxq_captcha';
     private const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
-    private const OPENAI_MODEL = 'gpt-4o-mini';
-    private const OPENAI_IMAGE_CAPTCHA_MODEL = 'gpt-4o';
+    private const OPENAI_MODEL = 'gpt-5';
+    private const OPENAI_IMAGE_CAPTCHA_MODEL = 'gpt-5';
     private const OPENAI_TIMEOUT_SECONDS = 60;
 
     private const NOT_FOUND_MARKERS = [
@@ -2329,7 +2329,7 @@ class DispatchTokenScanItemsCommand extends Command
                 ->asJson()
                 ->post(self::OPENAI_CHAT_COMPLETIONS_URL, [
                     'model' => self::OPENAI_MODEL,
-                    'temperature' => 0,
+                    'reasoning_effort' => 'medium',
                     'messages' => [
                         [
                             'role' => 'system',
@@ -2849,7 +2849,7 @@ class DispatchTokenScanItemsCommand extends Command
                 ->asJson()
                 ->post(self::OPENAI_CHAT_COMPLETIONS_URL, [
                     'model' => self::OPENAI_IMAGE_CAPTCHA_MODEL,
-                    'temperature' => 0,
+                    'reasoning_effort' => 'high',
                     'messages' => [
                         [
                             'role' => 'system',

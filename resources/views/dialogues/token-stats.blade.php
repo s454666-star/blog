@@ -86,7 +86,7 @@
         }
 
         .shell {
-            width: min(1380px, calc(100vw - 32px));
+            width: min(1680px, calc(100vw - 20px));
             margin: 0 auto;
             padding: 40px 0 56px;
         }
@@ -322,7 +322,7 @@
         }
 
         .table-wrap {
-            overflow-x: auto;
+            overflow: hidden;
             border-radius: 22px;
             border: 1px solid rgba(96, 158, 220, 0.22);
             background: rgba(255, 255, 255, 0.84);
@@ -332,7 +332,7 @@
             width: 100%;
             border-collapse: separate;
             border-spacing: 0;
-            min-width: 1080px;
+            table-layout: fixed;
         }
 
         thead th {
@@ -347,6 +347,7 @@
             color: var(--ink-500);
             background: linear-gradient(180deg, rgba(246, 252, 255, 0.98), rgba(239, 248, 255, 0.95));
             border-bottom: 1px solid rgba(112, 173, 233, 0.2);
+            overflow-wrap: anywhere;
         }
 
         tbody tr {
@@ -371,10 +372,11 @@
             padding: 18px 16px;
             vertical-align: top;
             border-bottom: 1px solid rgba(112, 173, 233, 0.12);
+            overflow-wrap: anywhere;
         }
 
         .prefix-cell {
-            min-width: 190px;
+            width: 16%;
         }
 
         .prefix-token {
@@ -408,7 +410,7 @@
         }
 
         .progress-stack {
-            min-width: 220px;
+            width: 23%;
         }
 
         .progress-label {
@@ -441,7 +443,7 @@
         }
 
         .checkpoint {
-            min-width: 360px;
+            width: 31%;
         }
 
         .checkpoint-badge {
@@ -516,7 +518,7 @@
 
         @media (max-width: 760px) {
             .shell {
-                width: min(100vw - 20px, 1380px);
+                width: min(100vw - 12px, 1680px);
                 padding: 24px 0 38px;
             }
 

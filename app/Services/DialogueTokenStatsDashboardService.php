@@ -43,7 +43,7 @@ class DialogueTokenStatsDashboardService
         $syncedDialogueCount = (int) DB::table('dialogues')->where('is_sync', 1)->count('id');
         $maxDialogueId = (int) (DB::table('dialogues')->max('id') ?? 0);
         $cacheKey = sprintf(
-            'dialogues:token-stats:v1:%d:%d:%d',
+            'dialogues:token-stats:v2:%d:%d:%d',
             $dialogueCount,
             $syncedDialogueCount,
             $maxDialogueId
@@ -124,8 +124,17 @@ class DialogueTokenStatsDashboardService
         unset($stat);
 
         uasort($prefixStats, function (array $left, array $right): int {
-            return [$right['total_count'], $right['synced_count'], $left['prefix']]
-                <=> [$left['total_count'], $left['synced_count'], $right['prefix']];
+            return [
+                $right['completion_percent'],
+                $right['total_count'],
+                $right['synced_count'],
+                $left['prefix'],
+            ] <=> [
+                $left['completion_percent'],
+                $left['total_count'],
+                $left['synced_count'],
+                $right['prefix'],
+            ];
         });
 
         return [

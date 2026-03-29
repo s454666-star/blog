@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\SendFilestoreSessionFilesJob;
 use App\Jobs\TelegramFilestoreDebouncedPromptJob;
 use App\Models\TelegramFilestoreFile;
 use App\Models\TelegramFilestoreSession;
@@ -333,6 +334,55 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
         $this->assertSame('forwarded-bridge-uniq-888196', $file->file_unique_id);
         $this->assertSame('mtfxqbot_2V_bridge374', $file->source_token);
 
+        Queue::assertNotPushed(TelegramFilestoreDebouncedPromptJob::class);
+    }
+
+    public function test_webhook_extracts_source_token_from_notification_text_and_dispatches_send_job(): void
+    {
+        Queue::fake();
+
+        $session = TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_2V_testreply009',
+            'source_token' => 'mtfxqbot_2V_31u7U7d4v7M1M6b3C637',
+            'status' => 'closed',
+            'total_files' => 2,
+            'total_size' => 4096,
+            'share_count' => 0,
+            'is_sending' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9301,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'text' => 'mtfxqbot_2V_31u7U7d4v7M1M6b3C637  已收錄至機器人 @filestoebot',
+            ],
+        ]);
+
+        $response->assertOk();
+
+        $session->refresh();
+
+        $this->assertSame(1, (int) $session->is_sending);
+        $this->assertSame(1, (int) $session->share_count);
+        $this->assertNotNull($session->sending_started_at);
+
+        Queue::assertPushed(SendFilestoreSessionFilesJob::class);
+        Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 1);
         Queue::assertNotPushed(TelegramFilestoreDebouncedPromptJob::class);
     }
 }

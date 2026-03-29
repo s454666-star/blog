@@ -6,6 +6,7 @@
     use App\Jobs\TelegramFilestoreDebouncedPromptJob;
     use App\Models\TelegramFilestoreFile;
     use App\Models\TelegramFilestoreSession;
+    use App\Services\TelegramCodeTokenService;
     use App\Services\TelegramFilestoreBridgeContextService;
     use Illuminate\Http\Request;
     use Illuminate\Support\Facades\Cache;
@@ -18,7 +19,8 @@
     class TelegramFilestoreBotController extends Controller
     {
         public function __construct(
-            private TelegramFilestoreBridgeContextService $bridgeContextService
+            private TelegramFilestoreBridgeContextService $bridgeContextService,
+            private TelegramCodeTokenService $telegramCodeTokenService
         ) {
         }
 
@@ -119,15 +121,16 @@
                  *
                  * 只有「加密文件」才固定要求 filestoebot_ 前綴（該邏輯若在別處使用 TOKEN_PREFIX 仍不變）
                  */
-                if ($this->looksLikeToken($text)) {
-                    $normalizedForDedup = $this->normalizeTokenForDedup($text);
+                $requestedToken = $this->extractRequestedToken($text);
+                if ($requestedToken !== null) {
+                    $normalizedForDedup = $this->normalizeTokenForDedup($requestedToken);
 
                     if (!$this->acquireTokenDedupLock($chatId, $normalizedForDedup)) {
                         $this->sendMessage($chatId, "這個代碼剛剛已處理過，請稍候再試。");
                         return response()->json(['ok' => true]);
                     }
 
-                    $found = $this->sendSessionFilesByToken($chatId, $text);
+                    $found = $this->sendSessionFilesByToken($chatId, $requestedToken);
                     if (!$found) {
                         $this->sendMessage($chatId, "找不到檔案");
                     }
@@ -1076,6 +1079,25 @@
             }
 
             return preg_match('/^[A-Za-z0-9_\-]+$/', $t) === 1;
+        }
+
+        private function extractRequestedToken(string $text): ?string
+        {
+            $t = trim($text);
+            if ($t === '') {
+                return null;
+            }
+
+            $tokens = $this->telegramCodeTokenService->extractTokens($t);
+            if (!empty($tokens)) {
+                return (string) $tokens[0];
+            }
+
+            if ($this->looksLikeToken($t)) {
+                return $t;
+            }
+
+            return null;
         }
 
         /**

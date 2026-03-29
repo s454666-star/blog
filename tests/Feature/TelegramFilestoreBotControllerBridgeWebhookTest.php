@@ -385,4 +385,72 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
         Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 1);
         Queue::assertNotPushed(TelegramFilestoreDebouncedPromptJob::class);
     }
+
+    public function test_webhook_extracts_multiple_tokens_from_one_message_and_dispatches_all_send_jobs(): void
+    {
+        Queue::fake();
+
+        $firstSession = TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_1V_multi001',
+            'source_token' => 'mtfxqbot_1V_6107r7s4n7K2917293V4',
+            'status' => 'closed',
+            'total_files' => 1,
+            'total_size' => 2048,
+            'share_count' => 0,
+            'is_sending' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        $secondSession = TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_20P_multi002',
+            'source_token' => 'mtfxqbot_20P_1V_O1b7p724e7O1V8U9F3q4',
+            'status' => 'closed',
+            'total_files' => 20,
+            'total_size' => 8192,
+            'share_count' => 0,
+            'is_sending' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9302,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'text' => implode("\n", [
+                    'mtfxqbot_1V_6107r7s4n7K2917293V4  已收錄至機器人 @filestoebot',
+                    'mtfxqbot_20P_1V_O1b7p724e7O1V8U9F3q4  已收錄至機器人 @filestoebot',
+                ]),
+            ],
+        ]);
+
+        $response->assertOk();
+
+        $firstSession->refresh();
+        $secondSession->refresh();
+
+        $this->assertSame(1, (int) $firstSession->is_sending);
+        $this->assertSame(1, (int) $firstSession->share_count);
+        $this->assertSame(1, (int) $secondSession->is_sending);
+        $this->assertSame(1, (int) $secondSession->share_count);
+
+        Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 2);
+        Queue::assertNotPushed(TelegramFilestoreDebouncedPromptJob::class);
+    }
 }

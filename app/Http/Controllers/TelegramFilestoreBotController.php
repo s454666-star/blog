@@ -121,18 +121,23 @@
                  *
                  * 只有「加密文件」才固定要求 filestoebot_ 前綴（該邏輯若在別處使用 TOKEN_PREFIX 仍不變）
                  */
-                $requestedToken = $this->extractRequestedToken($text);
-                if ($requestedToken !== null) {
-                    $normalizedForDedup = $this->normalizeTokenForDedup($requestedToken);
+                $requestedTokens = $this->extractRequestedTokens($text);
+                if (!empty($requestedTokens)) {
+                    foreach ($requestedTokens as $requestedToken) {
+                        $normalizedForDedup = $this->normalizeTokenForDedup($requestedToken);
 
-                    if (!$this->acquireTokenDedupLock($chatId, $normalizedForDedup)) {
-                        $this->sendMessage($chatId, "這個代碼剛剛已處理過，請稍候再試。");
-                        return response()->json(['ok' => true]);
-                    }
+                        if (!$this->acquireTokenDedupLock($chatId, $normalizedForDedup)) {
+                            $this->sendMessage(
+                                $chatId,
+                                $this->formatTokenReply($requestedToken, "這個代碼剛剛已處理過，請稍候再試。")
+                            );
+                            continue;
+                        }
 
-                    $found = $this->sendSessionFilesByToken($chatId, $requestedToken);
-                    if (!$found) {
-                        $this->sendMessage($chatId, "找不到檔案");
+                        $found = $this->sendSessionFilesByToken($chatId, $requestedToken, $requestedToken);
+                        if (!$found) {
+                            $this->sendMessage($chatId, $this->formatTokenReply($requestedToken, "找不到檔案"));
+                        }
                     }
 
                     return response()->json(['ok' => true]);
@@ -1081,23 +1086,36 @@
             return preg_match('/^[A-Za-z0-9_\-]+$/', $t) === 1;
         }
 
-        private function extractRequestedToken(string $text): ?string
+        private function extractRequestedTokens(string $text): array
         {
             $t = trim($text);
             if ($t === '') {
-                return null;
+                return [];
             }
 
             $tokens = $this->telegramCodeTokenService->extractTokens($t);
             if (!empty($tokens)) {
-                return (string) $tokens[0];
+                return array_values(array_unique(array_map(
+                    static fn ($token): string => trim((string) $token),
+                    $tokens
+                )));
             }
 
             if ($this->looksLikeToken($t)) {
-                return $t;
+                return [$t];
             }
 
-            return null;
+            return [];
+        }
+
+        private function formatTokenReply(string $token, string $message): string
+        {
+            $token = trim($token);
+            if ($token === '') {
+                return $message;
+            }
+
+            return $token . "\n" . $message;
         }
 
         /**
@@ -1380,7 +1398,7 @@
          * - 若原字串沒前綴，再補前綴查
          * - 找不到回 false（由上層回：找不到檔案）
          */
-        private function sendSessionFilesByToken(int $chatId, string $publicToken): bool
+        private function sendSessionFilesByToken(int $chatId, string $publicToken, ?string $announceToken = null): bool
         {
             $publicToken = trim($publicToken);
             if ($publicToken === '') {
@@ -1422,11 +1440,17 @@
             });
 
             if (!$locked) {
-                $this->sendMessage($chatId, "正在傳送中，請稍候…");
+                $this->sendMessage(
+                    $chatId,
+                    $this->formatTokenReply((string) ($announceToken ?? $publicToken), "正在傳送中，請稍候…")
+                );
                 return true;
             }
 
-            $this->sendMessage($chatId, "已加入傳送佇列，準備開始傳送…");
+            $this->sendMessage(
+                $chatId,
+                $this->formatTokenReply((string) ($announceToken ?? $publicToken), "已加入傳送佇列，準備開始傳送…")
+            );
 
             SendFilestoreSessionFilesJob::dispatch((int)$session->id, $chatId);
 

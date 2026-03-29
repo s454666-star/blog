@@ -309,6 +309,76 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         });
     }
 
+    public function test_dispatch_does_not_delete_source_messages_by_default_after_filestore_sync(): void
+    {
+        $this->createFilestoreBridgeTables();
+
+        $carrier = (object) ['deleteSourceMessages' => null];
+        $this->app->instance(TelegramFilestoreTokenBridgeService::class, new class($carrier)
+        {
+            public function __construct(private object $carrier)
+            {
+            }
+
+            public function sync(string $token, string $baseUri, string $botApi, int $sentMessageId, bool $deleteSourceMessages): array
+            {
+                $this->carrier->deleteSourceMessages = $deleteSourceMessages;
+
+                return [
+                    'ok' => true,
+                    'status' => 'synced',
+                    'session_id' => 9528,
+                    'public_token' => 'filestoebot_13P_keep_source',
+                    'observed_files' => 2,
+                    'observed_total_bytes' => 123,
+                    'stored_files' => 2,
+                    'skipped_files' => 0,
+                    'summary' => 'filestore synced target=@filestoebot session_id=9528 public_token=filestoebot_13P_keep_source forwarded=2 stored=2 skipped=0 deleted_forwarded=yes',
+                ];
+            }
+        });
+
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'showfilesbot_13P_keep_source001',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        Http::fake([
+            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+                'status' => 'ok',
+                'sent_message_id' => 456789,
+                'reason' => 'reached total items after final page click; stop',
+                'files_unique_count' => 2,
+                'files_total_bytes' => 123,
+                'latest_message' => [
+                    'kind' => 'state',
+                    'text_preview' => '✅ 第 **1**/1 页 📀全部类型',
+                    'has_buttons' => false,
+                    'page_info' => [
+                        'current_page' => 1,
+                        'total_pages' => 1,
+                    ],
+                ],
+                'timeline' => [],
+                'debug' => [],
+                'page_state' => [
+                    'did_bootstrap_click' => true,
+                    'did_any_pagination_click' => false,
+                    'last_clicked_page' => 1,
+                ],
+            ], 200),
+        ]);
+
+        $this->artisan('tg:dispatch-token-scan-items showfilesbot_13P_keep_source001 --port=8000')
+            ->assertExitCode(0);
+
+        $this->assertFalse((bool) $carrier->deleteSourceMessages);
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+    }
+
     public function test_dispatch_sends_group_notice_after_successful_filestore_sync(): void
     {
         $this->createFilestoreBridgeTables();

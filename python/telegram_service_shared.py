@@ -7143,22 +7143,53 @@ async def download_bot_message_media(payload: BotMessageDownloadRequest):
                 "message_id": message_id,
             }
 
-        label = payload.folder_label or bot_username
-        rel_path = _run_tdl_download_for_bot_message(msg, label)
-        saved_path = _download_media_with_telethon_timeout(
-            msg,
-            file_meta,
-            folder_label=label,
-            preferred_rel_path=rel_path,
+        label = str(payload.folder_label or bot_username).strip() or bot_username
+        folder_path = _ensure_download_folder_for_text(label)
+        reserved_path = _reserve_download_file_path(
+            folder_path=folder_path,
+            file_obj=file_meta,
+            base_name=label,
+            index=1,
+            job_id=f"single-download-{bot_username}-{message_id}",
         )
 
-        if not saved_path:
+        tdl_result = await asyncio.to_thread(
+            _run_tdl_download_for_bot_message,
+            bot_username,
+            message_id,
+            folder_path,
+            reserved_path,
+        )
+
+        telethon_result: Dict[str, Any] = {"ok": False, "reason": "not_attempted"}
+        downloader = "tdl"
+        saved_path = str(tdl_result.get("saved_path") or "").strip()
+
+        if not bool(tdl_result.get("ok")):
+            downloader = "telethon"
+            telethon_result = await _download_media_with_telethon_timeout(
+                msg,
+                reserved_path,
+                BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS,
+            )
+            if bool(telethon_result.get("ok")):
+                saved_path = str(telethon_result.get("saved_path") or "").strip()
+            else:
+                saved_path = ""
+
+        if saved_path == "":
             return {
                 "status": "fail",
-                "reason": "download_failed",
+                "reason": "download_error",
                 "bot_username": bot_username,
                 "message_id": message_id,
-                "file": file_meta,
+                "error": str(
+                    telethon_result.get("error")
+                    or telethon_result.get("reason")
+                    or tdl_result.get("error")
+                    or tdl_result.get("reason")
+                    or "download_failed"
+                ),
             }
 
         return {
@@ -7168,7 +7199,10 @@ async def download_bot_message_media(payload: BotMessageDownloadRequest):
             "message_id": message_id,
             "saved_path": saved_path,
             "saved_name": os.path.basename(saved_path),
-            "folder_path": os.path.dirname(saved_path),
+            "folder_path": folder_path,
+            "downloader": downloader,
+            "tdl": _json_sanitize(tdl_result),
+            "telethon": _json_sanitize(telethon_result),
             "file": file_meta,
         }
     except Exception as e:

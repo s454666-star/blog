@@ -3763,6 +3763,7 @@ class SendAndRunAllPagesRequest(BaseModel):
     include_files_in_response: bool = True
     max_return_files: int = 500
     max_raw_payload_bytes: int = 0
+    stop_when_total_items_exceeds: int = 0
 
     bootstrap_click_get_all: bool = True
     bootstrap_get_all_keywords: List[str] = ["獲取全部", "获取全部", "Get all", "全部获取", "全部獲取"]

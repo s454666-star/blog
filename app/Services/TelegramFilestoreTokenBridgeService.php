@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
 class TelegramFilestoreTokenBridgeService
 {
     private const FILES_TIMEOUT_SECONDS = 60;
-    private const FORWARD_TIMEOUT_SECONDS = 120;
+    private const FORWARD_TIMEOUT_SECONDS = 600;
     private const DELETE_TIMEOUT_SECONDS = 60;
     private const WAIT_TIMEOUT_SECONDS = 45;
     private const WAIT_TIMEOUT_MAX_SECONDS = 300;

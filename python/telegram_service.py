@@ -3269,13 +3269,19 @@ async def forward_messages_to_bot(payload: ForwardBotMessagesRequest):
             except Exception:
                 bridge_control_message_id = 0
 
-        forwarded = await client.forward_messages(target_entity, forwardable_messages)
-        if isinstance(forwarded, list):
-            forwarded_messages = forwarded
-        elif forwarded is None:
-            forwarded_messages = []
-        else:
-            forwarded_messages = [forwarded]
+        forwarded_messages = []
+        for offset in range(0, len(forwardable_messages), 100):
+            forwarded_batch = await client.forward_messages(
+                target_entity,
+                forwardable_messages[offset:offset + 100]
+            )
+            if isinstance(forwarded_batch, list):
+                forwarded_messages.extend(forwarded_batch)
+            elif forwarded_batch is not None:
+                forwarded_messages.append(forwarded_batch)
+
+            if offset + 100 < len(forwardable_messages):
+                await asyncio.sleep(0.2)
 
         forwarded_message_ids: List[int] = []
         for msg in forwarded_messages:

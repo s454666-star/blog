@@ -87,6 +87,7 @@ class DispatchTokenScanItemsCommand extends Command
     private const QQ_YZ_NEXT_TOKEN_DELAY_MICROSECONDS = 8000000;
     private const INITIAL_API_TIMEOUT_SECONDS = 60;
     private const FOLLOWUP_API_TIMEOUT_SECONDS = 900;
+    private const MTFXQ_COMBINED_API_TIMEOUT_SECONDS = 3600;
     private const LOCAL_FASTAPI_RESTART_WAIT_SECONDS = 20;
     private const LOCAL_FASTAPI_RESTART_BATCH_BY_PORT = [
         8000 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service.bat',
@@ -695,7 +696,15 @@ class DispatchTokenScanItemsCommand extends Command
             );
 
         if (($apiCall['ok'] ?? false) !== true) {
-            $summary = 'api_error=' . ($apiCall['error'] ?? 'unknown');
+            $apiError = trim((string) ($apiCall['error'] ?? 'unknown'));
+            $summary = 'api_error=' . ($apiError !== '' ? $apiError : 'unknown');
+
+            if (($bot['api'] ?? '') === self::BOT_MTFXQ['api'] && $this->isMtfxqCombinedPaginationTimeoutError($apiError)) {
+                $summary .= ' Combined mtfxq pagination timed out before FastAPI returned. Stop the command now because the same mtfxq run may still be continuing in the background; retry this token only after the current mtfxq run finishes.';
+                $stopProcessing = true;
+                $stopProcessingRetryable = true;
+                $stopProcessingSummary = 'Stopping dispatch because mtfxqbot combined pagination timed out and may still be running in the background.';
+            }
         } elseif ($notFound) {
             $classification = 'not_found';
             $summary = 'Bot returned not found. Keep token_scan_items row untouched.';
@@ -959,7 +968,7 @@ class DispatchTokenScanItemsCommand extends Command
 
             while (true) {
                 try {
-                    $response = Http::timeout(self::FOLLOWUP_API_TIMEOUT_SECONDS)
+                    $response = Http::timeout($this->resolveCombinedPaginationTimeoutSeconds($botUsername))
                         ->acceptJson()
                         ->asJson()
                         ->post($url, $payload);
@@ -1003,6 +1012,15 @@ class DispatchTokenScanItemsCommand extends Command
             'ok' => false,
             'error' => $lastError,
         ];
+    }
+
+    private function resolveCombinedPaginationTimeoutSeconds(string $botUsername): int
+    {
+        if ($botUsername === self::BOT_MTFXQ['api']) {
+            return self::MTFXQ_COMBINED_API_TIMEOUT_SECONDS;
+        }
+
+        return self::FOLLOWUP_API_TIMEOUT_SECONDS;
     }
 
     /**
@@ -2265,6 +2283,20 @@ class DispatchTokenScanItemsCommand extends Command
         }
 
         return false;
+    }
+
+    private function isMtfxqCombinedPaginationTimeoutError(string $error): bool
+    {
+        $normalized = Str::lower(trim($error));
+        if ($normalized === '') {
+            return false;
+        }
+
+        return Str::contains($normalized, [
+            'curl error 28',
+            'operation timed out',
+            'timed out after',
+        ]) && Str::contains($normalized, '/bots/send-and-run-all-pages');
     }
 
     /**

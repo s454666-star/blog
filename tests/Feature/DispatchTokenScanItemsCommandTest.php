@@ -915,13 +915,18 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             }
 
             $payload = $request->data();
+            $model = (string) ($payload['model'] ?? '');
             $systemPrompt = (string) ($payload['messages'][0]['content'] ?? '');
             $userPrompt = (string) ($payload['messages'][1]['content'][0]['text'] ?? '');
             $imageUrl = (string) ($payload['messages'][1]['content'][1]['image_url']['url'] ?? '');
+            $imageDetail = (string) ($payload['messages'][1]['content'][1]['image_url']['detail'] ?? '');
 
-            return str_contains($systemPrompt, 'reply with digits only')
-                && str_contains($userPrompt, 'Return only the number as plain digits')
-                && str_starts_with($imageUrl, 'data:image/jpeg;base64,');
+            return $model === 'gpt-4o'
+                && str_contains($systemPrompt, 'candidate numbers')
+                && str_contains($userPrompt, 'matching candidate number as plain digits')
+                && str_contains($userPrompt, 'Do not return any number outside the candidate list')
+                && str_starts_with($imageUrl, 'data:image/jpeg;base64,')
+                && $imageDetail === 'high';
         });
 
         Http::assertSent(function ($request): bool {
@@ -929,6 +934,214 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 && $request['bot_username'] === 'mtfxqbot'
                 && $request['sent_message_id'] === 473115
                 && $request['button_keywords'] === ['4'];
+        });
+    }
+
+    public function test_dispatch_solves_showfiles12_image_captcha_with_openai_count_and_resumes_run(): void
+    {
+        putenv('GPT_API_KEY=test-openai-key');
+        $_ENV['GPT_API_KEY'] = 'test-openai-key';
+        $_SERVER['GPT_API_KEY'] = 'test-openai-key';
+
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'QQfile_bot:14109_76302_658-261P_91',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        $tempFile = tempnam(sys_get_temp_dir(), 'showfiles12_');
+        $imagePath = $tempFile . '.jpg';
+        @rename($tempFile, $imagePath);
+        file_put_contents($imagePath, base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAVEQEBAAAAAAAAAAAAAAAAAAABAP/aAAwDAQACEAMQAAAB6AAAAP/EABQQAQAAAAAAAAAAAAAAAAAAACD/2gAIAQEAAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAACD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAACD/2gAIAQMBAT8Af//Z'));
+
+        $sendAndRunCount = 0;
+        $resumeCount = 0;
+        $openAiCount = 0;
+        $captchaAnswered = false;
+
+        try {
+            Http::fake(function ($request) use (&$sendAndRunCount, &$resumeCount, &$openAiCount, &$captchaAnswered, $imagePath) {
+                $url = $request->url();
+                $botUsername = (string) ($request['bot_username'] ?? '');
+
+                if ($url === 'http://127.0.0.1:8000/bots/send-and-run-all-pages' && $botUsername === 'showfiles12bot') {
+                    $sendAndRunCount++;
+
+                    return Http::response([
+                        'status' => 'ok',
+                        'sent_message_id' => 123300,
+                        'reason' => 'no_click',
+                        'files_unique_count' => 247,
+                        'files_total_bytes' => 1350000000,
+                        'latest_message' => [
+                            'kind' => 'state',
+                            'text_preview' => '请计算图中**✈️ 飞机**的数量以继续操作：',
+                            'has_buttons' => true,
+                            'page_info' => [],
+                        ],
+                        'timeline' => [
+                            ['step' => 24, 'status' => 'clicked', 'clicked' => '25'],
+                            ['step' => 25, 'status' => 'state'],
+                            ['step' => 25, 'status' => 'note', 'reason' => 'no_click but has_next; retry'],
+                            ['step' => 26, 'status' => 'state'],
+                            ['step' => 26, 'status' => 'done', 'reason' => 'no_click'],
+                        ],
+                        'debug' => [],
+                        'page_state' => [
+                            'did_any_pagination_click' => true,
+                            'last_clicked_page' => 25,
+                        ],
+                    ], 200);
+                }
+
+                if ($url === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot' && $botUsername === 'showfiles12bot') {
+                    $resumeCount++;
+
+                    return Http::response([
+                        'status' => 'ok',
+                        'sent_message_id' => 123300,
+                        'reason' => 'reached total items after final page click; stop',
+                        'files_unique_count' => 352,
+                        'files_total_bytes' => 1800000000,
+                        'latest_message' => [
+                            'kind' => 'state',
+                            'text_preview' => '所有资源已加载完成',
+                            'has_buttons' => false,
+                            'page_info' => [],
+                        ],
+                        'timeline' => [
+                            ['step' => 26, 'status' => 'clicked', 'clicked' => '26'],
+                            ['step' => 27, 'status' => 'done', 'reason' => 'reached total items after final page click; stop'],
+                        ],
+                        'debug' => [],
+                        'page_state' => [
+                            'did_any_pagination_click' => true,
+                            'last_clicked_page' => 26,
+                        ],
+                    ], 200);
+                }
+
+                if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                    if ((int) ($request->data()['summary_only'] ?? 1) === 0) {
+                        return Http::response([
+                            [
+                                'bot_username' => 'showfiles12bot',
+                                'message_id' => 123417,
+                                'text' => "请计算图中**✈️ 飞机**的数量以继续操作：\nTo continue, please count how many **✈️ 飞机** are shown in the image:",
+                                'buttons' => [
+                                    ['text' => '1'],
+                                    ['text' => '7'],
+                                    ['text' => '2'],
+                                    ['text' => '10'],
+                                    ['text' => '6'],
+                                    ['text' => '4'],
+                                ],
+                                'file' => [
+                                    'file_type' => 'photo',
+                                    'mime_type' => 'image/jpeg',
+                                ],
+                            ],
+                        ], 200);
+                    }
+
+                    return Http::response([], 200);
+                }
+
+                if ($url === 'http://127.0.0.1:8000/bots/download-message-media') {
+                    return Http::response([
+                        'status' => 'ok',
+                        'saved_path' => $imagePath,
+                    ], 200);
+                }
+
+                if ($url === 'https://api.openai.com/v1/chat/completions') {
+                    $openAiCount++;
+
+                    return Http::response([
+                        'choices' => [
+                            [
+                                'message' => [
+                                    'content' => '2',
+                                ],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'showfiles12bot') {
+                    $captchaAnswered = true;
+
+                    return Http::response([
+                        'status' => 'ok',
+                        'reason' => 'clicked matching button',
+                        'button_clicked' => true,
+                        'clicked_button_text' => '2',
+                        'files_unique_count' => 0,
+                        'files_total_bytes' => 0,
+                        'latest_message' => [
+                            'kind' => 'state',
+                            'text_preview' => '验证码验证成功',
+                            'has_buttons' => false,
+                            'buttons_text' => [],
+                        ],
+                        'timeline' => [],
+                        'debug' => [],
+                    ], 200);
+                }
+
+                return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
+            });
+
+            $this->artisan('tg:dispatch-token-scan-items --port=8000')
+                ->assertExitCode(0);
+        } finally {
+            @unlink($imagePath);
+        }
+
+        $this->assertSame(1, $sendAndRunCount);
+        $this->assertSame(1, $resumeCount);
+        $this->assertSame(1, $openAiCount);
+        $this->assertTrue($captchaAnswered);
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/download-message-media'
+                && $request['bot_username'] === 'showfiles12bot'
+                && $request['message_id'] === 123417
+                && $request['folder_label'] === 'showfiles12_captcha';
+        });
+
+        Http::assertSent(function ($request): bool {
+            if ($request->url() !== 'https://api.openai.com/v1/chat/completions') {
+                return false;
+            }
+
+            $payload = $request->data();
+            $model = (string) ($payload['model'] ?? '');
+            $systemPrompt = (string) ($payload['messages'][0]['content'] ?? '');
+            $userPrompt = (string) ($payload['messages'][1]['content'][0]['text'] ?? '');
+            $imageDetail = (string) ($payload['messages'][1]['content'][1]['image_url']['detail'] ?? '');
+
+            return $model === 'gpt-4o'
+                && str_contains($systemPrompt, 'candidate numbers')
+                && str_contains($userPrompt, 'matching candidate number as plain digits')
+                && str_contains($userPrompt, 'Do not return any number outside the candidate list')
+                && !str_contains($userPrompt, 'Return exactly one candidate button text')
+                && $imageDetail === 'high';
+        });
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+                && $request['bot_username'] === 'showfiles12bot'
+                && $request['sent_message_id'] === 123417
+                && $request['button_keywords'] === ['2'];
+        });
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
+                && $request['bot_username'] === 'showfiles12bot';
         });
     }
 

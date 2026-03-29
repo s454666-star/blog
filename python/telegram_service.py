@@ -6589,6 +6589,44 @@ async def _resolve_any_entity_by_id(peer_id: int):
         return None
 
 
+async def _resolve_any_input_entity_by_id(peer_id: int):
+    try:
+        return await client.get_input_entity(int(peer_id))
+    except Exception:
+        pass
+
+    try:
+        async for d in client.iter_dialogs(limit=500):
+            try:
+                ent = getattr(d, "entity", None)
+                ent_id = int(getattr(ent, "id", 0) or 0)
+            except Exception:
+                ent = None
+                ent_id = 0
+
+            if ent is None or ent_id != int(peer_id):
+                continue
+
+            migrated_to = getattr(ent, "migrated_to", None)
+            if migrated_to is not None:
+                try:
+                    return await client.get_input_entity(migrated_to)
+                except Exception:
+                    try:
+                        return migrated_to
+                    except Exception:
+                        pass
+
+            try:
+                return await client.get_input_entity(ent)
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return None
+
+
 def _message_to_full_dict(m: Any) -> Dict[str, Any]:
     if m is None:
         return {}
@@ -6871,10 +6909,79 @@ class GroupMessageDownloadRequest(BaseModel):
     folder_label: Optional[str] = None
 
 
+class GroupSendMessageRequest(BaseModel):
+    peer_id: int
+    text: str
+
+
 class BotMessageDownloadRequest(BaseModel):
     bot_username: str
     message_id: int
     folder_label: Optional[str] = None
+
+
+@app.post("/groups/send-message")
+async def send_group_message(payload: GroupSendMessageRequest):
+    peer_id = int(payload.peer_id or 0)
+    text = str(payload.text or "").strip()
+
+    if peer_id <= 0:
+        return {
+            "status": "fail",
+            "reason": "peer_id_required",
+        }
+
+    if text == "":
+        return {
+            "status": "fail",
+            "reason": "text_required",
+            "peer_id": peer_id,
+        }
+
+    connected = await _ensure_client_connected()
+    if not connected:
+        return {
+            "status": "fail",
+            "reason": "client_not_connected",
+            "peer_id": peer_id,
+        }
+
+    input_ent = await _resolve_any_input_entity_by_id(peer_id)
+    if input_ent is None:
+        return {
+            "status": "fail",
+            "reason": "entity_not_found",
+            "peer_id": peer_id,
+        }
+
+    try:
+        sent = await client.send_message(input_ent, text, parse_mode=None, link_preview=False)
+
+        result = {
+            "status": "ok",
+            "peer_id": peer_id,
+            "message_id": int(getattr(sent, "id", 0) or 0),
+            "text": text,
+        }
+        push_log(stage="group_send_message", result="ok", extra=_json_sanitize(result))
+        return result
+    except Exception as e:
+        push_log(
+            stage="group_send_message",
+            result="error",
+            extra={
+                "peer_id": peer_id,
+                "text": text[:200],
+                "error": str(e),
+                "trace": traceback.format_exc()[:800],
+            },
+        )
+        return {
+            "status": "fail",
+            "reason": "send_error",
+            "peer_id": peer_id,
+            "error": str(e),
+        }
 
 
 @app.post("/groups/download-message-media")

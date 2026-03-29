@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Dialogue;
 use App\Models\TokenScanItem;
+use App\Services\TelegramFilestoreSyncNotificationService;
 use App\Services\TelegramFilestoreTokenBridgeService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
@@ -601,7 +602,20 @@ class DispatchTokenScanItemsCommand extends Command
                 $result,
                 'Keep token_scan_items row untouched because filestore sync failed.'
             );
+
+            return $result;
         }
+
+        /** @var TelegramFilestoreSyncNotificationService $notificationService */
+        $notificationService = app(TelegramFilestoreSyncNotificationService::class);
+        $notifyResult = $notificationService->notifyTokenSynced(
+            $token,
+            $baseUri,
+            (string) config('telegram.filestore_sync_bot_username', 'filestoebot')
+        );
+
+        $result['filestore_group_notice_ok'] = ($notifyResult['ok'] ?? false) === true;
+        $result = $this->appendSummaryToResult($result, (string) ($notifyResult['summary'] ?? ''));
 
         return $result;
     }

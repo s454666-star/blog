@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\TelegramFilestoreTokenBridgeService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -37,6 +38,26 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             $table->boolean('is_read')->default(false);
             $table->boolean('is_sync')->default(false);
             $table->dateTime('created_at')->nullable();
+        });
+    }
+
+    private function createFilestoreBridgeTables(): void
+    {
+        Schema::dropIfExists('telegram_filestore_files');
+        Schema::dropIfExists('telegram_filestore_sessions');
+
+        Schema::create('telegram_filestore_sessions', function (Blueprint $table): void {
+            $table->id();
+            $table->string('source_token')->nullable();
+            $table->string('public_token')->nullable();
+            $table->string('status')->default('closed');
+            $table->unsignedInteger('total_files')->default(0);
+        });
+
+        Schema::create('telegram_filestore_files', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('session_id');
+            $table->string('file_id')->nullable();
         });
     }
 
@@ -178,6 +199,96 @@ class DispatchTokenScanItemsCommandTest extends TestCase
 
         Http::assertNotSent(function ($request): bool {
             return str_contains($request->url(), '/bots/run-all-pages-by-bot');
+        });
+    }
+
+    public function test_dispatch_sends_group_notice_after_successful_filestore_sync(): void
+    {
+        $this->createFilestoreBridgeTables();
+
+        config()->set('telegram.filestore_bot_token', 'test-filestore-bot-token');
+        config()->set('telegram.filestore_sync_bot_username', 'filestoebot');
+
+        $this->app->instance(TelegramFilestoreTokenBridgeService::class, new class
+        {
+            public function sync(string $token, string $baseUri, string $botApi, int $sentMessageId, bool $deleteSourceMessages): array
+            {
+                return [
+                    'ok' => true,
+                    'status' => 'synced',
+                    'session_id' => 9527,
+                    'public_token' => 'filestoebot_13P_notice_test',
+                    'observed_files' => 61,
+                    'observed_total_bytes' => 123,
+                    'stored_files' => 61,
+                    'skipped_files' => 0,
+                    'summary' => 'filestore synced target=@filestoebot session_id=9527 public_token=filestoebot_13P_notice_test forwarded=61 stored=61 skipped=0 deleted_forwarded=yes',
+                ];
+            }
+        });
+
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'mtfxqbot_13P_notice_sync001',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        DB::table('dialogues')->insert([
+            'chat_id' => 7702694790,
+            'message_id' => 2,
+            'text' => 'mtfxqbot_13P_notice_sync001',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        Http::fake([
+            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+                'status' => 'ok',
+                'sent_message_id' => 8811,
+                'reason' => 'reached total items after final page click; stop',
+                'files_unique_count' => 61,
+                'files_total_bytes' => 123,
+                'latest_message' => [
+                    'kind' => 'state',
+                    'text_preview' => '✅ 第 **7**/7 页 📀全部类型',
+                    'has_buttons' => false,
+                    'page_info' => [
+                        'current_page' => 7,
+                        'total_pages' => 7,
+                    ],
+                ],
+                'timeline' => [],
+                'debug' => [],
+                'page_state' => [
+                    'did_bootstrap_click' => true,
+                    'did_any_pagination_click' => true,
+                    'last_clicked_page' => 7,
+                ],
+            ], 200),
+            'https://api.telegram.org/bottest-filestore-bot-token/sendMessage' => Http::response([
+                'ok' => true,
+                'result' => [
+                    'message_id' => 777,
+                ],
+            ], 200),
+        ]);
+
+        $this->artisan('tg:dispatch-token-scan-items')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'text' => 'mtfxqbot_13P_notice_sync001',
+            'is_sync' => 1,
+        ]);
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'https://api.telegram.org/bottest-filestore-bot-token/sendMessage'
+                && (string) $request['chat_id'] === '-1003772011392'
+                && (string) $request['text'] === 'mtfxqbot_13P_notice_sync001  已收錄至機器人 @filestoebot';
         });
     }
 

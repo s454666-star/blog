@@ -20,6 +20,7 @@ class DispatchTokenScanItemsCommand extends Command
         {--limit=0 : Max rows to read from token_scan_items. 0 means unlimited}
         {--port=8000 : Telegram FastAPI service port. Default 8000}
         {--base-uri=* : Explicit Telegram API base URI(s). Overrides --port}
+        {--force-bot= : Override token routing and dispatch every token to a specific bot username}
         {--fallback-newjmqbot : Deprecated and ignored. @newjmqbot is disabled.}
         {--filestore-delete-source-messages : After successful filestore sync, also delete the source bot file messages used for this token}
         {--include-processed : Include rows with updated_at already set}
@@ -184,9 +185,18 @@ class DispatchTokenScanItemsCommand extends Command
         '抱歉，未找到可解析内容。本机器人只能解析',
         '未找到可解析内容。本机器人只能解析',
     ];
+    private ?array $forcedBotOverride = null;
 
     public function handle(): int
     {
+        $forcedBot = $this->resolveForcedBotOption((string) $this->option('force-bot'));
+        if (trim((string) $this->option('force-bot')) !== '' && $forcedBot === null) {
+            $this->error('force-bot only supports known bot usernames');
+            return self::INVALID;
+        }
+
+        $this->forcedBotOverride = $forcedBot;
+
         $doneAction = $this->normalizeDoneAction((string) $this->option('done-action'));
         if ($doneAction === null) {
             $this->error('done-action only supports touch or delete');
@@ -423,7 +433,7 @@ class DispatchTokenScanItemsCommand extends Command
     {
         $token = (string) $job['token'];
         $item = $job['item'];
-        $primaryBot = $this->resolveBotByToken($token);
+        $primaryBot = $this->forcedBotOverride ?? $this->resolveBotByToken($token);
         $bot = $primaryBot;
         $dispatchText = null;
         $attempt = 0;
@@ -833,31 +843,63 @@ class DispatchTokenScanItemsCommand extends Command
             return self::BOT_MESSENGER;
         }
 
-        if (Str::startsWith(Str::lower($token), 'qqfile_bot:')) {
-            return self::BOT_QQFILE;
-        }
+        $normalizedToken = Str::lower($token);
 
-        if (Str::startsWith(Str::lower($token), 'yzfile_bot:')) {
-            return self::BOT_YZFILE;
-        }
-
-        if (Str::startsWith(Str::lower($token), 'atfileslinksbot_')) {
-            return self::BOT_ATFILESLINKS;
-        }
-
-        if (Str::startsWith(Str::lower($token), 'lddeebot_')) {
-            return self::BOT_LDDEE;
-        }
-
-        if (Str::startsWith(Str::lower($token), 'showfilesbot_')) {
+        if (
+            Str::startsWith($normalizedToken, 'qqfile_bot:')
+            || Str::startsWith($normalizedToken, 'vi_')
+            || Str::startsWith($normalizedToken, 'iv_')
+            || Str::startsWith($normalizedToken, 'ntmjmqbot_')
+            || Str::startsWith($normalizedToken, 'showfilesbot_')
+        ) {
             return self::BOT_SHOWFILES12;
         }
 
-        if (Str::startsWith(Str::lower($token), 'mtfxqbot_')) {
+        if (Str::startsWith($normalizedToken, 'yzfile_bot:')) {
+            return self::BOT_YZFILE;
+        }
+
+        if (Str::startsWith($normalizedToken, 'atfileslinksbot_')) {
+            return self::BOT_ATFILESLINKS;
+        }
+
+        if (Str::startsWith($normalizedToken, 'lddeebot_')) {
+            return self::BOT_LDDEE;
+        }
+
+        if (Str::startsWith($normalizedToken, 'mtfxqbot_')) {
             return self::BOT_MTFXQ;
         }
 
         return self::BOT_VIPFILES;
+    }
+
+    /**
+     * @return array{api:string,display:string,mode:string}|null
+     */
+    private function resolveForcedBotOption(string $forcedBot): ?array
+    {
+        $normalized = Str::lower(ltrim(trim($forcedBot), '@'));
+        if ($normalized === '') {
+            return null;
+        }
+
+        foreach ([
+            self::BOT_MESSENGER,
+            self::BOT_VIPFILES,
+            self::BOT_SHOWFILES12,
+            self::BOT_MTFXQ,
+            self::BOT_ATFILESLINKS,
+            self::BOT_LDDEE,
+            self::BOT_QQFILE,
+            self::BOT_YZFILE,
+        ] as $bot) {
+            if (Str::lower((string) ($bot['api'] ?? '')) === $normalized) {
+                return $bot;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -3175,12 +3217,18 @@ class DispatchTokenScanItemsCommand extends Command
      */
     private function shouldStoreMtfxqInvalidTokenInDialogues(array $result): bool
     {
-        if ((string) ($result['bot_api'] ?? '') !== self::BOT_MTFXQ['api']) {
-            return false;
+        $botApi = (string) ($result['bot_api'] ?? '');
+
+        if ($botApi === self::BOT_MTFXQ['api']) {
+            return $this->isMtfxqExplicitInvalidTokenResult($result)
+                || $this->isMtfxqNoUsableResponseResult($result);
         }
 
-        return $this->isMtfxqExplicitInvalidTokenResult($result)
-            || $this->isMtfxqNoUsableResponseResult($result);
+        if ($botApi === self::BOT_SHOWFILES12['api']) {
+            return $this->isShowfiles12InvalidTokenResult($result);
+        }
+
+        return false;
     }
 
     /**
@@ -3253,6 +3301,15 @@ class DispatchTokenScanItemsCommand extends Command
 
     /**
      * @param array<string, mixed> $result
+     */
+    private function isShowfiles12InvalidTokenResult(array $result): bool
+    {
+        return (string) ($result['classification'] ?? '') === 'not_found'
+            && (string) ($result['bot_api'] ?? '') === self::BOT_SHOWFILES12['api'];
+    }
+
+    /**
+     * @param array<string, mixed> $result
      * @return array<string, mixed>
      */
     private function storeMtfxqInvalidTokenInDialogues(string $token, ?TokenScanItem $item, array $result): array
@@ -3262,7 +3319,7 @@ class DispatchTokenScanItemsCommand extends Command
         if (($dialogueSync['ok'] ?? false) !== true) {
             return $this->appendSummaryToResult(
                 $result,
-                'Could not store invalid mtfxq token into dialogues, so token_scan_items was left untouched.'
+                'Could not store invalid token into dialogues, so token_scan_items was left untouched.'
             );
         }
 
@@ -3273,9 +3330,13 @@ class DispatchTokenScanItemsCommand extends Command
 
         $result['classification'] = 'invalid_token';
 
-        $invalidReasonSummary = $this->isMtfxqExplicitInvalidTokenResult($result)
-            ? 'Bot returned explicit mtfxq unsupported-content message.'
-            : 'Bot returned no usable mtfxq text/files.';
+        if ($this->isMtfxqExplicitInvalidTokenResult($result)) {
+            $invalidReasonSummary = 'Bot returned explicit mtfxq unsupported-content message.';
+        } elseif ($this->isShowfiles12InvalidTokenResult($result)) {
+            $invalidReasonSummary = 'Bot returned showfiles12 not-found message.';
+        } else {
+            $invalidReasonSummary = 'Bot returned no usable mtfxq text/files.';
+        }
 
         if ($item instanceof TokenScanItem) {
             $result['db_action'] = $this->applyDoneAction($item, 'delete');

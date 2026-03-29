@@ -173,6 +173,54 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         });
     }
 
+    public function test_dispatch_moves_showfiles12_not_found_token_into_dialogues_and_deletes_queue_row(): void
+    {
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'QQfile_bot:14106_76302_385-140P_15V',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        DB::table('dialogues')->insert([
+            'chat_id' => 7702694790,
+            'message_id' => 10,
+            'text' => 'QQfile_bot:14106_76302_385-140P_15V',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        Http::fake([
+            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+                'status' => 'ok',
+                'reason' => 'not found',
+                'files_unique_count' => 0,
+                'files_total_bytes' => 0,
+                'latest_message' => [
+                    'kind' => 'other',
+                    'text_preview' => '💔抱歉，未找到可解析内容。',
+                    'has_buttons' => false,
+                    'page_info' => [],
+                ],
+                'timeline' => [],
+                'debug' => [],
+                'page_state' => [],
+            ], 200),
+        ]);
+
+        $this->artisan('tg:dispatch-token-scan-items')
+            ->expectsOutputToContain('stored token in dialogues with is_sync=1')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'text' => 'QQfile_bot:14106_76302_385-140P_15V',
+            'is_sync' => 1,
+        ]);
+    }
+
     public function test_dispatch_uses_send_and_run_all_pages_for_mtfxq_bot(): void
     {
         $itemId = DB::table('token_scan_items')->insertGetId([
@@ -1123,7 +1171,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
         });
 
-        $this->artisan('tg:dispatch-token-scan-items')->assertExitCode(0);
+        $this->artisan('tg:dispatch-token-scan-items --force-bot=QQfile_bot')->assertExitCode(0);
 
         $this->assertDatabaseMissing('token_scan_items', [
             'id' => $itemId,
@@ -1325,7 +1373,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
         });
 
-        $this->artisan('tg:dispatch-token-scan-items')->assertExitCode(0);
+        $this->artisan('tg:dispatch-token-scan-items --force-bot=QQfile_bot')->assertExitCode(0);
 
         $this->assertSame(2, $sendCount);
         $this->assertSame(1, $openAiCount);
@@ -1436,7 +1484,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
         });
 
-        $this->artisan('tg:dispatch-token-scan-items')->assertExitCode(0);
+        $this->artisan('tg:dispatch-token-scan-items --force-bot=QQfile_bot')->assertExitCode(0);
 
         $this->assertDatabaseMissing('token_scan_items', [
             'id' => $itemId,
@@ -1622,7 +1670,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
         });
 
-        $this->artisan('tg:dispatch-token-scan-items --stopped-early-retry-delay=0')
+        $this->artisan('tg:dispatch-token-scan-items --force-bot=QQfile_bot --stopped-early-retry-delay=0')
             ->assertExitCode(0);
 
         $this->assertSame(2, $sendCount);
@@ -1674,7 +1722,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
         });
 
-        $this->artisan('tg:dispatch-token-scan-items --stopped-early-retry-delay=0 --stopped-early-max-retries=0')
+        $this->artisan('tg:dispatch-token-scan-items --force-bot=QQfile_bot --stopped-early-retry-delay=0 --stopped-early-max-retries=0')
             ->assertExitCode(3);
 
         $this->assertDatabaseHas('token_scan_items', [

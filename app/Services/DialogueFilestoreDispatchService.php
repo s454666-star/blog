@@ -74,7 +74,7 @@ class DialogueFilestoreDispatchService
             ->first(['id', 'public_token', 'status', 'total_files']);
 
         if (!$session) {
-            $terminal = $this->inferTerminalStatusFromOutput($capturedOutput);
+        $terminal = $this->inferTerminalStatusFromOutput($capturedOutput, $exitCode);
 
             return [
                 'ok' => false,
@@ -105,9 +105,28 @@ class DialogueFilestoreDispatchService
     /**
      * @return array{status:string,summary:string}
      */
-    private function inferTerminalStatusFromOutput(string $capturedOutput): array
+    private function inferTerminalStatusFromOutput(string $capturedOutput, int $exitCode = 0): array
     {
         $normalizedOutput = Str::lower($capturedOutput);
+
+        if ($exitCode === 3 || Str::contains($normalizedOutput, 'stopped_early=1')) {
+            $lines = preg_split('/\r\n|\r|\n/', trim($capturedOutput)) ?: [];
+            $matchingLine = '';
+
+            foreach ($lines as $line) {
+                $line = trim((string) $line);
+                if ($line !== '' && Str::contains(Str::lower($line), 'stopping dispatch because')) {
+                    $matchingLine = $line;
+                }
+            }
+
+            return [
+                'status' => 'stopped_early',
+                'summary' => $matchingLine !== ''
+                    ? $matchingLine
+                    : 'dispatch stopped early because the current bot run may still be continuing in the background',
+            ];
+        }
 
         if (Str::contains($normalizedOutput, 'stored token in dialogues with is_sync=1')) {
             $lines = preg_split('/\r\n|\r|\n/', trim($capturedOutput)) ?: [];

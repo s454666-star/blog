@@ -11,6 +11,8 @@ use Illuminate\Support\Str;
 
 class BridgeDialogueTokensToFilestoreCommand extends Command
 {
+    private const STOPPED_EARLY_EXIT = 3;
+
     protected $signature = 'filestore:bridge-dialogues-tokens
         {--prefix=mtfxqbot_ : Only process extracted tokens with this prefix}
         {--search= : Optional text needle for narrowing dialogues rows before token extraction}
@@ -54,7 +56,7 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
             '--port' => max((int) $this->option('port'), 1),
             '--base-uri' => (array) $this->option('base-uri'),
             '--filestore-delete-source-messages' => true,
-            '--skip-when-total-files-exceeds' => 300,
+            '--skip-when-total-files-exceeds' => 400,
         ];
 
         $existingTokens = $this->loadExistingSourceTokenSet($normalizedPrefix);
@@ -72,6 +74,7 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
             'rows_marked_sync' => 0,
         ];
         $tokenDecisions = [];
+        $stoppedEarly = false;
 
         $this->line(sprintf(
             'prefix=%s search=%s limit=%d row_chunk=%d existing_source_tokens=%d retry_delay=%d max_retries=%d',
@@ -166,7 +169,7 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
                     if ($limit > 0 && $stats['attempted'] >= $limit) {
                         $limitReached = true;
                         $canMarkRowAsSynced = false;
-                        break 2;
+                        break 3;
                     }
 
                     $stats['attempted']++;
@@ -184,6 +187,24 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
                         $retryDelaySeconds,
                         $maxRetries
                     );
+
+                    if ((string) ($result['status'] ?? '') === 'stopped_early') {
+                        $tokenDecisions[$normalizedToken] = [
+                            'mark_is_sync' => false,
+                            'reason' => 'stopped_early',
+                        ];
+                        $canMarkRowAsSynced = false;
+                        $stoppedEarly = true;
+                        $stats['failed']++;
+                        $this->warn(sprintf(
+                            'stopped_early dialogue_id=%d token=%s exit_code=%d summary=%s',
+                            $rowId,
+                            $token,
+                            (int) ($result['exit_code'] ?? self::STOPPED_EARLY_EXIT),
+                            trim((string) ($result['summary'] ?? 'dispatch stopped early'))
+                        ));
+                        break 3;
+                    }
 
                     if (($result['ok'] ?? false) === true) {
                         $existingTokens[$normalizedToken] = true;
@@ -259,6 +280,11 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
         }
 
         $this->printSummary($stats);
+
+        if ($stoppedEarly) {
+            $this->line('stopped_early=1');
+            return self::STOPPED_EARLY_EXIT;
+        }
 
         return self::SUCCESS;
     }

@@ -118,7 +118,7 @@ class BridgeDialogueTokensToFilestoreCommandTest extends TestCase
             ->andReturnUsing(function (string $token, array $options, $output = null) use (&$dispatches): array {
                 $dispatches[] = $token;
                 $this->assertTrue($options['--filestore-delete-source-messages'] ?? false);
-                $this->assertSame(300, $options['--skip-when-total-files-exceeds'] ?? null);
+                $this->assertSame(400, $options['--skip-when-total-files-exceeds'] ?? null);
 
                 $sessionId = DB::table('telegram_filestore_sessions')->insertGetId([
                     'chat_id' => 7702694790,
@@ -316,13 +316,13 @@ class BridgeDialogueTokensToFilestoreCommandTest extends TestCase
             ->once()
             ->andReturnUsing(function (string $token, array $options, $output = null): array {
                 $this->assertSame('QQfile_bot:14936_58526_793-573V', $token);
-                $this->assertSame(300, $options['--skip-when-total-files-exceeds'] ?? null);
+                $this->assertSame(400, $options['--skip-when-total-files-exceeds'] ?? null);
 
                 return [
                     'ok' => false,
                     'status' => 'file_count_limit',
                     'exit_code' => 0,
-                    'summary' => 'Skipped before pagination because reported total_items=573 exceeded limit=300. Keep token_scan_items row untouched.',
+                    'summary' => 'Skipped before pagination because reported total_items=573 exceeded limit=400. Keep token_scan_items row untouched.',
                 ];
             });
 
@@ -339,6 +339,63 @@ class BridgeDialogueTokensToFilestoreCommandTest extends TestCase
             'is_sync' => 1,
         ]);
         $this->assertDatabaseCount('telegram_filestore_sessions', 0);
+    }
+
+    public function test_command_stops_early_without_processing_next_dialogue_when_dispatch_reports_background_run_active(): void
+    {
+        DB::table('dialogues')->insert([
+            [
+                'id' => 41,
+                'chat_id' => 1,
+                'message_id' => 41,
+                'text' => 'QQfile_bot:14109_76302_658-261P_91',
+                'is_read' => 1,
+                'is_sync' => 0,
+                'created_at' => now(),
+            ],
+            [
+                'id' => 40,
+                'chat_id' => 1,
+                'message_id' => 40,
+                'text' => 'QQfile_bot:17332_104602_296-5P_18V',
+                'is_read' => 1,
+                'is_sync' => 0,
+                'created_at' => now(),
+            ],
+        ]);
+
+        $dispatches = [];
+
+        $mock = Mockery::mock(DialogueFilestoreDispatchService::class);
+        $mock->shouldReceive('dispatchToken')
+            ->once()
+            ->andReturnUsing(function (string $token, array $options, $output = null) use (&$dispatches): array {
+                $dispatches[] = $token;
+
+                return [
+                    'ok' => false,
+                    'status' => 'stopped_early',
+                    'exit_code' => 3,
+                    'summary' => 'Stopping dispatch because @showfiles12bot combined pagination was interrupted and may still be running in the background.',
+                ];
+            });
+
+        $this->app->instance(DialogueFilestoreDispatchService::class, $mock);
+
+        $this->artisan('filestore:bridge-dialogues-tokens --prefix=QQfile_bot: --retry-delay=0 --max-retries=0')
+            ->expectsOutputToContain('stopped_early dialogue_id=41 token=QQfile_bot:14109_76302_658-261P_91')
+            ->expectsOutputToContain('stopped_early=1')
+            ->assertExitCode(3);
+
+        $this->assertSame(['QQfile_bot:14109_76302_658-261P_91'], $dispatches);
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 41,
+            'is_sync' => 0,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 40,
+            'is_sync' => 0,
+        ]);
     }
 
     public function test_command_does_not_skip_uploading_source_token_sessions(): void

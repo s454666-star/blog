@@ -745,15 +745,15 @@ class DispatchTokenScanItemsCommand extends Command
             $apiError = trim((string) ($apiCall['error'] ?? 'unknown'));
             $summary = 'api_error=' . ($apiError !== '' ? $apiError : 'unknown');
 
-            if ($this->isCombinedPaginationBotApi((string) ($bot['api'] ?? '')) && $this->isCombinedPaginationTimeoutError($apiError)) {
+            if ($this->isCombinedPaginationBotApi((string) ($bot['api'] ?? '')) && $this->isCombinedPaginationInterruptedError($apiError)) {
                 $summary .= sprintf(
-                    ' Combined %s pagination timed out before FastAPI returned. Stop the command now because the same bot run may still be continuing in the background; retry this token only after the current run finishes.',
+                    ' Combined %s pagination was interrupted before FastAPI returned. Stop the command now because the same bot run may still be continuing in the background; retry this token only after the current run finishes.',
                     (string) ($bot['api'] ?? 'bot')
                 );
                 $stopProcessing = true;
                 $stopProcessingRetryable = true;
                 $stopProcessingSummary = sprintf(
-                    'Stopping dispatch because %s combined pagination timed out and may still be running in the background.',
+                    'Stopping dispatch because %s combined pagination was interrupted and may still be running in the background.',
                     (string) ($bot['display'] ?? '@bot')
                 );
             }
@@ -1095,6 +1095,17 @@ class DispatchTokenScanItemsCommand extends Command
                         && $this->restartLocalFastApiService($baseUri, $lastError)
                     ) {
                         $restartAttempted = true;
+                        if ($this->shouldResumeCombinedPaginationAfterRestart($lastError)) {
+                            $resumeResult = $this->resumeCombinedPaginationApi($baseUri, $botUsername);
+                            if (($resumeResult['ok'] ?? false) === true) {
+                                return $resumeResult;
+                            }
+
+                            $resumeError = trim((string) ($resumeResult['error'] ?? 'unknown'));
+                            $lastError .= ' combined pagination resume failed: ' . ($resumeError !== '' ? $resumeError : 'unknown');
+                            break;
+                        }
+
                         continue;
                     }
                 }
@@ -1107,6 +1118,56 @@ class DispatchTokenScanItemsCommand extends Command
             'ok' => false,
             'error' => $lastError,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function resumeCombinedPaginationApi(string $baseUri, string $botUsername): array
+    {
+        $url = rtrim($baseUri, '/') . '/bots/run-all-pages-by-bot';
+        $payload = $this->buildPaginationPayload($botUsername);
+
+        try {
+            $response = Http::timeout($this->resolveCombinedPaginationTimeoutSeconds($botUsername))
+                ->acceptJson()
+                ->asJson()
+                ->post($url, $payload);
+
+            if (!$response->ok()) {
+                return [
+                    'ok' => false,
+                    'error' => 'run_all_pages_by_bot HTTP ' . $response->status(),
+                ];
+            }
+
+            $json = $response->json();
+            if (!is_array($json)) {
+                return [
+                    'ok' => false,
+                    'error' => 'run_all_pages_by_bot invalid json response',
+                ];
+            }
+
+            $this->line(sprintf(
+                'fastapi_resume base_uri=%s bot=%s via=/bots/run-all-pages-by-bot',
+                $baseUri,
+                '@' . ltrim($botUsername, '@')
+            ));
+
+            return [
+                'ok' => true,
+                'base_uri' => $baseUri,
+                'http_status' => $response->status(),
+                'sent_message_id' => 0,
+                'json' => $json,
+            ];
+        } catch (Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => $e->getMessage(),
+            ];
+        }
     }
 
     private function resolveCombinedPaginationTimeoutSeconds(string $botUsername): int
@@ -2387,7 +2448,7 @@ class DispatchTokenScanItemsCommand extends Command
         return false;
     }
 
-    private function isCombinedPaginationTimeoutError(string $error): bool
+    private function isCombinedPaginationInterruptedError(string $error): bool
     {
         $normalized = Str::lower(trim($error));
         if ($normalized === '') {
@@ -2396,9 +2457,31 @@ class DispatchTokenScanItemsCommand extends Command
 
         return Str::contains($normalized, [
             'curl error 28',
+            'curl error 56',
+            'curl error 7',
             'operation timed out',
             'timed out after',
+            'recv failure',
+            'connection was reset',
+            'couldn\'t connect to server',
         ]) && Str::contains($normalized, '/bots/send-and-run-all-pages');
+    }
+
+    private function shouldResumeCombinedPaginationAfterRestart(string $error): bool
+    {
+        $normalized = Str::lower(trim($error));
+        if ($normalized === '') {
+            return false;
+        }
+
+        return Str::contains($normalized, '/bots/send-and-run-all-pages') && Str::contains($normalized, [
+            'curl error 28',
+            'curl error 56',
+            'operation timed out',
+            'timed out after',
+            'recv failure',
+            'connection was reset',
+        ]);
     }
 
     /**

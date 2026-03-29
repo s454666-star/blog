@@ -145,4 +145,33 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
             $result['summary']
         );
     }
+
+    public function test_dispatch_token_classifies_stopped_early_output_without_session(): void
+    {
+        Artisan::shouldReceive('call')
+            ->once()
+            ->andReturnUsing(function (string $command, array $parameters, $output): int {
+                $this->assertSame('tg:dispatch-token-scan-items', $command);
+                $this->assertSame(['QQfile_bot:14109_76302_658-261P_91'], $parameters['tokens']);
+                $this->assertSame(8001, $parameters['--port']);
+
+                $output->writeln(
+                    'Stopping dispatch because @showfiles12bot combined pagination was interrupted and may still be running in the background.'
+                );
+                $output->writeln('stopped_early=1');
+
+                return 3;
+            });
+
+        $result = $this->app->make(DialogueFilestoreDispatchService::class)
+            ->dispatchToken('QQfile_bot:14109_76302_658-261P_91', ['--port' => 8001]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('stopped_early', $result['status']);
+        $this->assertSame(
+            'Stopping dispatch because @showfiles12bot combined pagination was interrupted and may still be running in the background.',
+            $result['summary']
+        );
+        $this->assertSame(3, $result['exit_code']);
+    }
 }

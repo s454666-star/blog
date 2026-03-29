@@ -5,6 +5,25 @@ goto main
 
 :select_fastapi_target
 set "NEXT_PORT="
+set "BRIDGE_FASTAPI_PORT="
+set "FASTAPI_SELECTION_REASON=rotation"
+
+call :detect_bridge_fastapi_port
+if /i "%BRIDGE_FASTAPI_PORT%"=="8000" (
+    set "FASTAPI_PORT=8001"
+    set "FASTAPI_TASK=TG API2"
+    >"%PORT_STATE_FILE%" echo 8000
+    set "FASTAPI_SELECTION_REASON=bridge_running_on_8000"
+    exit /b 0
+)
+
+if /i "%BRIDGE_FASTAPI_PORT%"=="8001" (
+    set "FASTAPI_PORT=8000"
+    set "FASTAPI_TASK=Telegram FastAPI Service"
+    >"%PORT_STATE_FILE%" echo 8001
+    set "FASTAPI_SELECTION_REASON=bridge_running_on_8001"
+    exit /b 0
+)
 
 if exist "%PORT_STATE_FILE%" (
     set /p NEXT_PORT=<"%PORT_STATE_FILE%"
@@ -14,12 +33,28 @@ if /i "%NEXT_PORT%"=="8001" (
     set "FASTAPI_PORT=8001"
     set "FASTAPI_TASK=TG API2"
     >"%PORT_STATE_FILE%" echo 8000
+    set "FASTAPI_SELECTION_REASON=rotation_state_8001"
     exit /b 0
 )
 
 set "FASTAPI_PORT=8000"
 set "FASTAPI_TASK=Telegram FastAPI Service"
 >"%PORT_STATE_FILE%" echo 8001
+set "FASTAPI_SELECTION_REASON=rotation_state_default_8000"
+exit /b 0
+
+:detect_bridge_fastapi_port
+set "BRIDGE_PORT_FILE=%LOG_DIR%\tg_scan_dispatch_bridge_port.tmp"
+if exist "%BRIDGE_PORT_FILE%" del /f /q "%BRIDGE_PORT_FILE%" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "$ports = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -ieq 'php.exe' -and $_.CommandLine -like '*artisan filestore:bridge-dialogues-tokens*' } | ForEach-Object { if ($_.CommandLine -match '--port=(8000|8001)') { $matches[1] } } | Sort-Object -Unique);" ^
+    "$value = '';" ^
+    "if ($ports.Count -eq 1) { $value = [string] $ports[0] }" ^
+    "Set-Content -Path '%BRIDGE_PORT_FILE%' -Value $value -NoNewline"
+if exist "%BRIDGE_PORT_FILE%" (
+    set /p BRIDGE_FASTAPI_PORT=<"%BRIDGE_PORT_FILE%"
+    del /f /q "%BRIDGE_PORT_FILE%" >nul 2>&1
+)
 exit /b 0
 
 :ensure_fastapi_port
@@ -128,11 +163,16 @@ if errorlevel 1 (
     goto cleanup
 )
 
-echo [%date% %time%] Selected FastAPI target %FASTAPI_HOST%:%FASTAPI_PORT% task="%FASTAPI_TASK%".>>"%LOG_FILE%"
+echo [%date% %time%] Selected FastAPI target %FASTAPI_HOST%:%FASTAPI_PORT% task="%FASTAPI_TASK%" reason="%FASTAPI_SELECTION_REASON%" bridge_port="%BRIDGE_FASTAPI_PORT%".>>"%LOG_FILE%"
 
 call :ensure_fastapi_port
 if errorlevel 1 (
     set "PORT_CHECK_EXIT=%ERRORLEVEL%"
+    goto cleanup
+)
+
+if /i "%TG_SCAN_DISPATCH_SELECT_ONLY%"=="1" (
+    echo [%date% %time%] Select-only mode enabled. Skip scan and dispatch execution.>>"%LOG_FILE%"
     goto cleanup
 )
 

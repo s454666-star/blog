@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Log;
 
 class TelegramFilestoreSyncNotificationService
 {
-    private const GROUP_PEER_ID = 5106215274;
+    private const GROUP_PEER_ID = 3772011392;
     private const DEFAULT_TARGET_BOT = 'filestoebot';
 
     /**

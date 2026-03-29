@@ -5400,7 +5400,7 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
     total_items_exceeded_limit_value = 0
     total_items_exceeded_limit_limit = max(int(payload.stop_when_total_items_exceeds or 0), 0)
     download_job_id = uuid.uuid4().hex
-    folder_path = _ensure_download_folder_for_text(payload.text)
+    folder_path = ""
     DOWNLOAD_JOBS[download_job_id] = {
         "status": "pending",
         "created_at_s": _now_s(),
@@ -5413,6 +5413,16 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
         "last_saved_path": None,
         "last_error": None,
     }
+
+    def _ensure_download_job_folder() -> str:
+        nonlocal folder_path
+        if folder_path:
+            return folder_path
+        folder_path = _ensure_download_folder_for_text(payload.text)
+        job = DOWNLOAD_JOBS.get(download_job_id) or {}
+        job["folder_path"] = folder_path
+        DOWNLOAD_JOBS[download_job_id] = job
+        return folder_path
 
     def _attach_files(resp: Dict[str, Any]) -> Dict[str, Any]:
         if not payload.include_files_in_response:
@@ -5437,7 +5447,7 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             "last_clicked_page": last_clicked_page,
             "last_clicked_desc": last_clicked_desc
         }
-        resp["download"] = {"job_id": download_job_id, "folder_path": folder_path, "base_name": payload.text}
+        resp["download"] = {"job_id": download_job_id, "folder_path": folder_path or None, "base_name": payload.text}
         return resp
 
     def _freeze_cleanup_window() -> None:
@@ -5571,10 +5581,11 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             return
 
         try:
+            actual_folder_path = _ensure_download_job_folder()
             await _background_download_files(
                 payload.bot_username,
                 files,
-                folder_path,
+                actual_folder_path,
                 payload.text,
                 download_job_id,
                 slow_seconds=0.8,
@@ -5631,6 +5642,8 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
         download_resp["status"] = str(prepared_download.get("mode") or "")
         download_resp["total"] = int(prepared_download.get("files_count", 0) or 0)
         download_resp["files_total_bytes"] = int(prepared_download.get("total_bytes", 0) or 0)
+        if str(prepared_download.get("mode") or "") == "queued":
+            download_resp["folder_path"] = _ensure_download_job_folder()
         resp["download"] = download_resp
         if str(prepared_download.get("mode") or "") == "queued":
             if payload.wait_download_completion:
@@ -5671,6 +5684,8 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
         download_resp["status"] = str(prepared_download.get("mode") or "")
         download_resp["total"] = int(prepared_download.get("files_count", 0) or 0)
         download_resp["files_total_bytes"] = int(prepared_download.get("total_bytes", 0) or 0)
+        if str(prepared_download.get("mode") or "") == "queued":
+            download_resp["folder_path"] = _ensure_download_job_folder()
         resp["download"] = download_resp
         if str(prepared_download.get("mode") or "") == "queued":
             if payload.wait_download_completion:

@@ -957,7 +957,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             $imageUrl = (string) ($payload['messages'][1]['content'][1]['image_url']['url'] ?? '');
             $imageDetail = (string) ($payload['messages'][1]['content'][1]['image_url']['detail'] ?? '');
 
-            return $model === 'gpt-5'
+            return $model === 'gpt-5.4'
                 && (string) ($payload['reasoning_effort'] ?? '') === 'high'
                 && str_contains($systemPrompt, 'candidate numbers')
                 && str_contains($userPrompt, 'matching candidate number as plain digits')
@@ -1161,7 +1161,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             $userPrompt = (string) ($payload['messages'][1]['content'][0]['text'] ?? '');
             $imageDetail = (string) ($payload['messages'][1]['content'][1]['image_url']['detail'] ?? '');
 
-            return $model === 'gpt-5'
+            return $model === 'gpt-5.4'
                 && (string) ($payload['reasoning_effort'] ?? '') === 'high'
                 && str_contains($systemPrompt, 'candidate numbers')
                 && str_contains($userPrompt, 'matching candidate number as plain digits')

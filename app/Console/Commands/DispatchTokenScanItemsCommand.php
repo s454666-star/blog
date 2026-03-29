@@ -171,8 +171,8 @@ class DispatchTokenScanItemsCommand extends Command
     private const MTFXQ_DETAILED_REPLIES_FETCH_LIMIT = 40;
     private const MTFXQ_CAPTCHA_DOWNLOAD_LABEL = 'mtfxq_captcha';
     private const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
-    private const OPENAI_MODEL = 'gpt-5';
-    private const OPENAI_IMAGE_CAPTCHA_MODEL = 'gpt-5';
+    private const OPENAI_MODEL = 'gpt-5.4';
+    private const OPENAI_IMAGE_CAPTCHA_MODEL = 'gpt-5.4';
     private const OPENAI_TIMEOUT_SECONDS = 60;
 
     private const NOT_FOUND_MARKERS = [

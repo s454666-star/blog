@@ -779,7 +779,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
     }
 
-    public function test_dispatch_solves_mtfxq_image_captcha_with_openai_number_only(): void
+    public function test_dispatch_solves_mtfxq_image_captcha_with_openai_number_only_and_resends_after_reset(): void
     {
         putenv('GPT_API_KEY=test-openai-key');
         $_ENV['GPT_API_KEY'] = 'test-openai-key';
@@ -808,9 +808,10 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         $sendAndRunCount = 0;
         $captchaAnswered = false;
         $openAiCount = 0;
+        $deletedMessagePayloads = [];
 
         try {
-            Http::fake(function ($request) use (&$sendAndRunCount, &$captchaAnswered, &$openAiCount, $imagePath) {
+            Http::fake(function ($request) use (&$sendAndRunCount, &$captchaAnswered, &$openAiCount, &$deletedMessagePayloads, $imagePath) {
                 $url = $request->url();
                 $botUsername = (string) ($request['bot_username'] ?? '');
 
@@ -855,6 +856,23 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 }
 
                 if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                    $minMessageId = (int) ($request->data()['min_message_id'] ?? 0);
+
+                    if ($captchaAnswered && $minMessageId === 473200) {
+                        return Http::response([
+                            [
+                                'bot_username' => 'mtfxqbot',
+                                'message_id' => 473205,
+                                'text' => 'partial page data',
+                            ],
+                            [
+                                'bot_username' => 'mtfxqbot',
+                                'message_id' => 473215,
+                                'text' => 'please count captcha',
+                            ],
+                        ], 200);
+                    }
+
                     if (!$captchaAnswered) {
                         return Http::response([
                             [
@@ -876,6 +894,15 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     }
 
                     return Http::response([], 200);
+                }
+
+                if ($url === 'http://127.0.0.1:8000/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxqbot') {
+                    $deletedMessagePayloads[] = $request->data();
+
+                    return Http::response([
+                        'status' => 'ok',
+                        'deleted_count' => count((array) ($request['message_ids'] ?? [])),
+                    ], 200);
                 }
 
                 if ($url === 'http://127.0.0.1:8000/bots/download-message-media') {
@@ -931,6 +958,8 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         $this->assertSame(2, $sendAndRunCount);
         $this->assertSame(1, $openAiCount);
         $this->assertTrue($captchaAnswered);
+        $this->assertCount(1, $deletedMessagePayloads);
+        $this->assertSame([473200, 473205, 473215], array_values($deletedMessagePayloads[0]['message_ids'] ?? []));
         $this->assertDatabaseMissing('token_scan_items', [
             'id' => $itemId,
         ]);
@@ -972,9 +1001,15 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 && $request['sent_message_id'] === 473115
                 && $request['button_keywords'] === ['4'];
         });
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/delete-messages'
+                && $request['chat_peer'] === 'mtfxqbot'
+                && $request['message_ids'] === [473200, 473205, 473215];
+        });
     }
 
-    public function test_dispatch_solves_showfiles12_image_captcha_with_openai_count_and_resumes_run(): void
+    public function test_dispatch_solves_showfiles12_image_captcha_with_openai_count_and_resends_after_reset(): void
     {
         putenv('GPT_API_KEY=test-openai-key');
         $_ENV['GPT_API_KEY'] = 'test-openai-key';
@@ -992,17 +1027,42 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         file_put_contents($imagePath, base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAVEQEBAAAAAAAAAAAAAAAAAAABAP/aAAwDAQACEAMQAAAB6AAAAP/EABQQAQAAAAAAAAAAAAAAAAAAACD/2gAIAQEAAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAACD/2gAIAQIBAT8Af//EABQRAQAAAAAAAAAAAAAAAAAAACD/2gAIAQMBAT8Af//Z'));
 
         $sendAndRunCount = 0;
-        $resumeCount = 0;
         $openAiCount = 0;
         $captchaAnswered = false;
+        $deletedMessagePayloads = [];
 
         try {
-            Http::fake(function ($request) use (&$sendAndRunCount, &$resumeCount, &$openAiCount, &$captchaAnswered, $imagePath) {
+            Http::fake(function ($request) use (&$sendAndRunCount, &$openAiCount, &$captchaAnswered, &$deletedMessagePayloads, $imagePath) {
                 $url = $request->url();
                 $botUsername = (string) ($request['bot_username'] ?? '');
 
                 if ($url === 'http://127.0.0.1:8000/bots/send-and-run-all-pages' && $botUsername === 'showfiles12bot') {
                     $sendAndRunCount++;
+
+                    if ($sendAndRunCount === 2) {
+                        return Http::response([
+                            'status' => 'ok',
+                            'sent_message_id' => 123500,
+                            'reason' => 'reached total items after final page click; stop',
+                            'files_unique_count' => 352,
+                            'files_total_bytes' => 1800000000,
+                            'latest_message' => [
+                                'kind' => 'state',
+                                'text_preview' => 'all files collected',
+                                'has_buttons' => false,
+                                'page_info' => [],
+                            ],
+                            'timeline' => [
+                                ['step' => 0, 'status' => 'first_message_chosen'],
+                                ['step' => 1, 'status' => 'done', 'reason' => 'reached total items after final page click; stop'],
+                            ],
+                            'debug' => [],
+                            'page_state' => [
+                                'did_any_pagination_click' => true,
+                                'last_clicked_page' => 27,
+                            ],
+                        ], 200);
+                    }
 
                     return Http::response([
                         'status' => 'ok',
@@ -1060,6 +1120,38 @@ class DispatchTokenScanItemsCommandTest extends TestCase
 
                 if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
                     if ((int) ($request->data()['summary_only'] ?? 1) === 0) {
+                        if ($captchaAnswered && (int) ($request->data()['min_message_id'] ?? 0) === 123300) {
+                            return Http::response([
+                                [
+                                    'bot_username' => 'showfiles12bot',
+                                    'message_id' => 123305,
+                                    'text' => '请选择要获取的文件类型',
+                                ],
+                                [
+                                    'bot_username' => 'showfiles12bot',
+                                    'message_id' => 123350,
+                                    'text' => 'partial page data',
+                                ],
+                                [
+                                    'bot_username' => 'showfiles12bot',
+                                    'message_id' => 123417,
+                                    'text' => 'To continue, please count how many **Plane** are shown in the image:',
+                                    'buttons' => [
+                                        ['text' => '1'],
+                                        ['text' => '7'],
+                                        ['text' => '2'],
+                                        ['text' => '10'],
+                                        ['text' => '6'],
+                                        ['text' => '4'],
+                                    ],
+                                    'file' => [
+                                        'file_type' => 'photo',
+                                        'mime_type' => 'image/jpeg',
+                                    ],
+                                ],
+                            ], 200);
+                        }
+
                         return Http::response([
                             [
                                 'bot_username' => 'showfiles12bot',
@@ -1082,6 +1174,15 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     }
 
                     return Http::response([], 200);
+                }
+
+                if ($url === 'http://127.0.0.1:8000/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'showfiles12bot') {
+                    $deletedMessagePayloads[] = $request->data();
+
+                    return Http::response([
+                        'status' => 'ok',
+                        'deleted_count' => count((array) ($request['message_ids'] ?? [])),
+                    ], 200);
                 }
 
                 if ($url === 'http://127.0.0.1:8000/bots/download-message-media') {
@@ -1135,10 +1236,11 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             @unlink($imagePath);
         }
 
-        $this->assertSame(1, $sendAndRunCount);
-        $this->assertSame(1, $resumeCount);
+        $this->assertSame(2, $sendAndRunCount);
         $this->assertSame(1, $openAiCount);
         $this->assertTrue($captchaAnswered);
+        $this->assertCount(1, $deletedMessagePayloads);
+        $this->assertSame([123300, 123305, 123350, 123417], array_values($deletedMessagePayloads[0]['message_ids'] ?? []));
         $this->assertDatabaseMissing('token_scan_items', [
             'id' => $itemId,
         ]);
@@ -1178,6 +1280,12 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         });
 
         Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/delete-messages'
+                && $request['chat_peer'] === 'showfiles12bot'
+                && $request['message_ids'] === [123300, 123305, 123350, 123417];
+        });
+
+        Http::assertNotSent(function ($request): bool {
             return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
                 && $request['bot_username'] === 'showfiles12bot';
         });
@@ -1297,6 +1405,13 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     }
 
                     return Http::response([], 200);
+                }
+
+                if ($url === 'http://127.0.0.1:8000/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxqbot') {
+                    return Http::response([
+                        'status' => 'ok',
+                        'deleted_count' => count((array) ($request['message_ids'] ?? [])),
+                    ], 200);
                 }
 
                 if ($url === 'http://127.0.0.1:8000/bots/download-message-media') {

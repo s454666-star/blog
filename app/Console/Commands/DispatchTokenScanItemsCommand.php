@@ -169,6 +169,7 @@ class DispatchTokenScanItemsCommand extends Command
     private const MTFXQ_CAPTCHA_POST_CLICK_DELAY_MICROSECONDS = 2000000;
     private const MTFXQ_CAPTCHA_REFRESH_DELAY_MICROSECONDS = 1500000;
     private const MTFXQ_DETAILED_REPLIES_FETCH_LIMIT = 40;
+    private const CAPTCHA_RESET_REPLIES_FETCH_LIMIT = 5000;
     private const MTFXQ_CAPTCHA_DOWNLOAD_LABEL = 'mtfxq_captcha';
     private const OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
     private const OPENAI_MODEL = 'gpt-5.4';
@@ -456,17 +457,11 @@ class DispatchTokenScanItemsCommand extends Command
         $mtfxqCaptchaSolvedSummaries = [];
         $showfiles12CaptchaRetries = 0;
         $showfiles12CaptchaSolvedSummaries = [];
-        $resumeCombinedPaginationBaseUri = '';
         $bridgeSentMessageId = 0;
 
         while (true) {
             $attempt++;
-            if ($resumeCombinedPaginationBaseUri !== '' && ($bot['api'] ?? '') === self::BOT_SHOWFILES12['api']) {
-                $result = $this->runBotResumeAttempt($bot, $resumeCombinedPaginationBaseUri, $dispatchText ?? $token);
-                $resumeCombinedPaginationBaseUri = '';
-            } else {
-                $result = $this->runBotAttempt($token, $bot, $dispatchText);
-            }
+            $result = $this->runBotAttempt($token, $bot, $dispatchText);
 
             if ((int) ($result['sent_message_id'] ?? 0) > 0) {
                 $bridgeSentMessageId = (int) $result['sent_message_id'];
@@ -547,8 +542,19 @@ class DispatchTokenScanItemsCommand extends Command
                     $mtfxqCaptchaRetries++;
 
                     $captchaSummary = trim((string) ($captchaResult['summary'] ?? ''));
-                    if ($captchaSummary !== '') {
-                        $mtfxqCaptchaSolvedSummaries[] = $captchaSummary;
+                    $resetResult = $this->resetCurrentBotRunAfterCaptcha($result);
+                    $resetSummary = trim((string) ($resetResult['summary'] ?? ''));
+                    $combinedSummary = trim($captchaSummary . ' ' . $resetSummary);
+
+                    if ($combinedSummary !== '') {
+                        $mtfxqCaptchaSolvedSummaries[] = $combinedSummary;
+                    }
+
+                    if (($resetResult['ok'] ?? false) !== true) {
+                        if ($resetSummary !== '') {
+                            $result = $this->appendSummaryToResult($result, $resetSummary);
+                        }
+                        break;
                     }
 
                     usleep(self::MTFXQ_CAPTCHA_POST_CLICK_DELAY_MICROSECONDS);
@@ -581,11 +587,21 @@ class DispatchTokenScanItemsCommand extends Command
                     $showfiles12CaptchaRetries++;
 
                     $captchaSummary = trim((string) ($captchaResult['summary'] ?? ''));
-                    if ($captchaSummary !== '') {
-                        $showfiles12CaptchaSolvedSummaries[] = $captchaSummary;
+                    $resetResult = $this->resetCurrentBotRunAfterCaptcha($result);
+                    $resetSummary = trim((string) ($resetResult['summary'] ?? ''));
+                    $combinedSummary = trim($captchaSummary . ' ' . $resetSummary);
+
+                    if ($combinedSummary !== '') {
+                        $showfiles12CaptchaSolvedSummaries[] = $combinedSummary;
                     }
 
-                    $resumeCombinedPaginationBaseUri = trim((string) ($result['base_uri'] ?? ''));
+                    if (($resetResult['ok'] ?? false) !== true) {
+                        if ($resetSummary !== '') {
+                            $result = $this->appendSummaryToResult($result, $resetSummary);
+                        }
+                        break;
+                    }
+
                     usleep(self::MTFXQ_CAPTCHA_POST_CLICK_DELAY_MICROSECONDS);
                     continue;
                 }
@@ -2022,6 +2038,158 @@ class DispatchTokenScanItemsCommand extends Command
             return is_array($json) ? $json : [];
         } catch (Throwable) {
             return [];
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     * @return array{ok: bool, summary: string}
+     */
+    private function resetCurrentBotRunAfterCaptcha(array $result): array
+    {
+        $baseUri = trim((string) ($result['base_uri'] ?? ''));
+        $botApi = trim((string) ($result['bot_api'] ?? ''));
+        $sentMessageId = (int) ($result['sent_message_id'] ?? 0);
+
+        if ($baseUri === '' || $botApi === '' || $sentMessageId <= 0) {
+            return [
+                'ok' => false,
+                'summary' => 'captcha solved but current bot run reset failed: sent_message_id missing',
+            ];
+        }
+
+        $messageIds = $this->collectCaptchaResetMessageIds(
+            $this->fetchCaptchaResetReplies($baseUri, $botApi, $sentMessageId),
+            $botApi,
+            $sentMessageId
+        );
+
+        if (!in_array($sentMessageId, $messageIds, true)) {
+            array_unshift($messageIds, $sentMessageId);
+        }
+
+        $deleteResult = $this->deleteBotMessages($baseUri, $botApi, $messageIds);
+        if (($deleteResult['ok'] ?? false) !== true) {
+            return [
+                'ok' => false,
+                'summary' => 'captcha solved but current bot run reset failed: ' . trim((string) ($deleteResult['summary'] ?? 'delete failed')),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'summary' => 'Cleared the current partial bot run and will resend the token from scratch.',
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function fetchCaptchaResetReplies(string $baseUri, string $botApi, int $minMessageId): array
+    {
+        try {
+            $response = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
+                ->acceptJson()
+                ->get(rtrim($baseUri, '/') . '/bots/replies', [
+                    'limit' => self::CAPTCHA_RESET_REPLIES_FETCH_LIMIT,
+                    'bot_username' => $botApi,
+                    'min_message_id' => max($minMessageId, 0),
+                    'summary_only' => 0,
+                ]);
+
+            if (!$response->ok()) {
+                return [];
+            }
+
+            $json = $response->json();
+
+            return is_array($json) ? $json : [];
+        } catch (Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $replies
+     * @return array<int, int>
+     */
+    private function collectCaptchaResetMessageIds(array $replies, string $botApi, int $minMessageId): array
+    {
+        $messageIds = [];
+        $seen = [];
+
+        foreach ($replies as $reply) {
+            if (!is_array($reply)) {
+                continue;
+            }
+
+            if ((string) ($reply['bot_username'] ?? '') !== $botApi) {
+                continue;
+            }
+
+            $messageId = (int) ($reply['message_id'] ?? 0);
+            if ($messageId < $minMessageId || $messageId <= 0 || isset($seen[$messageId])) {
+                continue;
+            }
+
+            $seen[$messageId] = true;
+            $messageIds[] = $messageId;
+        }
+
+        return $messageIds;
+    }
+
+    /**
+     * @param array<int, int> $messageIds
+     * @return array{ok: bool, summary: string}
+     */
+    private function deleteBotMessages(string $baseUri, string $botApi, array $messageIds): array
+    {
+        $normalizedMessageIds = array_values(array_unique(array_filter(array_map(
+            static fn ($value): int => (int) $value,
+            $messageIds
+        ), static fn (int $value): bool => $value > 0)));
+
+        if ($baseUri === '' || $botApi === '' || $normalizedMessageIds === []) {
+            return [
+                'ok' => false,
+                'summary' => 'delete context missing',
+            ];
+        }
+
+        try {
+            $response = Http::timeout(self::INITIAL_API_TIMEOUT_SECONDS)
+                ->acceptJson()
+                ->asJson()
+                ->post(rtrim($baseUri, '/') . '/bots/delete-messages', [
+                    'chat_peer' => $botApi,
+                    'message_ids' => $normalizedMessageIds,
+                ]);
+
+            if (!$response->ok()) {
+                return [
+                    'ok' => false,
+                    'summary' => 'delete HTTP ' . $response->status(),
+                ];
+            }
+
+            $json = $response->json();
+            if (!is_array($json) || (string) ($json['status'] ?? '') !== 'ok') {
+                return [
+                    'ok' => false,
+                    'summary' => 'delete invalid json response',
+                ];
+            }
+
+            return [
+                'ok' => true,
+                'summary' => 'deleted_count=' . (int) ($json['deleted_count'] ?? 0),
+            ];
+        } catch (Throwable $e) {
+            return [
+                'ok' => false,
+                'summary' => $e->getMessage(),
+            ];
         }
     }
 

@@ -64,7 +64,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
     public function test_dispatch_uses_send_then_pagination_only_for_vip_like_bot(): void
     {
         $itemId = DB::table('token_scan_items')->insertGetId([
-            'token' => 'showfilesbot_abc123',
+            'token' => 'showfiles3bot_abc123',
             'created_at' => now(),
             'updated_at' => null,
         ]);
@@ -98,7 +98,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         Http::assertSent(function ($request): bool {
             return $request->url() === 'http://127.0.0.1:8000/bots/send'
                 && $request['bot_username'] === 'vipfiles2bot'
-                && $request['text'] === 'showfilesbot_abc123'
+                && $request['text'] === 'showfiles3bot_abc123'
                 && $request['clear_previous_replies'] === true;
         });
 
@@ -111,6 +111,65 @@ class DispatchTokenScanItemsCommandTest extends TestCase
 
         Http::assertNotSent(function ($request): bool {
             return str_contains($request->url(), '/bots/send-and-run-all-pages');
+        });
+    }
+
+    public function test_dispatch_uses_send_and_run_all_pages_for_showfiles12_bot(): void
+    {
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'showfilesbot_35P_3V_d1F7Z7H0r306F3x6b168',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        Http::fake([
+            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+                'status' => 'ok',
+                'reason' => 'reached total items after final page click; stop',
+                'files_unique_count' => 35,
+                'files_total_bytes' => 123,
+                'latest_message' => [
+                    'kind' => 'state',
+                    'text_preview' => '✅ 第 **3**/3 页 📀全部类型',
+                    'has_buttons' => false,
+                    'page_info' => [
+                        'current_page' => 3,
+                        'total_pages' => 3,
+                    ],
+                ],
+                'timeline' => [],
+                'debug' => [],
+                'page_state' => [
+                    'did_bootstrap_click' => true,
+                    'did_any_pagination_click' => true,
+                    'last_clicked_page' => 3,
+                ],
+            ], 200),
+        ]);
+
+        $this->artisan('tg:dispatch-token-scan-items')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/send-and-run-all-pages'
+                && $request['bot_username'] === 'showfiles12bot'
+                && $request['text'] === 'showfilesbot_35P_3V_d1F7Z7H0r306F3x6b168'
+                && $request['clear_previous_replies'] === true
+                && $request['download_after_done'] === false
+                && $request['wait_download_completion'] === false;
+        });
+
+        Http::assertNotSent(function ($request): bool {
+            return str_contains($request->url(), '/bots/send')
+                && !str_contains($request->url(), '/bots/send-and-run-all-pages');
+        });
+
+        Http::assertNotSent(function ($request): bool {
+            return str_contains($request->url(), '/bots/run-all-pages-by-bot');
         });
     }
 

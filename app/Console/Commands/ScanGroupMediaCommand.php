@@ -30,6 +30,10 @@ class ScanGroupMediaCommand extends Command
         'api' => 'vipfiles2bot',
         'display' => '@vipfiles2bot',
     ];
+    private const BOT_SHOWFILES12 = [
+        'api' => 'showfiles12bot',
+        'display' => '@showfiles12bot',
+    ];
     private const BOT_MTFXQ = [
         'api' => 'mtfxqbot',
         'display' => '@mtfxqbot',
@@ -742,8 +746,13 @@ class ScanGroupMediaCommand extends Command
     private function resolveBotByToken(string $token): ?array
     {
         if (
+            Str::startsWith($token, 'showfilesbot_')
+        ) {
+            return self::BOT_SHOWFILES12;
+        }
+
+        if (
             Str::startsWith($token, 'newjmqbot_') ||
-            Str::startsWith($token, 'showfilesbot_') ||
             Str::startsWith($token, 'showfiles3bot_')
         ) {
             return self::BOT_VIPFILES;

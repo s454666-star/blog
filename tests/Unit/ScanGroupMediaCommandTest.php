@@ -9,7 +9,7 @@ use ReflectionMethod;
 
 class ScanGroupMediaCommandTest extends TestCase
 {
-    public function test_showfiles_tokens_resolve_to_vipfiles_bot(): void
+    public function test_showfiles_tokens_resolve_to_expected_bots(): void
     {
         $command = new ScanGroupMediaCommand(new TelegramCodeTokenService());
         $method = new ReflectionMethod($command, 'resolveBotByToken');
@@ -18,8 +18,8 @@ class ScanGroupMediaCommandTest extends TestCase
         $showfilesBot = $method->invoke($command, 'showfilesbot_123P_abcdef');
         $showfiles3Bot = $method->invoke($command, 'showfiles3bot_123P_abcdef');
 
-        $this->assertSame('vipfiles2bot', $showfilesBot['api']);
-        $this->assertSame('@vipfiles2bot', $showfilesBot['display']);
+        $this->assertSame('showfiles12bot', $showfilesBot['api']);
+        $this->assertSame('@showfiles12bot', $showfilesBot['display']);
         $this->assertSame('vipfiles2bot', $showfiles3Bot['api']);
         $this->assertSame('@vipfiles2bot', $showfiles3Bot['display']);
     }

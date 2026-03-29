@@ -43,6 +43,12 @@ class DispatchTokenScanItemsCommand extends Command
         'mode' => self::BOT_MODE_PAGINATE,
     ];
 
+    private const BOT_SHOWFILES12 = [
+        'api' => 'showfiles12bot',
+        'display' => '@showfiles12bot',
+        'mode' => self::BOT_MODE_PAGINATE,
+    ];
+
     private const BOT_MTFXQ = [
         'api' => 'mtfxqbot',
         'display' => '@mtfxqbot',
@@ -720,11 +726,17 @@ class DispatchTokenScanItemsCommand extends Command
             $apiError = trim((string) ($apiCall['error'] ?? 'unknown'));
             $summary = 'api_error=' . ($apiError !== '' ? $apiError : 'unknown');
 
-            if (($bot['api'] ?? '') === self::BOT_MTFXQ['api'] && $this->isMtfxqCombinedPaginationTimeoutError($apiError)) {
-                $summary .= ' Combined mtfxq pagination timed out before FastAPI returned. Stop the command now because the same mtfxq run may still be continuing in the background; retry this token only after the current mtfxq run finishes.';
+            if ($this->isCombinedPaginationBotApi((string) ($bot['api'] ?? '')) && $this->isCombinedPaginationTimeoutError($apiError)) {
+                $summary .= sprintf(
+                    ' Combined %s pagination timed out before FastAPI returned. Stop the command now because the same bot run may still be continuing in the background; retry this token only after the current run finishes.',
+                    (string) ($bot['api'] ?? 'bot')
+                );
                 $stopProcessing = true;
                 $stopProcessingRetryable = true;
-                $stopProcessingSummary = 'Stopping dispatch because mtfxqbot combined pagination timed out and may still be running in the background.';
+                $stopProcessingSummary = sprintf(
+                    'Stopping dispatch because %s combined pagination timed out and may still be running in the background.',
+                    (string) ($bot['display'] ?? '@bot')
+                );
             }
         } elseif ($notFound) {
             $classification = 'not_found';
@@ -835,6 +847,10 @@ class DispatchTokenScanItemsCommand extends Command
 
         if (Str::startsWith(Str::lower($token), 'lddeebot_')) {
             return self::BOT_LDDEE;
+        }
+
+        if (Str::startsWith(Str::lower($token), 'showfilesbot_')) {
+            return self::BOT_SHOWFILES12;
         }
 
         if (Str::startsWith(Str::lower($token), 'mtfxqbot_')) {
@@ -967,12 +983,12 @@ class DispatchTokenScanItemsCommand extends Command
     }
 
     /**
-     * MTFXQ first returns a file-type selector with a "獲取全部" callback button.
+     * Combined pagination bots can return a file-type selector with a "獲取全部" callback button.
      * The combined endpoint can bootstrap that click before entering the page loop.
      */
     private function shouldUseCombinedPaginationEndpoint(string $botUsername): bool
     {
-        return $botUsername === self::BOT_MTFXQ['api'];
+        return $this->isCombinedPaginationBotApi($botUsername);
     }
 
     /**
@@ -1037,7 +1053,7 @@ class DispatchTokenScanItemsCommand extends Command
 
     private function resolveCombinedPaginationTimeoutSeconds(string $botUsername): int
     {
-        if ($botUsername === self::BOT_MTFXQ['api']) {
+        if ($this->isCombinedPaginationBotApi($botUsername)) {
             return self::MTFXQ_COMBINED_API_TIMEOUT_SECONDS;
         }
 
@@ -2306,7 +2322,7 @@ class DispatchTokenScanItemsCommand extends Command
         return false;
     }
 
-    private function isMtfxqCombinedPaginationTimeoutError(string $error): bool
+    private function isCombinedPaginationTimeoutError(string $error): bool
     {
         $normalized = Str::lower(trim($error));
         if ($normalized === '') {
@@ -2863,9 +2879,18 @@ class DispatchTokenScanItemsCommand extends Command
     {
         return in_array($botApi, [
             self::BOT_VIPFILES['api'],
+            self::BOT_SHOWFILES12['api'],
             self::BOT_MTFXQ['api'],
             self::BOT_ATFILESLINKS['api'],
             self::BOT_LDDEE['api'],
+        ], true);
+    }
+
+    private function isCombinedPaginationBotApi(string $botApi): bool
+    {
+        return in_array($botApi, [
+            self::BOT_SHOWFILES12['api'],
+            self::BOT_MTFXQ['api'],
         ], true);
     }
 

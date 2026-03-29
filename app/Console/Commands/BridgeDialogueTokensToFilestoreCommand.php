@@ -371,7 +371,8 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
      */
     private function shouldMarkDialogueAsSyncedForResult(array $result): bool
     {
-        return $this->shouldRetryNoFileResult($result);
+        return $this->shouldRetryNoFileResult($result)
+            || (string) ($result['status'] ?? '') === 'invalid_token';
     }
 
     private function markDialogueAsSynced(int $dialogueId): bool

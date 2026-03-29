@@ -262,6 +262,42 @@ class BridgeDialogueTokensToFilestoreCommandTest extends TestCase
         ]);
     }
 
+    public function test_command_marks_dialogue_synced_for_invalid_token_without_retrying(): void
+    {
+        DB::table('dialogues')->insert([
+            'id' => 22,
+            'chat_id' => 1,
+            'message_id' => 22,
+            'text' => 'mtfxqbot_1V_invalid0011',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        $mock = Mockery::mock(DialogueFilestoreDispatchService::class);
+        $mock->shouldReceive('dispatchToken')
+            ->once()
+            ->andReturn([
+                'ok' => false,
+                'status' => 'invalid_token',
+                'exit_code' => 0,
+                'summary' => 'Bot returned no usable mtfxq text/files. Stored token in dialogues with is_sync=1.',
+            ]);
+
+        $this->app->instance(DialogueFilestoreDispatchService::class, $mock);
+
+        $this->artisan('filestore:bridge-dialogues-tokens --prefix=mtfxqbot_ --retry-delay=0 --max-retries=5')
+            ->expectsOutputToContain('terminal_no_files=1')
+            ->expectsOutputToContain('failed=0')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 22,
+            'is_sync' => 1,
+        ]);
+        $this->assertDatabaseCount('telegram_filestore_sessions', 0);
+    }
+
     public function test_command_does_not_skip_uploading_source_token_sessions(): void
     {
         DB::table('dialogues')->insert([

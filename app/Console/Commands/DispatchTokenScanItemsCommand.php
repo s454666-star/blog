@@ -288,7 +288,7 @@ class DispatchTokenScanItemsCommand extends Command
                 $stats['success']++;
             } elseif ($classification === 'skipped_size_limit') {
                 $stats['skipped_size_limit']++;
-            } elseif ($classification === 'not_found') {
+            } elseif (in_array($classification, ['not_found', 'invalid_token'], true)) {
                 $stats['not_found']++;
             } else {
                 $stats['failed']++;
@@ -413,7 +413,7 @@ class DispatchTokenScanItemsCommand extends Command
      * @param array{token:string,item:TokenScanItem|null} $job
      * @return array<string, mixed>
      */
-    private function processOneToken(array $job, string $doneAction): array
+    private function processOneToken(array $job, string $doneAction, int $mtfxqInvalidRetryCount = 0): array
     {
         $token = (string) $job['token'];
         $item = $job['item'];
@@ -538,8 +538,29 @@ class DispatchTokenScanItemsCommand extends Command
             $result['db_action'] = 'manual';
         }
 
-        if ($this->shouldStoreExplicitMtfxqNotFoundInDialogues($result)) {
-            $result = $this->storeExplicitMtfxqNotFoundInDialogues($token, $item, $result);
+        $mtfxqInvalidRetryDelaySeconds = max((int) $this->option('stopped-early-retry-delay'), 0);
+        $mtfxqInvalidMaxRetries = max((int) $this->option('stopped-early-max-retries'), 0);
+        if (
+            $this->shouldRetryMtfxqNoUsableResponse($result)
+            && $mtfxqInvalidRetryCount < $mtfxqInvalidMaxRetries
+        ) {
+            $nextRetryCount = $mtfxqInvalidRetryCount + 1;
+            $this->line(sprintf(
+                'mtfxq_no_response_wait=%d retry_current_token=%d/%d',
+                $mtfxqInvalidRetryDelaySeconds,
+                $nextRetryCount,
+                $mtfxqInvalidMaxRetries
+            ));
+
+            if ($mtfxqInvalidRetryDelaySeconds > 0) {
+                sleep($mtfxqInvalidRetryDelaySeconds);
+            }
+
+            return $this->processOneToken($job, $doneAction, $nextRetryCount);
+        }
+
+        if ($this->shouldStoreMtfxqInvalidTokenInDialogues($result)) {
+            $result = $this->storeMtfxqInvalidTokenInDialogues($token, $item, $result);
         }
 
         if ($this->shouldMarkDialogueAsSynced($result)) {
@@ -3127,13 +3148,22 @@ class DispatchTokenScanItemsCommand extends Command
     /**
      * @param array<string, mixed> $result
      */
-    private function shouldStoreExplicitMtfxqNotFoundInDialogues(array $result): bool
+    private function shouldStoreMtfxqInvalidTokenInDialogues(array $result): bool
     {
-        if ((string) ($result['classification'] ?? '') !== 'not_found') {
+        if ((string) ($result['bot_api'] ?? '') !== self::BOT_MTFXQ['api']) {
             return false;
         }
 
-        if ((string) ($result['bot_api'] ?? '') !== self::BOT_MTFXQ['api']) {
+        return $this->isMtfxqExplicitInvalidTokenResult($result)
+            || $this->isMtfxqNoUsableResponseResult($result);
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     */
+    private function isMtfxqExplicitInvalidTokenResult(array $result): bool
+    {
+        if ((string) ($result['classification'] ?? '') !== 'not_found') {
             return false;
         }
 
@@ -3153,16 +3183,61 @@ class DispatchTokenScanItemsCommand extends Command
 
     /**
      * @param array<string, mixed> $result
+     */
+    private function isMtfxqNoUsableResponseResult(array $result): bool
+    {
+        if ((string) ($result['filestore_status'] ?? '') === 'source_messages_not_found') {
+            return true;
+        }
+
+        $filesUniqueCount = (int) ($result['files_unique_count'] ?? 0);
+        $latestTextPreview = trim((string) ($result['latest_text_preview'] ?? ''));
+        if ($filesUniqueCount > 0 || $latestTextPreview !== '') {
+            return false;
+        }
+
+        $apiReason = Str::lower(trim((string) ($result['api_reason'] ?? '')));
+        if ($apiReason === '') {
+            return false;
+        }
+
+        foreach ([
+            'timeout waiting for first bot message after sending',
+            'no bot message found',
+            'not pagination-like; return current files',
+        ] as $marker) {
+            if (Str::contains($apiReason, $marker)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     */
+    private function shouldRetryMtfxqNoUsableResponse(array $result): bool
+    {
+        if ((string) ($result['bot_api'] ?? '') !== self::BOT_MTFXQ['api']) {
+            return false;
+        }
+
+        return $this->isMtfxqNoUsableResponseResult($result);
+    }
+
+    /**
+     * @param array<string, mixed> $result
      * @return array<string, mixed>
      */
-    private function storeExplicitMtfxqNotFoundInDialogues(string $token, ?TokenScanItem $item, array $result): array
+    private function storeMtfxqInvalidTokenInDialogues(string $token, ?TokenScanItem $item, array $result): array
     {
         $dialogueSync = $this->ensureDialogueStoredAsSynced($token);
 
         if (($dialogueSync['ok'] ?? false) !== true) {
             return $this->appendSummaryToResult(
                 $result,
-                'Could not move explicit mtfxq not-found token into dialogues, so token_scan_items was left untouched.'
+                'Could not store invalid mtfxq token into dialogues, so token_scan_items was left untouched.'
             );
         }
 
@@ -3171,12 +3246,24 @@ class DispatchTokenScanItemsCommand extends Command
             $result['dialogues_marked_sync'] = $changedCount;
         }
 
+        $result['classification'] = 'invalid_token';
+
+        $invalidReasonSummary = $this->isMtfxqExplicitInvalidTokenResult($result)
+            ? 'Bot returned explicit mtfxq unsupported-content message.'
+            : 'Bot returned no usable mtfxq text/files.';
+
         if ($item instanceof TokenScanItem) {
             $result['db_action'] = $this->applyDoneAction($item, 'delete');
-            $result['summary'] = 'Bot returned explicit mtfxq unsupported-content message. Deleted token_scan_items row and stored token in dialogues with is_sync=1.';
+            $result = $this->appendSummaryToResult(
+                $result,
+                $invalidReasonSummary . ' Deleted token_scan_items row and stored token in dialogues with is_sync=1.'
+            );
         } else {
             $result['db_action'] = 'manual';
-            $result['summary'] = 'Bot returned explicit mtfxq unsupported-content message. Stored token in dialogues with is_sync=1.';
+            $result = $this->appendSummaryToResult(
+                $result,
+                $invalidReasonSummary . ' Stored token in dialogues with is_sync=1.'
+            );
         }
 
         return $result;

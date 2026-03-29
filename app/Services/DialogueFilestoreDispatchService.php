@@ -104,6 +104,25 @@ class DialogueFilestoreDispatchService
     {
         $normalizedOutput = Str::lower($capturedOutput);
 
+        if (Str::contains($normalizedOutput, 'stored token in dialogues with is_sync=1')) {
+            $lines = preg_split('/\r\n|\r|\n/', trim($capturedOutput)) ?: [];
+            $matchingLine = '';
+
+            foreach ($lines as $line) {
+                $line = trim((string) $line);
+                if ($line !== '' && Str::contains(Str::lower($line), 'stored token in dialogues with is_sync=1')) {
+                    $matchingLine = $line;
+                }
+            }
+
+            return [
+                'status' => 'invalid_token',
+                'summary' => $matchingLine !== ''
+                    ? $matchingLine
+                    : 'mtfxq token was stored into dialogues with is_sync=1',
+            ];
+        }
+
         if (Str::contains($normalizedOutput, 'bot returned not found')) {
             return [
                 'status' => 'not_found',

@@ -89,4 +89,29 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
         $this->assertSame('no_files', $result['status']);
         $this->assertSame('filestore sync skipped: no forwardable files', $result['summary']);
     }
+
+    public function test_dispatch_token_classifies_invalid_token_output_without_session(): void
+    {
+        Artisan::shouldReceive('call')
+            ->once()
+            ->andReturnUsing(function (string $command, array $parameters, $output): int {
+                $this->assertSame('tg:dispatch-token-scan-items', $command);
+                $this->assertSame(['mtfxqbot_1V_invalid0011'], $parameters['tokens']);
+                $this->assertSame(8000, $parameters['--port']);
+
+                $output->writeln('Bot returned no usable mtfxq text/files. Stored token in dialogues with is_sync=1.');
+
+                return 0;
+            });
+
+        $result = $this->app->make(DialogueFilestoreDispatchService::class)
+            ->dispatchToken('mtfxqbot_1V_invalid0011', ['--port' => 8000]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('invalid_token', $result['status']);
+        $this->assertSame(
+            'Bot returned no usable mtfxq text/files. Stored token in dialogues with is_sync=1.',
+            $result['summary']
+        );
+    }
 }

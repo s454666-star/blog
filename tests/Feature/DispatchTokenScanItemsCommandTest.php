@@ -339,6 +339,61 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
     }
 
+    public function test_dispatch_moves_mtfxq_no_response_token_into_dialogues_and_deletes_queue_row(): void
+    {
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'mtfxqbot_1V_noresponse0010',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        DB::table('dialogues')->insert([
+            'chat_id' => 7702694790,
+            'message_id' => 4,
+            'text' => 'mtfxqbot_1V_noresponse0010',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        $requestCount = 0;
+
+        Http::fake([
+            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => function () use (&$requestCount) {
+                $requestCount++;
+
+                return Http::response([
+                    'status' => 'ok',
+                    'reason' => 'timeout waiting for first bot message after sending',
+                    'files_unique_count' => 0,
+                    'files_total_bytes' => 0,
+                    'latest_message' => [
+                        'kind' => '',
+                        'text_preview' => '',
+                        'has_buttons' => false,
+                        'page_info' => [],
+                    ],
+                    'timeline' => [],
+                    'debug' => [],
+                    'page_state' => [],
+                ], 200);
+            },
+        ]);
+
+        $this->artisan('tg:dispatch-token-scan-items --stopped-early-retry-delay=0 --stopped-early-max-retries=2')
+            ->expectsOutputToContain('stored token in dialogues with is_sync=1')
+            ->assertExitCode(0);
+
+        $this->assertSame(3, $requestCount);
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'text' => 'mtfxqbot_1V_noresponse0010',
+            'is_sync' => 1,
+        ]);
+    }
+
     public function test_dispatch_keeps_queue_row_for_non_explicit_not_found_message(): void
     {
         $itemId = DB::table('token_scan_items')->insertGetId([
@@ -383,6 +438,79 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         $this->assertDatabaseHas('dialogues', [
             'text' => 'mtfxqbot_1V_notfound0009',
             'is_sync' => 0,
+        ]);
+    }
+
+    public function test_dispatch_moves_mtfxq_source_messages_not_found_token_into_dialogues_and_deletes_queue_row(): void
+    {
+        $this->createFilestoreBridgeTables();
+
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'mtfxqbot_1V_a107h7O446U27888T0o5',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        DB::table('dialogues')->insert([
+            'chat_id' => 7702694790,
+            'message_id' => 5,
+            'text' => 'mtfxqbot_1V_a107h7O446U27888T0o5',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        Http::fake([
+            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+                'status' => 'ok',
+                'sent_message_id' => 991122,
+                'reason' => 'no page_info and no buttons; observed files collected',
+                'files_unique_count' => 1,
+                'files_total_bytes' => 123,
+                'latest_message' => [
+                    'kind' => 'other',
+                    'text_preview' => '✅共找到 **1** 个媒体',
+                    'has_buttons' => false,
+                    'page_info' => [],
+                ],
+                'timeline' => [],
+                'debug' => [],
+                'page_state' => [],
+            ], 200),
+        ]);
+
+        $bridgeService = new class
+        {
+            public int $bridgeAttempts = 0;
+
+            public function sync(string $token, string $baseUri, string $botApi, int $sentMessageId, bool $deleteSourceMessages): array
+            {
+                $this->bridgeAttempts++;
+
+                return [
+                    'ok' => false,
+                    'status' => 'source_messages_not_found',
+                    'session_id' => 0,
+                    'public_token' => '',
+                    'observed_files' => 1,
+                    'observed_total_bytes' => 0,
+                    'summary' => 'filestore sync skipped: source_messages_not_found target=@filestoebot session_id=0 source_bot=@mtfxqbot attempted=1',
+                ];
+            }
+        };
+        $this->app->instance(TelegramFilestoreTokenBridgeService::class, $bridgeService);
+
+        $this->artisan('tg:dispatch-token-scan-items mtfxqbot_1V_a107h7O446U27888T0o5 --port=8000 --stopped-early-retry-delay=0 --stopped-early-max-retries=1')
+            ->expectsOutputToContain('stored token in dialogues with is_sync=1')
+            ->assertExitCode(0);
+
+        $this->assertSame(2, $bridgeService->bridgeAttempts);
+        $this->assertDatabaseMissing('token_scan_items', [
+            'id' => $itemId,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'text' => 'mtfxqbot_1V_a107h7O446U27888T0o5',
+            'is_sync' => 1,
         ]);
     }
 

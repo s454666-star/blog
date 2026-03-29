@@ -457,6 +457,7 @@ class DispatchTokenScanItemsCommand extends Command
         $showfiles12CaptchaRetries = 0;
         $showfiles12CaptchaSolvedSummaries = [];
         $resumeCombinedPaginationBaseUri = '';
+        $bridgeSentMessageId = 0;
 
         while (true) {
             $attempt++;
@@ -465,6 +466,10 @@ class DispatchTokenScanItemsCommand extends Command
                 $resumeCombinedPaginationBaseUri = '';
             } else {
                 $result = $this->runBotAttempt($token, $bot, $dispatchText);
+            }
+
+            if ((int) ($result['sent_message_id'] ?? 0) > 0) {
+                $bridgeSentMessageId = (int) $result['sent_message_id'];
             }
 
             if (
@@ -486,10 +491,18 @@ class DispatchTokenScanItemsCommand extends Command
                 $fallbackSummary = 'Fallback after @QQfile_bot requested @yzfile_bot';
                 $fallback['summary'] = trim($fallbackSummary . '. ' . ($fallback['summary'] ?? ''));
                 $result = $fallback;
+
+                if ((int) ($result['sent_message_id'] ?? 0) > 0) {
+                    $bridgeSentMessageId = (int) $result['sent_message_id'];
+                }
             }
 
             if ($this->isQqOrYzBotApi((string) ($result['bot_api'] ?? ''))) {
                 $result = $this->waitForQqYzCompletion($result);
+
+                if ((int) ($result['sent_message_id'] ?? 0) > 0) {
+                    $bridgeSentMessageId = (int) $result['sent_message_id'];
+                }
 
                 if (
                     ($result['retry_after_rate_limit'] ?? false) === true
@@ -584,6 +597,10 @@ class DispatchTokenScanItemsCommand extends Command
             }
 
             break;
+        }
+
+        if ((int) ($result['sent_message_id'] ?? 0) <= 0 && $bridgeSentMessageId > 0) {
+            $result['sent_message_id'] = $bridgeSentMessageId;
         }
 
         foreach ($mtfxqCaptchaSolvedSummaries as $captchaSummary) {

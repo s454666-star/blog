@@ -83,6 +83,7 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
         $sourceChatId = 123456;
         $sentMessageId = 321;
         $sourceFileMessageIds = [401, 402];
+        $sourceReplyOnlyMessageId = 350;
         $forwardedMessageIds = [9001, 9002];
         $bridgeControlMessageId = 8999;
 
@@ -91,6 +92,7 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
             $sourceChatId,
             $sentMessageId,
             $sourceFileMessageIds,
+            $sourceReplyOnlyMessageId,
             $forwardedMessageIds,
             $bridgeControlMessageId
         ) {
@@ -119,6 +121,30 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
                             'file_size' => 200,
                             'file_type' => 'video',
                         ],
+                    ],
+                ], 200);
+            }
+
+            if (str_starts_with($request->url(), 'http://127.0.0.1:8000/bots/replies')) {
+                $this->assertSame('mtfxqbot', $request['bot_username']);
+                $this->assertSame($sentMessageId, (int) $request['min_message_id']);
+                $this->assertSame(5000, (int) $request['limit']);
+
+                return Http::response([
+                    [
+                        'message_id' => $sourceReplyOnlyMessageId,
+                        'chat_id' => $sourceChatId,
+                        'text_preview' => '请选择要获取的文件类型',
+                    ],
+                    [
+                        'message_id' => $sourceFileMessageIds[0],
+                        'chat_id' => $sourceChatId,
+                        'text_preview' => 'file 1',
+                    ],
+                    [
+                        'message_id' => $sourceFileMessageIds[1],
+                        'chat_id' => $sourceChatId,
+                        'text_preview' => 'file 2',
                     ],
                 ], 200);
             }
@@ -178,7 +204,7 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
                 }
 
                 if ($request['chat_peer'] === 'mtfxqbot') {
-                    $expectedMessageIds = array_merge([$sentMessageId], $sourceFileMessageIds);
+                    $expectedMessageIds = array_merge([$sentMessageId, $sourceReplyOnlyMessageId], $sourceFileMessageIds);
                     sort($expectedMessageIds);
 
                     $actualMessageIds = array_map('intval', (array) $request['message_ids']);
@@ -188,7 +214,7 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
 
                     return Http::response([
                         'status' => 'ok',
-                        'deleted_count' => 3,
+                        'deleted_count' => 4,
                     ], 200);
                 }
             }

@@ -16,6 +16,7 @@ class TelegramFilestoreTokenBridgeService
     private const WAIT_TIMEOUT_SECONDS = 45;
     private const WAIT_TIMEOUT_MAX_SECONDS = 300;
     private const WAIT_INTERVAL_MICROSECONDS = 500000;
+    private const SOURCE_REPLY_FETCH_LIMIT = 5000;
 
     public function __construct(
         private TelegramFilestoreBridgeContextService $bridgeContextService
@@ -112,6 +113,14 @@ class TelegramFilestoreTokenBridgeService
             $files,
             $sourceChatId,
             $normalizedMinMessageId
+        );
+        $sourceMessageIds = $this->mergeSourceReplyMessageIds(
+            $sourceMessageIds,
+            $this->fetchSourceReplyMessageIds(
+                $normalizedBaseUri,
+                $normalizedSourceBotUsername,
+                $normalizedMinMessageId
+            )
         );
 
         [$forwardableMessageIds, $skippedByPrecheck] = $this->splitForwardableMessageIds($files, $sourceChatId);
@@ -434,6 +443,84 @@ class TelegramFilestoreTokenBridgeService
         }
 
         return $messageIds;
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function fetchSourceReplyMessageIds(string $baseUri, string $sourceBotUsername, int $minMessageId): array
+    {
+        if ($baseUri === '' || $sourceBotUsername === '' || $minMessageId <= 0) {
+            return [];
+        }
+
+        try {
+            $response = Http::timeout(self::FILES_TIMEOUT_SECONDS)
+                ->acceptJson()
+                ->get(rtrim($baseUri, '/') . '/bots/replies', [
+                    'bot_username' => $sourceBotUsername,
+                    'min_message_id' => $minMessageId,
+                    'limit' => self::SOURCE_REPLY_FETCH_LIMIT,
+                    'summary_only' => false,
+                ]);
+
+            if (!$response->ok()) {
+                return [];
+            }
+
+            $json = $response->json();
+            if (!is_array($json)) {
+                return [];
+            }
+
+            $messageIds = [];
+            $seen = [];
+
+            foreach ($json as $message) {
+                if (!is_array($message)) {
+                    continue;
+                }
+
+                $messageId = (int) ($message['message_id'] ?? 0);
+                if ($messageId < $minMessageId || $messageId <= 0 || isset($seen[$messageId])) {
+                    continue;
+                }
+
+                $seen[$messageId] = true;
+                $messageIds[] = $messageId;
+            }
+
+            return $messageIds;
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * @param array<int, int> $baseMessageIds
+     * @param array<int, int> $replyMessageIds
+     * @return array<int, int>
+     */
+    private function mergeSourceReplyMessageIds(array $baseMessageIds, array $replyMessageIds): array
+    {
+        if ($replyMessageIds === []) {
+            return $baseMessageIds;
+        }
+
+        $merged = [];
+        $seen = [];
+
+        foreach (array_merge($baseMessageIds, $replyMessageIds) as $messageId) {
+            $normalized = (int) $messageId;
+            if ($normalized <= 0 || isset($seen[$normalized])) {
+                continue;
+            }
+
+            $seen[$normalized] = true;
+            $merged[] = $normalized;
+        }
+
+        return $merged;
     }
 
     /**

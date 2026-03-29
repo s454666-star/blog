@@ -3763,6 +3763,7 @@ class SendAndRunAllPagesRequest(BaseModel):
     include_files_in_response: bool = True
     max_return_files: int = 500
     max_raw_payload_bytes: int = 0
+    stop_when_total_items_exceeds: int = 0
 
     bootstrap_click_get_all: bool = True
     bootstrap_get_all_keywords: List[str] = ["獲取全部", "获取全部", "Get all", "全部获取", "全部獲取"]
@@ -5117,6 +5118,7 @@ async def _continue_pagination_from_current_state(
     callback_message_max_age_seconds: int,
     callback_candidate_scan_limit: int,
     observe_when_no_controls_poll_seconds: float,
+    stop_when_total_items_exceeds: int,
     min_message_id: int,
     timeline: List[Dict[str, Any]],
     visited_pages: Set[int],
@@ -5135,6 +5137,37 @@ async def _continue_pagination_from_current_state(
     did_any_pagination_click = False
     last_clicked_page: Optional[int] = None
     last_clicked_desc = ""
+    total_items_exceeded_limit = False
+    total_items_exceeded_limit_value = 0
+
+    def _result(status: str, reason: str) -> Dict[str, Any]:
+        return {
+            "status": status,
+            "reason": reason,
+            "steps": steps,
+            "did_any_pagination_click": did_any_pagination_click,
+            "last_clicked_page": last_clicked_page,
+            "last_clicked_desc": last_clicked_desc,
+            "total_items_exceeded_limit": bool(total_items_exceeded_limit),
+            "total_items_exceeded_limit_value": int(total_items_exceeded_limit_value or 0),
+        }
+
+    if int(stop_when_total_items_exceeds or 0) > 0 and assumed_total_items is not None:
+        try:
+            parsed_assumed_total_items = int(assumed_total_items)
+        except Exception:
+            parsed_assumed_total_items = 0
+        if parsed_assumed_total_items > int(stop_when_total_items_exceeds or 0):
+            total_items_exceeded_limit = True
+            total_items_exceeded_limit_value = parsed_assumed_total_items
+            timeline.append({
+                "step": steps,
+                "status": "done",
+                "reason": "reported total_items exceeded limit before pagination",
+                "total_items": parsed_assumed_total_items,
+                "limit": int(stop_when_total_items_exceeds or 0),
+            })
+            return _result("ok", "reported total_items exceeded limit before pagination")
 
     while steps < int(max_steps or 0):
         steps = steps + 1
@@ -5170,25 +5203,11 @@ async def _continue_pagination_from_current_state(
         if not chosen_now:
             latest_any = find_latest_bot_message_any(bot_username, require_meaningful=False)
             if _is_bot_not_found_message(latest_any):
-                return {
-                    "status": "ok",
-                    "reason": "not found message detected; stop",
-                    "steps": steps,
-                    "did_any_pagination_click": did_any_pagination_click,
-                    "last_clicked_page": last_clicked_page,
-                    "last_clicked_desc": last_clicked_desc
-                }
+                return _result("ok", "not found message detected; stop")
 
             latest_any = find_latest_bot_message_any(bot_username, require_meaningful=True)
             if _is_bot_completion_message(latest_any):
-                return {
-                    "status": "ok",
-                    "reason": "completion message detected; stop",
-                    "steps": steps,
-                    "did_any_pagination_click": did_any_pagination_click,
-                    "last_clicked_page": last_clicked_page,
-                    "last_clicked_desc": last_clicked_desc
-                }
+                return _result("ok", "completion message detected; stop")
 
             timeline.append({"step": steps, "status": "observe", "reason": "no state message; sleep"})
             await asyncio.sleep(float(observe_when_no_controls_poll_seconds or 0.5))
@@ -5228,29 +5247,31 @@ async def _continue_pagination_from_current_state(
             latest_any_mid = int(latest_any.get("message_id", 0) or 0)
             chosen_now_mid = int(chosen_now.get("message_id", 0) or 0)
             if latest_any_mid >= chosen_now_mid and _is_bot_not_found_message(latest_any):
-                return {
-                    "status": "ok",
-                    "reason": "not found message detected; stop",
-                    "steps": steps,
-                    "did_any_pagination_click": did_any_pagination_click,
-                    "last_clicked_page": last_clicked_page,
-                    "last_clicked_desc": last_clicked_desc
-                }
+                return _result("ok", "not found message detected; stop")
             if latest_any_mid > chosen_now_mid and _is_bot_completion_message(latest_any):
-                return {
-                    "status": "ok",
-                    "reason": "completion message detected; stop",
-                    "steps": steps,
-                    "did_any_pagination_click": did_any_pagination_click,
-                    "last_clicked_page": last_clicked_page,
-                    "last_clicked_desc": last_clicked_desc
-                }
+                return _result("ok", "completion message detected; stop")
 
         if assumed_total_items is None and total_items_now is not None:
             try:
                 assumed_total_items = int(total_items_now)
             except Exception:
                 assumed_total_items = None
+        if int(stop_when_total_items_exceeds or 0) > 0 and total_items_now is not None:
+            try:
+                parsed_total_items_now = int(total_items_now)
+            except Exception:
+                parsed_total_items_now = 0
+            if parsed_total_items_now > int(stop_when_total_items_exceeds or 0):
+                total_items_exceeded_limit = True
+                total_items_exceeded_limit_value = parsed_total_items_now
+                timeline.append({
+                    "step": steps,
+                    "status": "done",
+                    "reason": "reported total_items exceeded limit before pagination",
+                    "total_items": parsed_total_items_now,
+                    "limit": int(stop_when_total_items_exceeds or 0),
+                })
+                return _result("ok", "reported total_items exceeded limit before pagination")
 
         if pi_now and pi_now.get("current_page") is not None:
             try:
@@ -5283,68 +5304,26 @@ async def _continue_pagination_from_current_state(
             if int(files_unique_now) >= int(assumed_total_items):
                 if stop_need_confirm_pagination_done:
                     if _pagination_confirmed_last_page(state):
-                        return {
-                            "status": "ok",
-                            "reason": "reached total items + last page confirmed; stop",
-                            "steps": steps,
-                            "did_any_pagination_click": did_any_pagination_click,
-                            "last_clicked_page": last_clicked_page,
-                            "last_clicked_desc": last_clicked_desc
-                        }
+                        return _result("ok", "reached total items + last page confirmed; stop")
                     if stop_need_last_page_or_all_pages:
                         if _pagination_confirmed_all_pages_visited(state, visited_pages):
-                            return {
-                                "status": "ok",
-                                "reason": "reached total items + all pages visited; stop",
-                                "steps": steps,
-                                "did_any_pagination_click": did_any_pagination_click,
-                                "last_clicked_page": last_clicked_page,
-                                "last_clicked_desc": last_clicked_desc
-                            }
+                            return _result("ok", "reached total items + all pages visited; stop")
                         if _pagination_confirmed_by_last_clicked_target(state, last_clicked_page):
-                            return {
-                                "status": "ok",
-                                "reason": "reached total items after final page click; stop",
-                                "steps": steps,
-                                "did_any_pagination_click": did_any_pagination_click,
-                                "last_clicked_page": last_clicked_page,
-                                "last_clicked_desc": last_clicked_desc
-                            }
+                            return _result("ok", "reached total items after final page click; stop")
                 timeline.append({"step": steps, "status": "note", "reason": "reached total items but continue clicking pages"})
 
         threshold_no_new = int(stop_when_no_new_files_rounds or 0)
         if threshold_no_new > 0 and int(no_new_files_rounds) >= threshold_no_new:
             if stop_need_confirm_pagination_done:
                 if _pagination_confirmed_last_page(state):
-                    return {
-                        "status": "ok",
-                        "reason": "last page confirmed; stop",
-                        "steps": steps,
-                        "did_any_pagination_click": did_any_pagination_click,
-                        "last_clicked_page": last_clicked_page,
-                        "last_clicked_desc": last_clicked_desc
-                    }
+                    return _result("ok", "last page confirmed; stop")
                 if stop_need_last_page_or_all_pages:
                     if _pagination_confirmed_all_pages_visited(state, visited_pages):
-                        return {
-                            "status": "ok",
-                            "reason": "all pages visited; stop",
-                            "steps": steps,
-                            "did_any_pagination_click": did_any_pagination_click,
-                            "last_clicked_page": last_clicked_page,
-                            "last_clicked_desc": last_clicked_desc
-                        }
+                        return _result("ok", "all pages visited; stop")
             timeline.append({"step": steps, "status": "note", "reason": "no new files rounds reached but continue clicking pages"})
 
         if stop_need_confirm_pagination_done and _pagination_confirmed_last_page(state):
-            return {
-                "status": "ok",
-                "reason": "last page confirmed; stop",
-                "steps": steps,
-                "did_any_pagination_click": did_any_pagination_click,
-                "last_clicked_page": last_clicked_page,
-                "last_clicked_desc": last_clicked_desc
-            }
+            return _result("ok", "last page confirmed; stop")
 
         ok_click, clicked_text, _used_msg = await _safe_click_pagination_button(
             bot_username=bot_username,
@@ -5374,14 +5353,7 @@ async def _continue_pagination_from_current_state(
             except Exception:
                 pass
 
-            return {
-                "status": "ok",
-                "reason": str(clicked_text or "pagination stopped"),
-                "steps": steps,
-                "did_any_pagination_click": did_any_pagination_click,
-                "last_clicked_page": last_clicked_page,
-                "last_clicked_desc": last_clicked_desc
-            }
+            return _result("ok", str(clicked_text or "pagination stopped"))
 
         did_any_pagination_click = True
         if clicked_text:
@@ -5396,14 +5368,7 @@ async def _continue_pagination_from_current_state(
 
         await asyncio.sleep(0.2)
 
-    return {
-        "status": "ok",
-        "reason": "max_steps reached",
-        "steps": steps,
-        "did_any_pagination_click": did_any_pagination_click,
-        "last_clicked_page": last_clicked_page,
-        "last_clicked_desc": last_clicked_desc
-    }
+    return _result("ok", "max_steps reached")
 
 
 @app.post("/bots/send-and-run-all-pages")
@@ -5430,6 +5395,9 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
     skip_cleanup_due_to_size_limit = False
     skip_cleanup_files_count = 0
     skip_cleanup_total_bytes = 0
+    total_items_exceeded_limit = False
+    total_items_exceeded_limit_value = 0
+    total_items_exceeded_limit_limit = max(int(payload.stop_when_total_items_exceeds or 0), 0)
     download_job_id = uuid.uuid4().hex
     folder_path = _ensure_download_folder_for_text(payload.text)
     DOWNLOAD_JOBS[download_job_id] = {
@@ -5613,6 +5581,33 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
         finally:
             await _maybe_cleanup()
 
+    def _mark_total_items_limit_exceeded(total_items_value: Optional[int]) -> None:
+        nonlocal total_items_exceeded_limit, total_items_exceeded_limit_value
+        if int(total_items_exceeded_limit_limit or 0) <= 0:
+            return
+        try:
+            parsed_value = int(total_items_value or 0)
+        except Exception:
+            parsed_value = 0
+        if parsed_value <= int(total_items_exceeded_limit_limit or 0):
+            return
+        total_items_exceeded_limit = True
+        total_items_exceeded_limit_value = parsed_value
+
+    def _maybe_mark_total_items_from_get_all_buttons(buttons: List[Dict[str, Any]]) -> None:
+        if int(total_items_exceeded_limit_limit or 0) <= 0:
+            return
+        for button in buttons or []:
+            text = str(button.get("text") or "").strip()
+            if not text:
+                continue
+            lowered = text.lower()
+            if not any(str(keyword or "").strip().lower() in lowered for keyword in (payload.bootstrap_get_all_keywords or [])):
+                continue
+            _mark_total_items_limit_exceeded(extract_first_int(text))
+            if total_items_exceeded_limit:
+                return
+
     async def _return_ok(reason: str) -> Dict[str, Any]:
         nonlocal skip_cleanup_due_to_files, skip_cleanup_due_to_size_limit, skip_cleanup_files_count, skip_cleanup_total_bytes
         timeline.append({"step": steps, "status": "done", "reason": reason})
@@ -5650,6 +5645,9 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             resp["download_skipped"] = True
             resp["download_skipped_reason"] = "total_bytes_exceeded"
             resp["download_skipped_limit_bytes"] = int(payload.skip_download_if_total_bytes_exceeds or 0)
+        resp["total_items_exceeded_limit"] = bool(total_items_exceeded_limit)
+        resp["total_items_exceeded_limit_value"] = int(total_items_exceeded_limit_value or 0)
+        resp["total_items_exceeded_limit_limit"] = int(total_items_exceeded_limit_limit or 0)
         return resp
 
     async def _return_fail(reason: str, error: Optional[str] = None) -> Dict[str, Any]:
@@ -5687,6 +5685,9 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             resp["download_skipped"] = True
             resp["download_skipped_reason"] = "total_bytes_exceeded"
             resp["download_skipped_limit_bytes"] = int(payload.skip_download_if_total_bytes_exceeds or 0)
+        resp["total_items_exceeded_limit"] = bool(total_items_exceeded_limit)
+        resp["total_items_exceeded_limit_value"] = int(total_items_exceeded_limit_value or 0)
+        resp["total_items_exceeded_limit_limit"] = int(total_items_exceeded_limit_limit or 0)
         return resp
 
     async def _sleep_after_pagination_click() -> None:
@@ -5806,6 +5807,18 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             )
             return await _return_ok("not found message detected; stop")
 
+        _mark_total_items_limit_exceeded(first_total_items)
+        _maybe_mark_total_items_from_get_all_buttons(first_buttons)
+        if total_items_exceeded_limit:
+            timeline.append({
+                "step": 0,
+                "status": "done",
+                "reason": "reported total_items exceeded limit before pagination",
+                "total_items": first_total_items,
+                "limit": int(total_items_exceeded_limit_limit or 0),
+            })
+            return await _return_ok("reported total_items exceeded limit before pagination")
+
         clicked_get_all = False
         seed_total_items: Optional[int] = first_total_items
         if payload.bootstrap_click_get_all and not did_bootstrap_click:
@@ -5827,6 +5840,16 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
                     except Exception:
                         pass
                 timeline.append({"step": 0, "status": "bootstrap_clicked_anytime", "clicked_text": clicked_text})
+                _mark_total_items_limit_exceeded(seed_total_items)
+                if total_items_exceeded_limit:
+                    timeline.append({
+                        "step": 0,
+                        "status": "done",
+                        "reason": "reported total_items exceeded limit before pagination",
+                        "total_items": int(seed_total_items or 0),
+                        "limit": int(total_items_exceeded_limit_limit or 0),
+                    })
+                    return await _return_ok("reported total_items exceeded limit before pagination")
                 await asyncio.sleep(0.8)
                 await backfill_latest_from_bot(payload.bot_username, limit=420, timeout_seconds=6.0, max_logs=payload.debug_max_logs, step=0, force=True)
                 await _wait_after_bootstrap(payload.bot_username, int(payload.wait_after_bootstrap_timeout_seconds), payload.debug_max_logs, 0, payload.next_text_keywords, int(payload.max_return_files), int(payload.max_raw_payload_bytes))
@@ -5876,6 +5899,17 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
                         "text_preview": (chosen_first2.get("text") or "")[:200]
                     })
                     chosen_first = chosen_first2
+                    _mark_total_items_limit_exceeded(first_total_items)
+                    _maybe_mark_total_items_from_get_all_buttons(first_buttons)
+                    if total_items_exceeded_limit:
+                        timeline.append({
+                            "step": 0,
+                            "status": "done",
+                            "reason": "reported total_items exceeded limit before pagination",
+                            "total_items": first_total_items,
+                            "limit": int(total_items_exceeded_limit_limit or 0),
+                        })
+                        return await _return_ok("reported total_items exceeded limit before pagination")
 
             if (first_pi is None) and (not first_is_pagelike) and (not clicked_get_all):
                 meta_observed = await _observe_no_controls_and_collect_files(
@@ -5937,6 +5971,17 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
                                 "buttons_text": summarize_buttons(late_buttons),
                                 "text_preview": (late_state.get("text") or "")[:200]
                             })
+                            _mark_total_items_limit_exceeded(first_total_items)
+                            _maybe_mark_total_items_from_get_all_buttons(late_buttons)
+                            if total_items_exceeded_limit:
+                                timeline.append({
+                                    "step": 0,
+                                    "status": "done",
+                                    "reason": "reported total_items exceeded limit before pagination",
+                                    "total_items": first_total_items,
+                                    "limit": int(total_items_exceeded_limit_limit or 0),
+                                })
+                                return await _return_ok("reported total_items exceeded limit before pagination")
                             loop_result = await _continue_pagination_from_current_state(
                                 bot_username=payload.bot_username,
                                 next_keywords=payload.next_text_keywords,
@@ -5952,11 +5997,15 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
                                 callback_message_max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
                                 callback_candidate_scan_limit=int(payload.callback_candidate_scan_limit or 0),
                                 observe_when_no_controls_poll_seconds=float(payload.observe_when_no_controls_poll_seconds or 0.5),
+                                stop_when_total_items_exceeds=int(payload.stop_when_total_items_exceeds or 0),
                                 min_message_id=int(cleanup_min_mid or 0),
                                 timeline=timeline,
                                 visited_pages=visited_pages,
                                 initial_assumed_total_items=seed_total_items,
                             )
+                            if bool(loop_result.get("total_items_exceeded_limit")):
+                                total_items_exceeded_limit = True
+                                total_items_exceeded_limit_value = int(loop_result.get("total_items_exceeded_limit_value") or 0)
                             if loop_result["status"] == "ok":
                                 return await _return_ok(loop_result["reason"])
                             return await _return_fail(loop_result["reason"], loop_result.get("error"))
@@ -5985,12 +6034,16 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
             callback_message_max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
             callback_candidate_scan_limit=int(payload.callback_candidate_scan_limit or 0),
             observe_when_no_controls_poll_seconds=float(payload.observe_when_no_controls_poll_seconds or 0.5),
+            stop_when_total_items_exceeds=int(payload.stop_when_total_items_exceeds or 0),
             min_message_id=int(cleanup_min_mid or 0),
             timeline=timeline,
             visited_pages=visited_pages,
             initial_assumed_total_items=seed_total_items,
             start_step=steps
         )
+        if bool(loop_result.get("total_items_exceeded_limit")):
+            total_items_exceeded_limit = True
+            total_items_exceeded_limit_value = int(loop_result.get("total_items_exceeded_limit_value") or 0)
         steps = int(loop_result.get("steps", steps) or steps)
         did_any_pagination_click = bool(loop_result.get("did_any_pagination_click")) or did_any_pagination_click
         if loop_result.get("last_clicked_desc"):
@@ -7231,6 +7284,7 @@ class RunAllPagesByBotOnlyRequest(BaseModel):
     include_files_in_response: bool = True
     max_return_files: int = 500
     max_raw_payload_bytes: int = 0
+    stop_when_total_items_exceeds: int = 0
 
     stop_when_no_new_files_rounds: int = 4
     stop_when_reached_total_items: bool = True
@@ -7263,6 +7317,9 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
     cleanup_min_mid = int(payload.sent_message_id or 0)
     cleanup_max_mid = 0
     cleanup_after_return_enabled = True
+    total_items_exceeded_limit = False
+    total_items_exceeded_limit_value = 0
+    total_items_exceeded_limit_limit = max(int(payload.stop_when_total_items_exceeds or 0), 0)
 
     def _freeze_cleanup_window() -> None:
         nonlocal cleanup_max_mid
@@ -7272,6 +7329,19 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
             return
 
         cleanup_max_mid = max(lower_bound, int(_message_store_max_mid_for_bot(payload.bot_username) or 0))
+
+    def _mark_total_items_limit_exceeded(total_items_value: Optional[int]) -> None:
+        nonlocal total_items_exceeded_limit, total_items_exceeded_limit_value
+        if int(total_items_exceeded_limit_limit or 0) <= 0:
+            return
+        try:
+            parsed_value = int(total_items_value or 0)
+        except Exception:
+            parsed_value = 0
+        if parsed_value <= int(total_items_exceeded_limit_limit or 0):
+            return
+        total_items_exceeded_limit = True
+        total_items_exceeded_limit_value = parsed_value
 
     async def _return_ok(reason: str) -> Dict[str, Any]:
         _freeze_cleanup_window()
@@ -7293,6 +7363,9 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
 
         if payload.debug:
             result["debug"] = _get_debug_logs(int(payload.debug_max_logs or 0))
+        result["total_items_exceeded_limit"] = bool(total_items_exceeded_limit)
+        result["total_items_exceeded_limit_value"] = int(total_items_exceeded_limit_value or 0)
+        result["total_items_exceeded_limit_limit"] = int(total_items_exceeded_limit_limit or 0)
 
         files_unique_count = int(result.get("files_unique_count", 0) or 0)
         if payload.cleanup_after_done and cleanup_after_return_enabled:
@@ -7340,6 +7413,9 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
 
         if payload.debug:
             result["debug"] = _get_debug_logs(int(payload.debug_max_logs or 0))
+        result["total_items_exceeded_limit"] = bool(total_items_exceeded_limit)
+        result["total_items_exceeded_limit_value"] = int(total_items_exceeded_limit_value or 0)
+        result["total_items_exceeded_limit_limit"] = int(total_items_exceeded_limit_limit or 0)
 
         if payload.cleanup_after_done and cleanup_after_return_enabled:
             try:
@@ -7445,6 +7521,17 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
                 min_message_id=int(cleanup_min_mid or 0)
             )
             return await _return_ok("not found message detected; stop")
+
+        _mark_total_items_limit_exceeded(first_total_items)
+        if total_items_exceeded_limit:
+            timeline.append({
+                "step": 0,
+                "status": "done",
+                "reason": "reported total_items exceeded limit before pagination",
+                "total_items": first_total_items,
+                "limit": int(total_items_exceeded_limit_limit or 0),
+            })
+            return await _return_ok("reported total_items exceeded limit before pagination")
 
         no_new_files_rounds = 0
         last_files_unique_count = 0
@@ -7565,6 +7652,16 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
                     assumed_total_items = int(total_items_now)
                 except Exception:
                     assumed_total_items = None
+            _mark_total_items_limit_exceeded(total_items_now)
+            if total_items_exceeded_limit:
+                timeline.append({
+                    "step": steps,
+                    "status": "done",
+                    "reason": "reported total_items exceeded limit before pagination",
+                    "total_items": total_items_now,
+                    "limit": int(total_items_exceeded_limit_limit or 0),
+                })
+                return await _return_ok("reported total_items exceeded limit before pagination")
 
             if pi_now and pi_now.get("current_page") is not None:
                 try:

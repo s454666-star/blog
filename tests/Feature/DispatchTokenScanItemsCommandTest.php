@@ -221,6 +221,58 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
     }
 
+    public function test_dispatch_keeps_queue_row_when_total_items_exceed_explicit_limit(): void
+    {
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'QQfile_bot:14936_58526_793-573V',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        Http::fake([
+            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+                'status' => 'ok',
+                'reason' => 'reported total_items exceeded limit before pagination',
+                'files_unique_count' => 0,
+                'files_total_bytes' => 0,
+                'total_items_exceeded_limit' => true,
+                'total_items_exceeded_limit_value' => 573,
+                'total_items_exceeded_limit_limit' => 300,
+                'latest_message' => [
+                    'kind' => 'state',
+                    'text_preview' => '✅ 共找到 **573** 个媒体',
+                    'has_buttons' => true,
+                    'page_info' => [
+                        'current_page' => 1,
+                        'total_pages' => 58,
+                    ],
+                ],
+                'timeline' => [],
+                'debug' => [],
+                'page_state' => [
+                    'did_bootstrap_click' => false,
+                    'did_any_pagination_click' => false,
+                    'last_clicked_page' => null,
+                ],
+            ], 200),
+        ]);
+
+        $this->artisan('tg:dispatch-token-scan-items --skip-when-total-files-exceeds=300')
+            ->expectsOutputToContain('Skipped before pagination because reported total_items=573 exceeded limit=300.')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('token_scan_items', [
+            'id' => $itemId,
+        ]);
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'http://127.0.0.1:8000/bots/send-and-run-all-pages'
+                && $request['bot_username'] === 'showfiles12bot'
+                && $request['text'] === 'QQfile_bot:14936_58526_793-573V'
+                && $request['stop_when_total_items_exceeds'] === 300;
+        });
+    }
+
     public function test_dispatch_uses_send_and_run_all_pages_for_mtfxq_bot(): void
     {
         $itemId = DB::table('token_scan_items')->insertGetId([

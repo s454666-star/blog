@@ -114,4 +114,35 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
             $result['summary']
         );
     }
+
+    public function test_dispatch_token_classifies_file_count_limit_output_without_session(): void
+    {
+        Artisan::shouldReceive('call')
+            ->once()
+            ->andReturnUsing(function (string $command, array $parameters, $output): int {
+                $this->assertSame('tg:dispatch-token-scan-items', $command);
+                $this->assertSame(['QQfile_bot:14936_58526_793-573V'], $parameters['tokens']);
+                $this->assertSame(8000, $parameters['--port']);
+                $this->assertSame(300, $parameters['--skip-when-total-files-exceeds']);
+
+                $output->writeln(
+                    'Skipped before pagination because reported total_items=573 exceeded limit=300. Keep token_scan_items row untouched.'
+                );
+
+                return 0;
+            });
+
+        $result = $this->app->make(DialogueFilestoreDispatchService::class)
+            ->dispatchToken('QQfile_bot:14936_58526_793-573V', [
+                '--port' => 8000,
+                '--skip-when-total-files-exceeds' => 300,
+            ]);
+
+        $this->assertFalse($result['ok']);
+        $this->assertSame('file_count_limit', $result['status']);
+        $this->assertSame(
+            'Skipped before pagination because reported total_items=573 exceeded limit=300. Keep token_scan_items row untouched.',
+            $result['summary']
+        );
+    }
 }

@@ -54,6 +54,7 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
             '--port' => max((int) $this->option('port'), 1),
             '--base-uri' => (array) $this->option('base-uri'),
             '--filestore-delete-source-messages' => true,
+            '--skip-when-total-files-exceeds' => 300,
         ];
 
         $existingTokens = $this->loadExistingSourceTokenSet($normalizedPrefix);
@@ -66,6 +67,7 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
             'attempted' => 0,
             'synced' => 0,
             'terminal_no_files' => 0,
+            'skipped_file_count_limit' => 0,
             'failed' => 0,
             'rows_marked_sync' => 0,
         ];
@@ -204,13 +206,21 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
                     }
 
                     if ($this->shouldMarkDialogueAsSyncedForResult($result)) {
-                        $stats['terminal_no_files']++;
+                        if ((string) ($result['status'] ?? '') === 'file_count_limit') {
+                            $stats['skipped_file_count_limit']++;
+                        } else {
+                            $stats['terminal_no_files']++;
+                        }
                         $tokenDecisions[$normalizedToken] = [
                             'mark_is_sync' => true,
                             'reason' => (string) ($result['status'] ?? 'no_files'),
                         ];
+                        $logPrefix = (string) ($result['status'] ?? '') === 'file_count_limit'
+                            ? 'skipped_file_count_limit'
+                            : 'terminal_no_files';
                         $this->warn(sprintf(
-                            'terminal_no_files dialogue_id=%d token=%s exit_code=%d status=%s summary=%s',
+                            '%s dialogue_id=%d token=%s exit_code=%d status=%s summary=%s',
+                            $logPrefix,
                             $rowId,
                             $token,
                             (int) ($result['exit_code'] ?? 1),
@@ -310,6 +320,7 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
         $this->line('attempted=' . $stats['attempted']);
         $this->line('synced=' . $stats['synced']);
         $this->line('terminal_no_files=' . $stats['terminal_no_files']);
+        $this->line('skipped_file_count_limit=' . $stats['skipped_file_count_limit']);
         $this->line('failed=' . $stats['failed']);
         $this->line('rows_marked_sync=' . $stats['rows_marked_sync']);
     }
@@ -372,6 +383,7 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
     private function shouldMarkDialogueAsSyncedForResult(array $result): bool
     {
         return $this->shouldRetryNoFileResult($result)
+            || (string) ($result['status'] ?? '') === 'file_count_limit'
             || (string) ($result['status'] ?? '') === 'invalid_token';
     }
 

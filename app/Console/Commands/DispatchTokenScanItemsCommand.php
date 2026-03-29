@@ -23,6 +23,7 @@ class DispatchTokenScanItemsCommand extends Command
         {--force-bot= : Override token routing and dispatch every token to a specific bot username}
         {--fallback-newjmqbot : Deprecated and ignored. @newjmqbot is disabled.}
         {--filestore-delete-source-messages : After successful filestore sync, also delete the source bot file messages used for this token}
+        {--skip-when-total-files-exceeds=0 : If >0, stop before pagination when the bot reports more total items than this count}
         {--include-processed : Include rows with updated_at already set}
         {--stopped-early-retry-delay=10 : Wait seconds before retrying unresolved QQ/yz token}
         {--stopped-early-max-retries=5 : Max extra retries for unresolved QQ/yz token before exiting with code 3}';
@@ -219,6 +220,7 @@ class DispatchTokenScanItemsCommand extends Command
             'total' => count($jobs),
             'success' => 0,
             'skipped_size_limit' => 0,
+            'skipped_file_count_limit' => 0,
             'not_found' => 0,
             'failed' => 0,
             'touched' => 0,
@@ -304,6 +306,8 @@ class DispatchTokenScanItemsCommand extends Command
                 $stats['success']++;
             } elseif ($classification === 'skipped_size_limit') {
                 $stats['skipped_size_limit']++;
+            } elseif ($classification === 'skipped_file_count_limit') {
+                $stats['skipped_file_count_limit']++;
             } elseif (in_array($classification, ['not_found', 'invalid_token'], true)) {
                 $stats['not_found']++;
             } else {
@@ -337,6 +341,7 @@ class DispatchTokenScanItemsCommand extends Command
         $this->line('total=' . $stats['total']);
         $this->line('success=' . $stats['success']);
         $this->line('skipped_size_limit=' . $stats['skipped_size_limit']);
+        $this->line('skipped_file_count_limit=' . $stats['skipped_file_count_limit']);
         $this->line('not_found=' . $stats['not_found']);
         $this->line('failed=' . $stats['failed']);
         $this->line('touched=' . $stats['touched']);
@@ -715,6 +720,10 @@ class DispatchTokenScanItemsCommand extends Command
         $filesMeta = is_array($responseJson['files'] ?? null) ? $responseJson['files'] : [];
         $filesUniqueCount = (int) ($responseJson['files_unique_count'] ?? $filesMeta['files_unique_count'] ?? $filesMeta['files_count'] ?? 0);
         $filesTotalBytes = (int) ($responseJson['files_total_bytes'] ?? 0);
+        $fileCountLimit = $this->resolveSkipWhenTotalFilesExceeds();
+        $reportedTotalItems = (int) ($responseJson['total_items_exceeded_limit_value'] ?? 0);
+        $reportedTotalItemsLimit = (int) ($responseJson['total_items_exceeded_limit_limit'] ?? $fileCountLimit);
+        $skippedForTotalItemsLimit = (bool) ($responseJson['total_items_exceeded_limit'] ?? false);
         $pageState = is_array($responseJson['page_state'] ?? null) ? $responseJson['page_state'] : [];
 
         $notFound = $this->responseContainsNotFound($responseJson, $latestTextPreview);
@@ -751,6 +760,13 @@ class DispatchTokenScanItemsCommand extends Command
         } elseif ($notFound) {
             $classification = 'not_found';
             $summary = 'Bot returned not found. Keep token_scan_items row untouched.';
+        } elseif ($skippedForTotalItemsLimit) {
+            $classification = 'skipped_file_count_limit';
+            $summary = sprintf(
+                'Skipped before pagination because reported total_items=%d exceeded limit=%d. Keep token_scan_items row untouched.',
+                max($reportedTotalItems, 0),
+                max($reportedTotalItemsLimit, 0)
+            );
         } elseif (($bot['api'] ?? '') === self::BOT_MTFXQ['api'] && $this->isMtfxqCaptchaDeniedText($latestTextPreview)) {
             $summary = 'MTFXQ captcha requests are temporarily denied after too many failures. Stop the command and retry later.';
             $stopProcessing = true;
@@ -1253,6 +1269,7 @@ class DispatchTokenScanItemsCommand extends Command
     {
         $isMessenger = $botUsername === self::BOT_MESSENGER['api'];
         $isAtfileslinks = $botUsername === self::BOT_ATFILESLINKS['api'];
+        $skipWhenTotalFilesExceeds = $this->resolveSkipWhenTotalFilesExceeds();
 
         $payload = [
             'bot_username' => $botUsername,
@@ -1269,6 +1286,7 @@ class DispatchTokenScanItemsCommand extends Command
             'wait_each_page_timeout_seconds' => 25,
             'callback_message_max_age_seconds' => 30,
             'callback_candidate_scan_limit' => 40,
+            'stop_when_total_items_exceeds' => $skipWhenTotalFilesExceeds,
         ];
 
         if ($isMessenger) {
@@ -2183,6 +2201,11 @@ class DispatchTokenScanItemsCommand extends Command
             'solved' => true,
             'summary' => implode(' ', $summaryParts),
         ];
+    }
+
+    private function resolveSkipWhenTotalFilesExceeds(): int
+    {
+        return max((int) $this->option('skip-when-total-files-exceeds'), 0);
     }
 
     /**

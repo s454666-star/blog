@@ -118,6 +118,7 @@ class BridgeDialogueTokensToFilestoreCommandTest extends TestCase
             ->andReturnUsing(function (string $token, array $options, $output = null) use (&$dispatches): array {
                 $dispatches[] = $token;
                 $this->assertTrue($options['--filestore-delete-source-messages'] ?? false);
+                $this->assertSame(300, $options['--skip-when-total-files-exceeds'] ?? null);
 
                 $sessionId = DB::table('telegram_filestore_sessions')->insertGetId([
                     'chat_id' => 7702694790,
@@ -293,6 +294,48 @@ class BridgeDialogueTokensToFilestoreCommandTest extends TestCase
 
         $this->assertDatabaseHas('dialogues', [
             'id' => 22,
+            'is_sync' => 1,
+        ]);
+        $this->assertDatabaseCount('telegram_filestore_sessions', 0);
+    }
+
+    public function test_command_marks_dialogue_synced_when_total_items_exceed_limit(): void
+    {
+        DB::table('dialogues')->insert([
+            'id' => 23,
+            'chat_id' => 1,
+            'message_id' => 23,
+            'text' => 'QQfile_bot:14936_58526_793-573V',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        $mock = Mockery::mock(DialogueFilestoreDispatchService::class);
+        $mock->shouldReceive('dispatchToken')
+            ->once()
+            ->andReturnUsing(function (string $token, array $options, $output = null): array {
+                $this->assertSame('QQfile_bot:14936_58526_793-573V', $token);
+                $this->assertSame(300, $options['--skip-when-total-files-exceeds'] ?? null);
+
+                return [
+                    'ok' => false,
+                    'status' => 'file_count_limit',
+                    'exit_code' => 0,
+                    'summary' => 'Skipped before pagination because reported total_items=573 exceeded limit=300. Keep token_scan_items row untouched.',
+                ];
+            });
+
+        $this->app->instance(DialogueFilestoreDispatchService::class, $mock);
+
+        $this->artisan('filestore:bridge-dialogues-tokens --prefix=QQfile_bot: --retry-delay=0 --max-retries=5')
+            ->expectsOutputToContain('skipped_file_count_limit dialogue_id=23 token=QQfile_bot:14936_58526_793-573V')
+            ->expectsOutputToContain('skipped_file_count_limit=1')
+            ->expectsOutputToContain('failed=0')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 23,
             'is_sync' => 1,
         ]);
         $this->assertDatabaseCount('telegram_filestore_sessions', 0);

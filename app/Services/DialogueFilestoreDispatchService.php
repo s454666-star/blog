@@ -47,6 +47,11 @@ class DialogueFilestoreDispatchService
             $parameters['--filestore-delete-source-messages'] = true;
         }
 
+        $skipWhenTotalFilesExceeds = max(0, (int) ($options['--skip-when-total-files-exceeds'] ?? 0));
+        if ($skipWhenTotalFilesExceeds > 0) {
+            $parameters['--skip-when-total-files-exceeds'] = $skipWhenTotalFilesExceeds;
+        }
+
         $buffer = new BufferedOutput(
             $output?->getVerbosity() ?? OutputInterface::VERBOSITY_NORMAL,
             $output?->isDecorated() ?? false,
@@ -141,6 +146,25 @@ class DialogueFilestoreDispatchService
                     'summary' => $marker,
                 ];
             }
+        }
+
+        if (Str::contains($normalizedOutput, 'skipped before pagination because reported total_items=')) {
+            $lines = preg_split('/\r\n|\r|\n/', trim($capturedOutput)) ?: [];
+            $matchingLine = '';
+
+            foreach ($lines as $line) {
+                $line = trim((string) $line);
+                if ($line !== '' && Str::contains(Str::lower($line), 'skipped before pagination because reported total_items=')) {
+                    $matchingLine = $line;
+                }
+            }
+
+            return [
+                'status' => 'file_count_limit',
+                'summary' => $matchingLine !== ''
+                    ? $matchingLine
+                    : 'Skipped before pagination because reported total_items exceeded the configured limit.',
+            ];
         }
 
         $lines = preg_split('/\r\n|\r|\n/', trim($capturedOutput)) ?: [];

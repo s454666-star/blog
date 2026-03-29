@@ -4,6 +4,7 @@ use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
     use App\Http\Controllers\BtdigController;
     use App\Http\Controllers\DialogueReadController;
+    use App\Http\Controllers\DialogueTokenStatsController;
 use App\Http\Controllers\EncryptionController;
 use App\Http\Controllers\ExternalVideoDuplicateController;
 use App\Http\Controllers\ExtractController;
@@ -153,6 +154,7 @@ Route::post('/ig-grabber/fetch', [IgGrabController::class, 'fetch'])->name('ig.f
 Route::get('/ig-grabber/download', [IgGrabController::class, 'download'])->name('ig.download');
 Route::get('/dialogues/mark-read', [DialogueReadController::class, 'page'])->name('dialogues.markRead.page');
 Route::post('/dialogues/mark-read', [DialogueReadController::class, 'mark'])->name('dialogues.markRead.mark');
+Route::get('/dialogues/token-stats', DialogueTokenStatsController::class)->name('dialogues.tokenStats');
 Route::get('/tdl', [TdlCommandController::class, 'index']);
 Route::post('/tdl', [TdlCommandController::class, 'generate']);
 Route::get('/btdig', [BtdigController::class, 'index'])->name('btdig.index');

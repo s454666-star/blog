@@ -221,6 +221,42 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
     }
 
+    public function test_dispatch_stops_early_when_showfiles12_pauses_service_for_manual_review(): void
+    {
+        $itemId = DB::table('token_scan_items')->insertGetId([
+            'token' => 'QQfile_bot:14109_76302_658-261P_91',
+            'created_at' => now(),
+            'updated_at' => null,
+        ]);
+
+        Http::fake([
+            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+                'status' => 'ok',
+                'reason' => 'paused',
+                'files_unique_count' => 0,
+                'files_total_bytes' => 0,
+                'latest_message' => [
+                    'kind' => 'other',
+                    'text_preview' => "☠️自动检测程序管控，暂停为您服务！请联系客服审查操作记录！ @liu_yan_bot\n封禁原因：文件机器人过度使用\n解封时间：2026-03-29 23:02:26",
+                    'has_buttons' => true,
+                    'page_info' => [],
+                ],
+                'timeline' => [],
+                'debug' => [],
+                'page_state' => [],
+            ], 200),
+        ]);
+
+        $this->artisan('tg:dispatch-token-scan-items')
+            ->expectsOutputToContain('Stopping dispatch because @showfiles12bot paused service and requested manual review.')
+            ->expectsOutputToContain('stopped_early=1')
+            ->assertExitCode(3);
+
+        $this->assertDatabaseHas('token_scan_items', [
+            'id' => $itemId,
+        ]);
+    }
+
     public function test_dispatch_keeps_queue_row_when_total_items_exceed_explicit_limit(): void
     {
         $itemId = DB::table('token_scan_items')->insertGetId([

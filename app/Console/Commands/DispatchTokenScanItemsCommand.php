@@ -188,6 +188,13 @@ class DispatchTokenScanItemsCommand extends Command
         '抱歉，未找到可解析内容。本机器人只能解析',
         '未找到可解析内容。本机器人只能解析',
     ];
+    private const SHOWFILES12_PAUSED_MARKERS = [
+        '自动检测程序管控，暂停为您服务！请联系客服审查操作记录！',
+        '自動檢測程序管控，暫停為您服務！請聯系客服審查操作記錄！',
+        '暂停为您服务',
+        '封禁原因：',
+        '解封时间：',
+    ];
     private ?array $forcedBotOverride = null;
 
     public function handle(): int
@@ -829,6 +836,11 @@ class DispatchTokenScanItemsCommand extends Command
                 max($reportedTotalItems, 0),
                 max($reportedTotalItemsLimit, 0)
             );
+        } elseif (($bot['api'] ?? '') === self::BOT_SHOWFILES12['api'] && $this->isShowfiles12PausedText($latestTextPreview)) {
+            $summary = 'Showfiles12 bot paused service and requested manual review. Stop the command now and retry after the bot is unblocked.';
+            $stopProcessing = true;
+            $stopProcessingRetryable = false;
+            $stopProcessingSummary = 'Stopping dispatch because @showfiles12bot paused service and requested manual review.';
         } elseif (($bot['api'] ?? '') === self::BOT_MTFXQ['api'] && $this->isMtfxqCaptchaDeniedText($latestTextPreview)) {
             $summary = 'MTFXQ captcha requests are temporarily denied after too many failures. Stop the command and retry later.';
             $stopProcessing = true;
@@ -2656,6 +2668,24 @@ class DispatchTokenScanItemsCommand extends Command
 
         foreach (self::MTFXQ_CAPTCHA_DENIED_MARKERS as $marker) {
             if ($marker !== '' && Str::contains(mb_strtolower($normalized), mb_strtolower($marker))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isShowfiles12PausedText(string $text): bool
+    {
+        $normalized = $this->normalizePreviewText($text);
+        if ($normalized === '') {
+            return false;
+        }
+
+        $normalized = mb_strtolower($normalized);
+        foreach (self::SHOWFILES12_PAUSED_MARKERS as $marker) {
+            $needle = mb_strtolower(trim((string) $marker));
+            if ($needle !== '' && Str::contains($normalized, $needle)) {
                 return true;
             }
         }

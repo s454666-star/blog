@@ -27,7 +27,58 @@ function Write-LogLine {
     }
 
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -LiteralPath $Path -Value "$timestamp [$WorkerName] $Message"
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::AppendAllText($Path, "$timestamp [$WorkerName] $Message" + [Environment]::NewLine, $utf8NoBom)
+}
+
+function Test-FileContainsNullByte {
+    param(
+        [string]$Path,
+        [int]$SampleBytes = 4096
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+
+    $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    try {
+        if ($stream.Length -le 0) {
+            return $false
+        }
+
+        $bufferLength = [Math]::Min([int]$stream.Length, $SampleBytes)
+        $buffer = New-Object byte[] $bufferLength
+        $bytesRead = $stream.Read($buffer, 0, $bufferLength)
+
+        for ($index = 0; $index -lt $bytesRead; $index++) {
+            if ($buffer[$index] -eq 0) {
+                return $true
+            }
+        }
+
+        return $false
+    } finally {
+        $stream.Dispose()
+    }
+}
+
+function Repair-LegacyLogFile {
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-FileContainsNullByte -Path $Path)) {
+        return
+    }
+
+    $directory = Split-Path -Parent $Path
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    $extension = [System.IO.Path]::GetExtension($Path)
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $legacyPath = Join-Path $directory "$baseName.legacy-utf16-$timestamp$extension"
+
+    Move-Item -LiteralPath $Path -Destination $legacyPath -Force
 }
 
 function Import-EnvFile {
@@ -64,6 +115,24 @@ function Import-EnvFile {
     }
 }
 
+function Quote-CmdArgument {
+    param([string]$Value)
+
+    if ($null -eq $Value) {
+        return '""'
+    }
+
+    if ($Value -eq "") {
+        return '""'
+    }
+
+    if ($Value -notmatch '[\s"]') {
+        return $Value
+    }
+
+    return '"' + ($Value -replace '"', '\"') + '"'
+}
+
 if ([string]::IsNullOrWhiteSpace($LogFile)) {
     $LogFile = Join-Path $ProjectDir "storage\logs\telegram_filestore_local_workers\$WorkerName.log"
 }
@@ -85,6 +154,7 @@ if (-not (Test-Path -LiteralPath $autoloadPath)) {
 
 while ($true) {
     Import-EnvFile -Path $EnvFile
+    Repair-LegacyLogFile -Path $LogFile
 
     $caFile = [System.Environment]::GetEnvironmentVariable("CURL_CA_BUNDLE", "Process")
     if ([string]::IsNullOrWhiteSpace($caFile)) {
@@ -116,7 +186,11 @@ while ($true) {
 
     Push-Location $ProjectDir
     try {
-        & $PhpExe @phpArguments *>> $LogFile
+        $commandLine = ((Quote-CmdArgument -Value $PhpExe) + " " + (($phpArguments | ForEach-Object {
+                    Quote-CmdArgument -Value ([string]$_)
+                }) -join " ") + " >> " + (Quote-CmdArgument -Value $LogFile) + " 2>&1")
+
+        & cmd.exe /d /c $commandLine | Out-Null
 
         $exitCode = $LASTEXITCODE
     } finally {

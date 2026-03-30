@@ -17,7 +17,7 @@ Register-ScheduledTask `
     -Action $startupAction `
     -Trigger $startupTrigger `
     -Principal $principal `
-    -Description "Start 100 local telegram_filestore queue workers at system startup." `
+    -Description "Autoscale local telegram_filestore queue workers at system startup with min 50 and max 200." `
     -Force | Out-Null
 
 $watchdogAction = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$WatchdogWrapperPath`""
@@ -30,7 +30,7 @@ Register-ScheduledTask `
     -Action $watchdogAction `
     -Trigger $watchdogTrigger `
     -Principal $principal `
-    -Description "Watchdog for 100 local telegram_filestore queue workers; restarts missing workers and reloads on git head changes." `
+    -Description "Watchdog for autoscaled local telegram_filestore queue workers; keeps at least 50 workers and scales up to 200 based on queue load." `
     -Force | Out-Null
 
 Write-Host "Registered startup task: $StartupTaskName"

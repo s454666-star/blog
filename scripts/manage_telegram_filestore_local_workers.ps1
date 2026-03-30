@@ -1,7 +1,10 @@
 param(
     [ValidateSet("status", "start", "stop", "restart", "ensure", "watchdog", "install-task")]
     [string]$Action = "status",
-    [int]$WorkerCount = 100,
+    [int]$MinWorkerCount = 50,
+    [Alias("WorkerCount")]
+    [int]$MaxWorkerCount = 200,
+    [int]$ScaleDownHoldSeconds = 300,
     [string]$WorkerPrefix = "ltf",
     [string]$ProjectDir = "C:\www\blog",
     [string]$PhpExe = "C:\php\php.exe",
@@ -10,6 +13,8 @@ param(
     [string]$StateDir = "C:\www\blog\storage\app\telegram-filestore-local-workers",
     [string]$LogDir = "C:\www\blog\storage\logs\telegram_filestore_local_workers",
     [string]$ManagerLogFile = "C:\www\blog\storage\logs\telegram_filestore_local_workers\manager.log",
+    [string]$QueueName = "telegram_filestore",
+    [string]$QueueConnection = "database",
     [string]$StartupTaskName = "Blog Telegram Filestore Local Workers Startup",
     [string]$WatchdogTaskName = "Blog Telegram Filestore Local Workers Watchdog",
     [string]$StartupWrapperPath = "C:\www\blog\scripts\start_telegram_filestore_local_workers.bat",
@@ -28,6 +33,20 @@ function Write-ManagerLog {
 
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -LiteralPath $ManagerLogFile -Value "$timestamp $Message"
+}
+
+function Assert-Configuration {
+    if ($MinWorkerCount -lt 1) {
+        throw "MinWorkerCount must be >= 1"
+    }
+
+    if ($MaxWorkerCount -lt $MinWorkerCount) {
+        throw "MaxWorkerCount must be >= MinWorkerCount"
+    }
+
+    if ($ScaleDownHoldSeconds -lt 0) {
+        throw "ScaleDownHoldSeconds must be >= 0"
+    }
 }
 
 function Assert-Prerequisites {
@@ -52,9 +71,53 @@ function Assert-Prerequisites {
     }
 }
 
+function Import-EnvFileToProcess {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Env file not found: $Path"
+    }
+
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        if ($line.TrimStart().StartsWith("#")) {
+            continue
+        }
+
+        $parts = $line.Split("=", 2)
+        if ($parts.Count -ne 2) {
+            continue
+        }
+
+        $name = $parts[0].Trim()
+        $value = $parts[1]
+
+        if ([string]::IsNullOrWhiteSpace($name)) {
+            continue
+        }
+
+        [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
+    }
+}
+
 function Get-WorkerName {
     param([int]$Index)
     return "{0}{1:D3}" -f $WorkerPrefix, $Index
+}
+
+function Get-WorkerNames {
+    param([int]$Count = $MaxWorkerCount)
+
+    if ($Count -lt 1) {
+        return
+    }
+
+    for ($i = 1; $i -le $Count; $i++) {
+        Get-WorkerName -Index $i
+    }
 }
 
 function Get-WorkerLogFile {
@@ -127,10 +190,82 @@ function Get-WorkerPhpProcesses {
             $commandLine = [string]$_.CommandLine
             -not [string]::IsNullOrWhiteSpace($commandLine) -and
             $commandLine -like "*artisan queue:work*" -and
-            $commandLine -like "*--queue=telegram_filestore*" -and
+            $commandLine -like "*--queue=$QueueName*" -and
             $commandLine -like "*--name=$WorkerName*"
         }
     )
+}
+
+function Get-WorkerRunnerSnapshot {
+    $snapshot = @{}
+    $all = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'"
+    foreach ($process in $all) {
+        $commandLine = [string]$process.CommandLine
+        if ([string]::IsNullOrWhiteSpace($commandLine)) {
+            continue
+        }
+
+        if ($commandLine -notlike "*$WorkerScript*") {
+            continue
+        }
+
+        if ($commandLine -notmatch '-WorkerName\s+("?)([^"\s]+)\1') {
+            continue
+        }
+
+        $workerName = [string]$matches[2]
+        if ($workerName -notlike "$WorkerPrefix*") {
+            continue
+        }
+
+        if (-not $snapshot.ContainsKey($workerName)) {
+            $snapshot[$workerName] = @()
+        }
+
+        $snapshot[$workerName] += $process
+    }
+
+    return $snapshot
+}
+
+function Get-WorkerPhpSnapshot {
+    $snapshot = @{}
+    $all = Get-CimInstance Win32_Process -Filter "Name = 'php.exe'"
+    foreach ($process in $all) {
+        $commandLine = [string]$process.CommandLine
+        if ([string]::IsNullOrWhiteSpace($commandLine)) {
+            continue
+        }
+
+        if ($commandLine -notlike "*artisan queue:work*") {
+            continue
+        }
+
+        if ($commandLine -notlike "*--queue=$QueueName*") {
+            continue
+        }
+
+        if ($commandLine -notmatch '--name=([^\s"]+)') {
+            continue
+        }
+
+        $workerName = [string]$matches[1]
+        if ($workerName -notlike "$WorkerPrefix*") {
+            continue
+        }
+
+        if (-not $snapshot.ContainsKey($workerName)) {
+            $snapshot[$workerName] = @()
+        }
+
+        $snapshot[$workerName] += $process
+    }
+
+    return $snapshot
+}
+
+function Get-RunningWorkerCount {
+    return (Get-WorkerRunnerSnapshot).Count
 }
 
 function Start-Worker {
@@ -151,7 +286,10 @@ function Start-Worker {
         "-ProjectDir", $ProjectDir,
         "-PhpExe", $PhpExe,
         "-EnvFile", $EnvFile,
-        "-LogFile", $workerLogFile
+        "-LogFile", $workerLogFile,
+        "-StateDir", $StateDir,
+        "-QueueConnection", $QueueConnection,
+        "-QueueName", $QueueName
     )
 
     Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -WorkingDirectory $ProjectDir -WindowStyle Hidden | Out-Null
@@ -194,18 +332,99 @@ function Stop-Worker {
     Write-ManagerLog "stopped $WorkerName runners=$($existing.Count) php=$($phpProcesses.Count)"
 }
 
-function Get-WorkerNames {
-    for ($i = 1; $i -le $WorkerCount; $i++) {
-        Get-WorkerName -Index $i
-    }
-}
-
 function Get-RevisionStateFile {
     return Join-Path $StateDir "last_head.txt"
 }
 
 function Get-RestartRequestFile {
     return Join-Path $StateDir "restart.request"
+}
+
+function Get-DesiredWorkerCountFile {
+    return Join-Path $StateDir "desired_worker_count.txt"
+}
+
+function Get-DownscaleCandidateFile {
+    return Join-Path $StateDir "downscale_candidate.txt"
+}
+
+function Read-IntegerFile {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    $raw = ((Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue | Select-Object -First 1) -as [string])
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $null
+    }
+
+    $value = 0
+    if ([int]::TryParse($raw.Trim(), [ref]$value)) {
+        return $value
+    }
+
+    return $null
+}
+
+function Save-IntegerFile {
+    param(
+        [string]$Path,
+        [int]$Value
+    )
+
+    Set-Content -LiteralPath $Path -Value $Value -Encoding ascii
+}
+
+function Read-DownscaleCandidate {
+    $path = Get-DownscaleCandidateFile
+    if (-not (Test-Path -LiteralPath $path)) {
+        return $null
+    }
+
+    $raw = ((Get-Content -LiteralPath $path -ErrorAction SilentlyContinue | Select-Object -First 1) -as [string]).Trim()
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $null
+    }
+
+    $parts = $raw.Split("|", 2)
+    if ($parts.Count -ne 2) {
+        return $null
+    }
+
+    $count = 0
+    if (-not [int]::TryParse($parts[0], [ref]$count)) {
+        return $null
+    }
+
+    $sinceUtc = [datetime]::MinValue
+    if (-not [datetime]::TryParse($parts[1], [ref]$sinceUtc)) {
+        return $null
+    }
+
+    return [pscustomobject]@{
+        Count = $count
+        SinceUtc = $sinceUtc
+    }
+}
+
+function Save-DownscaleCandidate {
+    param(
+        [int]$Count,
+        [datetime]$SinceUtc
+    )
+
+    $path = Get-DownscaleCandidateFile
+    $value = "{0}|{1}" -f $Count, $SinceUtc.ToString("o")
+    Set-Content -LiteralPath $path -Value $value -Encoding ascii
+}
+
+function Clear-DownscaleCandidate {
+    $path = Get-DownscaleCandidateFile
+    if (Test-Path -LiteralPath $path) {
+        Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Get-GitHead {
@@ -231,34 +450,251 @@ function Save-GitHead {
     Set-Content -LiteralPath (Get-RevisionStateFile) -Value $Head -Encoding ascii
 }
 
+function Get-QueueMetrics {
+    Import-EnvFileToProcess -Path $EnvFile
+    [System.Environment]::SetEnvironmentVariable("TELEGRAM_FILESTORE_PROJECT_DIR", $ProjectDir, "Process")
+    [System.Environment]::SetEnvironmentVariable("TELEGRAM_FILESTORE_QUEUE_NAME", $QueueName, "Process")
+
+    $phpScript = @'
+<?php
+$projectDir = getenv('TELEGRAM_FILESTORE_PROJECT_DIR');
+$queueName = getenv('TELEGRAM_FILESTORE_QUEUE_NAME');
+$now = time();
+
+require $projectDir . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
+$app = require $projectDir . DIRECTORY_SEPARATOR . 'bootstrap' . DIRECTORY_SEPARATOR . 'app.php';
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
+
+$pending = Illuminate\Support\Facades\DB::table('jobs')
+    ->where('queue', $queueName)
+    ->whereNull('reserved_at')
+    ->selectRaw('COUNT(*) as aggregate_count, MIN(available_at) as oldest_timestamp')
+    ->first();
+
+$reserved = Illuminate\Support\Facades\DB::table('jobs')
+    ->where('queue', $queueName)
+    ->whereNotNull('reserved_at')
+    ->selectRaw('COUNT(*) as aggregate_count, MIN(reserved_at) as oldest_timestamp')
+    ->first();
+
+$failed = Illuminate\Support\Facades\DB::table('failed_jobs')
+    ->selectRaw('COUNT(*) as aggregate_count')
+    ->first();
+
+$pendingCount = (int) ($pending->aggregate_count ?? 0);
+$pendingAge = ($pendingCount > 0 && $pending->oldest_timestamp !== null)
+    ? max(0, $now - (int) $pending->oldest_timestamp)
+    : 0;
+
+$reservedCount = (int) ($reserved->aggregate_count ?? 0);
+$reservedAge = ($reservedCount > 0 && $reserved->oldest_timestamp !== null)
+    ? max(0, $now - (int) $reserved->oldest_timestamp)
+    : 0;
+
+$failedCount = (int) ($failed->aggregate_count ?? 0);
+
+printf("PENDING_COUNT=%d\n", $pendingCount);
+printf("PENDING_AGE=%d\n", $pendingAge);
+printf("RESERVED_COUNT=%d\n", $reservedCount);
+printf("RESERVED_AGE=%d\n", $reservedAge);
+printf("FAILED_COUNT=%d\n", $failedCount);
+'@
+
+    $output = @($phpScript | & $PhpExe)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to read queue metrics for $QueueName"
+    }
+
+    $values = @{}
+    foreach ($line in $output) {
+        $text = ([string]$line).Trim()
+        if ($text -match '^([A-Z_]+)=(.+)$') {
+            $values[$matches[1]] = $matches[2]
+        }
+    }
+
+    $pendingCount = if ($values.ContainsKey("PENDING_COUNT")) { [int]$values["PENDING_COUNT"] } else { 0 }
+    $pendingAge = if ($values.ContainsKey("PENDING_AGE")) { [int]$values["PENDING_AGE"] } else { 0 }
+    $reservedCount = if ($values.ContainsKey("RESERVED_COUNT")) { [int]$values["RESERVED_COUNT"] } else { 0 }
+    $reservedAge = if ($values.ContainsKey("RESERVED_AGE")) { [int]$values["RESERVED_AGE"] } else { 0 }
+    $failedCount = if ($values.ContainsKey("FAILED_COUNT")) { [int]$values["FAILED_COUNT"] } else { 0 }
+
+    return [pscustomobject]@{
+        PendingCount = $pendingCount
+        PendingAge = $pendingAge
+        ReservedCount = $reservedCount
+        ReservedAge = $reservedAge
+        FailedCount = $failedCount
+        TotalJobs = $pendingCount + $reservedCount
+    }
+}
+
+function Get-DesiredWorkerPlan {
+    $metrics = Get-QueueMetrics
+    $observedJobs = [int]$metrics.TotalJobs
+    $rawTarget = [Math]::Max($MinWorkerCount, [Math]::Min($MaxWorkerCount, $observedJobs))
+    $runningCount = Get-RunningWorkerCount
+
+    $savedDesired = Read-IntegerFile -Path (Get-DesiredWorkerCountFile)
+    if ($null -eq $savedDesired) {
+        if ($runningCount -ge $MinWorkerCount -and $runningCount -le $MaxWorkerCount) {
+            $savedDesired = $runningCount
+        } else {
+            $savedDesired = $rawTarget
+        }
+    }
+
+    $savedDesired = [Math]::Max($MinWorkerCount, [Math]::Min($MaxWorkerCount, [int]$savedDesired))
+    $desiredCount = $savedDesired
+    $downscaleApplied = $false
+    $candidateAgeSeconds = 0
+
+    if ($rawTarget -gt $savedDesired) {
+        $desiredCount = $rawTarget
+        Clear-DownscaleCandidate
+    } elseif ($rawTarget -lt $savedDesired) {
+        $candidate = Read-DownscaleCandidate
+        if ($null -eq $candidate -or $candidate.Count -ne $rawTarget) {
+            Save-DownscaleCandidate -Count $rawTarget -SinceUtc ([datetime]::Now)
+            if ($ScaleDownHoldSeconds -eq 0) {
+                $desiredCount = $rawTarget
+                $downscaleApplied = $true
+                Clear-DownscaleCandidate
+            }
+        } else {
+            $candidateAgeSeconds = [int][Math]::Floor(([datetime]::Now - $candidate.SinceUtc).TotalSeconds)
+            if ($candidateAgeSeconds -ge $ScaleDownHoldSeconds) {
+                $desiredCount = $rawTarget
+                $downscaleApplied = $true
+                Clear-DownscaleCandidate
+            }
+        }
+    } else {
+        Clear-DownscaleCandidate
+    }
+
+    Save-IntegerFile -Path (Get-DesiredWorkerCountFile) -Value $desiredCount
+
+    return [pscustomobject]@{
+        PendingCount = [int]$metrics.PendingCount
+        PendingAge = [int]$metrics.PendingAge
+        ReservedCount = [int]$metrics.ReservedCount
+        ReservedAge = [int]$metrics.ReservedAge
+        FailedCount = [int]$metrics.FailedCount
+        ObservedJobs = $observedJobs
+        RawTarget = $rawTarget
+        PreviousDesiredCount = $savedDesired
+        DesiredCount = $desiredCount
+        RunningCount = $runningCount
+        DownscaleApplied = $downscaleApplied
+        CandidateAgeSeconds = $candidateAgeSeconds
+    }
+}
+
 function Show-Status {
-    foreach ($workerName in Get-WorkerNames) {
-        $process = Get-WorkerProcess -WorkerName $workerName
-        if ($null -eq $process) {
+    $plan = Get-DesiredWorkerPlan
+    $runnerSnapshot = Get-WorkerRunnerSnapshot
+    "queue=$QueueName pending=$($plan.PendingCount) reserved=$($plan.ReservedCount) total_jobs=$($plan.ObservedJobs) desired=$($plan.DesiredCount) running=$($plan.RunningCount) min=$MinWorkerCount max=$MaxWorkerCount"
+
+    foreach ($workerName in Get-WorkerNames -Count $MaxWorkerCount) {
+        $processes = if ($runnerSnapshot.ContainsKey($workerName)) { @($runnerSnapshot[$workerName]) } else { @() }
+        if ($processes.Count -eq 0) {
             "{0} status=down pid=none" -f $workerName
             continue
         }
 
-        "{0} status=up pid={1}" -f $workerName, $process.ProcessId
+        "{0} status=up pid={1}" -f $workerName, $processes[0].ProcessId
     }
 }
 
-function Start-AllWorkers {
-    foreach ($workerName in Get-WorkerNames) {
+function Start-WorkersUpTo {
+    param([int]$TargetWorkerCount)
+
+    foreach ($workerName in Get-WorkerNames -Count $TargetWorkerCount) {
         Start-Worker -WorkerName $workerName
     }
 }
 
 function Stop-AllWorkers {
-    foreach ($workerName in Get-WorkerNames) {
-        Stop-Worker -WorkerName $workerName
+    $runnerSnapshot = Get-WorkerRunnerSnapshot
+    $phpSnapshot = Get-WorkerPhpSnapshot
+
+    foreach ($workerName in Get-WorkerNames -Count $MaxWorkerCount) {
+        $runnerProcesses = if ($runnerSnapshot.ContainsKey($workerName)) { @($runnerSnapshot[$workerName]) } else { @() }
+        $phpProcesses = if ($phpSnapshot.ContainsKey($workerName)) { @($phpSnapshot[$workerName]) } else { @() }
+
+        if ($runnerProcesses.Count -eq 0 -and $phpProcesses.Count -eq 0) {
+            Write-ManagerLog "$workerName already stopped"
+            continue
+        }
+
+        foreach ($process in $runnerProcesses) {
+            try {
+                & taskkill /PID $process.ProcessId /T /F | Out-Null
+            } catch {
+            }
+        }
+
+        foreach ($phpProcess in $phpProcesses) {
+            try {
+                Stop-Process -Id $phpProcess.ProcessId -Force -ErrorAction Stop
+            } catch {
+            }
+        }
+
+        Write-ManagerLog "stopped $workerName runners=$($runnerProcesses.Count) php=$($phpProcesses.Count)"
     }
 }
 
-function Ensure-AllWorkers {
-    foreach ($workerName in Get-WorkerNames) {
-        $process = Get-WorkerProcess -WorkerName $workerName
-        if ($null -eq $process) {
+function Stop-WorkersAbove {
+    param([int]$TargetWorkerCount)
+
+    $runnerSnapshot = Get-WorkerRunnerSnapshot
+    $phpSnapshot = Get-WorkerPhpSnapshot
+
+    foreach ($workerName in Get-WorkerNames -Count $MaxWorkerCount) {
+        $workerIndex = 0
+        if (-not [int]::TryParse(($workerName -replace '^\D+', ''), [ref]$workerIndex)) {
+            continue
+        }
+
+        if ($workerIndex -le $TargetWorkerCount) {
+            continue
+        }
+
+        $runnerProcesses = if ($runnerSnapshot.ContainsKey($workerName)) { @($runnerSnapshot[$workerName]) } else { @() }
+        $phpProcesses = if ($phpSnapshot.ContainsKey($workerName)) { @($phpSnapshot[$workerName]) } else { @() }
+
+        if ($runnerProcesses.Count -eq 0 -and $phpProcesses.Count -eq 0) {
+            continue
+        }
+
+        foreach ($process in $runnerProcesses) {
+            try {
+                & taskkill /PID $process.ProcessId /T /F | Out-Null
+            } catch {
+            }
+        }
+
+        foreach ($phpProcess in $phpProcesses) {
+            try {
+                Stop-Process -Id $phpProcess.ProcessId -Force -ErrorAction Stop
+            } catch {
+            }
+        }
+
+        Write-ManagerLog "autoscale stopped $workerName runners=$($runnerProcesses.Count) php=$($phpProcesses.Count)"
+    }
+}
+
+function Ensure-WorkersUpTo {
+    param([int]$TargetWorkerCount)
+
+    $runnerSnapshot = Get-WorkerRunnerSnapshot
+    foreach ($workerName in Get-WorkerNames -Count $TargetWorkerCount) {
+        $processes = if ($runnerSnapshot.ContainsKey($workerName)) { @($runnerSnapshot[$workerName]) } else { @() }
+        if ($processes.Count -eq 0) {
             Write-ManagerLog "$workerName missing, starting"
             Start-Worker -WorkerName $workerName
         }
@@ -266,11 +702,14 @@ function Ensure-AllWorkers {
 }
 
 function Restart-AllWorkers {
+    param([int]$TargetWorkerCount)
+
     Stop-AllWorkers
-    Start-AllWorkers
+    Start-WorkersUpTo -TargetWorkerCount $TargetWorkerCount
 }
 
 function Invoke-Watchdog {
+    $plan = Get-DesiredWorkerPlan
     $restartReason = $null
     $restartRequestFile = Get-RestartRequestFile
     $revisionStateFile = Get-RevisionStateFile
@@ -290,10 +729,19 @@ function Invoke-Watchdog {
     }
 
     if ($restartReason) {
-        Write-ManagerLog "$restartReason; restarting all workers"
-        Restart-AllWorkers
+        Write-ManagerLog "$restartReason; restarting all workers desired=$($plan.DesiredCount)"
+        Restart-AllWorkers -TargetWorkerCount $plan.DesiredCount
     } else {
-        Ensure-AllWorkers
+        if ($plan.DownscaleApplied) {
+            Write-ManagerLog "autoscale down previous=$($plan.PreviousDesiredCount) desired=$($plan.DesiredCount) total_jobs=$($plan.ObservedJobs) pending=$($plan.PendingCount) reserved=$($plan.ReservedCount); stopping workers above desired"
+            Stop-WorkersAbove -TargetWorkerCount $plan.DesiredCount
+        } elseif ($plan.RunningCount -gt $plan.DesiredCount) {
+            Write-ManagerLog "autoscale converge desired=$($plan.DesiredCount) running=$($plan.RunningCount); stopping workers above desired"
+            Stop-WorkersAbove -TargetWorkerCount $plan.DesiredCount
+        }
+
+        Ensure-WorkersUpTo -TargetWorkerCount $plan.DesiredCount
+        Write-ManagerLog "watchdog ok pending=$($plan.PendingCount) reserved=$($plan.ReservedCount) total_jobs=$($plan.ObservedJobs) desired=$($plan.DesiredCount) running=$($plan.RunningCount) failed=$($plan.FailedCount)"
     }
 
     if (-not [string]::IsNullOrWhiteSpace($currentHead)) {
@@ -312,7 +760,7 @@ function Install-StartupTask {
         -Action $startupAction `
         -Trigger $startupTrigger `
         -Principal $principal `
-        -Description "Start 100 local telegram_filestore queue workers at system startup." `
+        -Description "Autoscale local telegram_filestore queue workers at system startup with min $MinWorkerCount and max $MaxWorkerCount." `
         -Force | Out-Null
 
     $watchdogAction = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$WatchdogWrapperPath`""
@@ -325,7 +773,7 @@ function Install-StartupTask {
         -Action $watchdogAction `
         -Trigger $watchdogTrigger `
         -Principal $principal `
-        -Description "Watchdog for 100 local telegram_filestore queue workers; restarts missing workers and reloads on git head changes." `
+        -Description "Watchdog for autoscaled local telegram_filestore queue workers; keeps at least $MinWorkerCount workers and scales up to $MaxWorkerCount based on queue load." `
         -Force | Out-Null
 
     Write-ManagerLog "installed startup task $StartupTaskName"
@@ -334,6 +782,7 @@ function Install-StartupTask {
     Write-Output "Registered watchdog task: $WatchdogTaskName"
 }
 
+Assert-Configuration
 Assert-Prerequisites
 
 switch ($Action) {
@@ -341,16 +790,19 @@ switch ($Action) {
         Show-Status
     }
     "start" {
-        Start-AllWorkers
+        $plan = Get-DesiredWorkerPlan
+        Start-WorkersUpTo -TargetWorkerCount $plan.DesiredCount
     }
     "stop" {
         Stop-AllWorkers
     }
     "restart" {
-        Restart-AllWorkers
+        $plan = Get-DesiredWorkerPlan
+        Restart-AllWorkers -TargetWorkerCount $plan.DesiredCount
     }
     "ensure" {
-        Ensure-AllWorkers
+        $plan = Get-DesiredWorkerPlan
+        Ensure-WorkersUpTo -TargetWorkerCount $plan.DesiredCount
     }
     "watchdog" {
         Invoke-Watchdog

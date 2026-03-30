@@ -4,6 +4,7 @@ param(
     [string]$ProjectDir = "C:\www\blog",
     [string]$PhpExe = "C:\php\php.exe",
     [string]$EnvFile = "C:\www\blog\storage\app\telegram-filestore-local-workers\worker.env",
+    [string]$StateDir = "C:\www\blog\storage\app\telegram-filestore-local-workers",
     [string]$LogFile = "",
     [string]$QueueConnection = "database",
     [string]$QueueName = "telegram_filestore",
@@ -81,6 +82,53 @@ function Repair-LegacyLogFile {
     Move-Item -LiteralPath $Path -Destination $legacyPath -Force
 }
 
+function Get-DesiredWorkerCountFile {
+    return Join-Path $StateDir "desired_worker_count.txt"
+}
+
+function Get-WorkerIndex {
+    param([string]$Name)
+
+    if ($Name -match '(\d+)$') {
+        return [int]$matches[1]
+    }
+
+    return $null
+}
+
+function Read-DesiredWorkerCount {
+    $path = Get-DesiredWorkerCountFile
+    if (-not (Test-Path -LiteralPath $path)) {
+        return $null
+    }
+
+    $raw = ((Get-Content -LiteralPath $path -ErrorAction SilentlyContinue | Select-Object -First 1) -as [string])
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $null
+    }
+
+    $value = 0
+    if ([int]::TryParse($raw.Trim(), [ref]$value)) {
+        return $value
+    }
+
+    return $null
+}
+
+function Test-WorkerShouldRun {
+    $desiredWorkerCount = Read-DesiredWorkerCount
+    if ($null -eq $desiredWorkerCount) {
+        return $true
+    }
+
+    $workerIndex = Get-WorkerIndex -Name $WorkerName
+    if ($null -eq $workerIndex) {
+        return $true
+    }
+
+    return $workerIndex -le $desiredWorkerCount
+}
+
 function Import-EnvFile {
     param(
         [string]$Path
@@ -152,9 +200,19 @@ if (-not (Test-Path -LiteralPath $autoloadPath)) {
     throw "vendor\autoload.php not found under $ProjectDir"
 }
 
+if (-not (Test-Path -LiteralPath $StateDir)) {
+    New-Item -ItemType Directory -Path $StateDir -Force | Out-Null
+}
+
 while ($true) {
     Import-EnvFile -Path $EnvFile
     Repair-LegacyLogFile -Path $LogFile
+
+    if (-not (Test-WorkerShouldRun)) {
+        $desiredWorkerCount = Read-DesiredWorkerCount
+        Write-LogLine -Path $LogFile -Message "worker-stop autoscale desired_count=$desiredWorkerCount"
+        break
+    }
 
     $caFile = [System.Environment]::GetEnvironmentVariable("CURL_CA_BUNDLE", "Process")
     if ([string]::IsNullOrWhiteSpace($caFile)) {

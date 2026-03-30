@@ -630,4 +630,106 @@ class RestoreFilestoreToBotCommandTest extends TestCase
             'status' => 'synced',
         ]);
     }
+
+    public function test_command_uses_config_target_chat_id_when_option_is_omitted(): void
+    {
+        config()->set('telegram.backup_restore_target_chat_id', 8491679630);
+
+        DB::table('telegram_filestore_sessions')->insert([
+            'id' => 60,
+            'chat_id' => 7702694790,
+            'public_token' => 'filestoebot_config_chat_id',
+            'source_token' => 'showfilesbot_config_chat_id',
+            'status' => 'closed',
+            'total_files' => 1,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_files')->insert([
+            'id' => 93,
+            'session_id' => 60,
+            'chat_id' => 7702694790,
+            'message_id' => 6006,
+            'file_id' => 'CONFIG-CHAT-FILE-ID',
+            'file_unique_id' => 'CONFIG-CHAT-UNIQ-ID',
+            'source_token' => 'showfilesbot_config_chat_id',
+            'file_name' => 'config-chat.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 12,
+            'file_type' => 'document',
+            'raw_payload' => json_encode(['message_id' => 6006], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created_at' => now(),
+        ]);
+
+        Http::fake(function ($request) {
+            if (str_starts_with($request->url(), 'https://api.telegram.org/botrestore-token/getUpdates')) {
+                $offset = (int) ($request['offset'] ?? 0);
+
+                if ($offset <= 0) {
+                    return Http::response([
+                        'ok' => true,
+                        'result' => [],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => [
+                        [
+                            'update_id' => 501,
+                            'message' => [
+                                'message_id' => 101,
+                                'chat' => [
+                                    'id' => 8491679630,
+                                    'type' => 'private',
+                                ],
+                                'document' => [
+                                    'file_id' => 'CONFIG-TARGET-FILE-ID',
+                                    'file_unique_id' => 'CONFIG-TARGET-UNIQ-ID',
+                                    'file_name' => 'config-chat.bin',
+                                    'mime_type' => 'application/octet-stream',
+                                    'file_size' => 12,
+                                ],
+                            ],
+                        ],
+                    ],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+                return Http::response([
+                    'status' => 'ok',
+                    'forwarded_message_ids' => [93001],
+                    'missing_message_ids' => [],
+                    'unforwardable_message_ids' => [],
+                ], 200);
+            }
+
+            return Http::response([
+                'ok' => false,
+                'status' => 'unexpected',
+                'url' => $request->url(),
+            ], 500);
+        });
+
+        $this->artisan('filestore:restore-to-bot --session-id=60 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
+            ->expectsOutputToContain('synced=1')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_sessions', [
+            'source_session_id' => 60,
+            'target_bot_username' => 'file_backup_restore_bot',
+            'target_chat_id' => 8491679630,
+            'status' => 'completed',
+        ]);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_files', [
+            'source_session_id' => 60,
+            'source_file_row_id' => 93,
+            'target_chat_id' => 8491679630,
+            'target_file_id' => 'CONFIG-TARGET-FILE-ID',
+            'status' => 'synced',
+        ]);
+    }
 }

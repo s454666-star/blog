@@ -7,6 +7,7 @@ $taskNames = @(
     'TG API2',
     'Telegram FastAPI Services',
     'Blog Get BT',
+    'Blog Telegram Filestore Restore Backup',
     'Project Log Cleanup',
     'CaddyServer',
     'LaravelBlogServer',

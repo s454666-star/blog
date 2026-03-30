@@ -27,13 +27,13 @@ class RestoreFilestoreToBotCommand extends Command
         {--public-token= : 只處理單一 telegram_filestore_sessions.public_token}
         {--source-token= : 只處理單一 telegram_filestore_sessions.source_token}
         {--all : 處理 telegram_filestore_sessions 內所有 sessions}
-        {--limit=0 : 本次最多轉幾筆 source files；0 代表不限}
+        {--limit= : 本次最多轉幾筆 source files；留空或 0 代表不限}
         {--base-uri=http://127.0.0.1:8001 : 本機 Telegram FastAPI base uri}
         {--target-bot-username= : 新 bot username，可帶或不帶 @}
         {--target-bot-token= : 新 bot token；留空時讀 config(telegram.backup_restore_bot_token)}
         {--source-bot-token= : 舊 filestore bot token；留空時讀 config(telegram.filestore_bot_token)}
         {--worker-env= : 本機 worker.env 路徑；預設 storage/app/telegram-filestore-local-workers/worker.env}
-        {--target-chat-id=0 : 新 bot 的 private chat id；0 代表從 getUpdates 自動抓最新 private chat}
+        {--target-chat-id= : 新 bot 的 private chat id；留空時讀 worker.env/config，0 代表從 getUpdates 自動抓最新 private chat}
         {--poll-seconds=15 : 每筆 forward 後輪詢新 bot getUpdates 的秒數}
         {--dry-run : 只列出將處理的 sessions，不真的 forward}';
 
@@ -45,14 +45,19 @@ class RestoreFilestoreToBotCommand extends Command
         $publicToken = trim((string) $this->option('public-token'));
         $sourceToken = trim((string) $this->option('source-token'));
         $all = (bool) $this->option('all');
-        $limit = max((int) $this->option('limit'), 0);
         $baseUri = rtrim(trim((string) ($this->option('base-uri') ?: self::DEFAULT_BASE_URI)), '/');
         $targetBotUsername = ltrim(trim((string) ($this->option('target-bot-username') ?: config('telegram.backup_restore_bot_username', 'file_backup_restore_bot'))), '@');
         $workerEnvPath = trim((string) ($this->option('worker-env') ?: base_path(self::DEFAULT_LOCAL_WORKER_ENV_PATH)));
         $localWorkerEnv = $this->readKeyValueEnvFile($workerEnvPath);
+        $limitOption = trim((string) $this->option('limit'));
+        $limit = $limitOption === '' ? 0 : max((int) $limitOption, 0);
         $targetBotToken = trim((string) ($this->option('target-bot-token') ?: ($localWorkerEnv['TELEGRAM_BACKUP_RESTORE_BOT_TOKEN'] ?? config('telegram.backup_restore_bot_token'))));
         $sourceBotToken = trim((string) ($this->option('source-bot-token') ?: ($localWorkerEnv['TELEGRAM_FILESTORE_BOT_TOKEN'] ?? config('telegram.filestore_bot_token'))));
-        $targetChatId = max((int) $this->option('target-chat-id'), 0);
+        $targetChatIdOption = trim((string) $this->option('target-chat-id'));
+        $targetChatIdDefault = (string) ($localWorkerEnv['TELEGRAM_BACKUP_RESTORE_TARGET_CHAT_ID'] ?? config('telegram.backup_restore_target_chat_id', 0));
+        $targetChatId = $targetChatIdOption === ''
+            ? max((int) $targetChatIdDefault, 0)
+            : max((int) $targetChatIdOption, 0);
         $pollSeconds = max((int) $this->option('poll-seconds'), 1);
         $dryRun = (bool) $this->option('dry-run');
 

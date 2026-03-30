@@ -5,6 +5,7 @@ param(
     [Alias("WorkerCount")]
     [int]$MaxWorkerCount = 200,
     [int]$ScaleDownHoldSeconds = 300,
+    [int]$RetryFailedCooldownSeconds = 60,
     [string]$WorkerPrefix = "ltf",
     [string]$ProjectDir = "C:\www\blog",
     [string]$PhpExe = "C:\php\php.exe",
@@ -46,6 +47,10 @@ function Assert-Configuration {
 
     if ($ScaleDownHoldSeconds -lt 0) {
         throw "ScaleDownHoldSeconds must be >= 0"
+    }
+
+    if ($RetryFailedCooldownSeconds -lt 0) {
+        throw "RetryFailedCooldownSeconds must be >= 0"
     }
 }
 
@@ -348,6 +353,10 @@ function Get-DownscaleCandidateFile {
     return Join-Path $StateDir "downscale_candidate.txt"
 }
 
+function Get-FailedRetryStateFile {
+    return Join-Path $StateDir "last_retry_failed_at.txt"
+}
+
 function Read-IntegerFile {
     param([string]$Path)
 
@@ -368,13 +377,68 @@ function Read-IntegerFile {
     return $null
 }
 
+function Write-AsciiFile {
+    param(
+        [string]$Path,
+        [string]$Value
+    )
+
+    $directory = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($directory) -and -not (Test-Path -LiteralPath $directory)) {
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    }
+
+    $encoding = [System.Text.Encoding]::ASCII
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            [System.IO.File]::WriteAllText($Path, $Value, $encoding)
+            return
+        } catch {
+            if ($attempt -ge 3) {
+                throw
+            }
+
+            Start-Sleep -Milliseconds 100
+        }
+    }
+}
+
 function Save-IntegerFile {
     param(
         [string]$Path,
         [int]$Value
     )
 
-    Set-Content -LiteralPath $Path -Value $Value -Encoding ascii
+    Write-AsciiFile -Path $Path -Value ([string]$Value)
+}
+
+function Read-DateTimeFile {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    $raw = ((Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue | Select-Object -First 1) -as [string])
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $null
+    }
+
+    $value = [datetime]::MinValue
+    if ([datetime]::TryParse($raw.Trim(), [ref]$value)) {
+        return $value
+    }
+
+    return $null
+}
+
+function Save-DateTimeFile {
+    param(
+        [string]$Path,
+        [datetime]$Value
+    )
+
+    Write-AsciiFile -Path $Path -Value $Value.ToString("o")
 }
 
 function Read-DownscaleCandidate {
@@ -417,7 +481,7 @@ function Save-DownscaleCandidate {
 
     $path = Get-DownscaleCandidateFile
     $value = "{0}|{1}" -f $Count, $SinceUtc.ToString("o")
-    Set-Content -LiteralPath $path -Value $value -Encoding ascii
+    Write-AsciiFile -Path $path -Value $value
 }
 
 function Clear-DownscaleCandidate {
@@ -447,7 +511,91 @@ function Save-GitHead {
         return
     }
 
-    Set-Content -LiteralPath (Get-RevisionStateFile) -Value $Head -Encoding ascii
+    Write-AsciiFile -Path (Get-RevisionStateFile) -Value $Head
+}
+
+function Get-PhpCliArguments {
+    Import-EnvFileToProcess -Path $EnvFile
+
+    $caFile = [System.Environment]::GetEnvironmentVariable("CURL_CA_BUNDLE", "Process")
+    if ([string]::IsNullOrWhiteSpace($caFile)) {
+        $caFile = [System.Environment]::GetEnvironmentVariable("SSL_CERT_FILE", "Process")
+    }
+
+    $phpArguments = @()
+    if (-not [string]::IsNullOrWhiteSpace($caFile)) {
+        $phpArguments += "-d"
+        $phpArguments += "curl.cainfo=$caFile"
+        $phpArguments += "-d"
+        $phpArguments += "openssl.cafile=$caFile"
+    }
+
+    return $phpArguments
+}
+
+function Invoke-ArtisanCommand {
+    param([string[]]$CommandArguments)
+
+    $phpArguments = @(Get-PhpCliArguments)
+    $phpArguments += "artisan"
+    $phpArguments += $CommandArguments
+
+    Push-Location $ProjectDir
+    try {
+        $output = @(& $PhpExe @phpArguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+
+    return [pscustomobject]@{
+        ExitCode = $exitCode
+        Output = @($output)
+    }
+}
+
+function Invoke-RetryFailedJobsIfNeeded {
+    param([int]$FailedCount)
+
+    if ($FailedCount -le 0) {
+        return $false
+    }
+
+    $stateFile = Get-FailedRetryStateFile
+    $lastRetryAt = Read-DateTimeFile -Path $stateFile
+    if ($null -ne $lastRetryAt) {
+        $elapsedSeconds = [int][Math]::Floor(([datetime]::Now - $lastRetryAt).TotalSeconds)
+        if ($elapsedSeconds -lt $RetryFailedCooldownSeconds) {
+            Write-ManagerLog "failed_jobs=$FailedCount detected but queue:retry all is cooling down elapsed=${elapsedSeconds}s cooldown=${RetryFailedCooldownSeconds}s"
+            return $false
+        }
+    }
+
+    Write-ManagerLog "failed_jobs=$FailedCount detected; running php artisan queue:retry all"
+    $result = Invoke-ArtisanCommand -CommandArguments @("queue:retry", "all")
+    if ($result.ExitCode -ne 0) {
+        $outputText = (($result.Output | ForEach-Object { ([string]$_).Trim() }) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) -join " | "
+        if ([string]::IsNullOrWhiteSpace($outputText)) {
+            $outputText = "(no output)"
+        }
+
+        Write-ManagerLog "queue:retry all failed exit_code=$($result.ExitCode) output=$outputText"
+        return $false
+    }
+
+    Save-DateTimeFile -Path $stateFile -Value ([datetime]::Now)
+
+    foreach ($line in $result.Output) {
+        $text = ([string]$line).Trim()
+        if ([string]::IsNullOrWhiteSpace($text)) {
+            continue
+        }
+
+        Write-ManagerLog "queue:retry all output=$text"
+    }
+
+    Write-ManagerLog "queue:retry all completed failed_jobs=$FailedCount"
+    return $true
 }
 
 function Get-QueueMetrics {
@@ -563,7 +711,7 @@ function Get-DesiredWorkerPlan {
         Clear-DownscaleCandidate
     } elseif ($rawTarget -lt $savedDesired) {
         $candidate = Read-DownscaleCandidate
-        if ($null -eq $candidate -or $candidate.Count -ne $rawTarget) {
+        if ($null -eq $candidate) {
             Save-DownscaleCandidate -Count $rawTarget -SinceUtc ([datetime]::Now)
             if ($ScaleDownHoldSeconds -eq 0) {
                 $desiredCount = $rawTarget
@@ -571,6 +719,9 @@ function Get-DesiredWorkerPlan {
                 Clear-DownscaleCandidate
             }
         } else {
+            if ($candidate.Count -ne $rawTarget) {
+                Save-DownscaleCandidate -Count $rawTarget -SinceUtc $candidate.SinceUtc
+            }
             $candidateAgeSeconds = [int][Math]::Floor(([datetime]::Now - $candidate.SinceUtc).TotalSeconds)
             if ($candidateAgeSeconds -ge $ScaleDownHoldSeconds) {
                 $desiredCount = $rawTarget
@@ -734,6 +885,14 @@ function Invoke-Watchdog {
         Remove-Item -LiteralPath $restartRequestFile -Force -ErrorAction SilentlyContinue
     } elseif (-not [string]::IsNullOrWhiteSpace($currentHead) -and -not [string]::IsNullOrWhiteSpace($savedHead) -and $currentHead -ne $savedHead) {
         $restartReason = "git head changed from $savedHead to $currentHead"
+    }
+
+    try {
+        if (Invoke-RetryFailedJobsIfNeeded -FailedCount $plan.FailedCount) {
+            $plan = Get-DesiredWorkerPlan
+        }
+    } catch {
+        Write-ManagerLog "queue:retry all raised exception error=$($_.Exception.Message)"
     }
 
     if ($restartReason) {

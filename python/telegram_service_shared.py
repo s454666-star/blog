@@ -7372,6 +7372,22 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
     total_items_exceeded_limit_value = 0
     total_items_exceeded_limit_limit = max(int(payload.stop_when_total_items_exceeds or 0), 0)
 
+    def _current_run_min_message_id() -> int:
+        return max(int(cleanup_min_mid or 0), int(payload.sent_message_id or 0))
+
+    def _filter_current_run_message(msg: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not msg:
+            return None
+        min_mid = int(_current_run_min_message_id() or 0)
+        if min_mid > 0 and int(msg.get("message_id", 0) or 0) < min_mid:
+            return None
+        return msg
+
+    def _find_latest_any_current_run(require_meaningful: bool = False) -> Optional[Dict[str, Any]]:
+        return _filter_current_run_message(
+            find_latest_bot_message_any(payload.bot_username, require_meaningful=require_meaningful)
+        )
+
     def _freeze_cleanup_window() -> None:
         nonlocal cleanup_max_mid
         lower_bound = int(cleanup_min_mid or 0)
@@ -7512,11 +7528,11 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
             next_keywords=payload.next_text_keywords,
             max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
             scan_limit=int(payload.callback_candidate_scan_limit or 0),
-            min_message_id=0
+            min_message_id=int(_current_run_min_message_id() or 0)
         )
 
         if not chosen_first:
-            latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=False)
+            latest_any = _find_latest_any_current_run(require_meaningful=False)
             if _is_bot_not_found_message(latest_any):
                 cleanup_after_return_enabled = False
                 await _cleanup_not_found_messages(
@@ -7599,20 +7615,20 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
                     skip_invalid=True,
                     max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
                     scan_limit=int(payload.callback_candidate_scan_limit or 0),
-                    min_message_id=0
+                    min_message_id=int(_current_run_min_message_id() or 0)
                 )
-                or find_latest_callback_message(payload.bot_username, skip_invalid=True)
+                or _filter_current_run_message(find_latest_callback_message(payload.bot_username, skip_invalid=True))
                 or _choose_best_state_message(
                     bot_username=payload.bot_username,
                     next_keywords=payload.next_text_keywords,
                     max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
                     scan_limit=int(payload.callback_candidate_scan_limit or 0),
-                    min_message_id=0
+                    min_message_id=int(_current_run_min_message_id() or 0)
                 )
             )
 
             if not chosen_now:
-                latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=False)
+                latest_any = _find_latest_any_current_run(require_meaningful=False)
                 if _is_bot_not_found_message(latest_any):
                     cleanup_after_return_enabled = False
                     await _cleanup_not_found_messages(
@@ -7629,7 +7645,7 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
                         "text_preview": (latest_any.get("text") or "")[:200]
                     })
                     return await _return_ok("not found message detected; stop")
-                latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=True)
+                latest_any = _find_latest_any_current_run(require_meaningful=True)
                 if _is_bot_completion_message(latest_any):
                     timeline.append({
                         "step": steps,
@@ -7658,7 +7674,7 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
                         scan_limit=int(payload.callback_candidate_scan_limit or 0),
                         min_message_id=int(cleanup_min_mid or 0)
                     )
-                    or find_latest_callback_message(payload.bot_username, skip_invalid=True)
+                    or _filter_current_run_message(find_latest_callback_message(payload.bot_username, skip_invalid=True))
                 )
                 if alt_chosen_now:
                     alt_state = _pagination_state_from_message(alt_chosen_now, next_keywords=payload.next_text_keywords) or {}
@@ -7669,7 +7685,7 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
                         pi_now = state.get("page_info")
                         total_items_now = state.get("total_items")
 
-            latest_any = find_latest_bot_message_any(payload.bot_username, require_meaningful=True)
+            latest_any = _find_latest_any_current_run(require_meaningful=True)
             if latest_any:
                 latest_any_mid = int(latest_any.get("message_id", 0) or 0)
                 chosen_now_mid = int(chosen_now.get("message_id", 0) or 0)
@@ -7720,7 +7736,12 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
                 except Exception:
                     pass
 
-            files_meta_now = collect_files_from_store(payload.bot_username, int(payload.max_return_files), int(payload.max_raw_payload_bytes))
+            files_meta_now = collect_files_from_store(
+                payload.bot_username,
+                int(payload.max_return_files),
+                int(payload.max_raw_payload_bytes),
+                min_message_id=int(_current_run_min_message_id() or 0)
+            )
             files_unique_now = int(files_meta_now.get("files_unique_count", files_meta_now.get("files_count", 0)))
 
             timeline.append({
@@ -7782,7 +7803,7 @@ async def run_all_pages_by_bot(payload: RunAllPagesByBotOnlyRequest) -> Dict[str
                 max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0),
                 callback_message_max_age_seconds=int(payload.callback_message_max_age_seconds or 0),
                 callback_candidate_scan_limit=int(payload.callback_candidate_scan_limit or 0),
-                min_message_id=0
+                min_message_id=int(_current_run_min_message_id() or 0)
             )
 
             if used_msg and used_msg.get("message_id"):

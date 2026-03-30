@@ -4,7 +4,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 set "POWERSHELL_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 set "LOG_DIR=C:\www\blog\storage\logs"
-set "RUN_LOG=%LOG_DIR%\log_cleanup_task.txt"
+set "RUN_LOG=%LOG_DIR%\project_log_cleanup_task.txt"
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 

@@ -1,57 +1,37 @@
 $ErrorActionPreference = 'Stop'
 
-$targets = @(
-    'C:\www\blog',
-    'C:\Users\User\Pictures\train'
-)
+$target = 'C:\www\blog\storage\logs'
 
-$totalDeleted = 0
-$totalBytesFreed = [int64]0
-
-foreach ($target in $targets) {
-    if (-not (Test-Path -LiteralPath $target)) {
-        Write-Warning "Skip missing path: $target"
-        continue
-    }
-
-    $trackedLogs = @{}
-    if (Test-Path -LiteralPath (Join-Path $target '.git')) {
-        $gitTracked = & git -C $target ls-files -- '*.log' 2>$null
-        foreach ($relativePath in $gitTracked) {
-            if ([string]::IsNullOrWhiteSpace($relativePath)) {
-                continue
-            }
-
-            $fullPath = [System.IO.Path]::GetFullPath((Join-Path $target $relativePath))
-            $trackedLogs[$fullPath] = $true
-        }
-    }
-
-    $files = Get-ChildItem -LiteralPath $target -Recurse -File -Filter '*.log' -Force -ErrorAction SilentlyContinue
-
-    $deletedForTarget = 0
-    $bytesFreedForTarget = [int64]0
-    $skippedTrackedForTarget = 0
-
-    foreach ($file in $files) {
-        if ($trackedLogs.ContainsKey($file.FullName)) {
-            $skippedTrackedForTarget++
-            continue
-        }
-
-        try {
-            $bytesFreedForTarget += $file.Length
-            Remove-Item -LiteralPath $file.FullName -Force
-            $deletedForTarget++
-        } catch {
-            Write-Warning "Failed to delete $($file.FullName): $($_.Exception.Message)"
-        }
-    }
-
-    $totalDeleted += $deletedForTarget
-    $totalBytesFreed += $bytesFreedForTarget
-
-    Write-Host ("[{0}] deleted={1} skipped_tracked={2} freed_bytes={3}" -f $target, $deletedForTarget, $skippedTrackedForTarget, $bytesFreedForTarget)
+if (-not (Test-Path -LiteralPath $target)) {
+    Write-Warning "Skip missing path: $target"
+    exit 0
 }
 
-Write-Host ("Completed log cleanup. total_deleted={0} total_freed_bytes={1}" -f $totalDeleted, $totalBytesFreed)
+$files = Get-ChildItem -LiteralPath $target -Recurse -File -Filter '*.log' -Force -ErrorAction SilentlyContinue
+$deletedCount = 0
+$truncatedCount = 0
+$failedCount = 0
+$bytesFreed = [int64]0
+
+foreach ($file in $files) {
+    try {
+        $bytesFreed += $file.Length
+        Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop
+        $deletedCount++
+        continue
+    } catch {
+        $deleteMessage = $_.Exception.Message
+    }
+
+    try {
+        $stream = [System.IO.File]::Open($file.FullName, [System.IO.FileMode]::Truncate, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+        $stream.Dispose()
+        $truncatedCount++
+    } catch {
+        $failedCount++
+        Write-Warning ("Failed to clear {0}: delete_error={1}; truncate_error={2}" -f $file.FullName, $deleteMessage, $_.Exception.Message)
+    }
+}
+
+Write-Host ("[{0}] deleted={1} truncated={2} failed={3} freed_bytes={4}" -f $target, $deletedCount, $truncatedCount, $failedCount, $bytesFreed)
+Write-Host ("Completed storage log cleanup. total_candidates={0}" -f $files.Count)

@@ -501,9 +501,17 @@ printf("RESERVED_AGE=%d\n", $reservedAge);
 printf("FAILED_COUNT=%d\n", $failedCount);
 '@
 
-    $output = @($phpScript | & $PhpExe)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to read queue metrics for $QueueName"
+    $tempPhpFile = [System.IO.Path]::ChangeExtension([System.IO.Path]::GetTempFileName(), ".php")
+    try {
+        Set-Content -LiteralPath $tempPhpFile -Value $phpScript -Encoding ascii
+        $output = @(& $PhpExe $tempPhpFile)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to read queue metrics for $QueueName"
+        }
+    } finally {
+        if (Test-Path -LiteralPath $tempPhpFile) {
+            Remove-Item -LiteralPath $tempPhpFile -Force -ErrorAction SilentlyContinue
+        }
     }
 
     $values = @{}

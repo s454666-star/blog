@@ -228,4 +228,25 @@
                 && stripos($token, 'atfileslinksbot_') !== 0
                 && stripos($token, 'lddeebot_') !== 0;
         }
+
+        public function shouldMarkDialogueAsSynced(string $token): bool
+        {
+            $token = trim($token);
+            if ($token === '') {
+                return false;
+            }
+
+            $filestoreBotUsername = 'filestoebot';
+            try {
+                $filestoreBotUsername = ltrim((string) config('telegram.filestore_sync_bot_username', $filestoreBotUsername), '@');
+            } catch (\Throwable) {
+                $filestoreBotUsername = 'filestoebot';
+            }
+
+            if ($filestoreBotUsername === '') {
+                return false;
+            }
+
+            return stripos($token, $filestoreBotUsername . '_') === 0;
+        }
     }

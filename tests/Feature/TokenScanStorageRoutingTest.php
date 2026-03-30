@@ -57,7 +57,7 @@ class TokenScanStorageRoutingTest extends TestCase
         });
     }
 
-    public function test_scan_group_tokens_store_messenger_qq_yz_and_vipfiles_family_only_in_dialogues(): void
+    public function test_scan_group_tokens_store_filestore_and_other_special_tokens_only_in_dialogues(): void
     {
         $command = $this->app->make(ScanGroupTokensCommand::class);
         $command->setOutput(new OutputStyle(new ArrayInput([]), new BufferedOutput()));
@@ -65,11 +65,11 @@ class TokenScanStorageRoutingTest extends TestCase
         $method->setAccessible(true);
 
         $inserted = $method->invoke($command, 99, [[
-            'message' => 'Messengercode_abc123 showfilesbot_123P_abcdef QQfile_bot:14120_108172_755-39P_10V yzfile_bot:abc123 mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
+            'message' => 'Messengercode_abc123 showfilesbot_123P_abcdef filestoebot_abc123 QQfile_bot:14120_108172_755-39P_10V yzfile_bot:abc123 mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
         ]]);
 
-        $this->assertSame(5, $inserted);
-        $this->assertDatabaseCount('dialogues', 5);
+        $this->assertSame(6, $inserted);
+        $this->assertDatabaseCount('dialogues', 6);
         $this->assertDatabaseCount('token_scan_items', 1);
 
         $this->assertDatabaseHas('dialogues', [
@@ -87,18 +87,25 @@ class TokenScanStorageRoutingTest extends TestCase
         $this->assertDatabaseHas('dialogues', [
             'chat_id' => 7702694790,
             'message_id' => 3,
+            'text' => 'filestoebot_abc123',
+            'is_read' => 1,
+            'is_sync' => 1,
+        ]);
+        $this->assertDatabaseHas('dialogues', [
+            'chat_id' => 7702694790,
+            'message_id' => 4,
             'text' => 'QQfile_bot:14120_108172_755-39P_10V',
             'is_read' => 1,
         ]);
         $this->assertDatabaseHas('dialogues', [
             'chat_id' => 7702694790,
-            'message_id' => 4,
+            'message_id' => 5,
             'text' => 'yzfile_bot:abc123',
             'is_read' => 1,
         ]);
         $this->assertDatabaseHas('dialogues', [
             'chat_id' => 7702694790,
-            'message_id' => 5,
+            'message_id' => 6,
             'text' => 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
             'is_read' => 1,
         ]);
@@ -112,6 +119,9 @@ class TokenScanStorageRoutingTest extends TestCase
         ]);
         $this->assertDatabaseMissing('token_scan_items', [
             'token' => 'showfilesbot_123P_abcdef',
+        ]);
+        $this->assertDatabaseMissing('token_scan_items', [
+            'token' => 'filestoebot_abc123',
         ]);
         $this->assertDatabaseMissing('token_scan_items', [
             'token' => 'QQfile_bot:14120_108172_755-39P_10V',

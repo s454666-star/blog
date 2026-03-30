@@ -10,6 +10,7 @@
     use GuzzleHttp\Exception\GuzzleException;
     use Illuminate\Console\Command;
     use Illuminate\Support\Facades\DB;
+    use Illuminate\Support\Facades\Schema;
 
     class ScanGroupTokensCommand extends Command
     {
@@ -615,6 +616,7 @@
                     return;
                 }
 
+                $hasDialogueSyncColumn = Schema::hasColumn('dialogues', 'is_sync');
                 $dialoguesMessageId = (int)(DB::table('dialogues')
                     ->where('chat_id', self::DIALOGUES_CHAT_ID)
                     ->max('message_id') ?? 0);
@@ -622,13 +624,19 @@
                 $dialogueRows = [];
                 foreach ($tokensForDialogues as $token) {
                     $dialoguesMessageId++;
-                    $dialogueRows[] = [
+                    $dialogueRow = [
                         'chat_id' => self::DIALOGUES_CHAT_ID,
                         'message_id' => $dialoguesMessageId,
                         'text' => $token,
                         'is_read' => 1,
                         'created_at' => $createdAt,
                     ];
+
+                    if ($hasDialogueSyncColumn) {
+                        $dialogueRow['is_sync'] = $this->tokenService->shouldMarkDialogueAsSynced($token) ? 1 : 0;
+                    }
+
+                    $dialogueRows[] = $dialogueRow;
                 }
 
                 $dialogueChunks = array_chunk($dialogueRows, self::INSERT_CHUNK_SIZE);

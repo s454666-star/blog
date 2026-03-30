@@ -47,4 +47,12 @@ TEXT);
             'mtfxqbot_17V_T1b7Z7C4T506M868H5K8',
         ], $tokens);
     }
+
+    public function test_should_mark_dialogue_as_synced_for_filestore_tokens(): void
+    {
+        $service = new TelegramCodeTokenService();
+
+        $this->assertTrue($service->shouldMarkDialogueAsSynced('filestoebot_abc123'));
+        $this->assertFalse($service->shouldMarkDialogueAsSynced('mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2'));
+    }
 }

@@ -164,9 +164,21 @@
 
             $sessionId = null;
             $shouldDispatchDebouncePrompt = false;
+            $duplicateMessageIdToDelete = null;
+            $duplicateExistingMessageId = null;
 
             try {
-                DB::transaction(function () use ($chatId, $username, $messageId, $filePayload, $message, &$sessionId, &$shouldDispatchDebouncePrompt) {
+                DB::transaction(function () use (
+                    $chatId,
+                    $username,
+                    $messageId,
+                    $filePayload,
+                    $message,
+                    &$sessionId,
+                    &$shouldDispatchDebouncePrompt,
+                    &$duplicateMessageIdToDelete,
+                    &$duplicateExistingMessageId
+                ) {
                     $session = $this->resolveUploadingSession($chatId, $username, $filePayload);
                     $sessionId = (int)$session->id;
                     $shouldDispatchDebouncePrompt = !$this->shouldSkipDebouncePromptForSession($session);
@@ -176,26 +188,36 @@
                         ->where('file_unique_id', $filePayload['file_unique_id'])
                         ->exists();
 
-                    if (!$exists) {
-                        TelegramFilestoreFile::query()->create([
-                            'session_id' => $session->id,
-                            'chat_id' => $chatId,
-                            'message_id' => $messageId,
-                            'file_id' => $filePayload['file_id'],
-                            'file_unique_id' => $filePayload['file_unique_id'],
-                            'source_token' => $session->source_token,
-                            'file_name' => $filePayload['file_name'],
-                            'mime_type' => $filePayload['mime_type'],
-                            'file_size' => (int)($filePayload['file_size'] ?? 0),
-                            'file_type' => $filePayload['file_type'],
-                            'raw_payload' => $this->safeJsonEncode($message),
-                            'created_at' => now(),
-                        ]);
-
-                        $session->total_files = (int)$session->total_files + 1;
-                        $session->total_size = (int)$session->total_size + (int)($filePayload['file_size'] ?? 0);
-                        $session->save();
+                    if ($exists) {
+                        return;
                     }
+
+                    $duplicate = $this->findEquivalentBridgeSessionFile($session, $filePayload);
+                    if ($duplicate) {
+                        $duplicateMessageIdToDelete = $messageId;
+                        $duplicateExistingMessageId = (int) ($duplicate->message_id ?? 0);
+                        $shouldDispatchDebouncePrompt = false;
+                        return;
+                    }
+
+                    TelegramFilestoreFile::query()->create([
+                        'session_id' => $session->id,
+                        'chat_id' => $chatId,
+                        'message_id' => $messageId,
+                        'file_id' => $filePayload['file_id'],
+                        'file_unique_id' => $filePayload['file_unique_id'],
+                        'source_token' => $session->source_token,
+                        'file_name' => $filePayload['file_name'],
+                        'mime_type' => $filePayload['mime_type'],
+                        'file_size' => (int)($filePayload['file_size'] ?? 0),
+                        'file_type' => $filePayload['file_type'],
+                        'raw_payload' => $this->safeJsonEncode($message),
+                        'created_at' => now(),
+                    ]);
+
+                    $session->total_files = (int)$session->total_files + 1;
+                    $session->total_size = (int)$session->total_size + (int)($filePayload['file_size'] ?? 0);
+                    $session->save();
                 });
             } catch (Throwable $e) {
                 Log::error('telegram_filestore_transaction_failed', [
@@ -207,6 +229,27 @@
                     'error' => $e->getMessage(),
                     'exception' => get_class($e),
                 ]);
+                return response()->json(['ok' => true]);
+            }
+
+            if ($duplicateMessageIdToDelete !== null) {
+                Log::info('telegram_filestore_equivalent_dedup_skip', [
+                    'session_id' => $sessionId,
+                    'message_id' => $duplicateMessageIdToDelete,
+                    'existing_message_id' => $duplicateExistingMessageId,
+                    'file_name' => $filePayload['file_name'] ?? null,
+                    'mime_type' => $filePayload['mime_type'] ?? null,
+                    'file_size' => (int) ($filePayload['file_size'] ?? 0),
+                    'file_type' => $filePayload['file_type'] ?? null,
+                ]);
+
+                if (!$this->deleteMessage($chatId, (int) $duplicateMessageIdToDelete)) {
+                    Log::warning('telegram_filestore_equivalent_dedup_delete_failed', [
+                        'session_id' => $sessionId,
+                        'message_id' => $duplicateMessageIdToDelete,
+                    ]);
+                }
+
                 return response()->json(['ok' => true]);
             }
 
@@ -723,6 +766,46 @@
         private function shouldSkipDebouncePromptForSession(TelegramFilestoreSession $session): bool
         {
             return trim((string) ($session->source_token ?? '')) !== '';
+        }
+
+        /**
+         * @param array<string, mixed> $filePayload
+         */
+        private function findEquivalentBridgeSessionFile(TelegramFilestoreSession $session, array $filePayload): ?TelegramFilestoreFile
+        {
+            if (!$this->shouldSkipDebouncePromptForSession($session)) {
+                return null;
+            }
+
+            $fileType = trim((string) ($filePayload['file_type'] ?? ''));
+            $fileSize = (int) ($filePayload['file_size'] ?? 0);
+            if ($fileType === '' || $fileSize <= 0) {
+                return null;
+            }
+
+            $query = TelegramFilestoreFile::query()
+                ->where('session_id', $session->id)
+                ->where('file_type', $fileType)
+                ->where('file_size', $fileSize);
+
+            $fileName = trim((string) ($filePayload['file_name'] ?? ''));
+            if ($fileName !== '') {
+                return $query
+                    ->where('file_name', $fileName)
+                    ->orderBy('id')
+                    ->first();
+            }
+
+            $mimeType = trim((string) ($filePayload['mime_type'] ?? ''));
+            if ($mimeType === '') {
+                return null;
+            }
+
+            return $query
+                ->whereNull('file_name')
+                ->where('mime_type', $mimeType)
+                ->orderBy('id')
+                ->first();
         }
 
         /**

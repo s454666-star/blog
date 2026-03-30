@@ -532,6 +532,7 @@ class TelegramFilestoreTokenBridgeService
         $forwardable = [];
         $skipped = [];
         $seen = [];
+        $seenEquivalent = [];
 
         foreach ($files as $file) {
             $chatId = (int) ($file['chat_id'] ?? 0);
@@ -550,7 +551,16 @@ class TelegramFilestoreTokenBridgeService
                 continue;
             }
 
+            $equivalentKey = $this->buildEquivalentFileKey($file);
+            if ($equivalentKey !== '' && isset($seenEquivalent[$equivalentKey])) {
+                $skipped[] = $messageId;
+                continue;
+            }
+
             $seen[$messageId] = true;
+            if ($equivalentKey !== '') {
+                $seenEquivalent[$equivalentKey] = true;
+            }
             $forwardable[] = $messageId;
         }
 
@@ -565,22 +575,58 @@ class TelegramFilestoreTokenBridgeService
     {
         $result = [];
         $seen = [];
+        $seenEquivalent = [];
 
         foreach ($files as $file) {
             $chatId = (int) ($file['chat_id'] ?? 0);
             $rawPayload = $file['raw_payload'] ?? null;
             $noForwards = is_array($rawPayload) ? (bool) ($rawPayload['noforwards'] ?? false) : false;
             $fileUniqueId = trim((string) ($file['file_unique_id'] ?? ''));
+            $equivalentKey = $this->buildEquivalentFileKey($file);
 
-            if ($chatId !== $sourceChatId || $noForwards || $fileUniqueId === '' || isset($seen[$fileUniqueId])) {
+            if (
+                $chatId !== $sourceChatId
+                || $noForwards
+                || $fileUniqueId === ''
+                || isset($seen[$fileUniqueId])
+                || ($equivalentKey !== '' && isset($seenEquivalent[$equivalentKey]))
+            ) {
                 continue;
             }
 
             $seen[$fileUniqueId] = true;
+            if ($equivalentKey !== '') {
+                $seenEquivalent[$equivalentKey] = true;
+            }
             $result[] = $fileUniqueId;
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function buildEquivalentFileKey(array $file): string
+    {
+        $fileType = Str::lower(trim((string) ($file['file_type'] ?? '')));
+        $fileSize = (int) ($file['file_size'] ?? 0);
+
+        if ($fileType === '' || $fileSize <= 0) {
+            return '';
+        }
+
+        $fileName = Str::lower(trim((string) ($file['file_name'] ?? '')));
+        if ($fileName !== '') {
+            return sprintf('name:%s:%d:%s', $fileType, $fileSize, $fileName);
+        }
+
+        $mimeType = Str::lower(trim((string) ($file['mime_type'] ?? '')));
+        if ($mimeType !== '') {
+            return sprintf('mime:%s:%d:%s', $fileType, $fileSize, $mimeType);
+        }
+
+        return '';
     }
 
     private function getOrCreateUploadingSession(string $sourceToken): ?TelegramFilestoreSession

@@ -125,6 +125,7 @@ class RestoreFilestoreToBotCommand extends Command
         }
 
         $remainingLimit = $limit > 0 ? $limit : PHP_INT_MAX;
+        $limitReached = false;
         $stats = [
             'attempted' => 0,
             'synced' => 0,
@@ -155,14 +156,13 @@ class RestoreFilestoreToBotCommand extends Command
                 (int) $targetContext['chat_id']
             );
 
-            $existingSyncedCount = (int) TelegramFilestoreRestoreFile::query()
+            $existingRowCount = (int) TelegramFilestoreRestoreFile::query()
                 ->where('restore_session_id', $restoreSession->id)
-                ->where('status', 'synced')
                 ->count();
 
-            if ($fileCount > 0 && $existingSyncedCount >= $fileCount) {
+            if ($fileCount > 0 && $existingRowCount >= $fileCount) {
                 $stats['skipped_existing'] += $fileCount;
-                $this->line('  skip: all files already restored');
+                $this->line('  skip: all files already exist in restore db');
                 continue;
             }
 
@@ -180,15 +180,17 @@ class RestoreFilestoreToBotCommand extends Command
                     ->cursor() as $sourceFile
             ) {
                 if ($remainingLimit <= 0) {
-                    break 2;
+                    $limitReached = true;
+                    break;
                 }
 
-                $restoreFile = $this->loadRestoreFileRow($restoreSession, $sourceSession, $sourceFile);
-
-                if ((string) $restoreFile->status === 'synced') {
+                $existingRestoreFile = $this->findExistingRestoreFileRow($restoreSession, $sourceFile);
+                if ($existingRestoreFile !== null) {
                     $stats['skipped_existing']++;
                     continue;
                 }
+
+                $restoreFile = $this->loadRestoreFileRow($restoreSession, $sourceSession, $sourceFile);
 
                 $stats['attempted']++;
                 $remainingLimit--;
@@ -313,6 +315,10 @@ class RestoreFilestoreToBotCommand extends Command
             }
 
             $this->finalizeRestoreSession($restoreSession);
+
+            if ($limitReached) {
+                break;
+            }
         }
 
         $this->newLine();
@@ -402,21 +408,10 @@ class RestoreFilestoreToBotCommand extends Command
         TelegramFilestoreSession $sourceSession,
         TelegramFilestoreFile $sourceFile
     ): TelegramFilestoreRestoreFile {
-        $restoreFile = TelegramFilestoreRestoreFile::query()
-            ->where('restore_session_id', (int) $restoreSession->id)
-            ->where('source_file_row_id', (int) $sourceFile->id)
-            ->first();
-
-        if ($restoreFile && (string) $restoreFile->status === 'synced') {
-            return $restoreFile;
-        }
-
-        if (!$restoreFile) {
-            $restoreFile = new TelegramFilestoreRestoreFile([
-                'restore_session_id' => (int) $restoreSession->id,
-                'source_file_row_id' => (int) $sourceFile->id,
-            ]);
-        }
+        $restoreFile = new TelegramFilestoreRestoreFile([
+            'restore_session_id' => (int) $restoreSession->id,
+            'source_file_row_id' => (int) $sourceFile->id,
+        ]);
 
         $restoreFile->source_session_id = (int) $sourceSession->id;
         $restoreFile->source_chat_id = (int) ($sourceFile->chat_id ?? 0) ?: null;
@@ -429,10 +424,20 @@ class RestoreFilestoreToBotCommand extends Command
         $restoreFile->mime_type = $sourceFile->mime_type;
         $restoreFile->file_size = (int) ($sourceFile->file_size ?? 0);
         $restoreFile->file_type = (string) ($sourceFile->file_type ?? 'document');
-        $restoreFile->attempt_count = max((int) $restoreFile->attempt_count, 0) + 1;
+        $restoreFile->attempt_count = 1;
         $restoreFile->save();
 
         return $restoreFile;
+    }
+
+    private function findExistingRestoreFileRow(
+        TelegramFilestoreRestoreSession $restoreSession,
+        TelegramFilestoreFile $sourceFile
+    ): ?TelegramFilestoreRestoreFile {
+        return TelegramFilestoreRestoreFile::query()
+            ->where('restore_session_id', (int) $restoreSession->id)
+            ->where('source_file_row_id', (int) $sourceFile->id)
+            ->first();
     }
 
     private function markRestoreFileFailed(TelegramFilestoreRestoreFile $restoreFile, string $error): void

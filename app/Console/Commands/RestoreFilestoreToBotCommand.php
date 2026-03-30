@@ -15,6 +15,7 @@ class RestoreFilestoreToBotCommand extends Command
     private const DEFAULT_BASE_URI = 'http://127.0.0.1:8001';
     private const DEFAULT_POLL_SECONDS = 15;
     private const POLL_INTERVAL_MICROSECONDS = 750000;
+    private const DEFAULT_LOCAL_WORKER_ENV_PATH = 'storage/app/telegram-filestore-local-workers/worker.env';
     private const CA_BUNDLE_CANDIDATES = [
         'C:\\Program Files\\Git\\usr\\ssl\\cert.pem',
         'C:\\Program Files\\Git\\mingw64\\ssl\\certs\\ca-bundle.crt',
@@ -25,12 +26,13 @@ class RestoreFilestoreToBotCommand extends Command
         {--session-id= : 只處理單一 telegram_filestore_sessions.id}
         {--public-token= : 只處理單一 telegram_filestore_sessions.public_token}
         {--source-token= : 只處理單一 telegram_filestore_sessions.source_token}
-        {--all : 處理所有 closed source sessions}
+        {--all : 處理 telegram_filestore_sessions 內所有 sessions}
         {--limit=0 : 本次最多轉幾筆 source files；0 代表不限}
         {--base-uri=http://127.0.0.1:8001 : 本機 Telegram FastAPI base uri}
         {--target-bot-username= : 新 bot username，可帶或不帶 @}
         {--target-bot-token= : 新 bot token；留空時讀 config(telegram.backup_restore_bot_token)}
         {--source-bot-token= : 舊 filestore bot token；留空時讀 config(telegram.filestore_bot_token)}
+        {--worker-env= : 本機 worker.env 路徑；預設 storage/app/telegram-filestore-local-workers/worker.env}
         {--target-chat-id=0 : 新 bot 的 private chat id；0 代表從 getUpdates 自動抓最新 private chat}
         {--poll-seconds=15 : 每筆 forward 後輪詢新 bot getUpdates 的秒數}
         {--dry-run : 只列出將處理的 sessions，不真的 forward}';
@@ -46,8 +48,10 @@ class RestoreFilestoreToBotCommand extends Command
         $limit = max((int) $this->option('limit'), 0);
         $baseUri = rtrim(trim((string) ($this->option('base-uri') ?: self::DEFAULT_BASE_URI)), '/');
         $targetBotUsername = ltrim(trim((string) ($this->option('target-bot-username') ?: config('telegram.backup_restore_bot_username', 'file_backup_restore_bot'))), '@');
-        $targetBotToken = trim((string) ($this->option('target-bot-token') ?: config('telegram.backup_restore_bot_token')));
-        $sourceBotToken = trim((string) ($this->option('source-bot-token') ?: config('telegram.filestore_bot_token')));
+        $workerEnvPath = trim((string) ($this->option('worker-env') ?: base_path(self::DEFAULT_LOCAL_WORKER_ENV_PATH)));
+        $localWorkerEnv = $this->readKeyValueEnvFile($workerEnvPath);
+        $targetBotToken = trim((string) ($this->option('target-bot-token') ?: ($localWorkerEnv['TELEGRAM_BACKUP_RESTORE_BOT_TOKEN'] ?? config('telegram.backup_restore_bot_token'))));
+        $sourceBotToken = trim((string) ($this->option('source-bot-token') ?: ($localWorkerEnv['TELEGRAM_FILESTORE_BOT_TOKEN'] ?? config('telegram.filestore_bot_token'))));
         $targetChatId = max((int) $this->option('target-chat-id'), 0);
         $pollSeconds = max((int) $this->option('poll-seconds'), 1);
         $dryRun = (bool) $this->option('dry-run');
@@ -72,8 +76,9 @@ class RestoreFilestoreToBotCommand extends Command
             return self::FAILURE;
         }
 
-        $sourceSessions = $this->buildSourceSessionQuery($sessionId, $publicToken, $sourceToken, $all)->get();
-        if ($sourceSessions->isEmpty()) {
+        $sourceSessionsQuery = $this->buildSourceSessionQuery($sessionId, $publicToken, $sourceToken, $all);
+        $sourceSessionCount = (clone $sourceSessionsQuery)->count();
+        if ($sourceSessionCount <= 0) {
             $this->warn('找不到符合條件的 source sessions。');
             return self::SUCCESS;
         }
@@ -82,29 +87,32 @@ class RestoreFilestoreToBotCommand extends Command
             'target_bot=@%s base_uri=%s source_sessions=%d limit=%s',
             $targetBotUsername,
             $baseUri,
-            $sourceSessions->count(),
+            $sourceSessionCount,
             $limit > 0 ? (string) $limit : 'unlimited'
         ));
+        if ($workerEnvPath !== '') {
+            $this->line('worker_env=' . $workerEnvPath);
+        }
         $caBundlePath = $this->resolveCaBundlePath();
         if ($caBundlePath !== null) {
             $this->line('telegram_ca_bundle=' . $caBundlePath);
         }
 
-        foreach ($sourceSessions as $sourceSession) {
-            $fileCount = TelegramFilestoreFile::query()
-                ->where('session_id', $sourceSession->id)
-                ->count();
-
-            $this->line(sprintf(
-                'source_session=%d public_token=%s source_token=%s files=%d',
-                (int) $sourceSession->id,
-                (string) ($sourceSession->public_token ?? '-'),
-                (string) ($sourceSession->source_token ?? '-'),
-                $fileCount
-            ));
-        }
-
         if ($dryRun) {
+            foreach ($sourceSessionsQuery->cursor() as $sourceSession) {
+                $fileCount = (int) TelegramFilestoreFile::query()
+                    ->where('session_id', $sourceSession->id)
+                    ->count();
+
+                $this->line(sprintf(
+                    'source_session=%d public_token=%s source_token=%s files=%d',
+                    (int) $sourceSession->id,
+                    (string) ($sourceSession->public_token ?? '-'),
+                    (string) ($sourceSession->source_token ?? '-'),
+                    $fileCount
+                ));
+            }
+
             $this->info('dry-run 結束，未實際 forward。');
             return self::SUCCESS;
         }
@@ -124,10 +132,22 @@ class RestoreFilestoreToBotCommand extends Command
             'skipped_existing' => 0,
         ];
 
-        foreach ($sourceSessions as $sourceSession) {
+        foreach ($sourceSessionsQuery->cursor() as $sourceSession) {
             if ($remainingLimit <= 0) {
                 break;
             }
+
+            $fileCount = (int) TelegramFilestoreFile::query()
+                ->where('session_id', $sourceSession->id)
+                ->count();
+
+            $this->line(sprintf(
+                'source_session=%d public_token=%s source_token=%s files=%d',
+                (int) $sourceSession->id,
+                (string) ($sourceSession->public_token ?? '-'),
+                (string) ($sourceSession->source_token ?? '-'),
+                $fileCount
+            ));
 
             $restoreSession = $this->getOrCreateRestoreSession(
                 $sourceSession,
@@ -135,13 +155,22 @@ class RestoreFilestoreToBotCommand extends Command
                 (int) $targetContext['chat_id']
             );
 
+            $existingSyncedCount = (int) TelegramFilestoreRestoreFile::query()
+                ->where('restore_session_id', $restoreSession->id)
+                ->where('status', 'synced')
+                ->count();
+
+            if ($fileCount > 0 && $existingSyncedCount >= $fileCount) {
+                $stats['skipped_existing'] += $fileCount;
+                $this->line('  skip: all files already restored');
+                continue;
+            }
+
             $restoreSession->status = 'running';
             $restoreSession->last_error = null;
             $restoreSession->target_chat_id = (int) $targetContext['chat_id'];
             $restoreSession->started_at = $restoreSession->started_at ?: now();
-            $restoreSession->total_files = (int) TelegramFilestoreFile::query()
-                ->where('session_id', $sourceSession->id)
-                ->count();
+            $restoreSession->total_files = $fileCount;
             $restoreSession->save();
 
             foreach (
@@ -311,7 +340,6 @@ class RestoreFilestoreToBotCommand extends Command
         bool $all
     ) {
         $query = TelegramFilestoreSession::query()
-            ->where('status', 'closed')
             ->orderBy('id');
 
         if ($sessionId > 0) {
@@ -374,10 +402,21 @@ class RestoreFilestoreToBotCommand extends Command
         TelegramFilestoreSession $sourceSession,
         TelegramFilestoreFile $sourceFile
     ): TelegramFilestoreRestoreFile {
-        $restoreFile = TelegramFilestoreRestoreFile::query()->firstOrNew([
-            'restore_session_id' => (int) $restoreSession->id,
-            'source_file_row_id' => (int) $sourceFile->id,
-        ]);
+        $restoreFile = TelegramFilestoreRestoreFile::query()
+            ->where('restore_session_id', (int) $restoreSession->id)
+            ->where('source_file_row_id', (int) $sourceFile->id)
+            ->first();
+
+        if ($restoreFile && (string) $restoreFile->status === 'synced') {
+            return $restoreFile;
+        }
+
+        if (!$restoreFile) {
+            $restoreFile = new TelegramFilestoreRestoreFile([
+                'restore_session_id' => (int) $restoreSession->id,
+                'source_file_row_id' => (int) $sourceFile->id,
+            ]);
+        }
 
         $restoreFile->source_session_id = (int) $sourceSession->id;
         $restoreFile->source_chat_id = (int) ($sourceFile->chat_id ?? 0) ?: null;
@@ -832,7 +871,11 @@ class RestoreFilestoreToBotCommand extends Command
 
     private function resolveCaBundlePath(): ?string
     {
+        $workerEnvPath = trim((string) ($this->option('worker-env') ?: base_path(self::DEFAULT_LOCAL_WORKER_ENV_PATH)));
+        $localWorkerEnv = $this->readKeyValueEnvFile($workerEnvPath);
         $envCandidates = array_filter([
+            trim((string) ($localWorkerEnv['CURL_CA_BUNDLE'] ?? '')),
+            trim((string) ($localWorkerEnv['SSL_CERT_FILE'] ?? '')),
             trim((string) getenv('CURL_CA_BUNDLE')),
             trim((string) getenv('SSL_CERT_FILE')),
             trim((string) getenv('REQUESTS_CA_BUNDLE')),
@@ -845,6 +888,42 @@ class RestoreFilestoreToBotCommand extends Command
         }
 
         return null;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function readKeyValueEnvFile(string $path): array
+    {
+        if ($path === '' || !is_file($path) || !is_readable($path)) {
+            return [];
+        }
+
+        $values = [];
+        foreach (@file($path, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+            if (!is_string($line)) {
+                continue;
+            }
+
+            $trimmed = trim($line);
+            if ($trimmed === '' || str_starts_with($trimmed, '#')) {
+                continue;
+            }
+
+            $parts = explode('=', $line, 2);
+            if (count($parts) !== 2) {
+                continue;
+            }
+
+            $name = trim((string) $parts[0]);
+            if ($name === '') {
+                continue;
+            }
+
+            $values[$name] = (string) $parts[1];
+        }
+
+        return $values;
     }
 
     /**

@@ -209,7 +209,7 @@ class RestoreFilestoreToBotCommandTest extends TestCase
             ], 500);
         });
 
-        $this->artisan('filestore:restore-to-bot --session-id=55 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot')
+        $this->artisan('filestore:restore-to-bot --session-id=55 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
             ->expectsOutputToContain('synced=1')
             ->assertExitCode(0);
 
@@ -303,7 +303,7 @@ class RestoreFilestoreToBotCommandTest extends TestCase
             ], 500);
         });
 
-        $this->artisan('filestore:restore-to-bot --session-id=56 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot')
+        $this->artisan('filestore:restore-to-bot --session-id=56 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
             ->expectsOutputToContain('failed=1')
             ->assertExitCode(1);
 
@@ -426,7 +426,7 @@ class RestoreFilestoreToBotCommandTest extends TestCase
             ], 500);
         });
 
-        $this->artisan('filestore:restore-to-bot --session-id=57 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot')
+        $this->artisan('filestore:restore-to-bot --session-id=57 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
             ->expectsOutputToContain('synced=1')
             ->assertExitCode(0);
 
@@ -444,6 +444,189 @@ class RestoreFilestoreToBotCommandTest extends TestCase
             'source_token' => 'showfilesbot_5V_demo789',
             'target_file_id' => 'RESTORED-DOC-FILE-ID',
             'target_file_unique_id' => 'RESTORED-DOC-UNIQ-ID',
+            'status' => 'synced',
+        ]);
+    }
+
+    public function test_all_mode_skips_existing_rows_and_continues_to_next_session_without_source_token(): void
+    {
+        DB::table('telegram_filestore_sessions')->insert([
+            [
+                'id' => 58,
+                'chat_id' => 7702694790,
+                'public_token' => 'filestoebot_existing',
+                'source_token' => null,
+                'status' => 'closed',
+                'total_files' => 1,
+                'created_at' => now(),
+                'closed_at' => now(),
+            ],
+            [
+                'id' => 59,
+                'chat_id' => 7702694790,
+                'public_token' => 'filestoebot_new',
+                'source_token' => null,
+                'status' => 'uploading',
+                'total_files' => 1,
+                'created_at' => now(),
+                'closed_at' => null,
+            ],
+        ]);
+
+        DB::table('telegram_filestore_files')->insert([
+            [
+                'id' => 91,
+                'session_id' => 58,
+                'chat_id' => 7702694790,
+                'message_id' => 6004,
+                'file_id' => 'EXISTING-FILE-ID',
+                'file_unique_id' => 'EXISTING-UNIQ-ID',
+                'source_token' => null,
+                'file_name' => 'existing.bin',
+                'mime_type' => 'application/octet-stream',
+                'file_size' => 10,
+                'file_type' => 'document',
+                'raw_payload' => json_encode(['message_id' => 6004], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => now(),
+            ],
+            [
+                'id' => 92,
+                'session_id' => 59,
+                'chat_id' => 7702694790,
+                'message_id' => 6005,
+                'file_id' => 'NEW-FILE-ID',
+                'file_unique_id' => 'NEW-UNIQ-ID',
+                'source_token' => null,
+                'file_name' => 'new.bin',
+                'mime_type' => 'application/octet-stream',
+                'file_size' => 11,
+                'file_type' => 'document',
+                'raw_payload' => json_encode(['message_id' => 6005], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => now(),
+            ],
+        ]);
+
+        $existingRestoreSessionId = DB::table('telegram_filestore_restore_sessions')->insertGetId([
+            'source_session_id' => 58,
+            'source_chat_id' => 7702694790,
+            'source_token' => null,
+            'source_public_token' => 'filestoebot_existing',
+            'target_bot_username' => 'file_backup_restore_bot',
+            'target_chat_id' => 8491679630,
+            'status' => 'completed',
+            'total_files' => 1,
+            'processed_files' => 1,
+            'success_files' => 1,
+            'failed_files' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_restore_files')->insert([
+            'restore_session_id' => $existingRestoreSessionId,
+            'source_session_id' => 58,
+            'source_file_row_id' => 91,
+            'source_chat_id' => 7702694790,
+            'source_message_id' => 6004,
+            'source_file_id' => 'EXISTING-FILE-ID',
+            'source_file_unique_id' => 'EXISTING-UNIQ-ID',
+            'source_token' => null,
+            'source_public_token' => 'filestoebot_existing',
+            'target_chat_id' => 8491679630,
+            'target_message_id' => 501,
+            'target_file_id' => 'RESTORED-EXISTING-FILE-ID',
+            'target_file_unique_id' => 'RESTORED-EXISTING-UNIQ-ID',
+            'file_name' => 'existing.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 10,
+            'file_type' => 'document',
+            'status' => 'synced',
+            'attempt_count' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Http::fake(function ($request) {
+            if (str_starts_with($request->url(), 'https://api.telegram.org/botrestore-token/getUpdates')) {
+                $offset = (int) ($request['offset'] ?? 0);
+
+                if ($offset <= 0) {
+                    return Http::response([
+                        'ok' => true,
+                        'result' => [
+                            [
+                                'update_id' => 400,
+                                'message' => [
+                                    'message_id' => 91,
+                                    'chat' => [
+                                        'id' => 8491679630,
+                                        'type' => 'private',
+                                    ],
+                                    'text' => '/start',
+                                ],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => [
+                        [
+                            'update_id' => 401,
+                            'message' => [
+                                'message_id' => 92,
+                                'chat' => [
+                                    'id' => 8491679630,
+                                    'type' => 'private',
+                                ],
+                                'document' => [
+                                    'file_id' => 'NEW-RESTORED-FILE-ID',
+                                    'file_unique_id' => 'NEW-RESTORED-UNIQ-ID',
+                                    'file_name' => 'new.bin',
+                                    'mime_type' => 'application/octet-stream',
+                                    'file_size' => 11,
+                                ],
+                            ],
+                        ],
+                    ],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+                $this->assertSame([6005], array_map('intval', (array) $request['message_ids']));
+
+                return Http::response([
+                    'status' => 'ok',
+                    'forwarded_message_ids' => [92001],
+                    'missing_message_ids' => [],
+                    'unforwardable_message_ids' => [],
+                ], 200);
+            }
+
+            return Http::response([
+                'ok' => false,
+                'status' => 'unexpected',
+                'url' => $request->url(),
+            ], 500);
+        });
+
+        $this->artisan('filestore:restore-to-bot --all --limit=1 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_sessions', [
+            'source_session_id' => 59,
+            'source_public_token' => 'filestoebot_new',
+            'source_token' => null,
+            'target_bot_username' => 'file_backup_restore_bot',
+            'success_files' => 1,
+        ]);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_files', [
+            'source_session_id' => 59,
+            'source_file_row_id' => 92,
+            'source_token' => null,
+            'target_file_id' => 'NEW-RESTORED-FILE-ID',
             'status' => 'synced',
         ]);
     }

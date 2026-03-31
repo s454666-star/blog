@@ -684,6 +684,236 @@ class RestoreFilestoreToBotCommandTest extends TestCase
         ]);
     }
 
+    public function test_command_uses_sync_worker_for_large_targeted_file_when_preferred_base_cannot_replay(): void
+    {
+        config()->set('telegram.filestore_bot_token', 'source-token');
+        config()->set('telegram.filestore_sync_bot_username', 'filestoebot');
+        config()->set('telegram.filestore_sync_chat_id', 7702694790);
+
+        DB::table('telegram_filestore_sessions')->insert([
+            'id' => 158,
+            'chat_id' => 652667665,
+            'public_token' => 'filestoebot_targeted_large',
+            'source_token' => null,
+            'status' => 'closed',
+            'total_files' => 2,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_files')->insert([
+            [
+                'id' => 201,
+                'session_id' => 158,
+                'chat_id' => 652667665,
+                'message_id' => 92001,
+                'file_id' => 'LARGE-SOURCE-FILE-ID',
+                'file_unique_id' => 'LARGE-SOURCE-UNIQ-ID',
+                'source_token' => null,
+                'file_name' => 'large-targeted.mp4',
+                'mime_type' => 'video/mp4',
+                'file_size' => 30878433,
+                'file_type' => 'video',
+                'raw_payload' => json_encode(['message_id' => 92001], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => now(),
+            ],
+            [
+                'id' => 202,
+                'session_id' => 158,
+                'chat_id' => 652667665,
+                'message_id' => 92002,
+                'file_id' => 'OTHER-SOURCE-FILE-ID',
+                'file_unique_id' => 'OTHER-SOURCE-UNIQ-ID',
+                'source_token' => null,
+                'file_name' => 'other.mp4',
+                'mime_type' => 'video/mp4',
+                'file_size' => 30878434,
+                'file_type' => 'video',
+                'raw_payload' => json_encode(['message_id' => 92002], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => now(),
+            ],
+        ]);
+
+        Http::fake(function ($request) {
+            if (str_starts_with($request->url(), 'https://api.telegram.org/botrestore-token/getUpdates')) {
+                $offset = (int) ($request['offset'] ?? 0);
+
+                if ($offset <= 0) {
+                    return Http::response([
+                        'ok' => true,
+                        'result' => [
+                            [
+                                'update_id' => 900,
+                                'message' => [
+                                    'message_id' => 150,
+                                    'chat' => [
+                                        'id' => 8491679630,
+                                        'type' => 'private',
+                                    ],
+                                    'text' => '/start',
+                                ],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => [
+                        [
+                            'update_id' => 901,
+                            'message' => [
+                                'message_id' => 151,
+                                'chat' => [
+                                    'id' => 7702694790,
+                                    'type' => 'private',
+                                ],
+                                'video' => [
+                                    'file_id' => 'TARGET-LARGE-FILE-ID',
+                                    'file_unique_id' => 'TARGET-LARGE-UNIQ-ID',
+                                    'file_name' => 'large-targeted.mp4',
+                                    'mime_type' => 'video/mp4',
+                                    'file_size' => 30878433,
+                                ],
+                            ],
+                        ],
+                    ],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+                return Http::response([
+                    'status' => 'error',
+                    'reason' => 'forward_failed',
+                    'error' => 'Could not find the input entity for PeerUser(user_id=652667665) (PeerUser).',
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/files') {
+                return Http::response([
+                    'status' => 'ok',
+                    'source_chat_id' => 0,
+                    'files' => [],
+                ], 200);
+            }
+
+            if ($request->url() === 'https://api.telegram.org/botsource-token/sendVideo') {
+                $this->assertSame(7702694790, (int) $request['chat_id']);
+                $this->assertSame('LARGE-SOURCE-FILE-ID', (string) $request['video']);
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => [
+                        'message_id' => 99001,
+                    ],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8000/bots/files') {
+                $minMessageId = (int) ($request['min_message_id'] ?? 0);
+
+                if ($minMessageId <= 0) {
+                    return Http::response([
+                        'status' => 'ok',
+                        'source_chat_id' => 8468381207,
+                        'files' => [
+                            [
+                                'message_id' => 517603,
+                                'file_id' => 'OLD-MTPROTO-ID',
+                                'file_unique_id' => 'OLD-MTPROTO-UNIQ',
+                                'file_name' => 'old-video.mp4',
+                                'mime_type' => 'video/mp4',
+                                'file_size' => 123,
+                                'file_type' => 'video',
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'status' => 'ok',
+                    'source_chat_id' => 8468381207,
+                    'files' => [
+                        [
+                            'message_id' => 517604,
+                            'file_id' => 'NEW-MTPROTO-ID',
+                            'file_unique_id' => 'NEW-MTPROTO-UNIQ',
+                            'file_name' => 'large-targeted.mp4',
+                            'mime_type' => 'video/mp4',
+                            'file_size' => 30878433,
+                            'file_type' => 'video',
+                        ],
+                    ],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8000/bots/send') {
+                $this->assertSame('file_backup_restore_bot', (string) $request['bot_username']);
+                $this->assertSame('/start', (string) $request['text']);
+
+                return Http::response([
+                    'status' => 'ok',
+                    'sent_message_id' => 517608,
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8000/bots/forward-messages') {
+                $this->assertSame(8468381207, (int) $request['source_chat_id']);
+                $this->assertSame([517604], array_map('intval', (array) $request['message_ids']));
+
+                return Http::response([
+                    'status' => 'ok',
+                    'forwarded_message_ids' => [517605],
+                    'missing_message_ids' => [],
+                    'unforwardable_message_ids' => [],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8000/bots/delete-messages') {
+                $chatPeer = (string) $request['chat_peer'];
+                $messageIds = array_map('intval', (array) $request['message_ids']);
+
+                if ($chatPeer === 'filestoebot') {
+                    $this->assertSame([517604], $messageIds);
+                } elseif ($chatPeer === 'file_backup_restore_bot') {
+                    $this->assertSame([517605], $messageIds);
+                } else {
+                    $this->fail('Unexpected delete chat peer: ' . $chatPeer);
+                }
+
+                return Http::response([
+                    'status' => 'ok',
+                    'deleted_count' => 1,
+                    'undeleted_message_ids' => [],
+                ], 200);
+            }
+
+            return Http::response([
+                'ok' => false,
+                'status' => 'unexpected',
+                'url' => $request->url(),
+            ], 500);
+        });
+
+        $this->artisan('filestore:restore-to-bot --session-id=158 --source-file-row-id=201 --base-uri=http://127.0.0.1:8001 --source-bot-token=source-token --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
+            ->expectsOutputToContain('fallback resent via sync bot')
+            ->expectsOutputToContain('synced=1')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_files', [
+            'source_session_id' => 158,
+            'source_file_row_id' => 201,
+            'status' => 'synced',
+            'attempt_count' => 1,
+            'target_file_id' => 'TARGET-LARGE-FILE-ID',
+        ]);
+
+        $this->assertDatabaseMissing('telegram_filestore_restore_files', [
+            'source_session_id' => 158,
+            'source_file_row_id' => 202,
+        ]);
+    }
+
     public function test_command_falls_back_to_source_bot_api_when_forwarded_source_message_is_missing(): void
     {
         config()->set('telegram.filestore_bot_token', 'source-token');

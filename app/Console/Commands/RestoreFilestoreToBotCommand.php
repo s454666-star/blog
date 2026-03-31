@@ -15,6 +15,7 @@ class RestoreFilestoreToBotCommand extends Command
     private const DEFAULT_BASE_URI = 'http://127.0.0.1:8001';
     private const DEFAULT_FILESTORE_SYNC_BASE_URI = 'http://127.0.0.1:8000';
     private const MAX_FILE_ATTEMPTS_PER_RUN = 3;
+    private const BOT_API_DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024;
     private const DEFAULT_POLL_SECONDS = 15;
     private const POLL_INTERVAL_MICROSECONDS = 750000;
     private const SOURCE_SYNC_POLL_INTERVAL_MICROSECONDS = 500000;
@@ -34,6 +35,7 @@ class RestoreFilestoreToBotCommand extends Command
         {--session-id= : 只處理單一 telegram_filestore_sessions.id}
         {--public-token= : 只處理單一 telegram_filestore_sessions.public_token}
         {--source-token= : 只處理單一 telegram_filestore_sessions.source_token}
+        {--source-file-row-id= : 只處理單一 telegram_filestore_files.id}
         {--all : 處理 telegram_filestore_sessions 內所有 sessions}
         {--limit= : 本次最多轉幾筆 source files；留空或 0 代表不限}
         {--base-uri=http://127.0.0.1:8001 : 本機 Telegram FastAPI base uri}
@@ -52,6 +54,7 @@ class RestoreFilestoreToBotCommand extends Command
         $sessionId = max((int) $this->option('session-id'), 0);
         $publicToken = trim((string) $this->option('public-token'));
         $sourceToken = trim((string) $this->option('source-token'));
+        $sourceFileRowId = max((int) $this->option('source-file-row-id'), 0);
         $all = (bool) $this->option('all');
         $baseUri = rtrim(trim((string) ($this->option('base-uri') ?: self::DEFAULT_BASE_URI)), '/');
         $targetBotUsername = ltrim(trim((string) ($this->option('target-bot-username') ?: config('telegram.backup_restore_bot_username', 'file_backup_restore_bot'))), '@');
@@ -113,8 +116,7 @@ class RestoreFilestoreToBotCommand extends Command
 
         if ($dryRun) {
             foreach ($sourceSessionsQuery->cursor() as $sourceSession) {
-                $fileCount = (int) TelegramFilestoreFile::query()
-                    ->where('session_id', $sourceSession->id)
+                $fileCount = (int) $this->buildSourceFileQuery((int) $sourceSession->id, $sourceFileRowId)
                     ->count();
 
                 $this->line(sprintf(
@@ -151,8 +153,7 @@ class RestoreFilestoreToBotCommand extends Command
                 break;
             }
 
-            $fileCount = (int) TelegramFilestoreFile::query()
-                ->where('session_id', $sourceSession->id)
+            $fileCount = (int) $this->buildSourceFileQuery((int) $sourceSession->id, $sourceFileRowId)
                 ->count();
 
             $this->line(sprintf(
@@ -169,8 +170,15 @@ class RestoreFilestoreToBotCommand extends Command
                 (int) $targetContext['chat_id']
             );
 
+            $sessionTotalFileCount = (int) TelegramFilestoreFile::query()
+                ->where('session_id', $sourceSession->id)
+                ->count();
+
             $existingSyncedRowCount = (int) TelegramFilestoreRestoreFile::query()
                 ->where('restore_session_id', $restoreSession->id)
+                ->when($sourceFileRowId > 0, static function ($query) use ($sourceFileRowId) {
+                    $query->where('source_file_row_id', $sourceFileRowId);
+                })
                 ->where('status', 'synced')
                 ->count();
 
@@ -184,12 +192,13 @@ class RestoreFilestoreToBotCommand extends Command
             $restoreSession->last_error = null;
             $restoreSession->target_chat_id = (int) $targetContext['chat_id'];
             $restoreSession->started_at = $restoreSession->started_at ?: now();
-            $restoreSession->total_files = $fileCount;
+            $restoreSession->total_files = $sourceFileRowId > 0
+                ? max((int) $restoreSession->total_files, $sessionTotalFileCount)
+                : $fileCount;
             $restoreSession->save();
 
             foreach (
-                TelegramFilestoreFile::query()
-                    ->where('session_id', $sourceSession->id)
+                $this->buildSourceFileQuery((int) $sourceSession->id, $sourceFileRowId)
                     ->orderBy('id')
                     ->cursor() as $sourceFile
             ) {
@@ -313,6 +322,15 @@ class RestoreFilestoreToBotCommand extends Command
         }
 
         return $query;
+    }
+
+    private function buildSourceFileQuery(int $sourceSessionId, int $sourceFileRowId = 0)
+    {
+        return TelegramFilestoreFile::query()
+            ->where('session_id', $sourceSessionId)
+            ->when($sourceFileRowId > 0, static function ($query) use ($sourceFileRowId) {
+                $query->where('id', $sourceFileRowId);
+            });
     }
 
     private function getOrCreateRestoreSession(
@@ -566,10 +584,13 @@ class RestoreFilestoreToBotCommand extends Command
     {
         $reason = trim((string) ($forwardResult['reason'] ?? ''));
         $error = trim((string) ($forwardResult['error'] ?? ''));
+        $normalizedError = strtolower($error);
 
         return $reason === 'source_messages_not_found'
-            || str_contains($error, 'source_messages_not_found')
-            || str_contains($error, 'wrong file identifier');
+            || str_contains($normalizedError, 'source_messages_not_found')
+            || str_contains($normalizedError, 'wrong file identifier')
+            || str_contains($normalizedError, 'could not find the input entity')
+            || str_contains($normalizedError, 'peeruser');
     }
 
     /**
@@ -625,7 +646,8 @@ class RestoreFilestoreToBotCommand extends Command
                         (int) ($syncReplayResult['source_message_id'] ?? 0)
                     ));
                 } else {
-                    $this->line('  fallback replay unavailable, fallback=getFile+upload');
+                    $this->line('  fallback replay unavailable: ' . (string) ($syncReplayResult['error'] ?? 'unknown error'));
+                    $this->line('  fallback=getFile+upload');
                     $fallbackResult = $this->copySourceFileViaBotApi(
                         $sourceBotToken,
                         $targetBotToken,
@@ -787,71 +809,122 @@ class RestoreFilestoreToBotCommand extends Command
         string $targetBotUsername
     ): array {
         $sourceChatId = (int) ($sourceFile->chat_id ?? 0);
+        $replayChatId = $this->resolveReplaySourceBotChatId($sourceChatId);
         $sourceSyncBotUsername = ltrim((string) config('telegram.filestore_sync_bot_username', 'filestoebot'), '@');
-        if ($sourceChatId <= 0 || $sourceSyncBotUsername === '') {
+        if ($replayChatId <= 0 || $sourceSyncBotUsername === '') {
             return [
                 'ok' => false,
-                'error' => 'sync replay 缺少 source chat 或 sync bot username',
+                'error' => 'sync replay 缺少 replay chat 或 sync bot username',
             ];
         }
 
-        $sourceBaseUri = $this->resolveSourceBaseUri($sourceChatId, $baseUri);
-        $latestKnownMessageId = $this->fetchLatestBotFileMessageId($sourceBaseUri, $sourceSyncBotUsername);
+        $candidateBaseUris = $this->resolveReplayBaseUris($replayChatId, $sourceFile, $baseUri);
+        $latestKnownMessageIds = [];
+        foreach ($candidateBaseUris as $candidateBaseUri) {
+            $latestKnownMessageIds[$candidateBaseUri] = $this->fetchLatestBotFileMessageId($candidateBaseUri, $sourceSyncBotUsername);
+        }
 
-        $resendResult = $this->sendExistingSourceFileToChat($sourceBotToken, $sourceChatId, $sourceFile);
+        $resendResult = $this->sendExistingSourceFileToChat($sourceBotToken, $replayChatId, $sourceFile);
         if (!($resendResult['ok'] ?? false)) {
             return $resendResult;
         }
 
-        $recentFileResult = $this->pollRecentBotFileFromSyncChat(
-            $sourceBaseUri,
-            $sourceSyncBotUsername,
-            $latestKnownMessageId,
-            $sourceFile
-        );
-        if (!($recentFileResult['ok'] ?? false)) {
-            return $recentFileResult;
-        }
+        $errors = [];
+        foreach ($candidateBaseUris as $sourceBaseUri) {
+            $recentFileResult = $this->pollRecentBotFileFromSyncChat(
+                $sourceBaseUri,
+                $sourceSyncBotUsername,
+                (int) ($latestKnownMessageIds[$sourceBaseUri] ?? 0),
+                $sourceFile
+            );
+            if (!($recentFileResult['ok'] ?? false)) {
+                $errors[] = sprintf(
+                    '%s recent=%s',
+                    $sourceBaseUri,
+                    (string) ($recentFileResult['error'] ?? 'unknown error')
+                );
+                continue;
+            }
 
-        $telethonSourceChatId = (int) ($recentFileResult['source_chat_id'] ?? 0);
-        $telethonSourceMessageId = (int) ($recentFileResult['source_message_id'] ?? 0);
-        if ($telethonSourceChatId <= 0 || $telethonSourceMessageId <= 0) {
+            $telethonSourceChatId = (int) ($recentFileResult['source_chat_id'] ?? 0);
+            $telethonSourceMessageId = (int) ($recentFileResult['source_message_id'] ?? 0);
+            if ($telethonSourceChatId <= 0 || $telethonSourceMessageId <= 0) {
+                $errors[] = $sourceBaseUri . ' recent=sync replay 缺少 Telethon source message';
+                continue;
+            }
+
+            $this->ensureTargetBotDialog($sourceBaseUri, $targetBotUsername);
+
+            $forwardResult = $this->forwardSourceMessage(
+                $sourceBaseUri,
+                $telethonSourceChatId,
+                $telethonSourceMessageId,
+                $targetBotUsername
+            );
+            if (!($forwardResult['ok'] ?? false)) {
+                $errors[] = sprintf(
+                    '%s forward=%s',
+                    $sourceBaseUri,
+                    (string) ($forwardResult['error'] ?? 'forward failed')
+                );
+                continue;
+            }
+
             return [
-                'ok' => false,
-                'error' => 'sync replay 缺少 Telethon source message',
+                'ok' => true,
+                'base_uri' => $sourceBaseUri,
+                'source_chat_id' => $telethonSourceChatId,
+                'source_message_id' => $telethonSourceMessageId,
+                'forwarded_message_id' => (int) ($forwardResult['forwarded_message_id'] ?? 0),
+                'target_bot_chat_id' => $replayChatId,
             ];
         }
 
-        $this->ensureTargetBotDialog($sourceBaseUri, $targetBotUsername);
-
-        $forwardResult = $this->forwardSourceMessage(
-            $sourceBaseUri,
-            $telethonSourceChatId,
-            $telethonSourceMessageId,
-            $targetBotUsername
-        );
-        if (!($forwardResult['ok'] ?? false)) {
-            return $forwardResult;
-        }
-
         return [
-            'ok' => true,
-            'base_uri' => $sourceBaseUri,
-            'source_chat_id' => $telethonSourceChatId,
-            'source_message_id' => $telethonSourceMessageId,
-            'forwarded_message_id' => (int) ($forwardResult['forwarded_message_id'] ?? 0),
-            'target_bot_chat_id' => $sourceChatId,
+            'ok' => false,
+            'error' => 'sync replay failed across base uris: ' . implode(' | ', $errors),
         ];
     }
 
-    private function resolveSourceBaseUri(int $sourceChatId, string $preferredBaseUri): string
+    private function resolveReplaySourceBotChatId(int $sourceChatId): int
     {
         $syncChatId = (int) config('telegram.filestore_sync_chat_id', 0);
-        if ($syncChatId > 0 && $sourceChatId === $syncChatId) {
-            return self::DEFAULT_FILESTORE_SYNC_BASE_URI;
+
+        return $syncChatId > 0 ? $syncChatId : $sourceChatId;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveReplayBaseUris(int $sourceChatId, TelegramFilestoreFile $sourceFile, string $preferredBaseUri): array
+    {
+        $syncChatId = (int) config('telegram.filestore_sync_chat_id', 0);
+        $preferSyncWorkerFirst = (int) ($sourceFile->file_size ?? 0) > self::BOT_API_DOWNLOAD_MAX_BYTES;
+
+        $candidateBaseUris = [];
+        $append = static function (string $uri) use (&$candidateBaseUris): void {
+            $uri = rtrim(trim($uri), '/');
+            if ($uri === '' || in_array($uri, $candidateBaseUris, true)) {
+                return;
+            }
+
+            $candidateBaseUris[] = $uri;
+        };
+
+        if ($preferSyncWorkerFirst) {
+            $append(self::DEFAULT_FILESTORE_SYNC_BASE_URI);
+            $append($preferredBaseUri);
+        } elseif ($syncChatId > 0 && $sourceChatId === $syncChatId) {
+            $append(self::DEFAULT_FILESTORE_SYNC_BASE_URI);
+            $append($preferredBaseUri);
+        } else {
+            $append($preferredBaseUri);
+            $append(self::DEFAULT_FILESTORE_SYNC_BASE_URI);
         }
 
-        return $preferredBaseUri;
+        $append(self::DEFAULT_BASE_URI);
+
+        return $candidateBaseUris;
     }
 
     private function fetchLatestBotFileMessageId(string $baseUri, string $botUsername): int

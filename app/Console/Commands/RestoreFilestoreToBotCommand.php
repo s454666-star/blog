@@ -14,6 +14,7 @@ class RestoreFilestoreToBotCommand extends Command
 {
     private const DEFAULT_BASE_URI = 'http://127.0.0.1:8001';
     private const DEFAULT_FILESTORE_SYNC_BASE_URI = 'http://127.0.0.1:8000';
+    private const DEFAULT_MEMORY_LIMIT = '-1';
     private const MAX_FILE_ATTEMPTS_PER_RUN = 3;
     private const BOT_API_DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024;
     private const DEFAULT_POLL_SECONDS = 15;
@@ -38,6 +39,7 @@ class RestoreFilestoreToBotCommand extends Command
         {--source-file-row-id= : 只處理單一 telegram_filestore_files.id}
         {--all : 處理 telegram_filestore_sessions 內所有 sessions}
         {--limit= : 本次最多轉幾筆 source files；留空或 0 代表不限}
+        {--memory-limit=-1 : 這支 command 使用的 PHP memory_limit；留空代表不覆寫}
         {--base-uri=http://127.0.0.1:8001 : 本機 Telegram FastAPI base uri}
         {--target-bot-username= : 新 bot username，可帶或不帶 @}
         {--target-bot-token= : 新 bot token；留空時讀 config(telegram.backup_restore_bot_token)}
@@ -57,6 +59,7 @@ class RestoreFilestoreToBotCommand extends Command
         $sourceFileRowId = max((int) $this->option('source-file-row-id'), 0);
         $all = (bool) $this->option('all');
         $baseUri = rtrim(trim((string) ($this->option('base-uri') ?: self::DEFAULT_BASE_URI)), '/');
+        $memoryLimit = trim((string) ($this->option('memory-limit') ?: self::DEFAULT_MEMORY_LIMIT));
         $targetBotUsername = ltrim(trim((string) ($this->option('target-bot-username') ?: config('telegram.backup_restore_bot_username', 'file_backup_restore_bot'))), '@');
         $workerEnvPath = trim((string) ($this->option('worker-env') ?: base_path(self::DEFAULT_LOCAL_WORKER_ENV_PATH)));
         $localWorkerEnv = $this->readKeyValueEnvFile($workerEnvPath);
@@ -87,6 +90,10 @@ class RestoreFilestoreToBotCommand extends Command
             return self::FAILURE;
         }
 
+        if ($memoryLimit !== '') {
+            @ini_set('memory_limit', $memoryLimit);
+        }
+
         if (!$all && $sessionId <= 0 && $publicToken === '' && $sourceToken === '') {
             $this->error('請至少指定 --session-id / --public-token / --source-token 其中一個，或加上 --all。');
             return self::FAILURE;
@@ -113,6 +120,7 @@ class RestoreFilestoreToBotCommand extends Command
         if ($caBundlePath !== null) {
             $this->line('telegram_ca_bundle=' . $caBundlePath);
         }
+        $this->line('memory_limit=' . (string) ini_get('memory_limit'));
 
         if ($dryRun) {
             foreach ($sourceSessionsQuery->cursor() as $sourceSession) {

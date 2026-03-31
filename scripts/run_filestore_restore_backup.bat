@@ -69,6 +69,7 @@ set "CA_FILE=%APP_DIR%\storage\app\telegram-filestore-local-workers\cacert.pem"
 set "LOG_DIR=%APP_DIR%\storage\logs"
 set "LOG_FILE=%LOG_DIR%\filestore_restore_backup.log"
 set "LOCK_DIR=%LOG_DIR%\filestore_restore_backup.lock"
+set "PHP_MEMORY_LIMIT=-1"
 set "FASTAPI_HOST=127.0.0.1"
 set "FASTAPI_PORT=8001"
 set "FASTAPI_TASK=TG API2"
@@ -111,7 +112,7 @@ call :ensure_fastapi_port
 set "RUN_EXIT=%ERRORLEVEL%"
 if not "%RUN_EXIT%"=="0" goto cleanup
 
-"%PHP_EXE%" -d "curl.cainfo=%CA_FILE%" -d "openssl.cafile=%CA_FILE%" artisan filestore:restore-to-bot --all --base-uri=http://127.0.0.1:8001 --worker-env="%WORKER_ENV%" %* >>"%LOG_FILE%" 2>&1
+"%PHP_EXE%" -d "memory_limit=%PHP_MEMORY_LIMIT%" -d "curl.cainfo=%CA_FILE%" -d "openssl.cafile=%CA_FILE%" artisan filestore:restore-to-bot --all --base-uri=http://127.0.0.1:8001 --worker-env="%WORKER_ENV%" %* >>"%LOG_FILE%" 2>&1
 set "RUN_EXIT=%ERRORLEVEL%"
 
 echo [%date% %time%] Finished filestore restore backup exit_code=%RUN_EXIT% >>"%LOG_FILE%"

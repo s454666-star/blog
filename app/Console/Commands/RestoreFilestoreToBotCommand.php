@@ -14,6 +14,7 @@ class RestoreFilestoreToBotCommand extends Command
 {
     private const DEFAULT_BASE_URI = 'http://127.0.0.1:8001';
     private const DEFAULT_FILESTORE_SYNC_BASE_URI = 'http://127.0.0.1:8000';
+    private const MAX_FILE_ATTEMPTS_PER_RUN = 3;
     private const DEFAULT_POLL_SECONDS = 15;
     private const POLL_INTERVAL_MICROSECONDS = 750000;
     private const SOURCE_SYNC_POLL_INTERVAL_MICROSECONDS = 500000;
@@ -168,13 +169,14 @@ class RestoreFilestoreToBotCommand extends Command
                 (int) $targetContext['chat_id']
             );
 
-            $existingRowCount = (int) TelegramFilestoreRestoreFile::query()
+            $existingSyncedRowCount = (int) TelegramFilestoreRestoreFile::query()
                 ->where('restore_session_id', $restoreSession->id)
+                ->where('status', 'synced')
                 ->count();
 
-            if ($fileCount > 0 && $existingRowCount >= $fileCount) {
+            if ($fileCount > 0 && $existingSyncedRowCount >= $fileCount) {
                 $stats['skipped_existing'] += $fileCount;
-                $this->line('  skip: all files already exist in restore db');
+                $this->line('  skip: all files already synced in restore db');
                 continue;
             }
 
@@ -197,204 +199,67 @@ class RestoreFilestoreToBotCommand extends Command
                 }
 
                 $existingRestoreFile = $this->findExistingRestoreFileRow($restoreSession, $sourceFile);
-                if ($existingRestoreFile !== null) {
+                if ($existingRestoreFile !== null && (string) $existingRestoreFile->status === 'synced') {
                     $stats['skipped_existing']++;
                     continue;
                 }
 
-                $restoreFile = $this->loadRestoreFileRow($restoreSession, $sourceSession, $sourceFile);
+                $restoreFile = $this->loadRestoreFileRow($restoreSession, $sourceSession, $sourceFile, $existingRestoreFile);
 
                 $stats['attempted']++;
                 $remainingLimit--;
 
-                $this->line(sprintf(
-                    '[session:%d file:%d] forwarding message_id=%d type=%s name=%s',
-                    (int) $sourceSession->id,
-                    (int) $sourceFile->id,
-                    (int) ($sourceFile->message_id ?? 0),
-                    (string) ($sourceFile->file_type ?? 'unknown'),
-                    (string) ($sourceFile->file_name ?? '(null)')
-                ));
+                $fileSynced = false;
+                for ($attempt = 1; $attempt <= self::MAX_FILE_ATTEMPTS_PER_RUN; $attempt++) {
+                    $restoreFile = $this->beginRestoreFileAttempt($restoreFile);
 
-                if ((int) ($sourceFile->chat_id ?? 0) <= 0 || (int) ($sourceFile->message_id ?? 0) <= 0) {
-                    $this->markRestoreFileFailed($restoreFile, 'source chat_id/message_id 缺失，無法 forward');
-                    $stats['failed']++;
-                    $this->line('  failed: source chat_id/message_id missing');
-                    $this->refreshRestoreSessionStats($restoreSession);
-                    continue;
-                }
+                    $this->line(sprintf(
+                        '[session:%d file:%d] attempt=%d/%d forwarding message_id=%d type=%s name=%s',
+                        (int) $sourceSession->id,
+                        (int) $sourceFile->id,
+                        $attempt,
+                        self::MAX_FILE_ATTEMPTS_PER_RUN,
+                        (int) ($sourceFile->message_id ?? 0),
+                        (string) ($sourceFile->file_type ?? 'unknown'),
+                        (string) ($sourceFile->file_name ?? '(null)')
+                    ));
 
-                $syncReplayResult = ['ok' => false];
-                $forwardResult = $this->forwardSourceMessage(
-                    $baseUri,
-                    (int) $sourceFile->chat_id,
-                    (int) $sourceFile->message_id,
-                    $targetBotUsername
-                );
-
-                if (!($forwardResult['ok'] ?? false)) {
-                    if ($sourceBotToken !== '' && $this->shouldFallbackToSourceBotApi($forwardResult)) {
-                        $fallbackResult = ['ok' => false];
-                        $syncReplayResult = $this->replaySourceFileToSyncChatAndForward(
-                            $baseUri,
-                            $sourceBotToken,
-                            $sourceFile,
-                            $targetBotUsername
-                        );
-
-                        if ($syncReplayResult['ok'] ?? false) {
-                            $forwardResult = [
-                                'ok' => true,
-                                'forwarded_message_id' => (int) ($syncReplayResult['forwarded_message_id'] ?? 0),
-                            ];
-                            $this->line(sprintf(
-                                '  fallback resent via sync bot: source_chat_id=%d source_message_id=%d',
-                                (int) ($syncReplayResult['source_chat_id'] ?? 0),
-                                (int) ($syncReplayResult['source_message_id'] ?? 0)
-                            ));
-                        } else {
-                            $this->line('  fallback replay unavailable, fallback=getFile+upload');
-                            $fallbackResult = $this->copySourceFileViaBotApi(
-                                $sourceBotToken,
-                                $targetBotToken,
-                                (int) $targetContext['chat_id'],
-                                $sourceFile
-                            );
-                        }
-
-                        if (($fallbackResult['ok'] ?? false) && !($syncReplayResult['ok'] ?? false)) {
-                            $restoreFile->status = 'synced';
-                            $restoreFile->target_chat_id = (int) ($fallbackResult['target_chat_id'] ?? 0);
-                            $restoreFile->target_message_id = (int) ($fallbackResult['target_message_id'] ?? 0);
-                            $restoreFile->target_file_id = (string) ($fallbackResult['target_file_id'] ?? '');
-                            $restoreFile->target_file_unique_id = (string) ($fallbackResult['target_file_unique_id'] ?? '');
-                            $restoreFile->file_name = (string) (($fallbackResult['file_name'] ?? '') !== '' ? $fallbackResult['file_name'] : ($sourceFile->file_name ?? ''));
-                            $restoreFile->mime_type = (string) (($fallbackResult['mime_type'] ?? '') !== '' ? $fallbackResult['mime_type'] : ($sourceFile->mime_type ?? ''));
-                            $restoreFile->file_size = (int) (($fallbackResult['file_size'] ?? 0) > 0 ? $fallbackResult['file_size'] : ($sourceFile->file_size ?? 0));
-                            $restoreFile->file_type = (string) (($fallbackResult['file_type'] ?? '') !== '' ? $fallbackResult['file_type'] : ($sourceFile->file_type ?? 'document'));
-                            $restoreFile->raw_payload = $fallbackResult['raw_payload'] ?? null;
-                            $restoreFile->synced_at = now();
-                            $restoreFile->last_error = null;
-                            $restoreFile->save();
-
-                            $cleanupResult = $this->deleteTargetBotApiMessage(
-                                $targetBotToken,
-                                (int) $restoreFile->target_chat_id,
-                                (int) $restoreFile->target_message_id
-                            );
-                            if (!($cleanupResult['ok'] ?? false)) {
-                                $restoreFile->last_error = (string) ($cleanupResult['error'] ?? 'cleanup failed');
-                                $restoreFile->save();
-                                $this->line('  cleanup warning: ' . (string) ($cleanupResult['error'] ?? 'cleanup failed'));
-                            }
-
-                            $stats['synced']++;
-                            $this->line(sprintf(
-                                '  synced via fallback: target_message_id=%d target_file_id=%s',
-                                (int) $restoreFile->target_message_id,
-                                $this->shorten((string) $restoreFile->target_file_id)
-                            ));
-
-                            $this->refreshRestoreSessionStats($restoreSession, (int) $sourceFile->id);
-                            continue;
-                        }
-
-                        if (!($syncReplayResult['ok'] ?? false)) {
-                            $forwardResult = [
-                                'ok' => false,
-                                'error' => (string) ($fallbackResult['error'] ?? ($syncReplayResult['error'] ?? 'fallback upload failed')),
-                            ];
-                        }
-                    }
-
-                    if (!($forwardResult['ok'] ?? false)) {
-                        $this->markRestoreFileFailed($restoreFile, (string) ($forwardResult['error'] ?? 'forward failed'));
-                        $stats['failed']++;
-                        $this->line('  failed: ' . (string) ($forwardResult['error'] ?? 'forward failed'));
-                        $this->refreshRestoreSessionStats($restoreSession);
-                        continue;
-                    }
-                }
-
-                $restoreFile->status = 'forwarded';
-                $restoreFile->forwarded_message_id = (int) ($forwardResult['forwarded_message_id'] ?? 0);
-                $restoreFile->forwarded_at = now();
-                $restoreFile->last_error = null;
-                $restoreFile->save();
-
-                $captureChatId = (int) ($targetContext['chat_id'] ?? 0);
-                if (($syncReplayResult['ok'] ?? false) && (int) ($syncReplayResult['target_bot_chat_id'] ?? 0) > 0) {
-                    $captureChatId = (int) $syncReplayResult['target_bot_chat_id'];
-                }
-
-                $captureResult = $this->pollTargetBotForForwardedFile(
-                    $targetBotToken,
-                    $captureChatId,
-                    (int) $targetContext['last_update_id'],
-                    $pollSeconds
-                );
-                $targetContext['last_update_id'] = (int) ($captureResult['last_update_id'] ?? $targetContext['last_update_id']);
-
-                if (!($captureResult['ok'] ?? false)) {
-                    $forwardBaseUri = ($syncReplayResult['ok'] ?? false)
-                        ? (string) ($syncReplayResult['base_uri'] ?? $baseUri)
-                        : $baseUri;
-                    $cleanupResult = $this->cleanupForwardedArtifacts(
-                        $forwardBaseUri,
+                    $syncResult = $this->syncRestoreFile(
+                        $restoreFile,
+                        $sourceFile,
+                        $baseUri,
                         $targetBotUsername,
-                        (int) ($syncReplayResult['source_message_id'] ?? 0),
-                        (int) $restoreFile->forwarded_message_id
+                        $sourceBotToken,
+                        $targetBotToken,
+                        (int) $targetContext['chat_id'],
+                        (int) $targetContext['last_update_id'],
+                        $pollSeconds
                     );
-                    $captureError = (string) ($captureResult['error'] ?? 'target bot polling failed');
-                    if (!($cleanupResult['ok'] ?? false)) {
-                        $captureError .= ' | cleanup=' . (string) ($cleanupResult['error'] ?? 'cleanup failed');
-                        $this->line('  cleanup warning: ' . (string) ($cleanupResult['error'] ?? 'cleanup failed'));
+                    $targetContext['last_update_id'] = (int) ($syncResult['last_update_id'] ?? $targetContext['last_update_id']);
+
+                    if ($syncResult['ok'] ?? false) {
+                        $stats['synced']++;
+                        $this->refreshRestoreSessionStats($restoreSession, (int) $sourceFile->id);
+                        $fileSynced = true;
+                        break;
                     }
 
-                    $this->markRestoreFileFailed($restoreFile, $captureError);
+                    $this->line(sprintf(
+                        '  attempt %d/%d failed: %s',
+                        $attempt,
+                        self::MAX_FILE_ATTEMPTS_PER_RUN,
+                        (string) ($syncResult['error'] ?? 'sync failed')
+                    ));
+                }
+
+                if (!$fileSynced) {
                     $stats['failed']++;
-                    $this->line('  failed: ' . $captureError);
-                    $this->refreshRestoreSessionStats($restoreSession);
-                    continue;
+                    $this->line(sprintf(
+                        '  giving up after %d attempts',
+                        self::MAX_FILE_ATTEMPTS_PER_RUN
+                    ));
+                    $this->refreshRestoreSessionStats($restoreSession, (int) $sourceFile->id);
                 }
-
-                $restoreFile->status = 'synced';
-                $restoreFile->target_chat_id = (int) ($captureResult['target_chat_id'] ?? 0);
-                $restoreFile->target_message_id = (int) ($captureResult['target_message_id'] ?? 0);
-                $restoreFile->target_file_id = (string) ($captureResult['target_file_id'] ?? '');
-                $restoreFile->target_file_unique_id = (string) ($captureResult['target_file_unique_id'] ?? '');
-                $restoreFile->file_name = (string) (($captureResult['file_name'] ?? '') !== '' ? $captureResult['file_name'] : ($sourceFile->file_name ?? ''));
-                $restoreFile->mime_type = (string) (($captureResult['mime_type'] ?? '') !== '' ? $captureResult['mime_type'] : ($sourceFile->mime_type ?? ''));
-                $restoreFile->file_size = (int) (($captureResult['file_size'] ?? 0) > 0 ? $captureResult['file_size'] : ($sourceFile->file_size ?? 0));
-                $restoreFile->file_type = (string) (($captureResult['file_type'] ?? '') !== '' ? $captureResult['file_type'] : ($sourceFile->file_type ?? 'document'));
-                $restoreFile->raw_payload = $captureResult['raw_payload'] ?? null;
-                $restoreFile->synced_at = now();
-                $restoreFile->last_error = null;
-                $restoreFile->save();
-
-                $forwardBaseUri = ($syncReplayResult['ok'] ?? false)
-                    ? (string) ($syncReplayResult['base_uri'] ?? $baseUri)
-                    : $baseUri;
-                $cleanupResult = $this->cleanupForwardedArtifacts(
-                    $forwardBaseUri,
-                    $targetBotUsername,
-                    (int) ($syncReplayResult['source_message_id'] ?? 0),
-                    (int) $restoreFile->forwarded_message_id
-                );
-                if (!($cleanupResult['ok'] ?? false)) {
-                    $restoreFile->last_error = (string) ($cleanupResult['error'] ?? 'cleanup failed');
-                    $restoreFile->save();
-                    $this->line('  cleanup warning: ' . (string) ($cleanupResult['error'] ?? 'cleanup failed'));
-                }
-
-                $stats['synced']++;
-                $this->line(sprintf(
-                    '  synced: target_message_id=%d target_file_id=%s',
-                    (int) $restoreFile->target_message_id,
-                    $this->shorten((string) $restoreFile->target_file_id)
-                ));
-
-                $this->refreshRestoreSessionStats($restoreSession, (int) $sourceFile->id);
             }
 
             $this->finalizeRestoreSession($restoreSession);
@@ -489,9 +354,10 @@ class RestoreFilestoreToBotCommand extends Command
     private function loadRestoreFileRow(
         TelegramFilestoreRestoreSession $restoreSession,
         TelegramFilestoreSession $sourceSession,
-        TelegramFilestoreFile $sourceFile
+        TelegramFilestoreFile $sourceFile,
+        ?TelegramFilestoreRestoreFile $restoreFile = null
     ): TelegramFilestoreRestoreFile {
-        $restoreFile = new TelegramFilestoreRestoreFile([
+        $restoreFile ??= new TelegramFilestoreRestoreFile([
             'restore_session_id' => (int) $restoreSession->id,
             'source_file_row_id' => (int) $sourceFile->id,
         ]);
@@ -507,7 +373,25 @@ class RestoreFilestoreToBotCommand extends Command
         $restoreFile->mime_type = $sourceFile->mime_type;
         $restoreFile->file_size = (int) ($sourceFile->file_size ?? 0);
         $restoreFile->file_type = (string) ($sourceFile->file_type ?? 'document');
-        $restoreFile->attempt_count = 1;
+        $restoreFile->attempt_count = max((int) $restoreFile->attempt_count, 0);
+        $restoreFile->save();
+
+        return $restoreFile;
+    }
+
+    private function beginRestoreFileAttempt(TelegramFilestoreRestoreFile $restoreFile): TelegramFilestoreRestoreFile
+    {
+        $restoreFile->status = 'pending';
+        $restoreFile->forwarded_message_id = null;
+        $restoreFile->target_chat_id = null;
+        $restoreFile->target_message_id = null;
+        $restoreFile->target_file_id = null;
+        $restoreFile->target_file_unique_id = null;
+        $restoreFile->raw_payload = null;
+        $restoreFile->forwarded_at = null;
+        $restoreFile->synced_at = null;
+        $restoreFile->last_error = null;
+        $restoreFile->attempt_count = max((int) $restoreFile->attempt_count, 0) + 1;
         $restoreFile->save();
 
         return $restoreFile;
@@ -686,6 +570,211 @@ class RestoreFilestoreToBotCommand extends Command
         return $reason === 'source_messages_not_found'
             || str_contains($error, 'source_messages_not_found')
             || str_contains($error, 'wrong file identifier');
+    }
+
+    /**
+     * @return array{ok:bool, error?:string, last_update_id:int}
+     */
+    private function syncRestoreFile(
+        TelegramFilestoreRestoreFile $restoreFile,
+        TelegramFilestoreFile $sourceFile,
+        string $baseUri,
+        string $targetBotUsername,
+        string $sourceBotToken,
+        string $targetBotToken,
+        int $targetChatId,
+        int $lastUpdateId,
+        int $pollSeconds
+    ): array {
+        if ((int) ($sourceFile->chat_id ?? 0) <= 0 || (int) ($sourceFile->message_id ?? 0) <= 0) {
+            $this->markRestoreFileFailed($restoreFile, 'source chat_id/message_id 缺失，無法 forward');
+
+            return [
+                'ok' => false,
+                'error' => 'source chat_id/message_id missing',
+                'last_update_id' => $lastUpdateId,
+            ];
+        }
+
+        $syncReplayResult = ['ok' => false];
+        $forwardResult = $this->forwardSourceMessage(
+            $baseUri,
+            (int) $sourceFile->chat_id,
+            (int) $sourceFile->message_id,
+            $targetBotUsername
+        );
+
+        if (!($forwardResult['ok'] ?? false)) {
+            if ($sourceBotToken !== '' && $this->shouldFallbackToSourceBotApi($forwardResult)) {
+                $fallbackResult = ['ok' => false];
+                $syncReplayResult = $this->replaySourceFileToSyncChatAndForward(
+                    $baseUri,
+                    $sourceBotToken,
+                    $sourceFile,
+                    $targetBotUsername
+                );
+
+                if ($syncReplayResult['ok'] ?? false) {
+                    $forwardResult = [
+                        'ok' => true,
+                        'forwarded_message_id' => (int) ($syncReplayResult['forwarded_message_id'] ?? 0),
+                    ];
+                    $this->line(sprintf(
+                        '  fallback resent via sync bot: source_chat_id=%d source_message_id=%d',
+                        (int) ($syncReplayResult['source_chat_id'] ?? 0),
+                        (int) ($syncReplayResult['source_message_id'] ?? 0)
+                    ));
+                } else {
+                    $this->line('  fallback replay unavailable, fallback=getFile+upload');
+                    $fallbackResult = $this->copySourceFileViaBotApi(
+                        $sourceBotToken,
+                        $targetBotToken,
+                        $targetChatId,
+                        $sourceFile
+                    );
+                }
+
+                if (($fallbackResult['ok'] ?? false) && !($syncReplayResult['ok'] ?? false)) {
+                    $restoreFile->status = 'synced';
+                    $restoreFile->target_chat_id = (int) ($fallbackResult['target_chat_id'] ?? 0);
+                    $restoreFile->target_message_id = (int) ($fallbackResult['target_message_id'] ?? 0);
+                    $restoreFile->target_file_id = (string) ($fallbackResult['target_file_id'] ?? '');
+                    $restoreFile->target_file_unique_id = (string) ($fallbackResult['target_file_unique_id'] ?? '');
+                    $restoreFile->file_name = (string) (($fallbackResult['file_name'] ?? '') !== '' ? $fallbackResult['file_name'] : ($sourceFile->file_name ?? ''));
+                    $restoreFile->mime_type = (string) (($fallbackResult['mime_type'] ?? '') !== '' ? $fallbackResult['mime_type'] : ($sourceFile->mime_type ?? ''));
+                    $restoreFile->file_size = (int) (($fallbackResult['file_size'] ?? 0) > 0 ? $fallbackResult['file_size'] : ($sourceFile->file_size ?? 0));
+                    $restoreFile->file_type = (string) (($fallbackResult['file_type'] ?? '') !== '' ? $fallbackResult['file_type'] : ($sourceFile->file_type ?? 'document'));
+                    $restoreFile->raw_payload = $fallbackResult['raw_payload'] ?? null;
+                    $restoreFile->synced_at = now();
+                    $restoreFile->last_error = null;
+                    $restoreFile->save();
+
+                    $cleanupResult = $this->deleteTargetBotApiMessage(
+                        $targetBotToken,
+                        (int) $restoreFile->target_chat_id,
+                        (int) $restoreFile->target_message_id
+                    );
+                    if (!($cleanupResult['ok'] ?? false)) {
+                        $restoreFile->last_error = (string) ($cleanupResult['error'] ?? 'cleanup failed');
+                        $restoreFile->save();
+                        $this->line('  cleanup warning: ' . (string) ($cleanupResult['error'] ?? 'cleanup failed'));
+                    }
+
+                    $this->line(sprintf(
+                        '  synced via fallback: target_message_id=%d target_file_id=%s',
+                        (int) $restoreFile->target_message_id,
+                        $this->shorten((string) $restoreFile->target_file_id)
+                    ));
+
+                    return [
+                        'ok' => true,
+                        'last_update_id' => $lastUpdateId,
+                    ];
+                }
+
+                if (!($syncReplayResult['ok'] ?? false)) {
+                    $forwardResult = [
+                        'ok' => false,
+                        'error' => (string) ($fallbackResult['error'] ?? ($syncReplayResult['error'] ?? 'fallback upload failed')),
+                    ];
+                }
+            }
+
+            if (!($forwardResult['ok'] ?? false)) {
+                $error = (string) ($forwardResult['error'] ?? 'forward failed');
+                $this->markRestoreFileFailed($restoreFile, $error);
+
+                return [
+                    'ok' => false,
+                    'error' => $error,
+                    'last_update_id' => $lastUpdateId,
+                ];
+            }
+        }
+
+        $restoreFile->status = 'forwarded';
+        $restoreFile->forwarded_message_id = (int) ($forwardResult['forwarded_message_id'] ?? 0);
+        $restoreFile->forwarded_at = now();
+        $restoreFile->last_error = null;
+        $restoreFile->save();
+
+        $captureChatId = $targetChatId;
+        if (($syncReplayResult['ok'] ?? false) && (int) ($syncReplayResult['target_bot_chat_id'] ?? 0) > 0) {
+            $captureChatId = (int) $syncReplayResult['target_bot_chat_id'];
+        }
+
+        $captureResult = $this->pollTargetBotForForwardedFile(
+            $targetBotToken,
+            $captureChatId,
+            $lastUpdateId,
+            $pollSeconds
+        );
+        $updatedLastUpdateId = (int) ($captureResult['last_update_id'] ?? $lastUpdateId);
+
+        if (!($captureResult['ok'] ?? false)) {
+            $forwardBaseUri = ($syncReplayResult['ok'] ?? false)
+                ? (string) ($syncReplayResult['base_uri'] ?? $baseUri)
+                : $baseUri;
+            $cleanupResult = $this->cleanupForwardedArtifacts(
+                $forwardBaseUri,
+                $targetBotUsername,
+                (int) ($syncReplayResult['source_message_id'] ?? 0),
+                (int) $restoreFile->forwarded_message_id
+            );
+            $captureError = (string) ($captureResult['error'] ?? 'target bot polling failed');
+            if (!($cleanupResult['ok'] ?? false)) {
+                $captureError .= ' | cleanup=' . (string) ($cleanupResult['error'] ?? 'cleanup failed');
+                $this->line('  cleanup warning: ' . (string) ($cleanupResult['error'] ?? 'cleanup failed'));
+            }
+
+            $this->markRestoreFileFailed($restoreFile, $captureError);
+
+            return [
+                'ok' => false,
+                'error' => $captureError,
+                'last_update_id' => $updatedLastUpdateId,
+            ];
+        }
+
+        $restoreFile->status = 'synced';
+        $restoreFile->target_chat_id = (int) ($captureResult['target_chat_id'] ?? 0);
+        $restoreFile->target_message_id = (int) ($captureResult['target_message_id'] ?? 0);
+        $restoreFile->target_file_id = (string) ($captureResult['target_file_id'] ?? '');
+        $restoreFile->target_file_unique_id = (string) ($captureResult['target_file_unique_id'] ?? '');
+        $restoreFile->file_name = (string) (($captureResult['file_name'] ?? '') !== '' ? $captureResult['file_name'] : ($sourceFile->file_name ?? ''));
+        $restoreFile->mime_type = (string) (($captureResult['mime_type'] ?? '') !== '' ? $captureResult['mime_type'] : ($sourceFile->mime_type ?? ''));
+        $restoreFile->file_size = (int) (($captureResult['file_size'] ?? 0) > 0 ? $captureResult['file_size'] : ($sourceFile->file_size ?? 0));
+        $restoreFile->file_type = (string) (($captureResult['file_type'] ?? '') !== '' ? $captureResult['file_type'] : ($sourceFile->file_type ?? 'document'));
+        $restoreFile->raw_payload = $captureResult['raw_payload'] ?? null;
+        $restoreFile->synced_at = now();
+        $restoreFile->last_error = null;
+        $restoreFile->save();
+
+        $forwardBaseUri = ($syncReplayResult['ok'] ?? false)
+            ? (string) ($syncReplayResult['base_uri'] ?? $baseUri)
+            : $baseUri;
+        $cleanupResult = $this->cleanupForwardedArtifacts(
+            $forwardBaseUri,
+            $targetBotUsername,
+            (int) ($syncReplayResult['source_message_id'] ?? 0),
+            (int) $restoreFile->forwarded_message_id
+        );
+        if (!($cleanupResult['ok'] ?? false)) {
+            $restoreFile->last_error = (string) ($cleanupResult['error'] ?? 'cleanup failed');
+            $restoreFile->save();
+            $this->line('  cleanup warning: ' . (string) ($cleanupResult['error'] ?? 'cleanup failed'));
+        }
+
+        $this->line(sprintf(
+            '  synced: target_message_id=%d target_file_id=%s',
+            (int) $restoreFile->target_message_id,
+            $this->shorten((string) $restoreFile->target_file_id)
+        ));
+
+        return [
+            'ok' => true,
+            'last_update_id' => $updatedLastUpdateId,
+        ];
     }
 
     /**

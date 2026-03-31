@@ -253,6 +253,8 @@ class RestoreFilestoreToBotCommandTest extends TestCase
 
     public function test_command_marks_row_failed_when_forward_request_fails(): void
     {
+        $forwardAttempts = 0;
+
         DB::table('telegram_filestore_sessions')->insert([
             'id' => 56,
             'chat_id' => 7702694790,
@@ -280,7 +282,7 @@ class RestoreFilestoreToBotCommandTest extends TestCase
             'created_at' => now(),
         ]);
 
-        Http::fake(function ($request) {
+        Http::fake(function ($request) use (&$forwardAttempts) {
             if (str_starts_with($request->url(), 'https://api.telegram.org/botrestore-token/getUpdates')) {
                 return Http::response([
                     'ok' => true,
@@ -301,6 +303,8 @@ class RestoreFilestoreToBotCommandTest extends TestCase
             }
 
             if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+                $forwardAttempts++;
+
                 return Http::response([
                     'status' => 'error',
                     'reason' => 'forward_failed',
@@ -316,7 +320,10 @@ class RestoreFilestoreToBotCommandTest extends TestCase
 
         $this->artisan('filestore:restore-to-bot --session-id=56 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
             ->expectsOutputToContain('failed=1')
+            ->expectsOutputToContain('giving up after 3 attempts')
             ->assertExitCode(1);
+
+        $this->assertSame(3, $forwardAttempts);
 
         $this->assertDatabaseHas('telegram_filestore_restore_sessions', [
             'source_session_id' => 56,
@@ -333,6 +340,347 @@ class RestoreFilestoreToBotCommandTest extends TestCase
             'source_file_row_id' => 89,
             'source_token' => 'showfilesbot_4V_demo456',
             'status' => 'failed',
+            'attempt_count' => 3,
+        ]);
+    }
+
+    public function test_command_retries_same_file_until_synced_before_processing_next_file(): void
+    {
+        $forwardCalls = [];
+        $capturePayloads = [
+            [
+                'update_id' => 701,
+                'message_id' => 131,
+                'document' => [
+                    'file_id' => 'RETRY-FIRST-TARGET-FILE-ID',
+                    'file_unique_id' => 'RETRY-FIRST-TARGET-UNIQ-ID',
+                    'file_name' => 'first.bin',
+                    'mime_type' => 'application/octet-stream',
+                    'file_size' => 13,
+                ],
+            ],
+            [
+                'update_id' => 702,
+                'message_id' => 132,
+                'document' => [
+                    'file_id' => 'RETRY-SECOND-TARGET-FILE-ID',
+                    'file_unique_id' => 'RETRY-SECOND-TARGET-UNIQ-ID',
+                    'file_name' => 'second.bin',
+                    'mime_type' => 'application/octet-stream',
+                    'file_size' => 14,
+                ],
+            ],
+        ];
+
+        DB::table('telegram_filestore_sessions')->insert([
+            'id' => 156,
+            'chat_id' => 7702694790,
+            'public_token' => 'filestoebot_retry_in_order',
+            'source_token' => 'showfilesbot_retry_in_order',
+            'status' => 'closed',
+            'total_files' => 2,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_files')->insert([
+            [
+                'id' => 189,
+                'session_id' => 156,
+                'chat_id' => 7702694790,
+                'message_id' => 6101,
+                'file_id' => 'RETRY-FIRST-SOURCE-FILE-ID',
+                'file_unique_id' => 'RETRY-FIRST-SOURCE-UNIQ-ID',
+                'source_token' => 'showfilesbot_retry_in_order',
+                'file_name' => 'first.bin',
+                'mime_type' => 'application/octet-stream',
+                'file_size' => 13,
+                'file_type' => 'document',
+                'raw_payload' => json_encode(['message_id' => 6101], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => now(),
+            ],
+            [
+                'id' => 190,
+                'session_id' => 156,
+                'chat_id' => 7702694790,
+                'message_id' => 6102,
+                'file_id' => 'RETRY-SECOND-SOURCE-FILE-ID',
+                'file_unique_id' => 'RETRY-SECOND-SOURCE-UNIQ-ID',
+                'source_token' => 'showfilesbot_retry_in_order',
+                'file_name' => 'second.bin',
+                'mime_type' => 'application/octet-stream',
+                'file_size' => 14,
+                'file_type' => 'document',
+                'raw_payload' => json_encode(['message_id' => 6102], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => now(),
+            ],
+        ]);
+
+        Http::fake(function ($request) use (&$forwardCalls, &$capturePayloads) {
+            if (str_starts_with($request->url(), 'https://api.telegram.org/botrestore-token/getUpdates')) {
+                $offset = (int) ($request['offset'] ?? 0);
+
+                if ($offset <= 0) {
+                    return Http::response([
+                        'ok' => true,
+                        'result' => [
+                            [
+                                'update_id' => 700,
+                                'message' => [
+                                    'message_id' => 130,
+                                    'chat' => [
+                                        'id' => 8491679630,
+                                        'type' => 'private',
+                                    ],
+                                    'text' => '/start',
+                                ],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                $capturePayload = array_shift($capturePayloads);
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => $capturePayload === null ? [] : [[
+                        'update_id' => $capturePayload['update_id'],
+                        'message' => [
+                            'message_id' => $capturePayload['message_id'],
+                            'chat' => [
+                                'id' => 8491679630,
+                                'type' => 'private',
+                            ],
+                            'document' => $capturePayload['document'],
+                        ],
+                    ]],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+                $messageId = (int) ((array) $request['message_ids'])[0];
+                $forwardCalls[] = $messageId;
+
+                if ($messageId === 6101 && count(array_filter($forwardCalls, static fn (int $id): bool => $id === 6101)) < 3) {
+                    return Http::response([
+                        'status' => 'error',
+                        'reason' => 'forward_failed',
+                    ], 500);
+                }
+
+                return Http::response([
+                    'status' => 'ok',
+                    'forwarded_message_ids' => [$messageId + 88000],
+                    'missing_message_ids' => [],
+                    'unforwardable_message_ids' => [],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/delete-messages') {
+                return Http::response([
+                    'status' => 'ok',
+                    'deleted_count' => 1,
+                    'undeleted_message_ids' => [],
+                ], 200);
+            }
+
+            return Http::response([
+                'ok' => false,
+                'status' => 'unexpected',
+                'url' => $request->url(),
+            ], 500);
+        });
+
+        $this->artisan('filestore:restore-to-bot --session-id=156 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
+            ->expectsOutputToContain('synced=2')
+            ->assertExitCode(0);
+
+        $this->assertSame([6101, 6101, 6101, 6102], $forwardCalls);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_sessions', [
+            'source_session_id' => 156,
+            'status' => 'completed',
+            'total_files' => 2,
+            'processed_files' => 2,
+            'success_files' => 2,
+            'failed_files' => 0,
+        ]);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_files', [
+            'source_session_id' => 156,
+            'source_file_row_id' => 189,
+            'status' => 'synced',
+            'attempt_count' => 3,
+            'target_file_id' => 'RETRY-FIRST-TARGET-FILE-ID',
+        ]);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_files', [
+            'source_session_id' => 156,
+            'source_file_row_id' => 190,
+            'status' => 'synced',
+            'attempt_count' => 1,
+            'target_file_id' => 'RETRY-SECOND-TARGET-FILE-ID',
+        ]);
+    }
+
+    public function test_command_retries_existing_failed_row_on_subsequent_run(): void
+    {
+        DB::table('telegram_filestore_sessions')->insert([
+            'id' => 157,
+            'chat_id' => 7702694790,
+            'public_token' => 'filestoebot_resume_failed',
+            'source_token' => 'showfilesbot_resume_failed',
+            'status' => 'closed',
+            'total_files' => 1,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_files')->insert([
+            'id' => 191,
+            'session_id' => 157,
+            'chat_id' => 7702694790,
+            'message_id' => 6201,
+            'file_id' => 'RESUME-SOURCE-FILE-ID',
+            'file_unique_id' => 'RESUME-SOURCE-UNIQ-ID',
+            'source_token' => 'showfilesbot_resume_failed',
+            'file_name' => 'resume.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 15,
+            'file_type' => 'document',
+            'raw_payload' => json_encode(['message_id' => 6201], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created_at' => now(),
+        ]);
+
+        $existingRestoreSessionId = DB::table('telegram_filestore_restore_sessions')->insertGetId([
+            'source_session_id' => 157,
+            'source_chat_id' => 7702694790,
+            'source_token' => 'showfilesbot_resume_failed',
+            'source_public_token' => 'filestoebot_resume_failed',
+            'target_bot_username' => 'file_backup_restore_bot',
+            'target_chat_id' => 8491679630,
+            'status' => 'completed_with_failures',
+            'total_files' => 1,
+            'processed_files' => 1,
+            'success_files' => 0,
+            'failed_files' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_restore_files')->insert([
+            'restore_session_id' => $existingRestoreSessionId,
+            'source_session_id' => 157,
+            'source_file_row_id' => 191,
+            'source_chat_id' => 7702694790,
+            'source_message_id' => 6201,
+            'source_file_id' => 'RESUME-SOURCE-FILE-ID',
+            'source_file_unique_id' => 'RESUME-SOURCE-UNIQ-ID',
+            'source_token' => 'showfilesbot_resume_failed',
+            'source_public_token' => 'filestoebot_resume_failed',
+            'file_name' => 'resume.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 15,
+            'file_type' => 'document',
+            'status' => 'failed',
+            'attempt_count' => 1,
+            'last_error' => 'forward failed',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Http::fake(function ($request) {
+            if (str_starts_with($request->url(), 'https://api.telegram.org/botrestore-token/getUpdates')) {
+                $offset = (int) ($request['offset'] ?? 0);
+
+                if ($offset <= 0) {
+                    return Http::response([
+                        'ok' => true,
+                        'result' => [
+                            [
+                                'update_id' => 800,
+                                'message' => [
+                                    'message_id' => 140,
+                                    'chat' => [
+                                        'id' => 8491679630,
+                                        'type' => 'private',
+                                    ],
+                                    'text' => '/start',
+                                ],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => [
+                        [
+                            'update_id' => 801,
+                            'message' => [
+                                'message_id' => 141,
+                                'chat' => [
+                                    'id' => 8491679630,
+                                    'type' => 'private',
+                                ],
+                                'document' => [
+                                    'file_id' => 'RESUME-TARGET-FILE-ID',
+                                    'file_unique_id' => 'RESUME-TARGET-UNIQ-ID',
+                                    'file_name' => 'resume.bin',
+                                    'mime_type' => 'application/octet-stream',
+                                    'file_size' => 15,
+                                ],
+                            ],
+                        ],
+                    ],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+                $this->assertSame([6201], array_map('intval', (array) $request['message_ids']));
+
+                return Http::response([
+                    'status' => 'ok',
+                    'forwarded_message_ids' => [95001],
+                    'missing_message_ids' => [],
+                    'unforwardable_message_ids' => [],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/delete-messages') {
+                return Http::response([
+                    'status' => 'ok',
+                    'deleted_count' => 1,
+                    'undeleted_message_ids' => [],
+                ], 200);
+            }
+
+            return Http::response([
+                'ok' => false,
+                'status' => 'unexpected',
+                'url' => $request->url(),
+            ], 500);
+        });
+
+        $this->artisan('filestore:restore-to-bot --session-id=157 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
+            ->expectsOutputToContain('synced=1')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_sessions', [
+            'source_session_id' => 157,
+            'status' => 'completed',
+            'processed_files' => 1,
+            'success_files' => 1,
+            'failed_files' => 0,
+        ]);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_files', [
+            'restore_session_id' => $existingRestoreSessionId,
+            'source_session_id' => 157,
+            'source_file_row_id' => 191,
+            'status' => 'synced',
+            'attempt_count' => 2,
+            'target_file_id' => 'RESUME-TARGET-FILE-ID',
         ]);
     }
 

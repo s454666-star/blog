@@ -13,14 +13,21 @@ use Illuminate\Support\Str;
 class RestoreFilestoreToBotCommand extends Command
 {
     private const DEFAULT_BASE_URI = 'http://127.0.0.1:8001';
+    private const DEFAULT_FILESTORE_SYNC_BASE_URI = 'http://127.0.0.1:8000';
     private const DEFAULT_POLL_SECONDS = 15;
     private const POLL_INTERVAL_MICROSECONDS = 750000;
+    private const SOURCE_SYNC_POLL_INTERVAL_MICROSECONDS = 500000;
     private const DEFAULT_LOCAL_WORKER_ENV_PATH = 'storage/app/telegram-filestore-local-workers/worker.env';
     private const CA_BUNDLE_CANDIDATES = [
         'C:\\Program Files\\Git\\usr\\ssl\\cert.pem',
         'C:\\Program Files\\Git\\mingw64\\ssl\\certs\\ca-bundle.crt',
         'C:\\Users\\User\\AppData\\Local\\Packages\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\LocalCache\\local-packages\\Python311\\site-packages\\certifi\\cacert.pem',
     ];
+
+    /**
+     * @var array<string, true>
+     */
+    private array $ensuredTargetDialogs = [];
 
     protected $signature = 'filestore:restore-to-bot
         {--session-id= : 只處理單一 telegram_filestore_sessions.id}
@@ -217,6 +224,7 @@ class RestoreFilestoreToBotCommand extends Command
                     continue;
                 }
 
+                $syncReplayResult = ['ok' => false];
                 $forwardResult = $this->forwardSourceMessage(
                     $baseUri,
                     (int) $sourceFile->chat_id,
@@ -226,15 +234,35 @@ class RestoreFilestoreToBotCommand extends Command
 
                 if (!($forwardResult['ok'] ?? false)) {
                     if ($sourceBotToken !== '' && $this->shouldFallbackToSourceBotApi($forwardResult)) {
-                        $this->line('  forward missing source message, fallback=getFile+upload');
-                        $fallbackResult = $this->copySourceFileViaBotApi(
+                        $fallbackResult = ['ok' => false];
+                        $syncReplayResult = $this->replaySourceFileToSyncChatAndForward(
+                            $baseUri,
                             $sourceBotToken,
-                            $targetBotToken,
-                            (int) $targetContext['chat_id'],
-                            $sourceFile
+                            $sourceFile,
+                            $targetBotUsername
                         );
 
-                        if ($fallbackResult['ok'] ?? false) {
+                        if ($syncReplayResult['ok'] ?? false) {
+                            $forwardResult = [
+                                'ok' => true,
+                                'forwarded_message_id' => (int) ($syncReplayResult['forwarded_message_id'] ?? 0),
+                            ];
+                            $this->line(sprintf(
+                                '  fallback resent via sync bot: source_chat_id=%d source_message_id=%d',
+                                (int) ($syncReplayResult['source_chat_id'] ?? 0),
+                                (int) ($syncReplayResult['source_message_id'] ?? 0)
+                            ));
+                        } else {
+                            $this->line('  fallback replay unavailable, fallback=getFile+upload');
+                            $fallbackResult = $this->copySourceFileViaBotApi(
+                                $sourceBotToken,
+                                $targetBotToken,
+                                (int) $targetContext['chat_id'],
+                                $sourceFile
+                            );
+                        }
+
+                        if (($fallbackResult['ok'] ?? false) && !($syncReplayResult['ok'] ?? false)) {
                             $restoreFile->status = 'synced';
                             $restoreFile->target_chat_id = (int) ($fallbackResult['target_chat_id'] ?? 0);
                             $restoreFile->target_message_id = (int) ($fallbackResult['target_message_id'] ?? 0);
@@ -249,6 +277,17 @@ class RestoreFilestoreToBotCommand extends Command
                             $restoreFile->last_error = null;
                             $restoreFile->save();
 
+                            $cleanupResult = $this->deleteTargetBotApiMessage(
+                                $targetBotToken,
+                                (int) $restoreFile->target_chat_id,
+                                (int) $restoreFile->target_message_id
+                            );
+                            if (!($cleanupResult['ok'] ?? false)) {
+                                $restoreFile->last_error = (string) ($cleanupResult['error'] ?? 'cleanup failed');
+                                $restoreFile->save();
+                                $this->line('  cleanup warning: ' . (string) ($cleanupResult['error'] ?? 'cleanup failed'));
+                            }
+
                             $stats['synced']++;
                             $this->line(sprintf(
                                 '  synced via fallback: target_message_id=%d target_file_id=%s',
@@ -260,17 +299,21 @@ class RestoreFilestoreToBotCommand extends Command
                             continue;
                         }
 
-                        $forwardResult = [
-                            'ok' => false,
-                            'error' => (string) ($fallbackResult['error'] ?? 'fallback upload failed'),
-                        ];
+                        if (!($syncReplayResult['ok'] ?? false)) {
+                            $forwardResult = [
+                                'ok' => false,
+                                'error' => (string) ($fallbackResult['error'] ?? ($syncReplayResult['error'] ?? 'fallback upload failed')),
+                            ];
+                        }
                     }
 
-                    $this->markRestoreFileFailed($restoreFile, (string) ($forwardResult['error'] ?? 'forward failed'));
-                    $stats['failed']++;
-                    $this->line('  failed: ' . (string) ($forwardResult['error'] ?? 'forward failed'));
-                    $this->refreshRestoreSessionStats($restoreSession);
-                    continue;
+                    if (!($forwardResult['ok'] ?? false)) {
+                        $this->markRestoreFileFailed($restoreFile, (string) ($forwardResult['error'] ?? 'forward failed'));
+                        $stats['failed']++;
+                        $this->line('  failed: ' . (string) ($forwardResult['error'] ?? 'forward failed'));
+                        $this->refreshRestoreSessionStats($restoreSession);
+                        continue;
+                    }
                 }
 
                 $restoreFile->status = 'forwarded';
@@ -279,18 +322,38 @@ class RestoreFilestoreToBotCommand extends Command
                 $restoreFile->last_error = null;
                 $restoreFile->save();
 
+                $captureChatId = (int) ($targetContext['chat_id'] ?? 0);
+                if (($syncReplayResult['ok'] ?? false) && (int) ($syncReplayResult['target_bot_chat_id'] ?? 0) > 0) {
+                    $captureChatId = (int) $syncReplayResult['target_bot_chat_id'];
+                }
+
                 $captureResult = $this->pollTargetBotForForwardedFile(
                     $targetBotToken,
-                    (int) $targetContext['chat_id'],
+                    $captureChatId,
                     (int) $targetContext['last_update_id'],
                     $pollSeconds
                 );
                 $targetContext['last_update_id'] = (int) ($captureResult['last_update_id'] ?? $targetContext['last_update_id']);
 
                 if (!($captureResult['ok'] ?? false)) {
-                    $this->markRestoreFileFailed($restoreFile, (string) ($captureResult['error'] ?? 'target bot polling failed'));
+                    $forwardBaseUri = ($syncReplayResult['ok'] ?? false)
+                        ? (string) ($syncReplayResult['base_uri'] ?? $baseUri)
+                        : $baseUri;
+                    $cleanupResult = $this->cleanupForwardedArtifacts(
+                        $forwardBaseUri,
+                        $targetBotUsername,
+                        (int) ($syncReplayResult['source_message_id'] ?? 0),
+                        (int) $restoreFile->forwarded_message_id
+                    );
+                    $captureError = (string) ($captureResult['error'] ?? 'target bot polling failed');
+                    if (!($cleanupResult['ok'] ?? false)) {
+                        $captureError .= ' | cleanup=' . (string) ($cleanupResult['error'] ?? 'cleanup failed');
+                        $this->line('  cleanup warning: ' . (string) ($cleanupResult['error'] ?? 'cleanup failed'));
+                    }
+
+                    $this->markRestoreFileFailed($restoreFile, $captureError);
                     $stats['failed']++;
-                    $this->line('  failed: ' . (string) ($captureResult['error'] ?? 'target bot polling failed'));
+                    $this->line('  failed: ' . $captureError);
                     $this->refreshRestoreSessionStats($restoreSession);
                     continue;
                 }
@@ -308,6 +371,21 @@ class RestoreFilestoreToBotCommand extends Command
                 $restoreFile->synced_at = now();
                 $restoreFile->last_error = null;
                 $restoreFile->save();
+
+                $forwardBaseUri = ($syncReplayResult['ok'] ?? false)
+                    ? (string) ($syncReplayResult['base_uri'] ?? $baseUri)
+                    : $baseUri;
+                $cleanupResult = $this->cleanupForwardedArtifacts(
+                    $forwardBaseUri,
+                    $targetBotUsername,
+                    (int) ($syncReplayResult['source_message_id'] ?? 0),
+                    (int) $restoreFile->forwarded_message_id
+                );
+                if (!($cleanupResult['ok'] ?? false)) {
+                    $restoreFile->last_error = (string) ($cleanupResult['error'] ?? 'cleanup failed');
+                    $restoreFile->save();
+                    $this->line('  cleanup warning: ' . (string) ($cleanupResult['error'] ?? 'cleanup failed'));
+                }
 
                 $stats['synced']++;
                 $this->line(sprintf(
@@ -608,6 +686,438 @@ class RestoreFilestoreToBotCommand extends Command
         return $reason === 'source_messages_not_found'
             || str_contains($error, 'source_messages_not_found')
             || str_contains($error, 'wrong file identifier');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function replaySourceFileToSyncChatAndForward(
+        string $baseUri,
+        string $sourceBotToken,
+        TelegramFilestoreFile $sourceFile,
+        string $targetBotUsername
+    ): array {
+        $sourceChatId = (int) ($sourceFile->chat_id ?? 0);
+        $sourceSyncBotUsername = ltrim((string) config('telegram.filestore_sync_bot_username', 'filestoebot'), '@');
+        if ($sourceChatId <= 0 || $sourceSyncBotUsername === '') {
+            return [
+                'ok' => false,
+                'error' => 'sync replay 缺少 source chat 或 sync bot username',
+            ];
+        }
+
+        $sourceBaseUri = $this->resolveSourceBaseUri($sourceChatId, $baseUri);
+        $latestKnownMessageId = $this->fetchLatestBotFileMessageId($sourceBaseUri, $sourceSyncBotUsername);
+
+        $resendResult = $this->sendExistingSourceFileToChat($sourceBotToken, $sourceChatId, $sourceFile);
+        if (!($resendResult['ok'] ?? false)) {
+            return $resendResult;
+        }
+
+        $recentFileResult = $this->pollRecentBotFileFromSyncChat(
+            $sourceBaseUri,
+            $sourceSyncBotUsername,
+            $latestKnownMessageId,
+            $sourceFile
+        );
+        if (!($recentFileResult['ok'] ?? false)) {
+            return $recentFileResult;
+        }
+
+        $telethonSourceChatId = (int) ($recentFileResult['source_chat_id'] ?? 0);
+        $telethonSourceMessageId = (int) ($recentFileResult['source_message_id'] ?? 0);
+        if ($telethonSourceChatId <= 0 || $telethonSourceMessageId <= 0) {
+            return [
+                'ok' => false,
+                'error' => 'sync replay 缺少 Telethon source message',
+            ];
+        }
+
+        $this->ensureTargetBotDialog($sourceBaseUri, $targetBotUsername);
+
+        $forwardResult = $this->forwardSourceMessage(
+            $sourceBaseUri,
+            $telethonSourceChatId,
+            $telethonSourceMessageId,
+            $targetBotUsername
+        );
+        if (!($forwardResult['ok'] ?? false)) {
+            return $forwardResult;
+        }
+
+        return [
+            'ok' => true,
+            'base_uri' => $sourceBaseUri,
+            'source_chat_id' => $telethonSourceChatId,
+            'source_message_id' => $telethonSourceMessageId,
+            'forwarded_message_id' => (int) ($forwardResult['forwarded_message_id'] ?? 0),
+            'target_bot_chat_id' => $sourceChatId,
+        ];
+    }
+
+    private function resolveSourceBaseUri(int $sourceChatId, string $preferredBaseUri): string
+    {
+        $syncChatId = (int) config('telegram.filestore_sync_chat_id', 0);
+        if ($syncChatId > 0 && $sourceChatId === $syncChatId) {
+            return self::DEFAULT_FILESTORE_SYNC_BASE_URI;
+        }
+
+        return $preferredBaseUri;
+    }
+
+    private function fetchLatestBotFileMessageId(string $baseUri, string $botUsername): int
+    {
+        $filesResult = $this->fetchBotFiles($baseUri, $botUsername, 0, 1, 10, false);
+        if (!($filesResult['ok'] ?? false)) {
+            return 0;
+        }
+
+        $files = (array) ($filesResult['files'] ?? []);
+        if ($files === []) {
+            return 0;
+        }
+
+        return (int) ($files[0]['message_id'] ?? 0);
+    }
+
+    private function ensureTargetBotDialog(string $baseUri, string $targetBotUsername): void
+    {
+        $cacheKey = strtolower(rtrim($baseUri, '/') . '|' . ltrim($targetBotUsername, '@'));
+        if (isset($this->ensuredTargetDialogs[$cacheKey])) {
+            return;
+        }
+
+        $this->ensuredTargetDialogs[$cacheKey] = true;
+
+        try {
+            Http::timeout(30)
+                ->acceptJson()
+                ->asJson()
+                ->post(rtrim($baseUri, '/') . '/bots/send', [
+                    'bot_username' => $targetBotUsername,
+                    'text' => '/start',
+                    'clear_previous_replies' => false,
+                ]);
+        } catch (\Throwable) {
+            // Best effort only; the later forward call will surface real delivery failures.
+        }
+    }
+
+    /**
+     * @return array{ok:bool, error?:string}
+     */
+    private function cleanupForwardedArtifacts(
+        string $baseUri,
+        string $targetBotUsername,
+        int $sourceSyncMessageId,
+        int $targetForwardedMessageId
+    ): array {
+        $errors = [];
+        $syncBotUsername = ltrim((string) config('telegram.filestore_sync_bot_username', 'filestoebot'), '@');
+
+        if ($sourceSyncMessageId > 0 && $syncBotUsername !== '') {
+            $deleteSourceResult = $this->deleteTelethonMessages($baseUri, $syncBotUsername, [$sourceSyncMessageId]);
+            if (!($deleteSourceResult['ok'] ?? false)) {
+                $errors[] = 'source_delete=' . (string) ($deleteSourceResult['error'] ?? 'delete failed');
+            }
+        }
+
+        if ($targetForwardedMessageId > 0) {
+            $deleteTargetResult = $this->deleteTelethonMessages($baseUri, $targetBotUsername, [$targetForwardedMessageId]);
+            if (!($deleteTargetResult['ok'] ?? false)) {
+                $errors[] = 'target_delete=' . (string) ($deleteTargetResult['error'] ?? 'delete failed');
+            }
+        }
+
+        if ($errors !== []) {
+            return [
+                'ok' => false,
+                'error' => implode(' | ', $errors),
+            ];
+        }
+
+        return ['ok' => true];
+    }
+
+    /**
+     * @param array<int, int> $messageIds
+     * @return array{ok:bool, error?:string}
+     */
+    private function deleteTelethonMessages(string $baseUri, string $chatPeer, array $messageIds): array
+    {
+        $messageIds = array_values(array_unique(array_filter(array_map('intval', $messageIds), static fn (int $messageId): bool => $messageId > 0)));
+        if ($chatPeer === '' || $messageIds === []) {
+            return ['ok' => true];
+        }
+
+        try {
+            $response = Http::timeout(60)
+                ->acceptJson()
+                ->asJson()
+                ->post(rtrim($baseUri, '/') . '/bots/delete-messages', [
+                    'chat_peer' => ltrim($chatPeer, '@'),
+                    'message_ids' => $messageIds,
+                ]);
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => 'delete api exception: ' . $e->getMessage(),
+            ];
+        }
+
+        if (!$response->successful()) {
+            return [
+                'ok' => false,
+                'error' => 'delete api HTTP ' . $response->status() . ' body=' . $this->shorten($response->body(), 300),
+            ];
+        }
+
+        $json = $response->json();
+        if (!is_array($json) || (string) ($json['status'] ?? '') !== 'ok') {
+            return [
+                'ok' => false,
+                'error' => 'delete api invalid payload: ' . $this->shorten($response->body(), 300),
+            ];
+        }
+
+        $deletedCount = (int) ($json['deleted_count'] ?? 0);
+        $undeletedMessageIds = array_values(array_unique(array_map(
+            'intval',
+            (array) ($json['undeleted_message_ids'] ?? [])
+        )));
+
+        if ($deletedCount < count($messageIds) || $undeletedMessageIds !== []) {
+            return [
+                'ok' => false,
+                'error' => sprintf(
+                    'delete incomplete deleted_count=%d requested=%d undeleted=%s',
+                    $deletedCount,
+                    count($messageIds),
+                    implode(',', $undeletedMessageIds)
+                ),
+            ];
+        }
+
+        return ['ok' => true];
+    }
+
+    /**
+     * @return array{ok:bool, error?:string}
+     */
+    private function deleteTargetBotApiMessage(string $targetBotToken, int $targetChatId, int $messageId): array
+    {
+        if ($targetBotToken === '' || $targetChatId <= 0 || $messageId <= 0) {
+            return ['ok' => true];
+        }
+
+        try {
+            $response = $this->telegramPendingRequest(60)
+                ->post("https://api.telegram.org/bot{$targetBotToken}/deleteMessage", [
+                    'chat_id' => $targetChatId,
+                    'message_id' => $messageId,
+                ]);
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => 'deleteMessage exception: ' . $e->getMessage(),
+            ];
+        }
+
+        if (!$response->successful()) {
+            return [
+                'ok' => false,
+                'error' => 'deleteMessage HTTP ' . $response->status() . ' body=' . $this->shorten($response->body(), 300),
+            ];
+        }
+
+        $json = $response->json();
+        if (!is_array($json)) {
+            return [
+                'ok' => false,
+                'error' => 'deleteMessage invalid payload: ' . $this->shorten($response->body(), 300),
+            ];
+        }
+
+        if (($json['ok'] ?? false) === true) {
+            return ['ok' => true];
+        }
+
+        $description = trim((string) ($json['description'] ?? 'deleteMessage failed'));
+        if ($description !== '' && str_contains(strtolower($description), 'message to delete not found')) {
+            return ['ok' => true];
+        }
+
+        return [
+            'ok' => false,
+            'error' => 'deleteMessage failed: ' . $this->shorten($response->body(), 300),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function sendExistingSourceFileToChat(
+        string $sourceBotToken,
+        int $sourceChatId,
+        TelegramFilestoreFile $sourceFile
+    ): array {
+        $endpoint = $this->resolveUploadEndpoint((string) ($sourceFile->file_type ?? 'document'));
+        $field = $this->resolveUploadField((string) ($sourceFile->file_type ?? 'document'));
+        $payload = [
+            'chat_id' => $sourceChatId,
+            $field => (string) $sourceFile->file_id,
+        ];
+
+        if ($field !== 'photo' && trim((string) ($sourceFile->file_name ?? '')) !== '') {
+            $payload['caption'] = (string) $sourceFile->file_name;
+        }
+
+        if ($field === 'video') {
+            $payload['supports_streaming'] = true;
+        }
+
+        $response = $this->telegramPendingRequest(180)
+            ->post("https://api.telegram.org/bot{$sourceBotToken}/{$endpoint}", $payload);
+
+        if (!$response->successful()) {
+            return [
+                'ok' => false,
+                'error' => 'source resend HTTP ' . $response->status() . ' body=' . $this->shorten($response->body(), 300),
+            ];
+        }
+
+        $json = $response->json();
+        if (!is_array($json) || !($json['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'error' => 'source resend invalid payload: ' . $this->shorten($response->body(), 300),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'bot_message_id' => (int) data_get($json, 'result.message_id', 0),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function pollRecentBotFileFromSyncChat(
+        string $baseUri,
+        string $botUsername,
+        int $minMessageId,
+        TelegramFilestoreFile $sourceFile
+    ): array {
+        $deadline = microtime(true) + 20;
+
+        while (microtime(true) <= $deadline) {
+            $filesResult = $this->fetchBotFiles($baseUri, $botUsername, $minMessageId, 10, 20, true);
+            if (!($filesResult['ok'] ?? false)) {
+                return $filesResult;
+            }
+
+            $sourceChatId = (int) ($filesResult['source_chat_id'] ?? 0);
+            foreach ((array) ($filesResult['files'] ?? []) as $file) {
+                if (!$this->isMatchingRecentSyncFile($file, $sourceFile, $minMessageId)) {
+                    continue;
+                }
+
+                return [
+                    'ok' => true,
+                    'source_chat_id' => $sourceChatId,
+                    'source_message_id' => (int) ($file['message_id'] ?? 0),
+                ];
+            }
+
+            usleep(self::SOURCE_SYNC_POLL_INTERVAL_MICROSECONDS);
+        }
+
+        return [
+            'ok' => false,
+            'error' => '等待 sync bot recent file 逾時',
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $file
+     */
+    private function isMatchingRecentSyncFile(array $file, TelegramFilestoreFile $sourceFile, int $minMessageId): bool
+    {
+        $messageId = (int) ($file['message_id'] ?? 0);
+        if ($messageId <= max($minMessageId, 0)) {
+            return false;
+        }
+
+        if ((string) ($file['file_type'] ?? '') !== (string) ($sourceFile->file_type ?? '')) {
+            return false;
+        }
+
+        if ((int) ($file['file_size'] ?? 0) !== (int) ($sourceFile->file_size ?? 0)) {
+            return false;
+        }
+
+        $sourceFileName = trim((string) ($sourceFile->file_name ?? ''));
+        $recentFileName = trim((string) ($file['file_name'] ?? ''));
+        if ($sourceFileName !== '' && $recentFileName !== '' && $sourceFileName !== $recentFileName) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function fetchBotFiles(
+        string $baseUri,
+        string $botUsername,
+        int $minMessageId,
+        int $maxReturnFiles,
+        int $backfillLimit,
+        bool $forceBackfill
+    ): array {
+        try {
+            $response = Http::timeout(60)
+                ->acceptJson()
+                ->asJson()
+                ->post(rtrim($baseUri, '/') . '/bots/files', [
+                    'bot_username' => $botUsername,
+                    'min_message_id' => max($minMessageId, 0),
+                    'max_return_files' => max($maxReturnFiles, 1),
+                    'backfill_limit' => max($backfillLimit, 1),
+                    'force_backfill' => $forceBackfill,
+                ]);
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => 'bots/files exception: ' . $e->getMessage(),
+            ];
+        }
+
+        if (!$response->successful()) {
+            return [
+                'ok' => false,
+                'error' => 'bots/files HTTP ' . $response->status() . ' body=' . $this->shorten($response->body(), 300),
+            ];
+        }
+
+        $json = $response->json();
+        if (!is_array($json) || (string) ($json['status'] ?? '') !== 'ok') {
+            return [
+                'ok' => false,
+                'error' => 'bots/files invalid payload: ' . $this->shorten($response->body(), 300),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'source_chat_id' => (int) ($json['source_chat_id'] ?? 0),
+            'files' => array_values(array_filter(
+                (array) ($json['files'] ?? []),
+                static fn ($file): bool => is_array($file)
+            )),
+        ];
     }
 
     /**

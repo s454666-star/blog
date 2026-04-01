@@ -153,6 +153,7 @@
                         fn (string $token): bool => !$this->shouldIgnoreRequestedToken($token)
                     ));
 
+                    $requestedTokensWereTruncated = false;
                     if (count($requestedTokens) > self::MAX_TOKEN_LOOKUPS_PER_MESSAGE) {
                         Log::warning('telegram_filestore_requested_tokens_truncated', [
                             'chat_id' => $chatId,
@@ -162,33 +163,53 @@
                         ]);
 
                         $requestedTokens = array_slice($requestedTokens, 0, self::MAX_TOKEN_LOOKUPS_PER_MESSAGE);
-
-                        $this->sendMessage(
-                            $chatId,
-                            '這則訊息代碼太多，先只處理前 ' . self::MAX_TOKEN_LOOKUPS_PER_MESSAGE . ' 個。'
-                        );
+                        $requestedTokensWereTruncated = true;
                     }
 
+                    $shouldAggregateTokenReply = count($requestedTokens) > 1;
+                    $tokenResults = [];
                     $missingTokens = [];
 
                     foreach ($requestedTokens as $requestedToken) {
                         $normalizedForDedup = $this->normalizeTokenForDedup($requestedToken);
 
                         if (!$this->acquireTokenDedupLock($chatId, $normalizedForDedup)) {
-                            $this->sendMessage(
-                                $chatId,
-                                $this->formatTokenReply($requestedToken, '這個代碼剛剛已處理過，請稍候再試。')
-                            );
+                            if ($shouldAggregateTokenReply) {
+                                $tokenResults[] = [
+                                    'status' => 'recently_processed',
+                                    'token' => $requestedToken,
+                                ];
+                            } else {
+                                $this->sendMessage(
+                                    $chatId,
+                                    $this->formatTokenReply($requestedToken, '這個代碼剛剛已處理過，請稍候再試。')
+                                );
+                            }
                             continue;
                         }
 
-                        $found = $this->sendSessionFilesByToken($chatId, $requestedToken, $requestedToken);
-                        if (!$found) {
+                        if ($shouldAggregateTokenReply) {
+                            $tokenResults[] = $this->queueSessionFilesByToken($chatId, $requestedToken, $requestedToken);
+                            continue;
+                        }
+
+                        $handled = $this->sendSessionFilesByToken($chatId, $requestedToken, $requestedToken);
+                        if (!$handled) {
                             $missingTokens[] = $requestedToken;
                         }
                     }
 
-                    if (!empty($missingTokens)) {
+                    if ($shouldAggregateTokenReply) {
+                        $reply = $this->formatBatchRequestedTokensReply(
+                            $requestedTokens,
+                            $tokenResults,
+                            $requestedTokensWereTruncated
+                        );
+
+                        if ($reply !== null) {
+                            $this->sendMessage($chatId, $reply);
+                        }
+                    } elseif (!empty($missingTokens)) {
                         $this->sendMessage($chatId, $this->formatMissingTokensReply($missingTokens));
                     }
 
@@ -1295,6 +1316,78 @@
         }
 
         /**
+         * @param array<int, string> $requestedTokens
+         * @param array<int, array{status: string, token: string}> $results
+         */
+        private function formatBatchRequestedTokensReply(array $requestedTokens, array $results, bool $wasTruncated): ?string
+        {
+            $requestedTokens = array_values(array_unique(array_filter(array_map(
+                static fn ($token): string => trim((string) $token),
+                $requestedTokens
+            ))));
+
+            $statusTokens = [];
+            foreach ($results as $result) {
+                $status = trim((string) ($result['status'] ?? ''));
+                if ($status === '') {
+                    continue;
+                }
+
+                $token = trim((string) ($result['token'] ?? ''));
+                $statusTokens[$status] ??= [];
+                $statusTokens[$status][] = $token;
+            }
+
+            if (!$wasTruncated && empty($statusTokens)) {
+                return null;
+            }
+
+            $lines = [];
+
+            if ($wasTruncated) {
+                $lines[] = '這則訊息代碼太多，先只處理前 ' . self::MAX_TOKEN_LOOKUPS_PER_MESSAGE . ' 個。';
+            }
+
+            if (!empty($requestedTokens)) {
+                $lines[] = '本次代碼處理結果（' . count($requestedTokens) . ' 個）：';
+            } else {
+                $lines[] = '本次代碼處理結果：';
+            }
+
+            $statusMap = [
+                'queued' => '已加入傳送佇列',
+                'requeued' => '已重新加入傳送佇列',
+                'busy' => '正在傳送中',
+                'queue_busy' => '佇列忙碌',
+                'not_found' => '找不到檔案',
+                'recently_processed' => '剛剛已處理過',
+            ];
+
+            foreach ($statusMap as $status => $label) {
+                $tokens = array_values(array_unique(array_filter($statusTokens[$status] ?? [])));
+                if (empty($tokens)) {
+                    continue;
+                }
+
+                $lines[] = $label . '：' . count($tokens) . ' 個';
+
+                if (in_array($status, ['busy', 'queue_busy', 'not_found', 'recently_processed'], true)) {
+                    $previewTokens = array_slice($tokens, 0, 2);
+                    if (!empty($previewTokens)) {
+                        $lines[] = implode(' / ', $previewTokens);
+                    }
+
+                    $remaining = count($tokens) - count($previewTokens);
+                    if ($remaining > 0) {
+                        $lines[] = '...還有 ' . $remaining . ' 個';
+                    }
+                }
+            }
+
+            return implode("\n", $lines);
+        }
+
+        /**
          * 用於 token dedup：把「不帶前綴」的代碼也統一成同一把 key
          */
         private function normalizeTokenForDedup(string $text): string
@@ -1614,9 +1707,54 @@
          */
         private function sendSessionFilesByToken(int $chatId, string $publicToken, ?string $announceToken = null): bool
         {
-            $publicToken = trim($publicToken);
-            if ($publicToken === '') {
+            $result = $this->queueSessionFilesByToken($chatId, $publicToken, $announceToken);
+            $announceToken = $result['token'];
+
+            if ($result['status'] === 'not_found') {
                 return false;
+            }
+
+            if ($result['status'] === 'busy') {
+                $this->sendMessage(
+                    $chatId,
+                    $this->formatTokenReply($announceToken, "正在傳送中，請稍候…")
+                );
+                return true;
+            }
+
+            if ($result['status'] === 'queue_busy') {
+                $this->sendMessage(
+                    $chatId,
+                    $this->formatTokenReply($announceToken, "目前佇列忙碌，暫時無法開始傳送，請稍後再試。")
+                );
+                return true;
+            }
+
+            $queuedMessage = $result['status'] === 'requeued'
+                ? "偵測到前一次傳送卡住，已重新加入傳送佇列…"
+                : "已加入傳送佇列，準備開始傳送…";
+
+            $this->sendMessage(
+                $chatId,
+                $this->formatTokenReply($announceToken, $queuedMessage)
+            );
+
+            return true;
+        }
+
+        /**
+         * @return array{status: string, token: string}
+         */
+        private function queueSessionFilesByToken(int $chatId, string $publicToken, ?string $announceToken = null): array
+        {
+            $publicToken = trim($publicToken);
+            $announceToken = trim((string) ($announceToken ?? $publicToken));
+
+            if ($publicToken === '') {
+                return [
+                    'status' => 'not_found',
+                    'token' => $announceToken,
+                ];
             }
 
             $session = $this->findClosedSessionByTokenLoose(null, $publicToken);
@@ -1626,26 +1764,26 @@
                     'chat_id' => $chatId,
                     'requested_token' => $publicToken,
                 ]);
-                return false;
+                return [
+                    'status' => 'not_found',
+                    'token' => $announceToken,
+                ];
             }
 
-            $announceToken = (string) ($announceToken ?? $publicToken);
             $lockResult = $this->acquireSessionSendLock((int) $session->id, $chatId, $announceToken);
 
             if (($lockResult['status'] ?? null) === 'busy') {
-                $this->sendMessage(
-                    $chatId,
-                    $this->formatTokenReply($announceToken, "正在傳送中，請稍候…")
-                );
-                return true;
+                return [
+                    'status' => 'busy',
+                    'token' => $announceToken,
+                ];
             }
 
             if (($lockResult['status'] ?? null) !== 'locked') {
-                $this->sendMessage(
-                    $chatId,
-                    $this->formatTokenReply($announceToken, "目前系統忙碌，暫時無法開始傳送，請稍後再試。")
-                );
-                return true;
+                return [
+                    'status' => 'queue_busy',
+                    'token' => $announceToken,
+                ];
             }
 
             $sendingStartedAt = (string) ($lockResult['sending_started_at'] ?? '');
@@ -1684,24 +1822,16 @@
                     'message' => $e->getMessage(),
                 ]);
 
-                $this->sendMessage(
-                    $chatId,
-                    $this->formatTokenReply($announceToken, "目前佇列忙碌，暫時無法開始傳送，請稍後再試。")
-                );
-
-                return true;
+                return [
+                    'status' => 'queue_busy',
+                    'token' => $announceToken,
+                ];
             }
 
-            $queuedMessage = (bool) ($lockResult['stale_lock_recovered'] ?? false)
-                ? "偵測到前一次傳送卡住，已重新加入傳送佇列…"
-                : "已加入傳送佇列，準備開始傳送…";
-
-            $this->sendMessage(
-                $chatId,
-                $this->formatTokenReply($announceToken, $queuedMessage)
-            );
-
-            return true;
+            return [
+                'status' => (bool) ($lockResult['stale_lock_recovered'] ?? false) ? 'requeued' : 'queued',
+                'token' => $announceToken,
+            ];
         }
 
         /**

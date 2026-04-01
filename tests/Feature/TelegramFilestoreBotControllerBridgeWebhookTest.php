@@ -11,6 +11,7 @@ use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Mockery;
@@ -602,5 +603,87 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
         $this->assertSame(1, (int) $session->share_count);
 
         Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 1);
+    }
+
+    public function test_webhook_batches_multi_token_feedback_into_single_message(): void
+    {
+        Queue::fake();
+        Http::fake([
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 1],
+            ], 200),
+        ]);
+
+        config()->set('telegram.filestore_bot_token', 'test-token');
+
+        TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_1V_batchok0001',
+            'source_token' => 'showfilesbot_1V_batchok0001',
+            'status' => 'closed',
+            'total_files' => 1,
+            'total_size' => 2048,
+            'share_count' => 0,
+            'is_sending' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_1V_batchok0002',
+            'source_token' => 'showfilesbot_1V_batchok0002',
+            'status' => 'closed',
+            'total_files' => 1,
+            'total_size' => 2048,
+            'share_count' => 0,
+            'is_sending' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9404,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'text' => implode("\n", [
+                    'showfilesbot_1V_batchok0001',
+                    'showfilesbot_1V_batchok0002',
+                    'showfilesbot_1V_missing0003',
+                ]),
+            ],
+        ]);
+
+        $response->assertOk();
+
+        Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 2);
+
+        Http::assertSentCount(1);
+        Http::assertSent(function ($request): bool {
+            if (!str_contains($request->url(), '/sendMessage')) {
+                return false;
+            }
+
+            $text = (string) ($request['text'] ?? '');
+
+            return str_contains($text, '本次代碼處理結果（3 個）：')
+                && str_contains($text, '已加入傳送佇列：2 個')
+                && str_contains($text, '找不到檔案：1 個')
+                && str_contains($text, 'showfilesbot_1V_missing0003');
+        });
     }
 }

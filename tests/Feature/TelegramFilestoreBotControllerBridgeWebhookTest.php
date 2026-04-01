@@ -686,4 +686,54 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
                 && str_contains($text, 'showfilesbot_1V_missing0003');
         });
     }
+
+    public function test_webhook_single_token_success_skips_extra_queue_notice(): void
+    {
+        Queue::fake();
+        Http::fake([
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 1],
+            ], 200),
+        ]);
+
+        config()->set('telegram.filestore_bot_token', 'test-token');
+
+        TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_1V_singleok0001',
+            'source_token' => 'showfilesbot_1V_singleok0001',
+            'status' => 'closed',
+            'total_files' => 1,
+            'total_size' => 2048,
+            'share_count' => 0,
+            'is_sending' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9405,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'text' => 'showfilesbot_1V_singleok0001',
+            ],
+        ]);
+
+        $response->assertOk();
+
+        Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 1);
+        Http::assertNothingSent();
+    }
 }

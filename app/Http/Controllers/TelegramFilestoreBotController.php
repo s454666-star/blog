@@ -1730,13 +1730,13 @@
                 return true;
             }
 
-            $queuedMessage = $result['status'] === 'requeued'
-                ? "偵測到前一次傳送卡住，已重新加入傳送佇列…"
-                : "已加入傳送佇列，準備開始傳送…";
+            if ($result['status'] === 'queued') {
+                return true;
+            }
 
             $this->sendMessage(
                 $chatId,
-                $this->formatTokenReply($announceToken, $queuedMessage)
+                $this->formatTokenReply($announceToken, "偵測到前一次傳送卡住，已重新加入傳送佇列…")
             );
 
             return true;

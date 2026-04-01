@@ -6,6 +6,7 @@ use App\Models\TelegramFilestoreFile;
 use App\Models\TelegramFilestoreRestoreFile;
 use App\Models\TelegramFilestoreRestoreSession;
 use App\Models\TelegramFilestoreSession;
+use App\Services\TelegramFilestoreStaleSessionCleanupService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -31,6 +32,12 @@ class RestoreFilestoreToBotCommand extends Command
      * @var array<string, true>
      */
     private array $ensuredTargetDialogs = [];
+
+    public function __construct(
+        private TelegramFilestoreStaleSessionCleanupService $staleSessionCleanupService
+    ) {
+        parent::__construct();
+    }
 
     protected $signature = 'filestore:restore-to-bot
         {--session-id= : 只處理單一 telegram_filestore_sessions.id}
@@ -93,6 +100,11 @@ class RestoreFilestoreToBotCommand extends Command
         if ($memoryLimit !== '') {
             @ini_set('memory_limit', $memoryLimit);
         }
+
+        $this->staleSessionCleanupService->cleanupStaleUploadingSessions();
+        $this->staleSessionCleanupService->cleanupStaleRestoreSessions(
+            targetBotUsername: $targetBotUsername
+        );
 
         if (!$all && $sessionId <= 0 && $publicToken === '' && $sourceToken === '') {
             $this->error('請至少指定 --session-id / --public-token / --source-token 其中一個，或加上 --all。');

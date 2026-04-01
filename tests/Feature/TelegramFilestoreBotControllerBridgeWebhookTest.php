@@ -273,6 +273,79 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
         Queue::assertPushedTimes(TelegramFilestoreDebouncedPromptJob::class, 1);
     }
 
+    public function test_webhook_cleans_stale_uploading_session_before_creating_new_one(): void
+    {
+        Queue::fake();
+
+        $staleSession = TelegramFilestoreSession::query()->create([
+            'chat_id' => 8491679630,
+            'username' => 'stale-user',
+            'encrypt_token' => null,
+            'public_token' => null,
+            'source_token' => null,
+            'status' => 'uploading',
+            'total_files' => 1,
+            'total_size' => 1024,
+            'share_count' => 0,
+            'close_upload_prompted_at' => now()->subDays(2),
+            'created_at' => now()->subDays(2),
+        ]);
+
+        TelegramFilestoreFile::query()->create([
+            'session_id' => (int) $staleSession->id,
+            'chat_id' => 8491679630,
+            'message_id' => 8001,
+            'file_id' => 'STALE-FILE-ID',
+            'file_unique_id' => 'stale-uniq-8001',
+            'source_token' => null,
+            'file_name' => 'stale.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 1024,
+            'file_type' => 'document',
+            'raw_payload' => '{}',
+            'created_at' => now()->subDays(2),
+        ]);
+
+        $response = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9003,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'document' => [
+                    'file_id' => 'BAAC-clean-file-id',
+                    'file_unique_id' => 'clean-uniq-9003',
+                    'file_name' => 'fresh.bin',
+                    'mime_type' => 'application/octet-stream',
+                    'file_size' => 2048,
+                ],
+            ],
+        ]);
+
+        $response->assertOk();
+
+        $this->assertDatabaseMissing('telegram_filestore_sessions', ['id' => (int) $staleSession->id]);
+        $this->assertDatabaseMissing('telegram_filestore_files', ['file_unique_id' => 'stale-uniq-8001']);
+        $this->assertDatabaseCount('telegram_filestore_sessions', 1);
+        $this->assertDatabaseCount('telegram_filestore_files', 1);
+
+        $session = TelegramFilestoreSession::query()->firstOrFail();
+        $this->assertNotSame((int) $staleSession->id, (int) $session->id);
+        $this->assertSame(8491679630, (int) $session->chat_id);
+        $this->assertSame('uploading', (string) $session->status);
+        $this->assertSame(1, (int) $session->total_files);
+        $this->assertSame(2048, (int) $session->total_size);
+
+        Queue::assertPushed(TelegramFilestoreDebouncedPromptJob::class);
+    }
+
     public function test_webhook_uses_pending_forwarded_message_id_for_bridge_session_without_scheduling_close_prompt(): void
     {
         Queue::fake();

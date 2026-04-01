@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\TelegramFilestoreFile;
 use App\Models\TelegramFilestoreSession;
+use App\Services\TelegramFilestoreStaleSessionCleanupService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
@@ -36,6 +37,12 @@ class UploadNextFilestoreFilesCommand extends Command
         {--dry-run : 只列出將上傳的檔案，不真的送出}';
 
     protected $description = '從 telegram_filestore 最新已上傳檔名續跑，依來源資料夾修改日期排序後，用 tdl 或本機 Telegram FastAPI(api-video) 上傳下一批檔案到 @filestoebot';
+
+    public function __construct(
+        private TelegramFilestoreStaleSessionCleanupService $staleSessionCleanupService
+    ) {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
@@ -85,6 +92,8 @@ class UploadNextFilestoreFilesCommand extends Command
             $this->error('base-uri 不可為空。');
             return self::FAILURE;
         }
+
+        $this->staleSessionCleanupService->cleanupStaleUploadingSessions(chatId: $chatId);
 
         $latestSession = TelegramFilestoreSession::query()
             ->where('chat_id', $chatId)

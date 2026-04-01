@@ -19,7 +19,8 @@ class TelegramFilestoreTokenBridgeService
     private const SOURCE_REPLY_FETCH_LIMIT = 5000;
 
     public function __construct(
-        private TelegramFilestoreBridgeContextService $bridgeContextService
+        private TelegramFilestoreBridgeContextService $bridgeContextService,
+        private TelegramFilestoreStaleSessionCleanupService $staleSessionCleanupService
     ) {
     }
 
@@ -34,6 +35,8 @@ class TelegramFilestoreTokenBridgeService
         bool $deleteSourceMessages = false
     ): array
     {
+        $this->staleSessionCleanupService->cleanupStaleUploadingSessions(chatId: $this->syncChatId());
+
         $token = trim($sourceToken);
         $normalizedBaseUri = rtrim(trim($baseUri), '/');
         $normalizedSourceBotUsername = ltrim(trim($sourceBotUsername), '@');

@@ -8,6 +8,7 @@
     use App\Models\TelegramFilestoreSession;
     use App\Services\TelegramCodeTokenService;
     use App\Services\TelegramFilestoreBridgeContextService;
+    use App\Services\TelegramFilestoreStaleSessionCleanupService;
     use Illuminate\Contracts\Bus\Dispatcher;
     use Illuminate\Http\Request;
     use Illuminate\Support\Facades\Cache;
@@ -21,7 +22,8 @@
     {
         public function __construct(
             private TelegramFilestoreBridgeContextService $bridgeContextService,
-            private TelegramCodeTokenService $telegramCodeTokenService
+            private TelegramCodeTokenService $telegramCodeTokenService,
+            private TelegramFilestoreStaleSessionCleanupService $staleSessionCleanupService
         ) {
         }
 
@@ -776,6 +778,8 @@
 
         private function getOrCreateUploadingSession(int $chatId, ?string $username): TelegramFilestoreSession
         {
+            $this->staleSessionCleanupService->cleanupStaleUploadingSessions(chatId: $chatId);
+
             $session = TelegramFilestoreSession::query()
                 ->where('chat_id', $chatId)
                 ->where('status', 'uploading')

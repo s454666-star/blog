@@ -22,6 +22,9 @@ class Kernel extends ConsoleKernel
         });
 
         $schedule->command('article:extract-number')->dailyAt('02:00');
+        $schedule->command('filestore:cleanup-stale-sessions')
+            ->hourly()
+            ->withoutOverlapping();
 
 //        $schedule->command('photos:import')
 //            ->dailyAt('03:00')

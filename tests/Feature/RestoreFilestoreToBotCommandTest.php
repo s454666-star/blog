@@ -1562,4 +1562,58 @@ class RestoreFilestoreToBotCommandTest extends TestCase
             'status' => 'synced',
         ]);
     }
+
+    public function test_command_cleans_stale_restore_sessions_before_dry_run(): void
+    {
+        DB::table('telegram_filestore_sessions')->insert([
+            'id' => 55,
+            'chat_id' => 7702694790,
+            'public_token' => 'filestoebot_3V_dryrun001',
+            'source_token' => 'showfilesbot_3V_dryrun001',
+            'status' => 'closed',
+            'total_files' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_restore_sessions')->insert([
+            'id' => 700,
+            'source_session_id' => 999,
+            'target_bot_username' => 'file_backup_restore_bot',
+            'status' => 'running',
+            'total_files' => 1,
+            'processed_files' => 0,
+            'success_files' => 0,
+            'failed_files' => 0,
+            'started_at' => now()->subDays(2),
+            'finished_at' => null,
+            'created_at' => now()->subDays(2),
+            'updated_at' => now()->subDays(2),
+        ]);
+
+        DB::table('telegram_filestore_restore_files')->insert([
+            'id' => 701,
+            'restore_session_id' => 700,
+            'source_session_id' => 999,
+            'source_file_row_id' => 1,
+            'status' => 'pending',
+            'created_at' => now()->subDays(2),
+            'updated_at' => now()->subDays(2),
+        ]);
+
+        $this->artisan('filestore:restore-to-bot --session-id=55 --dry-run --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_sessions', [
+            'id' => 700,
+            'status' => 'failed',
+            'processed_files' => 1,
+            'success_files' => 0,
+            'failed_files' => 1,
+        ]);
+        $this->assertDatabaseHas('telegram_filestore_restore_files', [
+            'id' => 701,
+            'status' => 'failed',
+        ]);
+    }
 }

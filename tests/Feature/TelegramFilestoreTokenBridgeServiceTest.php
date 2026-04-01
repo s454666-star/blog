@@ -246,4 +246,61 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
         $this->assertSame(2, TelegramFilestoreFile::query()->where('session_id', $session->id)->count());
         $this->assertSame(2, TelegramFilestoreFile::query()->where('session_id', $session->id)->where('source_token', $token)->count());
     }
+
+    public function test_sync_cleans_stale_uploading_session_for_sync_chat_before_fetching_files(): void
+    {
+        $staleSession = TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => null,
+            'encrypt_token' => null,
+            'public_token' => null,
+            'source_token' => 'mtfxqbot_old_stale',
+            'status' => 'uploading',
+            'total_files' => 1,
+            'total_size' => 300,
+            'share_count' => 0,
+            'created_at' => now()->subDays(2),
+        ]);
+
+        TelegramFilestoreFile::query()->create([
+            'session_id' => (int) $staleSession->id,
+            'chat_id' => 7702694790,
+            'message_id' => 7001,
+            'file_id' => 'STALE-FILE-ID',
+            'file_unique_id' => 'stale-bridge-uniq',
+            'source_token' => 'mtfxqbot_old_stale',
+            'file_name' => 'stale.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 300,
+            'file_type' => 'document',
+            'raw_payload' => '{}',
+            'created_at' => now()->subDays(2),
+        ]);
+
+        Http::fake(function ($request) {
+            if ($request->url() === 'http://127.0.0.1:8000/bots/files') {
+                return Http::response([
+                    'status' => 'ok',
+                    'files_unique_count' => 0,
+                    'files_total_bytes' => 0,
+                    'files' => [],
+                ], 200);
+            }
+
+            return Http::response([
+                'status' => 'error',
+                'reason' => 'unexpected_request',
+                'url' => $request->url(),
+            ], 500);
+        });
+
+        $result = app(TelegramFilestoreTokenBridgeService::class)
+            ->sync('mtfxqbot_4V_cleanup0001', 'http://127.0.0.1:8000', 'mtfxqbot');
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('no_files', $result['status']);
+        $this->assertDatabaseMissing('telegram_filestore_sessions', ['id' => (int) $staleSession->id]);
+        $this->assertDatabaseMissing('telegram_filestore_files', ['file_unique_id' => 'stale-bridge-uniq']);
+        $this->assertDatabaseCount('telegram_filestore_sessions', 0);
+    }
 }

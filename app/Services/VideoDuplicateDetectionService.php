@@ -70,7 +70,7 @@ class VideoDuplicateDetectionService
 
         foreach ($candidates as $candidate) {
             $candidateResult = $this->comparePayloadToFeature(
-                $payloadContext['frames_by_order'],
+                $payloadContext,
                 $candidate,
                 $payloadContext['duration_seconds'],
                 $payloadContext['file_size_bytes'],
@@ -124,7 +124,7 @@ class VideoDuplicateDetectionService
         $compareResult = null;
         if ($payloadContext['frame_count'] > 0) {
             $compareResult = $this->comparePayloadToFeature(
-                $payloadContext['frames_by_order'],
+                $payloadContext,
                 $feature,
                 $payloadContext['duration_seconds'],
                 $payloadContext['file_size_bytes'],
@@ -165,13 +165,14 @@ class VideoDuplicateDetectionService
     }
 
     private function comparePayloadToFeature(
-        array $payloadFramesByOrder,
+        array &$payloadContext,
         VideoFeature $feature,
         float $payloadDuration,
         int $payloadFileSize,
         int $thresholdPercent,
         int $minMatch
     ): ?array {
+        $payloadFramesByOrder = $payloadContext['frames_by_order'] ?? [];
         $comparedFrames = 0;
         $matchedFrames = 0;
         $similarities = [];
@@ -183,18 +184,25 @@ class VideoDuplicateDetectionService
                 continue;
             }
 
-            $payloadFrame = $payloadFramesByOrder[$captureOrder];
-            $payloadHash = (string) ($payloadFrame['dhash_hex'] ?? '');
             $candidateHash = (string) ($candidateFrame->dhash_hex ?? '');
-
-            if (
-                !$this->featureExtractionService->isValidDhash($payloadHash) ||
-                !$this->featureExtractionService->isValidDhash($candidateHash)
-            ) {
+            if (!$this->featureExtractionService->isValidDhash($candidateHash)) {
                 continue;
             }
 
-            $similarity = $this->featureExtractionService->hashSimilarityPercent($payloadHash, $candidateHash);
+            $frameComparison = $this->resolveFrameComparison(
+                $payloadContext,
+                $feature,
+                $candidateFrame,
+                $payloadFramesByOrder[$captureOrder],
+                $candidateHash
+            );
+            if ($frameComparison === null) {
+                continue;
+            }
+
+            $payloadFrame = $frameComparison['payload_frame'];
+            $payloadHash = $frameComparison['payload_hash'];
+            $similarity = $frameComparison['similarity'];
 
             $comparedFrames++;
             $similarities[] = $similarity;
@@ -243,6 +251,54 @@ class VideoDuplicateDetectionService
         ];
     }
 
+    private function resolveFrameComparison(
+        array &$payloadContext,
+        VideoFeature $feature,
+        VideoFeatureFrame $candidateFrame,
+        array $primaryPayloadFrame,
+        string $candidateHash
+    ): ?array {
+        $bestPayloadFrame = null;
+        $bestPayloadHash = '';
+        $bestSimilarity = null;
+
+        $candidatePayloadFrames = [$primaryPayloadFrame];
+        $compatibilityPayloadFrame = $this->resolveCompatibilityPayloadFrame(
+            $payloadContext,
+            $feature,
+            $candidateFrame,
+            $primaryPayloadFrame
+        );
+
+        if (is_array($compatibilityPayloadFrame)) {
+            $candidatePayloadFrames[] = $compatibilityPayloadFrame;
+        }
+
+        foreach ($candidatePayloadFrames as $payloadFrame) {
+            $payloadHash = (string) ($payloadFrame['dhash_hex'] ?? '');
+            if (!$this->featureExtractionService->isValidDhash($payloadHash)) {
+                continue;
+            }
+
+            $similarity = $this->featureExtractionService->hashSimilarityPercent($payloadHash, $candidateHash);
+            if ($bestSimilarity === null || $similarity > $bestSimilarity) {
+                $bestPayloadFrame = $payloadFrame;
+                $bestPayloadHash = $payloadHash;
+                $bestSimilarity = $similarity;
+            }
+        }
+
+        if ($bestPayloadFrame === null || $bestSimilarity === null) {
+            return null;
+        }
+
+        return [
+            'payload_frame' => $bestPayloadFrame,
+            'payload_hash' => $bestPayloadHash,
+            'similarity' => $bestSimilarity,
+        ];
+    }
+
     private function buildPayloadContext(array $payload): array
     {
         $frames = $payload['frames'] ?? [];
@@ -271,7 +327,72 @@ class VideoDuplicateDetectionService
             'prefixes' => array_values(array_unique($prefixes)),
             'duration_seconds' => (float) ($payload['duration_seconds'] ?? 0),
             'file_size_bytes' => (int) ($payload['file_size_bytes'] ?? 0),
+            'absolute_path' => (string) ($payload['absolute_path'] ?? ''),
+            'tmp_dir' => (string) ($payload['tmp_dir'] ?? ''),
+            'compatibility_frames_by_second' => [],
         ];
+    }
+
+    private function resolveCompatibilityPayloadFrame(
+        array &$payloadContext,
+        VideoFeature $feature,
+        VideoFeatureFrame $candidateFrame,
+        array $primaryPayloadFrame
+    ): ?array {
+        if (!$this->shouldInspectCompatibilityFrame($payloadContext, $feature, $candidateFrame, $primaryPayloadFrame)) {
+            return null;
+        }
+
+        $captureSecond = (float) ($candidateFrame->capture_second ?? 0);
+        $cacheKey = number_format($captureSecond, 3, '.', '');
+
+        if (!array_key_exists($cacheKey, $payloadContext['compatibility_frames_by_second'])) {
+            try {
+                $payloadContext['compatibility_frames_by_second'][$cacheKey] = $this->featureExtractionService->inspectFrameAtSecond(
+                    (string) $payloadContext['absolute_path'],
+                    $captureSecond,
+                    (string) $payloadContext['tmp_dir'],
+                    (int) ($primaryPayloadFrame['capture_order'] ?? 1)
+                );
+            } catch (\Throwable) {
+                $payloadContext['compatibility_frames_by_second'][$cacheKey] = null;
+            }
+        }
+
+        $compatibilityFrame = $payloadContext['compatibility_frames_by_second'][$cacheKey] ?? null;
+
+        return is_array($compatibilityFrame) ? $compatibilityFrame : null;
+    }
+
+    private function shouldInspectCompatibilityFrame(
+        array $payloadContext,
+        VideoFeature $feature,
+        VideoFeatureFrame $candidateFrame,
+        array $primaryPayloadFrame
+    ): bool {
+        if (
+            (int) ($payloadContext['frame_count'] ?? 0) !== 1 ||
+            $feature->frames->count() !== 1
+        ) {
+            return false;
+        }
+
+        if (
+            (string) ($payloadContext['absolute_path'] ?? '') === '' ||
+            (string) ($payloadContext['tmp_dir'] ?? '') === ''
+        ) {
+            return false;
+        }
+
+        $payloadDuration = (float) ($payloadContext['duration_seconds'] ?? 0);
+        if ($payloadDuration <= 0 || $payloadDuration >= 10.0) {
+            return false;
+        }
+
+        return abs(
+            (float) ($primaryPayloadFrame['capture_second'] ?? 0)
+            - (float) ($candidateFrame->capture_second ?? 0)
+        ) >= 0.001;
     }
 
     private function collectCandidateIds(

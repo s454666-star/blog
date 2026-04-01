@@ -345,6 +345,82 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         $this->assertTrue($analysis['duplicate_match']['passes_threshold']);
     }
 
+    public function test_short_video_single_frame_can_use_legacy_candidate_second_when_db_feature_was_extracted_earlier(): void
+    {
+        DB::table('video_master')->insert([
+            'id' => 108,
+            'video_name' => 'legacy-short.mp4',
+            'video_path' => '\\legacy-short.mp4',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $feature = VideoFeature::query()->create([
+            'video_master_id' => 108,
+            'video_name' => 'legacy-short.mp4',
+            'video_path' => '\\legacy-short.mp4',
+            'file_name' => 'legacy-short.mp4',
+            'file_size_bytes' => 39246269,
+            'duration_seconds' => 8.733,
+            'screenshot_count' => 1,
+            'capture_rule' => 'lt_10s_at_3s',
+            'feature_version' => 'v1',
+        ]);
+
+        VideoFeatureFrame::query()->create([
+            'video_feature_id' => $feature->id,
+            'capture_order' => 1,
+            'capture_second' => 2.000,
+            'screenshot_path' => '\\legacy_short_feature_01.jpg',
+            'dhash_hex' => '7c7060676e6c6c0f',
+            'dhash_prefix' => '7c',
+            'frame_sha1' => str_repeat('5', 40),
+        ]);
+
+        $payload = [
+            'absolute_path' => 'C:\\incoming\\legacy-short.mp4',
+            'tmp_dir' => storage_path('app/video_features/tmp/test-legacy-short'),
+            'duration_seconds' => 8.733,
+            'file_size_bytes' => 3274711,
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 3.000,
+                'dhash_hex' => '68606a686c6ced1f',
+                'dhash_prefix' => '68',
+                'frame_sha1' => str_repeat('6', 40),
+            ]],
+        ];
+
+        $extractionService = new class extends VideoFeatureExtractionService
+        {
+            public function inspectFrameAtSecond(
+                string $absolutePath,
+                float $captureSecond,
+                string $tmpDir,
+                int $captureOrder = 1
+            ): array {
+                return [
+                    'capture_order' => $captureOrder,
+                    'capture_second' => 2.000,
+                    'dhash_hex' => 'fc3420e76e6c4c0f',
+                    'dhash_prefix' => 'fc',
+                    'frame_sha1' => str_repeat('7', 40),
+                ];
+            }
+        };
+
+        $service = new VideoDuplicateDetectionService($extractionService);
+        $analysis = $service->analyzeDatabaseMatch($payload, 80, 2, 3, 15, 250);
+
+        $this->assertSame(1, $analysis['candidate_count']);
+        $this->assertNotNull($analysis['duplicate_match']);
+        $this->assertSame($feature->id, $analysis['duplicate_match']['feature']->id);
+        $this->assertSame(90.0, $analysis['duplicate_match']['similarity_percent']);
+        $this->assertTrue($analysis['duplicate_match']['passes_threshold']);
+        $this->assertSame(2.0, $analysis['duplicate_match']['frame_matches'][0]['capture_second']);
+        $this->assertSame(2.0, $analysis['duplicate_match']['frame_matches'][0]['matched_capture_second']);
+    }
+
     public function test_single_frame_specific_feature_analysis_marks_prefix_gate_as_bypassed(): void
     {
         DB::table('video_master')->insert([

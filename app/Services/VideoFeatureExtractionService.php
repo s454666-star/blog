@@ -253,6 +253,48 @@ class VideoFeatureExtractionService
             ->firstOrFail();
     }
 
+    public function inspectFrameAtSecond(
+        string $absolutePath,
+        float $captureSecond,
+        string $tmpDir,
+        int $captureOrder = 1
+    ): array {
+        $absolutePath = $this->normalizeAbsolutePath($absolutePath);
+        if ($absolutePath === '' || !is_file($absolutePath)) {
+            throw new RuntimeException('影片檔不存在：' . $absolutePath);
+        }
+
+        $tmpDir = $this->normalizeAbsolutePath($tmpDir);
+        if ($tmpDir === '') {
+            throw new RuntimeException('暫存目錄不存在。');
+        }
+
+        File::ensureDirectoryExists($tmpDir);
+
+        $captureOrder = max(1, $captureOrder);
+        $tmpPath = $tmpDir . DIRECTORY_SEPARATOR . sprintf(
+            'compat_frame_%02d_%s.jpg',
+            $captureOrder,
+            str_replace('.', '_', number_format($captureSecond, 3, '.', ''))
+        );
+
+        $capturedSecond = $this->captureFrame($absolutePath, $captureSecond, $tmpPath);
+        $imageInfo = @getimagesize($tmpPath);
+        $dhashHex = $this->computeDhashHexFromJpeg($tmpPath);
+
+        return [
+            'capture_order' => $captureOrder,
+            'label_second' => round($captureSecond, 3),
+            'capture_second' => $capturedSecond,
+            'temp_path' => $tmpPath,
+            'dhash_hex' => $dhashHex,
+            'dhash_prefix' => substr($dhashHex, 0, 2),
+            'frame_sha1' => sha1_file($tmpPath) ?: null,
+            'image_width' => is_array($imageInfo) ? (int) ($imageInfo[0] ?? 0) : null,
+            'image_height' => is_array($imageInfo) ? (int) ($imageInfo[1] ?? 0) : null,
+        ];
+    }
+
     public function cleanupPayload(array $payload): void
     {
         $tmpDir = (string) ($payload['tmp_dir'] ?? '');

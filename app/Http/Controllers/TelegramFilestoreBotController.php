@@ -8,6 +8,7 @@
     use App\Models\TelegramFilestoreSession;
     use App\Services\TelegramCodeTokenService;
     use App\Services\TelegramFilestoreBridgeContextService;
+    use Illuminate\Contracts\Bus\Dispatcher;
     use Illuminate\Http\Request;
     use Illuminate\Support\Facades\Cache;
     use Illuminate\Support\Facades\DB;
@@ -56,9 +57,19 @@
         private const TOKEN_DEDUP_SECONDS = 25;
 
         /**
+         * 單則訊息最多只處理這麼多取檔 token，避免超長貼文把 webhook 拖到 timeout。
+         */
+        private const MAX_TOKEN_LOOKUPS_PER_MESSAGE = 8;
+
+        /**
          * 同 chat 同 message_id 去重時間（秒）
          */
         private const MESSAGE_DEDUP_SECONDS = 600;
+
+        /**
+         * is_sending 維持太久時，視為卡住並允許重新排隊。
+         */
+        private const STALE_SENDING_LOCK_SECONDS = 1800;
 
         /**
          * debounce 秒數：N 秒內沒有新檔案才統計一次
@@ -123,21 +134,62 @@
                  */
                 $requestedTokens = $this->extractRequestedTokens($text);
                 if (!empty($requestedTokens)) {
+                    $ignoredTokens = array_values(array_filter(
+                        $requestedTokens,
+                        fn (string $token): bool => $this->shouldIgnoreRequestedToken($token)
+                    ));
+
+                    if (!empty($ignoredTokens)) {
+                        Log::info('telegram_filestore_requested_tokens_ignored', [
+                            'chat_id' => $chatId,
+                            'message_id' => $messageId,
+                            'ignored_token_count' => count($ignoredTokens),
+                            'ignored_tokens_preview' => array_slice($ignoredTokens, 0, 5),
+                        ]);
+                    }
+
+                    $requestedTokens = array_values(array_filter(
+                        $requestedTokens,
+                        fn (string $token): bool => !$this->shouldIgnoreRequestedToken($token)
+                    ));
+
+                    if (count($requestedTokens) > self::MAX_TOKEN_LOOKUPS_PER_MESSAGE) {
+                        Log::warning('telegram_filestore_requested_tokens_truncated', [
+                            'chat_id' => $chatId,
+                            'message_id' => $messageId,
+                            'token_count' => count($requestedTokens),
+                            'max_token_lookups_per_message' => self::MAX_TOKEN_LOOKUPS_PER_MESSAGE,
+                        ]);
+
+                        $requestedTokens = array_slice($requestedTokens, 0, self::MAX_TOKEN_LOOKUPS_PER_MESSAGE);
+
+                        $this->sendMessage(
+                            $chatId,
+                            '這則訊息代碼太多，先只處理前 ' . self::MAX_TOKEN_LOOKUPS_PER_MESSAGE . ' 個。'
+                        );
+                    }
+
+                    $missingTokens = [];
+
                     foreach ($requestedTokens as $requestedToken) {
                         $normalizedForDedup = $this->normalizeTokenForDedup($requestedToken);
 
                         if (!$this->acquireTokenDedupLock($chatId, $normalizedForDedup)) {
                             $this->sendMessage(
                                 $chatId,
-                                $this->formatTokenReply($requestedToken, "這個代碼剛剛已處理過，請稍候再試。")
+                                $this->formatTokenReply($requestedToken, '這個代碼剛剛已處理過，請稍候再試。')
                             );
                             continue;
                         }
 
                         $found = $this->sendSessionFilesByToken($chatId, $requestedToken, $requestedToken);
                         if (!$found) {
-                            $this->sendMessage($chatId, $this->formatTokenReply($requestedToken, "找不到檔案"));
+                            $missingTokens[] = $requestedToken;
                         }
+                    }
+
+                    if (!empty($missingTokens)) {
+                        $this->sendMessage($chatId, $this->formatMissingTokensReply($missingTokens));
                     }
 
                     return response()->json(['ok' => true]);
@@ -1202,6 +1254,47 @@
         }
 
         /**
+         * filepan_bot 不是 filestore 可解碼來源；忽略它避免大段誤貼把 webhook 拖到 timeout。
+         */
+        private function shouldIgnoreRequestedToken(string $token): bool
+        {
+            $token = trim($token);
+            if ($token === '') {
+                return false;
+            }
+
+            return Str::startsWith(Str::lower($token), ['@filepan_bot:', 'filepan_bot:']);
+        }
+
+        private function formatMissingTokensReply(array $tokens): string
+        {
+            $tokens = array_values(array_unique(array_filter(array_map(
+                static fn ($token): string => trim((string) $token),
+                $tokens
+            ))));
+
+            if (empty($tokens)) {
+                return '找不到檔案';
+            }
+
+            if (count($tokens) === 1) {
+                return $this->formatTokenReply($tokens[0], '找不到檔案');
+            }
+
+            $previewTokens = array_slice($tokens, 0, 3);
+            $lines = $previewTokens;
+            $remaining = count($tokens) - count($previewTokens);
+
+            if ($remaining > 0) {
+                $lines[] = '...還有 ' . $remaining . ' 個代碼';
+            }
+
+            $lines[] = '找不到檔案';
+
+            return implode("\n", $lines);
+        }
+
+        /**
          * 用於 token dedup：把「不帶前綴」的代碼也統一成同一把 key
          */
         private function normalizeTokenForDedup(string $text): string
@@ -1299,7 +1392,29 @@
                 $payload['disable_web_page_preview'] = true;
             }
 
-            Http::timeout(30)->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
+            try {
+                $response = Http::timeout(30)->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
+            } catch (Throwable $e) {
+                Log::error('telegram_filestore_controller_send_message_exception', [
+                    'chat_id' => $chatId,
+                    'message_preview' => Str::limit($text, 120),
+                    'message' => $e->getMessage(),
+                ]);
+                return;
+            }
+
+            $json = $response->json();
+            $ok = $response->successful() && is_array($json) && (($json['ok'] ?? false) === true);
+
+            if (!$ok) {
+                Log::error('telegram_filestore_controller_send_message_failed', [
+                    'chat_id' => $chatId,
+                    'message_preview' => Str::limit($text, 120),
+                    'status' => $response->status(),
+                    'description' => is_array($json) ? ($json['description'] ?? '') : '',
+                    'body' => $response->body(),
+                ]);
+            }
         }
 
         private function sendMessageReturningMessageId(int $chatId, string $text, ?array $replyMarkup = null, ?string $parseMode = null): ?int
@@ -1323,8 +1438,24 @@
                 $payload['disable_web_page_preview'] = true;
             }
 
-            $resp = Http::timeout(30)->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
+            try {
+                $resp = Http::timeout(30)->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
+            } catch (Throwable $e) {
+                Log::error('telegram_filestore_controller_send_message_id_exception', [
+                    'chat_id' => $chatId,
+                    'message_preview' => Str::limit($text, 120),
+                    'message' => $e->getMessage(),
+                ]);
+                return null;
+            }
+
             if (!$resp->ok()) {
+                Log::error('telegram_filestore_controller_send_message_id_failed', [
+                    'chat_id' => $chatId,
+                    'message_preview' => Str::limit($text, 120),
+                    'status' => $resp->status(),
+                    'body' => $resp->body(),
+                ]);
                 return null;
             }
 
@@ -1491,53 +1622,202 @@
             $session = $this->findClosedSessionByTokenLoose(null, $publicToken);
 
             if (!$session) {
+                Log::info('telegram_filestore_send_token_not_found', [
+                    'chat_id' => $chatId,
+                    'requested_token' => $publicToken,
+                ]);
                 return false;
             }
 
-            $locked = false;
+            $announceToken = (string) ($announceToken ?? $publicToken);
+            $lockResult = $this->acquireSessionSendLock((int) $session->id, $chatId, $announceToken);
 
-            DB::transaction(function () use ($session, &$locked) {
-                $fresh = TelegramFilestoreSession::query()
-                    ->where('id', $session->id)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (!$fresh) {
-                    $locked = false;
-                    return;
-                }
-
-                if ((int)$fresh->is_sending === 1) {
-                    $locked = false;
-                    return;
-                }
-
-                $fresh->is_sending = 1;
-                $fresh->sending_started_at = now();
-                $fresh->sending_finished_at = null;
-                $fresh->share_count = (int)$fresh->share_count + 1;
-                $fresh->last_shared_at = now();
-                $fresh->save();
-
-                $locked = true;
-            });
-
-            if (!$locked) {
+            if (($lockResult['status'] ?? null) === 'busy') {
                 $this->sendMessage(
                     $chatId,
-                    $this->formatTokenReply((string) ($announceToken ?? $publicToken), "正在傳送中，請稍候…")
+                    $this->formatTokenReply($announceToken, "正在傳送中，請稍候…")
                 );
                 return true;
             }
 
+            if (($lockResult['status'] ?? null) !== 'locked') {
+                $this->sendMessage(
+                    $chatId,
+                    $this->formatTokenReply($announceToken, "目前系統忙碌，暫時無法開始傳送，請稍後再試。")
+                );
+                return true;
+            }
+
+            $sendingStartedAt = (string) ($lockResult['sending_started_at'] ?? '');
+
+            try {
+                app(Dispatcher::class)->dispatch(new SendFilestoreSessionFilesJob((int) $session->id, $chatId));
+
+                $updated = TelegramFilestoreSession::query()
+                    ->where('id', $session->id)
+                    ->where('is_sending', 1)
+                    ->where('sending_started_at', $sendingStartedAt)
+                    ->update([
+                        'share_count' => DB::raw('share_count + 1'),
+                        'last_shared_at' => now(),
+                    ]);
+
+                Log::info('telegram_filestore_send_dispatch_succeeded', [
+                    'session_id' => (int) $session->id,
+                    'chat_id' => $chatId,
+                    'requested_token' => $announceToken,
+                    'public_token' => $session->public_token,
+                    'source_token' => $session->source_token,
+                    'stale_lock_recovered' => (bool) ($lockResult['stale_lock_recovered'] ?? false),
+                    'share_count_incremented' => $updated > 0,
+                ]);
+            } catch (Throwable $e) {
+                $this->releaseSessionSendLockAfterDispatchFailure((int) $session->id, $sendingStartedAt);
+
+                Log::error('telegram_filestore_send_dispatch_failed', [
+                    'session_id' => (int) $session->id,
+                    'chat_id' => $chatId,
+                    'requested_token' => $announceToken,
+                    'public_token' => $session->public_token,
+                    'source_token' => $session->source_token,
+                    'stale_lock_recovered' => (bool) ($lockResult['stale_lock_recovered'] ?? false),
+                    'message' => $e->getMessage(),
+                ]);
+
+                $this->sendMessage(
+                    $chatId,
+                    $this->formatTokenReply($announceToken, "目前佇列忙碌，暫時無法開始傳送，請稍後再試。")
+                );
+
+                return true;
+            }
+
+            $queuedMessage = (bool) ($lockResult['stale_lock_recovered'] ?? false)
+                ? "偵測到前一次傳送卡住，已重新加入傳送佇列…"
+                : "已加入傳送佇列，準備開始傳送…";
+
             $this->sendMessage(
                 $chatId,
-                $this->formatTokenReply((string) ($announceToken ?? $publicToken), "已加入傳送佇列，準備開始傳送…")
+                $this->formatTokenReply($announceToken, $queuedMessage)
             );
 
-            SendFilestoreSessionFilesJob::dispatch((int)$session->id, $chatId);
-
             return true;
+        }
+
+        /**
+         * @return array{status: string, sending_started_at?: string, stale_lock_recovered?: bool}
+         */
+        private function acquireSessionSendLock(int $sessionId, int $chatId, string $requestedToken): array
+        {
+            try {
+                return DB::transaction(function () use ($sessionId, $chatId, $requestedToken) {
+                    $fresh = TelegramFilestoreSession::query()
+                        ->where('id', $sessionId)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$fresh) {
+                        return ['status' => 'missing'];
+                    }
+
+                    $staleLockRecovered = false;
+
+                    if ((int) $fresh->is_sending === 1) {
+                        if (!$this->shouldReleaseStaleSendLock($fresh)) {
+                            Log::info('telegram_filestore_send_dispatch_skipped_busy', [
+                                'session_id' => (int) $fresh->id,
+                                'chat_id' => $chatId,
+                                'requested_token' => $requestedToken,
+                                'public_token' => $fresh->public_token,
+                                'source_token' => $fresh->source_token,
+                                'sending_started_at' => $fresh->sending_started_at,
+                            ]);
+
+                            return ['status' => 'busy'];
+                        }
+
+                        $staleLockRecovered = true;
+
+                        Log::warning('telegram_filestore_send_stale_lock_recovered', [
+                            'session_id' => (int) $fresh->id,
+                            'chat_id' => $chatId,
+                            'requested_token' => $requestedToken,
+                            'public_token' => $fresh->public_token,
+                            'source_token' => $fresh->source_token,
+                            'previous_sending_started_at' => $fresh->sending_started_at,
+                        ]);
+                    }
+
+                    $sendingStartedAt = now()->format('Y-m-d H:i:s');
+
+                    $fresh->is_sending = 1;
+                    $fresh->sending_started_at = $sendingStartedAt;
+                    $fresh->sending_finished_at = null;
+                    $fresh->save();
+
+                    return [
+                        'status' => 'locked',
+                        'sending_started_at' => $sendingStartedAt,
+                        'stale_lock_recovered' => $staleLockRecovered,
+                    ];
+                }, 3);
+            } catch (Throwable $e) {
+                Log::error('telegram_filestore_send_lock_failed', [
+                    'session_id' => $sessionId,
+                    'chat_id' => $chatId,
+                    'requested_token' => $requestedToken,
+                    'message' => $e->getMessage(),
+                ]);
+
+                return ['status' => 'lock_failed'];
+            }
+        }
+
+        private function shouldReleaseStaleSendLock(TelegramFilestoreSession $session): bool
+        {
+            $startedAt = $session->sending_started_at;
+            if ($startedAt === null) {
+                return true;
+            }
+
+            $timestamp = strtotime((string) $startedAt);
+            if ($timestamp === false) {
+                return true;
+            }
+
+            return (time() - $timestamp) >= $this->getStaleSendingLockSeconds();
+        }
+
+        private function getStaleSendingLockSeconds(): int
+        {
+            return max(
+                60,
+                (int) config('telegram.filestore_sending_stale_seconds', self::STALE_SENDING_LOCK_SECONDS)
+            );
+        }
+
+        private function releaseSessionSendLockAfterDispatchFailure(int $sessionId, string $sendingStartedAt): void
+        {
+            if ($sendingStartedAt === '') {
+                return;
+            }
+
+            try {
+                TelegramFilestoreSession::query()
+                    ->where('id', $sessionId)
+                    ->where('is_sending', 1)
+                    ->where('sending_started_at', $sendingStartedAt)
+                    ->update([
+                        'is_sending' => 0,
+                        'sending_finished_at' => now(),
+                    ]);
+            } catch (Throwable $e) {
+                Log::error('telegram_filestore_send_lock_release_failed', [
+                    'session_id' => $sessionId,
+                    'sending_started_at' => $sendingStartedAt,
+                    'message' => $e->getMessage(),
+                ]);
+            }
         }
 
         /**

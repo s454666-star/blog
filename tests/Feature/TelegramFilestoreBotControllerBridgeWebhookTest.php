@@ -7,11 +7,13 @@ use App\Jobs\TelegramFilestoreDebouncedPromptJob;
 use App\Models\TelegramFilestoreFile;
 use App\Models\TelegramFilestoreSession;
 use App\Services\TelegramFilestoreBridgeContextService;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
+use Mockery;
 use Tests\TestCase;
 
 class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
@@ -452,5 +454,153 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
 
         Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 2);
         Queue::assertNotPushed(TelegramFilestoreDebouncedPromptJob::class);
+    }
+
+    public function test_webhook_releases_stale_sending_lock_before_requeueing(): void
+    {
+        Queue::fake();
+
+        $staleStartedAt = now()->subHours(2)->format('Y-m-d H:i:s');
+
+        $session = TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_1V_stale0001',
+            'source_token' => 'mtfxqbot_1V_stale0001',
+            'status' => 'closed',
+            'total_files' => 1,
+            'total_size' => 1024,
+            'share_count' => 2,
+            'is_sending' => 1,
+            'sending_started_at' => $staleStartedAt,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9401,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'text' => 'filestoebot_1V_stale0001',
+            ],
+        ]);
+
+        $response->assertOk();
+
+        $session->refresh();
+
+        $this->assertSame(1, (int) $session->is_sending);
+        $this->assertSame(3, (int) $session->share_count);
+        $this->assertNotSame($staleStartedAt, $session->sending_started_at);
+
+        Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 1);
+    }
+
+    public function test_webhook_releases_send_lock_when_dispatch_fails(): void
+    {
+        $dispatcher = Mockery::mock(Dispatcher::class);
+        $dispatcher->shouldReceive('dispatch')
+            ->once()
+            ->andThrow(new \RuntimeException('queue busy'));
+        $this->app->instance(Dispatcher::class, $dispatcher);
+
+        $session = TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_1V_dispatchfail1',
+            'source_token' => 'mtfxqbot_1V_dispatchfail1',
+            'status' => 'closed',
+            'total_files' => 1,
+            'total_size' => 1024,
+            'share_count' => 0,
+            'is_sending' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9402,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'text' => 'filestoebot_1V_dispatchfail1',
+            ],
+        ]);
+
+        $response->assertOk();
+
+        $session->refresh();
+
+        $this->assertSame(0, (int) $session->is_sending);
+        $this->assertSame(0, (int) $session->share_count);
+        $this->assertNotNull($session->sending_finished_at);
+    }
+
+    public function test_webhook_ignores_filepan_tokens_and_only_dispatches_supported_tokens(): void
+    {
+        Queue::fake();
+
+        $session = TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_1V_supported0001',
+            'source_token' => 'showfilesbot_1V_supported0001',
+            'status' => 'closed',
+            'total_files' => 1,
+            'total_size' => 2048,
+            'share_count' => 0,
+            'is_sending' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9403,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'text' => implode("\n", [
+                    '@filepan_bot:_43D_r3f2XjEFqBy3',
+                    'showfilesbot_1V_supported0001',
+                ]),
+            ],
+        ]);
+
+        $response->assertOk();
+
+        $session->refresh();
+
+        $this->assertSame(1, (int) $session->is_sending);
+        $this->assertSame(1, (int) $session->share_count);
+
+        Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 1);
     }
 }

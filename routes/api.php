@@ -101,11 +101,14 @@
         Route::put('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateItemQuantity']);
         Route::delete('/orders/{orderId}/items/{itemId}', [OrderController::class, 'deleteItem']);
     });
-    Route::post('/telegram/webhook', [CodeDedupBotController::class, 'handle']);
-    Route::post('/telegram/filestore/webhook', [TelegramFilestoreBotController::class, 'webhook']);
+    Route::post('/telegram/webhook', [CodeDedupBotController::class, 'handle'])
+        ->withoutMiddleware('throttle:api');
+    Route::post('/telegram/filestore/webhook', [TelegramFilestoreBotController::class, 'webhook'])
+        ->withoutMiddleware('throttle:api');
     Route::get('/token-scan/headers', [TokenScanController::class, 'headers']);
     Route::get('/token-scan/items/{peerId}', [TokenScanController::class, 'items']);
-    Route::post('/telegram/webhook/mystar-secure', [TelegramWebhookController::class, 'handle']);
+    Route::post('/telegram/webhook/mystar-secure', [TelegramWebhookController::class, 'handle'])
+        ->withoutMiddleware('throttle:api');
     Route::get('/telegram/run-all-pages', [TelegramBotPaginationController::class, 'runAllPagesByBot']);
     Route::get('/folder-videos', [FolderVideoController::class, 'index'])->name('folder-videos.index');
     Route::get('/folder-videos/{id}/stream', [FolderVideoController::class, 'stream'])->name('folder-videos.stream');

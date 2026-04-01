@@ -13,6 +13,7 @@
     use Illuminate\Support\Facades\DB;
     use Illuminate\Support\Facades\Http;
     use Illuminate\Support\Facades\Log;
+    use Throwable;
 
     class SendFilestoreSessionFilesJob implements ShouldQueue
     {
@@ -49,160 +50,277 @@
                 ->first();
 
             if (!$session) {
+                Log::warning('telegram_filestore_send_session_missing', $this->buildLogContext());
                 $this->sendMessage($this->targetChatId, "找不到這個代碼對應的檔案。");
                 return;
             }
 
-            $totalCount = (int)TelegramFilestoreFile::query()
-                ->where('session_id', $session->id)
-                ->count();
+            $finalNotice = null;
+            $finalState = 'completed';
 
-            if ($totalCount <= 0) {
-                $this->sendMessage($this->targetChatId, "這個代碼沒有任何檔案。");
-                return;
-            }
+            try {
+                $totalCount = (int) TelegramFilestoreFile::query()
+                    ->where('session_id', $session->id)
+                    ->count();
 
-            $mediaFiles = TelegramFilestoreFile::query()
-                ->where('session_id', $session->id)
-                ->whereIn('file_type', ['photo', 'video'])
-                ->orderBy('id')
-                ->get();
+                if ($totalCount <= 0) {
+                    Log::warning('telegram_filestore_send_session_empty', $this->buildLogContext($session));
+                    $finalNotice = '這個代碼沒有任何檔案。';
+                    return;
+                }
 
-            $documentFiles = TelegramFilestoreFile::query()
-                ->where('session_id', $session->id)
-                ->where('file_type', 'document')
-                ->orderBy('id')
-                ->get();
+                $mediaFiles = TelegramFilestoreFile::query()
+                    ->where('session_id', $session->id)
+                    ->whereIn('file_type', ['photo', 'video'])
+                    ->orderBy('id')
+                    ->get();
 
-            $otherFiles = TelegramFilestoreFile::query()
-                ->where('session_id', $session->id)
-                ->whereNotIn('file_type', ['photo', 'video', 'document'])
-                ->orderBy('id')
-                ->get();
+                $documentFiles = TelegramFilestoreFile::query()
+                    ->where('session_id', $session->id)
+                    ->where('file_type', 'document')
+                    ->orderBy('id')
+                    ->get();
 
-            $mediaCount = (int)$mediaFiles->count();
-            $documentCount = (int)$documentFiles->count();
-            $otherCount = (int)$otherFiles->count();
+                $otherFiles = TelegramFilestoreFile::query()
+                    ->where('session_id', $session->id)
+                    ->whereNotIn('file_type', ['photo', 'video', 'document'])
+                    ->orderBy('id')
+                    ->get();
 
-            $infoLines = [];
-            $infoLines[] = "開始傳送檔案（共 {$totalCount} 個）（batch-album-v3）…";
-            if ($mediaCount > 0) {
-                $infoLines[] = "照片/影片：每 " . self::MEDIA_GROUP_BATCH_SIZE . " 個一組相簿批次傳送（共 {$mediaCount} 個）";
-            }
-            if ($documentCount > 0) {
-                $infoLines[] = "文件：因 Telegram 限制，會逐筆傳送（共 {$documentCount} 個）";
-            }
-            if ($otherCount > 0) {
-                $infoLines[] = "其他：會逐筆傳送（共 {$otherCount} 個）";
-            }
+                $mediaCount = (int) $mediaFiles->count();
+                $documentCount = (int) $documentFiles->count();
+                $otherCount = (int) $otherFiles->count();
+                $mediaChunkCount = (int) ceil($mediaCount / self::MEDIA_GROUP_BATCH_SIZE);
+                $failedMediaGroups = 0;
+                $failedFileSends = 0;
 
-            $this->sendMessage($this->targetChatId, implode("\n", $infoLines));
+                Log::info('telegram_filestore_send_job_started', $this->buildLogContext($session, [
+                    'attempt' => $this->attempts(),
+                    'total_files' => $totalCount,
+                    'media_files' => $mediaCount,
+                    'document_files' => $documentCount,
+                    'other_files' => $otherCount,
+                    'media_chunk_count' => $mediaChunkCount,
+                ]));
 
-            /**
-             * 1) 先送 photo/video：用 sendMediaGroup 每 10 個一組
-             */
-            if ($mediaCount > 0) {
-                $chunks = array_chunk($mediaFiles->all(), self::MEDIA_GROUP_BATCH_SIZE);
+                $infoLines = [];
+                $infoLines[] = "開始傳送檔案（共 {$totalCount} 個）（batch-album-v3）…";
+                if ($mediaCount > 0) {
+                    $infoLines[] = "照片/影片：每 " . self::MEDIA_GROUP_BATCH_SIZE . " 個一組相簿批次傳送（共 {$mediaCount} 個）";
+                }
+                if ($documentCount > 0) {
+                    $infoLines[] = "文件：因 Telegram 限制，會逐筆傳送（共 {$documentCount} 個）";
+                }
+                if ($otherCount > 0) {
+                    $infoLines[] = "其他：會逐筆傳送（共 {$otherCount} 個）";
+                }
 
-                foreach ($chunks as $index => $chunkFiles) {
-                    $ok = $this->sendMediaGroupBatch($this->targetChatId, $chunkFiles);
+                $this->sendMessage($this->targetChatId, implode("\n", $infoLines));
 
-                    if (!$ok) {
-                        $this->sendMessage(
+                if ($mediaCount > 0) {
+                    $chunks = array_chunk($mediaFiles->all(), self::MEDIA_GROUP_BATCH_SIZE);
+
+                    foreach ($chunks as $index => $chunkFiles) {
+                        $batchResult = $this->sendMediaGroupBatch(
                             $this->targetChatId,
-                            "相簿批次傳送失敗，改用逐筆傳送（請看 log 查原因）。"
+                            $chunkFiles,
+                            $session,
+                            $index + 1,
+                            count($chunks)
                         );
 
-                        foreach ($chunkFiles as $file) {
-                            $this->sendFileByType(
+                        if (!$batchResult['ok']) {
+                            if ($batchResult['rate_limited']) {
+                                $finalState = 'rate_limited';
+                                $finalNotice = $this->formatRateLimitedNotice($batchResult['retry_after']);
+
+                                Log::warning('telegram_filestore_send_job_aborted_rate_limit', $this->buildLogContext($session, [
+                                    'phase' => 'media_group',
+                                    'chunk_index' => $index + 1,
+                                    'chunk_total' => count($chunks),
+                                    'retry_after' => $batchResult['retry_after'],
+                                    'description' => $batchResult['description'],
+                                ]));
+
+                                return;
+                            }
+
+                            $failedMediaGroups++;
+
+                            Log::warning('telegram_filestore_send_media_group_fallback', $this->buildLogContext($session, [
+                                'chunk_index' => $index + 1,
+                                'chunk_total' => count($chunks),
+                                'chunk_size' => count($chunkFiles),
+                            ]));
+
+                            $this->sendMessage(
                                 $this->targetChatId,
-                                (string)$file->file_type,
-                                (string)$file->file_id,
-                                $file->file_name
+                                '相簿批次傳送失敗，改用逐筆傳送（請看 log 查原因）。'
                             );
-                            usleep(250000);
+
+                            foreach ($chunkFiles as $file) {
+                                $fileResult = $this->sendFileByType(
+                                    $this->targetChatId,
+                                    (string) $file->file_type,
+                                    (string) $file->file_id,
+                                    $file->file_name,
+                                    $session
+                                );
+
+                                if (!$fileResult['ok']) {
+                                    $failedFileSends++;
+
+                                    if ($fileResult['rate_limited']) {
+                                        $finalState = 'rate_limited';
+                                        $finalNotice = $this->formatRateLimitedNotice($fileResult['retry_after']);
+
+                                        Log::warning('telegram_filestore_send_job_aborted_rate_limit', $this->buildLogContext($session, [
+                                            'phase' => 'media_group_fallback_single',
+                                            'file_type' => (string) $file->file_type,
+                                            'file_name' => $file->file_name,
+                                            'retry_after' => $fileResult['retry_after'],
+                                            'description' => $fileResult['description'],
+                                        ]));
+
+                                        return;
+                                    }
+                                }
+
+                                usleep(250000);
+                            }
+                        }
+
+                        if ($index < count($chunks) - 1) {
+                            usleep(self::BATCH_SLEEP_MICROSECONDS);
                         }
                     }
+                }
 
-                    if ($index < count($chunks) - 1) {
-                        usleep(self::BATCH_SLEEP_MICROSECONDS);
+                if ($documentCount > 0) {
+                    foreach ($documentFiles as $i => $file) {
+                        $fileResult = $this->sendFileByType(
+                            $this->targetChatId,
+                            (string) $file->file_type,
+                            (string) $file->file_id,
+                            $file->file_name,
+                            $session
+                        );
+
+                        if (!$fileResult['ok']) {
+                            $failedFileSends++;
+
+                            if ($fileResult['rate_limited']) {
+                                $finalState = 'rate_limited';
+                                $finalNotice = $this->formatRateLimitedNotice($fileResult['retry_after']);
+
+                                Log::warning('telegram_filestore_send_job_aborted_rate_limit', $this->buildLogContext($session, [
+                                    'phase' => 'document_single',
+                                    'file_name' => $file->file_name,
+                                    'retry_after' => $fileResult['retry_after'],
+                                    'description' => $fileResult['description'],
+                                ]));
+
+                                return;
+                            }
+                        }
+
+                        if ($i < $documentCount - 1) {
+                            usleep(self::BATCH_SLEEP_MICROSECONDS);
+                        }
                     }
                 }
-            }
 
-            /**
-             * 2) 再送 document：逐筆
-             */
-            if ($documentCount > 0) {
-                foreach ($documentFiles as $i => $file) {
-                    $this->sendFileByType(
-                        $this->targetChatId,
-                        (string)$file->file_type,
-                        (string)$file->file_id,
-                        $file->file_name
-                    );
+                if ($otherCount > 0) {
+                    foreach ($otherFiles as $i => $file) {
+                        $fileResult = $this->sendFileByType(
+                            $this->targetChatId,
+                            (string) $file->file_type,
+                            (string) $file->file_id,
+                            $file->file_name,
+                            $session
+                        );
 
-                    if ($i < $documentCount - 1) {
-                        usleep(self::BATCH_SLEEP_MICROSECONDS);
+                        if (!$fileResult['ok']) {
+                            $failedFileSends++;
+
+                            if ($fileResult['rate_limited']) {
+                                $finalState = 'rate_limited';
+                                $finalNotice = $this->formatRateLimitedNotice($fileResult['retry_after']);
+
+                                Log::warning('telegram_filestore_send_job_aborted_rate_limit', $this->buildLogContext($session, [
+                                    'phase' => 'other_single',
+                                    'file_type' => (string) $file->file_type,
+                                    'file_name' => $file->file_name,
+                                    'retry_after' => $fileResult['retry_after'],
+                                    'description' => $fileResult['description'],
+                                ]));
+
+                                return;
+                            }
+                        }
+
+                        if ($i < $otherCount - 1) {
+                            usleep(self::BATCH_SLEEP_MICROSECONDS);
+                        }
                     }
                 }
-            }
 
-            /**
-             * 3) 其他型別：逐筆（保底）
-             */
-            if ($otherCount > 0) {
-                foreach ($otherFiles as $i => $file) {
-                    $this->sendFileByType(
-                        $this->targetChatId,
-                        (string)$file->file_type,
-                        (string)$file->file_id,
-                        $file->file_name
-                    );
+                Log::info('telegram_filestore_send_job_completed', $this->buildLogContext($session, [
+                    'attempt' => $this->attempts(),
+                    'total_files' => $totalCount,
+                    'media_files' => $mediaCount,
+                    'document_files' => $documentCount,
+                    'other_files' => $otherCount,
+                    'failed_media_groups' => $failedMediaGroups,
+                    'failed_file_sends' => $failedFileSends,
+                ]));
 
-                    if ($i < $otherCount - 1) {
-                        usleep(self::BATCH_SLEEP_MICROSECONDS);
-                    }
+                $finalNotice = '已全部傳送完成 ✅';
+            } catch (Throwable $e) {
+                Log::error('telegram_filestore_send_job_exception', $this->buildLogContext($session, [
+                    'attempt' => $this->attempts(),
+                    'message' => $e->getMessage(),
+                ]));
+
+                throw $e;
+            } finally {
+                $this->markSessionNotSending($session, $finalState);
+
+                if ($finalNotice !== null) {
+                    $this->sendMessage($this->targetChatId, $finalNotice);
                 }
             }
-
-            $this->sendMessage($this->targetChatId, "已全部傳送完成 ✅");
-
-            DB::transaction(function () use ($session) {
-                $session->is_sending = 0;
-                $session->sending_finished_at = now();
-                $session->save();
-            });
         }
 
         public function failed(\Throwable $e): void
         {
             $session = TelegramFilestoreSession::query()->where('id', $this->sessionId)->first();
-            if ($session) {
-                DB::transaction(function () use ($session) {
-                    $session->is_sending = 0;
-                    $session->save();
-                });
-            }
+            $this->markSessionNotSending($session, 'failed');
+
+            Log::error('telegram_filestore_send_job_failed', $this->buildLogContext($session, [
+                'attempt' => $this->attempts(),
+                'message' => $e->getMessage(),
+            ]));
 
             $this->sendMessage($this->targetChatId, "傳送檔案時發生錯誤，請稍後再試。");
         }
 
         /**
          * sendMediaGroup 批次傳送照片/影片（最多 10 個）
-         * 回傳 true 表示 Telegram ok=true
+         * @return array{ok: bool, status: ?int, error_code: ?int, description: ?string, retry_after: ?int, rate_limited: bool, body: ?string}
          */
-        private function sendMediaGroupBatch(int $chatId, array $files): bool
+        private function sendMediaGroupBatch(
+            int $chatId,
+            array $files,
+            TelegramFilestoreSession $session,
+            int $chunkIndex,
+            int $chunkTotal
+        ): array
         {
-            $token = (string)config('telegram.filestore_bot_token');
-            if ($token === '') {
-                return false;
-            }
-
             $media = [];
             foreach ($files as $file) {
-                $type = (string)$file->file_type;
-                $fileId = (string)$file->file_id;
+                $type = (string) $file->file_type;
+                $fileId = (string) $file->file_id;
 
                 if ($type !== 'photo' && $type !== 'video') {
                     continue;
@@ -224,118 +342,259 @@
             }
 
             if (empty($media)) {
-                return true;
+                return $this->successfulTelegramResult();
             }
 
-            $response = $this->postSendMediaGroup($token, $chatId, $media);
-
-            if (!$this->isTelegramOk($response)) {
-                Log::error('telegram_send_media_group_failed', [
+            return $this->postTelegramMethod(
+                'sendMediaGroup',
+                [
                     'chat_id' => $chatId,
+                    'media' => json_encode($media, JSON_UNESCAPED_UNICODE),
+                ],
+                $this->buildLogContext($session, [
+                    'target_chat_id' => $chatId,
+                    'chunk_index' => $chunkIndex,
+                    'chunk_total' => $chunkTotal,
                     'media_count' => count($media),
-                    'status' => $response ? $response->status() : null,
-                    'body' => $response ? $response->body() : null,
-                ]);
-                return false;
-            }
-
-            return true;
+                ]),
+                true
+            );
         }
 
-        private function postSendMediaGroup(string $token, int $chatId, array $media): ?Response
+        /**
+         * @return array{ok: bool, status: ?int, error_code: ?int, description: ?string, retry_after: ?int, rate_limited: bool, body: ?string}
+         */
+        private function successfulTelegramResult(): array
         {
-            try {
-                return Http::timeout(60)
-                    ->asForm()
-                    ->post("https://api.telegram.org/bot{$token}/sendMediaGroup", [
-                        'chat_id' => $chatId,
-                        'media' => json_encode($media, JSON_UNESCAPED_UNICODE),
-                    ]);
-            } catch (\Throwable $e) {
-                Log::error('telegram_send_media_group_exception', [
-                    'chat_id' => $chatId,
-                    'message' => $e->getMessage(),
-                ]);
-                return null;
-            }
+            return [
+                'ok' => true,
+                'status' => 200,
+                'error_code' => null,
+                'description' => null,
+                'retry_after' => null,
+                'rate_limited' => false,
+                'body' => null,
+            ];
         }
 
-        private function isTelegramOk(?Response $response): bool
+        /**
+         * @return array{ok: bool, status: ?int, error_code: ?int, description: ?string, retry_after: ?int, rate_limited: bool, body: ?string}
+         */
+        private function normalizeTelegramResponse(?Response $response): array
         {
             if (!$response) {
-                return false;
-            }
-
-            if (!$response->successful()) {
-                return false;
+                return [
+                    'ok' => false,
+                    'status' => null,
+                    'error_code' => null,
+                    'description' => null,
+                    'retry_after' => null,
+                    'rate_limited' => false,
+                    'body' => null,
+                ];
             }
 
             $json = $response->json();
-            if (!is_array($json)) {
-                return false;
-            }
+            $status = $response->status();
+            $errorCode = is_array($json) ? (int) ($json['error_code'] ?? 0) : 0;
+            $retryAfter = is_array($json) ? (int) ($json['parameters']['retry_after'] ?? 0) : 0;
+            $ok = $response->successful() && is_array($json) && (($json['ok'] ?? false) === true);
 
-            return (bool)($json['ok'] ?? false);
+            return [
+                'ok' => $ok,
+                'status' => $status,
+                'error_code' => $errorCode > 0 ? $errorCode : null,
+                'description' => is_array($json) ? (string) ($json['description'] ?? '') : '',
+                'retry_after' => $retryAfter > 0 ? $retryAfter : null,
+                'rate_limited' => $status === 429 || $errorCode === 429,
+                'body' => $response->body(),
+            ];
         }
 
-        private function sendFileByType(int $chatId, string $fileType, string $fileId, ?string $fileName): void
+        /**
+         * @return array{ok: bool, status: ?int, error_code: ?int, description: ?string, retry_after: ?int, rate_limited: bool, body: ?string}
+         */
+        private function postTelegramMethod(
+            string $method,
+            array $payload,
+            array $context = [],
+            bool $asForm = false
+        ): array
         {
-            $token = (string)config('telegram.filestore_bot_token');
+            $token = (string) config('telegram.filestore_bot_token');
             if ($token === '') {
-                return;
+                $result = [
+                    'ok' => false,
+                    'status' => null,
+                    'error_code' => null,
+                    'description' => 'Telegram filestore bot token missing.',
+                    'retry_after' => null,
+                    'rate_limited' => false,
+                    'body' => null,
+                ];
+
+                Log::error('telegram_filestore_api_failed', array_merge($context, [
+                    'method' => $method,
+                    'status' => null,
+                    'error_code' => null,
+                    'description' => $result['description'],
+                    'retry_after' => null,
+                    'body' => null,
+                ]));
+
+                return $result;
             }
 
-            $http = Http::timeout(60);
+            try {
+                $request = Http::timeout(60);
+                if ($asForm) {
+                    $request = $request->asForm();
+                }
+
+                $response = $request->post("https://api.telegram.org/bot{$token}/{$method}", $payload);
+            } catch (Throwable $e) {
+                Log::error('telegram_filestore_api_exception', array_merge($context, [
+                    'method' => $method,
+                    'message' => $e->getMessage(),
+                ]));
+
+                return [
+                    'ok' => false,
+                    'status' => null,
+                    'error_code' => null,
+                    'description' => $e->getMessage(),
+                    'retry_after' => null,
+                    'rate_limited' => false,
+                    'body' => null,
+                ];
+            }
+
+            $result = $this->normalizeTelegramResponse($response);
+
+            if (!$result['ok']) {
+                $event = $result['rate_limited']
+                    ? 'telegram_filestore_api_rate_limited'
+                    : 'telegram_filestore_api_failed';
+
+                Log::log($result['rate_limited'] ? 'warning' : 'error', $event, array_merge($context, [
+                    'method' => $method,
+                    'status' => $result['status'],
+                    'error_code' => $result['error_code'],
+                    'description' => $result['description'],
+                    'retry_after' => $result['retry_after'],
+                    'body' => $result['body'],
+                ]));
+            }
+
+            return $result;
+        }
+
+        /**
+         * @return array{ok: bool, status: ?int, error_code: ?int, description: ?string, retry_after: ?int, rate_limited: bool, body: ?string}
+         */
+        private function sendFileByType(
+            int $chatId,
+            string $fileType,
+            string $fileId,
+            ?string $fileName,
+            TelegramFilestoreSession $session
+        ): array
+        {
+            $method = 'sendDocument';
+            $payload = [
+                'chat_id' => $chatId,
+                'document' => $fileId,
+            ];
 
             if ($fileType === 'photo') {
-                $http->post("https://api.telegram.org/bot{$token}/sendPhoto", [
+                $method = 'sendPhoto';
+                $payload = [
                     'chat_id' => $chatId,
                     'photo' => $fileId,
-                ]);
-                return;
-            }
-
-            if ($fileType === 'video') {
+                ];
+            } elseif ($fileType === 'video') {
+                $method = 'sendVideo';
                 $payload = [
                     'chat_id' => $chatId,
                     'video' => $fileId,
                 ];
-
-                if ($fileName !== null && $fileName !== '') {
-                    $payload['caption'] = $fileName;
-                }
-
-                $http->post("https://api.telegram.org/bot{$token}/sendVideo", $payload);
-                return;
-            }
-
-            if ($fileType === 'document') {
+            } elseif ($fileType === 'document') {
+                $method = 'sendDocument';
                 $payload = [
                     'chat_id' => $chatId,
                     'document' => $fileId,
                 ];
-
-                if ($fileName !== null && $fileName !== '') {
-                    $payload['caption'] = $fileName;
-                }
-
-                $http->post("https://api.telegram.org/bot{$token}/sendDocument", $payload);
-                return;
             }
 
-            $http->post("https://api.telegram.org/bot{$token}/sendDocument", [
-                'chat_id' => $chatId,
-                'document' => $fileId,
-            ]);
+            if ($fileName !== null && $fileName !== '') {
+                $payload['caption'] = $fileName;
+            }
+
+            return $this->postTelegramMethod($method, $payload, $this->buildLogContext($session, [
+                'target_chat_id' => $chatId,
+                'file_type' => $fileType,
+                'file_name' => $fileName,
+            ]));
         }
 
-        private function sendMessage(int $chatId, string $text, ?array $replyMarkup = null, ?string $parseMode = null): void
+        private function buildLogContext(?TelegramFilestoreSession $session = null, array $extra = []): array
         {
-            $token = (string)config('telegram.filestore_bot_token');
-            if ($token === '') {
+            $context = [
+                'session_id' => $session ? (int) $session->id : $this->sessionId,
+                'target_chat_id' => $this->targetChatId,
+            ];
+
+            if ($session) {
+                $context['public_token'] = $session->public_token;
+                $context['source_token'] = $session->source_token;
+                $context['owner_chat_id'] = $session->chat_id;
+            }
+
+            return array_merge($context, $extra);
+        }
+
+        private function markSessionNotSending(?TelegramFilestoreSession $session, string $result): void
+        {
+            if (!$session) {
                 return;
             }
 
+            try {
+                TelegramFilestoreSession::query()
+                    ->where('id', $session->id)
+                    ->update([
+                        'is_sending' => 0,
+                        'sending_finished_at' => now(),
+                    ]);
+
+                Log::info('telegram_filestore_send_session_released', $this->buildLogContext($session, [
+                    'result' => $result,
+                ]));
+            } catch (Throwable $e) {
+                Log::error('telegram_filestore_send_session_release_failed', $this->buildLogContext($session, [
+                    'result' => $result,
+                    'message' => $e->getMessage(),
+                ]));
+            }
+        }
+
+        private function formatRateLimitedNotice(?int $retryAfter): string
+        {
+            if ($retryAfter === null || $retryAfter <= 0) {
+                return 'Telegram 目前限流，已暫停本次傳送，請稍後再試。';
+            }
+
+            if ($retryAfter < 60) {
+                return 'Telegram 目前限流，已暫停本次傳送，請約 ' . $retryAfter . ' 秒後再試。';
+            }
+
+            $minutes = (int) ceil($retryAfter / 60);
+
+            return 'Telegram 目前限流，已暫停本次傳送，請約 ' . $minutes . ' 分鐘後再試。';
+        }
+
+        private function sendMessage(int $chatId, string $text, ?array $replyMarkup = null, ?string $parseMode = null): bool
+        {
             $payload = [
                 'chat_id' => $chatId,
                 'text' => $text,
@@ -350,6 +609,11 @@
                 $payload['disable_web_page_preview'] = true;
             }
 
-            Http::timeout(60)->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
+            $result = $this->postTelegramMethod('sendMessage', $payload, [
+                'target_chat_id' => $chatId,
+                'message_kind' => 'filestore_notice',
+            ]);
+
+            return $result['ok'];
         }
     }

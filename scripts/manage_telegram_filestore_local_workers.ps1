@@ -1,11 +1,12 @@
 param(
     [ValidateSet("status", "start", "stop", "restart", "ensure", "watchdog", "install-task")]
     [string]$Action = "status",
-    [int]$MinWorkerCount = 50,
+    [int]$MinWorkerCount = 16,
     [Alias("WorkerCount")]
     [int]$MaxWorkerCount = 200,
     [int]$ScaleDownHoldSeconds = 300,
     [int]$RetryFailedCooldownSeconds = 60,
+    [int]$WatchdogIntervalMinutes = 5,
     [string]$WorkerPrefix = "ltf",
     [string]$ProjectDir = "C:\www\blog",
     [string]$PhpExe = "C:\php\php.exe",
@@ -51,6 +52,10 @@ function Assert-Configuration {
 
     if ($RetryFailedCooldownSeconds -lt 0) {
         throw "RetryFailedCooldownSeconds must be >= 0"
+    }
+
+    if ($WatchdogIntervalMinutes -lt 1) {
+        throw "WatchdogIntervalMinutes must be >= 1"
     }
 }
 
@@ -932,7 +937,7 @@ function Install-StartupTask {
 
     $watchdogAction = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$WatchdogWrapperPath`""
     $watchdogTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date)
-    $watchdogTrigger.Repetition.Interval = (New-TimeSpan -Minutes 1)
+    $watchdogTrigger.Repetition.Interval = (New-TimeSpan -Minutes $WatchdogIntervalMinutes)
     $watchdogTrigger.Repetition.Duration = (New-TimeSpan -Days 3650)
 
     Register-ScheduledTask `
@@ -940,7 +945,7 @@ function Install-StartupTask {
         -Action $watchdogAction `
         -Trigger $watchdogTrigger `
         -Principal $principal `
-        -Description "Watchdog for autoscaled local telegram_filestore queue workers; keeps at least $MinWorkerCount workers and scales up to $MaxWorkerCount based on queue load." `
+        -Description "Watchdog for autoscaled local telegram_filestore queue workers; checks every $WatchdogIntervalMinutes minutes, keeps at least $MinWorkerCount workers, and scales up to $MaxWorkerCount based on queue load." `
         -Force | Out-Null
 
     Write-ManagerLog "installed startup task $StartupTaskName"

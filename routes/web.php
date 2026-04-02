@@ -11,12 +11,13 @@ use App\Http\Controllers\ExtractController;
 use App\Http\Controllers\FaceIdentityController;
 use App\Http\Controllers\FetchController;
 use App\Http\Controllers\GalleryController;
-    use App\Http\Controllers\IgGrabController;
-    use App\Http\Controllers\ImageController;
+use App\Http\Controllers\IgGrabController;
+use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
 use App\Http\Controllers\LibraryController;
     use App\Http\Controllers\MemberController;
     use App\Http\Controllers\OCRController;
+use App\Http\Controllers\PageFaviconController;
 use App\Http\Controllers\PdfController;
 use App\Http\Controllers\PdfController2;
 use App\Http\Controllers\StaticProxyController;
@@ -36,6 +37,8 @@ use App\Http\Controllers\UserController;
 | Web Routes
 |--------------------------------------------------------------------------
 */
+Route::get('/page-favicons/{slug}.svg', [PageFaviconController::class, 'show'])->name('page-favicon');
+
 Route::get('/videos', [VideosController::class, 'index'])->name('video.index');
 Route::get('/videos/load-more', [VideosController::class, 'loadMore'])->name('video.loadMore');
 Route::post('/videos/upload', [VideosController::class, 'upload'])->name('video.upload');

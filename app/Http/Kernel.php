@@ -2,7 +2,6 @@
 
 namespace App\Http;
 
-use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Http\Middleware\HandleCors;
 
@@ -67,17 +66,4 @@ class Kernel extends HttpKernel
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
     ];
-
-    protected function schedule(Schedule $schedule)
-    {
-        $schedule->command('command:get-bt')->dailyAt('11:30')->onSuccess(function () {
-            \Log::info('Command get-bt executed successfully');
-        })->onFailure(function () {
-            \Log::error('Command get-bt failed');
-        });
-
-        $schedule->command('command:get-bt')->dailyAt('01:00');
-        $schedule->command('article:extract-number')->dailyAt('02:00');
-    }
-
 }

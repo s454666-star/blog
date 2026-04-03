@@ -1,6 +1,6 @@
 param(
     [string]$TaskName = 'Telegram FastAPI Services',
-    [string]$LauncherPath = 'C:\www\blog\scripts\start_telegram_fastapi_services.ps1',
+    [string]$LauncherPath = 'C:\www\blog\scripts\start_telegram_fastapi_services.vbs',
     [int]$RepeatMinutes = 5
 )
 
@@ -11,7 +11,7 @@ if (-not (Test-Path -LiteralPath $LauncherPath)) {
 }
 
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$taskCommand = 'powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{0}""' -f $LauncherPath
+$taskCommand = 'wscript.exe "{0}"' -f $LauncherPath
 $arguments = @(
     '/create'
     '/tn', $TaskName

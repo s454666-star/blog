@@ -982,7 +982,7 @@ function Register-OrRefreshTaskDescription {
 
 function Install-WorkerTasks {
     $repoRoot = 'C:\www\blog'
-    $hiddenRunnerPath = Join-Path $repoRoot 'scripts\run_hidden_task.ps1'
+    $hiddenRunnerPath = Join-Path $repoRoot 'scripts\run_hidden_task.vbs'
     $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
     $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew
     $logonDescription = "At user logon, run the local telegram_filestore watchdog once so workers converge to the current desired count with min $MinWorkerCount and max $MaxWorkerCount."
@@ -994,7 +994,7 @@ function Install-WorkerTasks {
 
     Unregister-ScheduledTask -TaskName "Blog Telegram Filestore Local Workers Startup" -Confirm:$false -ErrorAction SilentlyContinue
 
-    $logonAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -BatchPath "{1}"' -f $hiddenRunnerPath, $LogonWrapperPath)
+    $logonAction = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ('"{0}" "{1}"' -f $hiddenRunnerPath, $LogonWrapperPath)
     $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
 
     Register-OrRefreshTaskDescription `
@@ -1005,7 +1005,7 @@ function Install-WorkerTasks {
         -CurrentUser $currentUser `
         -TaskSettings $settings
 
-    $watchdogAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -BatchPath "{1}"' -f $hiddenRunnerPath, $WatchdogWrapperPath)
+    $watchdogAction = New-ScheduledTaskAction -Execute "wscript.exe" -Argument ('"{0}" "{1}"' -f $hiddenRunnerPath, $WatchdogWrapperPath)
     $watchdogTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes $WatchdogIntervalMinutes)
 
     Register-OrRefreshTaskDescription `

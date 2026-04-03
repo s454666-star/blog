@@ -9,19 +9,19 @@
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
 
         :root {
-            --page-bg: #f7fbff;
-            --page-bg-2: #fffaf4;
-            --panel: rgba(255, 255, 255, 0.76);
-            --line: rgba(83, 122, 167, 0.16);
-            --ink-900: #16324a;
-            --ink-700: #4a647b;
-            --ink-500: #71879a;
-            --status-idle: #6b8297;
-            --status-running: #216adf;
-            --status-success: #128661;
+            --page-bg: #fff4f8;
+            --page-bg-2: #fff2f7;
+            --panel: rgba(255, 255, 255, 0.78);
+            --line: rgba(215, 127, 165, 0.18);
+            --ink-900: #40263a;
+            --ink-700: #73576a;
+            --ink-500: #9c7e90;
+            --status-idle: #a17b8f;
+            --status-running: #d54d88;
+            --status-success: #b53d72;
             --status-error: #c44747;
-            --shadow-xl: 0 32px 80px rgba(79, 116, 156, 0.18);
-            --shadow-lg: 0 22px 50px rgba(93, 133, 175, 0.14);
+            --shadow-xl: 0 32px 80px rgba(193, 118, 151, 0.18);
+            --shadow-lg: 0 22px 50px rgba(199, 132, 161, 0.16);
             --radius-xl: 30px;
             --radius-lg: 24px;
         }
@@ -35,10 +35,10 @@
             font-family: "Plus Jakarta Sans", "Noto Sans TC", sans-serif;
             color: var(--ink-900);
             background:
-                radial-gradient(circle at 0% 10%, rgba(79, 168, 255, 0.16), transparent 36%),
-                radial-gradient(circle at 100% 0%, rgba(255, 168, 94, 0.18), transparent 30%),
-                radial-gradient(circle at 50% 100%, rgba(82, 211, 173, 0.14), transparent 34%),
-                linear-gradient(140deg, var(--page-bg) 0%, #fbfdff 42%, var(--page-bg-2) 100%);
+                radial-gradient(circle at 0% 10%, rgba(255, 177, 205, 0.24), transparent 36%),
+                radial-gradient(circle at 100% 0%, rgba(255, 197, 217, 0.22), transparent 30%),
+                radial-gradient(circle at 50% 100%, rgba(255, 213, 182, 0.18), transparent 34%),
+                linear-gradient(140deg, var(--page-bg) 0%, #fff8fb 42%, var(--page-bg-2) 100%);
             overflow-x: hidden;
         }
 
@@ -58,13 +58,13 @@
         body::before {
             top: -9rem;
             right: -7rem;
-            background: radial-gradient(circle, rgba(49, 144, 255, 0.34), rgba(49, 144, 255, 0));
+            background: radial-gradient(circle, rgba(246, 129, 176, 0.34), rgba(246, 129, 176, 0));
         }
 
         body::after {
             bottom: -10rem;
             left: -8rem;
-            background: radial-gradient(circle, rgba(255, 159, 64, 0.28), rgba(255, 159, 64, 0));
+            background: radial-gradient(circle, rgba(255, 179, 146, 0.28), rgba(255, 179, 146, 0));
             animation-duration: 24s;
         }
 
@@ -74,8 +74,8 @@
             pointer-events: none;
             z-index: -1;
             background-image:
-                linear-gradient(rgba(118, 164, 214, 0.05) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(118, 164, 214, 0.05) 1px, transparent 1px);
+                linear-gradient(rgba(224, 163, 191, 0.07) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(224, 163, 191, 0.07) 1px, transparent 1px);
             background-size: 34px 34px;
             mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 1) 34%, rgba(0, 0, 0, 0) 100%);
         }
@@ -102,7 +102,7 @@
             content: "";
             position: absolute;
             inset: -35%;
-            background: conic-gradient(from 160deg, rgba(70, 157, 255, 0.12), rgba(69, 210, 190, 0.08), rgba(255, 168, 94, 0.11), rgba(70, 157, 255, 0.12));
+            background: conic-gradient(from 160deg, rgba(243, 113, 169, 0.14), rgba(255, 177, 205, 0.1), rgba(255, 190, 150, 0.11), rgba(243, 113, 169, 0.14));
             animation: rotateAura 18s linear infinite;
             z-index: 0;
         }
@@ -121,9 +121,9 @@
             gap: 10px;
             padding: 9px 14px;
             border-radius: 999px;
-            border: 1px solid rgba(94, 151, 214, 0.22);
-            background: rgba(255, 255, 255, 0.8);
-            color: #325f84;
+            border: 1px solid rgba(219, 141, 177, 0.24);
+            background: rgba(255, 250, 252, 0.88);
+            color: #a04d76;
             font-size: 12px;
             font-weight: 800;
             letter-spacing: 0.08em;
@@ -146,7 +146,7 @@
 
         .hero h1 span {
             display: block;
-            background: linear-gradient(110deg, #2683ef 0%, #11b89c 48%, #ff9d47 100%);
+            background: linear-gradient(110deg, #df5f98 0%, #f08db6 48%, #ffb083 100%);
             -webkit-background-clip: text;
             color: transparent;
         }
@@ -197,9 +197,9 @@
             min-height: 38px;
             padding: 0 14px;
             border-radius: 999px;
-            border: 1px solid rgba(86, 145, 207, 0.16);
-            background: rgba(255, 255, 255, 0.84);
-            color: #31526f;
+            border: 1px solid rgba(219, 141, 177, 0.16);
+            background: rgba(255, 250, 252, 0.88);
+            color: #8f5370;
             font-size: 0.9rem;
             font-weight: 800;
         }
@@ -208,14 +208,14 @@
         .chip {
             min-height: 44px;
             border-radius: 16px;
-            box-shadow: 0 14px 28px rgba(102, 145, 190, 0.11);
+            box-shadow: 0 14px 28px rgba(210, 148, 176, 0.16);
         }
 
         .meta-card {
             padding: 20px;
             border-radius: 22px;
-            border: 1px solid rgba(94, 151, 214, 0.18);
-            background: linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(244, 251, 255, 0.84));
+            border: 1px solid rgba(221, 150, 184, 0.18);
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(255, 245, 249, 0.9));
             box-shadow: var(--shadow-lg);
         }
 
@@ -266,8 +266,8 @@
             position: relative;
             padding: 22px;
             border-radius: var(--radius-lg);
-            border: 1px solid rgba(90, 145, 203, 0.18);
-            background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(246, 251, 255, 0.78));
+            border: 1px solid rgba(221, 150, 184, 0.2);
+            background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(255, 246, 249, 0.84));
             box-shadow: var(--shadow-lg);
             overflow: hidden;
             transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
@@ -297,8 +297,8 @@
         .command-card:hover,
         .command-card.is-active {
             transform: translateY(-6px);
-            border-color: rgba(78, 142, 208, 0.32);
-            box-shadow: 0 28px 60px rgba(85, 133, 181, 0.18);
+            border-color: rgba(221, 125, 167, 0.32);
+            box-shadow: 0 28px 60px rgba(204, 127, 162, 0.22);
         }
 
         .card-top,
@@ -322,7 +322,7 @@
             padding: 7px 11px;
             border-radius: 999px;
             background: var(--accent-soft);
-            color: #265177;
+            color: #8d496b;
             font-size: 11px;
             font-weight: 800;
             letter-spacing: 0.08em;
@@ -332,7 +332,7 @@
         .card-tag {
             min-height: 28px;
             padding: 0 10px;
-            color: #43637f;
+            color: #875870;
             font-size: 12px;
         }
 
@@ -357,7 +357,7 @@
             display: flex;
             gap: 10px;
             align-items: flex-start;
-            color: #33516c;
+            color: #765768;
             font-size: 0.92rem;
             line-height: 1.65;
         }
@@ -376,8 +376,8 @@
         .code-shell,
         .output-shell {
             overflow: hidden;
-            border: 1px solid rgba(84, 143, 204, 0.14);
-            background: linear-gradient(180deg, rgba(14, 28, 44, 0.94), rgba(24, 42, 62, 0.95));
+            border: 1px solid rgba(218, 150, 181, 0.16);
+            background: linear-gradient(180deg, rgba(52, 28, 43, 0.96), rgba(74, 39, 59, 0.96));
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
 
@@ -455,10 +455,10 @@
         }
 
         .ghost-btn {
-            border: 1px solid rgba(91, 151, 213, 0.18);
-            color: #2e4f6d;
-            background: rgba(255, 255, 255, 0.82);
-            box-shadow: 0 12px 24px rgba(101, 140, 179, 0.11);
+            border: 1px solid rgba(221, 150, 184, 0.18);
+            color: #7f4c66;
+            background: rgba(255, 250, 252, 0.88);
+            box-shadow: 0 12px 24px rgba(210, 148, 176, 0.15);
         }
 
         .run-btn:hover:not(:disabled),
@@ -584,19 +584,19 @@
             min-height: 56px;
             padding: 0 18px;
             border-radius: 16px;
-            border: 1px solid rgba(91, 151, 213, 0.18);
-            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(221, 150, 184, 0.18);
+            background: rgba(255, 251, 252, 0.94);
             color: var(--ink-900);
             font-family: "Cascadia Code", "Consolas", monospace;
             font-size: 0.92rem;
-            box-shadow: 0 12px 24px rgba(101, 140, 179, 0.11);
+            box-shadow: 0 12px 24px rgba(210, 148, 176, 0.13);
             transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
         }
 
         .card-path-input:focus {
             outline: none;
-            border-color: rgba(82, 145, 212, 0.44);
-            box-shadow: 0 0 0 5px rgba(93, 156, 219, 0.14);
+            border-color: rgba(228, 126, 171, 0.44);
+            box-shadow: 0 0 0 5px rgba(237, 159, 193, 0.18);
             transform: translateY(-1px);
         }
 
@@ -667,8 +667,8 @@
         .runtime-panel {
             padding: 20px;
             border-radius: 22px;
-            border: 1px solid rgba(90, 145, 203, 0.16);
-            background: linear-gradient(180deg, rgba(251, 254, 255, 0.96), rgba(241, 248, 255, 0.9));
+            border: 1px solid rgba(221, 150, 184, 0.18);
+            background: linear-gradient(180deg, rgba(255, 251, 253, 0.98), rgba(255, 243, 248, 0.94));
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
         }
 
@@ -723,9 +723,9 @@
         .runtime-shell {
             margin-top: 18px;
             overflow: hidden;
-            border: 1px solid rgba(88, 145, 204, 0.2);
+            border: 1px solid rgba(221, 150, 184, 0.2);
             border-radius: 22px;
-            background: linear-gradient(180deg, rgba(14, 28, 44, 0.94), rgba(24, 42, 62, 0.95));
+            background: linear-gradient(180deg, rgba(52, 28, 43, 0.96), rgba(74, 39, 59, 0.96));
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
 

@@ -290,9 +290,9 @@ class PresetCommandRunnerService
                     '適合先清最新掃描結果，再直接推到你要的 port。',
                 ],
                 'tags' => ['dialogues', 'token_scan_items', 'port 8000', 'port 8001'],
-                'accent_from' => '#2f8bff',
-                'accent_to' => '#35d4c6',
-                'accent_soft' => 'rgba(47, 139, 255, 0.16)',
+                'accent_from' => '#ec5f9b',
+                'accent_to' => '#ff9fba',
+                'accent_soft' => 'rgba(236, 95, 155, 0.18)',
                 'steps' => [
                     [
                         'display' => 'C:\\php\\php.exe artisan tg:scan-group-tokens',
@@ -369,9 +369,9 @@ class PresetCommandRunnerService
                     '輸入資料夾後按 Enter 就可以直接開始跑。',
                 ],
                 'tags' => ['video_features', '自訂資料夾', '搬移重複'],
-                'accent_from' => '#ff8a3d',
-                'accent_to' => '#ffcb57',
-                'accent_soft' => 'rgba(255, 138, 61, 0.16)',
+                'accent_from' => '#ff8fb1',
+                'accent_to' => '#ffc29d',
+                'accent_soft' => 'rgba(255, 143, 177, 0.18)',
                 'command_name' => 'video:move-duplicates',
                 'path_input' => [
                     'name' => 'path',
@@ -396,9 +396,9 @@ class PresetCommandRunnerService
                     '重複檔同樣會搬到「疑似重複檔案」資料夾，輸入路徑後按 Enter 就能開始。',
                 ],
                 'tags' => ['folder batch', '自訂資料夾', '疑似重複檔案'],
-                'accent_from' => '#26b872',
-                'accent_to' => '#8bdc88',
-                'accent_soft' => 'rgba(38, 184, 114, 0.16)',
+                'accent_from' => '#d86cc2',
+                'accent_to' => '#f2a5ce',
+                'accent_soft' => 'rgba(216, 108, 194, 0.18)',
                 'command_name' => 'video:move-folder-duplicates',
                 'path_input' => [
                     'name' => 'path',
@@ -423,9 +423,9 @@ class PresetCommandRunnerService
                     '成功處理後一樣會依 --done-action=delete 刪除已完成列。',
                 ],
                 'tags' => ['backlog', 'port 8000', 'port 8001'],
-                'accent_from' => '#f05d82',
-                'accent_to' => '#f5a35c',
-                'accent_soft' => 'rgba(240, 93, 130, 0.16)',
+                'accent_from' => '#ff6f98',
+                'accent_to' => '#ffb07f',
+                'accent_soft' => 'rgba(255, 111, 152, 0.18)',
                 'steps' => [
                     [
                         'display' => 'C:\\php\\php.exe artisan tg:dispatch-token-scan-items --done-action=delete --port=8001',

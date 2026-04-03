@@ -1,0 +1,363 @@
+@media (pointer: fine) {
+    body.fancy-cursor-ready,
+    body.fancy-cursor-ready * {
+        cursor: none !important;
+    }
+}
+
+body.fancy-cursor-ready .fancy-cursor-layer {
+    opacity: 1;
+}
+
+body.fancy-cursor-hidden .fancy-cursor-layer,
+body.fancy-cursor-disabled .fancy-cursor-layer {
+    opacity: 0;
+}
+
+.fancy-cursor-layer {
+    --fc-accent-a: #ff77c8;
+    --fc-accent-b: #ffe48c;
+    --fc-accent-c: #fff8ff;
+    --fc-glow: rgba(255, 131, 202, 0.34);
+    position: fixed;
+    inset: 0;
+    z-index: 2147483000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 180ms ease;
+}
+
+.fancy-cursor-ring,
+.fancy-cursor-core {
+    position: fixed;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    will-change: transform, opacity, width, height;
+}
+
+.fancy-cursor-ring {
+    width: 48px;
+    height: 48px;
+    border-radius: 999px;
+    border: 1.5px solid rgba(255, 255, 255, 0.8);
+    background:
+        radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.12) 45%, transparent 70%),
+        radial-gradient(circle, var(--fc-glow), transparent 72%);
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.2) inset,
+        0 0 30px var(--fc-glow);
+    transform: translate3d(var(--fc-x, -120px), var(--fc-y, -120px), 0) translate(-50%, -50%) scale(var(--fc-scale, 1));
+    transition:
+        width 160ms ease,
+        height 160ms ease,
+        border-radius 160ms ease,
+        background 160ms ease,
+        border-color 160ms ease,
+        opacity 160ms ease;
+}
+
+.fancy-cursor-core {
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    background: linear-gradient(140deg, var(--fc-accent-a), var(--fc-accent-b));
+    box-shadow:
+        0 12px 30px rgba(36, 16, 28, 0.18),
+        0 0 26px var(--fc-glow);
+    transform: translate3d(var(--fc-x, -120px), var(--fc-y, -120px), 0) translate(-50%, -50%) scale(var(--fc-scale, 1));
+    transition:
+        width 160ms ease,
+        height 160ms ease,
+        border-radius 160ms ease,
+        opacity 160ms ease,
+        box-shadow 160ms ease,
+        background 180ms ease;
+}
+
+.fancy-cursor-icon {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    color: #fffafc;
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+    font-size: 22px;
+    line-height: 1;
+    transform-origin: center;
+}
+
+.fancy-cursor-core::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: calc(100% - 2px);
+    width: 2px;
+    height: 0;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.08));
+    transform: translateX(-50%);
+    opacity: 0;
+    transition: opacity 160ms ease, height 160ms ease;
+}
+
+.fancy-cursor-particles {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+}
+
+.fancy-cursor-layer.is-wand {
+    --fc-accent-a: #ff78c7;
+    --fc-accent-b: #ffd97c;
+    --fc-accent-c: #fff6fd;
+    --fc-glow: rgba(255, 122, 199, 0.36);
+}
+
+.fancy-cursor-layer.is-balloon {
+    --fc-accent-a: #ff8bb9;
+    --fc-accent-b: #ffd3ec;
+    --fc-accent-c: #fff8fc;
+    --fc-glow: rgba(255, 144, 195, 0.34);
+}
+
+.fancy-cursor-layer.is-balloon .fancy-cursor-core::after {
+    opacity: 0.9;
+    height: 22px;
+}
+
+.fancy-cursor-layer.is-flower {
+    --fc-accent-a: #ff92d0;
+    --fc-accent-b: #ffe2f4;
+    --fc-accent-c: #fff8fd;
+    --fc-glow: rgba(255, 149, 208, 0.34);
+}
+
+.fancy-cursor-layer.is-butterfly {
+    --fc-accent-a: #8b78ff;
+    --fc-accent-b: #ffbfe7;
+    --fc-accent-c: #f7f3ff;
+    --fc-glow: rgba(149, 120, 255, 0.3);
+}
+
+.fancy-cursor-layer.is-bunny {
+    --fc-accent-a: #ffb0d7;
+    --fc-accent-b: #fff0f8;
+    --fc-accent-c: #fff8fd;
+    --fc-glow: rgba(255, 176, 215, 0.32);
+}
+
+.fancy-cursor-layer.is-cat {
+    --fc-accent-a: #ff9f88;
+    --fc-accent-b: #ffe2d5;
+    --fc-accent-c: #fff8f5;
+    --fc-glow: rgba(255, 159, 136, 0.34);
+}
+
+.fancy-cursor-layer.is-snake {
+    --fc-accent-a: #6ad49d;
+    --fc-accent-b: #d8ffe8;
+    --fc-accent-c: #f5fff9;
+    --fc-glow: rgba(106, 212, 157, 0.32);
+}
+
+body.fancy-cursor-hover .fancy-cursor-ring {
+    --fc-scale: 1.24;
+}
+
+body.fancy-cursor-hover .fancy-cursor-core {
+    --fc-scale: 1.12;
+}
+
+body.fancy-cursor-press .fancy-cursor-ring {
+    --fc-scale: 0.84;
+}
+
+body.fancy-cursor-press .fancy-cursor-core {
+    --fc-scale: 0.9;
+}
+
+body.fancy-cursor-card .fancy-cursor-ring {
+    --fc-scale: 1.08;
+}
+
+body.fancy-cursor-text .fancy-cursor-ring {
+    width: 24px;
+    height: 58px;
+    border-radius: 18px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.08)),
+        radial-gradient(circle, var(--fc-glow), transparent 72%);
+}
+
+body.fancy-cursor-text .fancy-cursor-core {
+    opacity: 0.24;
+}
+
+.fancy-cursor-layer.is-wand .fancy-cursor-icon {
+    animation: fc-wand 1.7s ease-in-out infinite;
+}
+
+.fancy-cursor-layer.is-balloon .fancy-cursor-icon {
+    animation: fc-balloon 2.2s ease-in-out infinite;
+}
+
+.fancy-cursor-layer.is-flower .fancy-cursor-icon {
+    animation: fc-flower 1.9s ease-in-out infinite;
+}
+
+.fancy-cursor-layer.is-butterfly .fancy-cursor-icon {
+    animation: fc-butterfly 0.95s ease-in-out infinite;
+}
+
+.fancy-cursor-layer.is-bunny .fancy-cursor-icon,
+.fancy-cursor-layer.is-cat .fancy-cursor-icon {
+    animation: fc-hop 1.45s ease-in-out infinite;
+}
+
+.fancy-cursor-layer.is-snake .fancy-cursor-icon {
+    animation: fc-sway 1.25s ease-in-out infinite;
+}
+
+.fc-particle {
+    position: fixed;
+    top: 0;
+    left: 0;
+    transform: translate(-50%, -50%);
+    transform-origin: center;
+    pointer-events: none;
+    white-space: nowrap;
+    will-change: transform, opacity;
+}
+
+.fc-particle--spark {
+    color: var(--fc-accent-b);
+    text-shadow: 0 0 16px var(--fc-glow);
+    animation: fc-particle-spark var(--fc-duration, 760ms) ease-out forwards;
+}
+
+.fc-particle--float {
+    color: rgba(255, 255, 255, 0.92);
+    text-shadow: 0 0 14px var(--fc-glow);
+    animation: fc-particle-float var(--fc-duration, 1100ms) ease-out forwards;
+}
+
+.fc-particle--petal {
+    color: var(--fc-accent-a);
+    text-shadow: 0 0 14px rgba(255, 255, 255, 0.25);
+    animation: fc-particle-petal var(--fc-duration, 950ms) ease-out forwards;
+}
+
+.fc-particle--flutter {
+    color: var(--fc-accent-b);
+    text-shadow: 0 0 16px var(--fc-glow);
+    animation: fc-particle-flutter var(--fc-duration, 900ms) ease-out forwards;
+}
+
+.fc-particle--paw,
+.fc-particle--trail {
+    color: var(--fc-accent-c);
+    text-shadow: 0 0 14px var(--fc-glow);
+    animation: fc-particle-paw var(--fc-duration, 820ms) ease-out forwards;
+}
+
+@keyframes fc-wand {
+    0%,
+    100% { transform: rotate(-10deg) scale(1); }
+    50% { transform: rotate(8deg) scale(1.04); }
+}
+
+@keyframes fc-balloon {
+    0%,
+    100% { transform: translateY(-1px) rotate(-3deg); }
+    50% { transform: translateY(3px) rotate(3deg); }
+}
+
+@keyframes fc-flower {
+    0%,
+    100% {
+        transform: rotate(-4deg) scale(1);
+    }
+    50% {
+        transform: rotate(4deg) scale(1.08);
+    }
+}
+
+@keyframes fc-butterfly {
+    0%,
+    100% { transform: rotate(-8deg) scale(0.96); }
+    50% { transform: rotate(8deg) scale(1.08); }
+}
+
+@keyframes fc-hop {
+    0%,
+    100% { transform: translateY(0) rotate(-5deg); }
+    35% { transform: translateY(-3px) rotate(6deg); }
+    65% { transform: translateY(1px) rotate(0deg); }
+}
+
+@keyframes fc-sway {
+    0%,
+    100% { transform: rotate(-12deg) translateX(-1px); }
+    50% { transform: rotate(10deg) translateX(2px); }
+}
+
+@keyframes fc-particle-spark {
+    from {
+        opacity: var(--fc-opacity, 0.95);
+        transform: translate(-50%, -50%) scale(var(--fc-start-scale, 1)) rotate(0deg);
+    }
+    to {
+        opacity: 0;
+        transform: translate(calc(-50% + var(--fc-dx, 0px)), calc(-50% + var(--fc-dy, -48px))) scale(var(--fc-end-scale, 0.35)) rotate(var(--fc-rotate, 30deg));
+    }
+}
+
+@keyframes fc-particle-float {
+    from {
+        opacity: var(--fc-opacity, 0.82);
+        transform: translate(-50%, -50%) scale(var(--fc-start-scale, 1));
+    }
+    to {
+        opacity: 0;
+        transform: translate(calc(-50% + var(--fc-dx, 0px)), calc(-50% + var(--fc-dy, -72px))) scale(var(--fc-end-scale, 0.4));
+    }
+}
+
+@keyframes fc-particle-petal {
+    from {
+        opacity: var(--fc-opacity, 0.9);
+        transform: translate(-50%, -50%) scale(var(--fc-start-scale, 1)) rotate(0deg);
+    }
+    to {
+        opacity: 0;
+        transform: translate(calc(-50% + var(--fc-dx, 0px)), calc(-50% + var(--fc-dy, 54px))) scale(var(--fc-end-scale, 0.45)) rotate(var(--fc-rotate, 48deg));
+    }
+}
+
+@keyframes fc-particle-flutter {
+    from {
+        opacity: var(--fc-opacity, 0.92);
+        transform: translate(-50%, -50%) scale(var(--fc-start-scale, 1)) rotate(-6deg);
+    }
+    to {
+        opacity: 0;
+        transform: translate(calc(-50% + var(--fc-dx, 0px)), calc(-50% + var(--fc-dy, 16px))) scale(var(--fc-end-scale, 0.5)) rotate(var(--fc-rotate, 28deg));
+    }
+}
+
+@keyframes fc-particle-paw {
+    from {
+        opacity: var(--fc-opacity, 0.85);
+        transform: translate(-50%, -50%) scale(var(--fc-start-scale, 1));
+    }
+    to {
+        opacity: 0;
+        transform: translate(calc(-50% + var(--fc-dx, 0px)), calc(-50% + var(--fc-dy, 24px))) scale(var(--fc-end-scale, 0.42));
+    }
+}

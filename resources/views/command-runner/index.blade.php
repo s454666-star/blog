@@ -25,11 +25,6 @@
             --shadow-lg: 0 22px 50px rgba(200, 154, 223, 0.16);
             --radius-xl: 30px;
             --radius-lg: 24px;
-            --cursor-ring: rgba(255, 210, 241, 0.72);
-            --cursor-ring-strong: rgba(255, 154, 212, 0.9);
-            --cursor-dot-from: #ff8fca;
-            --cursor-dot-to: #ffd0ff;
-            --cursor-glow: rgba(244, 136, 203, 0.34);
         }
 
         * { box-sizing: border-box; }
@@ -46,13 +41,6 @@
                 radial-gradient(circle at 50% 100%, rgba(230, 210, 255, 0.18), transparent 34%),
                 linear-gradient(140deg, var(--page-bg) 0%, #fffbff 42%, var(--page-bg-2) 100%);
             overflow-x: hidden;
-        }
-
-        @media (pointer: fine) {
-            body.cursor-ready,
-            body.cursor-ready * {
-                cursor: none !important;
-            }
         }
 
         body::before,
@@ -91,95 +79,6 @@
                 linear-gradient(90deg, rgba(214, 176, 232, 0.08) 1px, transparent 1px);
             background-size: 34px 34px;
             mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 1) 34%, rgba(0, 0, 0, 0) 100%);
-        }
-
-        .cursor-layer {
-            position: fixed;
-            inset: 0;
-            pointer-events: none;
-            z-index: 9999;
-            opacity: 0;
-            transition: opacity 160ms ease;
-        }
-
-        body.cursor-ready .cursor-layer {
-            opacity: 1;
-        }
-
-        .cursor-ring,
-        .cursor-dot {
-            position: fixed;
-            top: 0;
-            left: 0;
-            border-radius: 999px;
-            transform: translate(-50%, -50%);
-            will-change: transform, width, height, opacity, background, border-color;
-        }
-
-        .cursor-ring {
-            width: 34px;
-            height: 34px;
-            border: 1.5px solid var(--cursor-ring);
-            background: radial-gradient(circle, rgba(255, 244, 249, 0.35), rgba(255, 244, 249, 0.08) 58%, transparent 72%);
-            box-shadow:
-                0 0 0 1px rgba(255, 255, 255, 0.3) inset,
-                0 0 24px var(--cursor-glow);
-            backdrop-filter: blur(8px);
-            transition:
-                width 160ms ease,
-                height 160ms ease,
-                border-color 160ms ease,
-                background 160ms ease,
-                border-radius 160ms ease,
-                opacity 160ms ease;
-        }
-
-        .cursor-dot {
-            width: 10px;
-            height: 10px;
-            background: linear-gradient(135deg, var(--cursor-dot-from), var(--cursor-dot-to));
-            box-shadow: 0 0 18px rgba(255, 161, 215, 0.44);
-            transition: opacity 120ms ease;
-        }
-
-        body.cursor-hidden .cursor-layer,
-        body.cursor-disabled .cursor-layer {
-            opacity: 0;
-        }
-
-        body.cursor-hover .cursor-ring {
-            width: 48px;
-            height: 48px;
-            border-color: var(--cursor-ring-strong);
-            background: radial-gradient(circle, rgba(255, 214, 236, 0.46), rgba(255, 214, 236, 0.14) 58%, transparent 72%);
-        }
-
-        body.cursor-card .cursor-ring {
-            width: 42px;
-            height: 42px;
-            border-color: rgba(255, 188, 227, 0.82);
-        }
-
-        body.cursor-text .cursor-ring {
-            width: 24px;
-            height: 52px;
-            border-radius: 16px;
-            border-color: rgba(255, 155, 211, 0.88);
-            background: linear-gradient(180deg, rgba(255, 233, 245, 0.42), rgba(255, 233, 245, 0.1));
-        }
-
-        body.cursor-text .cursor-dot {
-            opacity: 0.32;
-        }
-
-        body.cursor-press .cursor-ring {
-            width: 28px;
-            height: 28px;
-            border-color: rgba(255, 125, 195, 0.96);
-        }
-
-        body.cursor-press .cursor-dot {
-            opacity: 0.92;
         }
 
         .shell {
@@ -950,10 +849,6 @@
 </head>
 <body>
     <div class="mesh"></div>
-    <div class="cursor-layer" aria-hidden="true">
-        <div class="cursor-ring" data-cursor-ring></div>
-        <div class="cursor-dot" data-cursor-dot></div>
-    </div>
     <main class="shell">
         <section class="hero">
             <span class="eyebrow">Preset Command Deck</span>
@@ -1146,10 +1041,6 @@
             const runStreamUrl = @json(route('command-runner.stream'));
             const stopRunUrl = @json(route('command-runner.stop'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-            const finePointerMedia = window.matchMedia('(pointer: fine)');
-            const cursorLayer = document.querySelector('.cursor-layer');
-            const cursorRing = document.querySelector('[data-cursor-ring]');
-            const cursorDot = document.querySelector('[data-cursor-dot]');
             const rows = [...document.querySelectorAll('[data-row]')];
             const cards = [...document.querySelectorAll('[data-card]')];
             const runButtons = [...document.querySelectorAll('[data-run-preset]')];
@@ -1164,14 +1055,6 @@
             let activeCardId = null;
             let activeRowId = null;
             let activeRunToken = null;
-            let cursorFrame = null;
-            let cursorEnabled = false;
-            let cursorTargetX = window.innerWidth / 2;
-            let cursorTargetY = window.innerHeight / 2;
-            let cursorRingX = cursorTargetX;
-            let cursorRingY = cursorTargetY;
-            let cursorDotX = cursorTargetX;
-            let cursorDotY = cursorTargetY;
 
             const runtimeRowForCard = (card) => card.closest('[data-row]');
 
@@ -1388,134 +1271,10 @@
                 }
             };
 
-            const setCursorState = ({ hover = false, text = false, card = false, hidden = false, pressed = false } = {}) => {
-                document.body.classList.toggle('cursor-hover', hover);
-                document.body.classList.toggle('cursor-text', text);
-                document.body.classList.toggle('cursor-card', card);
-                document.body.classList.toggle('cursor-hidden', hidden);
-                document.body.classList.toggle('cursor-press', pressed);
-            };
-
-            const animateCursor = () => {
-                cursorRingX += (cursorTargetX - cursorRingX) * 0.18;
-                cursorRingY += (cursorTargetY - cursorRingY) * 0.18;
-                cursorDotX += (cursorTargetX - cursorDotX) * 0.34;
-                cursorDotY += (cursorTargetY - cursorDotY) * 0.34;
-
-                cursorRing.style.transform = `translate(${cursorRingX}px, ${cursorRingY}px) translate(-50%, -50%)`;
-                cursorDot.style.transform = `translate(${cursorDotX}px, ${cursorDotY}px) translate(-50%, -50%)`;
-
-                cursorFrame = window.requestAnimationFrame(animateCursor);
-            };
-
-            const updateCursorInteraction = (target) => {
-                if (!cursorEnabled) {
-                    return;
-                }
-
-                const interactive = target.closest('button, a, [data-copy-preview], [data-copy-output], [data-close-output], [data-stop-run]');
-                const textInput = target.closest('input[type="text"], textarea');
-                const cardSurface = target.closest('.command-card');
-
-                setCursorState({
-                    hover: Boolean(interactive),
-                    text: Boolean(textInput),
-                    card: !interactive && !textInput && Boolean(cardSurface),
-                    hidden: false,
-                    pressed: document.body.classList.contains('cursor-press'),
-                });
-            };
-
-            const enableCustomCursor = () => {
-                if (!cursorLayer || !cursorRing || !cursorDot || !finePointerMedia.matches || cursorEnabled) {
-                    return;
-                }
-
-                cursorEnabled = true;
-                document.body.classList.add('cursor-ready');
-                document.body.classList.remove('cursor-disabled');
-                cursorFrame = window.requestAnimationFrame(animateCursor);
-            };
-
-            const disableCustomCursor = () => {
-                if (!cursorEnabled) {
-                    return;
-                }
-
-                cursorEnabled = false;
-                document.body.classList.remove('cursor-ready', 'cursor-hover', 'cursor-text', 'cursor-card', 'cursor-hidden', 'cursor-press');
-                document.body.classList.add('cursor-disabled');
-
-                if (cursorFrame !== null) {
-                    window.cancelAnimationFrame(cursorFrame);
-                    cursorFrame = null;
-                }
-            };
-
-            const handlePointerMediaChange = () => {
-                if (finePointerMedia.matches) {
-                    enableCustomCursor();
-                    return;
-                }
-
-                disableCustomCursor();
-            };
-
             rows.forEach((row) => {
                 resetRuntime(row);
             });
             setStopButtonsState();
-
-            handlePointerMediaChange();
-
-            if (typeof finePointerMedia.addEventListener === 'function') {
-                finePointerMedia.addEventListener('change', handlePointerMediaChange);
-            } else if (typeof finePointerMedia.addListener === 'function') {
-                finePointerMedia.addListener(handlePointerMediaChange);
-            }
-
-            document.addEventListener('pointermove', (event) => {
-                if (!cursorEnabled) {
-                    return;
-                }
-
-                cursorTargetX = event.clientX;
-                cursorTargetY = event.clientY;
-                updateCursorInteraction(event.target instanceof Element ? event.target : document.body);
-            });
-
-            document.addEventListener('pointerdown', () => {
-                if (!cursorEnabled) {
-                    return;
-                }
-
-                document.body.classList.add('cursor-press');
-            });
-
-            document.addEventListener('pointerup', (event) => {
-                if (!cursorEnabled) {
-                    return;
-                }
-
-                document.body.classList.remove('cursor-press');
-                updateCursorInteraction(event.target instanceof Element ? event.target : document.body);
-            });
-
-            document.addEventListener('pointerleave', () => {
-                if (!cursorEnabled) {
-                    return;
-                }
-
-                setCursorState({ hidden: true });
-            });
-
-            document.addEventListener('pointerenter', (event) => {
-                if (!cursorEnabled) {
-                    return;
-                }
-
-                updateCursorInteraction(event.target instanceof Element ? event.target : document.body);
-            });
 
             previewButtons.forEach((button) => {
                 button.addEventListener('click', async () => {

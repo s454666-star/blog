@@ -168,7 +168,10 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE', true),
+    'secure' => env(
+        'SESSION_SECURE_COOKIE',
+        Str::startsWith((string) env('APP_URL', ''), 'https://')
+    ),
 
     /*
     |--------------------------------------------------------------------------
@@ -196,6 +199,11 @@ return [
     |
     */
 
-    'same_site' => 'none',
+    'same_site' => env(
+        'SESSION_SAME_SITE',
+        env('SESSION_SECURE_COOKIE', Str::startsWith((string) env('APP_URL', ''), 'https://'))
+            ? 'none'
+            : 'lax'
+    ),
 
 ];

@@ -32,4 +32,16 @@ return [
     'telegram' => [
         'mystar_secret' => env('MYSTAR_TELEGRAM_SECRET'),
     ],
+
+    'google_cloud_vision' => [
+        'project_id' => env('GOOGLE_CLOUD_PROJECT_ID'),
+        'api_key' => env('GOOGLE_CLOUD_VISION_API_KEY'),
+        'credentials' => array_values(array_filter([
+            env('GOOGLE_CLOUD_VISION_CREDENTIALS'),
+            env('GOOGLE_APPLICATION_CREDENTIALS'),
+            env('GOOGLE_CLOUD_KEY_FILE'),
+        ])),
+        'ca_bundle' => env('GOOGLE_CLOUD_VISION_CA_BUNDLE'),
+        'verify_ssl' => env('GOOGLE_CLOUD_VISION_VERIFY_SSL', true),
+    ],
 ];

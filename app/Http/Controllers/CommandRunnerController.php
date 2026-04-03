@@ -69,7 +69,7 @@ class CommandRunnerController extends Controller
             };
 
             try {
-                $this->runner->stream($validated['preset'], $input, $sendEvent);
+                $this->runner->stream($validated['preset'], $input, $sendEvent, $validated['run_token'] ?? null);
             } catch (\Throwable $e) {
                 $sendEvent('error', [
                     'message' => $e->getMessage(),
@@ -83,11 +83,23 @@ class CommandRunnerController extends Controller
         ]);
     }
 
+    public function stop(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'run_token' => ['required', 'string', 'max:100'],
+        ]);
+
+        return response()->json(
+            $this->runner->requestStop($validated['run_token'])
+        );
+    }
+
     private function validateRunRequest(Request $request): array
     {
         return $request->validate([
             'preset' => ['required', 'string'],
             'path' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'run_token' => ['sometimes', 'nullable', 'string', 'max:100'],
         ]);
     }
 

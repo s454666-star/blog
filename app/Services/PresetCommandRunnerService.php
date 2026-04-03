@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\File;
 use InvalidArgumentException;
 use Symfony\Component\Process\Process;
 use Throwable;
@@ -10,6 +11,8 @@ class PresetCommandRunnerService
 {
     private const WORKDIR = 'C:\\www\\blog';
     private const PHP_BINARY = 'C:\\php\\php.exe';
+    private const RUN_STATE_DIR = 'app\\command-runner-runs';
+    private const STOP_EXIT_CODE = 130;
 
     public function presets(): array
     {
@@ -19,6 +22,7 @@ class PresetCommandRunnerService
             'dispatch_remaining_tokens' => 1,
             'move_video_duplicates' => 2,
             'move_folder_duplicates' => 3,
+            'scan_video_duplicates' => 4,
         ];
 
         foreach (self::catalog() as $id => $preset) {
@@ -45,11 +49,39 @@ class PresetCommandRunnerService
         return $this->executePreset($preset);
     }
 
-    public function stream(string $id, array $input = [], callable $onEvent = null): void
+    public function stream(string $id, array $input = [], callable $onEvent = null, ?string $runToken = null): void
     {
         $preset = $this->getPreset($id, $input);
 
-        $this->executePreset($preset, $onEvent);
+        $this->executePreset($preset, $onEvent, $runToken);
+    }
+
+    public function requestStop(string $runToken): array
+    {
+        $state = $this->readRunState($runToken);
+
+        if ($state === null) {
+            return [
+                'accepted' => false,
+                'message' => '目前沒有可停止的執行。',
+            ];
+        }
+
+        $this->mergeRunState($runToken, [
+            'status' => 'stop-requested',
+            'stop_requested' => true,
+            'stop_requested_at' => now()->format('Y-m-d H:i:s'),
+        ]);
+
+        $pid = (int) ($state['pid'] ?? 0);
+        $signalSent = $pid > 0 ? $this->terminateProcessByPid($pid) : false;
+
+        return [
+            'accepted' => true,
+            'message' => $signalSent
+                ? '已送出停止要求，正在中止目前指令。'
+                : '已記錄停止要求，會在目前程序可中斷時停止。',
+        ];
     }
 
     public function getPreset(string $id, array $input = []): array
@@ -75,7 +107,7 @@ class PresetCommandRunnerService
 
     private function resolvePreset(string $id, array $preset, array $input): array
     {
-        if (!in_array($id, ['move_video_duplicates', 'move_folder_duplicates'], true)) {
+        if (!in_array($id, ['move_video_duplicates', 'move_folder_duplicates', 'scan_video_duplicates'], true)) {
             return $preset;
         }
 
@@ -144,16 +176,29 @@ class PresetCommandRunnerService
         return $text;
     }
 
-    private function executePreset(array $preset, callable $onEvent = null): array
+    private function executePreset(array $preset, callable $onEvent = null, ?string $runToken = null): array
     {
         $startedAt = microtime(true);
         $timestamp = now();
         $output = '';
+        $cancelled = false;
         $emit = function (string $event, array $payload = []) use ($onEvent): void {
             if ($onEvent !== null) {
                 $onEvent($event, $payload);
             }
         };
+
+        if ($runToken !== null) {
+            $this->writeRunState($runToken, [
+                'run_token' => $runToken,
+                'preset_id' => $preset['id'],
+                'preset_title' => $preset['title'],
+                'status' => 'starting',
+                'stop_requested' => false,
+                'started_at' => $timestamp->format('Y-m-d H:i:s'),
+                'pid' => null,
+            ]);
+        }
 
         $header = $this->normalizeOutput(sprintf(
             "[%s] Preset: %s\nWorking directory: %s\n\n",
@@ -169,111 +214,303 @@ class PresetCommandRunnerService
                 'title' => $preset['title'],
                 'summary' => $preset['summary'],
             ],
+            'run_token' => $runToken,
         ]);
         $emit('chunk', ['text' => $header]);
 
         $success = true;
         $exitCode = 0;
         $totalSteps = count($preset['steps']);
+        try {
+            foreach ($preset['steps'] as $index => $step) {
+                if ($runToken !== null && $this->isStopRequested($runToken)) {
+                    $cancelled = true;
+                    $stopChunk = $this->normalizeOutput("[stop requested] 已收到停止要求，跳過尚未開始的步驟。\n");
+                    $output .= $stopChunk;
+                    $emit('chunk', [
+                        'text' => $stopChunk,
+                        'stream' => 'stderr',
+                    ]);
+                    break;
+                }
 
-        foreach ($preset['steps'] as $index => $step) {
-            $stepStartedAt = microtime(true);
-            $commandLine = (string) ($step['display'] ?? $this->stringifyCommand($step['command']));
-            $stepHeader = $this->normalizeOutput(sprintf(
-                ">>> Step %d/%d\n%s\n\n",
-                $index + 1,
-                $totalSteps,
-                $commandLine
-            ));
+                $stepStartedAt = microtime(true);
+                $commandLine = (string) ($step['display'] ?? $this->stringifyCommand($step['command']));
+                $stepHeader = $this->normalizeOutput(sprintf(
+                    ">>> Step %d/%d\n%s\n\n",
+                    $index + 1,
+                    $totalSteps,
+                    $commandLine
+                ));
 
-            $output .= $stepHeader;
-            $emit('chunk', ['text' => $stepHeader]);
+                $output .= $stepHeader;
+                $emit('chunk', ['text' => $stepHeader]);
 
-            try {
-                $process = new Process($step['command'], self::WORKDIR, null, null, null);
-                $process->setTimeout(null);
-                $process->setIdleTimeout(null);
+                try {
+                    $process = new Process($step['command'], self::WORKDIR, null, null, null);
+                    $process->setTimeout(null);
+                    $process->setIdleTimeout(null);
+                    $process->start();
 
-                $process->run(function (string $type, string $buffer) use (&$output, $emit): void {
-                    $chunk = $this->normalizeOutput($buffer);
-                    if ($chunk === '') {
-                        return;
+                    if ($runToken !== null) {
+                        $this->mergeRunState($runToken, [
+                            'status' => 'running',
+                            'pid' => $process->getPid(),
+                            'step_index' => $index + 1,
+                            'step_total' => $totalSteps,
+                            'current_command' => $commandLine,
+                        ]);
                     }
 
-                    $output .= $chunk;
-                    $emit('chunk', [
-                        'text' => $chunk,
-                        'stream' => $type === Process::ERR ? 'stderr' : 'stdout',
-                    ]);
-                });
+                    while ($process->isRunning()) {
+                        $this->drainProcessOutput($process, $output, $emit);
 
-                $exitCode = (int) $process->getExitCode();
-            } catch (Throwable $e) {
+                        if (!$cancelled && $runToken !== null && $this->isStopRequested($runToken)) {
+                            $cancelled = true;
+                            $stopChunk = $this->normalizeOutput("\n[stop requested] 正在停止目前指令...\n");
+                            $output .= $stopChunk;
+                            $emit('chunk', [
+                                'text' => $stopChunk,
+                                'stream' => 'stderr',
+                            ]);
+
+                            $this->mergeRunState($runToken, [
+                                'status' => 'stopping',
+                            ]);
+
+                            $this->terminateProcess($process);
+                        }
+
+                        usleep(100000);
+                    }
+
+                    $this->drainProcessOutput($process, $output, $emit);
+
+                    $exitCode = (int) ($process->getExitCode() ?? ($cancelled ? self::STOP_EXIT_CODE : 1));
+
+                    if ($cancelled) {
+                        $exitCode = self::STOP_EXIT_CODE;
+                    }
+                } catch (Throwable $e) {
+                    $success = false;
+                    $exitCode = $cancelled ? self::STOP_EXIT_CODE : 1;
+
+                    if (!$cancelled) {
+                        $errorChunk = $this->normalizeOutput('Process exception: ' . $e->getMessage() . "\n");
+                        $output .= $errorChunk;
+                        $emit('chunk', [
+                            'text' => $errorChunk,
+                            'stream' => 'stderr',
+                        ]);
+                    }
+                }
+
+                if ($runToken !== null) {
+                    $this->mergeRunState($runToken, [
+                        'pid' => null,
+                        'last_exit_code' => $exitCode,
+                    ]);
+                }
+
+                $stepDurationMs = (int) round((microtime(true) - $stepStartedAt) * 1000);
+                $stepFooter = $this->normalizeOutput(sprintf(
+                    "\n[step %d finished] exit=%d%s duration=%sms\n\n",
+                    $index + 1,
+                    $exitCode,
+                    $cancelled ? ' cancelled=yes' : '',
+                    $stepDurationMs
+                ));
+
+                $output .= $stepFooter;
+                $emit('chunk', ['text' => $stepFooter]);
+
+                if ($exitCode !== 0) {
+                    $success = false;
+                    break;
+                }
+            }
+
+            if ($cancelled) {
                 $success = false;
-                $exitCode = 1;
-                $errorChunk = $this->normalizeOutput('Process exception: ' . $e->getMessage() . "\n");
-                $output .= $errorChunk;
-                $emit('chunk', [
-                    'text' => $errorChunk,
-                    'stream' => 'stderr',
+            }
+
+            if (!$success && $exitCode === 0) {
+                $exitCode = $cancelled ? self::STOP_EXIT_CODE : 1;
+            }
+
+            $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
+            $finishedAt = now()->format('Y-m-d H:i:s');
+            $footer = $this->normalizeOutput(sprintf(
+                "[finished] success=%s%s exit=%d total_duration=%sms\n",
+                $success ? 'yes' : 'no',
+                $cancelled ? ' cancelled=yes' : '',
+                $exitCode,
+                $durationMs
+            ));
+
+            $output .= $footer;
+            $emit('chunk', ['text' => $footer]);
+
+            $result = [
+                'preset' => [
+                    'id' => $preset['id'],
+                    'title' => $preset['title'],
+                    'summary' => $preset['summary'],
+                ],
+                'success' => $success,
+                'cancelled' => $cancelled,
+                'exit_code' => $exitCode,
+                'duration_ms' => $durationMs,
+                'finished_at' => $finishedAt,
+                'output' => $output,
+            ];
+
+            if ($runToken !== null) {
+                $this->mergeRunState($runToken, [
+                    'status' => $cancelled ? 'cancelled' : ($success ? 'completed' : 'failed'),
+                    'pid' => null,
+                    'finished_at' => $finishedAt,
+                    'exit_code' => $exitCode,
+                    'cancelled' => $cancelled,
                 ]);
             }
 
-            $stepDurationMs = (int) round((microtime(true) - $stepStartedAt) * 1000);
-            $stepFooter = $this->normalizeOutput(sprintf(
-                "\n[step %d finished] exit=%d duration=%sms\n\n",
-                $index + 1,
-                $exitCode,
-                $stepDurationMs
-            ));
+            $emit('complete', [
+                'preset' => $result['preset'],
+                'success' => $result['success'],
+                'cancelled' => $result['cancelled'],
+                'exit_code' => $result['exit_code'],
+                'duration_ms' => $result['duration_ms'],
+                'finished_at' => $result['finished_at'],
+                'run_token' => $runToken,
+            ]);
 
-            $output .= $stepFooter;
-            $emit('chunk', ['text' => $stepFooter]);
-
-            if ($exitCode !== 0) {
-                $success = false;
-                break;
+            return $result;
+        } finally {
+            if ($runToken !== null) {
+                $this->deleteRunState($runToken);
             }
         }
+    }
 
-        if (!$success && $exitCode === 0) {
-            $exitCode = 1;
+    private function drainProcessOutput(Process $process, string &$output, callable $emit): void
+    {
+        $stdout = $this->normalizeOutput($process->getIncrementalOutput());
+        if ($stdout !== '') {
+            $output .= $stdout;
+            $emit('chunk', [
+                'text' => $stdout,
+                'stream' => 'stdout',
+            ]);
         }
 
-        $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
-        $finishedAt = now()->format('Y-m-d H:i:s');
-        $footer = $this->normalizeOutput(sprintf(
-            "[finished] success=%s exit=%d total_duration=%sms\n",
-            $success ? 'yes' : 'no',
-            $exitCode,
-            $durationMs
-        ));
+        $stderr = $this->normalizeOutput($process->getIncrementalErrorOutput());
+        if ($stderr !== '') {
+            $output .= $stderr;
+            $emit('chunk', [
+                'text' => $stderr,
+                'stream' => 'stderr',
+            ]);
+        }
+    }
 
-        $output .= $footer;
-        $emit('chunk', ['text' => $footer]);
+    private function runStatePath(string $runToken): string
+    {
+        return storage_path(self::RUN_STATE_DIR . DIRECTORY_SEPARATOR . hash('sha256', $runToken) . '.json');
+    }
 
-        $result = [
-            'preset' => [
-                'id' => $preset['id'],
-                'title' => $preset['title'],
-                'summary' => $preset['summary'],
-            ],
-            'success' => $success,
-            'exit_code' => $exitCode,
-            'duration_ms' => $durationMs,
-            'finished_at' => $finishedAt,
-            'output' => $output,
-        ];
+    private function writeRunState(string $runToken, array $state): void
+    {
+        $path = $this->runStatePath($runToken);
+        File::ensureDirectoryExists(dirname($path));
+        File::put($path, json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
 
-        $emit('complete', [
-            'preset' => $result['preset'],
-            'success' => $result['success'],
-            'exit_code' => $result['exit_code'],
-            'duration_ms' => $result['duration_ms'],
-            'finished_at' => $result['finished_at'],
-        ]);
+    private function readRunState(string $runToken): ?array
+    {
+        $path = $this->runStatePath($runToken);
 
-        return $result;
+        if (!File::exists($path)) {
+            return null;
+        }
+
+        $decoded = json_decode((string) File::get($path), true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    private function mergeRunState(string $runToken, array $state): void
+    {
+        $current = $this->readRunState($runToken) ?? [];
+
+        $this->writeRunState($runToken, array_merge($current, $state, [
+            'updated_at' => now()->format('Y-m-d H:i:s'),
+        ]));
+    }
+
+    private function deleteRunState(string $runToken): void
+    {
+        $path = $this->runStatePath($runToken);
+
+        if (File::exists($path)) {
+            File::delete($path);
+        }
+    }
+
+    private function isStopRequested(string $runToken): bool
+    {
+        return (bool) (($this->readRunState($runToken) ?? [])['stop_requested'] ?? false);
+    }
+
+    private function terminateProcess(Process $process): void
+    {
+        $pid = (int) ($process->getPid() ?? 0);
+
+        if ($pid > 0 && $this->terminateProcessByPid($pid)) {
+            return;
+        }
+
+        try {
+            $process->stop(1);
+        } catch (Throwable) {
+        }
+    }
+
+    private function terminateProcessByPid(int $pid): bool
+    {
+        if ($pid <= 0) {
+            return false;
+        }
+
+        try {
+            if (DIRECTORY_SEPARATOR === '\\') {
+                $graceful = new Process(['taskkill', '/PID', (string) $pid, '/T']);
+                $graceful->setTimeout(5);
+                $graceful->run();
+
+                if ($graceful->isSuccessful()) {
+                    return true;
+                }
+
+                $forced = new Process(['taskkill', '/PID', (string) $pid, '/T', '/F']);
+                $forced->setTimeout(5);
+                $forced->run();
+
+                return $forced->isSuccessful();
+            }
+
+            if (function_exists('posix_kill')) {
+                return posix_kill($pid, defined('SIGINT') ? SIGINT : 15);
+            }
+
+            $fallback = new Process(['kill', '-INT', (string) $pid]);
+            $fallback->setTimeout(5);
+            $fallback->run();
+
+            return $fallback->isSuccessful();
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     private static function catalog(): array
@@ -409,6 +646,33 @@ class PresetCommandRunnerService
                 'command_preview_template' => implode("\n", [
                     'cd ' . self::WORKDIR,
                     'php artisan video:move-folder-duplicates "__PATH__"',
+                ]),
+                'steps' => [],
+            ],
+            'scan_video_duplicates' => [
+                'eyebrow' => 'Folder Scan Only',
+                'title' => '掃描資料夾重複影片（只掃描不搬移）',
+                'summary' => '直接掃你指定的資料夾，找出重複影片並輸出比對結果，不會搬動檔案。',
+                'details' => '這組會直接跑 video:scan-duplicates，適合先盤點整包資料夾的疑似重複影片，再決定後續要不要搬移或人工檢查。',
+                'highlights' => [
+                    '預設直接帶入 Z:\\FC2-2026(new)，你也可以改成其他資料夾。',
+                    '這組只做掃描與比對，不會幫你移動原始檔案。',
+                    '一樣支援輸入資料夾後按 Enter 立即執行。',
+                ],
+                'tags' => ['scan only', '自訂資料夾', 'video:scan-duplicates'],
+                'accent_from' => '#d892f4',
+                'accent_to' => '#ffd0ff',
+                'accent_soft' => 'rgba(216, 146, 244, 0.22)',
+                'command_name' => 'video:scan-duplicates',
+                'path_input' => [
+                    'name' => 'path',
+                    'label' => '資料夾位置',
+                    'placeholder' => 'Z:\\FC2-2026(new)',
+                    'default' => 'Z:\\FC2-2026(new)',
+                ],
+                'command_preview_template' => implode("\n", [
+                    'cd ' . self::WORKDIR,
+                    'php artisan video:scan-duplicates "__PATH__"',
                 ]),
                 'steps' => [],
             ],

@@ -74,6 +74,7 @@ Route::get('/videoplayer-list', [VideoPlayerController::class, 'getVideoPlayerLi
 Route::get('/command-runner', [CommandRunnerController::class, 'index'])->name('command-runner.index');
 Route::post('/command-runner/run', [CommandRunnerController::class, 'run'])->name('command-runner.run');
 Route::post('/command-runner/stream', [CommandRunnerController::class, 'stream'])->name('command-runner.stream');
+Route::post('/command-runner/stop', [CommandRunnerController::class, 'stop'])->name('command-runner.stop');
 
 // 靜態頁面和身份驗證頁面
 Route::get('/', function () {

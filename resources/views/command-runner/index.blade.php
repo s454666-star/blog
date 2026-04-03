@@ -9,19 +9,20 @@
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
 
         :root {
-            --page-bg: #fff4f8;
-            --page-bg-2: #fff2f7;
-            --panel: rgba(255, 255, 255, 0.78);
-            --line: rgba(215, 127, 165, 0.18);
-            --ink-900: #40263a;
-            --ink-700: #73576a;
-            --ink-500: #9c7e90;
-            --status-idle: #a17b8f;
-            --status-running: #d54d88;
-            --status-success: #b53d72;
+            --page-bg: #fff8ff;
+            --page-bg-2: #fff1ff;
+            --panel: rgba(255, 255, 255, 0.82);
+            --line: rgba(213, 164, 233, 0.22);
+            --ink-900: #422d52;
+            --ink-700: #735d87;
+            --ink-500: #9c88b0;
+            --status-idle: #9b86b1;
+            --status-running: #be72dc;
+            --status-success: #9c5fbe;
+            --status-stopped: #b26f96;
             --status-error: #c44747;
-            --shadow-xl: 0 32px 80px rgba(193, 118, 151, 0.18);
-            --shadow-lg: 0 22px 50px rgba(199, 132, 161, 0.16);
+            --shadow-xl: 0 32px 80px rgba(186, 140, 214, 0.18);
+            --shadow-lg: 0 22px 50px rgba(200, 154, 223, 0.16);
             --radius-xl: 30px;
             --radius-lg: 24px;
         }
@@ -35,10 +36,10 @@
             font-family: "Plus Jakarta Sans", "Noto Sans TC", sans-serif;
             color: var(--ink-900);
             background:
-                radial-gradient(circle at 0% 10%, rgba(255, 177, 205, 0.24), transparent 36%),
-                radial-gradient(circle at 100% 0%, rgba(255, 197, 217, 0.22), transparent 30%),
-                radial-gradient(circle at 50% 100%, rgba(255, 213, 182, 0.18), transparent 34%),
-                linear-gradient(140deg, var(--page-bg) 0%, #fff8fb 42%, var(--page-bg-2) 100%);
+                radial-gradient(circle at 0% 10%, rgba(255, 191, 255, 0.26), transparent 36%),
+                radial-gradient(circle at 100% 0%, rgba(255, 208, 255, 0.22), transparent 30%),
+                radial-gradient(circle at 50% 100%, rgba(230, 210, 255, 0.18), transparent 34%),
+                linear-gradient(140deg, var(--page-bg) 0%, #fffbff 42%, var(--page-bg-2) 100%);
             overflow-x: hidden;
         }
 
@@ -58,13 +59,13 @@
         body::before {
             top: -9rem;
             right: -7rem;
-            background: radial-gradient(circle, rgba(246, 129, 176, 0.34), rgba(246, 129, 176, 0));
+            background: radial-gradient(circle, rgba(214, 142, 244, 0.34), rgba(214, 142, 244, 0));
         }
 
         body::after {
             bottom: -10rem;
             left: -8rem;
-            background: radial-gradient(circle, rgba(255, 179, 146, 0.28), rgba(255, 179, 146, 0));
+            background: radial-gradient(circle, rgba(255, 191, 255, 0.28), rgba(255, 191, 255, 0));
             animation-duration: 24s;
         }
 
@@ -74,8 +75,8 @@
             pointer-events: none;
             z-index: -1;
             background-image:
-                linear-gradient(rgba(224, 163, 191, 0.07) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(224, 163, 191, 0.07) 1px, transparent 1px);
+                linear-gradient(rgba(214, 176, 232, 0.08) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(214, 176, 232, 0.08) 1px, transparent 1px);
             background-size: 34px 34px;
             mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 1) 34%, rgba(0, 0, 0, 0) 100%);
         }
@@ -102,7 +103,7 @@
             content: "";
             position: absolute;
             inset: -35%;
-            background: conic-gradient(from 160deg, rgba(243, 113, 169, 0.14), rgba(255, 177, 205, 0.1), rgba(255, 190, 150, 0.11), rgba(243, 113, 169, 0.14));
+            background: conic-gradient(from 160deg, rgba(214, 132, 244, 0.14), rgba(255, 191, 255, 0.11), rgba(255, 208, 255, 0.12), rgba(214, 132, 244, 0.14));
             animation: rotateAura 18s linear infinite;
             z-index: 0;
         }
@@ -121,9 +122,9 @@
             gap: 10px;
             padding: 9px 14px;
             border-radius: 999px;
-            border: 1px solid rgba(219, 141, 177, 0.24);
-            background: rgba(255, 250, 252, 0.88);
-            color: #a04d76;
+            border: 1px solid rgba(206, 156, 233, 0.28);
+            background: rgba(255, 250, 255, 0.92);
+            color: #9b5cb9;
             font-size: 12px;
             font-weight: 800;
             letter-spacing: 0.08em;
@@ -146,7 +147,7 @@
 
         .hero h1 span {
             display: block;
-            background: linear-gradient(110deg, #df5f98 0%, #f08db6 48%, #ffb083 100%);
+            background: linear-gradient(110deg, #c678e2 0%, #ffbfff 48%, #ffd0ff 100%);
             -webkit-background-clip: text;
             color: transparent;
         }
@@ -197,9 +198,9 @@
             min-height: 38px;
             padding: 0 14px;
             border-radius: 999px;
-            border: 1px solid rgba(219, 141, 177, 0.16);
-            background: rgba(255, 250, 252, 0.88);
-            color: #8f5370;
+            border: 1px solid rgba(206, 156, 233, 0.18);
+            background: rgba(255, 249, 255, 0.92);
+            color: #8b63a8;
             font-size: 0.9rem;
             font-weight: 800;
         }
@@ -208,14 +209,14 @@
         .chip {
             min-height: 44px;
             border-radius: 16px;
-            box-shadow: 0 14px 28px rgba(210, 148, 176, 0.16);
+            box-shadow: 0 14px 28px rgba(204, 164, 226, 0.16);
         }
 
         .meta-card {
             padding: 20px;
             border-radius: 22px;
-            border: 1px solid rgba(221, 150, 184, 0.18);
-            background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(255, 245, 249, 0.9));
+            border: 1px solid rgba(212, 170, 233, 0.2);
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.97), rgba(255, 244, 255, 0.92));
             box-shadow: var(--shadow-lg);
         }
 
@@ -266,8 +267,8 @@
             position: relative;
             padding: 22px;
             border-radius: var(--radius-lg);
-            border: 1px solid rgba(221, 150, 184, 0.2);
-            background: linear-gradient(160deg, rgba(255, 255, 255, 0.96), rgba(255, 246, 249, 0.84));
+            border: 1px solid rgba(213, 173, 233, 0.24);
+            background: linear-gradient(160deg, rgba(255, 255, 255, 0.97), rgba(255, 245, 255, 0.88));
             box-shadow: var(--shadow-lg);
             overflow: hidden;
             transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
@@ -297,8 +298,8 @@
         .command-card:hover,
         .command-card.is-active {
             transform: translateY(-6px);
-            border-color: rgba(221, 125, 167, 0.32);
-            box-shadow: 0 28px 60px rgba(204, 127, 162, 0.22);
+            border-color: rgba(197, 132, 228, 0.34);
+            box-shadow: 0 28px 60px rgba(188, 139, 216, 0.24);
         }
 
         .card-top,
@@ -322,7 +323,7 @@
             padding: 7px 11px;
             border-radius: 999px;
             background: var(--accent-soft);
-            color: #8d496b;
+            color: #8451a8;
             font-size: 11px;
             font-weight: 800;
             letter-spacing: 0.08em;
@@ -332,7 +333,7 @@
         .card-tag {
             min-height: 28px;
             padding: 0 10px;
-            color: #875870;
+            color: #825c9f;
             font-size: 12px;
         }
 
@@ -357,7 +358,7 @@
             display: flex;
             gap: 10px;
             align-items: flex-start;
-            color: #765768;
+            color: #755d89;
             font-size: 0.92rem;
             line-height: 1.65;
         }
@@ -376,8 +377,8 @@
         .code-shell,
         .output-shell {
             overflow: hidden;
-            border: 1px solid rgba(218, 150, 181, 0.16);
-            background: linear-gradient(180deg, rgba(52, 28, 43, 0.96), rgba(74, 39, 59, 0.96));
+            border: 1px solid rgba(194, 153, 224, 0.18);
+            background: linear-gradient(180deg, rgba(55, 32, 82, 0.96), rgba(82, 50, 112, 0.96));
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
 
@@ -455,10 +456,10 @@
         }
 
         .ghost-btn {
-            border: 1px solid rgba(221, 150, 184, 0.18);
-            color: #7f4c66;
-            background: rgba(255, 250, 252, 0.88);
-            box-shadow: 0 12px 24px rgba(210, 148, 176, 0.15);
+            border: 1px solid rgba(208, 165, 233, 0.2);
+            color: #744f94;
+            background: rgba(255, 249, 255, 0.92);
+            box-shadow: 0 12px 24px rgba(200, 164, 226, 0.16);
         }
 
         .run-btn:hover:not(:disabled),
@@ -491,6 +492,7 @@
         .status-chip[data-state="idle"] { color: var(--status-idle); }
         .status-chip[data-state="running"] { color: var(--status-running); }
         .status-chip[data-state="success"] { color: var(--status-success); }
+        .status-chip[data-state="stopped"] { color: var(--status-stopped); }
         .status-chip[data-state="error"] { color: var(--status-error); }
 
         .output-toolbar {
@@ -584,24 +586,24 @@
             min-height: 56px;
             padding: 0 18px;
             border-radius: 16px;
-            border: 1px solid rgba(221, 150, 184, 0.18);
-            background: rgba(255, 251, 252, 0.94);
+            border: 1px solid rgba(210, 170, 233, 0.2);
+            background: rgba(255, 251, 255, 0.95);
             color: var(--ink-900);
             font-family: "Cascadia Code", "Consolas", monospace;
             font-size: 0.92rem;
-            box-shadow: 0 12px 24px rgba(210, 148, 176, 0.13);
+            box-shadow: 0 12px 24px rgba(197, 164, 224, 0.15);
             transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
         }
 
         .card-path-input:focus {
             outline: none;
-            border-color: rgba(228, 126, 171, 0.44);
-            box-shadow: 0 0 0 5px rgba(237, 159, 193, 0.18);
+            border-color: rgba(201, 133, 228, 0.46);
+            box-shadow: 0 0 0 5px rgba(222, 184, 241, 0.22);
             transform: translateY(-1px);
         }
 
         .card-path-input::placeholder {
-            color: #8aa1b8;
+            color: #9e91bc;
         }
 
         .card-command-zone {
@@ -642,9 +644,15 @@
         }
 
         .ghost-btn:disabled {
-            opacity: 0.68;
-            cursor: wait;
+            opacity: 0.62;
+            cursor: not-allowed;
             transform: none;
+        }
+
+        .stop-btn {
+            border-color: rgba(207, 137, 188, 0.24);
+            color: #9a4d81;
+            background: linear-gradient(135deg, rgba(255, 245, 252, 0.98), rgba(255, 228, 245, 0.94));
         }
 
         .row-runtime {
@@ -667,8 +675,8 @@
         .runtime-panel {
             padding: 20px;
             border-radius: 22px;
-            border: 1px solid rgba(221, 150, 184, 0.18);
-            background: linear-gradient(180deg, rgba(255, 251, 253, 0.98), rgba(255, 243, 248, 0.94));
+            border: 1px solid rgba(213, 172, 233, 0.2);
+            background: linear-gradient(180deg, rgba(255, 251, 255, 0.98), rgba(255, 242, 255, 0.95));
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
         }
 
@@ -715,17 +723,17 @@
 
         .runtime-action-grid {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
             gap: 12px;
-            width: min(360px, 100%);
+            width: min(540px, 100%);
         }
 
         .runtime-shell {
             margin-top: 18px;
             overflow: hidden;
-            border: 1px solid rgba(221, 150, 184, 0.2);
+            border: 1px solid rgba(213, 172, 233, 0.22);
             border-radius: 22px;
-            background: linear-gradient(180deg, rgba(52, 28, 43, 0.96), rgba(74, 39, 59, 0.96));
+            background: linear-gradient(180deg, rgba(55, 32, 82, 0.97), rgba(80, 49, 110, 0.97));
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
 
@@ -757,7 +765,7 @@
         .code-shell pre::-webkit-scrollbar-thumb {
             border-radius: 999px;
             border: 2px solid transparent;
-            background: rgba(140, 182, 222, 0.28);
+            background: rgba(176, 153, 224, 0.32);
             background-clip: padding-box;
         }
 
@@ -852,9 +860,9 @@
                         每張卡都附上用途說明與實際會跑的命令，按一下就直接在 <code>C:\www\blog</code> 執行，結果會在該排卡片下方另外展開成一張大卡。
                     </p>
                     <div class="hero-actions">
-                        <div class="action-pill">白名單模式，只允許固定 4 組流程</div>
+                        <div class="action-pill">白名單模式，只允許固定 5 組流程</div>
                         <div class="action-pill">固定工作目錄：<code>C:\www\blog</code></div>
-                        <div class="action-pill">執行結果會掛在該排卡片下方的大結果卡</div>
+                        <div class="action-pill">執行結果會掛在該排卡片下方的大結果卡，可中途按「停止」</div>
                     </div>
                 </div>
                 <div class="hero-stack">
@@ -1003,6 +1011,7 @@
                                         <div class="meta-pill" data-run-finished>finished: -</div>
                                     </div>
                                     <div class="runtime-action-grid">
+                                        <button type="button" class="ghost-btn stop-btn" data-stop-run disabled>停止</button>
                                         <button type="button" class="ghost-btn" data-copy-output>複製輸出</button>
                                         <button type="button" class="ghost-btn" data-close-output>收起結果</button>
                                     </div>
@@ -1030,18 +1039,22 @@
     <script>
         (() => {
             const runStreamUrl = @json(route('command-runner.stream'));
+            const stopRunUrl = @json(route('command-runner.stop'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
             const rows = [...document.querySelectorAll('[data-row]')];
             const cards = [...document.querySelectorAll('[data-card]')];
             const runButtons = [...document.querySelectorAll('[data-run-preset]')];
             const previewButtons = [...document.querySelectorAll('[data-copy-preview]')];
             const pathInputs = [...document.querySelectorAll('[data-path-input]')];
+            const stopButtons = [...document.querySelectorAll('[data-stop-run]')];
             const copyOutputButtons = [...document.querySelectorAll('[data-copy-output]')];
             const closeOutputButtons = [...document.querySelectorAll('[data-close-output]')];
 
             let isRunning = false;
+            let isStopping = false;
             let activeCardId = null;
             let activeRowId = null;
+            let activeRunToken = null;
 
             const runtimeRowForCard = (card) => card.closest('[data-row]');
 
@@ -1130,6 +1143,16 @@
                 });
             };
 
+            const setStopButtonsState = (runningRow = null, stopping = false) => {
+                stopButtons.forEach((button) => {
+                    const row = button.closest('[data-row]');
+                    const isActiveRow = Boolean(runningRow) && row === runningRow;
+
+                    button.disabled = !isActiveRow || !isRunning || stopping;
+                    button.textContent = isActiveRow && stopping ? '停止中...' : '停止';
+                });
+            };
+
             const openRuntime = (card) => {
                 const targetRow = runtimeRowForCard(card);
 
@@ -1180,6 +1203,14 @@
                 } catch (error) {
                     return false;
                 }
+            };
+
+            const createRunToken = () => {
+                if (window.crypto?.randomUUID) {
+                    return window.crypto.randomUUID();
+                }
+
+                return `runner-${Date.now()}-${Math.random().toString(16).slice(2)}`;
             };
 
             const parseSseEvent = (rawEvent) => {
@@ -1243,6 +1274,7 @@
             rows.forEach((row) => {
                 resetRuntime(row);
             });
+            setStopButtonsState();
 
             previewButtons.forEach((button) => {
                 button.addEventListener('click', async () => {
@@ -1305,6 +1337,54 @@
                 });
             });
 
+            stopButtons.forEach((button) => {
+                button.addEventListener('click', async () => {
+                    const row = button.closest('[data-row]');
+
+                    if (!row || !isRunning || isStopping || row.dataset.row !== activeRowId || !activeRunToken) {
+                        return;
+                    }
+
+                    isStopping = true;
+                    setStopButtonsState(row, true);
+                    appendRuntimeOutput(row, '\n[stop] 已送出停止請求，等待目前程序結束...\n');
+                    setRuntimeMeta(row, {
+                        statusState: 'running',
+                        statusText: '停止中',
+                        captionText: 'Stop requested, waiting for process to exit',
+                    });
+
+                    try {
+                        const response = await fetch(stopRunUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
+                            },
+                            body: JSON.stringify({
+                                run_token: activeRunToken,
+                            }),
+                        });
+                        const contentType = response.headers.get('content-type') || '';
+                        const data = contentType.includes('application/json') ? await response.json() : {};
+
+                        if (!response.ok) {
+                            throw new Error(data.message || '停止指令失敗。');
+                        }
+
+                        if (data.message) {
+                            appendRuntimeOutput(row, `[stop] ${data.message}\n`);
+                        }
+                    } catch (error) {
+                        const message = error instanceof Error ? error.message : '停止指令失敗。';
+                        appendRuntimeOutput(row, `[stop error] ${message}\n`);
+                        isStopping = false;
+                        setStopButtonsState(row, false);
+                    }
+                });
+            });
+
             runButtons.forEach((button) => {
                 button.addEventListener('click', async () => {
                     if (isRunning) {
@@ -1320,9 +1400,13 @@
                         return;
                     }
 
+                    const runToken = createRunToken();
                     isRunning = true;
+                    isStopping = false;
+                    activeRunToken = runToken;
                     setRunButtonsDisabled(true);
                     openRuntime(card);
+                    setStopButtonsState(row, false);
                     setRuntimeState(row, {
                         statusState: 'running',
                         statusText: '執行中',
@@ -1340,7 +1424,10 @@
                     });
 
                     try {
-                        const payload = { preset };
+                        const payload = {
+                            preset,
+                            run_token: runToken,
+                        };
                         const pathInput = card.querySelector('[data-path-input]');
 
                         if (pathInput) {
@@ -1385,13 +1472,15 @@
                             if (event === 'complete') {
                                 completionReceived = true;
                                 setRuntimeMeta(row, {
-                                    statusState: data.success ? 'success' : 'error',
-                                    statusText: data.success ? '執行完成' : '執行失敗',
+                                    statusState: data.cancelled ? 'stopped' : (data.success ? 'success' : 'error'),
+                                    statusText: data.cancelled ? '已停止' : (data.success ? '執行完成' : '執行失敗'),
                                     exitText: `exit: ${data.exit_code}`,
                                     durationText: `duration: ${data.duration_ms} ms`,
                                     titleText: data.preset?.title || title,
                                     finishedText: `finished: ${data.finished_at || '-'}`,
-                                    captionText: data.success ? 'Preset finished successfully' : 'Preset finished with errors',
+                                    captionText: data.cancelled
+                                        ? 'Preset stopped by request'
+                                        : (data.success ? 'Preset finished successfully' : 'Preset finished with errors'),
                                 });
                                 return;
                             }
@@ -1427,19 +1516,22 @@
                         const message = error instanceof Error ? error.message : '未知錯誤';
 
                         setRuntimeState(row, {
-                            statusState: 'error',
-                            statusText: '執行失敗',
-                            exitText: 'exit: request-error',
+                            statusState: isStopping ? 'stopped' : 'error',
+                            statusText: isStopping ? '已停止' : '執行失敗',
+                            exitText: isStopping ? 'exit: stop-requested' : 'exit: request-error',
                             durationText: 'duration: -',
                             titleText: title,
-                            finishedText: 'finished: request-error',
-                            captionText: 'Request failed before command completed',
-                            outputText: `無法完成這次執行。\n\n${message}`,
+                            finishedText: isStopping ? 'finished: stop-requested' : 'finished: request-error',
+                            captionText: isStopping ? 'Preset stopped while request stream closed' : 'Request failed before command completed',
+                            outputText: isStopping ? `已送出停止要求，但串流在完成前中斷。\n\n${message}` : `無法完成這次執行。\n\n${message}`,
                             placeholder: false,
                         });
                     } finally {
                         isRunning = false;
+                        isStopping = false;
+                        activeRunToken = null;
                         setRunButtonsDisabled(false);
+                        setStopButtonsState();
                     }
                 });
             });

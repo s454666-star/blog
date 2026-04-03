@@ -35,8 +35,8 @@ class ScanGroupMediaCommand extends Command
         'display' => '@showfiles12bot',
     ];
     private const BOT_MTFXQ = [
-        'api' => 'mtfxqbot',
-        'display' => '@mtfxqbot',
+        'api' => 'mtfxq2bot',
+        'display' => '@mtfxq2bot',
     ];
     private const NOT_FOUND_MARKERS = [
         '💔抱歉，未找到可解析内容。',
@@ -729,7 +729,7 @@ class ScanGroupMediaCommand extends Command
                     Str::startsWith($token, 'newjmqbot_') ||
                     Str::startsWith($token, 'showfilesbot_') ||
                     Str::startsWith($token, 'showfiles3bot_') ||
-                    Str::startsWith(Str::lower($token), 'mtfxqbot_') ||
+                    Str::startsWith(Str::lower($token), ['mtfxqbot_', 'mtfxq2bot_']) ||
                     Str::startsWith(Str::lower($token), 'qqfile_bot:') ||
                     Str::startsWith(Str::lower($token), 'yzfile_bot:') ||
                     Str::startsWith(Str::lower($token), 'atfileslinksbot_') ||
@@ -758,7 +758,7 @@ class ScanGroupMediaCommand extends Command
             return self::BOT_VIPFILES;
         }
 
-        if (Str::startsWith(Str::lower($token), 'mtfxqbot_')) {
+        if (Str::startsWith(Str::lower($token), ['mtfxqbot_', 'mtfxq2bot_'])) {
             return self::BOT_MTFXQ;
         }
 

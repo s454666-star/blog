@@ -53,8 +53,8 @@ class DispatchTokenScanItemsCommand extends Command
     ];
 
     private const BOT_MTFXQ = [
-        'api' => 'mtfxqbot',
-        'display' => '@mtfxqbot',
+        'api' => 'mtfxq2bot',
+        'display' => '@mtfxq2bot',
         'mode' => self::BOT_MODE_PAGINATE,
     ];
 
@@ -573,7 +573,7 @@ class DispatchTokenScanItemsCommand extends Command
             ) {
                 $result['stop_processing'] = true;
                 $result['stop_processing_retryable'] = false;
-                $result['stop_processing_summary'] = 'Stopping dispatch because mtfxqbot temporarily denied captcha requests after too many failures.';
+                $result['stop_processing_summary'] = 'Stopping dispatch because mtfxq2bot temporarily denied captcha requests after too many failures.';
             }
 
             if (
@@ -877,7 +877,7 @@ class DispatchTokenScanItemsCommand extends Command
         } elseif (($bot['api'] ?? '') === self::BOT_MTFXQ['api'] && $this->isMtfxqCaptchaDeniedText($latestTextPreview)) {
             $summary = 'MTFXQ captcha requests are temporarily denied after too many failures. Stop the command and retry later.';
             $stopProcessing = true;
-            $stopProcessingSummary = 'Stopping dispatch because mtfxqbot temporarily denied captcha requests after too many failures.';
+            $stopProcessingSummary = 'Stopping dispatch because mtfxq2bot temporarily denied captcha requests after too many failures.';
         } elseif (($bot['api'] ?? '') === self::BOT_MESSENGER['api'] && ($retryAfterSeconds = $this->extractMessengerRetryAfterSeconds($latestTextPreview)) !== null) {
             $summary = 'Messenger bot rate limited. Wait ' . $retryAfterSeconds . ' seconds and retry the current token.';
         } elseif (($bot['api'] ?? '') === self::BOT_QQFILE['api'] && $this->responseRequestsYzFallback($latestTextPreview, $apiReason) && $yzStartCommand !== null) {
@@ -1111,7 +1111,7 @@ class DispatchTokenScanItemsCommand extends Command
             return self::BOT_LDDEE;
         }
 
-        if (Str::startsWith($normalizedToken, 'mtfxqbot_')) {
+        if (Str::startsWith($normalizedToken, ['mtfxqbot_', 'mtfxq2bot_'])) {
             return self::BOT_MTFXQ;
         }
 
@@ -1126,6 +1126,10 @@ class DispatchTokenScanItemsCommand extends Command
         $normalized = Str::lower(ltrim(trim($forcedBot), '@'));
         if ($normalized === '') {
             return null;
+        }
+
+        if ($normalized === 'mtfxqbot') {
+            return self::BOT_MTFXQ;
         }
 
         foreach ([

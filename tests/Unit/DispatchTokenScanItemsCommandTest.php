@@ -74,4 +74,34 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         $this->assertSame(0, $vipDelay);
         $this->assertSame(0, $messengerDelay);
     }
+
+    public function test_mtfxq_family_prefixes_resolve_to_mtfxq2_bot(): void
+    {
+        $command = new DispatchTokenScanItemsCommand();
+        $method = new ReflectionMethod($command, 'resolveBotByToken');
+        $method->setAccessible(true);
+
+        $legacyBot = $method->invoke($command, 'mtfxqbot_12V_n1I7l7r4v7e890S029L4');
+        $newBot = $method->invoke($command, 'mtfxq2bot_9V_A1R7u7F592Q4o6c6c1r5');
+
+        $this->assertSame('mtfxq2bot', $legacyBot['api']);
+        $this->assertSame('@mtfxq2bot', $legacyBot['display']);
+        $this->assertSame('mtfxq2bot', $newBot['api']);
+        $this->assertSame('@mtfxq2bot', $newBot['display']);
+    }
+
+    public function test_force_bot_accepts_legacy_mtfxq_alias(): void
+    {
+        $command = new DispatchTokenScanItemsCommand();
+        $method = new ReflectionMethod($command, 'resolveForcedBotOption');
+        $method->setAccessible(true);
+
+        $legacyAliasBot = $method->invoke($command, '@mtfxqbot');
+        $newAliasBot = $method->invoke($command, '@mtfxq2bot');
+
+        $this->assertSame('mtfxq2bot', $legacyAliasBot['api']);
+        $this->assertSame('@mtfxq2bot', $legacyAliasBot['display']);
+        $this->assertSame('mtfxq2bot', $newAliasBot['api']);
+        $this->assertSame('@mtfxq2bot', $newAliasBot['display']);
+    }
 }

@@ -24,15 +24,18 @@ class ScanGroupMediaCommandTest extends TestCase
         $this->assertSame('@vipfiles2bot', $showfiles3Bot['display']);
     }
 
-    public function test_mtfxq_tokens_resolve_to_mtfxq_bot(): void
+    public function test_mtfxq_family_tokens_resolve_to_mtfxq2_bot(): void
     {
         $command = new ScanGroupMediaCommand(new TelegramCodeTokenService());
         $method = new ReflectionMethod($command, 'resolveBotByToken');
         $method->setAccessible(true);
 
-        $bot = $method->invoke($command, 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2');
+        $legacyBot = $method->invoke($command, 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2');
+        $newBot = $method->invoke($command, 'mtfxq2bot_9V_A1R7u7F592Q4o6c6c1r5');
 
-        $this->assertSame('mtfxqbot', $bot['api']);
-        $this->assertSame('@mtfxqbot', $bot['display']);
+        $this->assertSame('mtfxq2bot', $legacyBot['api']);
+        $this->assertSame('@mtfxq2bot', $legacyBot['display']);
+        $this->assertSame('mtfxq2bot', $newBot['api']);
+        $this->assertSame('@mtfxq2bot', $newBot['display']);
     }
 }

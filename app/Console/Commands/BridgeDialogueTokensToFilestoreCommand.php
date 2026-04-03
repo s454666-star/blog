@@ -12,6 +12,10 @@ use Illuminate\Support\Str;
 class BridgeDialogueTokensToFilestoreCommand extends Command
 {
     private const STOPPED_EARLY_EXIT = 3;
+    private const MTFXQ_FAMILY_PREFIXES = [
+        'mtfxqbot_',
+        'mtfxq2bot_',
+    ];
 
     protected $signature = 'filestore:bridge-dialogues-tokens
         {--prefix=mtfxqbot_ : Only process extracted tokens with this prefix}
@@ -44,7 +48,11 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
         $normalizedPrefix = Str::lower($prefix);
         $searchNeedle = trim((string) $this->option('search'));
         if ($searchNeedle === '') {
-            $searchNeedle = preg_replace('/[_:]+$/', '', $prefix) ?: $prefix;
+            if ($this->isMtfxqFamilyPrefix($normalizedPrefix)) {
+                $searchNeedle = 'mtfxq';
+            } else {
+                $searchNeedle = preg_replace('/[_:]+$/', '', $prefix) ?: $prefix;
+            }
         }
 
         $limit = max((int) $this->option('limit'), 0);
@@ -299,6 +307,12 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
             return [];
         }
 
+        if ($this->isMtfxqFamilyPrefix($normalizedPrefix)) {
+            return array_values(array_filter($tokens, static function (string $token): bool {
+                return Str::startsWith(Str::lower($token), self::MTFXQ_FAMILY_PREFIXES);
+            }));
+        }
+
         return array_values(array_filter($tokens, static function (string $token) use ($normalizedPrefix): bool {
             return Str::startsWith(Str::lower($token), $normalizedPrefix);
         }));
@@ -323,7 +337,11 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
             }
 
             $normalized = Str::lower($value);
-            if (!Str::startsWith($normalized, $normalizedPrefix)) {
+            if (
+                $this->isMtfxqFamilyPrefix($normalizedPrefix)
+                ? !Str::startsWith($normalized, self::MTFXQ_FAMILY_PREFIXES)
+                : !Str::startsWith($normalized, $normalizedPrefix)
+            ) {
                 continue;
             }
 
@@ -331,6 +349,11 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
         }
 
         return $existing;
+    }
+
+    private function isMtfxqFamilyPrefix(string $normalizedPrefix): bool
+    {
+        return in_array($normalizedPrefix, self::MTFXQ_FAMILY_PREFIXES, true);
     }
 
     /**

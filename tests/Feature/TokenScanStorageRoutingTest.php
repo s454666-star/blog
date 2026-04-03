@@ -204,4 +204,27 @@ class TokenScanStorageRoutingTest extends TestCase
             'token' => 'showfilesbot_123P_abcdef',
         ]);
     }
+
+    public function test_scan_group_tokens_store_mtfxq2_tokens_in_dialogues_and_queue(): void
+    {
+        $command = $this->app->make(ScanGroupTokensCommand::class);
+        $command->setOutput(new OutputStyle(new ArrayInput([]), new BufferedOutput()));
+        $method = new ReflectionMethod($command, 'extractAndInsertTokensFromItems');
+        $method->setAccessible(true);
+
+        $inserted = $method->invoke($command, 88, [[
+            'message' => 'prefix mtfxq2bot_9V_A1R7u7F592Q4o6c6c1r5 suffix',
+        ]]);
+
+        $this->assertSame(1, $inserted);
+        $this->assertDatabaseHas('dialogues', [
+            'chat_id' => 7702694790,
+            'text' => 'mtfxq2bot_9V_A1R7u7F592Q4o6c6c1r5',
+            'is_read' => 1,
+        ]);
+        $this->assertDatabaseHas('token_scan_items', [
+            'header_id' => 88,
+            'token' => 'mtfxq2bot_9V_A1R7u7F592Q4o6c6c1r5',
+        ]);
+    }
 }

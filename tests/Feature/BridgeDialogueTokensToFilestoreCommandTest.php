@@ -462,4 +462,46 @@ class BridgeDialogueTokensToFilestoreCommandTest extends TestCase
             'is_sync' => 1,
         ]);
     }
+
+    public function test_mtfxq_family_prefix_mode_matches_mtfxq2_tokens_with_legacy_prefix_option(): void
+    {
+        DB::table('dialogues')->insert([
+            'id' => 31,
+            'chat_id' => 1,
+            'message_id' => 31,
+            'text' => 'note mtfxq2bot_9V_A1R7u7F592Q4o6c6c1r5 available',
+            'is_read' => 1,
+            'is_sync' => 0,
+            'created_at' => now(),
+        ]);
+
+        $dispatches = [];
+
+        $mock = Mockery::mock(DialogueFilestoreDispatchService::class);
+        $mock->shouldReceive('dispatchToken')
+            ->once()
+            ->andReturnUsing(function (string $token, array $options, $output = null) use (&$dispatches): array {
+                $dispatches[] = $token;
+
+                return [
+                    'ok' => false,
+                    'status' => 'invalid_token',
+                    'exit_code' => 0,
+                    'summary' => 'Bot returned no usable mtfxq text/files. Stored token in dialogues with is_sync=1.',
+                ];
+            });
+
+        $this->app->instance(DialogueFilestoreDispatchService::class, $mock);
+
+        $this->artisan('filestore:bridge-dialogues-tokens --prefix=mtfxqbot_ --retry-delay=0 --max-retries=0')
+            ->expectsOutputToContain('matched_tokens=1')
+            ->expectsOutputToContain('terminal_no_files=1')
+            ->assertExitCode(0);
+
+        $this->assertSame(['mtfxq2bot_9V_A1R7u7F592Q4o6c6c1r5'], $dispatches);
+        $this->assertDatabaseHas('dialogues', [
+            'id' => 31,
+            'is_sync' => 1,
+        ]);
+    }
 }

@@ -10,7 +10,8 @@ class DialogueTokenStatsDashboardService
     private const CACHE_TTL_SECONDS = 3600;
 
     private const PREFIX_LABELS = [
-        'mtfxqbot_' => '@mtfxqbot',
+        'mtfxqbot_' => '@mtfxq2bot',
+        'mtfxq2bot_' => '@mtfxq2bot',
         'showfilesbot_' => '@showfiles12bot',
         'showfiles3bot_' => '@vipfiles2bot',
         'filestoebot_' => '@filestoebot',

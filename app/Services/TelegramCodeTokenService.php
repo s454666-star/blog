@@ -8,7 +8,7 @@
     (?:
         \b(?:@?filepan_bot:|link:\s*|[vV]i_|[iI]v_|pk_|p_|d_|
         showfilesbot_|showfiles3bot_|Save2BoxBot|
-        ntmjmqbot_|newjmqbot_|filestoebot_|mtfxqbot_|
+        ntmjmqbot_|newjmqbot_|filestoebot_|mtfxq(?:2)?bot_|
         Messengercode_|QQfile_bot:|yzfile_bot:|atfileslinksbot_|lddeebot_|
         [vVpPdD]_?datapanbot_)
         [A-Za-z0-9_\+\-]+(?:=_grp|=_mda)?\b
@@ -25,6 +25,7 @@
             'Save2BoxBot',
             'filestoebot_',
             'mtfxqbot_',
+            'mtfxq2bot_',
             'ntmjmqbot_',
             'newjmqbot_',
             'Messengercode_',
@@ -41,6 +42,11 @@
             '@filepan_bot:',
             'filepan_bot:',
         ];
+
+        private function isMtfxqBotToken(string $token): bool
+        {
+            return preg_match('/^mtfxq(?:2)?bot_/iu', trim($token)) === 1;
+        }
 
         private function isValidToken(string $s): bool
         {
@@ -61,7 +67,7 @@
             $isSave2BoxBot = stripos($s, 'Save2BoxBot') === 0;
             $isMessengerCode = strpos($s, 'Messengercode_') === 0;
             $isNewJmqbot = strpos($s, 'newjmqbot_') === 0;
-            $isMtfxqbot = stripos($s, 'mtfxqbot_') === 0;
+            $isMtfxqbot = $this->isMtfxqBotToken($s);
             $isQqFileBot = stripos($s, 'QQfile_bot:') === 0;
             $isYzFileBot = stripos($s, 'yzfile_bot:') === 0;
             $isAtfileslinksbot = stripos($s, 'atfileslinksbot_') === 0;
@@ -115,7 +121,7 @@
             }
 
             if ($isMtfxqbot) {
-                return preg_match('/^mtfxqbot_\d+[VPD]_[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/iu', $s) === 1;
+                return preg_match('/^mtfxq(?:2)?bot_\d+[VPD]_[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/iu', $s) === 1;
             }
 
             if ($isQqFileBot) {
@@ -224,7 +230,7 @@
                 return false;
             }
 
-            return stripos($token, 'mtfxqbot_') !== 0
+            return !$this->isMtfxqBotToken($token)
                 && stripos($token, 'atfileslinksbot_') !== 0
                 && stripos($token, 'lddeebot_') !== 0;
         }

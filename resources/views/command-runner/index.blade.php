@@ -243,9 +243,20 @@
 
         .command-grid {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 20px;
             margin-top: 24px;
+        }
+
+        .command-row {
+            display: grid;
+            gap: 20px;
+        }
+
+        .command-row-cards {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 20px;
+            align-items: stretch;
         }
 
         .command-card {
@@ -516,10 +527,6 @@
             font-size: 0.9rem;
         }
 
-        .command-grid {
-            align-items: stretch;
-        }
-
         .command-card {
             display: flex;
             flex-direction: column;
@@ -640,19 +647,19 @@
             transform: none;
         }
 
-        .card-runtime {
+        .row-runtime {
             display: grid;
             grid-template-rows: 0fr;
             margin-top: 0;
             transition: grid-template-rows 220ms ease, margin-top 220ms ease;
         }
 
-        .command-card.runtime-open .card-runtime {
+        .command-row.runtime-open .row-runtime {
             grid-template-rows: 1fr;
             margin-top: 18px;
         }
 
-        .card-runtime-inner {
+        .row-runtime-inner {
             min-height: 0;
             overflow: hidden;
         }
@@ -765,8 +772,11 @@
         }
 
         @media (max-width: 1120px) {
-            .hero-grid,
-            .command-grid {
+            .hero-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .command-row-cards {
                 grid-template-columns: 1fr;
             }
         }
@@ -839,12 +849,12 @@
                     <h1>一鍵執行的 <span>Blog 指令工具台</span></h1>
                     <p>
                         這個頁面把常用的 Telegram token 掃描、backlog 補跑、影片重複比對流程整理成固定按鈕。
-                        每張卡都附上用途說明與實際會跑的命令，按一下就直接在 <code>C:\www\blog</code> 執行，結果會在該卡片下方展開。
+                        每張卡都附上用途說明與實際會跑的命令，按一下就直接在 <code>C:\www\blog</code> 執行，結果會在該排卡片下方另外展開成一張大卡。
                     </p>
                     <div class="hero-actions">
                         <div class="action-pill">白名單模式，只允許固定 4 組流程</div>
                         <div class="action-pill">固定工作目錄：<code>C:\www\blog</code></div>
-                        <div class="action-pill">執行結果會跟著該卡片一起展開</div>
+                        <div class="action-pill">執行結果會掛在該排卡片下方的大結果卡</div>
                     </div>
                 </div>
                 <div class="hero-stack">
@@ -855,124 +865,130 @@
                     </article>
                     <article class="meta-card">
                         <div class="meta-label">結果顯示方式</div>
-                        <div class="meta-value">點哪張卡，就在那張卡的下面打開輸出區</div>
-                        <div class="meta-sub">不再固定塞在頁面底部。可以直接對照該組 preset 的說明、命令內容和執行結果。</div>
+                        <div class="meta-value">點哪張卡，就在該排下方打開一張共用結果卡</div>
+                        <div class="meta-sub">上面兩張卡保持對稱，輸出區改成獨立大卡。你還是可以直接對照目前正在跑的那組 preset。</div>
                     </article>
                 </div>
             </div>
         </section>
 
         <section class="command-grid">
-            @foreach ($presets as $preset)
-                <article
-                    class="command-card"
-                    data-card="{{ $preset['id'] }}"
-                    style="--accent-from: {{ $preset['accent_from'] }}; --accent-to: {{ $preset['accent_to'] }}; --accent-soft: {{ $preset['accent_soft'] }};"
-                >
-                    <div class="card-main">
-                        <div class="card-top">
-                            <span class="card-eyebrow">{{ $preset['eyebrow'] }}</span>
-                            <div class="card-tags">
-                                @foreach ($preset['tags'] as $tag)
-                                    <span class="card-tag">{{ $tag }}</span>
-                                @endforeach
-                            </div>
-                        </div>
-
-                        <div class="card-copy">
-                            <h2 class="card-title">{{ $preset['title'] }}</h2>
-                            <p class="card-summary">{{ $preset['summary'] }}</p>
-                            <p class="card-details">{{ $preset['details'] }}</p>
-
-                            <div class="feature-list">
-                                @foreach ($preset['highlights'] as $highlight)
-                                    <div class="feature-item">{{ $highlight }}</div>
-                                @endforeach
-                            </div>
-                        </div>
-
-                        <div class="card-command-zone {{ !empty($preset['path_input']) ? 'is-input' : 'is-buttons' }}">
-                            <div class="code-shell">
-                                <div class="code-head">
-                                    <div class="code-head-dots">
-                                        <span></span>
-                                        <span></span>
-                                        <span></span>
+            @foreach (array_chunk($presets, 2, true) as $rowIndex => $rowPresets)
+                <section class="command-row" data-row="{{ $rowIndex }}">
+                    <div class="command-row-cards">
+                    @foreach ($rowPresets as $presetIndex => $preset)
+                        <article
+                            class="command-card"
+                            data-card="{{ $preset['id'] }}"
+                            style="--accent-from: {{ $preset['accent_from'] }}; --accent-to: {{ $preset['accent_to'] }}; --accent-soft: {{ $preset['accent_soft'] }};"
+                        >
+                            <div class="card-main">
+                                <div class="card-top">
+                                    <span class="card-eyebrow">{{ $preset['eyebrow'] }}</span>
+                                    <div class="card-tags">
+                                        @foreach ($preset['tags'] as $tag)
+                                            <span class="card-tag">{{ $tag }}</span>
+                                        @endforeach
                                     </div>
-                                    <span>Preset Command</span>
                                 </div>
-                                <pre
-                                    data-command-preview
-                                    data-command-preview-template="{{ isset($preset['command_preview_template']) ? base64_encode($preset['command_preview_template']) : '' }}"
-                                >{{ $preset['command_preview'] }}</pre>
-                            </div>
 
-                            @if (!empty($preset['path_input']))
-                                <div class="card-input-stack">
-                                    <label class="card-input-wrap">
-                                        <span class="card-input-label">{{ $preset['path_input']['label'] }}</span>
-                                        <input
-                                            type="text"
-                                            class="card-path-input"
-                                            data-path-input
-                                            data-path-input-name="{{ $preset['path_input']['name'] }}"
-                                            value="{{ $preset['path_input']['value'] ?? $preset['path_input']['default'] ?? '' }}"
-                                            placeholder="{{ $preset['path_input']['placeholder'] ?? '' }}"
-                                            spellcheck="false"
-                                            autocomplete="off"
-                                        >
-                                    </label>
-                                    <button
-                                        type="button"
-                                        class="run-btn"
-                                        data-run-preset="{{ $preset['id'] }}"
-                                        data-preset-title="{{ $preset['title'] }}"
-                                    >
-                                        輸入後按 Enter 或點這裡執行
-                                    </button>
+                                <div class="card-copy">
+                                    <h2 class="card-title">{{ $preset['title'] }}</h2>
+                                    <p class="card-summary">{{ $preset['summary'] }}</p>
+                                    <p class="card-details">{{ $preset['details'] }}</p>
+
+                                    <div class="feature-list">
+                                        @foreach ($preset['highlights'] as $highlight)
+                                            <div class="feature-item">{{ $highlight }}</div>
+                                        @endforeach
+                                    </div>
                                 </div>
-                            @else
-                                <div class="card-actions">
-                                @if (!empty($preset['button_variants']))
-                                    @foreach ($preset['button_variants'] as $variant)
-                                        <button
-                                            type="button"
-                                            class="run-btn"
-                                            data-run-preset="{{ $variant['preset'] }}"
-                                            data-preset-title="{{ $variant['title'] }}"
-                                        >
-                                            {{ $variant['label'] }}
-                                        </button>
-                                    @endforeach
-                                @else
-                                    <button
-                                        type="button"
-                                        class="run-btn"
-                                        data-run-preset="{{ $preset['id'] }}"
-                                        data-preset-title="{{ $preset['title'] }}"
-                                    >
-                                        執行這組指令
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="ghost-btn"
-                                        data-copy-preview="{{ $preset['id'] }}"
-                                    >
-                                        複製指令
-                                    </button>
-                                @endif
+
+                                <div class="card-command-zone {{ !empty($preset['path_input']) ? 'is-input' : 'is-buttons' }}">
+                                    <div class="code-shell">
+                                        <div class="code-head">
+                                            <div class="code-head-dots">
+                                                <span></span>
+                                                <span></span>
+                                                <span></span>
+                                            </div>
+                                            <span>Preset Command</span>
+                                        </div>
+                                        <pre
+                                            data-command-preview
+                                            data-command-preview-template="{{ isset($preset['command_preview_template']) ? base64_encode($preset['command_preview_template']) : '' }}"
+                                        >{{ $preset['command_preview'] }}</pre>
+                                    </div>
+
+                                    @if (!empty($preset['path_input']))
+                                        <div class="card-input-stack">
+                                            <label class="card-input-wrap">
+                                                <span class="card-input-label">{{ $preset['path_input']['label'] }}</span>
+                                                <input
+                                                    type="text"
+                                                    class="card-path-input"
+                                                    data-path-input
+                                                    data-path-input-name="{{ $preset['path_input']['name'] }}"
+                                                    value="{{ $preset['path_input']['value'] ?? $preset['path_input']['default'] ?? '' }}"
+                                                    placeholder="{{ $preset['path_input']['placeholder'] ?? '' }}"
+                                                    spellcheck="false"
+                                                    autocomplete="off"
+                                                >
+                                            </label>
+                                            <button
+                                                type="button"
+                                                class="run-btn"
+                                                data-run-preset="{{ $preset['id'] }}"
+                                                data-preset-title="{{ $preset['title'] }}"
+                                            >
+                                                輸入後按 Enter 或點這裡執行
+                                            </button>
+                                        </div>
+                                    @else
+                                        <div class="card-actions">
+                                        @if (!empty($preset['button_variants']))
+                                            @foreach ($preset['button_variants'] as $variant)
+                                                <button
+                                                    type="button"
+                                                    class="run-btn"
+                                                    data-run-preset="{{ $variant['preset'] }}"
+                                                    data-preset-title="{{ $variant['title'] }}"
+                                                >
+                                                    {{ $variant['label'] }}
+                                                </button>
+                                            @endforeach
+                                        @else
+                                            <button
+                                                type="button"
+                                                class="run-btn"
+                                                data-run-preset="{{ $preset['id'] }}"
+                                                data-preset-title="{{ $preset['title'] }}"
+                                            >
+                                                執行這組指令
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="ghost-btn"
+                                                data-copy-preview="{{ $preset['id'] }}"
+                                            >
+                                                複製指令
+                                            </button>
+                                        @endif
+                                        </div>
+                                    @endif
                                 </div>
-                            @endif
-                        </div>
+                            </div>
+                        </article>
+                    @endforeach
                     </div>
 
-                    <div class="card-runtime" data-runtime>
-                        <div class="card-runtime-inner">
+                    <div class="row-runtime" data-runtime-row>
+                        <div class="row-runtime-inner">
                             <section class="runtime-panel">
                                 <div class="runtime-head">
                                     <div class="runtime-title">
                                         <h3>執行結果輸出區</h3>
-                                        <p>這裡只顯示這張卡片的執行結果，方便直接對照這組 preset 的說明、命令和輸出。</p>
+                                        <p>這裡只顯示這一排目前被點擊卡片的執行結果，方便直接對照 preset 說明、命令和輸出。</p>
                                     </div>
                                     <div class="runtime-meta">
                                         <div class="status-chip" data-run-status data-state="idle">待命中</div>
@@ -997,16 +1013,16 @@
                                         <span>Runtime Console</span>
                                         <span data-terminal-caption>Waiting for this preset</span>
                                     </div>
-                                    <pre class="runtime-output is-placeholder" data-runtime-output>按下這張卡的「執行這組指令」後，結果會直接展開在這裡。</pre>
+                                    <pre class="runtime-output is-placeholder" data-runtime-output>按下這一排卡片的「執行這組指令」後，結果會展開在這裡。</pre>
                                 </div>
 
                                 <div class="runtime-note">
-                                    這個輸出區只跟目前這張卡片有關，不會混到其他 preset 的結果。
+                                    這個輸出區是這一排共用的大卡片，但內容只會顯示目前正在跑的那一張 preset。
                                 </div>
                             </section>
                         </div>
                     </div>
-                </article>
+                </section>
             @endforeach
         </section>
     </main>
@@ -1015,6 +1031,7 @@
         (() => {
             const runStreamUrl = @json(route('command-runner.stream'));
             const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            const rows = [...document.querySelectorAll('[data-row]')];
             const cards = [...document.querySelectorAll('[data-card]')];
             const runButtons = [...document.querySelectorAll('[data-run-preset]')];
             const previewButtons = [...document.querySelectorAll('[data-copy-preview]')];
@@ -1024,19 +1041,22 @@
 
             let isRunning = false;
             let activeCardId = null;
+            let activeRowId = null;
 
-            const runtimeElements = (card) => ({
-                status: card.querySelector('[data-run-status]'),
-                exit: card.querySelector('[data-run-exit]'),
-                duration: card.querySelector('[data-run-duration]'),
-                title: card.querySelector('[data-run-title]'),
-                finished: card.querySelector('[data-run-finished]'),
-                caption: card.querySelector('[data-terminal-caption]'),
-                output: card.querySelector('[data-runtime-output]'),
+            const runtimeRowForCard = (card) => card.closest('[data-row]');
+
+            const runtimeElements = (row) => ({
+                status: row.querySelector('[data-run-status]'),
+                exit: row.querySelector('[data-run-exit]'),
+                duration: row.querySelector('[data-run-duration]'),
+                title: row.querySelector('[data-run-title]'),
+                finished: row.querySelector('[data-run-finished]'),
+                caption: row.querySelector('[data-terminal-caption]'),
+                output: row.querySelector('[data-runtime-output]'),
             });
 
-            const setRuntimeMeta = (card, state) => {
-                const elements = runtimeElements(card);
+            const setRuntimeMeta = (row, state) => {
+                const elements = runtimeElements(row);
 
                 if (state.statusState !== undefined) {
                     elements.status.dataset.state = state.statusState;
@@ -1067,14 +1087,14 @@
                 }
             };
 
-            const setRuntimeOutput = (card, text, placeholder = false) => {
-                const elements = runtimeElements(card);
+            const setRuntimeOutput = (row, text, placeholder = false) => {
+                const elements = runtimeElements(row);
                 elements.output.textContent = text;
                 elements.output.classList.toggle('is-placeholder', placeholder);
             };
 
-            const appendRuntimeOutput = (card, text) => {
-                const elements = runtimeElements(card);
+            const appendRuntimeOutput = (row, text) => {
+                const elements = runtimeElements(row);
 
                 if (elements.output.classList.contains('is-placeholder')) {
                     elements.output.textContent = '';
@@ -1085,13 +1105,13 @@
                 elements.output.scrollTop = elements.output.scrollHeight;
             };
 
-            const setRuntimeState = (card, state) => {
-                setRuntimeMeta(card, state);
-                setRuntimeOutput(card, state.outputText, Boolean(state.placeholder));
+            const setRuntimeState = (row, state) => {
+                setRuntimeMeta(row, state);
+                setRuntimeOutput(row, state.outputText, Boolean(state.placeholder));
             };
 
-            const resetRuntime = (card) => {
-                setRuntimeState(card, {
+            const resetRuntime = (row) => {
+                setRuntimeState(row, {
                     statusState: 'idle',
                     statusText: '待命中',
                     exitText: 'exit: -',
@@ -1099,7 +1119,7 @@
                     titleText: '尚未執行',
                     finishedText: 'finished: -',
                     captionText: 'Waiting for this preset',
-                    outputText: '按下這張卡的「執行這組指令」後，結果會直接展開在這裡。',
+                    outputText: '按下這一排卡片的「執行這組指令」後，結果會展開在這裡。',
                     placeholder: true,
                 });
             };
@@ -1111,24 +1131,41 @@
             };
 
             const openRuntime = (card) => {
+                const targetRow = runtimeRowForCard(card);
+
+                rows.forEach((row) => {
+                    row.classList.toggle('runtime-open', row === targetRow);
+                });
+
                 cards.forEach((item) => {
-                    const isTarget = item === card;
-                    item.classList.toggle('runtime-open', isTarget);
-                    item.classList.toggle('is-active', isTarget);
+                    item.classList.toggle('is-active', item === card);
                 });
 
                 activeCardId = card.dataset.card || null;
+                activeRowId = targetRow?.dataset.row || null;
             };
 
-            const closeRuntime = (card) => {
-                if (isRunning && card.dataset.card === activeCardId) {
+            const closeRuntime = (target) => {
+                const row = target?.matches?.('[data-row]') ? target : target?.closest?.('[data-row]');
+
+                if (!row) {
                     return;
                 }
 
-                card.classList.remove('runtime-open', 'is-active');
+                if (isRunning && row.dataset.row === activeRowId) {
+                    return;
+                }
 
-                if (card.dataset.card === activeCardId) {
+                row.classList.remove('runtime-open');
+                cards.forEach((card) => {
+                    if (runtimeRowForCard(card) === row) {
+                        card.classList.remove('is-active');
+                    }
+                });
+
+                if (row.dataset.row === activeRowId) {
                     activeCardId = null;
+                    activeRowId = null;
                 }
             };
 
@@ -1203,8 +1240,8 @@
                 }
             };
 
-            cards.forEach((card) => {
-                resetRuntime(card);
+            rows.forEach((row) => {
+                resetRuntime(row);
             });
 
             previewButtons.forEach((button) => {
@@ -1251,20 +1288,20 @@
 
             copyOutputButtons.forEach((button) => {
                 button.addEventListener('click', async () => {
-                    const card = button.closest('[data-card]');
-                    const output = card?.querySelector('[data-runtime-output]')?.textContent || '';
+                    const row = button.closest('[data-row]');
+                    const output = row?.querySelector('[data-runtime-output]')?.textContent || '';
                     await copyText(output);
                 });
             });
 
             closeOutputButtons.forEach((button) => {
                 button.addEventListener('click', () => {
-                    const card = button.closest('[data-card]');
-                    if (!card) {
+                    const row = button.closest('[data-row]');
+                    if (!row) {
                         return;
                     }
 
-                    closeRuntime(card);
+                    closeRuntime(row);
                 });
             });
 
@@ -1277,15 +1314,16 @@
                     const preset = button.dataset.runPreset;
                     const title = button.dataset.presetTitle || preset || 'Preset command';
                     const card = button.closest('[data-card]');
+                    const row = card ? runtimeRowForCard(card) : null;
 
-                    if (!preset || !card) {
+                    if (!preset || !card || !row) {
                         return;
                     }
 
                     isRunning = true;
                     setRunButtonsDisabled(true);
                     openRuntime(card);
-                    setRuntimeState(card, {
+                    setRuntimeState(row, {
                         statusState: 'running',
                         statusText: '執行中',
                         exitText: 'exit: ...',
@@ -1298,7 +1336,7 @@
                     });
 
                     requestAnimationFrame(() => {
-                        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                     });
 
                     try {
@@ -1340,13 +1378,13 @@
 
                         await readStreamResponse(response, ({ event, data }) => {
                             if (event === 'chunk') {
-                                appendRuntimeOutput(card, data.text || '');
+                                appendRuntimeOutput(row, data.text || '');
                                 return;
                             }
 
                             if (event === 'complete') {
                                 completionReceived = true;
-                                setRuntimeMeta(card, {
+                                setRuntimeMeta(row, {
                                     statusState: data.success ? 'success' : 'error',
                                     statusText: data.success ? '執行完成' : '執行失敗',
                                     exitText: `exit: ${data.exit_code}`,
@@ -1360,8 +1398,8 @@
 
                             if (event === 'error') {
                                 completionReceived = true;
-                                appendRuntimeOutput(card, `\n[stream error] ${data.message || '未知錯誤'}\n`);
-                                setRuntimeMeta(card, {
+                                appendRuntimeOutput(row, `\n[stream error] ${data.message || '未知錯誤'}\n`);
+                                setRuntimeMeta(row, {
                                     statusState: 'error',
                                     statusText: '執行失敗',
                                     exitText: 'exit: stream-error',
@@ -1374,8 +1412,8 @@
                         });
 
                         if (!completionReceived) {
-                            appendRuntimeOutput(card, '\n[warning] 後端串流已結束，但前端沒有收到完成事件。\n');
-                            setRuntimeMeta(card, {
+                            appendRuntimeOutput(row, '\n[warning] 後端串流已結束，但前端沒有收到完成事件。\n');
+                            setRuntimeMeta(row, {
                                 statusState: 'error',
                                 statusText: '未收到完成事件',
                                 exitText: 'exit: unknown',
@@ -1388,7 +1426,7 @@
                     } catch (error) {
                         const message = error instanceof Error ? error.message : '未知錯誤';
 
-                        setRuntimeState(card, {
+                        setRuntimeState(row, {
                             statusState: 'error',
                             statusText: '執行失敗',
                             exitText: 'exit: request-error',

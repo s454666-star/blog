@@ -3,6 +3,7 @@
 use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
     use App\Http\Controllers\BtdigController;
+use App\Http\Controllers\CommandRunnerController;
     use App\Http\Controllers\DialogueReadController;
     use App\Http\Controllers\DialogueTokenStatsController;
 use App\Http\Controllers\EncryptionController;
@@ -70,6 +71,9 @@ Route::post('/download-chunk/{folder}/{file}', [EncryptionController::class, 'do
 Route::get('/videoplayer-list', [VideoPlayerController::class, 'getVideoPlayerList'])
         ->name('videos.api.videoplayer_list');
 
+Route::get('/command-runner', [CommandRunnerController::class, 'index'])->name('command-runner.index');
+Route::post('/command-runner/run', [CommandRunnerController::class, 'run'])->name('command-runner.run');
+Route::post('/command-runner/stream', [CommandRunnerController::class, 'stream'])->name('command-runner.stream');
 
 // 靜態頁面和身份驗證頁面
 Route::get('/', function () {

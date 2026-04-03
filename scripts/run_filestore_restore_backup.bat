@@ -72,7 +72,7 @@ set "LOCK_DIR=%LOG_DIR%\filestore_restore_backup.lock"
 set "PHP_MEMORY_LIMIT=-1"
 set "FASTAPI_HOST=127.0.0.1"
 set "FASTAPI_PORT=8001"
-set "FASTAPI_TASK=TG API2"
+set "FASTAPI_TASK=Telegram FastAPI Services"
 set "WAIT_SECONDS=30"
 set "RUN_EXIT=0"
 

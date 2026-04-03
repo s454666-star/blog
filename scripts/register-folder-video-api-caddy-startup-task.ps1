@@ -5,7 +5,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$WrapperPath`""
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$hiddenRunnerPath = Join-Path $repoRoot 'scripts\run_hidden_task.ps1'
+
+if (-not (Test-Path -LiteralPath $hiddenRunnerPath)) {
+    throw "Hidden task runner not found: $hiddenRunnerPath"
+}
+
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -BatchPath "{1}"' -f $hiddenRunnerPath, $WrapperPath)
 $trigger = New-ScheduledTaskTrigger -AtStartup
 
 Register-ScheduledTask `

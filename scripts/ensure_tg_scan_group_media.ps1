@@ -37,6 +37,6 @@ if ($running) {
     exit 0
 }
 
-Start-Process -FilePath 'cmd.exe' -ArgumentList '/c', $batchPath -WorkingDirectory $appDir
-Write-Log "started batch=$batchPath"
+$process = Start-Process -FilePath $env:ComSpec -ArgumentList '/d', '/c', "`"$batchPath`"" -WorkingDirectory $appDir -WindowStyle Hidden -PassThru
+Write-Log "started batch=$batchPath pid=$($process.Id)"
 exit 0

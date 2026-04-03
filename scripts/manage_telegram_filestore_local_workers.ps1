@@ -17,9 +17,11 @@ param(
     [string]$ManagerLogFile = "C:\www\blog\storage\logs\telegram_filestore_local_workers\manager.log",
     [string]$QueueName = "telegram_filestore",
     [string]$QueueConnection = "database",
-    [string]$StartupTaskName = "Blog Telegram Filestore Local Workers Startup",
+    [Alias("StartupTaskName")]
+    [string]$LogonTaskName = "Blog Telegram Filestore Local Workers Logon",
     [string]$WatchdogTaskName = "Blog Telegram Filestore Local Workers Watchdog",
-    [string]$StartupWrapperPath = "C:\www\blog\scripts\start_telegram_filestore_local_workers.bat",
+    [Alias("StartupWrapperPath")]
+    [string]$LogonWrapperPath = "C:\www\blog\scripts\start_telegram_filestore_local_workers.bat",
     [string]$WatchdogWrapperPath = "C:\www\blog\scripts\watchdog_telegram_filestore_local_workers.bat"
 )
 
@@ -921,36 +923,102 @@ function Invoke-Watchdog {
     }
 }
 
-function Install-StartupTask {
-    $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+function Update-TaskDescriptionViaCom {
+    param(
+        [string]$TaskName,
+        [string]$Description
+    )
 
-    $startupAction = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$StartupWrapperPath`""
-    $startupTrigger = New-ScheduledTaskTrigger -AtStartup
+    $service = New-Object -ComObject 'Schedule.Service'
+    $service.Connect()
+    $root = $service.GetFolder('\')
+    $task = $root.GetTask($TaskName)
+    if ($null -eq $task) {
+        throw "Scheduled task not found for COM update: $TaskName"
+    }
 
-    Register-ScheduledTask `
-        -TaskName $StartupTaskName `
-        -Action $startupAction `
-        -Trigger $startupTrigger `
-        -Principal $principal `
-        -Description "Autoscale local telegram_filestore queue workers at system startup with min $MinWorkerCount and max $MaxWorkerCount." `
-        -Force | Out-Null
+    $definition = $task.Definition
+    $definition.RegistrationInfo.Description = $Description
+    $userId = $definition.Principal.UserId
+    $logonType = [int]$definition.Principal.LogonType
+    $null = $root.RegisterTaskDefinition($TaskName, $definition, 6, $userId, $null, $logonType, $null)
+}
 
-    $watchdogAction = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$WatchdogWrapperPath`""
-    $watchdogTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date)
-    $watchdogTrigger.Repetition.Interval = (New-TimeSpan -Minutes $WatchdogIntervalMinutes)
-    $watchdogTrigger.Repetition.Duration = (New-TimeSpan -Days 3650)
+function Register-OrRefreshTaskDescription {
+    param(
+        [string]$TaskName,
+        [Microsoft.Management.Infrastructure.CimInstance]$Action,
+        [Microsoft.Management.Infrastructure.CimInstance[]]$Trigger,
+        [string]$Description,
+        [string]$CurrentUser,
+        [Microsoft.Management.Infrastructure.CimInstance]$TaskSettings
+    )
 
-    Register-ScheduledTask `
+    try {
+        Register-ScheduledTask `
+            -TaskName $TaskName `
+            -Action $Action `
+            -Trigger $Trigger `
+            -Settings $TaskSettings `
+            -Description $Description `
+            -User $CurrentUser `
+            -Force | Out-Null
+        return
+    } catch {
+        if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) {
+            throw
+        }
+
+        Set-ScheduledTask `
+            -TaskName $TaskName `
+            -Action $Action `
+            -Trigger $Trigger `
+            -Settings $TaskSettings | Out-Null
+
+        Update-TaskDescriptionViaCom -TaskName $TaskName -Description $Description
+        Write-ManagerLog "Register-ScheduledTask denied for $TaskName; updated the existing task via Set-ScheduledTask and refreshed the description via COM"
+    }
+}
+
+function Install-WorkerTasks {
+    $repoRoot = 'C:\www\blog'
+    $hiddenRunnerPath = Join-Path $repoRoot 'scripts\run_hidden_task.ps1'
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew
+    $logonDescription = "At user logon, run the local telegram_filestore watchdog once so workers converge to the current desired count with min $MinWorkerCount and max $MaxWorkerCount."
+    $watchdogDescription = "Every $WatchdogIntervalMinutes minutes, reconcile local telegram_filestore workers against queue load with min $MinWorkerCount, max $MaxWorkerCount, and a $ScaleDownHoldSeconds-second downscale hold."
+
+    if (-not (Test-Path -LiteralPath $hiddenRunnerPath)) {
+        throw "Hidden task runner not found: $hiddenRunnerPath"
+    }
+
+    Unregister-ScheduledTask -TaskName "Blog Telegram Filestore Local Workers Startup" -Confirm:$false -ErrorAction SilentlyContinue
+
+    $logonAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -BatchPath "{1}"' -f $hiddenRunnerPath, $LogonWrapperPath)
+    $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
+
+    Register-OrRefreshTaskDescription `
+        -TaskName $LogonTaskName `
+        -Action $logonAction `
+        -Trigger @($logonTrigger) `
+        -Description $logonDescription `
+        -CurrentUser $currentUser `
+        -TaskSettings $settings
+
+    $watchdogAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -BatchPath "{1}"' -f $hiddenRunnerPath, $WatchdogWrapperPath)
+    $watchdogTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes $WatchdogIntervalMinutes)
+
+    Register-OrRefreshTaskDescription `
         -TaskName $WatchdogTaskName `
         -Action $watchdogAction `
-        -Trigger $watchdogTrigger `
-        -Principal $principal `
-        -Description "Watchdog for autoscaled local telegram_filestore queue workers; checks every $WatchdogIntervalMinutes minutes, keeps at least $MinWorkerCount workers, and scales up to $MaxWorkerCount based on queue load." `
-        -Force | Out-Null
+        -Trigger @($watchdogTrigger) `
+        -Description $watchdogDescription `
+        -CurrentUser $currentUser `
+        -TaskSettings $settings
 
-    Write-ManagerLog "installed startup task $StartupTaskName"
+    Write-ManagerLog "installed logon task $LogonTaskName"
     Write-ManagerLog "installed watchdog task $WatchdogTaskName"
-    Write-Output "Registered startup task: $StartupTaskName"
+    Write-Output "Registered logon task: $LogonTaskName"
     Write-Output "Registered watchdog task: $WatchdogTaskName"
 }
 
@@ -980,6 +1048,6 @@ switch ($Action) {
         Invoke-Watchdog
     }
     "install-task" {
-        Install-StartupTask
+        Install-WorkerTasks
     }
 }

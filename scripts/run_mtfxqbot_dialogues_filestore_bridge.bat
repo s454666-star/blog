@@ -12,13 +12,13 @@ if exist "%PORT_STATE_FILE%" (
 
 if /i "%NEXT_PORT%"=="8001" (
     set "FASTAPI_PORT=8001"
-    set "FASTAPI_TASK=TG API2"
+    set "FASTAPI_TASK=Telegram FastAPI Services"
     >"%PORT_STATE_FILE%" echo 8000
     exit /b 0
 )
 
 set "FASTAPI_PORT=8000"
-set "FASTAPI_TASK=Telegram FastAPI Service"
+set "FASTAPI_TASK=Telegram FastAPI Services"
 >"%PORT_STATE_FILE%" echo 8001
 exit /b 0
 

@@ -2,14 +2,20 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = 'C:\www\blog'
 $batchPath = Join-Path $repoRoot 'scripts\run_get_bt.bat'
+$hiddenRunnerPath = Join-Path $repoRoot 'scripts\run_hidden_task.ps1'
 $taskName = 'Blog Get BT'
+$description = 'Run C:\www\blog\scripts\run_get_bt.bat so php artisan get-bt executes every day at 05:00 and 17:00.'
 
 if (-not (Test-Path -LiteralPath $batchPath)) {
     throw "Batch file not found: $batchPath"
 }
 
+if (-not (Test-Path -LiteralPath $hiddenRunnerPath)) {
+    throw "Hidden task runner not found: $hiddenRunnerPath"
+}
+
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c "{0}"' -f $batchPath)
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -BatchPath "{1}"' -f $hiddenRunnerPath, $batchPath)
 $triggerMorning = New-ScheduledTaskTrigger -Daily -At '05:00'
 $triggerEvening = New-ScheduledTaskTrigger -Daily -At '17:00'
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew
@@ -23,6 +29,7 @@ Register-ScheduledTask `
     -Action $action `
     -Trigger @($triggerMorning, $triggerEvening) `
     -Settings $settings `
+    -Description $description `
     -User $currentUser `
     -Force | Out-Null
 

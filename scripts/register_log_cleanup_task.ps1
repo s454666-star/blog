@@ -2,14 +2,20 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = 'C:\www\blog'
 $batchPath = Join-Path $repoRoot 'scripts\clear_project_logs.bat'
+$hiddenRunnerPath = Join-Path $repoRoot 'scripts\run_hidden_task.ps1'
 $taskName = 'Project Log Cleanup'
+$description = 'Run C:\www\blog\scripts\clear_project_logs.bat every day at 07:00 to delete .log files under storage\logs and truncate locked logs when needed.'
 
 if (-not (Test-Path -LiteralPath $batchPath)) {
     throw "Batch file not found: $batchPath"
 }
 
+if (-not (Test-Path -LiteralPath $hiddenRunnerPath)) {
+    throw "Hidden task runner not found: $hiddenRunnerPath"
+}
+
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c "{0}"' -f $batchPath)
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -BatchPath "{1}"' -f $hiddenRunnerPath, $batchPath)
 $trigger = New-ScheduledTaskTrigger -Daily -At '07:00'
 $trigger.Repetition = $null
 $trigger.DaysInterval = 1
@@ -21,7 +27,7 @@ Register-ScheduledTask `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
-    -Description 'Delete all .log files under C:\www\blog\storage\logs every day at 07:00.' `
+    -Description $description `
     -User $currentUser `
     -Force | Out-Null
 

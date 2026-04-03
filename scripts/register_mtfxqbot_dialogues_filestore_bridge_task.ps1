@@ -2,14 +2,19 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = 'C:\www\blog'
 $batchPath = Join-Path $repoRoot 'scripts\ensure_mtfxqbot_dialogues_filestore_bridge.bat'
+$hiddenRunnerPath = Join-Path $repoRoot 'scripts\run_hidden_task.ps1'
 $taskName = 'EnsureMtfxqbotDialogueFilestoreBridge'
 
 if (-not (Test-Path -LiteralPath $batchPath)) {
     throw "Batch file not found: $batchPath"
 }
 
+if (-not (Test-Path -LiteralPath $hiddenRunnerPath)) {
+    throw "Hidden task runner not found: $hiddenRunnerPath"
+}
+
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument ('/c "{0}"' -f $batchPath)
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -BatchPath "{1}"' -f $hiddenRunnerPath, $batchPath)
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Hours 2)
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew
 

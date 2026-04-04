@@ -7,7 +7,7 @@ return [
         'base_url' => env('VIDEO_RERUN_SYNC_EAGLE_BASE_URL', 'http://localhost:41595'),
         'library_name' => env('VIDEO_RERUN_SYNC_EAGLE_LIBRARY_NAME', '重跑資源'),
         'library_path' => env('VIDEO_RERUN_SYNC_EAGLE_LIBRARY_PATH', 'Z:\\重跑資源.library'),
-        'page_size' => (int) env('VIDEO_RERUN_SYNC_EAGLE_PAGE_SIZE', 500),
+        'fetch_limit' => (int) env('VIDEO_RERUN_SYNC_EAGLE_FETCH_LIMIT', 10000),
     ],
     'ui' => [
         'per_page' => (int) env('VIDEO_RERUN_SYNC_PER_PAGE', 40),

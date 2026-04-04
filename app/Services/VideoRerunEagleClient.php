@@ -41,38 +41,17 @@ class VideoRerunEagleClient
 
     public function listItems(?int $limit = null): array
     {
-        $pageSize = max(1, (int) config('video_rerun_sync.eagle.page_size', 500));
-        $offset = 0;
-        $items = [];
+        $requestLimit = $limit ?? max(1, (int) config('video_rerun_sync.eagle.fetch_limit', 10000));
 
-        while (true) {
-            $requestLimit = $limit === null
-                ? $pageSize
-                : max(1, min($pageSize, $limit - count($items)));
+        $response = $this->request()
+            ->get('/api/item/list', [
+                'limit' => $requestLimit,
+                'offset' => 0,
+            ])
+            ->throw()
+            ->json();
 
-            if ($requestLimit <= 0) {
-                break;
-            }
-
-            $response = $this->request()
-                ->get('/api/item/list', [
-                    'limit' => $requestLimit,
-                    'offset' => $offset,
-                ])
-                ->throw()
-                ->json();
-
-            $chunk = array_values((array) ($response['data'] ?? []));
-            $items = array_merge($items, $chunk);
-
-            if (($limit !== null && count($items) >= $limit) || count($chunk) < $requestLimit) {
-                break;
-            }
-
-            $offset += $requestLimit;
-        }
-
-        return $items;
+        return array_values((array) ($response['data'] ?? []));
     }
 
     public function moveToTrash(string $itemId): void

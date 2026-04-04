@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\MzksrBotChatRecorder;
+use App\Support\TelegramWebhookLogContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -17,11 +18,7 @@ class TelegramWebhookController extends Controller
     {
         $update = $request->all();
 
-        Log::info('Telegram webhook incoming', [
-            'has_message' => isset($update['message']),
-            'chat_id' => $update['message']['chat']['id'] ?? null,
-            'text' => $update['message']['text'] ?? null,
-        ]);
+        Log::info('telegram_mystar_webhook_event', TelegramWebhookLogContext::fromUpdate($update, 'mystar_secure_bot'));
 
         try {
             $this->chatRecorder->recordFromUpdate($update);

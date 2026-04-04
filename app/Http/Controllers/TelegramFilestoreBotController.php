@@ -6,6 +6,7 @@
     use App\Jobs\TelegramFilestoreDebouncedPromptJob;
     use App\Models\TelegramFilestoreFile;
     use App\Models\TelegramFilestoreSession;
+    use App\Support\TelegramWebhookLogContext;
     use App\Services\TelegramCodeTokenService;
     use App\Services\TelegramFilestoreBridgeContextService;
     use App\Services\TelegramFilestoreStaleSessionCleanupService;
@@ -81,7 +82,7 @@
         public function webhook(Request $request)
         {
             $update = $request->all();
-            Log::info('telegram_filestore_update', $update);
+            Log::info('telegram_filestore_webhook_event', TelegramWebhookLogContext::fromUpdate($update, 'filestoebot'));
 
             if (!empty($update['callback_query'])) {
                 $this->handleCallback($update['callback_query']);

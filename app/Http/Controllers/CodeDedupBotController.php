@@ -3,6 +3,7 @@
     namespace App\Http\Controllers;
 
     use App\Services\TelegramCodeTokenService;
+    use App\Support\TelegramWebhookLogContext;
     use Illuminate\Http\Request;
     use Illuminate\Support\Facades\DB;
     use Illuminate\Support\Facades\Log;
@@ -40,6 +41,7 @@
         public function handle(Request $request)
         {
             $update = $request->all();
+            Log::info('code_dedup_webhook_event', TelegramWebhookLogContext::fromUpdate($update, 'code_dedup_bot'));
 
             /* ---------- 1. callback_query ---------- */
             if (!empty($update['callback_query'])) {

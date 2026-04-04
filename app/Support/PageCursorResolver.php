@@ -60,6 +60,7 @@ class PageCursorResolver
         'tdl' => 'wand',
         'videos-duplicates' => 'cat',
         'videos-external-duplicates' => 'bunny',
+        'videos-rerun-sync' => 'bunny',
         'face-identities' => 'butterfly',
         'command-runner' => 'wand',
     ];

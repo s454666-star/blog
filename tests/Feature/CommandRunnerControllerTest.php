@@ -26,6 +26,8 @@ class CommandRunnerControllerTest extends TestCase
         $response->assertSee('掃描並搬移和 video_features 重複的影片');
         $response->assertSee('掃描指定資料夾內彼此重複的影片');
         $response->assertSee('掃描資料夾重複影片（只掃描不搬移）');
+        $response->assertSee('比對 DB / 重跑 / Eagle 三邊差異');
+        $response->assertSee('video:sync-rerun-sources');
         $response->assertSee('補跑剩餘 token：選 port 執行');
         $response->assertSee('8000 PORT跑');
         $response->assertSee('8001 PORT跑');

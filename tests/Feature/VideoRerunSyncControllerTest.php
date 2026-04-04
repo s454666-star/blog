@@ -118,6 +118,37 @@ class VideoRerunSyncControllerTest extends TestCase
         $this->assertCount(0, $this->eagleItems);
     }
 
+    public function test_scan_keeps_running_when_eagle_item_has_no_original_file(): void
+    {
+        $this->createDbVideo(103, '自拍_可用.mp4', '自拍_可用/自拍_可用.mp4', 'valid-db');
+        $this->addBrokenEagleItem('BROKEN01', '空資料夾影片', 'mp4');
+
+        $run = app(VideoRerunSyncService::class)->scan(false);
+
+        $this->assertSame('completed', $run->status);
+        $this->assertSame(1, $run->issue_count);
+        $this->assertDatabaseHas('video_rerun_sync_entries', [
+            'source_type' => 'eagle',
+            'source_key' => 'BROKEN01',
+            'fingerprint_status' => 'missing_file',
+        ]);
+    }
+
+    public function test_second_scan_skips_unchanged_files(): void
+    {
+        $this->createDbVideo(104, '已存在.mp4', '已存在/已存在.mp4', 'same-content');
+        $this->createRerunFile('已存在.mp4', 'same-content');
+        $this->addEagleItem('FAST001', '已存在', 'mp4', 'same-content');
+
+        $firstRun = app(VideoRerunSyncService::class)->scan(false);
+        $secondRun = app(VideoRerunSyncService::class)->scan(false);
+
+        $this->assertSame(3, $firstRun->hashed_count);
+        $this->assertSame(0, $firstRun->skipped_count);
+        $this->assertSame(0, $secondRun->hashed_count);
+        $this->assertSame(3, $secondRun->skipped_count);
+    }
+
     private function fakeEagleApi(): void
     {
         Http::fake(function (\Illuminate\Http\Client\Request $request) {
@@ -184,6 +215,18 @@ class VideoRerunSyncControllerTest extends TestCase
         File::ensureDirectoryExists($directory);
         file_put_contents($directory . DIRECTORY_SEPARATOR . $name . '.' . $ext, $contents);
         file_put_contents($directory . DIRECTORY_SEPARATOR . 'metadata.json', json_encode(['id' => $itemId]));
+
+        $this->eagleItems[$itemId] = [
+            'id' => $itemId,
+            'name' => $name,
+            'ext' => $ext,
+        ];
+    }
+
+    private function addBrokenEagleItem(string $itemId, string $name, string $ext): void
+    {
+        $directory = $this->eagleLibrary . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . $itemId . '.info';
+        File::ensureDirectoryExists($directory);
 
         $this->eagleItems[$itemId] = [
             'id' => $itemId,

@@ -77,7 +77,7 @@ class VideoRerunEagleClient
             ->throw();
     }
 
-    public function resolveItemFilePath(string $libraryPath, array $item): string
+    public function resolveItemFilePath(string $libraryPath, array $item): ?string
     {
         $itemId = (string) ($item['id'] ?? '');
         if ($itemId === '') {
@@ -86,7 +86,7 @@ class VideoRerunEagleClient
 
         $infoDirectory = rtrim($libraryPath, '/\\') . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . $itemId . '.info';
         if (!File::isDirectory($infoDirectory)) {
-            throw new RuntimeException('Eagle item folder not found: ' . $infoDirectory);
+            return null;
         }
 
         $name = (string) ($item['name'] ?? '');
@@ -111,11 +111,7 @@ class VideoRerunEagleClient
             ? $candidates->first()
             : $candidates->first(static fn (\SplFileInfo $file) => strcasecmp($file->getExtension(), $ext) === 0);
 
-        if (!$match instanceof \SplFileInfo) {
-            throw new RuntimeException('Eagle item original file not found: ' . $infoDirectory);
-        }
-
-        return $match->getPathname();
+        return $match instanceof \SplFileInfo ? $match->getPathname() : null;
     }
 
     private function request(): PendingRequest

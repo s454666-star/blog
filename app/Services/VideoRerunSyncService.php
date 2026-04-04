@@ -12,6 +12,11 @@ use RuntimeException;
 
 class VideoRerunSyncService
 {
+    /**
+     * @var array<string, array<string, \App\Models\VideoRerunSyncEntry>>
+     */
+    private array $entryCache = [];
+
     public function __construct(
         private readonly VideoRerunEagleClient $eagleClient,
     ) {
@@ -154,12 +159,42 @@ class VideoRerunSyncService
             }
 
             $absolutePath = $this->eagleClient->resolveItemFilePath($libraryPath, $item);
-            $relativePath = ltrim(str_replace(['/', '\\'], '/', substr($absolutePath, strlen($libraryPath))), '/');
+
+            if ($absolutePath === null) {
+                $seenKeys[] = $itemId;
+                $stats[VideoRerunSyncSource::EAGLE]++;
+
+                $this->upsertMissingEntry(
+                    $run,
+                    [
+                        'source_type' => VideoRerunSyncSource::EAGLE,
+                        'source_key' => $itemId,
+                        'source_item_id' => $itemId,
+                        'resource_key' => (string) ($item['name'] ?? $itemId),
+                        'display_name' => (string) ($item['name'] ?? $itemId) . (($item['ext'] ?? '') !== '' ? '.' . strtolower((string) $item['ext']) : ''),
+                        'relative_path' => null,
+                        'absolute_path' => rtrim($libraryPath, '/\\') . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . $itemId . '.info',
+                        'file_extension' => strtolower((string) ($item['ext'] ?? '')),
+                        'metadata_json' => [
+                            'eagle_id' => $itemId,
+                            'library_path' => $libraryPath,
+                            'item' => $item,
+                        ],
+                    ],
+                    $stats,
+                    'Eagle item original file not found: ' . rtrim($libraryPath, '/\\') . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . $itemId . '.info'
+                );
+
+                continue;
+            }
+
             $name = (string) ($item['name'] ?? pathinfo($absolutePath, PATHINFO_FILENAME));
             $ext = strtolower((string) ($item['ext'] ?? pathinfo($absolutePath, PATHINFO_EXTENSION)));
 
             $seenKeys[] = $itemId;
             $stats[VideoRerunSyncSource::EAGLE]++;
+
+            $relativePath = ltrim(str_replace(['/', '\\'], '/', substr($absolutePath, strlen($libraryPath))), '/');
 
             $this->upsertEntry(
                 $run,
@@ -192,10 +227,10 @@ class VideoRerunSyncService
 
     private function upsertEntry(VideoRerunSyncRun $run, bool $force, array $payload, array &$stats): void
     {
-        $entry = VideoRerunSyncEntry::firstOrNew([
-            'source_type' => $payload['source_type'],
-            'source_key' => $payload['source_key'],
-        ]);
+        $entry = $this->resolveEntryModel(
+            (string) $payload['source_type'],
+            (string) $payload['source_key']
+        );
 
         $absolutePath = $this->normalizeAbsolutePath((string) ($payload['absolute_path'] ?? ''));
         $payload['absolute_path'] = $absolutePath;
@@ -222,13 +257,14 @@ class VideoRerunSyncService
 
         clearstatcache(true, $absolutePath);
         $fileSize = (int) filesize($absolutePath);
-        $modifiedAt = Carbon::createFromTimestamp((int) filemtime($absolutePath));
+        $modifiedTimestamp = (int) filemtime($absolutePath);
+        $modifiedAt = Carbon::createFromTimestamp($modifiedTimestamp, (string) config('app.timezone', 'UTC'));
 
         $shouldSkipHash = !$force
             && $entry->exists
             && $entry->fingerprint_status === 'hashed'
             && $entry->file_size_bytes === $fileSize
-            && $entry->file_modified_at?->equalTo($modifiedAt)
+            && $entry->file_modified_at?->timestamp === $modifiedTimestamp
             && $entry->content_sha1 !== null
             && $entry->absolute_path === $absolutePath;
 
@@ -249,6 +285,30 @@ class VideoRerunSyncService
         $entry->save();
 
         $stats['hashed']++;
+    }
+
+    private function upsertMissingEntry(VideoRerunSyncRun $run, array $payload, array &$stats, string $message): void
+    {
+        $entry = $this->resolveEntryModel(
+            (string) $payload['source_type'],
+            (string) $payload['source_key']
+        );
+
+        $entry->fill(array_merge($payload, [
+            'discovered_at' => now(),
+            'last_seen_run_id' => $run->id,
+            'is_present' => true,
+            'file_size_bytes' => null,
+            'file_modified_at' => null,
+            'content_sha1' => null,
+            'fingerprint_status' => 'missing_file',
+            'last_error' => $message,
+            'fingerprinted_at' => now(),
+        ]));
+
+        $entry->save();
+        $this->rememberEntry($entry);
+        $stats['missing']++;
     }
 
     private function markMissingSourceEntries(string $sourceType, VideoRerunSyncRun $run, array $seenKeys): void
@@ -404,5 +464,41 @@ class VideoRerunSyncService
         } finally {
             fclose($handle);
         }
+    }
+
+    private function resolveEntryModel(string $sourceType, string $sourceKey): VideoRerunSyncEntry
+    {
+        if (!array_key_exists($sourceType, $this->entryCache)) {
+            $this->entryCache[$sourceType] = VideoRerunSyncEntry::query()
+                ->where('source_type', $sourceType)
+                ->get()
+                ->keyBy('source_key')
+                ->all();
+        }
+
+        if (isset($this->entryCache[$sourceType][$sourceKey])) {
+            return $this->entryCache[$sourceType][$sourceKey];
+        }
+
+        $entry = new VideoRerunSyncEntry([
+            'source_type' => $sourceType,
+            'source_key' => $sourceKey,
+        ]);
+
+        $this->entryCache[$sourceType][$sourceKey] = $entry;
+
+        return $entry;
+    }
+
+    private function rememberEntry(VideoRerunSyncEntry $entry): void
+    {
+        $sourceType = (string) $entry->source_type;
+        $sourceKey = (string) $entry->source_key;
+
+        if (!isset($this->entryCache[$sourceType])) {
+            $this->entryCache[$sourceType] = [];
+        }
+
+        $this->entryCache[$sourceType][$sourceKey] = $entry;
     }
 }

@@ -868,38 +868,42 @@
         .face-screenshot-container:has(> .face-screenshot.master)::before {
             inset: 1px;
             padding: 4px;
-            background: repeating-conic-gradient(
-                from 0deg,
-                #ff6aa7 0deg 20deg,
-                #ffbf57 20deg 40deg,
-                #f6ff78 40deg 60deg,
-                #6dffbf 60deg 80deg,
-                #62d7ff 80deg 100deg,
-                #7c7aff 100deg 120deg,
-                #ff79e4 120deg 140deg,
-                #ff6aa7 140deg 160deg
+            background: linear-gradient(
+                135deg,
+                #ff6aa7 0%,
+                #ffbf57 16%,
+                #f6ff78 30%,
+                #6dffbf 46%,
+                #62d7ff 62%,
+                #7c7aff 78%,
+                #ff79e4 92%,
+                #ff6aa7 100%
             );
+            background-size: 260% 260%;
+            background-position: 0% 50%;
             -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
             -webkit-mask-composite: xor;
             mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
             mask-composite: exclude;
-            animation: rainbowFocusSpin 2.8s linear infinite;
+            animation: rainbowBorderShift 2.1s linear infinite;
             z-index: 0;
         }
 
         .face-screenshot-container:has(> .face-screenshot.master)::after {
             inset: -2px;
-            background: conic-gradient(
-                from 0deg,
-                rgba(255, 106, 167, .42),
-                rgba(255, 191, 87, .34),
-                rgba(109, 255, 191, .36),
-                rgba(98, 215, 255, .38),
-                rgba(124, 122, 255, .42),
-                rgba(255, 121, 228, .4),
-                rgba(255, 106, 167, .42)
+            background: linear-gradient(
+                115deg,
+                rgba(255, 106, 167, .44) 0%,
+                rgba(255, 191, 87, .34) 18%,
+                rgba(246, 255, 120, .3) 32%,
+                rgba(109, 255, 191, .32) 48%,
+                rgba(98, 215, 255, .38) 64%,
+                rgba(124, 122, 255, .44) 82%,
+                rgba(255, 121, 228, .42) 100%
             );
-            animation: rainbowFocusSpin 3.6s linear infinite reverse, rainbowFocusPulse 2.1s ease-in-out infinite;
+            background-size: 240% 240%;
+            background-position: 0% 50%;
+            animation: rainbowGlowShift 3.2s linear infinite, rainbowFocusPulse 2.1s ease-in-out infinite;
             filter: blur(10px);
             z-index: -1
         }

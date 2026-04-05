@@ -478,6 +478,27 @@
             }
         }
 
+        @keyframes rainbowFocusSpin {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(1turn);
+            }
+        }
+
+        @keyframes rainbowFocusPulse {
+            0%,
+            100% {
+                opacity: .42;
+                filter: blur(10px) saturate(1.02);
+            }
+            50% {
+                opacity: .78;
+                filter: blur(14px) saturate(1.18);
+            }
+        }
+
         /* === 敶梁???捆??=== */
         .video-container {
             width: var(--video-width);
@@ -507,8 +528,13 @@
         }
 
         .face-screenshot.master {
-            border: 3px solid var(--theme-success);
-            box-shadow: 0 18px 34px rgba(89, 164, 123, .22)
+            position: relative;
+            z-index: 2;
+            border: 2px solid rgba(255, 255, 255, .88);
+            box-shadow:
+                0 0 0 1px rgba(255, 255, 255, .94),
+                0 16px 30px rgba(124, 76, 168, .18);
+            transform: translateY(-1px);
         }
 
         /* === ?啣?嚗???格頠?=== */
@@ -641,9 +667,13 @@
         }
 
         .master-face-img.focused {
-            border-color: var(--theme-success);
-            box-shadow: 0 0 0 4px rgba(89, 164, 123, .16), 0 0 15px rgba(89, 164, 123, .38);
-            transform: scale(1.1)
+            border-color: rgba(255, 255, 255, .92);
+            box-shadow:
+                0 0 0 3px rgba(255, 118, 188, .24),
+                0 0 0 6px rgba(98, 215, 255, .18),
+                0 0 20px rgba(124, 122, 255, .26);
+            transform: scale(1.08);
+            animation: rainbowFocusPulse 2s ease-in-out infinite
         }
 
         .master-faces-status {
@@ -722,7 +752,8 @@
             display: none;
             font-size: 14px;
             padding: 0;
-            box-shadow: 0 10px 18px rgba(192, 76, 124, .22)
+            box-shadow: 0 10px 18px rgba(192, 76, 124, .22);
+            z-index: 4
         }
 
         .set-master-btn {
@@ -732,7 +763,56 @@
 
         .screenshot-container, .face-screenshot-container {
             position: relative;
-            display: inline-block
+            display: inline-block;
+            border-radius: 20px;
+            isolation: isolate
+        }
+
+        .face-screenshot-container:has(> .face-screenshot.master)::before,
+        .face-screenshot-container:has(> .face-screenshot.master)::after {
+            content: '';
+            position: absolute;
+            pointer-events: none;
+            border-radius: 22px;
+        }
+
+        .face-screenshot-container:has(> .face-screenshot.master)::before {
+            inset: 1px;
+            padding: 4px;
+            background: repeating-conic-gradient(
+                from 0deg,
+                #ff6aa7 0deg 20deg,
+                #ffbf57 20deg 40deg,
+                #f6ff78 40deg 60deg,
+                #6dffbf 60deg 80deg,
+                #62d7ff 80deg 100deg,
+                #7c7aff 100deg 120deg,
+                #ff79e4 120deg 140deg,
+                #ff6aa7 140deg 160deg
+            );
+            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            mask-composite: exclude;
+            animation: rainbowFocusSpin 2.8s linear infinite;
+            z-index: 0;
+        }
+
+        .face-screenshot-container:has(> .face-screenshot.master)::after {
+            inset: -2px;
+            background: conic-gradient(
+                from 0deg,
+                rgba(255, 106, 167, .42),
+                rgba(255, 191, 87, .34),
+                rgba(109, 255, 191, .36),
+                rgba(98, 215, 255, .38),
+                rgba(124, 122, 255, .42),
+                rgba(255, 121, 228, .4),
+                rgba(255, 106, 167, .42)
+            );
+            animation: rainbowFocusSpin 3.6s linear infinite reverse, rainbowFocusPulse 2.1s ease-in-out infinite;
+            filter: blur(10px);
+            z-index: -1
         }
 
         .screenshot-container:hover .delete-icon, .face-screenshot-container:hover .delete-icon, .face-screenshot-container:hover .set-master-btn {

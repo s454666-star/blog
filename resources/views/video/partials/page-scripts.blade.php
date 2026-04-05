@@ -21,6 +21,7 @@
     let imageSize = {{ request('image_size',200) }};
     let videoType = '{{ request('video_type','1') }}';
     let searchKeyword = @json($keyword);
+    let expandSearchContext = {{ $expandContextMode ? 'true' : 'false' }};
 
     let initialFocusId = {{ $focusId ?? 'null' }};
     const initialFocusTargetId = initialFocusId !== null ? initialFocusId : latestId;
@@ -139,6 +140,7 @@
             sort_by: sortBy,
             sort_dir: sortDir,
             keyword: searchKeyword,
+            expand_context: expandSearchContext ? 1 : 0,
         };
 
         const focusedId = $('#focus-id').val();
@@ -1073,6 +1075,8 @@
         const $masterSearchForm = $('#master-search-form');
         const $masterSearchInput = $('#master-search-input');
         const $masterSearchClear = $('#master-search-clear');
+        const $masterSearchContextToggle = $('#master-search-context-toggle');
+        const $masterSearchContextState = $('#master-search-context-state');
         let controlsOpen = false;
         let masterSearchOpen = normalizeKeyword(searchKeyword) !== '';
 
@@ -1088,8 +1092,14 @@
                 .toggleClass('is-active', masterSearchOpen || activeKeyword !== '')
                 .attr('aria-expanded', String(masterSearchOpen));
 
+            $masterSearchContextToggle
+                .toggleClass('is-active', expandSearchContext)
+                .attr('aria-pressed', String(expandSearchContext));
+
+            $masterSearchContextState.text(expandSearchContext ? '開啟' : '關閉');
             $masterSearchClear.prop('disabled', activeKeyword === '' && draftKeyword === '');
             $('#keyword-value').val(activeKeyword);
+            $('#expand-context-value').val(expandSearchContext ? '1' : '0');
         }
 
         function openMasterSearchPanel(focusInput = false) {
@@ -1119,6 +1129,12 @@
                 url.searchParams.set('keyword', nextKeyword);
             } else {
                 url.searchParams.delete('keyword');
+            }
+
+            if (expandSearchContext) {
+                url.searchParams.set('expand_context', '1');
+            } else {
+                url.searchParams.delete('expand_context');
             }
 
             url.searchParams.delete('focus_id');
@@ -1168,6 +1184,16 @@
             if (event.key === 'Escape') {
                 event.preventDefault();
                 closeMasterSearchPanel();
+            }
+        });
+
+        $masterSearchContextToggle.on('click', function () {
+            expandSearchContext = !expandSearchContext;
+            syncMasterSearchState();
+
+            const keywordToApply = normalizeKeyword($masterSearchInput.val()) || normalizeKeyword(searchKeyword);
+            if (keywordToApply !== '') {
+                submitKeywordSearch(keywordToApply);
             }
         });
 
@@ -1242,6 +1268,7 @@
             const fid = $('.video-row.focused').data('id') || '';
             $('#focus-id').val(fid);          // ← 送出表單前最後覆寫
             $('#keyword-value').val(searchKeyword);
+            $('#expand-context-value').val(expandSearchContext ? '1' : '0');
         });
     });
 

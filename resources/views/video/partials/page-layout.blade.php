@@ -55,13 +55,25 @@
                 >
             </div>
             <div class="master-search-actions">
-                <button id="master-search-submit" class="master-search-submit" type="submit">搜尋</button>
                 <button
-                    id="master-search-clear"
-                    class="master-search-clear"
+                    id="master-search-context-toggle"
+                    class="master-search-mode-toggle {{ $expandContextMode ? 'is-active' : '' }}"
                     type="button"
-                    {{ $keyword === '' ? 'disabled' : '' }}
-                >清除</button>
+                    aria-pressed="{{ $expandContextMode ? 'true' : 'false' }}"
+                >
+                    <span class="master-search-mode-label">列出更多影片</span>
+                    <span id="master-search-context-state" class="master-search-mode-state">{{ $expandContextMode ? '開啟' : '關閉' }}</span>
+                </button>
+
+                <div class="master-search-actions-row">
+                    <button id="master-search-submit" class="master-search-submit" type="submit">搜尋</button>
+                    <button
+                        id="master-search-clear"
+                        class="master-search-clear"
+                        type="button"
+                        {{ $keyword === '' ? 'disabled' : '' }}
+                    >清除</button>
+                </div>
             </div>
         </form>
     </div>
@@ -106,6 +118,7 @@
     <form id="controls-form" class="controls-form" method="GET">
         <input type="hidden" id="focus-id" name="focus_id" value="{{ $focusId }}">
         <input type="hidden" id="keyword-value" name="keyword" value="{{ $keyword }}">
+        <input type="hidden" id="expand-context-value" name="expand_context" value="{{ $expandContextMode ? 1 : 0 }}">
 
         <div class="control-group control-group--slider">
             <div class="control-heading">

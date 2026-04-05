@@ -42,9 +42,11 @@
             $perPage     = self::VIDEO_PAGE_SIZE;
             $requestedFocusId = $request->filled('focus_id') ? (int) $request->input('focus_id') : null;
             $keyword     = $this->normalizeKeyword($request->input('keyword'));
+            $expandContextMode = $this->shouldExpandKeywordContext($request);
 
             /* ---------- 建立基礎查詢 ---------- */
-            $baseQuery = $this->buildVideoBaseQuery($videoType, $missingOnly, $keyword);
+            $baseQuery = $this->buildVideoListingQuery($videoType, $missingOnly, $keyword, $expandContextMode);
+            $focusQuery = $this->buildFocusCandidateQuery($videoType, $missingOnly, $keyword, $expandContextMode, $baseQuery);
 
             $total    = (clone $baseQuery)->count();
             $lastPage = max((int) ceil($total / $perPage), 1);
@@ -61,8 +63,8 @@
                 $focusVideo = (clone $baseQuery)->where('id', $requestedFocusId)->first();
             }
 
-            if (!$focusVideo && $keyword !== '') {
-                $focusVideo = (clone $baseQuery)->inRandomOrder()->first();
+            if (!$focusVideo && $keyword !== '' && $focusQuery) {
+                $focusVideo = (clone $focusQuery)->inRandomOrder()->first();
             }
 
             if (!$focusVideo && $latest) {
@@ -89,7 +91,7 @@
                 'prevPage', 'nextPage', 'lastPage',
                 'videoType', 'sortBy', 'sortDir',
                 'latestId', 'missingOnly',
-                'focusId', 'keyword'
+                'focusId', 'keyword', 'expandContextMode'
             ));
         }
 
@@ -101,8 +103,9 @@
             $sortBy      = in_array($request->input('sort_by'), ['id','duration']) ? $request->input('sort_by') : 'duration';
             $sortDir     = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
             $keyword     = $this->normalizeKeyword($request->input('keyword'));
+            $expandContextMode = $this->shouldExpandKeywordContext($request);
 
-            $query = $this->buildVideoBaseQuery($videoType, $missingOnly, $keyword);
+            $query = $this->buildVideoListingQuery($videoType, $missingOnly, $keyword, $expandContextMode);
 
             // 套用穩定排序 + 精簡 eager load 欄位（減少 SQL/記憶體/HTML 生成成本）
             $videos = $this->withVideoListRelations(
@@ -154,6 +157,33 @@
             return $this->applyVideoKeywordFilter($query, $keyword, 'video_master');
         }
 
+        private function buildVideoListingQuery(
+            string $videoType,
+            bool $missingOnly = false,
+            string $keyword = '',
+            bool $expandContextMode = false
+        ) {
+            return $this->buildVideoBaseQuery(
+                $videoType,
+                $missingOnly,
+                $expandContextMode ? '' : $keyword
+            );
+        }
+
+        private function buildFocusCandidateQuery(
+            string $videoType,
+            bool $missingOnly = false,
+            string $keyword = '',
+            bool $expandContextMode = false,
+            $fallbackQuery = null
+        ) {
+            if ($keyword !== '') {
+                return $this->buildVideoBaseQuery($videoType, $missingOnly, $keyword);
+            }
+
+            return $fallbackQuery ? clone $fallbackQuery : $this->buildVideoListingQuery($videoType, $missingOnly, '', $expandContextMode);
+        }
+
         private function withVideoListRelations($query)
         {
             return $query->with([
@@ -175,9 +205,10 @@
             $sortDir     = $this->parseSortDir($request->input('sort_dir', 'asc'));
             $perPage     = self::VIDEO_PAGE_SIZE;
             $keyword     = $this->normalizeKeyword($request->input('keyword'));
+            $expandContextMode = $this->shouldExpandKeywordContext($request);
 
             /* ---- 建立基礎查詢（與列表一致） ---- */
-            $baseQuery = $this->buildVideoBaseQuery($videoType, $missingOnly, $keyword);
+            $baseQuery = $this->buildVideoListingQuery($videoType, $missingOnly, $keyword, $expandContextMode);
 
             /* ---- 目標影片 ---- */
             $video = (clone $baseQuery)
@@ -514,13 +545,14 @@
             $page = max(1, (int) $request->input('page', 1));
             $perPage = min(400, max(40, (int) $request->input('per_page', 160)));
             $keyword = $this->normalizeKeyword($request->input('keyword'));
+            $expandContextMode = $this->shouldExpandKeywordContext($request);
 
             // 讓左欄排序與右欄一致
             $sortBy  = in_array($request->input('sort_by'), ['id', 'duration']) ? $request->input('sort_by') : 'duration';
             $sortDir = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
 
             $masterFaces = $this->applyMasterFaceOrdering(
-                $this->masterFaceListingQuery($videoType, $keyword),
+                $this->masterFaceListingQuery($videoType, $expandContextMode ? '' : $keyword),
                 $sortBy,
                 $sortDir
             )->paginate($perPage, ['*'], 'page', $page);
@@ -983,6 +1015,11 @@
             $value = trim((string) $keyword);
 
             return preg_replace('/\s+/u', ' ', $value) ?? $value;
+        }
+
+        private function shouldExpandKeywordContext(Request $request): bool
+        {
+            return $request->boolean('expand_context', false);
         }
 
         private function applyMasterFaceOrdering($query, string $sortBy, string $sortDir)

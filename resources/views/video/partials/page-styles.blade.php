@@ -997,8 +997,75 @@
 
         .master-search-actions {
             display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .master-search-actions-row {
+            display: flex;
             justify-content: flex-end;
             gap: 8px;
+        }
+
+        .master-search-mode-toggle {
+            width: 100%;
+            min-height: 38px;
+            padding: 0 14px;
+            border: 1px solid rgba(193, 155, 247, .38);
+            border-radius: 999px;
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, .96), rgba(243, 227, 255, .9));
+            color: var(--theme-text-soft);
+            display: inline-flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: .83rem;
+            font-weight: 800;
+            letter-spacing: .03em;
+            cursor: pointer;
+            box-shadow:
+                0 14px 26px rgba(124, 76, 168, .1),
+                inset 0 1px 0 rgba(255, 255, 255, .94);
+            transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease, color .22s ease, background .22s ease;
+        }
+
+        .master-search-mode-label {
+            white-space: nowrap;
+        }
+
+        .master-search-mode-state {
+            min-width: 46px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, .86);
+            color: rgba(127, 67, 220, .78);
+            text-align: center;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .96);
+        }
+
+        .master-search-mode-toggle:hover {
+            transform: translateY(-1px);
+            border-color: rgba(165, 92, 246, .48);
+            box-shadow:
+                0 16px 28px rgba(124, 76, 168, .16),
+                inset 0 1px 0 rgba(255, 255, 255, .96);
+        }
+
+        .master-search-mode-toggle.is-active {
+            border-color: rgba(149, 84, 242, .66);
+            background:
+                linear-gradient(135deg, rgba(175, 104, 255, .98), rgba(137, 78, 227, .96));
+            color: #fff;
+            box-shadow:
+                0 18px 32px rgba(124, 76, 168, .24),
+                0 0 24px rgba(176, 123, 255, .18);
+        }
+
+        .master-search-mode-toggle.is-active .master-search-mode-state {
+            background: rgba(255, 255, 255, .22);
+            color: #fff;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18);
         }
 
         .master-search-submit,

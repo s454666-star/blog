@@ -413,6 +413,101 @@ class VideosControllerTest extends TestCase
         $this->assertSame($matchingIds, $returnedVideoIds);
     }
 
+    public function test_expand_context_mode_lists_surrounding_videos_around_keyword_focus(): void
+    {
+        $allIds = [];
+        $targetId = null;
+
+        for ($i = 1; $i <= 45; $i++) {
+            $name = $i === 25
+                ? '自拍_025.mp4'
+                : sprintf('旅行_%03d.mp4', $i);
+
+            $folder = sprintf('影片_%03d', $i);
+            $videoId = DB::table('video_master')->insertGetId([
+                'video_name' => $name,
+                'video_path' => sprintf('%s/%s', $folder, $name),
+                'm3u8_path' => null,
+                'duration' => $i,
+                'video_type' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $allIds[] = $videoId;
+            if ($i === 25) {
+                $targetId = $videoId;
+            }
+
+            $screenshotId = DB::table('video_screenshots')->insertGetId([
+                'video_master_id' => $videoId,
+                'screenshot_path' => sprintf('%s/screenshot_1.jpg', $folder),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            DB::table('video_face_screenshots')->insert([
+                'video_screenshot_id' => $screenshotId,
+                'face_image_path' => sprintf('%s/face_1.jpg', $folder),
+                'is_master' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $response = $this->get(route('video.index', [
+            'video_type' => 1,
+            'sort_by' => 'id',
+            'sort_dir' => 'asc',
+            'keyword' => '自拍_025',
+            'expand_context' => 1,
+        ]));
+
+        $response->assertOk();
+
+        $pageIds = $this->extractVideoRowIdsFromHtml($response->getContent());
+        $focusId = $this->extractFocusIdFromHtml($response->getContent());
+
+        $this->assertSame(array_slice($allIds, 20, 20), $pageIds);
+        $this->assertSame($targetId, $focusId);
+
+        $loadMoreResponse = $this->getJson(route('video.loadMore', [
+            'page' => 3,
+            'video_type' => 1,
+            'sort_by' => 'id',
+            'sort_dir' => 'asc',
+            'keyword' => '自拍_025',
+            'expand_context' => 1,
+        ]));
+
+        $loadMoreResponse->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('current_page', 3);
+
+        $thirdPageIds = $this->extractVideoRowIdsFromHtml((string) $loadMoreResponse->json('data'));
+        $this->assertSame(array_slice($allIds, 40, 5), $thirdPageIds);
+
+        $masterFacesResponse = $this->getJson(route('video.loadMasterFaces', [
+            'page' => 1,
+            'per_page' => 200,
+            'video_type' => 1,
+            'sort_by' => 'id',
+            'sort_dir' => 'asc',
+            'keyword' => '自拍_025',
+            'expand_context' => 1,
+        ]));
+
+        $masterFacesResponse->assertOk()
+            ->assertJsonPath('success', true);
+
+        $returnedVideoIds = array_map(
+            static fn (array $row): int => (int) ($row['video_id'] ?? 0),
+            $masterFacesResponse->json('data', [])
+        );
+
+        $this->assertSame($allIds, $returnedVideoIds);
+    }
+
     private function fakeEagleApi(): void
     {
         Http::fake(function (\Illuminate\Http\Client\Request $request) {

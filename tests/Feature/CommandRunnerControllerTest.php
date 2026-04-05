@@ -27,13 +27,16 @@ class CommandRunnerControllerTest extends TestCase
         $response->assertSee('掃描並搬移和 video_features 重複的影片');
         $response->assertSee('掃描指定資料夾內彼此重複的影片');
         $response->assertSee('掃描資料夾重複影片（只掃描不搬移）');
+        $response->assertSee('影片重新編碼（中高碼率）');
         $response->assertSee('比對 DB / 重跑 / Eagle 三邊差異');
         $response->assertSee('video:sync-rerun-sources');
         $response->assertSee('補跑剩餘 token：選 port 執行');
         $response->assertSee('8000 PORT跑');
         $response->assertSee('8001 PORT跑');
         $response->assertSee('資料夾位置');
+        $response->assertSee('影片檔名（留空 = 整個資料夾）');
         $response->assertSee('Z:\\FC2-2026(new)');
+        $response->assertSee('C:\\Users\\User\\Videos\\暫');
         $response->assertSee('停止');
 
         $crawler = new Crawler($response->getContent());
@@ -101,6 +104,42 @@ class CommandRunnerControllerTest extends TestCase
         $response = $this->postJson(route('command-runner.run'), [
             'preset' => 'move_video_duplicates',
             'path' => 'C:\\incoming\\video-folder',
+        ]);
+
+        $response->assertOk();
+        $response->assertExactJson($expected);
+    }
+
+    public function test_run_endpoint_forwards_folder_and_video_to_runner(): void
+    {
+        $expected = [
+            'preset' => [
+                'id' => 'reencode_video_medium_high',
+                'title' => '影片重新編碼（中高碼率）',
+                'summary' => '用 ffmpeg 把單支影片或整個資料夾重新編碼成 H.264/AAC，中高碼率輸出成新的 mp4。',
+            ],
+            'success' => true,
+            'exit_code' => 0,
+            'duration_ms' => 2468,
+            'finished_at' => '2026-04-05 13:10:00',
+            'output' => "reencode output\n",
+        ];
+
+        $mock = Mockery::mock(PresetCommandRunnerService::class);
+        $mock->shouldReceive('run')
+            ->once()
+            ->with('reencode_video_medium_high', [
+                'path' => 'C:\\Users\\User\\Videos\\暫',
+                'video' => 'clip-001.mp4',
+            ])
+            ->andReturn($expected);
+
+        $this->app->instance(PresetCommandRunnerService::class, $mock);
+
+        $response = $this->postJson(route('command-runner.run'), [
+            'preset' => 'reencode_video_medium_high',
+            'path' => 'C:\\Users\\User\\Videos\\暫',
+            'video' => 'clip-001.mp4',
         ]);
 
         $response->assertOk();

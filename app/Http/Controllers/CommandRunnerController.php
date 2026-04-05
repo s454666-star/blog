@@ -96,21 +96,32 @@ class CommandRunnerController extends Controller
 
     private function validateRunRequest(Request $request): array
     {
-        return $request->validate([
+        $validated = $request->validate([
             'preset' => ['required', 'string'],
-            'path' => ['sometimes', 'nullable', 'string', 'max:1000'],
             'run_token' => ['sometimes', 'nullable', 'string', 'max:100'],
         ]);
+
+        foreach ($request->except(['preset', 'run_token']) as $key => $value) {
+            if (!is_string($value) && $value !== null) {
+                abort(response()->json([
+                    'message' => sprintf('欄位 %s 只能傳字串。', $key),
+                ], 422));
+            }
+
+            if (mb_strlen((string) $value) > 1000) {
+                abort(response()->json([
+                    'message' => sprintf('欄位 %s 長度不可超過 1000。', $key),
+                ], 422));
+            }
+
+            $validated[$key] = $value;
+        }
+
+        return $validated;
     }
 
     private function extractRunnerInput(array $validated): array
     {
-        $input = [];
-
-        if (array_key_exists('path', $validated)) {
-            $input['path'] = $validated['path'];
-        }
-
-        return $input;
+        return array_diff_key($validated, array_flip(['preset', 'run_token']));
     }
 }

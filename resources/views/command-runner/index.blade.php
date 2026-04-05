@@ -603,6 +603,11 @@
             margin-top: 0;
         }
 
+        .card-input-stack.is-inline {
+            grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+            align-items: end;
+        }
+
         .card-input-wrap {
             display: grid;
             gap: 8px;
@@ -652,6 +657,10 @@
         }
 
         .card-command-zone.is-input {
+            min-height: 396px;
+        }
+
+        .card-command-zone.is-input-inline {
             min-height: 332px;
         }
 
@@ -675,6 +684,10 @@
         .ghost-btn {
             width: 100%;
             min-height: 54px;
+        }
+
+        .card-input-stack.is-inline .run-btn {
+            min-height: 56px;
         }
 
         .ghost-btn:disabled {
@@ -821,6 +834,10 @@
             .command-row-cards {
                 grid-template-columns: 1fr;
             }
+
+            .card-input-stack.is-inline {
+                grid-template-columns: 1fr;
+            }
         }
 
         @media (max-width: 760px) {
@@ -946,7 +963,7 @@
                                     </div>
                                 </div>
 
-                                <div class="card-command-zone {{ !empty($preset['path_input']) ? 'is-input' : 'is-buttons' }}">
+                                <div class="card-command-zone {{ !empty($preset['inputs']) ? 'is-input' : 'is-buttons' }} {{ !empty($preset['inputs']) && count($preset['inputs']) === 1 ? 'is-input-inline' : '' }}">
                                     <div class="code-shell">
                                         <div class="code-head">
                                             <div class="code-head-meta">
@@ -972,21 +989,24 @@
                                         >{{ $preset['command_preview'] }}</pre>
                                     </div>
 
-                                    @if (!empty($preset['path_input']))
-                                        <div class="card-input-stack">
-                                            <label class="card-input-wrap">
-                                                <span class="card-input-label">{{ $preset['path_input']['label'] }}</span>
-                                                <input
-                                                    type="text"
-                                                    class="card-path-input"
-                                                    data-path-input
-                                                    data-path-input-name="{{ $preset['path_input']['name'] }}"
-                                                    value="{{ $preset['path_input']['value'] ?? $preset['path_input']['default'] ?? '' }}"
-                                                    placeholder="{{ $preset['path_input']['placeholder'] ?? '' }}"
-                                                    spellcheck="false"
-                                                    autocomplete="off"
-                                                >
-                                            </label>
+                                    @if (!empty($preset['inputs']))
+                                        <div class="card-input-stack {{ count($preset['inputs']) === 1 ? 'is-inline' : '' }}">
+                                            @foreach ($preset['inputs'] as $inputField)
+                                                <label class="card-input-wrap">
+                                                    <span class="card-input-label">{{ $inputField['label'] }}</span>
+                                                    <input
+                                                        type="text"
+                                                        class="card-path-input"
+                                                        data-preset-input
+                                                        data-preset-input-name="{{ $inputField['name'] }}"
+                                                        data-preview-token="{{ $inputField['preview_token'] ?? '' }}"
+                                                        value="{{ $inputField['value'] ?? $inputField['default'] ?? '' }}"
+                                                        placeholder="{{ $inputField['placeholder'] ?? '' }}"
+                                                        spellcheck="false"
+                                                        autocomplete="off"
+                                                    >
+                                                </label>
+                                            @endforeach
                                             <button
                                                 type="button"
                                                 class="run-btn"
@@ -1084,7 +1104,7 @@
             const cards = [...document.querySelectorAll('[data-card]')];
             const runButtons = [...document.querySelectorAll('[data-run-preset]')];
             const previewButtons = [...document.querySelectorAll('[data-copy-preview]')];
-            const pathInputs = [...document.querySelectorAll('[data-path-input]')];
+            const presetInputs = [...document.querySelectorAll('[data-preset-input]')];
             const stopButtons = [...document.querySelectorAll('[data-stop-run]')];
             const copyOutputButtons = [...document.querySelectorAll('[data-copy-output]')];
             const closeOutputButtons = [...document.querySelectorAll('[data-close-output]')];
@@ -1347,8 +1367,7 @@
                 });
             });
 
-            const updatePreviewFromInput = (input) => {
-                const card = input.closest('[data-card]');
+            const updatePreviewFromInputs = (card) => {
                 const preview = card?.querySelector('[data-command-preview]');
                 const templateEncoded = preview?.dataset.commandPreviewTemplate || '';
 
@@ -1356,16 +1375,34 @@
                     return;
                 }
 
-                const template = atob(templateEncoded);
-                const value = input.value.trim() || input.placeholder || '';
-                preview.textContent = template.replaceAll('__PATH__', value);
+                let template = atob(templateEncoded);
+                const inputs = [...card.querySelectorAll('[data-preset-input]')];
+
+                inputs.forEach((input) => {
+                    const token = input.dataset.previewToken || '';
+
+                    if (!token) {
+                        return;
+                    }
+
+                    const value = input.value.trim() || input.placeholder || '';
+                    template = template.replaceAll(token, value);
+                });
+
+                preview.textContent = template;
             };
 
-            pathInputs.forEach((input) => {
-                updatePreviewFromInput(input);
+            presetInputs.forEach((input) => {
+                const card = input.closest('[data-card]');
+                if (card) {
+                    updatePreviewFromInputs(card);
+                }
 
                 input.addEventListener('input', () => {
-                    updatePreviewFromInput(input);
+                    const currentCard = input.closest('[data-card]');
+                    if (currentCard) {
+                        updatePreviewFromInputs(currentCard);
+                    }
                 });
 
                 input.addEventListener('keydown', (event) => {
@@ -1493,11 +1530,11 @@
                             preset,
                             run_token: runToken,
                         };
-                        const pathInput = card.querySelector('[data-path-input]');
+                        const inputs = [...card.querySelectorAll('[data-preset-input]')];
 
-                        if (pathInput) {
-                            payload[pathInput.dataset.pathInputName || 'path'] = pathInput.value;
-                        }
+                        inputs.forEach((input) => {
+                            payload[input.dataset.presetInputName || 'path'] = input.value;
+                        });
 
                         const response = await fetch(runStreamUrl, {
                             method: 'POST',

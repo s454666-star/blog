@@ -23,7 +23,8 @@ class PresetCommandRunnerService
             'move_video_duplicates' => 2,
             'move_folder_duplicates' => 3,
             'scan_video_duplicates' => 4,
-            'sync_rerun_video_sources' => 5,
+            'reencode_video_medium_high' => 5,
+            'sync_rerun_video_sources' => 6,
         ];
 
         foreach (self::catalog() as $id => $preset) {
@@ -101,33 +102,80 @@ class PresetCommandRunnerService
         $preset['id'] = $id;
         $preset['workdir'] = self::WORKDIR;
         $preset['php_binary'] = self::PHP_BINARY;
-        $preset['command_preview'] = $preset['command_preview'] ?? $this->buildCommandPreview($preset['steps'] ?? []);
+        $preset['inputs'] = $this->preparePresetInputs(
+            $preset['inputs'] ?? (isset($preset['path_input']) && is_array($preset['path_input']) ? [$preset['path_input']] : [])
+        );
+        $preset['command_preview'] = $preset['command_preview']
+            ?? (
+                !empty($preset['command_preview_template']) && $preset['inputs'] !== []
+                    ? $this->fillCommandPreviewTemplate((string) $preset['command_preview_template'], $preset['inputs'])
+                    : $this->buildCommandPreview($preset['steps'] ?? [])
+            );
 
         return $preset;
     }
 
     private function resolvePreset(string $id, array $preset, array $input): array
     {
-        if (!in_array($id, ['move_video_duplicates', 'move_folder_duplicates', 'scan_video_duplicates'], true)) {
+        if (!isset($preset['command_name'])) {
             return $preset;
         }
 
-        $defaultPath = (string) ($preset['path_input']['default'] ?? '');
-        $path = $this->normalizePathInput($input['path'] ?? $defaultPath, $defaultPath);
+        $resolvedInputs = [];
+        foreach ($this->preparePresetInputs(
+            $preset['inputs'] ?? (isset($preset['path_input']) && is_array($preset['path_input']) ? [$preset['path_input']] : [])
+        ) as $field) {
+            $name = (string) ($field['name'] ?? '');
+            $default = (string) ($field['default'] ?? '');
+            $required = (bool) ($field['required'] ?? true);
 
-        $preset['path_input']['value'] = $path;
-        $preset['command_preview'] = str_replace('__PATH__', $path, (string) ($preset['command_preview_template'] ?? ''));
+            $field['value'] = $this->normalizeTextInput($input[$name] ?? $default, $default, $required);
+            $resolvedInputs[] = $field;
+        }
+
+        if ($resolvedInputs === []) {
+            return $preset;
+        }
+
+        $arguments = $this->buildPresetArguments($resolvedInputs, $preset['argument_order'] ?? []);
+        $preset['inputs'] = $resolvedInputs;
+        $preset['command_preview'] = $this->fillCommandPreviewTemplate(
+            (string) ($preset['command_preview_template'] ?? ''),
+            $resolvedInputs
+        );
         $preset['steps'] = [
             [
-                'display' => 'php artisan ' . $preset['command_name'] . ' "' . $path . '"',
-                'command' => [self::PHP_BINARY, 'artisan', $preset['command_name'], $path],
+                'display' => $this->buildArtisanDisplay((string) $preset['command_name'], $arguments),
+                'command' => array_merge([self::PHP_BINARY, 'artisan', (string) $preset['command_name']], $arguments),
             ],
         ];
 
         return $preset;
     }
 
-    private function normalizePathInput(mixed $value, string $fallback = ''): string
+    private function preparePresetInputs(array $inputs): array
+    {
+        $prepared = [];
+
+        foreach ($inputs as $field) {
+            if (!is_array($field)) {
+                continue;
+            }
+
+            $name = trim((string) ($field['name'] ?? ''));
+            if ($name === '') {
+                continue;
+            }
+
+            $field['name'] = $name;
+            $field['preview_token'] = (string) ($field['preview_token'] ?? ('__' . strtoupper($name) . '__'));
+            $prepared[] = $field;
+        }
+
+        return $prepared;
+    }
+
+    private function normalizeTextInput(mixed $value, string $fallback = '', bool $required = true): string
     {
         $path = trim((string) $value);
         $path = trim($path, " \t\n\r\0\x0B\"");
@@ -136,7 +184,7 @@ class PresetCommandRunnerService
             $path = trim($fallback);
         }
 
-        if ($path === '') {
+        if ($required && $path === '') {
             throw new InvalidArgumentException('Path is required.');
         }
 
@@ -145,6 +193,52 @@ class PresetCommandRunnerService
         }
 
         return $path;
+    }
+
+    private function buildPresetArguments(array $inputs, array $argumentOrder = []): array
+    {
+        $byName = [];
+        foreach ($inputs as $field) {
+            $byName[(string) $field['name']] = $field;
+        }
+
+        $orderedNames = $argumentOrder !== []
+            ? $argumentOrder
+            : array_map(static fn (array $field): string => (string) $field['name'], $inputs);
+
+        $arguments = [];
+        foreach ($orderedNames as $name) {
+            if (!isset($byName[$name])) {
+                continue;
+            }
+
+            $field = $byName[$name];
+            $value = (string) ($field['value'] ?? '');
+            $includeWhenEmpty = (bool) ($field['include_when_empty'] ?? false);
+
+            if ($value === '' && !$includeWhenEmpty) {
+                continue;
+            }
+
+            $arguments[] = $value;
+        }
+
+        return $arguments;
+    }
+
+    private function fillCommandPreviewTemplate(string $template, array $inputs): string
+    {
+        $replacements = [];
+        foreach ($inputs as $field) {
+            $replacements[(string) ($field['preview_token'] ?? '')] = (string) ($field['value'] ?? '');
+        }
+
+        return strtr($template, $replacements);
+    }
+
+    private function buildArtisanDisplay(string $commandName, array $arguments = []): string
+    {
+        return $this->stringifyCommand(array_merge(['php', 'artisan', $commandName], $arguments));
     }
 
     private function buildCommandPreview(array $steps): string
@@ -674,6 +768,45 @@ class PresetCommandRunnerService
                 'command_preview_template' => implode("\n", [
                     'cd ' . self::WORKDIR,
                     'php artisan video:scan-duplicates "__PATH__"',
+                ]),
+                'steps' => [],
+            ],
+            'reencode_video_medium_high' => [
+                'eyebrow' => 'FFmpeg Reencode',
+                'title' => '影片重新編碼（中高碼率）',
+                'summary' => '用 ffmpeg 把單支影片或整個資料夾重新編碼成 H.264/AAC，中高碼率輸出成新的 mp4。',
+                'details' => '資料夾預設帶入 C:\\Users\\User\\Videos\\暫。影片欄位可以留白，留白就會整個資料夾一起跑；如果只想處理單一檔案，直接填檔名或絕對路徑。',
+                'highlights' => [
+                    '影片欄位留空時，會掃資料夾內所有影片逐支重編碼。',
+                    '輸出檔會寫成原檔名加上 _mhq.mp4，不會直接覆蓋原始檔。',
+                    '碼率會依解析度自動抓中高檔位，適合整理暫存影片做後續使用。',
+                ],
+                'tags' => ['ffmpeg', 'H.264', 'AAC', '中高碼率'],
+                'accent_from' => '#ff8a5b',
+                'accent_to' => '#ffd166',
+                'accent_soft' => 'rgba(255, 138, 91, 0.20)',
+                'command_name' => 'video:reencode-medium-high',
+                'argument_order' => ['path', 'video'],
+                'inputs' => [
+                    [
+                        'name' => 'path',
+                        'label' => '資料夾位置',
+                        'placeholder' => 'C:\\Users\\User\\Videos\\暫',
+                        'default' => 'C:\\Users\\User\\Videos\\暫',
+                    ],
+                    [
+                        'name' => 'video',
+                        'label' => '影片檔名（留空 = 整個資料夾）',
+                        'placeholder' => '',
+                        'default' => '',
+                        'required' => false,
+                    ],
+                ],
+                'command_preview_template' => implode("\n", [
+                    'cd ' . self::WORKDIR,
+                    'php artisan video:reencode-medium-high "__PATH__" "__VIDEO__"',
+                    '',
+                    '# 影片欄位留空時，會處理整個資料夾',
                 ]),
                 'steps' => [],
             ],

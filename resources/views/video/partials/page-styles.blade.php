@@ -241,7 +241,9 @@
             overflow-wrap: anywhere;
             word-break: break-word;
             position: relative;
-            transition: transform .24s ease, box-shadow .24s ease, border-color .24s ease;
+            overflow: hidden;
+            isolation: isolate;
+            transition: transform .24s ease, box-shadow .24s ease, border-color .24s ease, filter .24s ease;
             animation: slideIn .6s cubic-bezier(.25, .8, .25, 1) forwards;
             opacity: 0;
             transform: translateY(-10px);
@@ -262,6 +264,27 @@
             opacity: .9;
         }
 
+        .video-title-chip::after {
+            content: '';
+            position: absolute;
+            inset: -35% auto -35% -55%;
+            width: 44%;
+            background: linear-gradient(
+                120deg,
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, .18) 28%,
+                rgba(255, 255, 255, .72) 50%,
+                rgba(255, 255, 255, .18) 72%,
+                rgba(255, 255, 255, 0) 100%
+            );
+            transform: skewX(-24deg);
+            pointer-events: none;
+            opacity: .72;
+            mix-blend-mode: screen;
+            animation: titleChipSweep 3.8s ease-in-out infinite;
+            z-index: 0;
+        }
+
         .video-title-chip--main {
             font-size: 1.12rem;
             font-weight: 800;
@@ -270,8 +293,11 @@
             background:
                 linear-gradient(145deg, rgba(255, 255, 255, .98), rgba(243, 226, 255, .96));
             box-shadow:
+                0 0 0 1px rgba(255, 255, 255, .62),
                 0 18px 30px rgba(124, 76, 168, .14),
+                0 0 24px rgba(178, 117, 255, .16),
                 inset 0 1px 0 rgba(255, 255, 255, .94);
+            animation: slideIn .6s cubic-bezier(.25, .8, .25, 1) forwards, titleChipGlow 2.8s ease-in-out infinite;
         }
 
         .video-title-chip--path {
@@ -281,16 +307,65 @@
             background:
                 linear-gradient(145deg, rgba(255, 255, 255, .92), rgba(241, 225, 255, .84));
             box-shadow:
+                0 0 0 1px rgba(255, 255, 255, .56),
                 0 12px 24px rgba(124, 76, 168, .08),
+                0 0 18px rgba(149, 204, 255, .1),
                 inset 0 1px 0 rgba(255, 255, 255, .88);
+            animation: slideIn .6s cubic-bezier(.25, .8, .25, 1) forwards, titleChipGlow 3.2s ease-in-out infinite;
+            animation-delay: 0s, .22s;
         }
 
         .video-title-chip:hover {
             transform: translateY(-1px);
             border-color: rgba(165, 92, 246, .38);
             box-shadow:
-                0 20px 34px rgba(124, 76, 168, .14),
+                0 0 0 1px rgba(255, 255, 255, .7),
+                0 20px 34px rgba(124, 76, 168, .16),
+                0 0 28px rgba(176, 123, 255, .18),
                 inset 0 1px 0 rgba(255, 255, 255, .95);
+            filter: saturate(1.06) brightness(1.02);
+        }
+
+        .video-title-chip:hover::after {
+            opacity: .9;
+            animation-duration: 2.2s;
+        }
+
+        @keyframes titleChipSweep {
+            0%,
+            12% {
+                left: -55%;
+                opacity: 0;
+            }
+            22% {
+                opacity: .78;
+            }
+            48% {
+                left: 118%;
+                opacity: .2;
+            }
+            100% {
+                left: 118%;
+                opacity: 0;
+            }
+        }
+
+        @keyframes titleChipGlow {
+            0%,
+            100% {
+                box-shadow:
+                    0 0 0 1px rgba(255, 255, 255, .58),
+                    0 16px 28px rgba(124, 76, 168, .12),
+                    0 0 18px rgba(176, 123, 255, .12),
+                    inset 0 1px 0 rgba(255, 255, 255, .92);
+            }
+            50% {
+                box-shadow:
+                    0 0 0 1px rgba(255, 255, 255, .72),
+                    0 18px 32px rgba(124, 76, 168, .16),
+                    0 0 30px rgba(176, 123, 255, .2),
+                    inset 0 1px 0 rgba(255, 255, 255, .96);
+            }
         }
 
         @keyframes slideIn {

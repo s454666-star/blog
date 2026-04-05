@@ -49,9 +49,9 @@ class Kernel extends ConsoleKernel
             ->hourlyAt(24)
             ->name('blog-ensure-tg-scan-group-media');
 
-        $schedule->exec($this->hiddenBatchCommand('clear_project_logs.bat'))
-            ->dailyAt('07:00')
-            ->name('blog-project-log-cleanup');
+        // $schedule->exec($this->hiddenBatchCommand('clear_project_logs.bat'))
+        //     ->dailyAt('07:00')
+        //     ->name('blog-project-log-cleanup');
     }
 
     private function hiddenBatchCommand(string $batchFileName): string

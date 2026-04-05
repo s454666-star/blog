@@ -582,8 +582,11 @@
         }
 
         .card-copy {
-            display: grid;
-            align-content: start;
+            display: flex;
+            flex: 1 1 auto;
+            min-height: 0;
+            flex-direction: column;
+            justify-content: flex-start;
         }
 
         .card-tags {
@@ -648,7 +651,7 @@
         .card-command-zone {
             display: grid;
             gap: 16px;
-            margin-top: auto;
+            margin-top: 18px;
             align-content: end;
         }
 
@@ -1128,6 +1131,30 @@
                 output: row.querySelector('[data-runtime-output]'),
             });
 
+            const decodeBase64Utf8 = (value) => {
+                if (!value) {
+                    return '';
+                }
+
+                try {
+                    const binary = atob(value);
+                    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+
+                    if (typeof TextDecoder !== 'undefined') {
+                        return new TextDecoder('utf-8').decode(bytes);
+                    }
+
+                    let percentEncoded = '';
+                    bytes.forEach((byte) => {
+                        percentEncoded += `%${byte.toString(16).padStart(2, '0')}`;
+                    });
+
+                    return decodeURIComponent(percentEncoded);
+                } catch (error) {
+                    return '';
+                }
+            };
+
             const setRuntimeMeta = (row, state) => {
                 const elements = runtimeElements(row);
 
@@ -1375,7 +1402,7 @@
                     return;
                 }
 
-                let template = atob(templateEncoded);
+                let template = decodeBase64Utf8(templateEncoded);
                 const inputs = [...card.querySelectorAll('[data-preset-input]')];
 
                 inputs.forEach((input) => {

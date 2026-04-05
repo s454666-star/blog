@@ -436,20 +436,21 @@
             position: absolute;
             inset: -8px;
             border-radius: inherit;
-            background: conic-gradient(
-                from 0deg,
-                rgba(255, 106, 167, .48),
-                rgba(255, 191, 87, .36),
-                rgba(246, 255, 120, .34),
-                rgba(109, 255, 191, .36),
-                rgba(98, 215, 255, .42),
-                rgba(124, 122, 255, .48),
-                rgba(255, 121, 228, .44),
-                rgba(255, 106, 167, .48)
+            background: linear-gradient(
+                115deg,
+                rgba(255, 106, 167, .44) 0%,
+                rgba(255, 191, 87, .34) 18%,
+                rgba(246, 255, 120, .3) 32%,
+                rgba(109, 255, 191, .32) 48%,
+                rgba(98, 215, 255, .38) 64%,
+                rgba(124, 122, 255, .44) 82%,
+                rgba(255, 121, 228, .42) 100%
             );
+            background-size: 240% 240%;
+            background-position: 0% 50%;
             filter: blur(16px);
             opacity: 0;
-            transition: opacity .4s, transform .4s;
+            transition: opacity .4s, transform .4s, background-position .4s;
             pointer-events: none;
             z-index: 0;
         }
@@ -460,35 +461,37 @@
             inset: -3px;
             border-radius: 24px;
             padding: 4px;
-            background: repeating-conic-gradient(
-                from 0deg,
-                #ff6aa7 0deg 24deg,
-                #ffbf57 24deg 48deg,
-                #f6ff78 48deg 72deg,
-                #6dffbf 72deg 96deg,
-                #62d7ff 96deg 120deg,
-                #7c7aff 120deg 144deg,
-                #ff79e4 144deg 168deg,
-                #ff6aa7 168deg 192deg
+            background: linear-gradient(
+                135deg,
+                #ff6aa7 0%,
+                #ffbf57 16%,
+                #f6ff78 30%,
+                #6dffbf 46%,
+                #62d7ff 62%,
+                #7c7aff 78%,
+                #ff79e4 92%,
+                #ff6aa7 100%
             );
+            background-size: 260% 260%;
+            background-position: 0% 50%;
             -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
             -webkit-mask-composite: xor;
             mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
             mask-composite: exclude;
             opacity: 0;
-            transition: opacity .35s ease, transform .35s ease;
+            transition: opacity .35s ease, transform .35s ease, background-position .35s ease;
             pointer-events: none;
             z-index: 2;
         }
 
         .master-face-item:hover::before {
             opacity: 1;
-            animation: rainbowFocusSpin 3.6s linear infinite;
+            animation: rainbowBorderShift 2.8s linear infinite;
         }
 
         .master-face-item.focused::before {
             opacity: 1;
-            animation: rainbowFocusSpin 2.4s linear infinite;
+            animation: rainbowBorderShift 2.1s linear infinite;
             transform: scale(1.02);
         }
 
@@ -499,7 +502,37 @@
         .master-face-item.focused::after {
             opacity: .98;
             transform: scale(1.04);
-            animation: rainbowFocusSpin 4.8s linear infinite reverse, rainbowFocusPulse 1.8s ease-in-out infinite;
+            animation: rainbowGlowShift 3.2s linear infinite, rainbowFocusPulse 1.8s ease-in-out infinite;
+        }
+
+        @keyframes rainbowBorderShift {
+            0% {
+                background-position: 0% 50%;
+                filter: hue-rotate(0deg) saturate(1);
+            }
+            50% {
+                background-position: 100% 50%;
+                filter: hue-rotate(40deg) saturate(1.08);
+            }
+            100% {
+                background-position: 0% 50%;
+                filter: hue-rotate(0deg) saturate(1);
+            }
+        }
+
+        @keyframes rainbowGlowShift {
+            0% {
+                background-position: 0% 50%;
+                filter: blur(13px) hue-rotate(0deg) saturate(1.02);
+            }
+            50% {
+                background-position: 100% 50%;
+                filter: blur(16px) hue-rotate(55deg) saturate(1.12);
+            }
+            100% {
+                background-position: 0% 50%;
+                filter: blur(13px) hue-rotate(0deg) saturate(1.02);
+            }
         }
 
         @keyframes rainbowFocusSpin {

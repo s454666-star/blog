@@ -97,7 +97,11 @@ class DispatchTokenScanItemsCommand extends Command
     private const INITIAL_API_TIMEOUT_SECONDS = 60;
     private const FOLLOWUP_API_TIMEOUT_SECONDS = 900;
     private const MTFXQ_COMBINED_API_TIMEOUT_SECONDS = 3600;
-    private const LOCAL_FASTAPI_RESTART_WAIT_SECONDS = 20;
+    private const LOCAL_FASTAPI_RESTART_WAIT_SECONDS = 30;
+    private const LOCAL_FASTAPI_RESTART_MAX_ATTEMPTS = 3;
+    private const LOCAL_FASTAPI_RESUME_RECOVERY_MAX_ATTEMPTS = 4;
+    private const LOCAL_FASTAPI_READY_POLL_MICROSECONDS = 500000;
+    private const LOCAL_FASTAPI_READY_HTTP_TIMEOUT_SECONDS = 2;
     private const LOCAL_FASTAPI_RESTART_BATCH_BY_PORT = [
         8000 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service.bat',
         8001 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service2.bat',
@@ -1291,7 +1295,7 @@ class DispatchTokenScanItemsCommand extends Command
 
         foreach ($this->getApiBaseUris() as $baseUri) {
             $url = rtrim($baseUri, '/') . '/bots/send-and-run-all-pages';
-            $restartAttempted = false;
+            $restartAttempts = 0;
 
             while (true) {
                 try {
@@ -1321,24 +1325,28 @@ class DispatchTokenScanItemsCommand extends Command
                 } catch (Throwable $e) {
                     $lastError = $e->getMessage();
 
-                    if (
-                        !$restartAttempted
-                        && $this->shouldRestartLocalFastApi($baseUri, $lastError)
-                        && $this->restartLocalFastApiService($baseUri, $lastError)
-                    ) {
-                        $restartAttempted = true;
+                    if ($this->shouldRestartLocalFastApi($baseUri, $lastError)) {
                         if ($this->shouldResumeCombinedPaginationAfterRestart($lastError)) {
-                            $resumeResult = $this->resumeCombinedPaginationApi($baseUri, $botUsername);
+                            $resumeResult = $this->recoverCombinedPaginationAfterInterruption(
+                                $baseUri,
+                                $botUsername,
+                                $lastError
+                            );
                             if (($resumeResult['ok'] ?? false) === true) {
                                 return $resumeResult;
                             }
 
-                            $resumeError = trim((string) ($resumeResult['error'] ?? 'unknown'));
-                            $lastError .= ' combined pagination resume failed: ' . ($resumeError !== '' ? $resumeError : 'unknown');
+                            $lastError = trim((string) ($resumeResult['error'] ?? $lastError));
                             break;
                         }
 
-                        continue;
+                        if (
+                            $restartAttempts < self::LOCAL_FASTAPI_RESTART_MAX_ATTEMPTS
+                            && $this->restartLocalFastApiService($baseUri, $lastError)
+                        ) {
+                            $restartAttempts++;
+                            continue;
+                        }
                     }
                 }
 
@@ -1349,6 +1357,64 @@ class DispatchTokenScanItemsCommand extends Command
         return [
             'ok' => false,
             'error' => $lastError,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function recoverCombinedPaginationAfterInterruption(string $baseUri, string $botUsername, string $initialError): array
+    {
+        $errors = [];
+        $normalizedInitialError = trim($initialError);
+        if ($normalizedInitialError !== '') {
+            $errors[] = $normalizedInitialError;
+        }
+
+        $needsRestartBeforeAttempt = false;
+        $maxAttempts = max(self::LOCAL_FASTAPI_RESUME_RECOVERY_MAX_ATTEMPTS, 1);
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            $displayBot = '@' . ltrim($botUsername, '@');
+            $this->line(sprintf(
+                'fastapi_resume_retry base_uri=%s bot=%s attempt=%d/%d',
+                $baseUri,
+                $displayBot,
+                $attempt,
+                $maxAttempts
+            ));
+
+            if ($needsRestartBeforeAttempt) {
+                $restartReason = trim((string) end($errors));
+                if (!$this->restartLocalFastApiService($baseUri, $restartReason !== '' ? $restartReason : $normalizedInitialError)) {
+                    $errors[] = sprintf('resume attempt %d: FastAPI restart did not become ready', $attempt);
+                    continue;
+                }
+            }
+
+            if (!$this->waitForLocalFastApiReady($baseUri, self::LOCAL_FASTAPI_RESTART_WAIT_SECONDS)) {
+                $errors[] = sprintf('resume attempt %d: FastAPI did not become ready in time', $attempt);
+                $needsRestartBeforeAttempt = true;
+                continue;
+            }
+
+            $resumeResult = $this->resumeCombinedPaginationApi($baseUri, $botUsername);
+            if (($resumeResult['ok'] ?? false) === true) {
+                return $resumeResult;
+            }
+
+            $resumeError = trim((string) ($resumeResult['error'] ?? 'unknown'));
+            $errors[] = sprintf(
+                'resume attempt %d: %s',
+                $attempt,
+                $resumeError !== '' ? $resumeError : 'unknown'
+            );
+            $needsRestartBeforeAttempt = false;
+        }
+
+        return [
+            'ok' => false,
+            'error' => implode(' ', array_filter($errors, static fn ($value) => trim((string) $value) !== '')),
         ];
     }
 
@@ -1483,10 +1549,7 @@ class DispatchTokenScanItemsCommand extends Command
             return false;
         }
 
-        $ready = $this->waitForLocalFastApiPort(
-            $port,
-            self::LOCAL_FASTAPI_RESTART_WAIT_SECONDS
-        );
+        $ready = $this->waitForLocalFastApiReady($baseUri, self::LOCAL_FASTAPI_RESTART_WAIT_SECONDS);
 
         if ($ready) {
             $this->line(sprintf(
@@ -1497,6 +1560,46 @@ class DispatchTokenScanItemsCommand extends Command
         }
 
         return $ready;
+    }
+
+    private function waitForLocalFastApiReady(string $baseUri, int $timeoutSeconds): bool
+    {
+        $deadline = microtime(true) + max($timeoutSeconds, 1);
+
+        while (microtime(true) < $deadline) {
+            if ($this->probeLocalFastApiReady($baseUri)) {
+                return true;
+            }
+
+            usleep(self::LOCAL_FASTAPI_READY_POLL_MICROSECONDS);
+        }
+
+        return false;
+    }
+
+    private function probeLocalFastApiReady(string $baseUri): bool
+    {
+        $normalizedBaseUri = rtrim($baseUri, '/');
+        if ($normalizedBaseUri === '') {
+            return false;
+        }
+
+        foreach (['/bots/health', '/openapi.json'] as $path) {
+            try {
+                $response = Http::connectTimeout(1)
+                    ->timeout(self::LOCAL_FASTAPI_READY_HTTP_TIMEOUT_SECONDS)
+                    ->acceptJson()
+                    ->get($normalizedBaseUri . $path);
+
+                if ($response->ok()) {
+                    return true;
+                }
+            } catch (Throwable) {
+                // Keep polling until the local FastAPI service becomes ready.
+            }
+        }
+
+        return false;
     }
 
     private function waitForLocalFastApiPort(int $port, int $timeoutSeconds): bool
@@ -2558,21 +2661,31 @@ class DispatchTokenScanItemsCommand extends Command
             0
         );
 
-        if (($challenge['required'] ?? false) !== true) {
+        if (($challenge['required'] ?? false) !== true && ($challenge['blocked'] ?? false) !== true) {
             return ['solved' => false, 'summary' => ''];
         }
 
         $this->logBotCaptchaEvent('mtfxq_detected', [
             'bot_api' => $botApi,
-            'message_id' => (int) ($challenge['message_id'] ?? 0),
-            'prompt' => trim((string) ($challenge['prompt'] ?? '')),
-            'buttons' => (array) ($challenge['buttons'] ?? []),
+            'message_id' => (int) (($challenge['message_id'] ?? 0) ?: ($challenge['blocked_message_id'] ?? 0)),
+            'prompt' => trim((string) (($challenge['prompt'] ?? '') !== '' ? $challenge['prompt'] : ($result['latest_text_preview'] ?? ''))),
+            'buttons' => !empty($challenge['buttons']) ? (array) ($challenge['buttons'] ?? []) : (array) ($challenge['blocked_buttons'] ?? []),
         ]);
 
         $refreshSummary = '';
-        if (($challenge['blocked'] ?? false) === true) {
+        if (
+            ($challenge['blocked'] ?? false) === true
+            && !$this->shouldSolveNewestMtfxqCaptchaChallengeDirectly($challenge)
+        ) {
             $refreshResult = $this->refreshMtfxqCaptchaChallenge($baseUri, $botApi, $challenge);
             if (($refreshResult['ok'] ?? false) !== true) {
+                if ($this->shouldResetBlockedMtfxqRunAfterRefreshFailure($challenge, $refreshResult)) {
+                    return [
+                        'solved' => true,
+                        'summary' => 'mtfxq blocked captcha refresh button was stale. Cleared the current blocked run and will retry the token.',
+                    ];
+                }
+
                 return [
                     'solved' => false,
                     'summary' => trim((string) ($refreshResult['summary'] ?? 'mtfxq captcha is blocked and previous captcha refresh failed')),
@@ -2601,6 +2714,10 @@ class DispatchTokenScanItemsCommand extends Command
                         : 'Cleared the previous mtfxq captcha and will retry the token.'),
                 ];
             }
+        }
+
+        if (($challenge['required'] ?? false) !== true) {
+            return ['solved' => false, 'summary' => $refreshSummary];
         }
 
         $download = $this->downloadBotMessageMedia(
@@ -2678,6 +2795,29 @@ class DispatchTokenScanItemsCommand extends Command
             'solved' => true,
             'summary' => implode(' ', $summaryParts),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $challenge
+     */
+    private function shouldSolveNewestMtfxqCaptchaChallengeDirectly(array $challenge): bool
+    {
+        if (($challenge['required'] ?? false) !== true) {
+            return false;
+        }
+
+        $challengeMessageId = (int) ($challenge['message_id'] ?? 0);
+        $blockedMessageId = (int) ($challenge['blocked_message_id'] ?? 0);
+
+        if ($challengeMessageId <= 0) {
+            return false;
+        }
+
+        if ($blockedMessageId <= 0) {
+            return true;
+        }
+
+        return $challengeMessageId > $blockedMessageId;
     }
 
     private function resolveSkipWhenTotalFilesExceeds(): int
@@ -2777,27 +2917,58 @@ class DispatchTokenScanItemsCommand extends Command
      */
     private function refreshMtfxqCaptchaChallenge(string $baseUri, string $botApi, array $challenge): array
     {
-        $challengeMessageId = (int) ($challenge['message_id'] ?? 0);
-        $buttonText = $this->pickDisposableMtfxqCaptchaButton((array) ($challenge['buttons'] ?? []));
+        $blockedMessageId = (int) ($challenge['blocked_message_id'] ?? 0);
+        $blockedButtonText = $this->pickDisposableMtfxqCaptchaButton((array) ($challenge['blocked_buttons'] ?? []));
+        $fallbackMessageId = (int) ($challenge['message_id'] ?? 0);
+        $fallbackButtonText = $this->pickDisposableMtfxqCaptchaButton((array) ($challenge['buttons'] ?? []));
 
-        if ($challengeMessageId <= 0 || $buttonText === null) {
+        if (($blockedMessageId <= 0 || $blockedButtonText === null) && ($fallbackMessageId <= 0 || $fallbackButtonText === null)) {
             return [
                 'ok' => false,
                 'summary' => 'mtfxq captcha is blocked but no previous captcha button is available to refresh it',
             ];
         }
 
-        $clickResult = $this->clickQqYzButton($baseUri, $botApi, $challengeMessageId, [$buttonText]);
-        if (($clickResult['button_clicked'] ?? false) !== true) {
+        $blockedClickReason = '';
+        if ($blockedMessageId > 0 && $blockedButtonText !== null) {
+            $clickResult = $this->clickQqYzButton($baseUri, $botApi, $blockedMessageId, [$blockedButtonText]);
+            if (($clickResult['button_clicked'] ?? false) === true) {
+                return [
+                    'ok' => true,
+                    'summary' => 'Clicked a previous mtfxq captcha button (' . $blockedButtonText . ') to force a fresh captcha image.',
+                ];
+            }
+
+            $blockedClickReason = trim((string) ($clickResult['reason'] ?? 'unknown'));
+        }
+
+        if (
+            $fallbackMessageId > 0
+            && $fallbackButtonText !== null
+            && $fallbackMessageId !== $blockedMessageId
+            && $this->isMtfxqCaptchaRefreshCallbackStale($blockedClickReason)
+        ) {
+            $fallbackClickResult = $this->clickQqYzButton($baseUri, $botApi, $fallbackMessageId, [$fallbackButtonText]);
+            if (($fallbackClickResult['button_clicked'] ?? false) === true) {
+                return [
+                    'ok' => true,
+                    'summary' => 'Blocked refresh button was stale; clicked a previous mtfxq captcha button (' . $fallbackButtonText . ') to force a fresh captcha image.',
+                ];
+            }
+
+            $blockedClickReason = trim((string) ($fallbackClickResult['reason'] ?? $blockedClickReason));
+        }
+
+        if ($blockedMessageId <= 0 || $blockedButtonText === null) {
             return [
                 'ok' => false,
-                'summary' => 'mtfxq captcha is blocked and clicking a previous captcha button failed: ' . trim((string) ($clickResult['reason'] ?? 'unknown')),
+                'summary' => 'mtfxq captcha is blocked and clicking a previous captcha button failed: ' . ($blockedClickReason !== '' ? $blockedClickReason : 'unknown'),
             ];
         }
 
         return [
-            'ok' => true,
-            'summary' => 'Clicked a previous mtfxq captcha button (' . $buttonText . ') to force a fresh captcha image.',
+            'ok' => false,
+            'summary' => 'mtfxq captcha is blocked and clicking a previous captcha button failed: ' . ($blockedClickReason !== '' ? $blockedClickReason : 'unknown'),
         ];
     }
 
@@ -2857,6 +3028,36 @@ class DispatchTokenScanItemsCommand extends Command
 
         foreach (self::MTFXQ_CAPTCHA_DENIED_MARKERS as $marker) {
             if ($marker !== '' && Str::contains(mb_strtolower($normalized), mb_strtolower($marker))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $challenge
+     * @param array<string, mixed> $refreshResult
+     */
+    private function shouldResetBlockedMtfxqRunAfterRefreshFailure(array $challenge, array $refreshResult): bool
+    {
+        if (($challenge['blocked'] ?? false) !== true || ($challenge['required'] ?? false) === true) {
+            return false;
+        }
+
+        return $this->isMtfxqCaptchaRefreshCallbackStale((string) ($refreshResult['summary'] ?? ''));
+    }
+
+    private function isMtfxqCaptchaRefreshCallbackStale(string $reason): bool
+    {
+        $normalized = Str::lower(trim($reason));
+        if ($normalized === '') {
+            return false;
+        }
+
+        foreach (self::QQ_YZ_CALLBACK_RETRY_MARKERS as $marker) {
+            $needle = Str::lower(trim((string) $marker));
+            if ($needle !== '' && Str::contains($normalized, $needle)) {
                 return true;
             }
         }

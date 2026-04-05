@@ -1451,7 +1451,8 @@
                 video_type: videoType,
                 sort_by: sortBy,
                 sort_dir: sortDir,
-                keyword: searchKeyword
+                keyword: searchKeyword,
+                expand_context: expandSearchContext ? 1 : 0
             },
             success(res) {
                 if (res?.success) {

@@ -18,9 +18,9 @@
         <div class="video-container">
             <div class="video-wrapper">
                 <div class="video-headline">
-                    <div class="video-title">
-                        {{ e($video->video_name) }}
-                        <span class="video-path">({{ e($video->video_path) }})</span>
+                    <div class="video-title-stack">
+                        <div class="video-title-chip video-title-chip--main">{{ e($video->video_name) }}</div>
+                        <div class="video-title-chip video-title-chip--path">{{ e($video->video_path) }}</div>
                     </div>
                     <div class="video-meta-chips">
                         <span class="video-chip">#{{ $video->id }}</span>

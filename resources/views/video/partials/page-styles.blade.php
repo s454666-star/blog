@@ -213,28 +213,84 @@
             letter-spacing: .04em;
         }
 
-        /* === 敶梁?璅?? =========================================== */
-        .video-title {
-            font-size: 1.1rem;
-            font-weight: 700;
-            margin-bottom: 6px;
-            overflow: hidden;
+        .video-title-stack {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+            min-width: 0;
+            max-width: min(100%, 520px);
+        }
+
+        .video-title-chip {
+            display: inline-flex;
+            align-items: center;
+            max-width: 100%;
+            min-height: 40px;
+            padding: 10px 18px;
+            border-radius: 18px;
+            border: 1px solid rgba(189, 145, 247, .28);
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, .97), rgba(247, 232, 255, .92));
+            box-shadow:
+                0 16px 28px rgba(124, 76, 168, .12),
+                inset 0 1px 0 rgba(255, 255, 255, .92);
+            color: var(--theme-text);
+            font-family: "Segoe UI Variable Display", "Microsoft JhengHei UI", sans-serif;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+            word-break: break-word;
             position: relative;
-            background: linear-gradient(90deg, var(--theme-accent-strong) 0%, var(--theme-accent-2) 48%, var(--theme-accent) 100%);
-            background-size: 200% auto;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            color: transparent;
-            animation: shine 3s linear infinite, slideIn .6s cubic-bezier(.25, .8, .25, 1) forwards;
+            transition: transform .24s ease, box-shadow .24s ease, border-color .24s ease;
+            animation: slideIn .6s cubic-bezier(.25, .8, .25, 1) forwards;
             opacity: 0;
             transform: translateY(-10px);
         }
 
-        @keyframes shine {
-            to {
-                background-position: -200% center;
-            }
+        .video-title-chip::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            padding: 1px;
+            background: linear-gradient(120deg, rgba(255, 124, 193, .4), rgba(162, 116, 255, .32), rgba(98, 215, 255, .24));
+            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            mask-composite: exclude;
+            pointer-events: none;
+            opacity: .9;
+        }
+
+        .video-title-chip--main {
+            font-size: 1.12rem;
+            font-weight: 800;
+            letter-spacing: .01em;
+            color: #8f4ce7;
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, .98), rgba(243, 226, 255, .96));
+            box-shadow:
+                0 18px 30px rgba(124, 76, 168, .14),
+                inset 0 1px 0 rgba(255, 255, 255, .94);
+        }
+
+        .video-title-chip--path {
+            font-size: .92rem;
+            font-weight: 600;
+            color: var(--theme-text-soft);
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, .92), rgba(241, 225, 255, .84));
+            box-shadow:
+                0 12px 24px rgba(124, 76, 168, .08),
+                inset 0 1px 0 rgba(255, 255, 255, .88);
+        }
+
+        .video-title-chip:hover {
+            transform: translateY(-1px);
+            border-color: rgba(165, 92, 246, .38);
+            box-shadow:
+                0 20px 34px rgba(124, 76, 168, .14),
+                inset 0 1px 0 rgba(255, 255, 255, .95);
         }
 
         @keyframes slideIn {
@@ -242,19 +298,6 @@
                 opacity: 1;
                 transform: translateY(0);
             }
-        }
-
-        .video-path {
-            font-size: .85em;
-            color: var(--theme-text-soft);
-            font-weight: 400;
-        }
-
-        /* 霈楝敺?擃?敺桀?銝暺??啗嚗?頝?瘚? */
-        .video-path {
-            font-size: .85em;
-            color: var(--theme-text-soft);
-            font-weight: 400;
         }
 
         /* === 撠?璅?蝢?嚗撓撅斗???蝺?+ 敺桀???===================== */

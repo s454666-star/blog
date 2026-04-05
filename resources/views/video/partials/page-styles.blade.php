@@ -424,58 +424,82 @@
         }
 
         /* === 銝駁鈭箄?蝮桀?嚗虜????+ Hover 瞍詨惜? =================== */
-        .master-face-img {
+        .master-face-item {
             position: relative;
-            border-radius: 6px;
-            overflow: hidden;
+            border-radius: 22px;
+            overflow: visible;
+            isolation: isolate;
         }
 
-        /* 1. 撣豢?嚗??賣?嚗?批 box?hadow嚗?*/
-        .master-face-img::after {
+        .master-face-item::after {
             content: '';
             position: absolute;
-            inset: 0;
+            inset: -8px;
             border-radius: inherit;
-            box-shadow: 0 0 0 2px rgba(255, 255, 255, .35) inset;
-            transition: opacity .4s, box-shadow .4s;
-            pointer-events: none;
-            z-index: 1; /* ?踹?鋡思???:before ?? */
-        }
-
-        /* 2. Hover嚗撓撅斗????堆??曉 :before嚗???啁獢? */
-        .master-face-img::before {
-            content: '';
-            position: absolute;
-            inset: -2px; /* 蝔凝???嚗??唳憿舐 */
-            border-radius: inherit;
-            background: linear-gradient(135deg, var(--theme-accent-2) 0%, var(--theme-accent) 50%, var(--theme-accent-2) 100%);
-            background-size: 300% 300%;
+            background: conic-gradient(
+                from 0deg,
+                rgba(255, 106, 167, .48),
+                rgba(255, 191, 87, .36),
+                rgba(246, 255, 120, .34),
+                rgba(109, 255, 191, .36),
+                rgba(98, 215, 255, .42),
+                rgba(124, 122, 255, .48),
+                rgba(255, 121, 228, .44),
+                rgba(255, 106, 167, .48)
+            );
+            filter: blur(16px);
             opacity: 0;
-            transition: opacity .4s;
+            transition: opacity .4s, transform .4s;
             pointer-events: none;
             z-index: 0;
         }
 
-        /* ???恍嚗??交?暺漁銝行???*/
-        .master-face-img:hover::before {
-            opacity: 1;
-            animation: borderFlow 3s linear infinite;
+        .master-face-item::before {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: 24px;
+            padding: 4px;
+            background: repeating-conic-gradient(
+                from 0deg,
+                #ff6aa7 0deg 24deg,
+                #ffbf57 24deg 48deg,
+                #f6ff78 48deg 72deg,
+                #6dffbf 72deg 96deg,
+                #62d7ff 96deg 120deg,
+                #7c7aff 120deg 144deg,
+                #ff79e4 144deg 168deg,
+                #ff6aa7 168deg 192deg
+            );
+            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            mask-composite: exclude;
+            opacity: 0;
+            transition: opacity .35s ease, transform .35s ease;
+            pointer-events: none;
+            z-index: 2;
         }
 
-        /* 撌脰??佗?.focused嚗?瘞賊?靽?鈭桀? */
-        .master-face-img.focused::before {
+        .master-face-item:hover::before {
             opacity: 1;
-            animation: borderFlow 3s linear infinite;
+            animation: rainbowFocusSpin 3.6s linear infinite;
         }
 
-        /* 瘚??敶望 */
-        @keyframes borderFlow {
-            0% {
-                background-position: 0% 50%;
-            }
-            100% {
-                background-position: 200% 50%;
-            }
+        .master-face-item.focused::before {
+            opacity: 1;
+            animation: rainbowFocusSpin 2.4s linear infinite;
+            transform: scale(1.02);
+        }
+
+        .master-face-item:hover::after {
+            opacity: .55;
+        }
+
+        .master-face-item.focused::after {
+            opacity: .98;
+            transform: scale(1.04);
+            animation: rainbowFocusSpin 4.8s linear infinite reverse, rainbowFocusPulse 1.8s ease-in-out infinite;
         }
 
         @keyframes rainbowFocusSpin {
@@ -647,42 +671,65 @@
         }
 
         /* 霈??葬?曉??脫摮??剜嚗?鋆?嚗?*/
+        .master-face-item {
+            display: block;
+            width: 100%;
+            padding: 4px;
+            cursor: pointer;
+            border-radius: 20px;
+            background:
+                linear-gradient(160deg, rgba(255, 255, 255, .94), rgba(246, 233, 255, .9));
+            box-shadow:
+                0 14px 28px rgba(124, 76, 168, .14),
+                0 0 0 1px rgba(218, 187, 255, .44) inset;
+            transition: transform .28s ease, box-shadow .28s ease, background .28s ease;
+        }
+
         .master-face-img {
             display: block;
+            position: relative;
+            z-index: 1;
             width: 100%;
             height: auto;
             aspect-ratio: 1/1;
             object-fit: contain;
             background: rgba(255, 255, 255, .92);
-            cursor: pointer;
-            border: 2px solid transparent;
+            border: 1px solid rgba(255, 255, 255, .88);
             border-radius: 16px;
-            transition: border-color .3s, box-shadow .3s, transform .3s;
-            box-shadow: 0 12px 26px rgba(124, 76, 168, .12)
-        }
-
-        .master-face-img:hover {
-            border-color: var(--theme-accent);
-            transform: scale(1.05)
-        }
-
-        .master-face-img.focused {
-            border-color: rgba(255, 255, 255, .92);
+            transition: transform .28s ease, box-shadow .28s ease, filter .28s ease;
             box-shadow:
-                0 0 0 3px rgba(255, 118, 188, .24),
-                0 0 0 6px rgba(98, 215, 255, .18),
-                0 0 20px rgba(124, 122, 255, .26);
-            transform: scale(1.08)
+                inset 0 1px 0 rgba(255, 255, 255, .82),
+                0 10px 20px rgba(124, 76, 168, .12)
         }
 
-        .master-face-img.focused::after {
-            opacity: 1;
+        .master-face-item:hover {
+            transform: translateY(-2px) scale(1.02);
             box-shadow:
-                inset 0 0 0 2px rgba(255, 255, 255, .82),
-                0 0 0 2px rgba(255, 118, 188, .22),
-                0 0 0 6px rgba(98, 215, 255, .16),
-                0 0 18px rgba(124, 122, 255, .2);
-            animation: rainbowFocusPulse 2s ease-in-out infinite;
+                0 18px 34px rgba(124, 76, 168, .18),
+                0 0 0 1px rgba(236, 216, 255, .58) inset;
+        }
+
+        .master-face-item:hover .master-face-img {
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, .92),
+                0 14px 28px rgba(124, 76, 168, .18);
+        }
+
+        .master-face-item.focused {
+            transform: translateY(-3px) scale(1.04);
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, .98), rgba(247, 232, 255, .94));
+            box-shadow:
+                0 22px 42px rgba(124, 76, 168, .22),
+                0 0 0 1px rgba(255, 255, 255, .72) inset;
+        }
+
+        .master-face-item.focused .master-face-img {
+            transform: scale(.98);
+            box-shadow:
+                inset 0 1px 0 rgba(255, 255, 255, .96),
+                0 0 0 2px rgba(255, 255, 255, .82),
+                0 14px 34px rgba(124, 76, 168, .18);
         }
 
         .master-faces-status {

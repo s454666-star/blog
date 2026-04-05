@@ -418,8 +418,8 @@
      * 主面人臉同步
      * -------------------------------------------------- */
     function focusMasterFace(id) {
-        $('.master-face-img').removeClass('focused');
-        const $t = $(`.master-face-img[data-video-id="${id}"]`).addClass('focused');
+        $('.master-face-item').removeClass('focused');
+        const $t = $(`.master-face-item[data-video-id="${id}"]`).addClass('focused');
         if (!$t.length) return;
         const c = document.querySelector('.master-faces');
         if (!c) return;
@@ -609,8 +609,8 @@
                 if (res?.success) {
                     const deletedId = $f.data('id');
                     $f.remove();
-                    $(`.master-face-img[data-video-id="${deletedId}"]`).remove();
-                    masterFacesLoadedCount = $('.master-face-img').length;
+                    $(`.master-face-item[data-video-id="${deletedId}"]`).remove();
+                    masterFacesLoadedCount = $('.master-face-item').length;
                     updateMasterFacesStatus(
                         masterFacesPage < masterFacesLastPage
                             ? `主面人臉已載入 ${masterFacesLoadedCount} 張，背景續載中...`
@@ -627,7 +627,7 @@
                         focusMasterFace(nextId);
                     } else {
                         $('#focus-id').val('');
-                        $('.master-face-img').removeClass('focused');
+                        $('.master-face-item').removeClass('focused');
                     }
                 } else {
                     restoreMedia();
@@ -1005,8 +1005,8 @@
         });
 
         /* ------------------ 左欄主面人臉 → 聚焦影片 ------------------ */
-        $(document).off('click', '.master-face-img');     // 先解除舊綁定，避免重複
-        $(document).on('click', '.master-face-img', function () {
+        $(document).off('click', '.master-face-item');     // 先解除舊綁定，避免重複
+        $(document).on('click', '.master-face-item', function () {
             const vid = $(this).data('video-id');
 
             /* 1. 試著找目前頁是否已有影片 */
@@ -1185,6 +1185,12 @@
     }
 
     function buildMasterFaceElement(face) {
+        const card = document.createElement('div');
+        card.className = 'master-face-item';
+        card.dataset.videoId = String(face.video_id);
+        card.dataset.duration = String(Number(face.video_duration) || 0);
+        card.title = (face.video_name || '影片') + ' #' + face.video_id;
+
         const img = document.createElement('img');
         img.src = baseVideoUrl + '/' + normalizeMediaPath(face.face_image_path);
         img.className = 'master-face-img';
@@ -1194,14 +1200,16 @@
         img.loading = 'lazy';
         img.decoding = 'async';
         img.fetchPriority = 'low';
-        img.title = (face.video_name || '影片') + ' #' + face.video_id;
+        img.title = card.title;
 
-        return img;
+        card.appendChild(img);
+
+        return card;
     }
 
     function insertMasterFaceInOrder(el) {
         const $c = $('.master-face-images');
-        const items = $c.children('img.master-face-img').get();
+        const items = $c.children('.master-face-item').get();
         let inserted = false;
 
         for (let i = 0; i < items.length; i++) {
@@ -1235,11 +1243,13 @@
                 return;
             }
 
-            const $existing = $container.children(`img.master-face-img[data-video-id="${videoId}"]`);
+            const $existing = $container.children(`.master-face-item[data-video-id="${videoId}"]`);
             if ($existing.length) {
                 $existing
-                    .attr('src', baseVideoUrl + '/' + normalizeMediaPath(face.face_image_path))
                     .attr('data-duration', Number(face.video_duration) || 0)
+                    .attr('title', (face.video_name || '影片') + ' #' + face.video_id)
+                    .find('.master-face-img')
+                    .attr('src', baseVideoUrl + '/' + normalizeMediaPath(face.face_image_path))
                     .attr('title', (face.video_name || '影片') + ' #' + face.video_id);
                 repositionMasterFace($existing[0]);
                 return;
@@ -1344,7 +1354,7 @@
 
     function resortMasterFacesByCurrentSort() {
         const $c = $('.master-face-images');
-        const arr = $c.children('img.master-face-img').get();
+        const arr = $c.children('.master-face-item').get();
         arr.sort(compareFaces);
         $c.empty().append(arr);
     }

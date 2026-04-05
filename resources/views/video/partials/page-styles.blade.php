@@ -1,5 +1,3 @@
-﻿    <style>
-
         :root {
             --theme-base: #F1E1FF;
             --theme-base-strong: #e2c6ff;
@@ -861,4 +859,281 @@
         .btn-warning:hover {
             color: #4b2f52;
             background: linear-gradient(135deg, #fff1ff, #eed2ff);
+        }
+
+        /* === 控制列元件重製 === */
+        .container {
+            padding-bottom: 172px;
+        }
+
+        .controls {
+            left: 0 !important;
+            right: 0;
+            padding: 16px 18px 18px;
+            overflow: hidden;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, .82), rgba(248, 236, 255, .96)),
+                rgba(255, 249, 255, .94);
+            border-top: 1px solid rgba(163, 110, 214, .28);
+            box-shadow: 0 -24px 50px rgba(124, 76, 168, .16);
+            backdrop-filter: blur(18px);
+        }
+
+        .controls.expanded {
+            left: 30% !important;
+        }
+
+        .controls::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 18px;
+            right: 18px;
+            height: 1px;
+            background: linear-gradient(90deg, rgba(165, 92, 246, 0), rgba(165, 92, 246, .7), rgba(165, 92, 246, 0));
+        }
+
+        .controls-form {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            width: 100%;
+            align-items: stretch;
+        }
+
+        .controls .control-group {
+            margin: 0;
+            min-width: 0;
+            max-width: 220px;
+            flex: 1 1 160px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 14px 16px;
+            border-radius: 22px;
+            border: 1px solid rgba(163, 110, 214, .2);
+            background:
+                radial-gradient(circle at top right, rgba(255, 255, 255, .92), rgba(255, 255, 255, 0) 42%),
+                linear-gradient(145deg, rgba(255, 255, 255, .95), rgba(245, 233, 255, .9));
+            box-shadow: 0 16px 30px rgba(124, 76, 168, .12);
+            transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+        }
+
+        .controls .control-group:hover {
+            transform: translateY(-2px);
+            border-color: rgba(163, 110, 214, .4);
+            box-shadow: 0 20px 38px rgba(124, 76, 168, .16);
+        }
+
+        .controls .control-group--action {
+            flex: 1 1 220px;
+            max-width: 250px;
+            margin-left: auto;
+        }
+
+        .controls .control-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            min-height: 28px;
+            margin-bottom: 2px;
+        }
+
+        .controls .control-label {
+            margin: 0;
+            color: var(--theme-text-soft);
+            font-size: .8rem;
+            font-weight: 800;
+            letter-spacing: .08em;
+            line-height: 1.1;
+        }
+
+        .controls .control-label--ghost {
+            opacity: .75;
+        }
+
+        .controls .control-status {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 64px;
+            min-height: 30px;
+            padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(165, 92, 246, .2);
+            background: rgba(255, 255, 255, .86);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .88), 0 8px 18px rgba(124, 76, 168, .1);
+            color: var(--theme-accent-strong);
+            font-size: .78rem;
+            font-weight: 800;
+            letter-spacing: .04em;
+            white-space: nowrap;
+        }
+
+        .controls .control-status.is-active {
+            border-color: rgba(165, 92, 246, .34);
+            background: linear-gradient(135deg, rgba(165, 92, 246, .18), rgba(208, 123, 255, .24));
+            color: var(--theme-accent-strong);
+        }
+
+        .controls .control-range {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 12px;
+            margin: 0;
+            border: none;
+            outline: none;
+            border-radius: 999px;
+            cursor: pointer;
+            background: linear-gradient(
+                90deg,
+                var(--theme-accent) 0,
+                var(--theme-accent) var(--range-progress, 50%),
+                rgba(165, 92, 246, .14) var(--range-progress, 50%),
+                rgba(165, 92, 246, .14) 100%
+            );
+            box-shadow: inset 0 2px 4px rgba(124, 76, 168, .08), 0 1px 0 rgba(255, 255, 255, .8);
+        }
+
+        .controls .control-range:focus {
+            box-shadow: inset 0 2px 4px rgba(124, 76, 168, .08), 0 0 0 4px rgba(165, 92, 246, .14);
+        }
+
+        .controls .control-range::-webkit-slider-runnable-track {
+            height: 12px;
+            background: transparent;
+            border: none;
+        }
+
+        .controls .control-range::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 22px;
+            height: 22px;
+            margin-top: -5px;
+            border: 4px solid #fff;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--theme-accent), var(--theme-accent-strong));
+            box-shadow: 0 10px 22px rgba(124, 76, 168, .18);
+        }
+
+        .controls .control-range::-moz-range-track {
+            height: 12px;
+            background: rgba(165, 92, 246, .14);
+            border: none;
+            border-radius: 999px;
+        }
+
+        .controls .control-range::-moz-range-progress {
+            height: 12px;
+            background: var(--theme-accent);
+            border-radius: 999px;
+        }
+
+        .controls .control-range::-moz-range-thumb {
+            width: 22px;
+            height: 22px;
+            border: 4px solid #fff;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--theme-accent), var(--theme-accent-strong));
+            box-shadow: 0 10px 22px rgba(124, 76, 168, .18);
+        }
+
+        .controls .control-select-wrap {
+            position: relative;
+        }
+
+        .controls .control-select-wrap::after {
+            content: '▾';
+            position: absolute;
+            top: 50%;
+            right: 14px;
+            transform: translateY(-50%);
+            pointer-events: none;
+            color: var(--theme-accent-strong);
+            font-size: 16px;
+        }
+
+        .controls .control-select {
+            appearance: none;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            width: 100%;
+            min-height: 48px;
+            padding: 0 42px 0 14px;
+            border-radius: 16px;
+            border: 1px solid rgba(165, 92, 246, .22);
+            background: linear-gradient(135deg, rgba(255, 255, 255, .96), rgba(246, 236, 255, .94));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .88), 0 10px 20px rgba(124, 76, 168, .08);
+            color: var(--theme-text);
+            font-weight: 700;
+        }
+
+        .controls .control-select:focus {
+            border-color: rgba(165, 92, 246, .42);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .88), 0 0 0 4px rgba(165, 92, 246, .14);
+        }
+
+        .controls .control-action-btn {
+            width: 100%;
+            min-height: 48px;
+            padding: 0 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 18px;
+            font-weight: 800;
+            letter-spacing: .02em;
+        }
+
+        @media (max-width: 1700px) {
+            .container {
+                padding-bottom: 236px;
+            }
+
+            .controls .control-group,
+            .controls .control-group--action {
+                max-width: none;
+                flex-basis: calc(25% - 12px);
+                margin-left: 0;
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .container {
+                padding-bottom: 320px;
+            }
+
+            .controls {
+                padding: 14px 14px 16px;
+            }
+
+            .controls .control-group,
+            .controls .control-group--action {
+                flex-basis: calc(50% - 12px);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding-bottom: 520px;
+            }
+
+            .controls-form {
+                gap: 10px;
+            }
+
+            .controls .control-group,
+            .controls .control-group--action {
+                flex-basis: 100%;
+            }
+
+            .controls .control-group {
+                padding: 12px 14px;
+            }
         }

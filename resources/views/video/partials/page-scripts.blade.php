@@ -1,4 +1,6 @@
-﻿     * -------------------------------------------------- */
+/* --------------------------------------------------
+     * 全域變數
+     * -------------------------------------------------- */
     const baseVideoUrl = '{{ rtrim(config('app.video_base_url'), '/') }}';
     let missingOnly = {{ $missingOnly ? 'true' : 'false' }};
     let latestId = {{ $latestId ?? 'null' }};
@@ -31,20 +33,23 @@
         setTimeout(() => $('#controls-form').trigger('submit'), 0);
     });
 
-    /* --- ?芷＊蝷箸?訾蜓?Ｗ???--- */
+    /* --- 只顯示未選主面切換 --- */
     $('#missing-only')
-        .on('input', function () {                // ????＊蝷箸?摮?            missingOnly = $(this).val() === '1';
-            updateMissingOnlyLabel();
-        })
-        .on('change', function () {               // ?暸?皛? ????渡?
+        .on('input', function () {                // 拖動時即時顯示文字
             missingOnly = $(this).val() === '1';
+            updateMissingOnlyLabel();
+            updateRangeProgress(this);
+        })
+        .on('change', function () {               // 放開滑鼠 → 重新整理
+            missingOnly = $(this).val() === '1';
+            updateRangeProgress(this);
             $('#controls-form').submit();
         });
-    /* 蝚砌?甈⊿脤??Ｗ停撖思?甈⊥?摮?*/
+    /* 第一次進頁面就寫一次文字 */
     updateMissingOnlyLabel();
 
     /* --------------------------------------------------
-     * 敹怨?閮
+     * 快訊訊息
      * -------------------------------------------------- */
     function showMessage(type, text) {
         const $mc = $('#message-container');
@@ -73,8 +78,27 @@
         $status.toggleClass('is-hidden', !!hidden);
     }
 
+    function updateRangeProgress(input) {
+        if (!input) {
+            return;
+        }
+
+        const min = Number(input.min ?? 0);
+        const max = Number(input.max ?? 100);
+        const value = Number(input.value ?? min);
+        const progress = max === min ? 0 : ((value - min) / (max - min)) * 100;
+
+        input.style.setProperty('--range-progress', `${progress}%`);
+    }
+
+    function updateRangeBadge(selector, text, active = false) {
+        const $badge = $(selector);
+        $badge.text(text);
+        $badge.toggleClass('is-active', !!active);
+    }
+
     /* --------------------------------------------------
-     * ??頛 / ??
+     * 分頁載入 / 排序
      * -------------------------------------------------- */
     function recalcPages() {
         const min = Math.min.apply(null, loadedPages);
@@ -83,9 +107,24 @@
         nextPage = max < lastPage ? (max + 1) : null;
     }
 
-    /* --- ?芷＊蝷箸?訾蜓?Ｘ?????--- */
+    /* --- 只顯示未選主面滑動開關 --- */
     function updateMissingOnlyLabel() {
-        $('#missing-only-label').text(missingOnly ? '?? : '??);
+        updateRangeBadge('#missing-only-label', missingOnly ? '開啟' : '關閉', missingOnly);
+    }
+
+    function updatePlayModeLabel() {
+        updateRangeBadge('#play-mode-label', playMode === '1' ? '自動' : '循環', playMode === '1');
+    }
+
+    function updateControlRangeBadges() {
+        updateRangeBadge('#video-size-value', `${videoSize}%`);
+        updateRangeBadge('#image-size-value', `${imageSize}px`);
+    }
+
+    function refreshControlRanges() {
+        $('#controls-form input[type="range"]').each(function () {
+            updateRangeProgress(this);
+        });
     }
 
     function compareWithTiebreaker(primaryA, secondaryA, primaryB, secondaryB) {
@@ -116,7 +155,8 @@
     function loadMoreVideos(dir = 'down', target = null) {
         if (loading) return;
 
-        // 瘝?摰?target ???斗?臬??銝???        if (!target) {
+        // 沒指定 target 時，判斷是否還有上下頁
+        if (!target) {
             if (dir === 'down' && !nextPage) return;
             if (dir === 'up' && !prevPage) return;
         }
@@ -151,13 +191,13 @@
                     rebuildAndSort();
                 } else {
                     if (!target) dir === 'down' ? nextPage = null : prevPage = null;
-                    $('#load-more').html('<p>瘝??游?鞈?鈭?/p>');
+                    $('#load-more').html('<p>沒有更多資料了。</p>');
                 }
                 loading = false;
                 $('#load-more').hide();
             },
             error() {
-                showMessage('error', '頛憭望?嚗?蝔??岫??);
+                showMessage('error', '載入失敗，請稍後再試。');
                 loading = false;
                 $('#load-more').hide();
             }
@@ -166,7 +206,7 @@
 
     function loadPageAndFocus(videoId, page) {
         if (!page) {
-            showMessage('error', '?曆??啗府敶梁???函????);
+            showMessage('error', '找不到該影片所在的頁面。');
             return;
         }
 
@@ -203,13 +243,13 @@
                         $target[0].scrollIntoView({behavior: 'smooth', block: 'center'});
                     }
                 } else {
-                    showMessage('error', '?⊥?頛閰脤?鞈???);
+                    showMessage('error', '無法載入該頁資料。');
                 }
                 loading = false;
                 $('#load-more').hide();
             },
             error() {
-                showMessage('error', '頛憭望?嚗?蝔??岫??);
+                showMessage('error', '載入失敗，請稍後再試。');
                 loading = false;
                 $('#load-more').hide();
             }
@@ -238,11 +278,12 @@
         }
         watchFocusedRow();
 
-        // ??????銵?嚗?湧???嚗椰?港?靘?璅?? sortBy/sortDir ???        resortMasterFacesByCurrentSort();
+        // ★★★ 這一行是關鍵：右側重排後，左側也依同樣的 sortBy/sortDir 重新排
+        resortMasterFacesByCurrentSort();
     }
 
     /* --------------------------------------------------
-     * 敶梁??” / 撠箏站
+     * 影片列表 / 尺寸
      * -------------------------------------------------- */
     function buildVideoList() {
         videoList = [];
@@ -265,7 +306,7 @@
     }
 
     /* --------------------------------------------------
-     * 銝駁鈭箄??郊
+     * 主面人臉同步
      * -------------------------------------------------- */
     function focusMasterFace(id) {
         $('.master-face-img').removeClass('focused');
@@ -347,15 +388,18 @@
     }
 
     /* --------------------------------------------------
-     * ?刻撟??     * -------------------------------------------------- */
+     * 全螢幕播放
+     * -------------------------------------------------- */
     function enterFullScreen(video) {
-        /* ------- ?刻撟?銝敺儐??------- */
-        video.loop = true;                 // JS 撅祆?        video.setAttribute('loop', '');    // HTML 撅祆改??澆捆??汗??
+        /* ------- 全螢幕時一律循環 ------- */
+        video.loop = true;                 // JS 屬性
+        video.setAttribute('loop', '');    // HTML 屬性，兼容所有瀏覽器
+
         try {
             if (video.requestFullscreen) {
                 video.requestFullscreen().then(() => {
                     $('body').addClass('fullscreen-mode');
-                    video.play();          // ??剜嚗Ⅱ靽?loop ??
+                    video.play();          // 重新播放，確保 loop 生效
                 });
             } else if (video.webkitRequestFullscreen) {
                 video.webkitRequestFullscreen();
@@ -387,13 +431,13 @@
         }
         if (playMode === '1') {
             if (currentVideoIndex < videoList.length - 1) playAt(currentVideoIndex + 1);
-            else showMessage('error', '撌脩??舀?敺??典蔣??);
+            else showMessage('error', '已經是最後一部影片');
         }
     }
 
     function playAt(idx) {
         if (idx < 0 || idx >= videoList.length) {
-            showMessage('error', '蝝Ｗ?頞蝭?');
+            showMessage('error', '索引超出範圍');
             return;
         }
         currentVideoIndex = idx;
@@ -415,35 +459,42 @@
      * DOM Ready
      * -------------------------------------------------- */
     $(function () {
-        /* --- ??憿舐內?? --- */
-        $('#play-mode-label').text(playMode === '0' ? '敺芰' : '?芸?');
+        /* --- 初始顯示文字 --- */
+        updatePlayModeLabel();
+        updateControlRangeBadges();
+        refreshControlRanges();
 
-        /* --- 憿舐內??芸?嚗?蔣??頛? poster?蜓?Ｖ犖???瑟帖鞊? --- */
+        /* --- 顯示效能優化（避免影片預載、補 poster、主面人臉自動判斷橫豎） --- */
         applyMediaPerfOptimizations();
 
-        /* --- Range 隤踵 --- */
+        /* --- Range 調整 --- */
         $('#video-size').on('input', e => {
             videoSize = e.target.value;
+            updateRangeBadge('#video-size-value', `${videoSize}%`);
+            updateRangeProgress(e.target);
             applySizes();
         });
         $('#image-size').on('input', e => {
             imageSize = e.target.value;
+            updateRangeBadge('#image-size-value', `${imageSize}px`);
+            updateRangeProgress(e.target);
             applySizes();
         });
         $('#play-mode').on('input', e => {
             playMode = e.target.value;
-            $('#play-mode-label').text(playMode === '0' ? '敺芰' : '?芸?');
+            updatePlayModeLabel();
+            updateRangeProgress(e.target);
         });
         $('#video-type').change(() => $('#controls-form').submit());
 
-        /* --- ?敶梁??芷 --- */
+        /* --- 聚焦影片刪除 --- */
         $('#delete-focused-btn').click(() => {
             const $f = $('.video-row.focused');
             if (!$f.length) {
-                showMessage('error', '瘝???蔣??);
+                showMessage('error', '沒有聚焦的影片');
                 return;
             }
-            if (!confirm('蝣箏?閬?方??衣?敶梁???甇斗?雿瘜?瑯?)) return;
+            if (!confirm('確定要刪除聚焦的影片嗎？此操作無法撤銷。')) return;
             const restoreMedia = releaseRowMediaSources($f);
             $.post("{{ route('video.deleteSelected') }}", {ids: [$f.data('id')], _token: '{{ csrf_token() }}'}, res => {
                 if (res?.success) {
@@ -453,8 +504,8 @@
                     masterFacesLoadedCount = $('.master-face-img').length;
                     updateMasterFacesStatus(
                         masterFacesPage < masterFacesLastPage
-                            ? `銝駁鈭箄?撌脰???${masterFacesLoadedCount} 撘蛛??蝥?銝?..`
-                            : `銝駁鈭箄?撌脰??亙?????${masterFacesLoadedCount} 撘萸,
+                            ? `主面人臉已載入 ${masterFacesLoadedCount} 張，背景續載中...`
+                            : `主面人臉已載入完成，共 ${masterFacesLoadedCount} 張。`,
                         masterFacesLoadedCount > 0 && masterFacesPage >= masterFacesLastPage
                     );
                     showMessage('success', res.message);
@@ -475,22 +526,23 @@
                 }
             }).fail(xhr => {
                 restoreMedia();
-                const message = xhr?.responseJSON?.message || '?芷憭望?嚗?蝔??岫??;
+                const message = xhr?.responseJSON?.message || '刪除失敗，請稍後再試。';
                 showMessage('error', message);
             });
         });
 
-        /* --- 敶梁?????--- */
+        /* --- 影片列點擊 --- */
         $(document).on('click', '.video-row', function () {
             $('.video-row').removeClass('focused');
             $(this).addClass('focused');
             const id = $(this).data('id');
 
-            $('#focus-id').val(id);                 // ???啣?嚗銵典?葆銝?            focusMasterFace(id);
+            $('#focus-id').val(id);                 // ★ 新增：送出表單時帶上
+            focusMasterFace(id);
             this.scrollIntoView({behavior: 'smooth', block: 'center'});
         });
 
-        /* --- Hover ?曉之?芸? --- */
+        /* --- Hover 放大截圖 --- */
         const $modal = $('#image-modal'), $modalImg = $modal.find('img');
         $(document).on('mouseenter', '.hover-zoom', function () {
             $modalImg.attr('src', $(this).attr('src'));
@@ -500,28 +552,35 @@
             $modalImg.attr('src', '');
         });
 
-        /* --- ?刻撟???--- */
-        /* --- 敶梁?蝯?鈭辣 --- */
+        /* --- 全螢幕按鈕 --- */
+        $(document).on('click', '.fullscreen-btn', function (e) {
+            e.stopPropagation();
+            enterFullScreen($(this).siblings('video')[0]);
+        });
+
+        /* --- 影片結束事件 --- */
         $(document).on('ended', 'video', onVideoEnded);
 
-        /* --- ?脣?頛?游? --- */
+        /* --- 捲動載入更多 --- */
         $(window).scroll(() => {
             if ($(window).scrollTop() <= 100) loadMoreVideos('up');
             if ($(window).scrollTop() + $(window).height() >= $(document).height() - 100) loadMoreVideos('down');
         });
 
-        /* --- ?刻撟???--- */
+        /* --- 全螢幕變動 --- */
         document.addEventListener('fullscreenchange', () => {
             const fs = document.fullscreenElement;
 
-            if (fs && $(fs).is('video')) {             // ?脣?刻撟?                currentFSVideo = fs;
+            if (fs && $(fs).is('video')) {             // 進入全螢幕
+                currentFSVideo = fs;
                 fs.addEventListener('ended', onVideoEnded);
 
-                /* ------- ?刻撟?摰儐??------- */
+                /* ------- 全螢幕一定循環 ------- */
                 fs.loop = true;
                 fs.setAttribute('loop', '');
 
-            } else if (currentFSVideo) {               // ?ａ??刻撟?                /* ------- ?Ｗ儔 playMode (0=敺芰??=?芸?銝??? ------- */
+            } else if (currentFSVideo) {               // 離開全螢幕
+                /* ------- 恢復 playMode (0=循環、1=自動下一部) ------- */
                 const shouldLoop = (playMode === '0');
                 currentFSVideo.loop = shouldLoop;
                 if (shouldLoop) {
@@ -534,7 +593,7 @@
             }
         });
 
-        /* --- 皛?蝭?撌血??& 閫豢 --- */
+        /* --- 滑鼠範圍左右鈕 & 觸控 --- */
         let ctrlTimeout, ctrlVisible = false, prevVisible = false, nextVisible = false;
 
         function showFSControls() {
@@ -586,7 +645,7 @@
         function toggleLoop() {
             if (currentFSVideo) {
                 currentFSVideo.loop = !currentFSVideo.loop;
-                showMessage('success', currentFSVideo.loop ? '?桅敺芰撌脤??? : '?桅敺芰撌脤???);
+                showMessage('success', currentFSVideo.loop ? '單部循環已開啟' : '單部循環已關閉');
             }
         }
 
@@ -606,10 +665,10 @@
             if (document.fullscreenElement === this) onTouchEnd.call(this, e);
         }, {passive: true});
 
-        $('#prev-video-btn').click(() => currentVideoIndex > 0 ? playAt(currentVideoIndex - 1) : showMessage('error', '撌脩??舐洵銝?典蔣??));
-        $('#next-video-btn').click(() => currentVideoIndex < videoList.length - 1 ? playAt(currentVideoIndex + 1) : showMessage('error', '撌脩??舀?敺??典蔣??));
+        $('#prev-video-btn').click(() => currentVideoIndex > 0 ? playAt(currentVideoIndex - 1) : showMessage('error', '已經是第一部影片'));
+        $('#next-video-btn').click(() => currentVideoIndex < videoList.length - 1 ? playAt(currentVideoIndex + 1) : showMessage('error', '已經是最後一部影片'));
 
-        /* --- ??銝鈭箄??芸? --- */
+        /* --- 拖拉上傳人臉截圖 --- */
         function normalizeFaceUploadFiles(files) {
             return Array.from(files || [])
                 .filter(file => file && /^image\//.test(file.type || ''))
@@ -635,7 +694,7 @@
         function setFacePastePreview($target, file) {
             const normalizedFiles = normalizeFaceUploadFiles([file]);
             if (!normalizedFiles.length) {
-                showMessage('error', '隢票銝???獢?);
+                showMessage('error', '請貼上圖片檔案。');
                 return false;
             }
 
@@ -652,35 +711,16 @@
             return true;
         }
 
-        function buildFaceScreenshotMarkup(vid, face) {
-            const facePath = normalizeMediaPath(face.face_image_path);
-            const isMasterClass = face.is_master ? ' master' : '';
-
-            return `
-                <div class="face-screenshot-container">
-                    <img
-                        src="${baseVideoUrl}/${facePath}"
-                        alt="人臉截圖"
-                        class="face-screenshot hover-zoom${isMasterClass}"
-                        data-id="${face.id}"
-                        data-video-id="${vid}"
-                        data-type="face-screenshot"
-                        loading="lazy"
-                        decoding="async"
-                        fetchpriority="low"
-                    >
-                    <button class="set-master-btn" data-id="${face.id}" data-video-id="${vid}">★</button>
-                    <button class="delete-icon" data-id="${face.id}" data-type="face-screenshot">&times;</button>
-                </div>
-            `.trim();
-        }
-
         function appendUploadedFaces(vid, faces) {
+            const tpl = $('#face-screenshot-template').html();
             const $area = $('.face-upload-area[data-video-id="' + vid + '"]');
             const $pasteTarget = $area.find('.face-paste-target').first();
 
-            faces.forEach(face => {
-                const html = buildFaceScreenshotMarkup(vid, face);
+            faces.forEach(f => {
+                const html = tpl.replace('{is_master_class}', f.is_master ? 'master' : '')
+                    .replace(/{face_image_path}/g, f.face_image_path)
+                    .replace(/{face_id}/g, f.id)
+                    .replace(/{video_id}/g, vid);
 
                 if ($pasteTarget.length) {
                     $pasteTarget.before(html);
@@ -695,13 +735,13 @@
         function uploadFaceImages(vid, files, options = {}) {
             const normalizedFiles = normalizeFaceUploadFiles(files);
             if (!normalizedFiles.length) {
-                showMessage('error', '隢票銝??豢???瑼???);
+                showMessage('error', '請貼上或選擇圖片檔案。');
                 return;
             }
 
             const requestKey = String(vid);
             if (pendingFaceUploads.has(requestKey)) {
-                showMessage('error', '?敶梁??犖??迤?其??喉?隢???);
+                showMessage('error', '這部影片的人臉截圖正在上傳，請稍候。');
                 return;
             }
 
@@ -723,13 +763,13 @@
                         if (typeof options.onSuccess === 'function') {
                             options.onSuccess();
                         }
-                        showMessage('success', '鈭箄??芸?銝????);
+                        showMessage('success', '人臉截圖上傳成功。');
                     } else {
                         showMessage('error', res.message);
                     }
                 },
                 error(xhr) {
-                    const message = xhr?.responseJSON?.message || '銝憭望?嚗?蝔??岫??;
+                    const message = xhr?.responseJSON?.message || '上傳失敗，請稍後再試。';
                     showMessage('error', message);
                 },
                 complete() {
@@ -752,7 +792,7 @@
                 uploadFaceImages($(this).data('video-id'), e.originalEvent.dataTransfer.files);
             });
 
-        /* --- ?芷?芸? --- */
+        /* --- 刪除截圖 --- */
         $(document).on('click', '.face-paste-target', function () {
             $(this).trigger('focus');
         });
@@ -764,7 +804,7 @@
                 const pendingFile = $target.data('pendingFaceFile');
 
                 if (!pendingFile) {
-                    showMessage('error', '隢?鞎潔????汗??);
+                    showMessage('error', '請先貼上圖片預覽。');
                     return;
                 }
 
@@ -789,7 +829,7 @@
                 .filter(Boolean);
 
             if (!files.length) {
-                showMessage('error', '?芾票蝪輯ㄐ瘝??舫?閬賜?????);
+                showMessage('error', '剪貼簿裡沒有可預覽的圖片。');
                 return;
             }
 
@@ -803,12 +843,12 @@
                 if (res && res.success) {
                     $(this).closest(type === 'screenshot' ? '.screenshot-container' : '.face-screenshot-container').remove();
                     applySizes();
-                    showMessage('success', '???芷????);
+                    showMessage('success', '圖片刪除成功。');
                 } else showMessage('error', res.message);
-            }).fail(() => showMessage('error', '?芷憭望?嚗?蝔??岫??));
+            }).fail(() => showMessage('error', '刪除失敗，請稍後再試。'));
         });
 
-        /* --- 閮剔銝駁鈭箄? --- */
+        /* --- 設為主面人臉 --- */
         function setMaster(faceId, vid) {
             const requestKey = String(vid);
             if (pendingMasterUpdates.has(requestKey)) {
@@ -824,10 +864,10 @@
                     $(`.face-screenshot[data-video-id="${vid}"]`).removeClass('master');
                     $(`.face-screenshot[data-id="${faceId}"]`).addClass('master');
                     updateMasterFace(res.data);
-                    showMessage('success', '銝駁鈭箄?撌脫?啜?);
+                    showMessage('success', '主面人臉已更新。');
                 } else showMessage('error', res.message);
             }).fail(xhr => {
-                const message = xhr?.responseJSON?.message || '?湔憭望?嚗?蝔??岫??;
+                const message = xhr?.responseJSON?.message || '更新失敗，請稍後再試。';
                 showMessage('error', message);
             }).always(() => {
                 pendingMasterUpdates.delete(requestKey);
@@ -855,11 +895,12 @@
             setMaster($(this).data('id'), $(this).data('video-id'));
         });
 
-        /* ------------------ 撌行?銝駁鈭箄? ???敶梁? ------------------ */
-        $(document).off('click', '.master-face-img');     // ?圾?方?蝬?嚗??銴?        $(document).on('click', '.master-face-img', function () {
+        /* ------------------ 左欄主面人臉 → 聚焦影片 ------------------ */
+        $(document).off('click', '.master-face-img');     // 先解除舊綁定，避免重複
+        $(document).on('click', '.master-face-img', function () {
             const vid = $(this).data('video-id');
 
-            /* 1. 閰西??曄???臬撌脫?敶梁? */
+            /* 1. 試著找目前頁是否已有影片 */
             const $row = $('.video-row[data-id="' + vid + '"]');
             if ($row.length) {
                 $('.video-row').removeClass('focused');
@@ -869,27 +910,28 @@
                 return;
             }
 
-            /* 2. 銝?桀???????Ⅳ嚗?頛銝西???*/
+            /* 2. 不在目前頁 → 先查頁碼，再載入並聚焦 */
             $.get("{{ route('video.findPage') }}", {
                 video_id: vid,
                 video_type: videoType,
-                missing_only: missingOnly ? 1 : 0,   // 潃???蝻箔蜓?Ｙ祟??                sort_by: sortBy,                 // 潃?????靘?
-                sort_dir: sortDir                 // 潃??????孵?
+                missing_only: missingOnly ? 1 : 0,   // ⭐ 加上缺主面篩選
+                sort_by: sortBy,                 // ⭐ 加上排序依據
+                sort_dir: sortDir                 // ⭐ 加上排序方向
             }, res => {
                 if (res?.success && res.page) {
                     loadPageAndFocus(vid, res.page);
                 } else {
-                    showMessage('error', '?曆??啗府敶梁???函????);
+                    showMessage('error', '找不到該影片所在的頁面。');
                 }
-            }).fail(() => showMessage('error', '?亥岷憭望?嚗?蝔??岫??));
+            }).fail(() => showMessage('error', '查詢失敗，請稍後再試。'));
         });
 
-        /* --- ????? --- */
+        /* --- 監聽排列拖曳 --- */
         $("#videos-list").sortable({
-            placeholder: "ui-state-highlight", delay: 150, cancel: "video, img, button"
+            placeholder: "ui-state-highlight", delay: 150, cancel: "video, .fullscreen-btn, img, button"
         }).disableSelection();
 
-        /* --- ??撱箸? --- */
+        /* --- 初始建構 --- */
         buildVideoList();
         applySizes();
         focusInitial();
@@ -905,7 +947,7 @@
             }
         });
 
-        /* ----------- 銝駁鈭箄??湔??? ----------- */
+        /* ----------- 主面人臉側欄開關 ----------- */
         const $btnToggle = $('#toggle-master-faces');
         const $sidebar = $('.master-faces');
         const $content = $('.container');
@@ -917,17 +959,18 @@
                 $content.removeClass('expanded');
                 $controls.removeClass('expanded');
                 updateBtnPos(true);
-                $btnToggle.html('??);
+                $btnToggle.html('☰');
             } else {
                 $sidebar.removeClass('collapsed');
                 $content.addClass('expanded');
                 $controls.addClass('expanded');
                 updateBtnPos(false);
-                $btnToggle.html('??);
+                $btnToggle.html('❮');
             }
         }
 
-        // ?身撅?嚗ou can set collapsed=true if you want嚗?        let collapsed = false;
+        // 預設展開（You can set collapsed=true if you want）
+        let collapsed = false;
         updateToggleState(collapsed);
 
         $btnToggle.on('click', () => {
@@ -935,10 +978,11 @@
             updateToggleState(collapsed);
         });
 
-        /* ------- ???脤??Ｗ停??? h5 璅??? ------- */
-        const headerTop = $('.master-faces h5').offset().top;   // ??蝒?蝡航???        $('#toggle-master-faces').css('top', headerTop + 'px');
+        /* ------- ① 進頁面就把鈕頂到 h5 標題同高 ------- */
+        const headerTop = $('.master-faces h5').offset().top;   // 與視窗頂端距離
+        $('#toggle-master-faces').css('top', headerTop + 'px');
 
-        /* ------- ?????湔???嚗??.inside class ------- */
+        /* ------- ② 監聽側欄開關，控制 .inside class ------- */
 
         // const $btnToggle = $('#toggle-master-faces');
         function updateBtnPos(collapsed) {
@@ -947,11 +991,12 @@
         }
 
         /* --------------------------------------------------
-         * 蝣箔???神??focus-id
+         * 確保送出前寫入 focus-id
          * -------------------------------------------------- */
         $('#controls-form').on('submit', function () {
             const fid = $('.video-row.focused').data('id') || '';
-            $('#focus-id').val(fid);          // ???銵典??敺?撖?        });
+            $('#focus-id').val(fid);          // ← 送出表單前最後覆寫
+        });
     });
 
     /* --------------------------------------------------
@@ -979,6 +1024,29 @@
     });
     listRO.observe(document.getElementById('videos-list'));
 
+    /* --------------------------------------------------
+     * 永遠聚焦最新 id 的那支影片
+     * -------------------------------------------------- */
+    function focusMaxId() {
+        if (latestId === null) return;
+
+        const $target = $('.video-row[data-id="' + latestId + '"]');
+
+        if ($target.length) {
+            $('.video-row').removeClass('focused');
+            $target.addClass('focused');
+            focusMasterFace(latestId);
+            $target[0].scrollIntoView({behavior: 'smooth', block: 'center'});
+        } else {
+            // 這一頁沒有 → 動態查詢它在第幾頁，載進來再聚焦
+            $.get("{{ route('video.findPage') }}", {video_id: latestId, video_type: videoType}, res => {
+                if (res?.success && res.page) {
+                    loadPageAndFocus(latestId, res.page);
+                }
+            });
+        }
+    }
+
     function focusInitial() {
         const targetId = (initialFocusId !== null) ? initialFocusId : latestId;
         if (targetId === null) return;
@@ -990,7 +1058,8 @@
             focusMasterFace(targetId);
             $t[0].scrollIntoView({behavior: 'smooth', block: 'center'});
         }
-        // ?典??喃?嚗??敺?rebuild ???蝙?刻????        initialFocusId = null;                                     // ???啣?
+        // 用完即丟，避免之後 rebuild 又蓋掉使用者手動選擇
+        initialFocusId = null;                                     // ★ 新增
     }
 
     function getFaceSortParts(el) {
@@ -1014,13 +1083,13 @@
         const img = document.createElement('img');
         img.src = baseVideoUrl + '/' + normalizeMediaPath(face.face_image_path);
         img.className = 'master-face-img';
-        img.alt = '銝駁鈭箄?';
+        img.alt = '主面人臉';
         img.dataset.videoId = String(face.video_id);
         img.dataset.duration = String(Number(face.video_duration) || 0);
         img.loading = 'lazy';
         img.decoding = 'async';
         img.fetchPriority = 'low';
-        img.title = (face.video_name || '敶梁?') + ' #' + face.video_id;
+        img.title = (face.video_name || '影片') + ' #' + face.video_id;
 
         return img;
     }
@@ -1066,7 +1135,7 @@
                 $existing
                     .attr('src', baseVideoUrl + '/' + normalizeMediaPath(face.face_image_path))
                     .attr('data-duration', Number(face.video_duration) || 0)
-                    .attr('title', (face.video_name || '敶梁?') + ' #' + face.video_id);
+                    .attr('title', (face.video_name || '影片') + ' #' + face.video_id);
                 repositionMasterFace($existing[0]);
                 return;
             }
@@ -1082,8 +1151,8 @@
 
         updateMasterFacesStatus(
             masterFacesPage < masterFacesLastPage
-                ? `銝駁鈭箄?撌脰???${masterFacesLoadedCount} 撘蛛??蝥?銝?..`
-                : `銝駁鈭箄?撌脰??亙?????${masterFacesLoadedCount} 撘萸,
+                ? `主面人臉已載入 ${masterFacesLoadedCount} 張，背景續載中...`
+                : `主面人臉已載入完成，共 ${masterFacesLoadedCount} 張。`,
             masterFacesLoadedCount > 0 && masterFacesPage >= masterFacesLastPage
         );
     }
@@ -1113,9 +1182,9 @@
         if (reset) {
             masterFacesPage = 0;
             masterFacesLastPage = 1;
-            updateMasterFacesStatus('銝駁鈭箄?頛銝?..');
+            updateMasterFacesStatus('主面人臉載入中...');
         } else {
-            updateMasterFacesStatus(`銝駁鈭箄?撌脰???${masterFacesLoadedCount} 撘蛛?蝜潛??郊銝?..`);
+            updateMasterFacesStatus(`主面人臉已載入 ${masterFacesLoadedCount} 張，繼續同步中...`);
         }
 
         $.ajax({
@@ -1138,11 +1207,11 @@
                         queueMasterFacesPrefetch();
                     }
                 } else {
-                    updateMasterFacesStatus(res?.message || '銝駁鈭箄?頛憭望???);
+                    updateMasterFacesStatus(res?.message || '主面人臉載入失敗。');
                 }
             },
             error() {
-                updateMasterFacesStatus('銝駁鈭箄?頛憭望?嚗?蝔??岫??);
+                updateMasterFacesStatus('主面人臉載入失敗，請稍後再試。');
             },
             complete() {
                 masterFacesLoading = false;
@@ -1153,15 +1222,15 @@
     function updateMasterFace(face) {
         const videoId = parseInt(face.video_id, 10) || 0;
         if (!videoId) {
-            showMessage('error', '銝駁鈭箄??郊憭望?嚗撩撠蔣??閮?);
+            showMessage('error', '主面人臉同步失敗：缺少影片資訊。');
             return;
         }
 
         appendMasterFaces([face], false);
         updateMasterFacesStatus(
             masterFacesPage < masterFacesLastPage
-                ? `銝駁鈭箄?撌脰???${masterFacesLoadedCount} 撘蛛??蝥?銝?..`
-                : `銝駁鈭箄?撌脰??亙?????${masterFacesLoadedCount} 撘萸,
+                ? `主面人臉已載入 ${masterFacesLoadedCount} 張，背景續載中...`
+                : `主面人臉已載入完成，共 ${masterFacesLoadedCount} 張。`,
             masterFacesLoadedCount > 0 && masterFacesPage >= masterFacesLastPage
         );
         applySizes();
@@ -1176,14 +1245,15 @@
     }
 
     function applyMediaPerfOptimizations() {
-        // 1) ?踹??”銝剔?瘥敶梁???嚗???撖砍?????葆????????        $('#videos-list video').each(function () {
+        // 1) 避免列表中的每支影片預載，否則會把頻寬吃光，連帶拖慢所有圖片載入
+        $('#videos-list video').each(function () {
             const $v = $(this);
             if (($v.attr('preload') || '').toLowerCase() !== 'none') {
                 $v.attr('preload', 'none');
             }
         });
 
-        // 2) ?亙?銵典蔣????poster嚗停?刻府?洵銝撘萸蔣?? poster嚗鋆?甈∴?
+        // 2) 若列表影片沒有 poster，就用該列第一張「影片截圖」當 poster（只補一次）
         $('#videos-list .video-row').each(function () {
             const $row = $(this);
             const $video = $row.find('video').first();
@@ -1201,24 +1271,23 @@
             $video.attr('poster', shotSrc);
         });
 
-        // 3) 銝駁鈭箄?蝮桀?嚗絞銝瘥撐?芯? 1 ?潘?皜??航畾???landscape嚗?        $('.master-face-img').removeClass('landscape');
+        // 3) 主面人臉縮圖：統一每張只佔 1 格（清掉可能殘留的 landscape）
+        $('.master-face-img').removeClass('landscape');
     }
 
-    /* === ?誨??撠?video mousemove ??摰??敹怨??摩 === */
+    /* === 取代原有對 video mousemove 的綁定，加入快轉邏輯 === */
     $(document).off('mousemove', 'video');
     $(document).on('mousemove', 'video', function (e) {
-        // ?刻撟?蝬剜???嗆??摩
+        // 全螢幕時維持原控制條邏輯
         if (document.fullscreenElement === this) {
             onVideoMouseMove(e);
             return;
         }
-        // ??Ｗ?嚗椰?喟宏??翰頧?        const rect = this.getBoundingClientRect();
+        // 非全螢幕：左右移動即時快轉
+        const rect = this.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const percent = x / rect.width;
         if (percent >= 0 && percent <= 1 && this.duration) {
             this.currentTime = percent * this.duration;
         }
     });
-</script>
-</body>
-</html>

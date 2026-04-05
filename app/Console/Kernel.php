@@ -29,9 +29,17 @@ class Kernel extends ConsoleKernel
             ->runInBackground();
 
         // Telegram / filestore
-        $schedule->exec($this->hiddenBatchCommand('run_filestore_restore_backup.bat'))
-            ->dailyAt('03:00')
-            ->name('blog-filestore-restore-backup');
+        $schedule->command('filestore:restore-to-bot', [
+            '--all' => true,
+            '--pending-session-limit' => 500,
+            '--base-uri' => 'http://127.0.0.1:8001',
+            '--target-bot-username' => config('telegram.backup_restore_bot_username', 'new_files_star_bot'),
+            '--worker-env' => base_path('storage/app/telegram-filestore-local-workers/worker.env'),
+        ])
+            ->dailyAt('01:00')
+            ->name('blog-filestore-restore-pending-sessions')
+            ->withoutOverlapping(1440)
+            ->runInBackground();
 
         $schedule->command('telegram:ensure-backup-restore-webhook')
             ->dailyAt('04:10')

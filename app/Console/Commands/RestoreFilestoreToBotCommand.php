@@ -50,6 +50,7 @@ class RestoreFilestoreToBotCommand extends Command
         {--source-file-row-id= : 只處理單一 telegram_filestore_files.id}
         {--all : 處理 telegram_filestore_sessions 內所有 sessions}
         {--limit= : 本次最多轉幾筆 source files；留空或 0 代表不限}
+        {--pending-session-limit= : 本次最多處理幾個仍有未同步檔案的 source sessions；留空或 0 代表不限}
         {--memory-limit=-1 : 這支 command 使用的 PHP memory_limit；留空代表不覆寫}
         {--base-uri=http://127.0.0.1:8001 : 本機 Telegram FastAPI base uri}
         {--target-bot-username= : 新 bot username，可帶或不帶 @}
@@ -76,6 +77,8 @@ class RestoreFilestoreToBotCommand extends Command
         $localWorkerEnv = $this->readKeyValueEnvFile($workerEnvPath);
         $limitOption = trim((string) $this->option('limit'));
         $limit = $limitOption === '' ? 0 : max((int) $limitOption, 0);
+        $pendingSessionLimitOption = trim((string) $this->option('pending-session-limit'));
+        $pendingSessionLimit = $pendingSessionLimitOption === '' ? 0 : max((int) $pendingSessionLimitOption, 0);
         $targetBotToken = trim((string) ($this->option('target-bot-token') ?: ($localWorkerEnv['TELEGRAM_BACKUP_RESTORE_BOT_TOKEN'] ?? config('telegram.backup_restore_bot_token'))));
         $sourceBotToken = trim((string) ($this->option('source-bot-token') ?: ($localWorkerEnv['TELEGRAM_FILESTORE_BOT_TOKEN'] ?? config('telegram.filestore_bot_token'))));
         $targetChatIdOption = trim((string) $this->option('target-chat-id'));
@@ -123,11 +126,12 @@ class RestoreFilestoreToBotCommand extends Command
         }
 
         $this->line(sprintf(
-            'target_bot=@%s base_uri=%s source_sessions=%d limit=%s',
+            'target_bot=@%s base_uri=%s source_sessions=%d limit=%s pending_session_limit=%s',
             $targetBotUsername,
             $baseUri,
             $sourceSessionCount,
-            $limit > 0 ? (string) $limit : 'unlimited'
+            $limit > 0 ? (string) $limit : 'unlimited',
+            $pendingSessionLimit > 0 ? (string) $pendingSessionLimit : 'unlimited'
         ));
         if ($workerEnvPath !== '') {
             $this->line('worker_env=' . $workerEnvPath);
@@ -163,6 +167,7 @@ class RestoreFilestoreToBotCommand extends Command
                 sourceSessionsQuery: $sourceSessionsQuery,
                 sourceFileRowId: $sourceFileRowId,
                 limit: $limit,
+                pendingSessionLimit: $pendingSessionLimit,
                 baseUri: $baseUri,
                 targetBotUsername: $targetBotUsername,
                 targetBotToken: $targetBotToken,
@@ -185,6 +190,7 @@ class RestoreFilestoreToBotCommand extends Command
         $sourceSessionsQuery,
         int $sourceFileRowId,
         int $limit,
+        int $pendingSessionLimit,
         string $baseUri,
         string $targetBotUsername,
         string $targetBotToken,
@@ -200,6 +206,7 @@ class RestoreFilestoreToBotCommand extends Command
         }
 
         $remainingLimit = $limit > 0 ? $limit : PHP_INT_MAX;
+        $remainingPendingSessionLimit = $pendingSessionLimit > 0 ? $pendingSessionLimit : PHP_INT_MAX;
         $limitReached = false;
         $stats = [
             'attempted' => 0,
@@ -230,29 +237,44 @@ class RestoreFilestoreToBotCommand extends Command
                 $fileCount
             ));
 
-            $restoreSession = $this->getOrCreateRestoreSession(
-                $sourceSession,
-                $targetBotUsername,
-                (int) $targetContext['chat_id']
-            );
+            if ($fileCount <= 0) {
+                $this->line('  skip: source session has no files');
+                continue;
+            }
+
+            $restoreSession = $this->findRestoreSession($sourceSession, $targetBotUsername);
 
             $sessionTotalFileCount = (int) TelegramFilestoreFile::query()
                 ->where('session_id', $sourceSession->id)
                 ->count();
 
-            $existingSyncedRowCount = (int) TelegramFilestoreRestoreFile::query()
-                ->where('restore_session_id', $restoreSession->id)
-                ->when($sourceFileRowId > 0, static function ($query) use ($sourceFileRowId) {
-                    $query->where('source_file_row_id', $sourceFileRowId);
-                })
-                ->where('status', 'synced')
-                ->count();
+            $existingSyncedRowCount = $restoreSession !== null
+                ? (int) TelegramFilestoreRestoreFile::query()
+                    ->where('restore_session_id', $restoreSession->id)
+                    ->when($sourceFileRowId > 0, static function ($query) use ($sourceFileRowId) {
+                        $query->where('source_file_row_id', $sourceFileRowId);
+                    })
+                    ->where('status', 'synced')
+                    ->count()
+                : 0;
 
             if ($fileCount > 0 && $existingSyncedRowCount >= $fileCount) {
                 $stats['skipped_existing'] += $fileCount;
                 $this->line('  skip: all files already synced in restore db');
                 continue;
             }
+
+            if ($remainingPendingSessionLimit <= 0) {
+                break;
+            }
+
+            $remainingPendingSessionLimit--;
+
+            $restoreSession = $this->getOrCreateRestoreSession(
+                $sourceSession,
+                $targetBotUsername,
+                (int) $targetContext['chat_id']
+            );
 
             $restoreSession->status = 'running';
             $restoreSession->last_error = null;
@@ -417,16 +439,23 @@ class RestoreFilestoreToBotCommand extends Command
             });
     }
 
+    private function findRestoreSession(
+        TelegramFilestoreSession $sourceSession,
+        string $targetBotUsername
+    ): ?TelegramFilestoreRestoreSession {
+        return TelegramFilestoreRestoreSession::query()
+            ->where('source_session_id', $sourceSession->id)
+            ->where('target_bot_username', $targetBotUsername)
+            ->orderByDesc('id')
+            ->first();
+    }
+
     private function getOrCreateRestoreSession(
         TelegramFilestoreSession $sourceSession,
         string $targetBotUsername,
         int $targetChatId
     ): TelegramFilestoreRestoreSession {
-        $restoreSession = TelegramFilestoreRestoreSession::query()
-            ->where('source_session_id', $sourceSession->id)
-            ->where('target_bot_username', $targetBotUsername)
-            ->orderByDesc('id')
-            ->first();
+        $restoreSession = $this->findRestoreSession($sourceSession, $targetBotUsername);
 
         if ($restoreSession) {
             return tap($restoreSession, function (TelegramFilestoreRestoreSession $session) use ($sourceSession, $targetChatId): void {

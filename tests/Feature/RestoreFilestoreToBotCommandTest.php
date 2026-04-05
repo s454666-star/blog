@@ -1531,6 +1531,233 @@ class RestoreFilestoreToBotCommandTest extends TestCase
         ]);
     }
 
+    public function test_command_pending_session_limit_counts_only_sessions_that_still_need_restore(): void
+    {
+        config()->set('telegram.backup_restore_target_chat_id', 8491679630);
+
+        DB::table('telegram_filestore_sessions')->insert([
+            [
+                'id' => 80,
+                'chat_id' => 7702694790,
+                'public_token' => 'filestoebot_session_limit_done',
+                'source_token' => 'showfilesbot_session_limit_done',
+                'status' => 'closed',
+                'total_files' => 1,
+                'created_at' => now(),
+                'closed_at' => now(),
+            ],
+            [
+                'id' => 81,
+                'chat_id' => 7702694790,
+                'public_token' => 'filestoebot_session_limit_pending_one',
+                'source_token' => 'showfilesbot_session_limit_pending_one',
+                'status' => 'closed',
+                'total_files' => 1,
+                'created_at' => now(),
+                'closed_at' => now(),
+            ],
+            [
+                'id' => 82,
+                'chat_id' => 7702694790,
+                'public_token' => 'filestoebot_session_limit_pending_two',
+                'source_token' => 'showfilesbot_session_limit_pending_two',
+                'status' => 'closed',
+                'total_files' => 1,
+                'created_at' => now(),
+                'closed_at' => now(),
+            ],
+        ]);
+
+        DB::table('telegram_filestore_files')->insert([
+            [
+                'id' => 8001,
+                'session_id' => 80,
+                'chat_id' => 7702694790,
+                'message_id' => 80001,
+                'file_id' => 'SESSION-LIMIT-DONE-FILE-ID',
+                'file_unique_id' => 'SESSION-LIMIT-DONE-UNIQ-ID',
+                'source_token' => 'showfilesbot_session_limit_done',
+                'file_name' => 'done.bin',
+                'mime_type' => 'application/octet-stream',
+                'file_size' => 10,
+                'file_type' => 'document',
+                'raw_payload' => json_encode(['message_id' => 80001], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => now(),
+            ],
+            [
+                'id' => 8101,
+                'session_id' => 81,
+                'chat_id' => 7702694790,
+                'message_id' => 81001,
+                'file_id' => 'SESSION-LIMIT-PENDING-ONE-FILE-ID',
+                'file_unique_id' => 'SESSION-LIMIT-PENDING-ONE-UNIQ-ID',
+                'source_token' => 'showfilesbot_session_limit_pending_one',
+                'file_name' => 'pending-one.bin',
+                'mime_type' => 'application/octet-stream',
+                'file_size' => 11,
+                'file_type' => 'document',
+                'raw_payload' => json_encode(['message_id' => 81001], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => now(),
+            ],
+            [
+                'id' => 8201,
+                'session_id' => 82,
+                'chat_id' => 7702694790,
+                'message_id' => 82001,
+                'file_id' => 'SESSION-LIMIT-PENDING-TWO-FILE-ID',
+                'file_unique_id' => 'SESSION-LIMIT-PENDING-TWO-UNIQ-ID',
+                'source_token' => 'showfilesbot_session_limit_pending_two',
+                'file_name' => 'pending-two.bin',
+                'mime_type' => 'application/octet-stream',
+                'file_size' => 12,
+                'file_type' => 'document',
+                'raw_payload' => json_encode(['message_id' => 82001], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => now(),
+            ],
+        ]);
+
+        DB::table('telegram_filestore_restore_sessions')->insert([
+            'id' => 800,
+            'source_session_id' => 80,
+            'source_chat_id' => 7702694790,
+            'source_token' => 'showfilesbot_session_limit_done',
+            'source_public_token' => 'filestoebot_session_limit_done',
+            'target_bot_username' => 'file_backup_restore_bot',
+            'target_chat_id' => 8491679630,
+            'status' => 'completed',
+            'total_files' => 1,
+            'processed_files' => 1,
+            'success_files' => 1,
+            'failed_files' => 0,
+            'started_at' => now(),
+            'finished_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_restore_files')->insert([
+            'restore_session_id' => 800,
+            'source_session_id' => 80,
+            'source_file_row_id' => 8001,
+            'source_chat_id' => 7702694790,
+            'source_message_id' => 80001,
+            'source_file_id' => 'SESSION-LIMIT-DONE-FILE-ID',
+            'source_file_unique_id' => 'SESSION-LIMIT-DONE-UNIQ-ID',
+            'source_token' => 'showfilesbot_session_limit_done',
+            'source_public_token' => 'filestoebot_session_limit_done',
+            'forwarded_message_id' => 180001,
+            'target_chat_id' => 8491679630,
+            'target_message_id' => 280001,
+            'target_file_id' => 'SESSION-LIMIT-DONE-TARGET-FILE-ID',
+            'target_file_unique_id' => 'SESSION-LIMIT-DONE-TARGET-UNIQ-ID',
+            'file_name' => 'done.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 10,
+            'file_type' => 'document',
+            'status' => 'synced',
+            'attempt_count' => 1,
+            'synced_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $pendingUpdates = [];
+        $nextUpdateId = 900;
+
+        Http::fake(function ($request) use (&$pendingUpdates, &$nextUpdateId) {
+            if (str_starts_with($request->url(), 'https://api.telegram.org/botrestore-token/getUpdates')) {
+                $offset = (int) ($request['offset'] ?? 0);
+
+                if ($offset <= 0) {
+                    return Http::response([
+                        'ok' => true,
+                        'result' => [],
+                    ], 200);
+                }
+
+                if ($pendingUpdates !== []) {
+                    return Http::response([
+                        'ok' => true,
+                        'result' => [array_shift($pendingUpdates)],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => [],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+                $sourceMessageId = (int) ((array) $request['message_ids'])[0];
+                $nextUpdateId++;
+                $pendingUpdates[] = [
+                    'update_id' => $nextUpdateId,
+                    'message' => [
+                        'message_id' => 90000 + $sourceMessageId,
+                        'chat' => [
+                            'id' => 8491679630,
+                            'type' => 'private',
+                        ],
+                        'document' => [
+                            'file_id' => 'SESSION-LIMIT-TARGET-FILE-' . $sourceMessageId,
+                            'file_unique_id' => 'SESSION-LIMIT-TARGET-UNIQ-' . $sourceMessageId,
+                            'file_name' => 'pending-one.bin',
+                            'mime_type' => 'application/octet-stream',
+                            'file_size' => 11,
+                        ],
+                    ],
+                ];
+
+                return Http::response([
+                    'status' => 'ok',
+                    'forwarded_message_ids' => [91000 + $sourceMessageId],
+                    'missing_message_ids' => [],
+                    'unforwardable_message_ids' => [],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/delete-messages') {
+                return Http::response([
+                    'status' => 'ok',
+                    'deleted_count' => count((array) $request['message_ids']),
+                    'undeleted_message_ids' => [],
+                ], 200);
+            }
+
+            return Http::response([
+                'ok' => false,
+                'status' => 'unexpected',
+                'url' => $request->url(),
+            ], 500);
+        });
+
+        $this->artisan('filestore:restore-to-bot --all --pending-session-limit=1 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
+            ->expectsOutputToContain('pending_session_limit=1')
+            ->expectsOutputToContain('source_session=80')
+            ->expectsOutputToContain('skip: all files already synced in restore db')
+            ->expectsOutputToContain('source_session=81')
+            ->expectsOutputToContain('synced=1')
+            ->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_files', [
+            'source_session_id' => 81,
+            'source_file_row_id' => 8101,
+            'target_file_id' => 'SESSION-LIMIT-TARGET-FILE-81001',
+            'status' => 'synced',
+        ]);
+
+        $this->assertDatabaseMissing('telegram_filestore_restore_sessions', [
+            'source_session_id' => 82,
+            'target_bot_username' => 'file_backup_restore_bot',
+        ]);
+
+        $this->assertDatabaseMissing('telegram_filestore_restore_files', [
+            'source_session_id' => 82,
+            'source_file_row_id' => 8201,
+        ]);
+    }
+
     public function test_command_replays_large_file_via_sync_chat_before_forwarding(): void
     {
         config()->set('telegram.filestore_sync_chat_id', 7702694790);

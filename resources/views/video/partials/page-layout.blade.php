@@ -3,7 +3,60 @@
 
 <!-- ===== 主面人臉側欄 ===== -->
 <div class="master-faces">
-    <h5>主面人臉</h5>
+    <div class="master-faces-header">
+        <div class="master-faces-title-wrap">
+            <h5>主面人臉</h5>
+            <button
+                id="toggle-master-search"
+                class="master-faces-action {{ $keyword !== '' ? 'is-active' : '' }}"
+                type="button"
+                title="搜尋關鍵字"
+                aria-label="搜尋關鍵字"
+                aria-expanded="{{ $keyword !== '' ? 'true' : 'false' }}"
+                aria-controls="master-search-panel"
+            >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M10.5 4.75a5.75 5.75 0 1 0 0 11.5a5.75 5.75 0 0 0 0-11.5Z"></path>
+                    <path d="m15.1 15.1 4.15 4.15"></path>
+                    <path d="M8.25 10.5h4.5"></path>
+                    <path d="M10.5 8.25v4.5"></path>
+                </svg>
+            </button>
+        </div>
+
+        <div
+            id="master-search-panel"
+            class="master-search-panel {{ $keyword !== '' ? 'is-open' : '' }}"
+            aria-hidden="{{ $keyword !== '' ? 'false' : 'true' }}"
+        >
+            <form id="master-search-form" class="master-search-form" autocomplete="off">
+                <label class="sr-only" for="master-search-input">搜尋影片關鍵字</label>
+                <div class="master-search-input-wrap">
+                    <svg class="master-search-input-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M10.5 4.75a5.75 5.75 0 1 0 0 11.5a5.75 5.75 0 0 0 0-11.5Z"></path>
+                        <path d="m15.1 15.1 4.15 4.15"></path>
+                    </svg>
+                    <input
+                        id="master-search-input"
+                        class="master-search-input"
+                        type="text"
+                        value="{{ $keyword }}"
+                        placeholder="搜尋檔名 / 路徑"
+                        maxlength="120"
+                    >
+                </div>
+                <div class="master-search-actions">
+                    <button id="master-search-submit" class="master-search-submit" type="submit">搜尋</button>
+                    <button
+                        id="master-search-clear"
+                        class="master-search-clear"
+                        type="button"
+                        {{ $keyword === '' ? 'disabled' : '' }}
+                    >清除</button>
+                </div>
+            </form>
+        </div>
+    </div>
     <div id="master-faces-status" class="master-faces-status">主面人臉載入中...</div>
     <div class="master-face-images"></div>
 </div>
@@ -49,6 +102,7 @@
 <div id="controls-panel" class="controls">
     <form id="controls-form" class="controls-form" method="GET">
         <input type="hidden" id="focus-id" name="focus_id" value="{{ $focusId }}">
+        <input type="hidden" id="keyword-value" name="keyword" value="{{ $keyword }}">
 
         <div class="control-group control-group--slider">
             <div class="control-heading">

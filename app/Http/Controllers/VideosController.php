@@ -40,30 +40,39 @@
             $sortBy      = in_array($request->input('sort_by'), ['id','duration']) ? $request->input('sort_by') : 'duration';
             $sortDir     = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
             $perPage     = self::VIDEO_PAGE_SIZE;
-            $focusId     = $request->input('focus_id');
+            $requestedFocusId = $request->filled('focus_id') ? (int) $request->input('focus_id') : null;
+            $keyword     = $this->normalizeKeyword($request->input('keyword'));
 
             /* ---------- 建立基礎查詢 ---------- */
-            $baseQuery = $this->buildVideoBaseQuery($videoType, $missingOnly);
+            $baseQuery = $this->buildVideoBaseQuery($videoType, $missingOnly, $keyword);
 
             $total    = (clone $baseQuery)->count();
-            $lastPage = (int) ceil($total / $perPage);
+            $lastPage = max((int) ceil($total / $perPage), 1);
 
             /* ---------- 最新一支（id 最大） ---------- */
             $latest   = (clone $baseQuery)->orderBy('id', 'desc')->first();
             $latestId = $latest?->id;
             $page     = 1;
+            $focusId  = null;
 
-            if ($focusId) {
-                $video = (clone $baseQuery)->where('id', $focusId)->first();
-                if ($video) {
-                    // 使用與實際列表相同的排序規則計算位置
-                    $position = $this->countPositionWithTiebreaker((clone $baseQuery), $sortBy, $sortDir, $video);
-                    $page = (int) ceil($position / $perPage);
-                }
-            } elseif ($latest) {
+            $focusVideo = null;
+
+            if ($requestedFocusId) {
+                $focusVideo = (clone $baseQuery)->where('id', $requestedFocusId)->first();
+            }
+
+            if (!$focusVideo && $keyword !== '') {
+                $focusVideo = (clone $baseQuery)->inRandomOrder()->first();
+            }
+
+            if (!$focusVideo && $latest) {
                 // 沒指定 focus 時，預設聚焦於「最新一支」
-                $position = $this->countPositionWithTiebreaker((clone $baseQuery), $sortBy, $sortDir, $latest);
-                $page = (int) ceil($position / $perPage);
+                $focusVideo = $latest;
+            }
+
+            if ($focusVideo) {
+                $focusId = (int) $focusVideo->id;
+                $page = max((int) ceil($this->countPositionWithTiebreaker((clone $baseQuery), $sortBy, $sortDir, $focusVideo) / $perPage), 1);
             }
 
             /* ---------- 取主列表（穩定排序 + 精簡 eager load 欄位） ---------- */
@@ -80,7 +89,7 @@
                 'prevPage', 'nextPage', 'lastPage',
                 'videoType', 'sortBy', 'sortDir',
                 'latestId', 'missingOnly',
-                'focusId'
+                'focusId', 'keyword'
             ));
         }
 
@@ -91,8 +100,9 @@
             $missingOnly = $request->boolean('missing_only', false);
             $sortBy      = in_array($request->input('sort_by'), ['id','duration']) ? $request->input('sort_by') : 'duration';
             $sortDir     = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
+            $keyword     = $this->normalizeKeyword($request->input('keyword'));
 
-            $query = $this->buildVideoBaseQuery($videoType, $missingOnly);
+            $query = $this->buildVideoBaseQuery($videoType, $missingOnly, $keyword);
 
             // 套用穩定排序 + 精簡 eager load 欄位（減少 SQL/記憶體/HTML 生成成本）
             $videos = $this->withVideoListRelations(
@@ -131,7 +141,7 @@
             return strtolower($dir) === 'desc' ? 'desc' : 'asc';
         }
 
-        private function buildVideoBaseQuery(string $videoType, bool $missingOnly = false)
+        private function buildVideoBaseQuery(string $videoType, bool $missingOnly = false, string $keyword = '')
         {
             $query = VideoMaster::query()
                 ->select(self::VIDEO_SELECT_COLUMNS)
@@ -141,7 +151,7 @@
                 $query->whereDoesntHave('masterFaces');
             }
 
-            return $query;
+            return $this->applyVideoKeywordFilter($query, $keyword, 'video_master');
         }
 
         private function withVideoListRelations($query)
@@ -164,10 +174,14 @@
             $sortBy      = $this->parseSortBy($request->input('sort_by', 'duration'));
             $sortDir     = $this->parseSortDir($request->input('sort_dir', 'asc'));
             $perPage     = self::VIDEO_PAGE_SIZE;
+            $keyword     = $this->normalizeKeyword($request->input('keyword'));
+
+            /* ---- 建立基礎查詢（與列表一致） ---- */
+            $baseQuery = $this->buildVideoBaseQuery($videoType, $missingOnly, $keyword);
 
             /* ---- 目標影片 ---- */
-            $video = VideoMaster::where('id', $videoId)
-                ->where('video_type', $videoType)
+            $video = (clone $baseQuery)
+                ->where('id', $videoId)
                 ->first();
 
             if (!$video) {
@@ -176,9 +190,6 @@
                     'message' => '找不到該影片。',
                 ], 404);
             }
-
-            /* ---- 建立基礎查詢（與列表一致） ---- */
-            $baseQuery = $this->buildVideoBaseQuery($videoType, $missingOnly);
 
             /* ---- 計算位置（與實際列表相同排序規則） ---- */
             $position = $this->countPositionWithTiebreaker((clone $baseQuery), $sortBy, $sortDir, $video);
@@ -502,13 +513,14 @@
             $videoType = $request->input('video_type', '1');
             $page = max(1, (int) $request->input('page', 1));
             $perPage = min(400, max(40, (int) $request->input('per_page', 160)));
+            $keyword = $this->normalizeKeyword($request->input('keyword'));
 
             // 讓左欄排序與右欄一致
             $sortBy  = in_array($request->input('sort_by'), ['id', 'duration']) ? $request->input('sort_by') : 'duration';
             $sortDir = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
 
             $masterFaces = $this->applyMasterFaceOrdering(
-                $this->masterFaceListingQuery($videoType),
+                $this->masterFaceListingQuery($videoType, $keyword),
                 $sortBy,
                 $sortDir
             )->paginate($perPage, ['*'], 'page', $page);
@@ -930,9 +942,10 @@
             return trim((string) $video->video_name);
         }
 
-        private function masterFaceListingQuery(string $videoType)
+        private function masterFaceListingQuery(string $videoType, string $keyword = '')
         {
-            return VideoFaceScreenshot::query()
+            return $this->applyVideoKeywordFilter(
+                VideoFaceScreenshot::query()
                 ->select([
                     'video_face_screenshots.id',
                     'video_face_screenshots.face_image_path',
@@ -944,7 +957,32 @@
                 ->join('video_screenshots', 'video_screenshots.id', '=', 'video_face_screenshots.video_screenshot_id')
                 ->join('video_master', 'video_master.id', '=', 'video_screenshots.video_master_id')
                 ->where('video_face_screenshots.is_master', 1)
-                ->where('video_master.video_type', $videoType);
+                ->where('video_master.video_type', $videoType),
+                $keyword,
+                'video_master'
+            );
+        }
+
+        private function applyVideoKeywordFilter($query, string $keyword = '', string $table = 'video_master')
+        {
+            if ($keyword === '') {
+                return $query;
+            }
+
+            $like = '%' . $keyword . '%';
+
+            return $query->where(function ($keywordQuery) use ($table, $like) {
+                $keywordQuery
+                    ->where($table . '.video_name', 'like', $like)
+                    ->orWhere($table . '.video_path', 'like', $like);
+            });
+        }
+
+        private function normalizeKeyword(mixed $keyword): string
+        {
+            $value = trim((string) $keyword);
+
+            return preg_replace('/\s+/u', ' ', $value) ?? $value;
         }
 
         private function applyMasterFaceOrdering($query, string $sortBy, string $sortDir)

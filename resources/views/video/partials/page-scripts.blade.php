@@ -20,6 +20,7 @@
     let videoSize = {{ request('video_size',25) }};
     let imageSize = {{ request('image_size',200) }};
     let videoType = '{{ request('video_type','1') }}';
+    let searchKeyword = @json($keyword);
 
     let initialFocusId = {{ $focusId ?? 'null' }};
     const initialFocusTargetId = initialFocusId !== null ? initialFocusId : latestId;
@@ -125,6 +126,27 @@
     function updateControlRangeBadges() {
         updateRangeBadge('#video-size-value', `${videoSize}%`);
         updateRangeBadge('#image-size-value', `${imageSize}px`);
+    }
+
+    function normalizeKeyword(value) {
+        return String(value || '').trim().replace(/\s+/g, ' ');
+    }
+
+    function buildListingQueryParams(extra = {}) {
+        const params = {
+            video_type: videoType,
+            missing_only: missingOnly ? 1 : 0,
+            sort_by: sortBy,
+            sort_dir: sortDir,
+            keyword: searchKeyword,
+        };
+
+        const focusedId = $('#focus-id').val();
+        if (focusedId) {
+            params.focus_id = focusedId;
+        }
+
+        return Object.assign(params, extra);
     }
 
     function refreshControlRanges() {
@@ -260,14 +282,9 @@
         loading = true;
         $('#load-more').show();
 
-        const data = {
-            video_type: videoType,
-            missing_only: missingOnly ? 1 : 0,
-            sort_by: sortBy,
-            sort_dir: sortDir,
+        const data = buildListingQueryParams({
             page: target ?? (dir === 'down' ? nextPage : prevPage),
-            focus_id: $('#focus-id').val()
-        };
+        });
 
         $.ajax({
             url: "{{ route('video.loadMore') }}",
@@ -321,14 +338,7 @@
         $.ajax({
             url: "{{ route('video.loadMore') }}",
             method: 'GET',
-            data: {
-                page,
-                video_type: videoType,
-                missing_only: missingOnly ? 1 : 0,
-                sort_by: sortBy,
-                sort_dir: sortDir,
-                focus_id: $('#focus-id').val()
-            },
+            data: buildListingQueryParams({page}),
             success(res) {
                 if (res && res.success && res.data.trim()) {
                     const $temp = $('<div>').html(res.data);
@@ -1020,13 +1030,9 @@
             }
 
             /* 2. 不在目前頁 → 先查頁碼，再載入並聚焦 */
-            $.get("{{ route('video.findPage') }}", {
+            $.get("{{ route('video.findPage') }}", buildListingQueryParams({
                 video_id: vid,
-                video_type: videoType,
-                missing_only: missingOnly ? 1 : 0,   // ⭐ 加上缺主面篩選
-                sort_by: sortBy,                 // ⭐ 加上排序依據
-                sort_dir: sortDir                 // ⭐ 加上排序方向
-            }, res => {
+            }), res => {
                 if (res?.success && res.page) {
                     loadPageAndFocus(vid, res.page);
                 } else {
@@ -1061,13 +1067,69 @@
         const $content = $('.container');
         const $controls = $('.controls');
         const $controlsToggle = $('#toggle-controls');
+        const $masterSearchToggle = $('#toggle-master-search');
+        const $masterSearchPanel = $('#master-search-panel');
+        const $masterSearchForm = $('#master-search-form');
+        const $masterSearchInput = $('#master-search-input');
+        const $masterSearchClear = $('#master-search-clear');
         let controlsOpen = false;
+        let masterSearchOpen = normalizeKeyword(searchKeyword) !== '';
+
+        function syncMasterSearchState() {
+            const activeKeyword = normalizeKeyword(searchKeyword);
+            const draftKeyword = normalizeKeyword($masterSearchInput.val());
+
+            $masterSearchPanel
+                .toggleClass('is-open', masterSearchOpen)
+                .attr('aria-hidden', String(!masterSearchOpen));
+
+            $masterSearchToggle
+                .toggleClass('is-active', masterSearchOpen || activeKeyword !== '')
+                .attr('aria-expanded', String(masterSearchOpen));
+
+            $masterSearchClear.prop('disabled', activeKeyword === '' && draftKeyword === '');
+            $('#keyword-value').val(activeKeyword);
+        }
+
+        function openMasterSearchPanel(focusInput = false) {
+            masterSearchOpen = true;
+            syncMasterSearchState();
+
+            if (focusInput) {
+                window.setTimeout(() => {
+                    $masterSearchInput.trigger('focus').trigger('select');
+                }, 120);
+            }
+        }
+
+        function closeMasterSearchPanel() {
+            masterSearchOpen = false;
+            syncMasterSearchState();
+        }
+
+        function submitKeywordSearch(rawKeyword) {
+            const nextKeyword = normalizeKeyword(rawKeyword);
+            const url = new URL(window.location.href);
+
+            searchKeyword = nextKeyword;
+            $('#keyword-value').val(nextKeyword);
+
+            if (nextKeyword) {
+                url.searchParams.set('keyword', nextKeyword);
+            } else {
+                url.searchParams.delete('keyword');
+            }
+
+            url.searchParams.delete('focus_id');
+            window.location.assign(url.toString());
+        }
 
         function updateToggleState(collapsed) {
             if (collapsed) {
                 $sidebar.addClass('collapsed');
                 $content.removeClass('expanded');
                 $controls.removeClass('expanded');
+                closeMasterSearchPanel();
                 updateBtnPos(true);
                 $btnToggle.html('☰');
             } else {
@@ -1082,10 +1144,59 @@
         // 預設展開（You can set collapsed=true if you want）
         let collapsed = false;
         updateToggleState(collapsed);
+        syncMasterSearchState();
 
         $btnToggle.on('click', () => {
             collapsed = !collapsed;
             updateToggleState(collapsed);
+        });
+
+        $masterSearchToggle.on('click', () => {
+            if (masterSearchOpen) {
+                closeMasterSearchPanel();
+                return;
+            }
+
+            openMasterSearchPanel(true);
+        });
+
+        $masterSearchInput.on('input', () => {
+            syncMasterSearchState();
+        });
+
+        $masterSearchInput.on('keydown', function (event) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closeMasterSearchPanel();
+            }
+        });
+
+        $masterSearchForm.on('submit', function (event) {
+            event.preventDefault();
+            submitKeywordSearch($masterSearchInput.val());
+        });
+
+        $masterSearchClear.on('click', function () {
+            if (normalizeKeyword(searchKeyword) !== '') {
+                submitKeywordSearch('');
+                return;
+            }
+
+            $masterSearchInput.val('');
+            syncMasterSearchState();
+            closeMasterSearchPanel();
+        });
+
+        $(document).on('click', function (event) {
+            if (!masterSearchOpen) {
+                return;
+            }
+
+            if ($(event.target).closest('.master-faces-header').length) {
+                return;
+            }
+
+            closeMasterSearchPanel();
         });
 
         /* ------- ① 進頁面就把鈕頂到 h5 標題同高 ------- */
@@ -1129,6 +1240,7 @@
         $('#controls-form').on('submit', function () {
             const fid = $('.video-row.focused').data('id') || '';
             $('#focus-id').val(fid);          // ← 送出表單前最後覆寫
+            $('#keyword-value').val(searchKeyword);
         });
     });
 
@@ -1147,7 +1259,7 @@
             $target[0].scrollIntoView({behavior: 'smooth', block: 'center'});
         } else {
             // 這一頁沒有 → 動態查詢它在第幾頁，載進來再聚焦
-            $.get("{{ route('video.findPage') }}", {video_id: latestId, video_type: videoType}, res => {
+            $.get("{{ route('video.findPage') }}", buildListingQueryParams({video_id: latestId}), res => {
                 if (res?.success && res.page) {
                     loadPageAndFocus(latestId, res.page);
                 }
@@ -1310,7 +1422,8 @@
                 per_page: 160,
                 video_type: videoType,
                 sort_by: sortBy,
-                sort_dir: sortDir
+                sort_dir: sortDir,
+                keyword: searchKeyword
             },
             success(res) {
                 if (res?.success) {

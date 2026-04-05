@@ -803,14 +803,201 @@
             box-shadow: 14px 0 36px rgba(124, 76, 168, .1)
         }
 
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .master-faces-header {
+            width: 100%;
+            margin-bottom: 8px;
+        }
+
+        .master-faces-title-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            width: 100%;
+        }
+
         .master-faces h5 {
             text-align: center;
-            width: 100%;
-            margin-bottom: 12px;
+            width: auto;
+            margin-bottom: 0;
             font-size: 1.15rem;
             font-weight: 800;
             color: var(--theme-accent-strong);
             letter-spacing: .08em;
+        }
+
+        .master-faces-action {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 46px;
+            height: 46px;
+            border: 1px solid rgba(194, 158, 247, .4);
+            border-radius: 18px;
+            background:
+                linear-gradient(145deg, rgba(255, 255, 255, .97), rgba(243, 226, 255, .92));
+            color: var(--theme-accent-strong);
+            cursor: pointer;
+            box-shadow:
+                0 16px 30px rgba(124, 76, 168, .14),
+                inset 0 1px 0 rgba(255, 255, 255, .95);
+            transition: transform .24s ease, box-shadow .24s ease, border-color .24s ease, color .24s ease;
+        }
+
+        .master-faces-action svg {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            stroke-width: 1.9;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .master-faces-action:hover,
+        .master-faces-action.is-active {
+            transform: translateY(-1px);
+            color: #7f43dc;
+            border-color: rgba(165, 92, 246, .55);
+            box-shadow:
+                0 18px 34px rgba(124, 76, 168, .18),
+                0 0 20px rgba(169, 118, 255, .16),
+                inset 0 1px 0 rgba(255, 255, 255, .98);
+        }
+
+        .master-search-panel {
+            width: 100%;
+            max-height: 0;
+            margin-top: 0;
+            opacity: 0;
+            overflow: hidden;
+            transform: translateY(-10px);
+            transition: max-height .28s ease, opacity .24s ease, transform .24s ease, margin-top .24s ease;
+        }
+
+        .master-search-panel.is-open {
+            max-height: 180px;
+            margin-top: 12px;
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .master-search-form {
+            padding: 12px;
+            border: 1px solid rgba(194, 158, 247, .34);
+            border-radius: 20px;
+            background:
+                linear-gradient(150deg, rgba(255, 255, 255, .97), rgba(242, 228, 255, .92));
+            box-shadow:
+                0 18px 34px rgba(124, 76, 168, .12),
+                inset 0 1px 0 rgba(255, 255, 255, .95);
+        }
+
+        .master-search-input-wrap {
+            position: relative;
+            margin-bottom: 10px;
+        }
+
+        .master-search-input-icon {
+            position: absolute;
+            top: 50%;
+            left: 14px;
+            width: 16px;
+            height: 16px;
+            transform: translateY(-50%);
+            stroke: rgba(127, 67, 220, .76);
+            stroke-width: 1.9;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            pointer-events: none;
+        }
+
+        .master-search-input {
+            width: 100%;
+            height: 42px;
+            padding: 0 14px 0 40px;
+            border: 1px solid rgba(197, 168, 247, .4);
+            border-radius: 14px;
+            background: rgba(255, 255, 255, .92);
+            color: var(--theme-text);
+            font-size: .92rem;
+            font-weight: 600;
+            outline: none;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .92);
+            transition: border-color .24s ease, box-shadow .24s ease, background .24s ease;
+        }
+
+        .master-search-input::placeholder {
+            color: rgba(119, 96, 150, .72);
+            font-weight: 500;
+        }
+
+        .master-search-input:focus {
+            border-color: rgba(155, 88, 242, .72);
+            background: rgba(255, 255, 255, .98);
+            box-shadow:
+                0 0 0 4px rgba(199, 159, 255, .18),
+                inset 0 1px 0 rgba(255, 255, 255, .96);
+        }
+
+        .master-search-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .master-search-submit,
+        .master-search-clear {
+            min-width: 72px;
+            height: 34px;
+            padding: 0 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(193, 155, 247, .38);
+            font-size: .82rem;
+            font-weight: 700;
+            letter-spacing: .04em;
+            cursor: pointer;
+            transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease, opacity .22s ease;
+        }
+
+        .master-search-submit {
+            background: linear-gradient(135deg, rgba(166, 93, 247, .98), rgba(128, 68, 220, .96));
+            color: #fff;
+            box-shadow: 0 14px 26px rgba(124, 76, 168, .22);
+        }
+
+        .master-search-clear {
+            background: rgba(255, 255, 255, .92);
+            color: var(--theme-text-soft);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .94);
+        }
+
+        .master-search-submit:hover,
+        .master-search-clear:hover:not(:disabled) {
+            transform: translateY(-1px);
+            border-color: rgba(165, 92, 246, .5);
+            box-shadow:
+                0 16px 28px rgba(124, 76, 168, .18),
+                inset 0 1px 0 rgba(255, 255, 255, .96);
+        }
+
+        .master-search-clear:disabled {
+            opacity: .45;
+            cursor: not-allowed;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .86);
         }
 
         /* ?箏?銝??4 撘蛛?瘥撐?賭? 1 ??*/

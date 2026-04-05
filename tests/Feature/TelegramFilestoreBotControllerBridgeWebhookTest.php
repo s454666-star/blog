@@ -817,7 +817,7 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
         });
     }
 
-    public function test_webhook_single_token_success_skips_extra_queue_notice(): void
+    public function test_webhook_single_token_success_sends_queue_notice(): void
     {
         Queue::fake();
         Http::fake([
@@ -864,7 +864,17 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
         $response->assertOk();
 
         Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 1);
-        Http::assertNothingSent();
+        Http::assertSentCount(1);
+        Http::assertSent(function ($request): bool {
+            if (!str_contains($request->url(), '/sendMessage')) {
+                return false;
+            }
+
+            $text = (string) ($request['text'] ?? '');
+
+            return str_contains($text, 'showfilesbot_1V_singleok0001')
+                && str_contains($text, '已加入傳送佇列，開始處理中');
+        });
     }
 
     public function test_new_files_star_webhook_decodes_alias_tokens_and_replies_via_backup_bot_token(): void

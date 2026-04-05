@@ -1793,6 +1793,10 @@
             }
 
             if ($result['status'] === 'queued') {
+                $this->sendMessage(
+                    $chatId,
+                    $this->formatTokenReply($announceToken, "已加入傳送佇列，開始處理中…")
+                );
                 return true;
             }
 

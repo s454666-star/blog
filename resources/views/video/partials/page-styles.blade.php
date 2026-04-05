@@ -17,6 +17,15 @@
             --theme-shadow: 0 22px 48px rgba(124, 76, 168, 0.14);
             --theme-shadow-strong: 0 24px 55px rgba(124, 76, 168, 0.2);
             --video-width: 70%;
+            --scrollbar-size: 15px;
+            --scrollbar-track: linear-gradient(180deg, rgba(255, 255, 255, .95), rgba(241, 225, 255, .88));
+            --scrollbar-thumb: linear-gradient(180deg, rgba(208, 123, 255, .96), rgba(127, 59, 208, .96));
+            --scrollbar-thumb-hover: linear-gradient(180deg, rgba(219, 152, 255, .98), rgba(145, 74, 224, .98));
+            --scrollbar-thumb-active: linear-gradient(180deg, rgba(123, 204, 159, .96), rgba(89, 164, 123, .96));
+            --scrollbar-thumb-shadow: 0 8px 18px rgba(124, 76, 168, .22);
+            --scrollbar-track-shadow: inset 0 0 0 1px rgba(165, 92, 246, .12), inset 0 8px 18px rgba(165, 92, 246, .08);
+            --scrollbar-button-bg: linear-gradient(135deg, rgba(255, 255, 255, .95), rgba(244, 230, 255, .95));
+            --scrollbar-button-hover: linear-gradient(135deg, rgba(255, 255, 255, .98), rgba(236, 215, 255, .98));
         }
 
         html {
@@ -47,6 +56,96 @@
             opacity: .35;
             mix-blend-mode: soft-light;
             z-index: -1;
+        }
+
+        html,
+        body,
+        .master-faces,
+        .screenshot-images .d-flex,
+        .face-screenshot-images .d-flex {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(127, 59, 208, .92) rgba(241, 225, 255, .5);
+        }
+
+        *::-webkit-scrollbar {
+            width: var(--scrollbar-size);
+            height: var(--scrollbar-size);
+        }
+
+        *::-webkit-scrollbar-track {
+            border: 3px solid transparent;
+            border-radius: 999px;
+            background: var(--scrollbar-track);
+            background-clip: padding-box;
+            box-shadow: var(--scrollbar-track-shadow);
+        }
+
+        *::-webkit-scrollbar-thumb {
+            border: 3px solid transparent;
+            border-radius: 999px;
+            background: var(--scrollbar-thumb);
+            background-clip: padding-box;
+            box-shadow: var(--scrollbar-thumb-shadow);
+        }
+
+        *::-webkit-scrollbar-thumb:hover {
+            background: var(--scrollbar-thumb-hover);
+            background-clip: padding-box;
+        }
+
+        *::-webkit-scrollbar-thumb:active {
+            background: var(--scrollbar-thumb-active);
+            background-clip: padding-box;
+        }
+
+        *::-webkit-scrollbar-corner {
+            background: transparent;
+        }
+
+        *::-webkit-scrollbar-button:single-button {
+            display: block;
+            width: var(--scrollbar-size);
+            height: var(--scrollbar-size);
+            border: 3px solid transparent;
+            border-radius: 999px;
+            background: var(--scrollbar-button-bg);
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: 10px 10px;
+            background-clip: padding-box;
+            box-shadow: 0 5px 12px rgba(124, 76, 168, .12);
+        }
+
+        *::-webkit-scrollbar-button:single-button:hover {
+            background: var(--scrollbar-button-hover);
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: 10px 10px;
+            background-clip: padding-box;
+        }
+
+        *::-webkit-scrollbar-button:single-button:active {
+            background: linear-gradient(135deg, rgba(236, 215, 255, .98), rgba(223, 245, 232, .95));
+            background-position: center;
+            background-repeat: no-repeat;
+            background-size: 10px 10px;
+            background-clip: padding-box;
+        }
+
+        *::-webkit-scrollbar-button:single-button:vertical:decrement {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5.2 12.4 10 7.6l4.8 4.8' fill='none' stroke='%237f3bd0' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        }
+
+        *::-webkit-scrollbar-button:single-button:vertical:increment {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5.2 7.6 10 12.4l4.8-4.8' fill='none' stroke='%237f3bd0' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        }
+
+        *::-webkit-scrollbar-button:single-button:horizontal:decrement {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M12.4 5.2 7.6 10l4.8 4.8' fill='none' stroke='%237f3bd0' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        }
+
+        *::-webkit-scrollbar-button:single-button:horizontal:increment {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M7.6 5.2 12.4 10l-4.8 4.8' fill='none' stroke='%237f3bd0' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
         }
 
         /* === 敶梁???================================================= */

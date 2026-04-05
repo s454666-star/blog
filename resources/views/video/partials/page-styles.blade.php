@@ -740,7 +740,7 @@
         }
 
         /* === ?刻撟芋撘???=== */
-        .fullscreen-mode .controls, .fullscreen-mode .master-faces, .fullscreen-mode .container {
+        .fullscreen-mode .controls, .fullscreen-mode .master-faces, .fullscreen-mode .container, .fullscreen-mode .controls-toggle {
             display: none
         }
 
@@ -962,7 +962,7 @@
 
         /* === 控制列元件重製 === */
         .container {
-            padding-bottom: 112px;
+            padding-bottom: 24px;
         }
 
         .controls {
@@ -976,10 +976,99 @@
             border-top: 1px solid rgba(163, 110, 214, .28);
             box-shadow: 0 -24px 50px rgba(124, 76, 168, .16);
             backdrop-filter: blur(18px);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(calc(100% + 20px));
+            transition: left .45s ease-in-out, transform .35s ease, opacity .25s ease;
+            will-change: transform;
         }
 
         .controls.expanded {
             left: 30% !important;
+        }
+
+        .controls.controls-open {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0);
+        }
+
+        .container.controls-open {
+            padding-bottom: 112px;
+        }
+
+        .controls-toggle {
+            position: fixed;
+            right: 20px;
+            bottom: 18px;
+            z-index: 1150;
+            width: 54px;
+            height: 54px;
+            border: 1px solid rgba(165, 92, 246, .28);
+            border-radius: 18px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background:
+                radial-gradient(circle at 30% 25%, rgba(255, 255, 255, .96), rgba(255, 255, 255, 0) 46%),
+                linear-gradient(145deg, rgba(255, 255, 255, .96), rgba(244, 229, 255, .95));
+            box-shadow: 0 18px 34px rgba(124, 76, 168, .18);
+            cursor: pointer;
+            transition: transform .25s ease, box-shadow .25s ease, background .25s ease, bottom .35s ease;
+        }
+
+        .controls-toggle:hover {
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 22px 40px rgba(124, 76, 168, .22);
+        }
+
+        .controls-toggle:focus {
+            outline: none;
+            box-shadow: 0 0 0 4px rgba(165, 92, 246, .16), 0 22px 40px rgba(124, 76, 168, .22);
+        }
+
+        .controls-toggle::after {
+            content: '';
+            position: absolute;
+            right: 9px;
+            top: 9px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ffffff, rgba(255, 255, 255, .72));
+            box-shadow: 0 0 0 3px rgba(165, 92, 246, .18);
+            transition: transform .25s ease, background .25s ease, box-shadow .25s ease;
+        }
+
+        .controls-toggle.controls-open {
+            bottom: 120px;
+            background:
+                radial-gradient(circle at 30% 25%, rgba(255, 255, 255, .3), rgba(255, 255, 255, 0) 46%),
+                linear-gradient(145deg, rgba(165, 92, 246, .96), rgba(127, 59, 208, .94));
+            box-shadow: 0 24px 46px rgba(127, 59, 208, .28);
+        }
+
+        .controls-toggle.controls-open::after {
+            background: linear-gradient(135deg, rgba(255, 255, 255, .95), rgba(223, 245, 232, .95));
+            box-shadow: 0 0 0 4px rgba(255, 255, 255, .18);
+            transform: scale(1.05);
+        }
+
+        .controls-toggle-icon {
+            width: 24px;
+            height: 24px;
+            fill: none;
+            stroke: var(--theme-accent-strong);
+            stroke-width: 1.9;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            transition: transform .3s ease, stroke .25s ease;
+        }
+
+        .controls-toggle.controls-open .controls-toggle-icon {
+            transform: rotate(90deg) scale(1.02);
+            stroke: #fff;
         }
 
         .controls::before {
@@ -1193,23 +1282,23 @@
         }
 
         @media (max-width: 1700px) {
-            .container {
-                padding-bottom: 154px;
-            }
-
             .controls .control-group,
             .controls .control-group--action {
                 max-width: none;
                 flex-basis: calc(25% - 12px);
                 margin-left: 0;
             }
+
+            .container.controls-open {
+                padding-bottom: 154px;
+            }
+
+            .controls-toggle.controls-open {
+                bottom: 162px;
+            }
         }
 
         @media (max-width: 1200px) {
-            .container {
-                padding-bottom: 208px;
-            }
-
             .controls {
                 padding: 10px 10px 12px;
             }
@@ -1218,13 +1307,17 @@
             .controls .control-group--action {
                 flex-basis: calc(50% - 12px);
             }
+
+            .container.controls-open {
+                padding-bottom: 208px;
+            }
+
+            .controls-toggle.controls-open {
+                bottom: 216px;
+            }
         }
 
         @media (max-width: 768px) {
-            .container {
-                padding-bottom: 338px;
-            }
-
             .controls-form {
                 gap: 8px;
             }
@@ -1236,5 +1329,21 @@
 
             .controls .control-group {
                 padding: 9px 10px;
+            }
+
+            .container.controls-open {
+                padding-bottom: 338px;
+            }
+
+            .controls-toggle {
+                right: 16px;
+                bottom: 16px;
+                width: 50px;
+                height: 50px;
+                border-radius: 16px;
+            }
+
+            .controls-toggle.controls-open {
+                bottom: 346px;
             }
         }

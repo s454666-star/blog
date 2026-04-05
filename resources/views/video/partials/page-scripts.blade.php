@@ -22,12 +22,18 @@
     let videoType = '{{ request('video_type','1') }}';
 
     let initialFocusId = {{ $focusId ?? 'null' }};
+    const initialFocusTargetId = initialFocusId !== null ? initialFocusId : latestId;
     let masterFacesPage = 0;
     let masterFacesLastPage = 1;
     let masterFacesLoading = false;
     let masterFacesLoadedCount = 0;
     const pendingFaceUploads = new Set();
     const pendingMasterUpdates = new Set();
+    const initialFocusRetryDelays = [0, 120, 320, 700, 1300];
+
+    if ('scrollRestoration' in window.history) {
+        window.history.scrollRestoration = 'manual';
+    }
 
     $('#video-type, #sort-by, #sort-dir').on('change', function () {
         setTimeout(() => $('#controls-form').trigger('submit'), 0);
@@ -150,6 +156,55 @@
         const right = getRowSortParts(b);
 
         return compareWithTiebreaker(left.primary, left.secondary, right.primary, right.secondary);
+    }
+
+    function scrollVideoRowToFocus(rowElement, behavior = 'smooth') {
+        if (!rowElement) {
+            return;
+        }
+
+        const rect = rowElement.getBoundingClientRect();
+        const controlsHeight = $('.controls.controls-open').outerHeight() || 0;
+        const usableViewportHeight = Math.max(window.innerHeight - controlsHeight, 0);
+        const targetTop = window.scrollY + rect.top - Math.max((usableViewportHeight - rect.height) / 2, 0);
+
+        window.scrollTo({
+            top: Math.max(targetTop, 0),
+            behavior,
+        });
+    }
+
+    function focusVideoRowById(targetId, options = {}) {
+        const {behavior = 'smooth', syncSidebar = true} = options;
+        const $target = $('.video-row[data-id="' + targetId + '"]');
+
+        if (!$target.length) {
+            return false;
+        }
+
+        $('.video-row').removeClass('focused');
+        $target.addClass('focused');
+        $('#focus-id').val(targetId);
+
+        if (syncSidebar) {
+            focusMasterFace(targetId);
+        }
+
+        scrollVideoRowToFocus($target[0], behavior);
+
+        return true;
+    }
+
+    function scheduleInitialFocusSequence() {
+        if (initialFocusTargetId === null) {
+            return;
+        }
+
+        initialFocusRetryDelays.forEach((delay, index) => {
+            window.setTimeout(() => {
+                focusInitial(index > 0);
+            }, delay);
+        });
     }
 
     function collectExistingVideoIds() {
@@ -988,7 +1043,6 @@
         /* --- 初始建構 --- */
         buildVideoList();
         applySizes();
-        focusInitial();
         loadMasterFacesPage(1, true);
 
         $('.master-faces').on('scroll', function () {
@@ -1006,6 +1060,8 @@
         const $sidebar = $('.master-faces');
         const $content = $('.container');
         const $controls = $('.controls');
+        const $controlsToggle = $('#toggle-controls');
+        let controlsOpen = false;
 
         function updateToggleState(collapsed) {
             if (collapsed) {
@@ -1044,6 +1100,29 @@
                 : $btnToggle.addClass('inside');
         }
 
+        function updateControlsToggleState(open) {
+            controlsOpen = !!open;
+
+            $controls.toggleClass('controls-open', controlsOpen);
+            $content.toggleClass('controls-open', controlsOpen);
+            $controlsToggle
+                .toggleClass('controls-open', controlsOpen)
+                .attr('aria-expanded', String(controlsOpen))
+                .attr('title', controlsOpen ? '隱藏控制列' : '顯示控制列')
+                .attr('aria-label', controlsOpen ? '隱藏控制列' : '顯示控制列');
+        }
+
+        updateControlsToggleState(false);
+
+        $controlsToggle.on('click', () => {
+            updateControlsToggleState(!controlsOpen);
+        });
+
+        scheduleInitialFocusSequence();
+        $(window).one('load', function () {
+            focusInitial(true);
+        });
+
         /* --------------------------------------------------
          * 確保送出前寫入 focus-id
          * -------------------------------------------------- */
@@ -1076,19 +1155,16 @@
         }
     }
 
-    function focusInitial() {
-        const targetId = (initialFocusId !== null) ? initialFocusId : latestId;
+    function focusInitial(forceRetry = false) {
+        const targetId = initialFocusTargetId;
         if (targetId === null) return;
 
-        const $t = $('.video-row[data-id="' + targetId + '"]');
-        if ($t.length) {
-            $('.video-row').removeClass('focused');
-            $t.addClass('focused');
-            focusMasterFace(targetId);
-            $t[0].scrollIntoView({behavior: 'smooth', block: 'center'});
+        focusVideoRowById(targetId, {behavior: forceRetry ? 'auto' : 'smooth'});
+
+        if (!forceRetry) {
+            // 用完即丟，避免之後 rebuild 又蓋掉使用者手動選擇
+            initialFocusId = null;
         }
-        // 用完即丟，避免之後 rebuild 又蓋掉使用者手動選擇
-        initialFocusId = null;                                     // ★ 新增
     }
 
     function getFaceSortParts(el) {

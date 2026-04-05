@@ -27,8 +27,26 @@
     <button id="next-video-btn" class="next-video-btn">❯</button>
 </div>
 
+<!-- ===== 控制列開關 ===== -->
+<button
+    id="toggle-controls"
+    class="controls-toggle"
+    type="button"
+    title="顯示控制列"
+    aria-label="顯示控制列"
+    aria-expanded="false"
+    aria-controls="controls-panel"
+>
+    <svg class="controls-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h6m4 0h6M4 12h10m4 0h2M4 17h3m4 0h9"></path>
+        <circle cx="12" cy="7" r="2"></circle>
+        <circle cx="16" cy="12" r="2"></circle>
+        <circle cx="9" cy="17" r="2"></circle>
+    </svg>
+</button>
+
 <!-- ===== 底部控制列 ===== -->
-<div class="controls">
+<div id="controls-panel" class="controls">
     <form id="controls-form" class="controls-form" method="GET">
         <input type="hidden" id="focus-id" name="focus_id" value="{{ $focusId }}">
 

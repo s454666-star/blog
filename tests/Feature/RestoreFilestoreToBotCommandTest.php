@@ -1616,4 +1616,157 @@ class RestoreFilestoreToBotCommandTest extends TestCase
             'status' => 'failed',
         ]);
     }
+
+    public function test_command_logs_batch_and_session_pauses_while_processing_multiple_sessions(): void
+    {
+        DB::table('telegram_filestore_sessions')->insert([
+            [
+                'id' => 70,
+                'chat_id' => 7702694790,
+                'public_token' => 'filestoebot_pause_batch_one',
+                'source_token' => null,
+                'status' => 'closed',
+                'total_files' => 11,
+                'created_at' => now(),
+                'closed_at' => now(),
+            ],
+            [
+                'id' => 71,
+                'chat_id' => 7702694790,
+                'public_token' => 'filestoebot_pause_batch_two',
+                'source_token' => null,
+                'status' => 'closed',
+                'total_files' => 1,
+                'created_at' => now(),
+                'closed_at' => now(),
+            ],
+        ]);
+
+        $sourceFiles = [];
+        for ($index = 0; $index < 11; $index++) {
+            $sourceFiles[] = [
+                'id' => 7000 + $index,
+                'session_id' => 70,
+                'chat_id' => 7702694790,
+                'message_id' => 8000 + $index,
+                'file_id' => 'PAUSE-BATCH-FILE-' . $index,
+                'file_unique_id' => 'PAUSE-BATCH-UNIQ-' . $index,
+                'source_token' => null,
+                'file_name' => 'pause-' . $index . '.bin',
+                'mime_type' => 'application/octet-stream',
+                'file_size' => 10 + $index,
+                'file_type' => 'document',
+                'raw_payload' => json_encode(['message_id' => 8000 + $index], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'created_at' => now(),
+            ];
+        }
+        $sourceFiles[] = [
+            'id' => 7100,
+            'session_id' => 71,
+            'chat_id' => 7702694790,
+            'message_id' => 8100,
+            'file_id' => 'PAUSE-SECOND-SESSION-FILE',
+            'file_unique_id' => 'PAUSE-SECOND-SESSION-UNIQ',
+            'source_token' => null,
+            'file_name' => 'pause-second-session.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 99,
+            'file_type' => 'document',
+            'raw_payload' => json_encode(['message_id' => 8100], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created_at' => now(),
+        ];
+        DB::table('telegram_filestore_files')->insert($sourceFiles);
+
+        $pendingUpdates = [];
+        $nextUpdateId = 900;
+        $forwardedMessageId = 99000;
+
+        Http::fake(function ($request) use (&$pendingUpdates, &$nextUpdateId, &$forwardedMessageId) {
+            if (str_starts_with($request->url(), 'https://api.telegram.org/botrestore-token/getUpdates')) {
+                $offset = (int) ($request['offset'] ?? 0);
+
+                if ($offset <= 0) {
+                    return Http::response([
+                        'ok' => true,
+                        'result' => [
+                            [
+                                'update_id' => 500,
+                                'message' => [
+                                    'message_id' => 90,
+                                    'chat' => [
+                                        'id' => 8491679630,
+                                        'type' => 'private',
+                                    ],
+                                    'text' => '/start',
+                                ],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                if ($pendingUpdates !== []) {
+                    return Http::response([
+                        'ok' => true,
+                        'result' => [array_shift($pendingUpdates)],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => [],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+                $sourceMessageId = (int) ((array) $request['message_ids'])[0];
+                $forwardedMessageId++;
+                $nextUpdateId++;
+
+                $pendingUpdates[] = [
+                    'update_id' => $nextUpdateId,
+                    'message' => [
+                        'message_id' => $forwardedMessageId + 1000,
+                        'chat' => [
+                            'id' => 8491679630,
+                            'type' => 'private',
+                        ],
+                        'document' => [
+                            'file_id' => 'TARGET-FILE-' . $sourceMessageId,
+                            'file_unique_id' => 'TARGET-UNIQ-' . $sourceMessageId,
+                            'file_name' => 'target-' . $sourceMessageId . '.bin',
+                            'mime_type' => 'application/octet-stream',
+                            'file_size' => 123,
+                        ],
+                    ],
+                ];
+
+                return Http::response([
+                    'status' => 'ok',
+                    'forwarded_message_ids' => [$forwardedMessageId],
+                    'missing_message_ids' => [],
+                    'unforwardable_message_ids' => [],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/delete-messages') {
+                return Http::response([
+                    'status' => 'ok',
+                    'deleted_count' => count((array) $request['message_ids']),
+                    'undeleted_message_ids' => [],
+                ], 200);
+            }
+
+            return Http::response([
+                'ok' => false,
+                'status' => 'unexpected',
+                'url' => $request->url(),
+            ], 500);
+        });
+
+        $this->artisan('filestore:restore-to-bot --all --limit=12 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
+            ->expectsOutputToContain('pause 1.5s after 10 files')
+            ->expectsOutputToContain('pause 3.5s before next restore session')
+            ->expectsOutputToContain('synced=12')
+            ->assertExitCode(0);
+    }
 }

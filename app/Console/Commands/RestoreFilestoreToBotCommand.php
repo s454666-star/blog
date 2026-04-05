@@ -17,6 +17,9 @@ class RestoreFilestoreToBotCommand extends Command
     private const DEFAULT_FILESTORE_SYNC_BASE_URI = 'http://127.0.0.1:8000';
     private const DEFAULT_MEMORY_LIMIT = '-1';
     private const MAX_FILE_ATTEMPTS_PER_RUN = 3;
+    private const RESTORE_BATCH_SIZE = 10;
+    private const RESTORE_BATCH_PAUSE_MICROSECONDS = 1500000;
+    private const RESTORE_SESSION_PAUSE_MICROSECONDS = 3500000;
     private const BOT_API_DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024;
     private const DEFAULT_POLL_SECONDS = 15;
     private const POLL_INTERVAL_MICROSECONDS = 750000;
@@ -67,7 +70,7 @@ class RestoreFilestoreToBotCommand extends Command
         $all = (bool) $this->option('all');
         $baseUri = rtrim(trim((string) ($this->option('base-uri') ?: self::DEFAULT_BASE_URI)), '/');
         $memoryLimit = trim((string) ($this->option('memory-limit') ?: self::DEFAULT_MEMORY_LIMIT));
-        $targetBotUsername = ltrim(trim((string) ($this->option('target-bot-username') ?: config('telegram.backup_restore_bot_username', 'file_backup_restore_bot'))), '@');
+        $targetBotUsername = ltrim(trim((string) ($this->option('target-bot-username') ?: config('telegram.backup_restore_bot_username', 'new_files_star_bot'))), '@');
         $workerEnvPath = trim((string) ($this->option('worker-env') ?: base_path(self::DEFAULT_LOCAL_WORKER_ENV_PATH)));
         $localWorkerEnv = $this->readKeyValueEnvFile($workerEnvPath);
         $limitOption = trim((string) $this->option('limit'));
@@ -167,8 +170,14 @@ class RestoreFilestoreToBotCommand extends Command
             'failed' => 0,
             'skipped_existing' => 0,
         ];
+        $pauseBeforeNextSourceSession = false;
 
         foreach ($sourceSessionsQuery->cursor() as $sourceSession) {
+            if ($pauseBeforeNextSourceSession) {
+                $this->pauseBetweenRestoreSessions();
+                $pauseBeforeNextSourceSession = false;
+            }
+
             if ($remainingLimit <= 0) {
                 break;
             }
@@ -216,6 +225,8 @@ class RestoreFilestoreToBotCommand extends Command
                 ? max((int) $restoreSession->total_files, $sessionTotalFileCount)
                 : $fileCount;
             $restoreSession->save();
+            $sessionAttemptedCount = 0;
+            $pauseBeforeNextBatch = false;
 
             foreach (
                 $this->buildSourceFileQuery((int) $sourceSession->id, $sourceFileRowId)
@@ -233,9 +244,15 @@ class RestoreFilestoreToBotCommand extends Command
                     continue;
                 }
 
+                if ($pauseBeforeNextBatch) {
+                    $this->pauseBetweenRestoreBatches();
+                    $pauseBeforeNextBatch = false;
+                }
+
                 $restoreFile = $this->loadRestoreFileRow($restoreSession, $sourceSession, $sourceFile, $existingRestoreFile);
 
                 $stats['attempted']++;
+                $sessionAttemptedCount++;
                 $remainingLimit--;
 
                 $fileSynced = false;
@@ -289,9 +306,19 @@ class RestoreFilestoreToBotCommand extends Command
                     ));
                     $this->refreshRestoreSessionStats($restoreSession, (int) $sourceFile->id);
                 }
+
+                if (
+                    $sessionAttemptedCount % self::RESTORE_BATCH_SIZE === 0
+                    && $remainingLimit > 0
+                ) {
+                    $pauseBeforeNextBatch = true;
+                }
             }
 
             $this->finalizeRestoreSession($restoreSession);
+            if (!$limitReached && $sessionAttemptedCount > 0) {
+                $pauseBeforeNextSourceSession = true;
+            }
 
             if ($limitReached) {
                 break;
@@ -1556,6 +1583,29 @@ class RestoreFilestoreToBotCommand extends Command
             'updates' => $updates,
             'last_update_id' => $lastUpdateId,
         ];
+    }
+
+    private function pauseBetweenRestoreBatches(): void
+    {
+        $seconds = self::RESTORE_BATCH_PAUSE_MICROSECONDS / 1000000;
+        $this->line(sprintf('  pause %.1fs after %d files', $seconds, self::RESTORE_BATCH_SIZE));
+        $this->sleepMicroseconds(self::RESTORE_BATCH_PAUSE_MICROSECONDS);
+    }
+
+    private function pauseBetweenRestoreSessions(): void
+    {
+        $seconds = self::RESTORE_SESSION_PAUSE_MICROSECONDS / 1000000;
+        $this->line(sprintf('pause %.1fs before next restore session', $seconds));
+        $this->sleepMicroseconds(self::RESTORE_SESSION_PAUSE_MICROSECONDS);
+    }
+
+    private function sleepMicroseconds(int $microseconds): void
+    {
+        if ($microseconds <= 0 || app()->environment('testing')) {
+            return;
+        }
+
+        usleep($microseconds);
     }
 
     private function telegramPendingRequest(int $timeoutSeconds)

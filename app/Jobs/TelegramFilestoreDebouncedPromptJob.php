@@ -4,6 +4,7 @@
 
     use App\Models\TelegramFilestoreFile;
     use App\Models\TelegramFilestoreSession;
+    use App\Services\TelegramFilestoreBotProfileResolver;
     use Illuminate\Bus\Queueable;
     use Illuminate\Contracts\Queue\ShouldQueue;
     use Illuminate\Foundation\Bus\Dispatchable;
@@ -21,6 +22,7 @@
 
         private int $sessionId;
         private int $chatId;
+        private string $botProfile;
 
         private const DEBOUNCE_SECONDS = 5;
         private const CLOSE_UPLOAD_PROMPT_DEDUP_SECONDS = 3;
@@ -34,10 +36,15 @@
         public int $timeout = 60;
         public int $tries = 3;
 
-        public function __construct(int $sessionId, int $chatId)
+        public function __construct(
+            int $sessionId,
+            int $chatId,
+            string $botProfile = TelegramFilestoreBotProfileResolver::FILESTORE
+        )
         {
             $this->sessionId = $sessionId;
             $this->chatId = $chatId;
+            $this->botProfile = app(TelegramFilestoreBotProfileResolver::class)->normalize($botProfile);
             $this->onQueue('telegram_filestore');
         }
 
@@ -64,7 +71,7 @@
                     $delay = 1;
                 }
 
-                self::dispatch($this->sessionId, $this->chatId)
+                self::dispatch($this->sessionId, $this->chatId, $this->botProfile)
                     ->delay(now()->addSeconds($delay));
 
                 return;
@@ -301,7 +308,7 @@
 
         private function sendMessageReturningMessageId(int $chatId, string $text, array $replyMarkup): ?int
         {
-            $token = (string)config('telegram.filestore_bot_token');
+            $token = (string) (app(TelegramFilestoreBotProfileResolver::class)->resolve($this->botProfile)['token'] ?? '');
             if ($token === '') {
                 return null;
             }
@@ -327,7 +334,7 @@
 
         private function editMessageText(int $chatId, int $messageId, string $text, array $replyMarkup): bool
         {
-            $token = (string)config('telegram.filestore_bot_token');
+            $token = (string) (app(TelegramFilestoreBotProfileResolver::class)->resolve($this->botProfile)['token'] ?? '');
             if ($token === '') {
                 return false;
             }

@@ -3,7 +3,9 @@
     namespace App\Jobs;
 
     use App\Models\TelegramFilestoreFile;
+    use App\Models\TelegramFilestoreRestoreFile;
     use App\Models\TelegramFilestoreSession;
+    use App\Services\TelegramFilestoreBotProfileResolver;
     use Illuminate\Bus\Queueable;
     use Illuminate\Contracts\Queue\ShouldQueue;
     use Illuminate\Foundation\Bus\Dispatchable;
@@ -21,6 +23,12 @@
 
         private int $sessionId;
         private int $targetChatId;
+        private string $botProfile = TelegramFilestoreBotProfileResolver::FILESTORE;
+
+        /**
+         * @var array<string, array<int, array{file_id:string,file_type:string,file_name:?string}>>
+         */
+        private array $restoreFileMapCache = [];
 
         public int $timeout = 900;
         public int $tries = 3;
@@ -35,11 +43,21 @@
          */
         private const BATCH_SLEEP_MICROSECONDS = 5000000;
 
-        public function __construct(int $sessionId, int $targetChatId)
+        public function __construct(
+            int $sessionId,
+            int $targetChatId,
+            string $botProfile = TelegramFilestoreBotProfileResolver::FILESTORE
+        )
         {
             $this->sessionId = $sessionId;
             $this->targetChatId = $targetChatId;
+            $this->botProfile = app(TelegramFilestoreBotProfileResolver::class)->normalize($botProfile);
             $this->onQueue('telegram_filestore');
+        }
+
+        public function getBotProfile(): string
+        {
+            return $this->botProfile;
         }
 
         public function handle(): void
@@ -59,9 +77,12 @@
             $finalState = 'completed';
 
             try {
-                $totalCount = (int) TelegramFilestoreFile::query()
+                $sourceFiles = TelegramFilestoreFile::query()
                     ->where('session_id', $session->id)
-                    ->count();
+                    ->orderBy('id')
+                    ->get();
+
+                $totalCount = (int) $sourceFiles->count();
 
                 if ($totalCount <= 0) {
                     Log::warning('telegram_filestore_send_session_empty', $this->buildLogContext($session));
@@ -69,27 +90,50 @@
                     return;
                 }
 
-                $mediaFiles = TelegramFilestoreFile::query()
-                    ->where('session_id', $session->id)
-                    ->whereIn('file_type', ['photo', 'video'])
-                    ->orderBy('id')
-                    ->get();
+                $sendableFiles = [];
+                $unavailableFiles = 0;
 
-                $documentFiles = TelegramFilestoreFile::query()
-                    ->where('session_id', $session->id)
-                    ->where('file_type', 'document')
-                    ->orderBy('id')
-                    ->get();
+                foreach ($sourceFiles as $sourceFile) {
+                    $resolvedFile = $this->resolveSendableFile($session, $sourceFile);
+                    if ($resolvedFile === null) {
+                        $unavailableFiles++;
+                        continue;
+                    }
 
-                $otherFiles = TelegramFilestoreFile::query()
-                    ->where('session_id', $session->id)
-                    ->whereNotIn('file_type', ['photo', 'video', 'document'])
-                    ->orderBy('id')
-                    ->get();
+                    $sendableFiles[] = $resolvedFile;
+                }
 
-                $mediaCount = (int) $mediaFiles->count();
-                $documentCount = (int) $documentFiles->count();
-                $otherCount = (int) $otherFiles->count();
+                if (empty($sendableFiles)) {
+                    Log::warning('telegram_filestore_send_session_unavailable', $this->buildLogContext($session, [
+                        'total_files' => $totalCount,
+                        'unavailable_files' => $unavailableFiles,
+                    ]));
+
+                    $finalNotice = $this->usesRestoreTargetFileIds()
+                        ? '這個代碼尚未同步到 @' . $this->currentBotUsername() . '，暫時無法傳送。'
+                        : '這個代碼目前沒有可用的檔案可傳送。';
+
+                    return;
+                }
+
+                $mediaFiles = array_values(array_filter(
+                    $sendableFiles,
+                    static fn (array $file): bool => in_array($file['file_type'], ['photo', 'video'], true)
+                ));
+
+                $documentFiles = array_values(array_filter(
+                    $sendableFiles,
+                    static fn (array $file): bool => $file['file_type'] === 'document'
+                ));
+
+                $otherFiles = array_values(array_filter(
+                    $sendableFiles,
+                    static fn (array $file): bool => !in_array($file['file_type'], ['photo', 'video', 'document'], true)
+                ));
+
+                $mediaCount = count($mediaFiles);
+                $documentCount = count($documentFiles);
+                $otherCount = count($otherFiles);
                 $mediaChunkCount = (int) ceil($mediaCount / self::MEDIA_GROUP_BATCH_SIZE);
                 $failedMediaGroups = 0;
                 $failedFileSends = 0;
@@ -97,6 +141,9 @@
                 Log::info('telegram_filestore_send_job_started', $this->buildLogContext($session, [
                     'attempt' => $this->attempts(),
                     'total_files' => $totalCount,
+                    'sendable_files' => count($sendableFiles),
+                    'unavailable_files' => $unavailableFiles,
+                    'uses_restore_target_file_ids' => $this->usesRestoreTargetFileIds(),
                     'media_files' => $mediaCount,
                     'document_files' => $documentCount,
                     'other_files' => $otherCount,
@@ -104,7 +151,12 @@
                 ]));
 
                 $infoLines = [];
-                $infoLines[] = "開始傳送檔案（共 {$totalCount} 個）（batch-album-v3）…";
+                $infoLines[] = "開始傳送檔案（共 {$totalCount} 個，可傳送 " . count($sendableFiles) . " 個）（batch-album-v3）…";
+                if ($unavailableFiles > 0) {
+                    $infoLines[] = $this->usesRestoreTargetFileIds()
+                        ? "尚未同步到 @{$this->currentBotUsername()}：{$unavailableFiles} 個，會先略過"
+                        : "缺少可用 file_id：{$unavailableFiles} 個，會先略過";
+                }
                 if ($mediaCount > 0) {
                     $infoLines[] = "照片/影片：每 " . self::MEDIA_GROUP_BATCH_SIZE . " 個一組相簿批次傳送（共 {$mediaCount} 個）";
                 }
@@ -118,7 +170,7 @@
                 $this->sendMessage($this->targetChatId, implode("\n", $infoLines));
 
                 if ($mediaCount > 0) {
-                    $chunks = array_chunk($mediaFiles->all(), self::MEDIA_GROUP_BATCH_SIZE);
+                    $chunks = array_chunk($mediaFiles, self::MEDIA_GROUP_BATCH_SIZE);
 
                     foreach ($chunks as $index => $chunkFiles) {
                         $batchResult = $this->sendMediaGroupBatch(
@@ -161,9 +213,9 @@
                             foreach ($chunkFiles as $file) {
                                 $fileResult = $this->sendFileByType(
                                     $this->targetChatId,
-                                    (string) $file->file_type,
-                                    (string) $file->file_id,
-                                    $file->file_name,
+                                    (string) ($file['file_type'] ?? ''),
+                                    (string) ($file['file_id'] ?? ''),
+                                    $file['file_name'] ?? null,
                                     $session
                                 );
 
@@ -176,8 +228,8 @@
 
                                         Log::warning('telegram_filestore_send_job_aborted_rate_limit', $this->buildLogContext($session, [
                                             'phase' => 'media_group_fallback_single',
-                                            'file_type' => (string) $file->file_type,
-                                            'file_name' => $file->file_name,
+                                            'file_type' => (string) ($file['file_type'] ?? ''),
+                                            'file_name' => $file['file_name'] ?? null,
                                             'retry_after' => $fileResult['retry_after'],
                                             'description' => $fileResult['description'],
                                         ]));
@@ -200,9 +252,9 @@
                     foreach ($documentFiles as $i => $file) {
                         $fileResult = $this->sendFileByType(
                             $this->targetChatId,
-                            (string) $file->file_type,
-                            (string) $file->file_id,
-                            $file->file_name,
+                            (string) ($file['file_type'] ?? ''),
+                            (string) ($file['file_id'] ?? ''),
+                            $file['file_name'] ?? null,
                             $session
                         );
 
@@ -215,7 +267,7 @@
 
                                 Log::warning('telegram_filestore_send_job_aborted_rate_limit', $this->buildLogContext($session, [
                                     'phase' => 'document_single',
-                                    'file_name' => $file->file_name,
+                                    'file_name' => $file['file_name'] ?? null,
                                     'retry_after' => $fileResult['retry_after'],
                                     'description' => $fileResult['description'],
                                 ]));
@@ -234,9 +286,9 @@
                     foreach ($otherFiles as $i => $file) {
                         $fileResult = $this->sendFileByType(
                             $this->targetChatId,
-                            (string) $file->file_type,
-                            (string) $file->file_id,
-                            $file->file_name,
+                            (string) ($file['file_type'] ?? ''),
+                            (string) ($file['file_id'] ?? ''),
+                            $file['file_name'] ?? null,
                             $session
                         );
 
@@ -249,8 +301,8 @@
 
                                 Log::warning('telegram_filestore_send_job_aborted_rate_limit', $this->buildLogContext($session, [
                                     'phase' => 'other_single',
-                                    'file_type' => (string) $file->file_type,
-                                    'file_name' => $file->file_name,
+                                    'file_type' => (string) ($file['file_type'] ?? ''),
+                                    'file_name' => $file['file_name'] ?? null,
                                     'retry_after' => $fileResult['retry_after'],
                                     'description' => $fileResult['description'],
                                 ]));
@@ -268,6 +320,8 @@
                 Log::info('telegram_filestore_send_job_completed', $this->buildLogContext($session, [
                     'attempt' => $this->attempts(),
                     'total_files' => $totalCount,
+                    'sendable_files' => count($sendableFiles),
+                    'unavailable_files' => $unavailableFiles,
                     'media_files' => $mediaCount,
                     'document_files' => $documentCount,
                     'other_files' => $otherCount,
@@ -276,6 +330,13 @@
                 ]));
 
                 $finalNotice = '已全部傳送完成 ✅';
+                if ($unavailableFiles > 0) {
+                    $finalNotice .= "\n" . (
+                        $this->usesRestoreTargetFileIds()
+                            ? "另有 {$unavailableFiles} 個檔案尚未同步到 @{$this->currentBotUsername()}，已略過。"
+                            : "另有 {$unavailableFiles} 個檔案缺少可用 file_id，已略過。"
+                    );
+                }
             } catch (Throwable $e) {
                 Log::error('telegram_filestore_send_job_exception', $this->buildLogContext($session, [
                     'attempt' => $this->attempts(),
@@ -307,6 +368,8 @@
 
         /**
          * sendMediaGroup 批次傳送照片/影片（最多 10 個）
+         *
+         * @param array<int, array{source_file_row_id:int,file_type:string,file_id:string,file_name:?string}> $files
          * @return array{ok: bool, status: ?int, error_code: ?int, description: ?string, retry_after: ?int, rate_limited: bool, body: ?string}
          */
         private function sendMediaGroupBatch(
@@ -319,10 +382,10 @@
         {
             $media = [];
             foreach ($files as $file) {
-                $type = (string) $file->file_type;
-                $fileId = (string) $file->file_id;
+                $type = (string) ($file['file_type'] ?? '');
+                $fileId = trim((string) ($file['file_id'] ?? ''));
 
-                if ($type !== 'photo' && $type !== 'video') {
+                if (($type !== 'photo' && $type !== 'video') || $fileId === '') {
                     continue;
                 }
 
@@ -332,7 +395,7 @@
                 ];
 
                 if ($type === 'video') {
-                    $name = (string)($file->file_name ?? '');
+                    $name = (string) ($file['file_name'] ?? '');
                     if ($name !== '') {
                         $item['caption'] = $name;
                     }
@@ -421,7 +484,8 @@
             bool $asForm = false
         ): array
         {
-            $token = (string) config('telegram.filestore_bot_token');
+            $botProfile = app(TelegramFilestoreBotProfileResolver::class)->resolve($this->botProfile);
+            $token = (string) ($botProfile['token'] ?? '');
             if ($token === '') {
                 $result = [
                     'ok' => false,
@@ -434,6 +498,8 @@
                 ];
 
                 Log::error('telegram_filestore_api_failed', array_merge($context, [
+                    'bot_profile' => $botProfile['key'] ?? $this->botProfile,
+                    'bot_username' => $botProfile['username'] ?? null,
                     'method' => $method,
                     'status' => null,
                     'error_code' => null,
@@ -454,6 +520,8 @@
                 $response = $request->post("https://api.telegram.org/bot{$token}/{$method}", $payload);
             } catch (Throwable $e) {
                 Log::error('telegram_filestore_api_exception', array_merge($context, [
+                    'bot_profile' => $botProfile['key'] ?? $this->botProfile,
+                    'bot_username' => $botProfile['username'] ?? null,
                     'method' => $method,
                     'message' => $e->getMessage(),
                 ]));
@@ -477,6 +545,8 @@
                     : 'telegram_filestore_api_failed';
 
                 Log::log($result['rate_limited'] ? 'warning' : 'error', $event, array_merge($context, [
+                    'bot_profile' => $botProfile['key'] ?? $this->botProfile,
+                    'bot_username' => $botProfile['username'] ?? null,
                     'method' => $method,
                     'status' => $result['status'],
                     'error_code' => $result['error_code'],
@@ -539,9 +609,12 @@
 
         private function buildLogContext(?TelegramFilestoreSession $session = null, array $extra = []): array
         {
+            $botProfile = app(TelegramFilestoreBotProfileResolver::class)->resolve($this->botProfile);
             $context = [
                 'session_id' => $session ? (int) $session->id : $this->sessionId,
                 'target_chat_id' => $this->targetChatId,
+                'bot_profile' => $botProfile['key'] ?? $this->botProfile,
+                'bot_username' => $botProfile['username'] ?? null,
             ];
 
             if ($session) {
@@ -615,5 +688,104 @@
             ]);
 
             return $result['ok'];
+        }
+
+        /**
+         * @return array{source_file_row_id:int,file_type:string,file_id:string,file_name:?string}|null
+         */
+        private function resolveSendableFile(TelegramFilestoreSession $session, TelegramFilestoreFile $sourceFile): ?array
+        {
+            if ($this->usesRestoreTargetFileIds()) {
+                $restoreFile = $this->getRestoreFileMapForSession($session)[(int) $sourceFile->id] ?? null;
+                $targetFileId = trim((string) ($restoreFile['file_id'] ?? ''));
+
+                if ($targetFileId === '') {
+                    return null;
+                }
+
+                return [
+                    'source_file_row_id' => (int) $sourceFile->id,
+                    'file_type' => (string) ($restoreFile['file_type'] ?? $sourceFile->file_type ?? 'document'),
+                    'file_id' => $targetFileId,
+                    'file_name' => $restoreFile['file_name'] ?? $sourceFile->file_name,
+                ];
+            }
+
+            $sourceFileId = trim((string) ($sourceFile->file_id ?? ''));
+            if ($sourceFileId === '') {
+                return null;
+            }
+
+            return [
+                'source_file_row_id' => (int) $sourceFile->id,
+                'file_type' => (string) ($sourceFile->file_type ?? 'document'),
+                'file_id' => $sourceFileId,
+                'file_name' => $sourceFile->file_name,
+            ];
+        }
+
+        /**
+         * @return array<int, array{file_id:string,file_type:string,file_name:?string}>
+         */
+        private function getRestoreFileMapForSession(TelegramFilestoreSession $session): array
+        {
+            $targetBotUsername = strtolower($this->currentBotUsername());
+            $cacheKey = $session->id . '|' . $targetBotUsername;
+
+            if (isset($this->restoreFileMapCache[$cacheKey])) {
+                return $this->restoreFileMapCache[$cacheKey];
+            }
+
+            $rows = TelegramFilestoreRestoreFile::query()
+                ->select([
+                    'telegram_filestore_restore_files.source_file_row_id',
+                    'telegram_filestore_restore_files.target_file_id',
+                    'telegram_filestore_restore_files.file_type',
+                    'telegram_filestore_restore_files.file_name',
+                ])
+                ->join(
+                    'telegram_filestore_restore_sessions',
+                    'telegram_filestore_restore_sessions.id',
+                    '=',
+                    'telegram_filestore_restore_files.restore_session_id'
+                )
+                ->where('telegram_filestore_restore_sessions.source_session_id', $session->id)
+                ->whereRaw('LOWER(telegram_filestore_restore_sessions.target_bot_username) = ?', [$targetBotUsername])
+                ->where('telegram_filestore_restore_files.status', 'synced')
+                ->whereNotNull('telegram_filestore_restore_files.target_file_id')
+                ->orderByDesc('telegram_filestore_restore_sessions.id')
+                ->orderByDesc('telegram_filestore_restore_files.id')
+                ->get();
+
+            $map = [];
+            foreach ($rows as $row) {
+                $sourceFileRowId = (int) ($row->source_file_row_id ?? 0);
+                $targetFileId = trim((string) ($row->target_file_id ?? ''));
+
+                if ($sourceFileRowId <= 0 || $targetFileId === '' || isset($map[$sourceFileRowId])) {
+                    continue;
+                }
+
+                $map[$sourceFileRowId] = [
+                    'file_id' => $targetFileId,
+                    'file_type' => (string) ($row->file_type ?? 'document'),
+                    'file_name' => $row->file_name,
+                ];
+            }
+
+            $this->restoreFileMapCache[$cacheKey] = $map;
+
+            return $map;
+        }
+
+        private function usesRestoreTargetFileIds(): bool
+        {
+            return app(TelegramFilestoreBotProfileResolver::class)->normalize($this->botProfile)
+                === TelegramFilestoreBotProfileResolver::BACKUP_RESTORE;
+        }
+
+        private function currentBotUsername(): string
+        {
+            return (string) (app(TelegramFilestoreBotProfileResolver::class)->resolve($this->botProfile)['username'] ?? '');
         }
     }

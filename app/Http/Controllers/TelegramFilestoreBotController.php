@@ -9,6 +9,7 @@
     use App\Support\TelegramWebhookLogContext;
     use App\Services\TelegramCodeTokenService;
     use App\Services\TelegramFilestoreBridgeContextService;
+    use App\Services\TelegramFilestoreBotProfileResolver;
     use App\Services\TelegramFilestoreStaleSessionCleanupService;
     use Illuminate\Contracts\Bus\Dispatcher;
     use Illuminate\Http\Request;
@@ -21,9 +22,12 @@
 
     class TelegramFilestoreBotController extends Controller
     {
+        private string $activeBotProfileKey = TelegramFilestoreBotProfileResolver::FILESTORE;
+
         public function __construct(
             private TelegramFilestoreBridgeContextService $bridgeContextService,
             private TelegramCodeTokenService $telegramCodeTokenService,
+            private TelegramFilestoreBotProfileResolver $botProfileResolver,
             private TelegramFilestoreStaleSessionCleanupService $staleSessionCleanupService
         ) {
         }
@@ -81,8 +85,21 @@
 
         public function webhook(Request $request)
         {
+            return $this->handleWebhookForProfile($request, TelegramFilestoreBotProfileResolver::FILESTORE);
+        }
+
+        public function newFilesStarWebhook(Request $request)
+        {
+            return $this->handleWebhookForProfile($request, TelegramFilestoreBotProfileResolver::BACKUP_RESTORE);
+        }
+
+        private function handleWebhookForProfile(Request $request, string $botProfileKey)
+        {
+            $botProfile = $this->botProfileResolver->resolve($botProfileKey);
+            $this->activeBotProfileKey = $botProfile['key'];
+
             $update = $request->all();
-            Log::info('telegram_filestore_webhook_event', TelegramWebhookLogContext::fromUpdate($update, 'filestoebot'));
+            Log::info('telegram_filestore_webhook_event', TelegramWebhookLogContext::fromUpdate($update, $botProfile['username']));
 
             if (!empty($update['callback_query'])) {
                 $this->handleCallback($update['callback_query']);
@@ -355,7 +372,7 @@
                 now()->addMinutes(self::CLOSE_UPLOAD_PROMPT_MESSAGE_CACHE_MINUTES)
             );
 
-            TelegramFilestoreDebouncedPromptJob::dispatch($sessionId, $chatId)
+            TelegramFilestoreDebouncedPromptJob::dispatch($sessionId, $chatId, $this->activeBotProfileKey)
                 ->delay(now()->addSeconds(self::DEBOUNCE_SECONDS));
         }
 
@@ -1402,11 +1419,14 @@
                 return '';
             }
 
-            if (Str::startsWith($t, self::TOKEN_PREFIX)) {
-                return $t;
+            $suffix = $this->stripSupportedTokenPrefix($t);
+            if ($suffix === '') {
+                return '';
             }
 
-            return self::TOKEN_PREFIX . $t;
+            $canonicalPrefix = $this->botProfileResolver->canonicalDecodePrefix();
+
+            return ($canonicalPrefix !== '' ? $canonicalPrefix : self::TOKEN_PREFIX) . $suffix;
         }
 
         private function acquireTokenDedupLock(int $chatId, string $token): bool
@@ -1457,9 +1477,46 @@
             return hash('sha256', $publicToken);
         }
 
+        /**
+         * @return array{key:string,username:string,token:string,prefix:string}
+         */
+        private function currentBotProfile(): array
+        {
+            return $this->botProfileResolver->resolve($this->activeBotProfileKey);
+        }
+
+        private function currentBotToken(): string
+        {
+            return (string) ($this->currentBotProfile()['token'] ?? '');
+        }
+
+        /**
+         * @return array<int, string>
+         */
+        private function supportedDecodePrefixes(): array
+        {
+            return $this->botProfileResolver->supportedDecodePrefixes();
+        }
+
+        private function stripSupportedTokenPrefix(string $token): string
+        {
+            $trimmed = trim($token);
+            if ($trimmed === '') {
+                return '';
+            }
+
+            foreach ($this->supportedDecodePrefixes() as $prefix) {
+                if ($prefix !== '' && Str::startsWith(Str::lower($trimmed), $prefix)) {
+                    return substr($trimmed, strlen($prefix));
+                }
+            }
+
+            return $trimmed;
+        }
+
         private function answerCallbackQuery(string $callbackQueryId): void
         {
-            $token = (string)config('telegram.filestore_bot_token');
+            $token = $this->currentBotToken();
             if ($token === '') {
                 return;
             }
@@ -1471,7 +1528,7 @@
 
         private function sendMessage(int $chatId, string $text, ?array $replyMarkup = null, ?string $parseMode = null): void
         {
-            $token = (string)config('telegram.filestore_bot_token');
+            $token = $this->currentBotToken();
             if ($token === '') {
                 return;
             }
@@ -1517,7 +1574,7 @@
 
         private function sendMessageReturningMessageId(int $chatId, string $text, ?array $replyMarkup = null, ?string $parseMode = null): ?int
         {
-            $token = (string)config('telegram.filestore_bot_token');
+            $token = $this->currentBotToken();
             if ($token === '') {
                 return null;
             }
@@ -1567,7 +1624,7 @@
 
         private function editMessageText(int $chatId, int $messageId, string $text, ?array $replyMarkup = null, ?string $parseMode = null): bool
         {
-            $token = (string)config('telegram.filestore_bot_token');
+            $token = $this->currentBotToken();
             if ($token === '') {
                 return false;
             }
@@ -1594,7 +1651,7 @@
 
         private function deleteMessage(int $chatId, int $messageId): bool
         {
-            $token = (string)config('telegram.filestore_bot_token');
+            $token = $this->currentBotToken();
             if ($token === '') {
                 return false;
             }
@@ -1794,7 +1851,11 @@
             $sendingStartedAt = (string) ($lockResult['sending_started_at'] ?? '');
 
             try {
-                app(Dispatcher::class)->dispatch(new SendFilestoreSessionFilesJob((int) $session->id, $chatId));
+                app(Dispatcher::class)->dispatch(new SendFilestoreSessionFilesJob(
+                    (int) $session->id,
+                    $chatId,
+                    $this->activeBotProfileKey
+                ));
 
                 $updated = TelegramFilestoreSession::query()
                     ->where('id', $session->id)
@@ -1967,13 +2028,20 @@
                 return null;
             }
 
-            $candidates = [];
-
-            $candidates[] = $t;
-
-            if (!Str::startsWith($t, self::TOKEN_PREFIX)) {
-                $candidates[] = self::TOKEN_PREFIX . $t;
+            $suffix = $this->stripSupportedTokenPrefix($t);
+            if ($suffix === '') {
+                return null;
             }
+
+            $candidates = [$t];
+            foreach ($this->supportedDecodePrefixes() as $prefix) {
+                if ($prefix === '') {
+                    continue;
+                }
+
+                $candidates[] = $prefix . $suffix;
+            }
+            $candidates = array_values(array_unique($candidates));
 
             $query = TelegramFilestoreSession::query()
                 ->where('status', 'closed')

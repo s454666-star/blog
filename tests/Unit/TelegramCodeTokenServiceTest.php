@@ -63,7 +63,23 @@ TEXT);
         $service = new TelegramCodeTokenService();
 
         $this->assertTrue($service->shouldMarkDialogueAsSynced('filestoebot_abc123'));
+        $this->assertTrue($service->shouldMarkDialogueAsSynced('new_files_star_bot_abc123'));
         $this->assertFalse($service->shouldMarkDialogueAsSynced('mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2'));
         $this->assertFalse($service->shouldMarkDialogueAsSynced('mtfxq2bot_9V_A1R7u7F592Q4o6c6c1r5'));
+    }
+
+    public function test_extract_tokens_includes_new_files_star_bot_tokens(): void
+    {
+        $service = new TelegramCodeTokenService();
+
+        $tokens = $service->extractTokens(<<<'TEXT'
+new_files_star_bot_1V_demo12345
+new_files_star_bot_2P_demo67890
+TEXT);
+
+        $this->assertSame([
+            'new_files_star_bot_1V_demo12345',
+            'new_files_star_bot_2P_demo67890',
+        ], $tokens);
     }
 }

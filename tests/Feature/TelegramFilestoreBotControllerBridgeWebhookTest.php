@@ -25,10 +25,16 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
 
         config()->set('database.default', 'sqlite');
         config()->set('database.connections.sqlite.database', ':memory:');
+        config()->set('telegram.filestore_bot_token', 'filestore-test-token');
+        config()->set('telegram.filestore_bot_username', 'filestoebot');
+        config()->set('telegram.backup_restore_bot_token', 'backup-restore-test-token');
+        config()->set('telegram.backup_restore_bot_username', 'new_files_star_bot');
 
         DB::purge('sqlite');
         DB::reconnect('sqlite');
 
+        Schema::dropIfExists('telegram_filestore_restore_files');
+        Schema::dropIfExists('telegram_filestore_restore_sessions');
         Schema::dropIfExists('telegram_filestore_files');
         Schema::dropIfExists('telegram_filestore_sessions');
         Schema::dropIfExists('telegram_filestore_bridge_contexts');
@@ -67,6 +73,57 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
             $table->string('file_type')->default('document');
             $table->text('raw_payload')->nullable();
             $table->dateTime('created_at')->nullable();
+        });
+
+        Schema::create('telegram_filestore_restore_sessions', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('source_session_id')->nullable();
+            $table->unsignedBigInteger('source_chat_id')->nullable();
+            $table->string('source_token')->nullable();
+            $table->string('source_public_token')->nullable();
+            $table->string('target_bot_username');
+            $table->unsignedBigInteger('target_chat_id')->nullable();
+            $table->string('status')->default('pending');
+            $table->unsignedInteger('total_files')->default(0);
+            $table->unsignedInteger('processed_files')->default(0);
+            $table->unsignedInteger('success_files')->default(0);
+            $table->unsignedInteger('failed_files')->default(0);
+            $table->unsignedBigInteger('last_source_file_id')->nullable();
+            $table->text('last_error')->nullable();
+            $table->dateTime('started_at')->nullable();
+            $table->dateTime('finished_at')->nullable();
+            $table->dateTime('created_at')->nullable();
+            $table->dateTime('updated_at')->nullable();
+        });
+
+        Schema::create('telegram_filestore_restore_files', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('restore_session_id');
+            $table->unsignedBigInteger('source_session_id')->nullable();
+            $table->unsignedBigInteger('source_file_row_id');
+            $table->unsignedBigInteger('source_chat_id')->nullable();
+            $table->unsignedBigInteger('source_message_id')->nullable();
+            $table->string('source_file_id')->nullable();
+            $table->string('source_file_unique_id')->nullable();
+            $table->string('source_token')->nullable();
+            $table->string('source_public_token')->nullable();
+            $table->unsignedBigInteger('forwarded_message_id')->nullable();
+            $table->unsignedBigInteger('target_chat_id')->nullable();
+            $table->unsignedBigInteger('target_message_id')->nullable();
+            $table->string('target_file_id')->nullable();
+            $table->string('target_file_unique_id')->nullable();
+            $table->string('file_name')->nullable();
+            $table->string('mime_type')->nullable();
+            $table->unsignedBigInteger('file_size')->default(0);
+            $table->string('file_type')->default('document');
+            $table->string('status')->default('pending');
+            $table->unsignedInteger('attempt_count')->default(0);
+            $table->text('last_error')->nullable();
+            $table->text('raw_payload')->nullable();
+            $table->dateTime('forwarded_at')->nullable();
+            $table->dateTime('synced_at')->nullable();
+            $table->dateTime('created_at')->nullable();
+            $table->dateTime('updated_at')->nullable();
         });
 
         Schema::create('telegram_filestore_bridge_contexts', function (Blueprint $table): void {
@@ -808,5 +865,178 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
 
         Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 1);
         Http::assertNothingSent();
+    }
+
+    public function test_new_files_star_webhook_decodes_alias_tokens_and_replies_via_backup_bot_token(): void
+    {
+        Queue::fake();
+        Http::fake([
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 1],
+            ], 200),
+        ]);
+
+        TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_1V_newroute0001',
+            'source_token' => null,
+            'status' => 'closed',
+            'total_files' => 1,
+            'total_size' => 2048,
+            'share_count' => 0,
+            'is_sending' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/telegram/filestore/webhook/new-files-star', [
+            'message' => [
+                'message_id' => 9501,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'text' => implode("\n", [
+                    'new_files_star_bot_1V_newroute0001',
+                    'new_files_star_bot_1V_missing0002',
+                ]),
+            ],
+        ]);
+
+        $response->assertOk();
+
+        Queue::assertPushed(SendFilestoreSessionFilesJob::class, function (SendFilestoreSessionFilesJob $job): bool {
+            return $job->getBotProfile() === 'backup_restore';
+        });
+        Queue::assertPushedTimes(SendFilestoreSessionFilesJob::class, 1);
+
+        Http::assertSent(function ($request): bool {
+            if ($request->url() !== 'https://api.telegram.org/botbackup-restore-test-token/sendMessage') {
+                return false;
+            }
+
+            $text = (string) ($request['text'] ?? '');
+
+            return str_contains($text, '本次代碼處理結果（2 個）：')
+                && str_contains($text, '已加入傳送佇列：1 個')
+                && str_contains($text, '找不到檔案：1 個')
+                && str_contains($text, 'new_files_star_bot_1V_missing0002');
+        });
+
+        Http::assertNotSent(function ($request): bool {
+            return str_contains($request->url(), 'botfilestore-test-token/');
+        });
+    }
+
+    public function test_send_filestore_session_files_job_uses_backup_restore_bot_token(): void
+    {
+        Http::fake([
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 1],
+            ], 200),
+        ]);
+
+        $session = TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_1V_jobbackup0001',
+            'source_token' => null,
+            'status' => 'closed',
+            'total_files' => 1,
+            'total_size' => 2048,
+            'share_count' => 0,
+            'is_sending' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        $sourceFile = TelegramFilestoreFile::query()->create([
+            'session_id' => $session->id,
+            'chat_id' => 7702694790,
+            'message_id' => 9601,
+            'file_id' => 'BAAC-job-backup-file-id',
+            'file_unique_id' => 'job-backup-uniq-id',
+            'source_token' => null,
+            'file_name' => 'job-backup.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 2048,
+            'file_type' => 'document',
+            'raw_payload' => json_encode(['message_id' => 9601], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created_at' => now(),
+        ]);
+
+        $restoreSessionId = DB::table('telegram_filestore_restore_sessions')->insertGetId([
+            'source_session_id' => $session->id,
+            'source_chat_id' => 7702694790,
+            'source_token' => null,
+            'source_public_token' => 'filestoebot_1V_jobbackup0001',
+            'target_bot_username' => 'new_files_star_bot',
+            'target_chat_id' => 8491679630,
+            'status' => 'partial',
+            'total_files' => 1,
+            'processed_files' => 1,
+            'success_files' => 1,
+            'failed_files' => 0,
+            'started_at' => now(),
+            'finished_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_restore_files')->insert([
+            'restore_session_id' => $restoreSessionId,
+            'source_session_id' => $session->id,
+            'source_file_row_id' => $sourceFile->id,
+            'source_chat_id' => 7702694790,
+            'source_message_id' => 9601,
+            'source_file_id' => 'BAAC-job-backup-file-id',
+            'source_file_unique_id' => 'job-backup-uniq-id',
+            'source_token' => null,
+            'source_public_token' => 'filestoebot_1V_jobbackup0001',
+            'forwarded_message_id' => 9701,
+            'target_chat_id' => 8491679630,
+            'target_message_id' => 9702,
+            'target_file_id' => 'BAAC-job-restored-file-id',
+            'target_file_unique_id' => 'job-restored-uniq-id',
+            'file_name' => 'job-backup.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 2048,
+            'file_type' => 'document',
+            'status' => 'synced',
+            'attempt_count' => 1,
+            'raw_payload' => '{}',
+            'forwarded_at' => now(),
+            'synced_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $job = new SendFilestoreSessionFilesJob((int) $session->id, 8491679630, 'backup_restore');
+        $job->handle();
+
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'https://api.telegram.org/botbackup-restore-test-token/sendDocument'
+                && (int) ($request['chat_id'] ?? 0) === 8491679630
+                && (string) ($request['document'] ?? '') === 'BAAC-job-restored-file-id';
+        });
+
+        Http::assertNotSent(function ($request): bool {
+            return str_contains($request->url(), 'botfilestore-test-token/');
+        });
+
+        Http::assertNotSent(function ($request): bool {
+            return (string) ($request['document'] ?? '') === 'BAAC-job-backup-file-id';
+        });
     }
 }

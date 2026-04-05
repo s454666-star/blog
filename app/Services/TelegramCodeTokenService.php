@@ -8,7 +8,7 @@
     (?:
         \b(?:@?filepan_bot:|link:\s*|[vV]i_|[iI]v_|pk_|p_|d_|
         showfilesbot_|showfiles3bot_|Save2BoxBot|
-        ntmjmqbot_|newjmqbot_|filestoebot_|mtfxq(?:2)?bot_|
+        ntmjmqbot_|newjmqbot_|filestoebot_|new_files_star_bot_|mtfxq(?:2)?bot_|
         Messengercode_|QQfile_bot:|yzfile_bot:|atfileslinksbot_|lddeebot_|
         [vVpPdD]_?datapanbot_)
         [A-Za-z0-9_\+\-]+(?:=_grp|=_mda)?\b
@@ -24,6 +24,7 @@
             'showfiles3bot_',
             'Save2BoxBot',
             'filestoebot_',
+            'new_files_star_bot_',
             'mtfxqbot_',
             'mtfxq2bot_',
             'ntmjmqbot_',
@@ -85,6 +86,7 @@
                 !$isAtfileslinksbot &&
                 !$isLddeebot &&
                 strpos($s, 'filestoebot_') !== 0 &&
+                strpos($s, 'new_files_star_bot_') !== 0 &&
                 strpos($s, 'ntmjmqbot_') !== 0 &&
                 strpos($s, 'datapanbot_') === false &&
                 (stripos($s, 'vi_') !== 0) &&
@@ -142,6 +144,10 @@
 
             if (strpos($s, 'filestoebot_') === 0) {
                 return preg_match('/^filestoebot_[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1;
+            }
+
+            if (strpos($s, 'new_files_star_bot_') === 0) {
+                return preg_match('/^new_files_star_bot_[A-Za-z0-9_\+\-]{6,}(?:=_grp|=_mda)?$/u', $s) === 1;
             }
 
             if (strpos($s, 'ntmjmqbot_') === 0) {
@@ -242,17 +248,22 @@
                 return false;
             }
 
-            $filestoreBotUsername = 'filestoebot';
+            $botUsernames = ['filestoebot', 'new_files_star_bot'];
             try {
-                $filestoreBotUsername = ltrim((string) config('telegram.filestore_sync_bot_username', $filestoreBotUsername), '@');
+                $botUsernames = array_values(array_unique(array_filter([
+                    ltrim((string) config('telegram.filestore_sync_bot_username', 'filestoebot'), '@'),
+                    ltrim((string) config('telegram.backup_restore_bot_username', 'new_files_star_bot'), '@'),
+                ])));
             } catch (\Throwable) {
-                $filestoreBotUsername = 'filestoebot';
+                $botUsernames = ['filestoebot', 'new_files_star_bot'];
             }
 
-            if ($filestoreBotUsername === '') {
-                return false;
+            foreach ($botUsernames as $botUsername) {
+                if ($botUsername !== '' && stripos($token, $botUsername . '_') === 0) {
+                    return true;
+                }
             }
 
-            return stripos($token, $filestoreBotUsername . '_') === 0;
+            return false;
         }
     }

@@ -105,6 +105,10 @@
         ->withoutMiddleware('throttle:api');
     Route::post('/telegram/filestore/webhook', [TelegramFilestoreBotController::class, 'webhook'])
         ->withoutMiddleware('throttle:api');
+    Route::post('/telegram/filestore/webhook/new-files-star', [TelegramFilestoreBotController::class, 'newFilesStarWebhook'])
+        ->withoutMiddleware('throttle:api');
+    Route::post('/telegram/filestore/webhook/backup-restore', [TelegramFilestoreBotController::class, 'newFilesStarWebhook'])
+        ->withoutMiddleware('throttle:api');
     Route::get('/token-scan/headers', [TokenScanController::class, 'headers']);
     Route::get('/token-scan/items/{peerId}', [TokenScanController::class, 'items']);
     Route::post('/telegram/webhook/mystar-secure', [TelegramWebhookController::class, 'handle'])

@@ -105,6 +105,8 @@ class DispatchTokenScanItemsCommand extends Command
     private const LOCAL_FASTAPI_RESTART_BATCH_BY_PORT = [
         8000 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service.bat',
         8001 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service2.bat',
+        8002 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service3.bat',
+        8003 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service4.bat',
     ];
     private const QQ_YZ_SYNC_MARKER = '当前解码器未完成同步';
     private const PUSH_ALL_BUTTON_KEYWORDS = ['推送全部'];

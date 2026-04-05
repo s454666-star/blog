@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Services\PresetCommandRunnerService;
 use InvalidArgumentException;
 use Mockery;
+use Symfony\Component\DomCrawler\Crawler;
 use Tests\TestCase;
 
 class CommandRunnerControllerTest extends TestCase
@@ -34,6 +35,11 @@ class CommandRunnerControllerTest extends TestCase
         $response->assertSee('資料夾位置');
         $response->assertSee('Z:\\FC2-2026(new)');
         $response->assertSee('停止');
+
+        $crawler = new Crawler($response->getContent());
+
+        $this->assertSame($crawler->filter('[data-card]')->count(), $crawler->filter('[data-copy-preview]')->count());
+        $this->assertSame($crawler->filter('[data-runtime-row]')->count(), $crawler->filter('[data-copy-output]')->count());
     }
 
     public function test_run_endpoint_returns_runner_output(): void

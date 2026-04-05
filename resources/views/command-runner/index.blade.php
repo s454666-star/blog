@@ -404,6 +404,15 @@
             text-transform: uppercase;
         }
 
+        .code-head-meta,
+        .terminal-head-meta {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+            flex-wrap: wrap;
+        }
+
         .code-head-dots {
             display: inline-flex;
             gap: 6px;
@@ -414,6 +423,31 @@
             height: 9px;
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.26);
+        }
+
+        .shell-copy-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 34px;
+            padding: 0 12px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: #ebf5ff;
+            font-size: 0.76rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: none;
+            cursor: pointer;
+            transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease;
+            flex: 0 0 auto;
+        }
+
+        .shell-copy-btn:hover {
+            transform: translateY(-1px);
+            background: rgba(255, 255, 255, 0.14);
+            border-color: rgba(255, 255, 255, 0.2);
         }
 
         .code-shell pre,
@@ -723,9 +757,9 @@
 
         .runtime-action-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 12px;
-            width: min(540px, 100%);
+            width: min(360px, 100%);
         }
 
         .runtime-shell {
@@ -915,12 +949,22 @@
                                 <div class="card-command-zone {{ !empty($preset['path_input']) ? 'is-input' : 'is-buttons' }}">
                                     <div class="code-shell">
                                         <div class="code-head">
-                                            <div class="code-head-dots">
-                                                <span></span>
-                                                <span></span>
-                                                <span></span>
+                                            <div class="code-head-meta">
+                                                <div class="code-head-dots">
+                                                    <span></span>
+                                                    <span></span>
+                                                    <span></span>
+                                                </div>
+                                                <span>Preset Command</span>
                                             </div>
-                                            <span>Preset Command</span>
+                                            <button
+                                                type="button"
+                                                class="shell-copy-btn"
+                                                data-copy-preview="{{ $preset['id'] }}"
+                                                aria-label="複製指令"
+                                            >
+                                                複製
+                                            </button>
                                         </div>
                                         <pre
                                             data-command-preview
@@ -953,8 +997,8 @@
                                             </button>
                                         </div>
                                     @else
-                                        <div class="card-actions">
                                         @if (!empty($preset['button_variants']))
+                                            <div class="card-actions">
                                             @foreach ($preset['button_variants'] as $variant)
                                                 <button
                                                     type="button"
@@ -965,6 +1009,7 @@
                                                     {{ $variant['label'] }}
                                                 </button>
                                             @endforeach
+                                            </div>
                                         @else
                                             <button
                                                 type="button"
@@ -974,15 +1019,7 @@
                                             >
                                                 執行這組指令
                                             </button>
-                                            <button
-                                                type="button"
-                                                class="ghost-btn"
-                                                data-copy-preview="{{ $preset['id'] }}"
-                                            >
-                                                複製指令
-                                            </button>
                                         @endif
-                                        </div>
                                     @endif
                                 </div>
                             </div>
@@ -1012,15 +1049,17 @@
                                     </div>
                                     <div class="runtime-action-grid">
                                         <button type="button" class="ghost-btn stop-btn" data-stop-run disabled>停止</button>
-                                        <button type="button" class="ghost-btn" data-copy-output>複製輸出</button>
                                         <button type="button" class="ghost-btn" data-close-output>收起結果</button>
                                     </div>
                                 </div>
 
                                 <div class="runtime-shell">
                                     <div class="terminal-head">
-                                        <span>Runtime Console</span>
-                                        <span data-terminal-caption>Waiting for this preset</span>
+                                        <div class="terminal-head-meta">
+                                            <span>Runtime Console</span>
+                                            <span data-terminal-caption>Waiting for this preset</span>
+                                        </div>
+                                        <button type="button" class="shell-copy-btn" data-copy-output aria-label="複製輸出">複製</button>
                                     </div>
                                     <pre class="runtime-output is-placeholder" data-runtime-output>按下這一排卡片的「執行這組指令」後，結果會展開在這裡。</pre>
                                 </div>
@@ -1049,6 +1088,7 @@
             const stopButtons = [...document.querySelectorAll('[data-stop-run]')];
             const copyOutputButtons = [...document.querySelectorAll('[data-copy-output]')];
             const closeOutputButtons = [...document.querySelectorAll('[data-close-output]')];
+            const copyFeedbackTimers = new WeakMap();
 
             let isRunning = false;
             let isStopping = false;
@@ -1205,6 +1245,28 @@
                 }
             };
 
+            const showCopyFeedback = (button, nextLabel) => {
+                if (!button) {
+                    return;
+                }
+
+                const idleLabel = button.dataset.idleLabel || button.textContent.trim() || '複製';
+                button.dataset.idleLabel = idleLabel;
+                button.textContent = nextLabel;
+
+                const activeTimer = copyFeedbackTimers.get(button);
+                if (activeTimer) {
+                    window.clearTimeout(activeTimer);
+                }
+
+                const timer = window.setTimeout(() => {
+                    button.textContent = idleLabel;
+                    copyFeedbackTimers.delete(button);
+                }, 1400);
+
+                copyFeedbackTimers.set(button, timer);
+            };
+
             const createRunToken = () => {
                 if (window.crypto?.randomUUID) {
                     return window.crypto.randomUUID();
@@ -1280,7 +1342,8 @@
                 button.addEventListener('click', async () => {
                     const card = button.closest('[data-card]');
                     const preview = card?.querySelector('[data-command-preview]')?.textContent || '';
-                    await copyText(preview);
+                    const copied = await copyText(preview);
+                    showCopyFeedback(button, copied ? '已複製' : preview.trim() ? '複製失敗' : '沒有內容');
                 });
             });
 
@@ -1321,8 +1384,10 @@
             copyOutputButtons.forEach((button) => {
                 button.addEventListener('click', async () => {
                     const row = button.closest('[data-row]');
-                    const output = row?.querySelector('[data-runtime-output]')?.textContent || '';
-                    await copyText(output);
+                    const outputNode = row?.querySelector('[data-runtime-output]');
+                    const output = outputNode?.classList.contains('is-placeholder') ? '' : outputNode?.textContent || '';
+                    const copied = await copyText(output);
+                    showCopyFeedback(button, copied ? '已複製' : output.trim() ? '複製失敗' : '沒有內容');
                 });
             });
 

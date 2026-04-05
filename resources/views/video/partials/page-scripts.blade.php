@@ -331,7 +331,6 @@
             }
             $('#focus-id').val(currentId);
         }
-        watchFocusedRow();
 
         // ★★★ 這一行是關鍵：右側重排後，左側也依同樣的 sortBy/sortDir 重新排
         resortMasterFacesByCurrentSort();
@@ -1053,31 +1052,6 @@
             $('#focus-id').val(fid);          // ← 送出表單前最後覆寫
         });
     });
-
-    /* --------------------------------------------------
-     * ResizeObserver
-     * -------------------------------------------------- */
-    const ro = new ResizeObserver(entries => {
-        entries.forEach(ent => {
-            if ($(ent.target).hasClass('focused'))
-                ent.target.scrollIntoView({behavior: 'auto', block: 'center'});
-        });
-    });
-
-    function watchFocusedRow() {
-        ro.disconnect();
-        const f = document.querySelector('.video-row.focused');
-        if (f) ro.observe(f);
-    }
-
-    const listRO = new ResizeObserver(() => {
-        const f = document.querySelector('.video-row.focused');
-        if (!f) return;
-        const rect = f.getBoundingClientRect(), vp = window.innerHeight / 2;
-        if (Math.abs(rect.top + rect.height / 2 - vp) > 10)
-            f.scrollIntoView({behavior: 'auto', block: 'center'});
-    });
-    listRO.observe(document.getElementById('videos-list'));
 
     /* --------------------------------------------------
      * 永遠聚焦最新 id 的那支影片

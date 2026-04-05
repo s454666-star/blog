@@ -1354,6 +1354,183 @@ class RestoreFilestoreToBotCommandTest extends TestCase
         ]);
     }
 
+    public function test_command_temporarily_disables_and_restores_webhook_when_get_updates_conflicts(): void
+    {
+        DB::table('telegram_filestore_sessions')->insert([
+            'id' => 72,
+            'chat_id' => 7702694790,
+            'public_token' => 'filestoebot_webhook_conflict',
+            'source_token' => 'showfilesbot_webhook_conflict',
+            'status' => 'closed',
+            'total_files' => 1,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_files')->insert([
+            'id' => 7201,
+            'session_id' => 72,
+            'chat_id' => 7702694790,
+            'message_id' => 72001,
+            'file_id' => 'WEBHOOK-CONFLICT-FILE-ID',
+            'file_unique_id' => 'WEBHOOK-CONFLICT-UNIQ-ID',
+            'source_token' => 'showfilesbot_webhook_conflict',
+            'file_name' => 'webhook-conflict.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 22,
+            'file_type' => 'document',
+            'raw_payload' => json_encode(['message_id' => 72001], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created_at' => now(),
+        ]);
+
+        $callIndex = 0;
+        $firstConflictIndex = null;
+        $deleteWebhookIndex = null;
+        $setWebhookIndex = null;
+        $webhookDeleted = false;
+
+        Http::fake(function ($request) use (&$callIndex, &$firstConflictIndex, &$deleteWebhookIndex, &$setWebhookIndex, &$webhookDeleted) {
+            $callIndex++;
+
+            if (str_starts_with($request->url(), 'https://api.telegram.org/botrestore-token/getUpdates')) {
+                $offset = (int) ($request['offset'] ?? 0);
+
+                if (!$webhookDeleted) {
+                    $firstConflictIndex = $callIndex;
+
+                    return Http::response([
+                        'ok' => false,
+                        'error_code' => 409,
+                        'description' => "Conflict: can't use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first",
+                    ], 409);
+                }
+
+                if ($offset <= 0) {
+                    return Http::response([
+                        'ok' => true,
+                        'result' => [
+                            [
+                                'update_id' => 700,
+                                'message' => [
+                                    'message_id' => 201,
+                                    'chat' => [
+                                        'id' => 8491679630,
+                                        'type' => 'private',
+                                    ],
+                                    'text' => '/start',
+                                ],
+                            ],
+                        ],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => [
+                        [
+                            'update_id' => 701,
+                            'message' => [
+                                'message_id' => 202,
+                                'chat' => [
+                                    'id' => 8491679630,
+                                    'type' => 'private',
+                                ],
+                                'document' => [
+                                    'file_id' => 'WEBHOOK-CONFLICT-TARGET-FILE-ID',
+                                    'file_unique_id' => 'WEBHOOK-CONFLICT-TARGET-UNIQ-ID',
+                                    'file_name' => 'webhook-conflict.bin',
+                                    'mime_type' => 'application/octet-stream',
+                                    'file_size' => 22,
+                                ],
+                            ],
+                        ],
+                    ],
+                ], 200);
+            }
+
+            if ($request->url() === 'https://api.telegram.org/botrestore-token/getWebhookInfo') {
+                return Http::response([
+                    'ok' => true,
+                    'result' => [
+                        'url' => 'https://new-files-star.mystar.monster/api/telegram/filestore/webhook/new-files-star',
+                    ],
+                ], 200);
+            }
+
+            if ($request->url() === 'https://api.telegram.org/botrestore-token/deleteWebhook') {
+                $deleteWebhookIndex = $callIndex;
+                $webhookDeleted = true;
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => true,
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+                return Http::response([
+                    'status' => 'ok',
+                    'forwarded_message_ids' => [97201],
+                    'missing_message_ids' => [],
+                    'unforwardable_message_ids' => [],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/delete-messages') {
+                return Http::response([
+                    'status' => 'ok',
+                    'deleted_count' => 1,
+                    'undeleted_message_ids' => [],
+                ], 200);
+            }
+
+            if ($request->url() === 'https://api.telegram.org/botrestore-token/setWebhook') {
+                $setWebhookIndex = $callIndex;
+                $this->assertSame(
+                    'https://new-files-star.mystar.monster/api/telegram/filestore/webhook/new-files-star',
+                    (string) $request['url']
+                );
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => true,
+                ], 200);
+            }
+
+            return Http::response([
+                'ok' => false,
+                'status' => 'unexpected',
+                'url' => $request->url(),
+            ], 500);
+        });
+
+        $this->artisan('filestore:restore-to-bot --session-id=72 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=file_backup_restore_bot --worker-env=tests/Fixtures/missing-worker.env')
+            ->expectsOutputToContain('temporarily disabled target bot webhook for getUpdates')
+            ->expectsOutputToContain('restored target bot webhook for @file_backup_restore_bot')
+            ->expectsOutputToContain('synced=1')
+            ->assertExitCode(0);
+
+        $this->assertNotNull($firstConflictIndex);
+        $this->assertNotNull($deleteWebhookIndex);
+        $this->assertNotNull($setWebhookIndex);
+        $this->assertTrue($firstConflictIndex < $deleteWebhookIndex);
+        $this->assertTrue($deleteWebhookIndex < $setWebhookIndex);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_sessions', [
+            'source_session_id' => 72,
+            'target_bot_username' => 'file_backup_restore_bot',
+            'target_chat_id' => 8491679630,
+            'status' => 'completed',
+        ]);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_files', [
+            'source_session_id' => 72,
+            'source_file_row_id' => 7201,
+            'target_file_id' => 'WEBHOOK-CONFLICT-TARGET-FILE-ID',
+            'status' => 'synced',
+        ]);
+    }
+
     public function test_command_replays_large_file_via_sync_chat_before_forwarding(): void
     {
         config()->set('telegram.filestore_sync_chat_id', 7702694790);

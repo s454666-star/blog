@@ -35,6 +35,7 @@ class RestoreFilestoreToBotCommand extends Command
      * @var array<string, true>
      */
     private array $ensuredTargetDialogs = [];
+    private ?string $suspendedTargetBotWebhookUrl = null;
 
     public function __construct(
         private TelegramFilestoreStaleSessionCleanupService $staleSessionCleanupService
@@ -155,6 +156,42 @@ class RestoreFilestoreToBotCommand extends Command
             return self::SUCCESS;
         }
 
+        $exitCode = self::FAILURE;
+
+        try {
+            $exitCode = $this->runRestore(
+                sourceSessionsQuery: $sourceSessionsQuery,
+                sourceFileRowId: $sourceFileRowId,
+                limit: $limit,
+                baseUri: $baseUri,
+                targetBotUsername: $targetBotUsername,
+                targetBotToken: $targetBotToken,
+                sourceBotToken: $sourceBotToken,
+                targetChatId: $targetChatId,
+                pollSeconds: $pollSeconds
+            );
+        } finally {
+            $restoreWebhookResult = $this->restoreSuspendedTargetBotWebhook($targetBotToken, $targetBotUsername);
+            if (!($restoreWebhookResult['ok'] ?? false)) {
+                $this->error((string) ($restoreWebhookResult['error'] ?? '無法恢復 target bot webhook'));
+                $exitCode = self::FAILURE;
+            }
+        }
+
+        return $exitCode;
+    }
+
+    private function runRestore(
+        $sourceSessionsQuery,
+        int $sourceFileRowId,
+        int $limit,
+        string $baseUri,
+        string $targetBotUsername,
+        string $targetBotToken,
+        string $sourceBotToken,
+        int $targetChatId,
+        int $pollSeconds
+    ): int {
         try {
             $targetContext = $this->resolveTargetChatContext($targetBotToken, $targetChatId);
         } catch (\RuntimeException $e) {
@@ -1555,6 +1592,30 @@ class RestoreFilestoreToBotCommand extends Command
         }
 
         if (!$response->successful()) {
+            if ($response->status() === 409) {
+                $suspendWebhookResult = $this->suspendTargetBotWebhookForGetUpdates($targetBotToken);
+                if (!($suspendWebhookResult['ok'] ?? false)) {
+                    return [
+                        'ok' => false,
+                        'error' => (string) ($suspendWebhookResult['error'] ?? '無法暫停 target bot webhook'),
+                    ];
+                }
+
+                try {
+                    $response = $this->telegramPendingRequest(30)
+                        ->get("https://api.telegram.org/bot{$targetBotToken}/getUpdates", [
+                            'offset' => $offset > 0 ? $offset : null,
+                        ]);
+                } catch (\Throwable $e) {
+                    return [
+                        'ok' => false,
+                        'error' => 'getUpdates retry exception: ' . $e->getMessage(),
+                    ];
+                }
+            }
+        }
+
+        if (!$response->successful()) {
             return [
                 'ok' => false,
                 'error' => 'getUpdates HTTP ' . $response->status() . ' body=' . $this->shorten($response->body(), 300),
@@ -1583,6 +1644,127 @@ class RestoreFilestoreToBotCommand extends Command
             'updates' => $updates,
             'last_update_id' => $lastUpdateId,
         ];
+    }
+
+    /**
+     * @return array{ok:bool,error?:string}
+     */
+    private function suspendTargetBotWebhookForGetUpdates(string $targetBotToken): array
+    {
+        if ($this->suspendedTargetBotWebhookUrl !== null) {
+            return ['ok' => true];
+        }
+
+        try {
+            $webhookInfoResponse = $this->telegramPendingRequest(30)
+                ->get("https://api.telegram.org/bot{$targetBotToken}/getWebhookInfo");
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => 'getWebhookInfo exception: ' . $e->getMessage(),
+            ];
+        }
+
+        if (!$webhookInfoResponse->successful()) {
+            return [
+                'ok' => false,
+                'error' => 'getWebhookInfo HTTP ' . $webhookInfoResponse->status() . ' body=' . $this->shorten($webhookInfoResponse->body(), 300),
+            ];
+        }
+
+        $webhookInfo = $webhookInfoResponse->json();
+        if (!is_array($webhookInfo) || !($webhookInfo['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'error' => 'getWebhookInfo invalid payload: ' . $this->shorten($webhookInfoResponse->body(), 300),
+            ];
+        }
+
+        $currentUrl = trim((string) data_get($webhookInfo, 'result.url', ''));
+        if ($currentUrl === '') {
+            return ['ok' => true];
+        }
+
+        try {
+            $deleteWebhookResponse = $this->telegramPendingRequest(30)
+                ->asForm()
+                ->post("https://api.telegram.org/bot{$targetBotToken}/deleteWebhook", [
+                    'drop_pending_updates' => 0,
+                ]);
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => 'deleteWebhook exception: ' . $e->getMessage(),
+            ];
+        }
+
+        if (!$deleteWebhookResponse->successful()) {
+            return [
+                'ok' => false,
+                'error' => 'deleteWebhook HTTP ' . $deleteWebhookResponse->status() . ' body=' . $this->shorten($deleteWebhookResponse->body(), 300),
+            ];
+        }
+
+        $deleteWebhookJson = $deleteWebhookResponse->json();
+        if (!is_array($deleteWebhookJson) || !($deleteWebhookJson['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'error' => 'deleteWebhook invalid payload: ' . $this->shorten($deleteWebhookResponse->body(), 300),
+            ];
+        }
+
+        $this->suspendedTargetBotWebhookUrl = $currentUrl;
+        $this->line('temporarily disabled target bot webhook for getUpdates: ' . $currentUrl);
+
+        return ['ok' => true];
+    }
+
+    /**
+     * @return array{ok:bool,error?:string}
+     */
+    private function restoreSuspendedTargetBotWebhook(string $targetBotToken, string $targetBotUsername): array
+    {
+        $webhookUrl = $this->suspendedTargetBotWebhookUrl;
+        if ($webhookUrl === null || $webhookUrl === '') {
+            return ['ok' => true];
+        }
+
+        try {
+            $setWebhookResponse = $this->telegramPendingRequest(30)
+                ->asForm()
+                ->post("https://api.telegram.org/bot{$targetBotToken}/setWebhook", [
+                    'url' => $webhookUrl,
+                ]);
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => 'setWebhook exception: ' . $e->getMessage(),
+            ];
+        }
+
+        if (!$setWebhookResponse->successful()) {
+            return [
+                'ok' => false,
+                'error' => 'setWebhook HTTP ' . $setWebhookResponse->status() . ' body=' . $this->shorten($setWebhookResponse->body(), 300),
+            ];
+        }
+
+        $setWebhookJson = $setWebhookResponse->json();
+        if (!is_array($setWebhookJson) || !($setWebhookJson['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'error' => 'setWebhook invalid payload: ' . $this->shorten($setWebhookResponse->body(), 300),
+            ];
+        }
+
+        $this->suspendedTargetBotWebhookUrl = null;
+        $this->line(sprintf(
+            'restored target bot webhook for @%s: %s',
+            ltrim($targetBotUsername, '@'),
+            $webhookUrl
+        ));
+
+        return ['ok' => true];
     }
 
     private function pauseBetweenRestoreBatches(): void

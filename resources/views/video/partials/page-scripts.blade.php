@@ -1067,6 +1067,7 @@
         const $content = $('.container');
         const $controls = $('.controls');
         const $controlsToggle = $('#toggle-controls');
+        const $masterSearchShell = $('#master-search-shell');
         const $masterSearchToggle = $('#toggle-master-search');
         const $masterSearchPanel = $('#master-search-panel');
         const $masterSearchForm = $('#master-search-form');
@@ -1129,7 +1130,6 @@
                 $sidebar.addClass('collapsed');
                 $content.removeClass('expanded');
                 $controls.removeClass('expanded');
-                closeMasterSearchPanel();
                 updateBtnPos(true);
                 $btnToggle.html('☰');
             } else {
@@ -1192,7 +1192,7 @@
                 return;
             }
 
-            if ($(event.target).closest('.master-faces-header').length) {
+            if ($(event.target).closest('#master-search-shell').length) {
                 return;
             }
 
@@ -1216,6 +1216,7 @@
 
             $controls.toggleClass('controls-open', controlsOpen);
             $content.toggleClass('controls-open', controlsOpen);
+            $masterSearchShell.toggleClass('controls-open', controlsOpen);
             $controlsToggle
                 .toggleClass('controls-open', controlsOpen)
                 .attr('aria-expanded', String(controlsOpen))

@@ -9,6 +9,9 @@ class Kernel extends ConsoleKernel
 {
     protected function schedule(Schedule $schedule): void
     {
+        $restoreTargetBotUsername = config('telegram.backup_restore_bot_username', 'new_files_star_bot');
+        $restoreWorkerEnvPath = str_replace('\\', '/', base_path('storage/app/telegram-filestore-local-workers/worker.env'));
+
         // Content jobs
         $schedule->command('get-bt')
             ->cron('0 5,17 * * *')
@@ -29,17 +32,22 @@ class Kernel extends ConsoleKernel
             ->runInBackground();
 
         // Telegram / filestore
-        $schedule->command('filestore:restore-to-bot', [
-            '--all' => true,
-            '--pending-session-limit' => 500,
-            '--base-uri' => 'http://127.0.0.1:8001',
-            '--target-bot-username' => config('telegram.backup_restore_bot_username', 'new_files_star_bot'),
-            '--worker-env' => base_path('storage/app/telegram-filestore-local-workers/worker.env'),
-        ])
+        $schedule->command(sprintf(
+            'filestore:restore-to-bot --all --pending-session-limit=500 --base-uri=http://127.0.0.1:8001 --target-bot-username=%s --worker-env=%s',
+            $restoreTargetBotUsername,
+            $restoreWorkerEnvPath
+        ))
             ->dailyAt('01:00')
             ->name('blog-filestore-restore-pending-sessions')
             ->withoutOverlapping(1440)
-            ->runInBackground();
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/filestore_restore_scheduler.log'))
+            ->onSuccess(function () {
+                \Log::info('Scheduled filestore restore completed successfully');
+            })
+            ->onFailure(function () {
+                \Log::error('Scheduled filestore restore failed');
+            });
 
         $schedule->command('telegram:ensure-backup-restore-webhook')
             ->dailyAt('04:10')

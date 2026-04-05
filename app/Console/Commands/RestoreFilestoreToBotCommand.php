@@ -9,6 +9,7 @@ use App\Models\TelegramFilestoreSession;
 use App\Services\TelegramFilestoreStaleSessionCleanupService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class RestoreFilestoreToBotCommand extends Command
@@ -142,6 +143,24 @@ class RestoreFilestoreToBotCommand extends Command
         }
         $this->line('memory_limit=' . (string) ini_get('memory_limit'));
 
+        $commandContext = [
+            'session_id' => $sessionId,
+            'public_token' => $publicToken !== '' ? $publicToken : null,
+            'source_token' => $sourceToken !== '' ? $sourceToken : null,
+            'source_file_row_id' => $sourceFileRowId > 0 ? $sourceFileRowId : null,
+            'all' => $all,
+            'base_uri' => $baseUri,
+            'target_bot_username' => $targetBotUsername,
+            'source_session_count' => $sourceSessionCount,
+            'limit' => $limit > 0 ? $limit : null,
+            'pending_session_limit' => $pendingSessionLimit > 0 ? $pendingSessionLimit : null,
+            'worker_env' => $workerEnvPath !== '' ? $workerEnvPath : null,
+            'target_chat_id' => $targetChatId > 0 ? $targetChatId : null,
+            'poll_seconds' => $pollSeconds,
+            'dry_run' => $dryRun,
+        ];
+        Log::info('filestore_restore_to_bot_started', $commandContext);
+
         if ($dryRun) {
             foreach ($sourceSessionsQuery->cursor() as $sourceSession) {
                 $fileCount = (int) $this->buildSourceFileQuery((int) $sourceSession->id, $sourceFileRowId)
@@ -157,6 +176,7 @@ class RestoreFilestoreToBotCommand extends Command
             }
 
             $this->info('dry-run 結束，未實際 forward。');
+            Log::info('filestore_restore_to_bot_dry_run_completed', $commandContext);
             return self::SUCCESS;
         }
 
@@ -179,9 +199,24 @@ class RestoreFilestoreToBotCommand extends Command
             $restoreWebhookResult = $this->restoreSuspendedTargetBotWebhook($targetBotToken, $targetBotUsername);
             if (!($restoreWebhookResult['ok'] ?? false)) {
                 $this->error((string) ($restoreWebhookResult['error'] ?? '無法恢復 target bot webhook'));
+                Log::error('filestore_restore_to_bot_restore_webhook_failed', [
+                    'target_bot_username' => $targetBotUsername,
+                    'error' => (string) ($restoreWebhookResult['error'] ?? 'unknown error'),
+                ]);
                 $exitCode = self::FAILURE;
             }
         }
+
+        Log::info('filestore_restore_to_bot_finished', [
+            'target_bot_username' => $targetBotUsername,
+            'exit_code' => $exitCode,
+            'public_token' => $publicToken !== '' ? $publicToken : null,
+            'session_id' => $sessionId > 0 ? $sessionId : null,
+            'source_file_row_id' => $sourceFileRowId > 0 ? $sourceFileRowId : null,
+            'all' => $all,
+            'limit' => $limit > 0 ? $limit : null,
+            'pending_session_limit' => $pendingSessionLimit > 0 ? $pendingSessionLimit : null,
+        ]);
 
         return $exitCode;
     }
@@ -202,8 +237,19 @@ class RestoreFilestoreToBotCommand extends Command
             $targetContext = $this->resolveTargetChatContext($targetBotToken, $targetChatId);
         } catch (\RuntimeException $e) {
             $this->error($e->getMessage());
+            Log::error('filestore_restore_to_bot_target_context_failed', [
+                'target_bot_username' => $targetBotUsername,
+                'target_chat_id' => $targetChatId > 0 ? $targetChatId : null,
+                'error' => $e->getMessage(),
+            ]);
             return self::FAILURE;
         }
+
+        Log::info('filestore_restore_to_bot_target_context_resolved', [
+            'target_bot_username' => $targetBotUsername,
+            'target_chat_id' => (int) ($targetContext['chat_id'] ?? 0),
+            'last_update_id' => (int) ($targetContext['last_update_id'] ?? 0),
+        ]);
 
         $remainingLimit = $limit > 0 ? $limit : PHP_INT_MAX;
         $remainingPendingSessionLimit = $pendingSessionLimit > 0 ? $pendingSessionLimit : PHP_INT_MAX;
@@ -236,9 +282,18 @@ class RestoreFilestoreToBotCommand extends Command
                 (string) ($sourceSession->source_token ?? '-'),
                 $fileCount
             ));
+            Log::info('filestore_restore_to_bot_source_session_seen', [
+                'source_session_id' => (int) $sourceSession->id,
+                'public_token' => (string) ($sourceSession->public_token ?? ''),
+                'source_token' => (string) ($sourceSession->source_token ?? ''),
+                'file_count' => $fileCount,
+            ]);
 
             if ($fileCount <= 0) {
                 $this->line('  skip: source session has no files');
+                Log::warning('filestore_restore_to_bot_source_session_skipped_empty', [
+                    'source_session_id' => (int) $sourceSession->id,
+                ]);
                 continue;
             }
 
@@ -261,10 +316,22 @@ class RestoreFilestoreToBotCommand extends Command
             if ($fileCount > 0 && $existingSyncedRowCount >= $fileCount) {
                 $stats['skipped_existing'] += $fileCount;
                 $this->line('  skip: all files already synced in restore db');
+                Log::info('filestore_restore_to_bot_source_session_skipped_all_synced', [
+                    'source_session_id' => (int) $sourceSession->id,
+                    'existing_synced_row_count' => $existingSyncedRowCount,
+                    'file_count' => $fileCount,
+                ]);
                 continue;
             }
 
             if ($remainingPendingSessionLimit <= 0) {
+                Log::info('filestore_restore_to_bot_pending_session_limit_reached', [
+                    'source_session_id' => (int) $sourceSession->id,
+                    'attempted' => $stats['attempted'],
+                    'synced' => $stats['synced'],
+                    'failed' => $stats['failed'],
+                    'skipped_existing' => $stats['skipped_existing'],
+                ]);
                 break;
             }
 
@@ -284,6 +351,14 @@ class RestoreFilestoreToBotCommand extends Command
                 ? max((int) $restoreSession->total_files, $sessionTotalFileCount)
                 : $fileCount;
             $restoreSession->save();
+            Log::info('filestore_restore_to_bot_source_session_started', [
+                'restore_session_id' => (int) $restoreSession->id,
+                'source_session_id' => (int) $sourceSession->id,
+                'target_bot_username' => $targetBotUsername,
+                'target_chat_id' => (int) $restoreSession->target_chat_id,
+                'file_count' => $fileCount,
+                'session_total_file_count' => $sessionTotalFileCount,
+            ]);
             $sessionAttemptedCount = 0;
             $pauseBeforeNextBatch = false;
 
@@ -375,6 +450,15 @@ class RestoreFilestoreToBotCommand extends Command
             }
 
             $this->finalizeRestoreSession($restoreSession);
+            Log::info('filestore_restore_to_bot_source_session_finished', [
+                'restore_session_id' => (int) $restoreSession->id,
+                'source_session_id' => (int) $sourceSession->id,
+                'status' => (string) $restoreSession->status,
+                'processed_files' => (int) $restoreSession->processed_files,
+                'success_files' => (int) $restoreSession->success_files,
+                'failed_files' => (int) $restoreSession->failed_files,
+                'last_error' => $restoreSession->last_error,
+            ]);
             if (!$limitReached && $sessionAttemptedCount > 0) {
                 $pauseBeforeNextSourceSession = true;
             }
@@ -392,6 +476,7 @@ class RestoreFilestoreToBotCommand extends Command
             $stats['failed'],
             $stats['skipped_existing']
         ));
+        Log::info('filestore_restore_to_bot_stats', $stats);
 
         if ($stats['failed'] > 0) {
             $this->warn('restore finished with failures');

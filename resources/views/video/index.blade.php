@@ -12,31 +12,125 @@
     <style>
 
         :root {
+            --theme-base: #F1E1FF;
+            --theme-base-strong: #e2c6ff;
+            --theme-surface: #fcf7ff;
+            --theme-card: rgba(255, 252, 255, 0.9);
+            --theme-card-strong: rgba(255, 247, 255, 0.98);
+            --theme-border: rgba(163, 110, 214, 0.22);
+            --theme-border-strong: rgba(163, 110, 214, 0.42);
+            --theme-accent: #a55cf6;
+            --theme-accent-2: #d07bff;
+            --theme-accent-soft: rgba(165, 92, 246, 0.14);
+            --theme-accent-strong: #7f3bd0;
+            --theme-text: #4e3b63;
+            --theme-text-soft: #72598d;
+            --theme-success: #59a47b;
+            --theme-danger: #d05f91;
+            --theme-shadow: 0 22px 48px rgba(124, 76, 168, 0.14);
+            --theme-shadow-strong: 0 24px 55px rgba(124, 76, 168, 0.2);
             --video-width: 70%;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--theme-text);
+            font-family: "Aptos", "Segoe UI Variable Text", "Microsoft JhengHei", sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(255, 255, 255, .96), rgba(255, 255, 255, 0) 32%),
+                radial-gradient(circle at 85% 12%, rgba(223, 186, 255, .45), rgba(223, 186, 255, 0) 26%),
+                linear-gradient(180deg, #fff9ff 0%, var(--theme-base) 46%, #f8ebff 100%);
+            background-attachment: fixed;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                linear-gradient(rgba(255, 255, 255, .18) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, .18) 1px, transparent 1px);
+            background-size: 22px 22px;
+            opacity: .35;
+            mix-blend-mode: soft-light;
+            z-index: -1;
         }
 
         /* === 影片列 ================================================= */
         .video-row {
             display: flex;
             margin-bottom: 20px;
-            border: 1px solid #ddd;
-            padding: 10px;
-            border-radius: 5px;
+            border: 1px solid var(--theme-border);
+            padding: 14px;
+            border-radius: 24px;
             cursor: pointer;
             user-select: none;
-            transition: background-color .3s, border-color .3s;
+            transition: background-color .3s, border-color .3s, transform .22s ease, box-shadow .22s ease;
             position: relative;
-            box-sizing: border-box
+            box-sizing: border-box;
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, .9), rgba(250, 239, 255, .82)),
+                var(--theme-card);
+            box-shadow: var(--theme-shadow);
+            backdrop-filter: blur(10px);
         }
 
         .video-row.selected {
-            border-color: #007bff;
-            background: #e7f1ff
+            border-color: rgba(165, 92, 246, .55);
+            background: linear-gradient(135deg, rgba(255, 255, 255, .96), rgba(243, 229, 255, .9));
+            box-shadow: 0 22px 48px rgba(150, 84, 204, .2)
         }
 
         .video-row.focused {
-            border-color: #28a745;
-            background: #e6ffe6
+            border-color: rgba(112, 197, 152, .72);
+            background:
+                radial-gradient(circle at top right, rgba(255, 255, 255, .92), rgba(255, 255, 255, 0) 34%),
+                linear-gradient(135deg, rgba(255, 255, 255, .98), rgba(233, 255, 245, .92));
+            box-shadow: 0 28px 58px rgba(89, 164, 123, .18)
+        }
+
+        .video-row:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--theme-shadow-strong);
+        }
+
+        .video-headline {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 10px;
+        }
+
+        .video-meta-chips {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 8px;
+            min-width: 110px;
+        }
+
+        .video-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 68px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(165, 92, 246, .2);
+            background: rgba(255, 255, 255, .82);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
+            color: var(--theme-text-soft);
+            font-family: "Bahnschrift", "Segoe UI Variable Display", sans-serif;
+            font-size: .82rem;
+            font-weight: 700;
+            letter-spacing: .04em;
         }
 
         /* === 影片標題動畫 =========================================== */
@@ -46,7 +140,7 @@
             margin-bottom: 6px;
             overflow: hidden;
             position: relative;
-            background: linear-gradient(90deg, #007bff 0%, #00d4ff 50%, #007bff 100%);
+            background: linear-gradient(90deg, var(--theme-accent-strong) 0%, var(--theme-accent-2) 48%, var(--theme-accent) 100%);
             background-size: 200% auto;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
@@ -72,14 +166,14 @@
 
         .video-path {
             font-size: .85em;
-            color: #666;
+            color: var(--theme-text-soft);
             font-weight: 400;
         }
 
         /* 讓路徑字體稍微小一點、變灰色，不跟著流光 */
         .video-path {
             font-size: .85em;
-            color: #666;
+            color: var(--theme-text-soft);
             font-weight: 400;
         }
 
@@ -91,7 +185,7 @@
             font-size: 1rem;
             font-weight: 700;
             letter-spacing: 1px;
-            color: #333;
+            color: var(--theme-text);
         }
 
         .screenshot-images h5::after,
@@ -102,7 +196,7 @@
             bottom: -2px;
             width: 100%;
             height: 3px;
-            background: linear-gradient(90deg, #007bff 0%, #00d4ff 100%);
+            background: linear-gradient(90deg, var(--theme-accent) 0%, var(--theme-accent-2) 100%);
             border-radius: 2px;
 
             /* 底線左右流動動畫 */
@@ -123,10 +217,13 @@
         .upload-instructions {
             font-size: .9rem;
             font-weight: 600;
-            color: #007bff;
+            color: var(--theme-accent-strong);
             letter-spacing: .5px;
             position: relative;
             padding-left: 26px; /* 預留圖示空間 */
+            width: 100%;
+            text-align: center;
+            margin-top: 12px;
         }
 
         /* 加入 SVG 圖示（純 CSS，不需額外檔案） */
@@ -139,27 +236,28 @@
             height: 18px;
             transform: translateY(-50%);
             background: url('data:image/svg+xml;utf8,\
-<svg xmlns="http://www.w3.org/2000/svg" viewBox=\"0 0 24 24\" fill=\"%23007bff\">\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox=\"0 0 24 24\" fill=\"%23a55cf6\">\
 <path d=\"M12 16v-6m0 0l-3 3m3-3l3 3m6 1v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4m16-4h-3.586a1 1 0 01-.707-.293l-3.414-3.414a2 2 0 00-2.828 0L6.707 11.707a1 1 0 01-.707.293H4\"/>\
             </svg>') center/18px 18px no-repeat;
             opacity: .85;
         }
 
         .face-upload-area.dragover {
-            background: #f0f8ff;
-            border-color: #0056b3;
+            background: rgba(255, 255, 255, .96);
+            border-color: var(--theme-accent-strong);
+            box-shadow: 0 0 0 4px rgba(165, 92, 246, .12);
         }
 
         .face-paste-target {
             width: 100px;
             height: 56px;
             margin: 5px;
-            border: 2px dashed rgba(0, 123, 255, .55);
+            border: 2px dashed rgba(165, 92, 246, .42);
             border-radius: 14px;
             background:
                 radial-gradient(circle at top left, rgba(255, 255, 255, .95), rgba(255, 255, 255, 0) 45%),
-                linear-gradient(135deg, rgba(235, 247, 255, .98), rgba(214, 237, 255, .92) 48%, rgba(247, 251, 255, .96));
-            color: #4d647d;
+                linear-gradient(135deg, rgba(255, 255, 255, .98), rgba(244, 233, 255, .95) 48%, rgba(251, 245, 255, .98));
+            color: var(--theme-text-soft);
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -170,7 +268,7 @@
             overflow: hidden;
             position: relative;
             flex: 0 0 auto;
-            box-shadow: 0 10px 22px rgba(45, 98, 145, .14), inset 0 1px 0 rgba(255, 255, 255, .85);
+            box-shadow: 0 14px 28px rgba(124, 76, 168, .16), inset 0 1px 0 rgba(255, 255, 255, .88);
             transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
         }
 
@@ -208,7 +306,7 @@
         .face-paste-hint {
             font-size: .78rem;
             line-height: 1.35;
-            color: #56697f;
+            color: var(--theme-text-soft);
             padding: 0 4px;
             position: relative;
             z-index: 1;
@@ -240,8 +338,8 @@
 
         .face-paste-target:hover,
         .face-paste-target:focus {
-            border-color: #007bff;
-            box-shadow: 0 14px 28px rgba(28, 91, 143, .2), 0 0 0 4px rgba(0, 123, 255, .14);
+            border-color: var(--theme-accent);
+            box-shadow: 0 14px 28px rgba(124, 76, 168, .2), 0 0 0 4px rgba(165, 92, 246, .14);
             transform: translateY(-1px);
         }
 
@@ -270,7 +368,7 @@
             position: absolute;
             inset: -2px; /* 稍微蓋出邊界，光環更顯眼 */
             border-radius: inherit;
-            background: linear-gradient(135deg, #00d4ff 0%, #007bff 50%, #00d4ff 100%);
+            background: linear-gradient(135deg, var(--theme-accent-2) 0%, var(--theme-accent) 50%, var(--theme-accent-2) 100%);
             background-size: 300% 300%;
             opacity: 0;
             transition: opacity .4s;
@@ -321,11 +419,16 @@
             height: 56px;
             object-fit: cover;
             margin: 5px;
-            transition: transform .3s, border .3s, box-shadow .3s
+            transition: transform .3s, border .3s, box-shadow .3s;
+            border-radius: 16px;
+            border: 1px solid rgba(165, 92, 246, .14);
+            box-shadow: 0 12px 24px rgba(124, 76, 168, .12);
+            background: rgba(255, 255, 255, .85);
         }
 
         .face-screenshot.master {
-            border: 3px solid #f00
+            border: 3px solid var(--theme-success);
+            box-shadow: 0 18px 34px rgba(89, 164, 123, .22)
         }
 
         /* === 新增：截圖清單捲軸 === */
@@ -367,10 +470,11 @@
             bottom: 0;
             left: 30%;
             right: 0;
-            background: #fff;
+            background: rgba(255, 250, 255, .94);
             padding: 20px 30px;
-            border-top: 1px solid #ddd;
-            box-shadow: 0 -2px 5px rgba(0, 0, 0, .1);
+            border-top: 1px solid var(--theme-border);
+            box-shadow: 0 -10px 24px rgba(124, 76, 168, .12);
+            backdrop-filter: blur(12px);
             z-index: 1000;
             display: flex;
             align-items: center;
@@ -388,7 +492,8 @@
         .controls label {
             margin-right: 10px;
             font-weight: 700;
-            white-space: nowrap
+            white-space: nowrap;
+            color: var(--theme-text-soft)
         }
 
         #play-mode {
@@ -398,19 +503,20 @@
 
         /* === 上傳框 === */
         .upload-area {
-            border: 2px dashed #007bff;
-            border-radius: 5px;
+            border: 2px dashed rgba(165, 92, 246, .4);
+            border-radius: 18px;
             padding: 30px;
             text-align: center;
-            color: #aaa;
+            color: var(--theme-text-soft);
             transition: .3s;
-            margin-bottom: 20px
+            margin-bottom: 20px;
+            background: rgba(255, 255, 255, .74)
         }
 
         .upload-area.dragover {
-            background: #f0f8ff;
-            border-color: #0056b3;
-            color: #0056b3
+            background: rgba(255, 255, 255, .96);
+            border-color: var(--theme-accent-strong);
+            color: var(--theme-accent-strong)
         }
 
         /* === 主面人臉側欄 === */
@@ -421,19 +527,27 @@
             width: 30%;
             height: 100%;
             overflow-y: auto;
-            background: #f8f9fa;
-            border-right: 1px solid #ddd;
-            padding: 10px;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, .96), rgba(249, 239, 255, .92)),
+                var(--theme-card-strong);
+            border-right: 1px solid var(--theme-border);
+            padding: 18px 14px 90px;
             box-sizing: border-box;
             z-index: 100;
             display: flex;
             flex-direction: column;
-            align-items: center
+            align-items: center;
+            box-shadow: 14px 0 36px rgba(124, 76, 168, .1)
         }
 
         .master-faces h5 {
             text-align: center;
-            width: 100%
+            width: 100%;
+            margin-bottom: 12px;
+            font-size: 1.15rem;
+            font-weight: 800;
+            color: var(--theme-accent-strong);
+            letter-spacing: .08em;
         }
 
         /* 固定一列 4 張，每張都佔 1 格 */
@@ -451,29 +565,47 @@
             height: auto;
             aspect-ratio: 1/1;
             object-fit: contain;
-            background: #fff;
+            background: rgba(255, 255, 255, .92);
             cursor: pointer;
             border: 2px solid transparent;
-            border-radius: 5px;
-            transition: border-color .3s, box-shadow .3s, transform .3s
+            border-radius: 16px;
+            transition: border-color .3s, box-shadow .3s, transform .3s;
+            box-shadow: 0 12px 26px rgba(124, 76, 168, .12)
         }
 
         .master-face-img:hover {
-            border-color: #007bff;
+            border-color: var(--theme-accent);
             transform: scale(1.05)
         }
 
         .master-face-img.focused {
-            border-color: #28a745;
-            box-shadow: 0 0 15px rgba(40, 167, 69, .7);
+            border-color: var(--theme-success);
+            box-shadow: 0 0 0 4px rgba(89, 164, 123, .16), 0 0 15px rgba(89, 164, 123, .38);
             transform: scale(1.1)
+        }
+
+        .master-faces-status {
+            width: 100%;
+            margin-bottom: 14px;
+            padding: 10px 12px;
+            border-radius: 16px;
+            border: 1px dashed rgba(165, 92, 246, .22);
+            background: rgba(255, 255, 255, .74);
+            color: var(--theme-text-soft);
+            font-size: .88rem;
+            text-align: center;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .78);
+        }
+
+        .master-faces-status.is-hidden {
+            display: none;
         }
 
         /* === 主要內容區 === */
         .container {
             margin-left: 30%;
-            padding-top: 20px;
-            padding-bottom: 80px
+            padding-top: 24px;
+            padding-bottom: 104px
         }
 
         /* === 快訊訊息 === */
@@ -485,20 +617,21 @@
         }
 
         .message {
-            padding: 10px 20px;
-            border-radius: 5px;
+            padding: 12px 18px;
+            border-radius: 16px;
             margin-bottom: 10px;
             color: #fff;
             opacity: .9;
-            animation: fadeOut 1s forwards
+            animation: fadeOut 1s forwards;
+            box-shadow: 0 18px 38px rgba(86, 58, 114, .18)
         }
 
         .message.success {
-            background: #28a745
+            background: linear-gradient(135deg, #6dc18f, #4d986f)
         }
 
         .message.error {
-            background: #dc3545
+            background: linear-gradient(135deg, #e07aa2, #c04c7c)
         }
 
         @keyframes fadeOut {
@@ -515,7 +648,7 @@
             position: absolute;
             top: 5px;
             right: 5px;
-            background: rgba(220, 53, 69, .8);
+            background: rgba(208, 95, 145, .9);
             color: #fff;
             border: none;
             border-radius: 50%;
@@ -526,12 +659,13 @@
             cursor: pointer;
             display: none;
             font-size: 14px;
-            padding: 0
+            padding: 0;
+            box-shadow: 0 10px 18px rgba(192, 76, 124, .22)
         }
 
         .set-master-btn {
             right: 30px;
-            background: rgba(40, 167, 69, .8)
+            background: rgba(89, 164, 123, .9)
         }
 
         .screenshot-container, .face-screenshot-container {
@@ -609,7 +743,7 @@
                 height: auto;
                 position: relative;
                 border-right: none;
-                border-bottom: 1px solid #ddd
+                border-bottom: 1px solid var(--theme-border)
             }
 
             .container {
@@ -661,13 +795,13 @@
             height: 38px;
             border-radius: 50%;
             border: none;
-            background: #007bff;
+            background: linear-gradient(135deg, var(--theme-accent), var(--theme-accent-strong));
             color: #fff;
             font-size: 20px;
             line-height: 38px;
             text-align: center;
             cursor: pointer;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+            box-shadow: 0 14px 28px rgba(124, 76, 168, .28);
             transition: transform .45s ease-in-out, opacity .3s;
         }
 
@@ -713,6 +847,56 @@
         .controls.expanded {
             left: 30% !important;
         }
+
+        .video-wrapper video {
+            width: 100%;
+            display: block;
+            border-radius: 22px;
+            border: 1px solid rgba(165, 92, 246, .18);
+            box-shadow: 0 18px 34px rgba(124, 76, 168, .16);
+            background: rgba(255, 255, 255, .72);
+        }
+
+        .face-upload-area {
+            position: relative;
+            border: 2px dashed rgba(165, 92, 246, .3);
+            border-radius: 20px;
+            padding: 12px;
+            min-height: 132px;
+            background: linear-gradient(135deg, rgba(255, 255, 255, .92), rgba(247, 237, 255, .86));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
+            transition: border-color .2s ease, box-shadow .2s ease, opacity .2s ease;
+        }
+
+        .face-upload-area.is-uploading,
+        .face-upload-area.is-saving-master {
+            opacity: .78;
+            border-color: rgba(127, 59, 208, .55);
+            box-shadow: 0 0 0 4px rgba(165, 92, 246, .1);
+        }
+
+        .controls .btn,
+        .controls .form-control,
+        .controls input[type="range"] {
+            border-radius: 14px;
+        }
+
+        .controls .form-control {
+            border: 1px solid rgba(165, 92, 246, .18);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, .84);
+        }
+
+        .btn-warning {
+            color: #5e3a66;
+            background: linear-gradient(135deg, #ffe6ff, #f5d8ff);
+            border-color: rgba(165, 92, 246, .2);
+            box-shadow: 0 12px 22px rgba(124, 76, 168, .14);
+        }
+
+        .btn-warning:hover {
+            color: #4b2f52;
+            background: linear-gradient(135deg, #fff1ff, #eed2ff);
+        }
     </style>
 </head>
 <body>
@@ -721,24 +905,8 @@
 <!-- ===== 主面人臉側欄 ===== -->
 <div class="master-faces">
     <h5>主面人臉</h5>
-    <div class="master-face-images">
-        @php
-            $baseUrl = rtrim(config('app.video_base_url'), '/');
-        @endphp
-
-        @foreach($masterFaces as $mf)
-            <img
-                src="{{ $baseUrl }}/{{ ltrim((string) $mf->face_image_path, '/') }}"
-                class="master-face-img"
-                alt="主面人臉"
-                data-video-id="{{ $mf->videoScreenshot->videoMaster->id }}"
-                data-duration="{{ $mf->videoScreenshot->videoMaster->duration }}"
-                loading="lazy"
-                decoding="async"
-                fetchpriority="low"
-            >
-        @endforeach
-    </div>
+    <div id="master-faces-status" class="master-faces-status">主面人臉載入中...</div>
+    <div class="master-face-images"></div>
 </div>
 
 <!-- ===== 內容區 ===== -->
@@ -825,9 +993,15 @@
     <div class="video-row" data-id="{{ '{id}' }}" data-duration="{{ '{duration}' }}">
         <div class="video-container">
             <div class="video-wrapper">
-                <div class="video-title">
-                    @{{video_name}}
-                    <span class="video-path">(@{{video_path}})</span>
+                <div class="video-headline">
+                    <div class="video-title">
+                        @{{video_name}}
+                        <span class="video-path">(@{{video_path}})</span>
+                    </div>
+                    <div class="video-meta-chips">
+                        <span class="video-chip">#@{{id}}</span>
+                        <span class="video-chip">@{{duration}}s</span>
+                    </div>
                 </div>
                 <video width="100%" controls preload="none" playsinline>
                     <source src="{{ rtrim(config('app.video_base_url'), '/') }}/{{ '{video_path}' }}" type="video/mp4">
@@ -847,15 +1021,13 @@
 
             <div class="face-screenshot-images">
                 <h5>人臉截圖</h5>
-                <div class="d-flex flex-wrap face-upload-area" data-video-id="{{ '{id}' }}"
-                     style="position: relative; border: 2px dashed #007bff; border-radius: 5px; padding: 10px; min-height: 120px;">
+                <div class="d-flex flex-wrap face-upload-area" data-video-id="{{ '{id}' }}">
                     {{ '{face_screenshot_images}' }}
                     <div class="face-paste-target" contenteditable="true" tabindex="0">
                         <img class="face-paste-preview" alt="貼上預覽">
                         <span class="face-paste-hint">點一下後貼上，Enter 上傳</span>
                     </div>
-                    <div class="upload-instructions"
-                         style="width: 100%; text-align: center; color: #aaa; margin-top: 10px;">
+                    <div class="upload-instructions">
                         拖曳圖片到此處上傳
                     </div>
                 </div>
@@ -911,14 +1083,15 @@
     /* --------------------------------------------------
      * 全域變數
      * -------------------------------------------------- */
+    const baseVideoUrl = '{{ rtrim(config('app.video_base_url'), '/') }}';
     let missingOnly = {{ $missingOnly ? 'true' : 'false' }};
     let latestId = {{ $latestId ?? 'null' }};
     let sortBy = '{{ $sortBy }}';
     let sortDir = '{{ $sortDir }}';
     let lastPage = {{ $lastPage ?? 1 }};
     let loadedPages = [{{ $videos->currentPage() }}];
-    let nextPage = {{ $next_page ?? 'null' }};
-    let prevPage = {{ $prev_page ?? 'null' }};
+    let nextPage = {{ $nextPage ?? 'null' }};
+    let prevPage = {{ $prevPage ?? 'null' }};
     let loading = false;
 
     let videoList = [];
@@ -931,6 +1104,12 @@
     let videoType = '{{ request('video_type','1') }}';
 
     let initialFocusId = {{ $focusId ?? 'null' }};
+    let masterFacesPage = 0;
+    let masterFacesLastPage = 1;
+    let masterFacesLoading = false;
+    let masterFacesLoadedCount = 0;
+    const pendingFaceUploads = new Set();
+    const pendingMasterUpdates = new Set();
 
     $('#video-type, #sort-by, #sort-dir').on('change', function () {
         setTimeout(() => $('#controls-form').trigger('submit'), 0);
@@ -965,6 +1144,20 @@
         }, 1000);
     }
 
+    function getCurrentFocusedVideoId() {
+        return Number($('.video-row.focused').data('id') || $('#focus-id').val() || 0) || null;
+    }
+
+    function normalizeMediaPath(path) {
+        return String(path || '').replace(/^\/+/, '');
+    }
+
+    function updateMasterFacesStatus(text, hidden = false) {
+        const $status = $('#master-faces-status');
+        $status.text(text || '');
+        $status.toggleClass('is-hidden', !!hidden);
+    }
+
     /* --------------------------------------------------
      * 分頁載入 / 排序
      * -------------------------------------------------- */
@@ -978,6 +1171,31 @@
     /* --- 只顯示未選主面滑動開關 --- */
     function updateMissingOnlyLabel() {
         $('#missing-only-label').text(missingOnly ? '開' : '關');
+    }
+
+    function compareWithTiebreaker(primaryA, secondaryA, primaryB, secondaryB) {
+        if (primaryA !== primaryB) {
+            return sortDir === 'asc' ? (primaryA - primaryB) : (primaryB - primaryA);
+        }
+
+        return sortDir === 'asc' ? (secondaryA - secondaryB) : (secondaryB - secondaryA);
+    }
+
+    function getRowSortParts(el) {
+        const $el = $(el);
+        const id = parseInt($el.data('id'), 10) || 0;
+        const duration = parseFloat($el.data('duration')) || 0;
+
+        return sortBy === 'duration'
+            ? {primary: duration, secondary: id}
+            : {primary: id, secondary: id};
+    }
+
+    function compareVideoRows(a, b) {
+        const left = getRowSortParts(a);
+        const right = getRowSortParts(b);
+
+        return compareWithTiebreaker(left.primary, left.secondary, right.primary, right.secondary);
     }
 
     function loadMoreVideos(dir = 'down', target = null) {
@@ -1087,11 +1305,7 @@
     function rebuildAndSort() {
         const currentId = $('.video-row.focused').data('id') || null;
 
-        const rows = $('.video-row').get().sort((a, b) => {
-            const valA = (sortBy === 'duration') ? +$(a).data('duration') : +$(a).data('id');
-            const valB = (sortBy === 'duration') ? +$(b).data('duration') : +$(b).data('id');
-            return (sortDir === 'asc') ? (valA - valB) : (valB - valA);
-        });
+        const rows = $('.video-row').get().sort(compareVideoRows);
 
         $('#videos-list').empty().append(rows);
         buildVideoList();
@@ -1145,6 +1359,7 @@
         const $t = $(`.master-face-img[data-video-id="${id}"]`).addClass('focused');
         if (!$t.length) return;
         const c = document.querySelector('.master-faces');
+        if (!c) return;
         c.scrollTo({top: $t[0].offsetTop - c.clientHeight / 2 + $t[0].clientHeight / 2, behavior: 'smooth'});
     }
 
@@ -1322,7 +1537,16 @@
             const restoreMedia = releaseRowMediaSources($f);
             $.post("{{ route('video.deleteSelected') }}", {ids: [$f.data('id')], _token: '{{ csrf_token() }}'}, res => {
                 if (res?.success) {
+                    const deletedId = $f.data('id');
                     $f.remove();
+                    $(`.master-face-img[data-video-id="${deletedId}"]`).remove();
+                    masterFacesLoadedCount = $('.master-face-img').length;
+                    updateMasterFacesStatus(
+                        masterFacesPage < masterFacesLastPage
+                            ? `主面人臉已載入 ${masterFacesLoadedCount} 張，背景續載中...`
+                            : `主面人臉已載入完成，共 ${masterFacesLoadedCount} 張。`,
+                        masterFacesLoadedCount > 0 && masterFacesPage >= masterFacesLastPage
+                    );
                     showMessage('success', res.message);
                     rebuildAndSort();
                     const $next = $('.video-row').first();
@@ -1554,9 +1778,19 @@
                 return;
             }
 
+            const requestKey = String(vid);
+            if (pendingFaceUploads.has(requestKey)) {
+                showMessage('error', '這部影片的人臉截圖正在上傳，請稍候。');
+                return;
+            }
+
             const fd = new FormData();
             normalizedFiles.forEach(file => fd.append('face_images[]', file));
             fd.append('video_id', vid);
+
+            const $area = $('.face-upload-area[data-video-id="' + vid + '"]');
+            pendingFaceUploads.add(requestKey);
+            $area.addClass('is-uploading');
 
             $.ajax({
                 url: "{{ route('video.uploadFaceScreenshot') }}",
@@ -1576,6 +1810,10 @@
                 error(xhr) {
                     const message = xhr?.responseJSON?.message || '上傳失敗，請稍後再試。';
                     showMessage('error', message);
+                },
+                complete() {
+                    pendingFaceUploads.delete(requestKey);
+                    $area.removeClass('is-uploading');
                 }
             });
         }
@@ -1651,6 +1889,15 @@
 
         /* --- 設為主面人臉 --- */
         function setMaster(faceId, vid) {
+            const requestKey = String(vid);
+            if (pendingMasterUpdates.has(requestKey)) {
+                return;
+            }
+
+            const $area = $('.face-upload-area[data-video-id="' + vid + '"]');
+            pendingMasterUpdates.add(requestKey);
+            $area.addClass('is-saving-master');
+
             $.post("{{ route('video.setMasterFace') }}", {face_id: faceId, _token: '{{ csrf_token() }}'}, res => {
                 if (res && res.success) {
                     $(`.face-screenshot[data-video-id="${vid}"]`).removeClass('master');
@@ -1658,7 +1905,13 @@
                     updateMasterFace(res.data);
                     showMessage('success', '主面人臉已更新。');
                 } else showMessage('error', res.message);
-            }).fail(() => showMessage('error', '更新失敗，請稍後再試。'));
+            }).fail(xhr => {
+                const message = xhr?.responseJSON?.message || '更新失敗，請稍後再試。';
+                showMessage('error', message);
+            }).always(() => {
+                pendingMasterUpdates.delete(requestKey);
+                $area.removeClass('is-saving-master');
+            });
         }
 
         $(document).on('click', '.face-screenshot', function (e) {
@@ -1721,6 +1974,17 @@
         buildVideoList();
         applySizes();
         focusInitial();
+        loadMasterFacesPage(1, true);
+
+        $('.master-faces').on('scroll', function () {
+            if (masterFacesLoading || masterFacesPage >= masterFacesLastPage) {
+                return;
+            }
+
+            if (this.scrollTop + this.clientHeight >= this.scrollHeight - 180) {
+                loadMasterFacesPage(masterFacesPage + 1);
+            }
+        });
 
         /* ----------- 主面人臉側欄開關 ----------- */
         const $btnToggle = $('#toggle-master-faces');
@@ -1837,59 +2101,36 @@
         initialFocusId = null;                                     // ★ 新增
     }
 
-    function updateMasterFace(face) {
-        const vid = String(face.video_id);
-        const durationVal = Number(face.video_duration) || 0;
-
-        const baseUrl = '{{ rtrim(config("app.video_base_url"), "/") }}';
-        const facePath = String(face.face_image_path || '').replace(/^\/+/, '');
-        const src = baseUrl + '/' + facePath;
-
-        let $img = $('.master-face-img[data-video-id="' + vid + '"]');
-        if ($img.length) {
-            $img.attr('src', src)
-                .attr('data-duration', durationVal)
-                .attr('data-video-id', vid)
-                .removeClass('landscape');
-
-            repositionMasterFace($img[0]);
-        } else {
-            const html =
-                '<img ' +
-                'src="' + src + '" ' +
-                'class="master-face-img" ' +
-                'alt="主面人臉" ' +
-                'data-video-id="' + vid + '" ' +
-                'data-duration="' + durationVal + '" ' +
-                'loading="lazy" ' +
-                'decoding="async" ' +
-                'fetchpriority="low" ' +
-                '>';
-
-            if (sortDir === 'asc') {
-                $('.master-face-images').append(html);
-            } else {
-                $('.master-face-images').prepend(html);
-            }
-        }
-
-        applySizes();
-        applyMediaPerfOptimizations();
-    }
-
-    function getFaceSortKey(el) {
+    function getFaceSortParts(el) {
         const $el = $(el);
-        if (sortBy === 'duration') {
-            return parseFloat($el.data('duration')) || 0;
-        } else {
-            return parseInt($el.data('video-id')) || 0; // 以影片 id 當排序鍵
-        }
+        const videoId = parseInt($el.data('video-id'), 10) || 0;
+        const duration = parseFloat($el.data('duration')) || 0;
+
+        return sortBy === 'duration'
+            ? {primary: duration, secondary: videoId}
+            : {primary: videoId, secondary: videoId};
     }
 
     function compareFaces(a, b) {
-        const ka = getFaceSortKey(a);
-        const kb = getFaceSortKey(b);
-        return (sortDir === 'asc') ? (ka - kb) : (kb - ka);
+        const left = getFaceSortParts(a);
+        const right = getFaceSortParts(b);
+
+        return compareWithTiebreaker(left.primary, left.secondary, right.primary, right.secondary);
+    }
+
+    function buildMasterFaceElement(face) {
+        const img = document.createElement('img');
+        img.src = baseVideoUrl + '/' + normalizeMediaPath(face.face_image_path);
+        img.className = 'master-face-img';
+        img.alt = '主面人臉';
+        img.dataset.videoId = String(face.video_id);
+        img.dataset.duration = String(Number(face.video_duration) || 0);
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.fetchPriority = 'low';
+        img.title = (face.video_name || '影片') + ' #' + face.video_id;
+
+        return img;
     }
 
     function insertMasterFaceInOrder(el) {
@@ -1913,6 +2154,126 @@
         const $el = $(el);
         $el.detach();
         insertMasterFaceInOrder(el);
+    }
+
+    function appendMasterFaces(faces, reset = false) {
+        const $container = $('.master-face-images');
+        if (reset) {
+            $container.empty();
+            masterFacesLoadedCount = 0;
+        }
+
+        faces.forEach(face => {
+            const videoId = parseInt(face.video_id, 10) || 0;
+            if (!videoId) {
+                return;
+            }
+
+            const $existing = $container.children(`img.master-face-img[data-video-id="${videoId}"]`);
+            if ($existing.length) {
+                $existing
+                    .attr('src', baseVideoUrl + '/' + normalizeMediaPath(face.face_image_path))
+                    .attr('data-duration', Number(face.video_duration) || 0)
+                    .attr('title', (face.video_name || '影片') + ' #' + face.video_id);
+                repositionMasterFace($existing[0]);
+                return;
+            }
+
+            insertMasterFaceInOrder(buildMasterFaceElement(face));
+            masterFacesLoadedCount += 1;
+        });
+
+        const focusedId = getCurrentFocusedVideoId();
+        if (focusedId) {
+            focusMasterFace(focusedId);
+        }
+
+        updateMasterFacesStatus(
+            masterFacesPage < masterFacesLastPage
+                ? `主面人臉已載入 ${masterFacesLoadedCount} 張，背景續載中...`
+                : `主面人臉已載入完成，共 ${masterFacesLoadedCount} 張。`,
+            masterFacesLoadedCount > 0 && masterFacesPage >= masterFacesLastPage
+        );
+    }
+
+    function queueMasterFacesPrefetch() {
+        if (masterFacesLoading || masterFacesPage >= masterFacesLastPage) {
+            return;
+        }
+
+        const schedule = window.requestIdleCallback
+            ? cb => window.requestIdleCallback(cb, {timeout: 1200})
+            : cb => setTimeout(cb, 180);
+
+        schedule(() => {
+            if (!masterFacesLoading && masterFacesPage < masterFacesLastPage) {
+                loadMasterFacesPage(masterFacesPage + 1);
+            }
+        });
+    }
+
+    function loadMasterFacesPage(page = 1, reset = false) {
+        if (masterFacesLoading) {
+            return;
+        }
+
+        masterFacesLoading = true;
+        if (reset) {
+            masterFacesPage = 0;
+            masterFacesLastPage = 1;
+            updateMasterFacesStatus('主面人臉載入中...');
+        } else {
+            updateMasterFacesStatus(`主面人臉已載入 ${masterFacesLoadedCount} 張，繼續同步中...`);
+        }
+
+        $.ajax({
+            url: "{{ route('video.loadMasterFaces') }}",
+            method: 'GET',
+            data: {
+                page,
+                per_page: 160,
+                video_type: videoType,
+                sort_by: sortBy,
+                sort_dir: sortDir
+            },
+            success(res) {
+                if (res?.success) {
+                    masterFacesPage = Number(res.current_page || page) || page;
+                    masterFacesLastPage = Number(res.last_page || masterFacesPage) || masterFacesPage;
+                    appendMasterFaces(Array.isArray(res.data) ? res.data : [], reset);
+
+                    if (masterFacesPage < masterFacesLastPage) {
+                        queueMasterFacesPrefetch();
+                    }
+                } else {
+                    updateMasterFacesStatus(res?.message || '主面人臉載入失敗。');
+                }
+            },
+            error() {
+                updateMasterFacesStatus('主面人臉載入失敗，請稍後再試。');
+            },
+            complete() {
+                masterFacesLoading = false;
+            }
+        });
+    }
+
+    function updateMasterFace(face) {
+        const videoId = parseInt(face.video_id, 10) || 0;
+        if (!videoId) {
+            showMessage('error', '主面人臉同步失敗：缺少影片資訊。');
+            return;
+        }
+
+        appendMasterFaces([face], false);
+        updateMasterFacesStatus(
+            masterFacesPage < masterFacesLastPage
+                ? `主面人臉已載入 ${masterFacesLoadedCount} 張，背景續載中...`
+                : `主面人臉已載入完成，共 ${masterFacesLoadedCount} 張。`,
+            masterFacesLoadedCount > 0 && masterFacesPage >= masterFacesLastPage
+        );
+        applySizes();
+        applyMediaPerfOptimizations();
     }
 
     function resortMasterFacesByCurrentSort() {

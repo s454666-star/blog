@@ -17,9 +17,15 @@
     <div class="video-row" data-id="{{ $video->id }}" data-duration="{{ $video->duration }}">
         <div class="video-container">
             <div class="video-wrapper">
-                <div class="video-title">
-                    {{ e($video->video_name) }}
-                    <span class="video-path">({{ e($video->video_path) }})</span>
+                <div class="video-headline">
+                    <div class="video-title">
+                        {{ e($video->video_name) }}
+                        <span class="video-path">({{ e($video->video_path) }})</span>
+                    </div>
+                    <div class="video-meta-chips">
+                        <span class="video-chip">#{{ $video->id }}</span>
+                        <span class="video-chip">{{ number_format((float) $video->duration, 2) }}s</span>
+                    </div>
                 </div>
 
                 <video width="100%" controls preload="none" playsinline @if($posterUrl) poster="{{ $posterUrl }}" @endif>
@@ -53,7 +59,7 @@
 
             <div class="face-screenshot-images">
                 <h5>人臉截圖</h5>
-                <div class="d-flex flex-wrap face-upload-area" data-video-id="{{ $video->id }}" style="position: relative; border: 2px dashed #007bff; border-radius: 5px; padding: 10px; min-height: 120px;">
+                <div class="d-flex flex-wrap face-upload-area" data-video-id="{{ $video->id }}">
                     @foreach($video->screenshots as $screenshot)
                         @foreach($screenshot->faceScreenshots as $face)
                             <div class="face-screenshot-container">
@@ -78,7 +84,7 @@
                         <img class="face-paste-preview" alt="貼上預覽">
                         <span class="face-paste-hint">點一下後貼上，Enter 上傳</span>
                     </div>
-                    <div class="upload-instructions" style="width: 100%; text-align: center; color: #aaa; margin-top: 10px;">
+                    <div class="upload-instructions">
                         拖曳圖片到此處上傳
                     </div>
                 </div>

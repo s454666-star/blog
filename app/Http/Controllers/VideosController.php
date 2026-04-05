@@ -3,10 +3,12 @@
     namespace App\Http\Controllers;
 
     use App\Models\VideoFaceScreenshot;
+    use App\Models\VideoFeature;
     use App\Models\VideoMaster;
     use App\Models\VideoScreenshot;
     use App\Models\VideoTs;
     use App\Services\MediaDurationProbeService;
+    use App\Services\VideoRerunEagleClient;
     use App\Services\VideoFeatureExtractionService;
     use App\Support\RelativeMediaPath;
     use Illuminate\Http\Request;
@@ -28,7 +30,9 @@
             $focusId     = $request->input('focus_id');
 
             /* ---------- 建立基礎查詢 ---------- */
-            $baseQuery = VideoMaster::where('video_type', $videoType);
+            $baseQuery = VideoMaster::query()
+                ->select(['id', 'video_name', 'video_path', 'm3u8_path', 'duration', 'video_type', 'created_at', 'updated_at'])
+                ->where('video_type', $videoType);
             if ($missingOnly) {
                 $baseQuery->whereDoesntHave('masterFaces');
             }
@@ -69,28 +73,8 @@
             $prevPage = $page > 1 ? $page - 1 : null;
             $nextPage = $page < $lastPage ? $page + 1 : null;
 
-            /* ---------- 左欄主面人臉（改用 DB 排序，避免 PHP sortBy） ---------- */
-            $masterFacesQuery = VideoFaceScreenshot::query()
-                ->select('video_face_screenshots.*')
-                ->join('video_screenshots', 'video_screenshots.id', '=', 'video_face_screenshots.video_screenshot_id')
-                ->join('video_master', 'video_master.id', '=', 'video_screenshots.video_master_id')
-                ->where('video_face_screenshots.is_master', 1)
-                ->where('video_master.video_type', $videoType);
-
-            if ($sortBy === 'duration') {
-                $masterFacesQuery
-                    ->orderBy('video_master.duration', $sortDir)
-                    ->orderBy('video_master.id', $sortDir);
-            } else {
-                $masterFacesQuery->orderBy('video_master.id', $sortDir);
-            }
-
-            $masterFaces = $masterFacesQuery
-                ->with('videoScreenshot.videoMaster')
-                ->get();
-
             return view('video.index', compact(
-                'videos', 'masterFaces',
+                'videos',
                 'prevPage', 'nextPage', 'lastPage',
                 'videoType', 'sortBy', 'sortDir',
                 'latestId', 'missingOnly',
@@ -106,7 +90,9 @@
             $sortBy      = in_array($request->input('sort_by'), ['id','duration']) ? $request->input('sort_by') : 'duration';
             $sortDir     = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
 
-            $query = VideoMaster::where('video_type', $videoType);
+            $query = VideoMaster::query()
+                ->select(['id', 'video_name', 'video_path', 'm3u8_path', 'duration', 'video_type', 'created_at', 'updated_at'])
+                ->where('video_type', $videoType);
             if ($missingOnly) {
                 $query->whereDoesntHave('masterFaces');
             }
@@ -236,30 +222,15 @@
             $videoRoot = $this->videoDiskRoot();
             $m3u8Root  = rtrim(env('M3U8_TARGET_ROOT', 'Z:/m3u8'), '/\\');
 
-            $videos = VideoMaster::whereIn('id', $ids)->with('screenshots.faceScreenshots')->get();
+            $videos = VideoMaster::whereIn('id', $ids)
+                ->with('screenshots.faceScreenshots')
+                ->get();
+            $eagleItemLookup = $this->buildEagleItemLookup();
 
             foreach ($videos as $video) {
                 DB::beginTransaction();
                 try {
-                    // 1) 刪除原影片與其截圖、人臉檔案
-                    $this->deleteVideoPhysicalFiles($video);
-
-                    // 2) 若有 m3u8，刪除 videos_ts 與 Z:\m3u8 的檔案與資料夾
-                    $this->deleteM3u8AssetsAndRows($video, $m3u8Root);
-
-                    // 3) 刪除 DB：screenshots、faceScreenshots 已設置 on delete cascade（或手動刪除保險）
-                    foreach ($video->screenshots as $screenshot) {
-                        foreach ($screenshot->faceScreenshots as $face) {
-                            $face->delete();
-                        }
-                        $screenshot->delete();
-                    }
-
-                    // 4) 刪除 video_master
-                    $video->delete();
-
-                    // 5) 刪除影片資料夾；若資料夾仍在，視為刪除失敗並回滾 DB
-                    $this->deleteVideoFolderIfExists($video, $videoRoot);
+                    $this->deleteVideoAndAssets($video, $videoRoot, $m3u8Root, $eagleItemLookup);
 
                     DB::commit();
                 } catch (\Throwable $e) {
@@ -471,73 +442,74 @@
                 ]);
             }
 
-            DB::transaction(function() use ($face) {
-                $videoMasterId = $face->videoScreenshot->videoMaster->id;
+            $videoMasterId = (int) $face->videoScreenshot->videoMaster->id;
 
-                VideoFaceScreenshot::whereHas('videoScreenshot.videoMaster', function($query) use ($videoMasterId) {
-                    $query->where('id', $videoMasterId);
-                })
-                    ->update(['is_master' => 0]);
+            try {
+                DB::transaction(function () use ($faceId, $videoMasterId, $videoFeatureExtractionService): void {
+                    VideoFaceScreenshot::query()
+                        ->whereHas('videoScreenshot', function ($query) use ($videoMasterId): void {
+                            $query->where('video_master_id', $videoMasterId);
+                        })
+                        ->update(['is_master' => 0]);
 
-                $face->is_master = 1;
-                $face->save();
-            });
+                    $updatedRows = VideoFaceScreenshot::query()
+                        ->whereKey($faceId)
+                        ->update(['is_master' => 1]);
 
-            $videoFeatureExtractionService->syncMasterFaceForVideo($face->videoScreenshot->videoMaster->id);
+                    if ($updatedRows !== 1) {
+                        throw new \RuntimeException('主面人臉寫入失敗。');
+                    }
 
-            $updatedFace = VideoFaceScreenshot::with(['videoScreenshot.videoMaster'])->find($faceId);
+                    $videoFeatureExtractionService->syncMasterFaceForVideo($videoMasterId);
+                });
+            } catch (\Throwable $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '主面人臉更新失敗：' . $e->getMessage(),
+                ], 500);
+            }
 
-            $imagePath = $this->resolveVideoDiskAbsolutePath($updatedFace->face_image_path);
-            if (file_exists($imagePath)) {
-                list($width, $height) = getimagesize($imagePath);
-                $updatedFace->width = $width;
-                $updatedFace->height = $height;
-            } else {
-                $updatedFace->width = 0;
-                $updatedFace->height = 0;
+            $updatedFace = $this->findMasterFacePayload($faceId);
+            $masterCount = $this->countMasterFacesForVideo($videoMasterId);
+
+            if ($updatedFace === null || (int) ($updatedFace->is_master ?? 0) !== 1 || $masterCount !== 1) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '主面人臉驗證失敗，請重新嘗試。',
+                ], 409);
             }
 
             return response()->json([
                 'success' => true,
-                'data' => $updatedFace->toArray()
+                'data' => $this->transformMasterFaceRecord($updatedFace),
             ]);
         }
 
         public function loadMasterFaces(Request $request): \Illuminate\Http\JsonResponse
         {
             $videoType = $request->input('video_type', '1');
+            $page = max(1, (int) $request->input('page', 1));
+            $perPage = min(400, max(40, (int) $request->input('per_page', 160)));
 
             // 讓左欄排序與右欄一致
             $sortBy  = in_array($request->input('sort_by'), ['id', 'duration']) ? $request->input('sort_by') : 'duration';
             $sortDir = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
 
-            $masterFaces = VideoFaceScreenshot::where('is_master', 1)
-                ->whereHas('videoScreenshot.videoMaster', function($query) use ($videoType) {
-                    $query->where('video_type', $videoType);
-                })
-                ->with('videoScreenshot.videoMaster')
-                ->get()
-                ->sortBy(function($face) use ($sortBy) {
-                    return $sortBy === 'duration'
-                        ? (float) ($face->videoScreenshot->videoMaster->duration ?? 0)
-                        : (int)   ($face->videoScreenshot->videoMaster->id ?? 0);
-                }, SORT_NUMERIC, $sortDir === 'desc');
-
-            foreach ($masterFaces as $face) {
-                $imagePath = $this->resolveVideoDiskAbsolutePath($face->face_image_path);
-                if (file_exists($imagePath)) {
-                    list($width, $height) = getimagesize($imagePath);
-                    $face->width = $width;
-                    $face->height = $height;
-                } else {
-                    $face->width = 0;
-                    $face->height = 0;
-                }
-            }
+            $masterFaces = $this->applyMasterFaceOrdering(
+                $this->masterFaceListingQuery($videoType),
+                $sortBy,
+                $sortDir
+            )->paginate($perPage, ['*'], 'page', $page);
 
             return response()->json([
                 'success' => true,
-                'data'    => $masterFaces->toArray()
+                'data'    => collect($masterFaces->items())
+                    ->map(fn ($face) => $this->transformMasterFaceRecord($face))
+                    ->values()
+                    ->all(),
+                'next_page' => $masterFaces->currentPage() < $masterFaces->lastPage() ? $masterFaces->currentPage() + 1 : null,
+                'last_page' => $masterFaces->lastPage(),
+                'current_page' => $masterFaces->currentPage(),
             ]);
         }
 
@@ -684,28 +656,12 @@
                 ], 404);
             }
 
+            $eagleItemLookup = $this->buildEagleItemLookup();
+
             DB::beginTransaction();
 
             try {
-                // 1) 刪除原影片與其截圖、人臉檔案
-                $this->deleteVideoPhysicalFiles($video);
-
-                // 2) 若有 m3u8，刪除 videos_ts 與 Z:\m3u8 的檔案與資料夾
-                $this->deleteM3u8AssetsAndRows($video, $m3u8Root);
-
-                // 3) 刪除關聯資料（雙保險：有外鍵 on delete cascade 時可省，但這裡保留）
-                foreach ($video->screenshots as $screenshot) {
-                    foreach ($screenshot->faceScreenshots as $face) {
-                        $face->delete();
-                    }
-                    $screenshot->delete();
-                }
-
-                // 4) 刪除影片主檔
-                $video->delete();
-
-                // 5) 刪除影片資料夾；若資料夾仍在，視為刪除失敗並回滾 DB
-                $this->deleteVideoFolderIfExists($video, $videoRoot);
+                $this->deleteVideoAndAssets($video, $videoRoot, $m3u8Root, $eagleItemLookup);
 
                 DB::commit();
             } catch (\Exception $e) {
@@ -826,6 +782,206 @@
             // 2) 刪實體檔案：Z:\m3u8\<folder>
             $targetDir = $this->joinPaths($m3u8Root, $folder);
             $this->deletePathWithRetries($targetDir, true);
+        }
+
+        private function deleteVideoAndAssets(
+            VideoMaster $video,
+            string $videoRoot,
+            string $m3u8Root,
+            array $eagleItemLookup = [],
+        ): void {
+            $this->deleteVideoPhysicalFiles($video);
+            $this->deleteM3u8AssetsAndRows($video, $m3u8Root);
+            $this->deleteRerunReplicaIfExists($video);
+            $this->deleteEagleReplicaIfExists($video, $eagleItemLookup);
+            $this->deleteFeatureRows($video);
+
+            foreach ($video->screenshots as $screenshot) {
+                foreach ($screenshot->faceScreenshots as $face) {
+                    $face->delete();
+                }
+
+                $screenshot->delete();
+            }
+
+            $video->delete();
+            $this->deleteVideoFolderIfExists($video, $videoRoot);
+        }
+
+        private function deleteFeatureRows(VideoMaster $video): void
+        {
+            VideoFeature::query()
+                ->where('video_master_id', $video->id)
+                ->delete();
+        }
+
+        private function deleteRerunReplicaIfExists(VideoMaster $video): void
+        {
+            $rerunRoot = rtrim((string) config('video_rerun_sync.rerun_root', ''), '/\\');
+            $fileName = $this->replicaFileName($video);
+
+            if ($rerunRoot === '' || $fileName === '') {
+                return;
+            }
+
+            $targetPath = $this->joinPaths($rerunRoot, $fileName);
+            $this->deletePathWithRetries($targetPath);
+        }
+
+        private function deleteEagleReplicaIfExists(VideoMaster $video, array $eagleItemLookup): void
+        {
+            if ($eagleItemLookup === []) {
+                return;
+            }
+
+            $client = app(VideoRerunEagleClient::class);
+            $deleted = [];
+
+            foreach ($this->eagleLookupKeysForVideo($video) as $lookupKey) {
+                foreach ($eagleItemLookup[$lookupKey] ?? [] as $itemId) {
+                    if (isset($deleted[$itemId])) {
+                        continue;
+                    }
+
+                    $client->moveToTrash($itemId);
+                    $deleted[$itemId] = true;
+                }
+            }
+        }
+
+        private function buildEagleItemLookup(): array
+        {
+            $client = app(VideoRerunEagleClient::class);
+            $client->ensureConfiguredLibrary();
+
+            $lookup = [];
+
+            foreach ($client->listItems() as $item) {
+                $itemId = trim((string) ($item['id'] ?? ''));
+                if ($itemId === '') {
+                    continue;
+                }
+
+                foreach ($this->eagleLookupKeysForItem($item) as $lookupKey) {
+                    $lookup[$lookupKey] ??= [];
+                    $lookup[$lookupKey][] = $itemId;
+                }
+            }
+
+            return $lookup;
+        }
+
+        private function eagleLookupKeysForItem(array $item): array
+        {
+            $name = trim((string) ($item['name'] ?? ''));
+            $ext = trim((string) ($item['ext'] ?? ''));
+            $displayName = $ext !== '' ? $name . '.' . $ext : $name;
+
+            return array_values(array_filter(array_unique([
+                $this->normalizeLookupKey($displayName),
+                $this->normalizeLookupKey($name),
+            ])));
+        }
+
+        private function eagleLookupKeysForVideo(VideoMaster $video): array
+        {
+            $fileName = $this->replicaFileName($video);
+            $videoName = trim((string) $video->video_name);
+
+            return array_values(array_filter(array_unique([
+                $this->normalizeLookupKey($fileName),
+                $this->normalizeLookupKey(pathinfo($fileName, PATHINFO_FILENAME)),
+                $this->normalizeLookupKey($videoName),
+                $this->normalizeLookupKey(pathinfo($videoName, PATHINFO_FILENAME)),
+            ])));
+        }
+
+        private function normalizeLookupKey(?string $value): string
+        {
+            $value = trim((string) $value);
+            if ($value === '') {
+                return '';
+            }
+
+            return mb_strtolower($value, 'UTF-8');
+        }
+
+        private function replicaFileName(VideoMaster $video): string
+        {
+            $videoPath = str_replace('\\', '/', (string) $video->video_path);
+            $fileName = trim((string) pathinfo($videoPath, PATHINFO_BASENAME));
+
+            if ($fileName !== '') {
+                return $fileName;
+            }
+
+            return trim((string) $video->video_name);
+        }
+
+        private function masterFaceListingQuery(string $videoType)
+        {
+            return VideoFaceScreenshot::query()
+                ->select([
+                    'video_face_screenshots.id',
+                    'video_face_screenshots.face_image_path',
+                    'video_face_screenshots.is_master',
+                    'video_screenshots.video_master_id as video_id',
+                    'video_master.duration as video_duration',
+                    'video_master.video_name as video_name',
+                ])
+                ->join('video_screenshots', 'video_screenshots.id', '=', 'video_face_screenshots.video_screenshot_id')
+                ->join('video_master', 'video_master.id', '=', 'video_screenshots.video_master_id')
+                ->where('video_face_screenshots.is_master', 1)
+                ->where('video_master.video_type', $videoType);
+        }
+
+        private function applyMasterFaceOrdering($query, string $sortBy, string $sortDir)
+        {
+            if ($sortBy === 'duration') {
+                return $query
+                    ->orderBy('video_master.duration', $sortDir)
+                    ->orderBy('video_master.id', $sortDir);
+            }
+
+            return $query->orderBy('video_master.id', $sortDir);
+        }
+
+        private function findMasterFacePayload(int $faceId)
+        {
+            return VideoFaceScreenshot::query()
+                ->select([
+                    'video_face_screenshots.id',
+                    'video_face_screenshots.face_image_path',
+                    'video_face_screenshots.is_master',
+                    'video_screenshots.video_master_id as video_id',
+                    'video_master.duration as video_duration',
+                    'video_master.video_name as video_name',
+                ])
+                ->join('video_screenshots', 'video_screenshots.id', '=', 'video_face_screenshots.video_screenshot_id')
+                ->join('video_master', 'video_master.id', '=', 'video_screenshots.video_master_id')
+                ->where('video_face_screenshots.id', $faceId)
+                ->first();
+        }
+
+        private function countMasterFacesForVideo(int $videoMasterId): int
+        {
+            return VideoFaceScreenshot::query()
+                ->join('video_screenshots', 'video_screenshots.id', '=', 'video_face_screenshots.video_screenshot_id')
+                ->where('video_screenshots.video_master_id', $videoMasterId)
+                ->where('video_face_screenshots.is_master', 1)
+                ->count();
+        }
+
+        private function transformMasterFaceRecord($face): array
+        {
+            return [
+                'id' => (int) $face->id,
+                'face_image_path' => (string) $face->face_image_path,
+                'is_master' => (bool) $face->is_master,
+                'video_id' => (int) $face->video_id,
+                'video_duration' => (float) $face->video_duration,
+                'video_name' => (string) ($face->video_name ?? ''),
+            ];
         }
 
         /**

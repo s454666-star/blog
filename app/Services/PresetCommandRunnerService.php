@@ -23,8 +23,8 @@ class PresetCommandRunnerService
             'move_video_duplicates' => 2,
             'move_folder_duplicates' => 3,
             'scan_video_duplicates' => 4,
-            'reencode_video_medium_high' => 5,
-            'sync_rerun_video_sources' => 6,
+            'sync_rerun_video_sources' => 5,
+            'reencode_video_medium_high' => 6,
         ];
 
         foreach (self::catalog() as $id => $preset) {

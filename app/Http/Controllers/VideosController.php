@@ -30,8 +30,7 @@
             'updated_at',
         ];
 
-        private const INDEX_PER_PAGE = 20;
-        private const LOAD_MORE_PER_PAGE = 10;
+        private const VIDEO_PAGE_SIZE = 20;
 
         public function index(Request $request)
         {
@@ -40,7 +39,7 @@
             $missingOnly = $request->boolean('missing_only', false);       // 是否只列出尚未選主面
             $sortBy      = in_array($request->input('sort_by'), ['id','duration']) ? $request->input('sort_by') : 'duration';
             $sortDir     = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
-            $perPage     = self::INDEX_PER_PAGE;
+            $perPage     = self::VIDEO_PAGE_SIZE;
             $focusId     = $request->input('focus_id');
 
             /* ---------- 建立基礎查詢 ---------- */
@@ -98,7 +97,7 @@
             // 套用穩定排序 + 精簡 eager load 欄位（減少 SQL/記憶體/HTML 生成成本）
             $videos = $this->withVideoListRelations(
                 $this->applyOrdering($query, $sortBy, $sortDir)
-            )->paginate(self::LOAD_MORE_PER_PAGE, ['*'], 'page', $page);
+            )->paginate(self::VIDEO_PAGE_SIZE, ['*'], 'page', $page);
 
             if ($videos->isEmpty()) {
                 return response()->json(['success' => false], 204);
@@ -164,7 +163,7 @@
             $missingOnly = $request->boolean('missing_only', false);
             $sortBy      = $this->parseSortBy($request->input('sort_by', 'duration'));
             $sortDir     = $this->parseSortDir($request->input('sort_dir', 'asc'));
-            $perPage     = self::LOAD_MORE_PER_PAGE;
+            $perPage     = self::VIDEO_PAGE_SIZE;
 
             /* ---- 目標影片 ---- */
             $video = VideoMaster::where('id', $videoId)

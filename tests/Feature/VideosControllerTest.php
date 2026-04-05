@@ -227,6 +227,52 @@ class VideosControllerTest extends TestCase
         $this->assertCount(0, $this->eagleItems);
     }
 
+    public function test_load_more_uses_the_same_page_size_as_index_without_repeating_rows(): void
+    {
+        $videoIds = [];
+
+        for ($i = 1; $i <= 45; $i++) {
+            $videoIds[] = DB::table('video_master')->insertGetId([
+                'video_name' => sprintf('Clip_%03d.mp4', $i),
+                'video_path' => sprintf('Clip_%03d/Clip_%03d.mp4', $i, $i),
+                'm3u8_path' => null,
+                'duration' => $i,
+                'video_type' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $indexResponse = $this->get(route('video.index', [
+            'video_type' => 1,
+            'sort_by' => 'id',
+            'sort_dir' => 'asc',
+            'focus_id' => $videoIds[0],
+        ]));
+
+        $indexResponse->assertOk();
+
+        $firstPageIds = $this->extractVideoRowIdsFromHtml($indexResponse->getContent());
+        $this->assertSame(array_slice($videoIds, 0, 20), $firstPageIds);
+
+        $loadMoreResponse = $this->getJson(route('video.loadMore', [
+            'page' => 2,
+            'video_type' => 1,
+            'sort_by' => 'id',
+            'sort_dir' => 'asc',
+        ]));
+
+        $loadMoreResponse->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonPath('last_page', 3);
+
+        $secondPageIds = $this->extractVideoRowIdsFromHtml((string) $loadMoreResponse->json('data'));
+
+        $this->assertSame(array_slice($videoIds, 20, 20), $secondPageIds);
+        $this->assertSame([], array_values(array_intersect($firstPageIds, $secondPageIds)));
+    }
+
     private function fakeEagleApi(): void
     {
         Http::fake(function (\Illuminate\Http\Client\Request $request) {
@@ -285,6 +331,13 @@ class VideosControllerTest extends TestCase
             'name' => $name,
             'ext' => $ext,
         ];
+    }
+
+    private function extractVideoRowIdsFromHtml(string $html): array
+    {
+        preg_match_all('/class="video-row"\s+data-id="(\d+)"/', $html, $matches);
+
+        return array_map('intval', $matches[1] ?? []);
     }
 
     private function createTables(): void

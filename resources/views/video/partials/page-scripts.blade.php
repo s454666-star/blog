@@ -152,6 +152,47 @@
         return compareWithTiebreaker(left.primary, left.secondary, right.primary, right.secondary);
     }
 
+    function collectExistingVideoIds() {
+        return new Set(
+            $('.video-row').map(function () {
+                return String($(this).data('id'));
+            }).get().filter(Boolean)
+        );
+    }
+
+    function filterUniqueVideoRows($rows) {
+        const existingIds = collectExistingVideoIds();
+        const incomingIds = new Set();
+
+        return $rows.filter(function () {
+            const id = String($(this).data('id') || '');
+            if (!id || existingIds.has(id) || incomingIds.has(id)) {
+                return false;
+            }
+
+            incomingIds.add(id);
+            return true;
+        });
+    }
+
+    function dedupeRenderedVideoRows() {
+        const seen = new Set();
+
+        $('.video-row').each(function () {
+            const id = String($(this).data('id') || '');
+            if (!id) {
+                return;
+            }
+
+            if (seen.has(id)) {
+                $(this).remove();
+                return;
+            }
+
+            seen.add(id);
+        });
+    }
+
     function loadMoreVideos(dir = 'down', target = null) {
         if (loading) return;
 
@@ -180,15 +221,24 @@
             success(res) {
                 if (res && res.success && res.data.trim()) {
                     const $temp = $('<div>').html(res.data);
-                    dir === 'down'
-                        ? $('#videos-list').append($temp.children())
-                        : $('#videos-list').prepend($temp.children());
+                    const $rows = filterUniqueVideoRows($temp.children('.video-row'));
+                    const appendedCount = $rows.length;
 
-                    if (!loadedPages.includes(res.current_page))
+                    if (appendedCount > 0) {
+                        dir === 'down'
+                            ? $('#videos-list').append($rows)
+                            : $('#videos-list').prepend($rows);
+                    }
+
+                    if (appendedCount > 0 && !loadedPages.includes(res.current_page))
                         loadedPages.push(res.current_page);
 
                     lastPage = res.last_page || lastPage;
-                    rebuildAndSort();
+                    if (appendedCount > 0) {
+                        rebuildAndSort();
+                    } else if (!target) {
+                        dir === 'down' ? nextPage = res.next_page : prevPage = res.prev_page;
+                    }
                 } else {
                     if (!target) dir === 'down' ? nextPage = null : prevPage = null;
                     $('#load-more').html('<p>沒有更多資料了。</p>');
@@ -227,9 +277,13 @@
             success(res) {
                 if (res && res.success && res.data.trim()) {
                     const $temp = $('<div>').html(res.data);
-                    $('#videos-list').append($temp.children());
+                    const $rows = filterUniqueVideoRows($temp.children('.video-row'));
 
-                    if (!loadedPages.includes(res.current_page))
+                    if ($rows.length) {
+                        $('#videos-list').append($rows);
+                    }
+
+                    if ($rows.length && !loadedPages.includes(res.current_page))
                         loadedPages.push(res.current_page);
 
                     lastPage = res.last_page || lastPage;
@@ -259,6 +313,7 @@
     function rebuildAndSort() {
         const currentId = $('.video-row.focused').data('id') || null;
 
+        dedupeRenderedVideoRows();
         const rows = $('.video-row').get().sort(compareVideoRows);
 
         $('#videos-list').empty().append(rows);

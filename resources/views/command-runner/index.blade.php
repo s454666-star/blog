@@ -1004,6 +1004,7 @@
                                                         data-preset-input
                                                         data-preset-input-name="{{ $inputField['name'] }}"
                                                         data-preview-token="{{ $inputField['preview_token'] ?? '' }}"
+                                                        data-default-suffix="{{ $inputField['default_suffix'] ?? '' }}"
                                                         value="{{ $inputField['value'] ?? $inputField['default'] ?? '' }}"
                                                         placeholder="{{ $inputField['placeholder'] ?? '' }}"
                                                         spellcheck="false"
@@ -1187,6 +1188,22 @@
                 } catch (error) {
                     return '';
                 }
+            };
+
+            const applyDefaultSuffix = (value, suffix) => {
+                if (!value || !suffix) {
+                    return value;
+                }
+
+                const normalized = value.replace(/[\\/]+$/, '');
+                const segments = normalized.split(/[\\/]/);
+                const baseName = segments[segments.length - 1] || '';
+
+                if (!baseName || /\.[^./\\]+$/.test(baseName)) {
+                    return value;
+                }
+
+                return `${value}${suffix}`;
             };
 
             const setRuntimeMeta = (row, state) => {
@@ -1461,7 +1478,8 @@
                         return;
                     }
 
-                    const value = input.value.trim() || input.placeholder || '';
+                    let value = input.value.trim() || input.placeholder || '';
+                    value = applyDefaultSuffix(value, input.dataset.defaultSuffix || '');
                     template = template.replaceAll(token, value);
                 });
 

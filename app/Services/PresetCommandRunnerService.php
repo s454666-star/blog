@@ -800,6 +800,7 @@ class PresetCommandRunnerService
                         'placeholder' => '',
                         'default' => '',
                         'required' => false,
+                        'default_suffix' => '.mp4',
                     ],
                 ],
                 'command_preview_template' => implode("\n", [

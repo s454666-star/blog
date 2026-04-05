@@ -172,11 +172,26 @@ class ReencodeVideoMediumHighCommand extends Command
             return '';
         }
 
+        $trimmed = $this->appendDefaultVideoExtension($trimmed);
+
         if ($this->isAbsolutePath($trimmed)) {
             return $this->normalizePath($trimmed);
         }
 
         return $this->normalizePath($folder . DIRECTORY_SEPARATOR . $trimmed);
+    }
+
+    private function appendDefaultVideoExtension(string $value): string
+    {
+        $normalized = rtrim($value, "\\/");
+        $baseName = pathinfo($normalized, PATHINFO_BASENAME);
+        $extension = (string) pathinfo($baseName, PATHINFO_EXTENSION);
+
+        if ($baseName === '' || $extension !== '') {
+            return $value;
+        }
+
+        return $value . '.mp4';
     }
 
     private function buildOutputPath(string $sourcePath): string

@@ -508,6 +508,73 @@ class VideosControllerTest extends TestCase
         $this->assertSame($allIds, $returnedVideoIds);
     }
 
+    public function test_find_master_face_ignores_keyword_filter_when_expand_context_is_enabled(): void
+    {
+        $targetVideoId = DB::table('video_master')->insertGetId([
+            'video_name' => '自拍_025.mp4',
+            'video_path' => '影片_025/自拍_025.mp4',
+            'm3u8_path' => null,
+            'duration' => 25,
+            'video_type' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $targetScreenshotId = DB::table('video_screenshots')->insertGetId([
+            'video_master_id' => $targetVideoId,
+            'screenshot_path' => '影片_025/screenshot_1.jpg',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('video_face_screenshots')->insert([
+            'video_screenshot_id' => $targetScreenshotId,
+            'face_image_path' => '影片_025/face_1.jpg',
+            'is_master' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $adjacentVideoId = DB::table('video_master')->insertGetId([
+            'video_name' => '旅行_026.mp4',
+            'video_path' => '影片_026/旅行_026.mp4',
+            'm3u8_path' => null,
+            'duration' => 26,
+            'video_type' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $adjacentScreenshotId = DB::table('video_screenshots')->insertGetId([
+            'video_master_id' => $adjacentVideoId,
+            'screenshot_path' => '影片_026/screenshot_1.jpg',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('video_face_screenshots')->insert([
+            'video_screenshot_id' => $adjacentScreenshotId,
+            'face_image_path' => '影片_026/face_1.jpg',
+            'is_master' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->getJson(route('video.findMasterFace', [
+            'video_id' => $adjacentVideoId,
+            'video_type' => 1,
+            'sort_by' => 'id',
+            'sort_dir' => 'asc',
+            'keyword' => '自拍_025',
+            'expand_context' => 1,
+        ]));
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.video_id', $adjacentVideoId)
+            ->assertJsonPath('data.video_name', '旅行_026.mp4');
+    }
+
     private function fakeEagleApi(): void
     {
         Http::fake(function (\Illuminate\Http\Client\Request $request) {

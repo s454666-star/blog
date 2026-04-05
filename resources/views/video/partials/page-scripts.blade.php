@@ -31,6 +31,7 @@
     let masterFacesLoadedCount = 0;
     const pendingFaceUploads = new Set();
     const pendingMasterUpdates = new Set();
+    const pendingMasterFaceLoads = new Set();
     const initialFocusRetryDelays = [0, 120, 320, 700, 1300];
 
     if ('scrollRestoration' in window.history) {
@@ -429,10 +430,46 @@
     /* --------------------------------------------------
      * 主面人臉同步
      * -------------------------------------------------- */
+    function ensureMasterFaceVisible(videoId) {
+        const normalizedId = Number(videoId || 0) || 0;
+        if (!normalizedId) {
+            return;
+        }
+
+        if ($(`.master-face-item[data-video-id="${normalizedId}"]`).length) {
+            return;
+        }
+
+        const requestKey = String(normalizedId);
+        if (pendingMasterFaceLoads.has(requestKey)) {
+            return;
+        }
+
+        pendingMasterFaceLoads.add(requestKey);
+
+        $.get("{{ route('video.findMasterFace') }}", buildListingQueryParams({
+            video_id: normalizedId,
+        }))
+            .done((res) => {
+                if (!res?.success || !res.data) {
+                    return;
+                }
+
+                appendMasterFaces([res.data], false);
+                focusMasterFace(normalizedId);
+            })
+            .always(() => {
+                pendingMasterFaceLoads.delete(requestKey);
+            });
+    }
+
     function focusMasterFace(id) {
         $('.master-face-item').removeClass('focused');
         const $t = $(`.master-face-item[data-video-id="${id}"]`).addClass('focused');
-        if (!$t.length) return;
+        if (!$t.length) {
+            ensureMasterFaceVisible(id);
+            return;
+        }
         const c = document.querySelector('.master-faces');
         if (!c) return;
         c.scrollTo({top: $t[0].offsetTop - c.clientHeight / 2 + $t[0].clientHeight / 2, behavior: 'smooth'});

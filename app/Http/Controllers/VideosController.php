@@ -569,6 +569,42 @@
             ]);
         }
 
+        public function findMasterFace(Request $request): \Illuminate\Http\JsonResponse
+        {
+            $videoId = (int) $request->input('video_id', 0);
+            $videoType = $request->input('video_type', '1');
+            $keyword = $this->normalizeKeyword($request->input('keyword'));
+            $expandContextMode = $this->shouldExpandKeywordContext($request);
+            $sortBy  = in_array($request->input('sort_by'), ['id', 'duration']) ? $request->input('sort_by') : 'duration';
+            $sortDir = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
+
+            if ($videoId <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '無效的影片編號。',
+                ], 422);
+            }
+
+            $face = $this->applyMasterFaceOrdering(
+                $this->masterFaceListingQuery($videoType, $expandContextMode ? '' : $keyword)
+                    ->where('video_screenshots.video_master_id', $videoId),
+                $sortBy,
+                $sortDir
+            )->first();
+
+            if (!$face) {
+                return response()->json([
+                    'success' => false,
+                    'message' => '找不到該影片的主面人臉。',
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $this->transformMasterFaceRecord($face),
+            ]);
+        }
+
         private function getVideoDuration($filePath)
         {
             try {

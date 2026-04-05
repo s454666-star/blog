@@ -49,6 +49,7 @@ Route::post('/videos/delete-screenshot', [VideosController::class, 'deleteScreen
 Route::post('/videos/upload-face-screenshot', [VideosController::class, 'uploadFaceScreenshot'])->name('video.uploadFaceScreenshot');
 Route::post('/videos/set-master-face', [VideosController::class, 'setMasterFace'])->name('video.setMasterFace');
 Route::get('/videos/load-master-faces', [VideosController::class, 'loadMasterFaces'])->name('video.loadMasterFaces');
+Route::get('/videos/find-master-face', [VideosController::class, 'findMasterFace'])->name('video.findMasterFace');
 Route::get('/videos/findPage', [VideosController::class, 'findPage'])->name('video.findPage');
 Route::post('/videos', [VideosController::class, 'store'])->name('video.store');
 Route::get('/videos/random', [VideosController::class, 'getRandomVideos'])->name('videos.random');

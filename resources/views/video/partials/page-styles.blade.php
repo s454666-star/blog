@@ -437,7 +437,7 @@
             inset: 0;
             border-radius: inherit;
             box-shadow: 0 0 0 2px rgba(255, 255, 255, .35) inset;
-            transition: opacity .4s;
+            transition: opacity .4s, box-shadow .4s;
             pointer-events: none;
             z-index: 1; /* ?踹?鋡思???:before ?? */
         }
@@ -672,8 +672,17 @@
                 0 0 0 3px rgba(255, 118, 188, .24),
                 0 0 0 6px rgba(98, 215, 255, .18),
                 0 0 20px rgba(124, 122, 255, .26);
-            transform: scale(1.08);
-            animation: rainbowFocusPulse 2s ease-in-out infinite
+            transform: scale(1.08)
+        }
+
+        .master-face-img.focused::after {
+            opacity: 1;
+            box-shadow:
+                inset 0 0 0 2px rgba(255, 255, 255, .82),
+                0 0 0 2px rgba(255, 118, 188, .22),
+                0 0 0 6px rgba(98, 215, 255, .16),
+                0 0 18px rgba(124, 122, 255, .2);
+            animation: rainbowFocusPulse 2s ease-in-out infinite;
         }
 
         .master-faces-status {

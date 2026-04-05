@@ -19,6 +19,20 @@
 
     class VideosController extends Controller
     {
+        private const VIDEO_SELECT_COLUMNS = [
+            'id',
+            'video_name',
+            'video_path',
+            'm3u8_path',
+            'duration',
+            'video_type',
+            'created_at',
+            'updated_at',
+        ];
+
+        private const INDEX_PER_PAGE = 20;
+        private const LOAD_MORE_PER_PAGE = 10;
+
         public function index(Request $request)
         {
             /* ---------- 參數 ---------- */
@@ -26,16 +40,11 @@
             $missingOnly = $request->boolean('missing_only', false);       // 是否只列出尚未選主面
             $sortBy      = in_array($request->input('sort_by'), ['id','duration']) ? $request->input('sort_by') : 'duration';
             $sortDir     = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
-            $perPage     = 20;
+            $perPage     = self::INDEX_PER_PAGE;
             $focusId     = $request->input('focus_id');
 
             /* ---------- 建立基礎查詢 ---------- */
-            $baseQuery = VideoMaster::query()
-                ->select(['id', 'video_name', 'video_path', 'm3u8_path', 'duration', 'video_type', 'created_at', 'updated_at'])
-                ->where('video_type', $videoType);
-            if ($missingOnly) {
-                $baseQuery->whereDoesntHave('masterFaces');
-            }
+            $baseQuery = $this->buildVideoBaseQuery($videoType, $missingOnly);
 
             $total    = (clone $baseQuery)->count();
             $lastPage = (int) ceil($total / $perPage);
@@ -59,15 +68,9 @@
             }
 
             /* ---------- 取主列表（穩定排序 + 精簡 eager load 欄位） ---------- */
-            $videos = $this->applyOrdering((clone $baseQuery), $sortBy, $sortDir)
-                ->with([
-                    'screenshots' => function ($q) {
-                        $q->select(['id', 'video_master_id', 'screenshot_path']);
-                    },
-                    'screenshots.faceScreenshots' => function ($q) {
-                        $q->select(['id', 'video_screenshot_id', 'face_image_path', 'is_master']);
-                    },
-                ])
+            $videos = $this->withVideoListRelations(
+                $this->applyOrdering((clone $baseQuery), $sortBy, $sortDir)
+            )
                 ->paginate($perPage, ['*'], 'page', max($page, 1));
 
             $prevPage = $page > 1 ? $page - 1 : null;
@@ -90,24 +93,12 @@
             $sortBy      = in_array($request->input('sort_by'), ['id','duration']) ? $request->input('sort_by') : 'duration';
             $sortDir     = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
 
-            $query = VideoMaster::query()
-                ->select(['id', 'video_name', 'video_path', 'm3u8_path', 'duration', 'video_type', 'created_at', 'updated_at'])
-                ->where('video_type', $videoType);
-            if ($missingOnly) {
-                $query->whereDoesntHave('masterFaces');
-            }
+            $query = $this->buildVideoBaseQuery($videoType, $missingOnly);
 
             // 套用穩定排序 + 精簡 eager load 欄位（減少 SQL/記憶體/HTML 生成成本）
-            $videos = $this->applyOrdering($query, $sortBy, $sortDir)
-                ->with([
-                    'screenshots' => function ($q) {
-                        $q->select(['id', 'video_master_id', 'screenshot_path']);
-                    },
-                    'screenshots.faceScreenshots' => function ($q) {
-                        $q->select(['id', 'video_screenshot_id', 'face_image_path', 'is_master']);
-                    },
-                ])
-                ->paginate(10, ['*'], 'page', $page);
+            $videos = $this->withVideoListRelations(
+                $this->applyOrdering($query, $sortBy, $sortDir)
+            )->paginate(self::LOAD_MORE_PER_PAGE, ['*'], 'page', $page);
 
             if ($videos->isEmpty()) {
                 return response()->json(['success' => false], 204);
@@ -141,6 +132,31 @@
             return strtolower($dir) === 'desc' ? 'desc' : 'asc';
         }
 
+        private function buildVideoBaseQuery(string $videoType, bool $missingOnly = false)
+        {
+            $query = VideoMaster::query()
+                ->select(self::VIDEO_SELECT_COLUMNS)
+                ->where('video_type', $videoType);
+
+            if ($missingOnly) {
+                $query->whereDoesntHave('masterFaces');
+            }
+
+            return $query;
+        }
+
+        private function withVideoListRelations($query)
+        {
+            return $query->with([
+                'screenshots' => function ($screenshotQuery): void {
+                    $screenshotQuery->select(['id', 'video_master_id', 'screenshot_path']);
+                },
+                'screenshots.faceScreenshots' => function ($faceQuery): void {
+                    $faceQuery->select(['id', 'video_screenshot_id', 'face_image_path', 'is_master']);
+                },
+            ]);
+        }
+
         public function findPage(Request $request)
         {
             $videoId     = $request->input('video_id');
@@ -148,7 +164,7 @@
             $missingOnly = $request->boolean('missing_only', false);
             $sortBy      = $this->parseSortBy($request->input('sort_by', 'duration'));
             $sortDir     = $this->parseSortDir($request->input('sort_dir', 'asc'));
-            $perPage     = 10;
+            $perPage     = self::LOAD_MORE_PER_PAGE;
 
             /* ---- 目標影片 ---- */
             $video = VideoMaster::where('id', $videoId)
@@ -163,10 +179,7 @@
             }
 
             /* ---- 建立基礎查詢（與列表一致） ---- */
-            $baseQuery = VideoMaster::where('video_type', $videoType);
-            if ($missingOnly) {
-                $baseQuery->whereDoesntHave('masterFaces');
-            }
+            $baseQuery = $this->buildVideoBaseQuery($videoType, $missingOnly);
 
             /* ---- 計算位置（與實際列表相同排序規則） ---- */
             $position = $this->countPositionWithTiebreaker((clone $baseQuery), $sortBy, $sortDir, $video);

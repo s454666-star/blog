@@ -649,10 +649,11 @@
         }
 
         .card-command-zone {
-            display: grid;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
             gap: 16px;
             margin-top: 18px;
-            align-content: end;
         }
 
         .card-command-zone.is-buttons {
@@ -1131,6 +1132,39 @@
                 output: row.querySelector('[data-runtime-output]'),
             });
 
+            const syncRowCardLayout = () => {
+                const isSingleColumn = window.matchMedia('(max-width: 1120px)').matches;
+
+                rows.forEach((row) => {
+                    const rowCards = [...row.querySelectorAll('.command-row-cards [data-card]')];
+                    const copyNodes = rowCards.map((card) => card.querySelector('.card-copy')).filter(Boolean);
+                    const commandZones = rowCards.map((card) => card.querySelector('.card-command-zone')).filter(Boolean);
+
+                    copyNodes.forEach((node) => {
+                        node.style.minHeight = '';
+                    });
+
+                    commandZones.forEach((node) => {
+                        node.style.minHeight = '';
+                    });
+
+                    if (isSingleColumn || rowCards.length < 2) {
+                        return;
+                    }
+
+                    const maxCopyHeight = Math.max(0, ...copyNodes.map((node) => node.getBoundingClientRect().height));
+                    const maxCommandZoneHeight = Math.max(0, ...commandZones.map((node) => node.getBoundingClientRect().height));
+
+                    copyNodes.forEach((node) => {
+                        node.style.minHeight = `${Math.ceil(maxCopyHeight)}px`;
+                    });
+
+                    commandZones.forEach((node) => {
+                        node.style.minHeight = `${Math.ceil(maxCommandZoneHeight)}px`;
+                    });
+                });
+            };
+
             const decodeBase64Utf8 = (value) => {
                 if (!value) {
                     return '';
@@ -1384,6 +1418,21 @@
                 resetRuntime(row);
             });
             setStopButtonsState();
+            syncRowCardLayout();
+
+            if (document.fonts?.ready) {
+                document.fonts.ready.then(() => {
+                    syncRowCardLayout();
+                });
+            }
+
+            let layoutSyncTimer = null;
+            window.addEventListener('resize', () => {
+                window.clearTimeout(layoutSyncTimer);
+                layoutSyncTimer = window.setTimeout(() => {
+                    syncRowCardLayout();
+                }, 80);
+            });
 
             previewButtons.forEach((button) => {
                 button.addEventListener('click', async () => {
@@ -1429,6 +1478,7 @@
                     const currentCard = input.closest('[data-card]');
                     if (currentCard) {
                         updatePreviewFromInputs(currentCard);
+                        syncRowCardLayout();
                     }
                 });
 

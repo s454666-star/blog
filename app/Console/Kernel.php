@@ -2,7 +2,6 @@
 
 namespace App\Console;
 
-use App\Services\FilestoreRestoreScheduleLockService;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
 
@@ -35,15 +34,14 @@ class Kernel extends ConsoleKernel
         // Telegram / filestore
         $schedule->command('schedule:unlock-stale-filestore-restore')
             ->everyMinute()
-            ->name('schedule-unlock-stale-filestore-restore')
-            ->when(fn () => app(FilestoreRestoreScheduleLockService::class)->isLocked());
+            ->name('schedule-unlock-stale-filestore-restore');
 
         $schedule->command(sprintf(
             'filestore:restore-to-bot --all --pending-session-limit=500 --base-uri=http://127.0.0.1:8001 --target-bot-username=%s --worker-env=%s',
             $restoreTargetBotUsername,
             $restoreWorkerEnvPath
         ))
-            ->dailyAt('01:00')
+            ->dailyAt('14:00')
             ->name('blog-filestore-restore-pending-sessions')
             ->withoutOverlapping(1440)
             ->runInBackground()

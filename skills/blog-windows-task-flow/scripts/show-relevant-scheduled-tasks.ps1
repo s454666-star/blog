@@ -7,7 +7,8 @@ $taskNames = @(
     'TG API2',
     'Telegram FastAPI Services',
     'Blog Get BT',
-    'Blog Telegram Filestore Restore Backup',
+    'Blog Telegram Filestore Local Workers Logon',
+    'Blog Telegram Filestore Local Workers Watchdog',
     'Project Log Cleanup',
     'CaddyServer',
     'LaravelBlogServer',
@@ -19,10 +20,16 @@ foreach ($taskName in $taskNames) {
     Write-Host ('=' * 80)
     Write-Host "Task: $taskName"
 
-    try {
-        schtasks.exe /Query /TN $taskName /V /FO LIST
-    } catch {
-        Write-Host "Task not found or cannot be queried: $taskName"
-        Write-Host "Fallback: inspect live process / listener / wrapper chain for this task."
+    $escapedTaskName = $taskName.Replace('"', '""')
+    $output = & cmd.exe /d /c "schtasks.exe /Query /TN ""$escapedTaskName"" /V /FO LIST 2>&1"
+    $exitCode = $LASTEXITCODE
+
+    if ($exitCode -eq 0) {
+        $output | ForEach-Object { Write-Host $_ }
+        continue
     }
+
+    $output | ForEach-Object { Write-Host $_ }
+    Write-Host "Task not found or cannot be queried: $taskName"
+    Write-Host "Fallback: inspect live process, listener, wrapper chain, and cloudflared/Caddy state for this task."
 }

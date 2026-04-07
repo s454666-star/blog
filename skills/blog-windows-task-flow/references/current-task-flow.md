@@ -1,299 +1,233 @@
 # Current Task Flow
 
-Observed and cross-checked on 2026-03-25 in `C:\www\blog`.
+Observed and cross-checked on `2026-04-07` in `C:\www\blog` and the local Windows host.
 
-## First Pitfall: Task Query Can Be Incomplete
+## First Pitfall
 
-- Some visible Task Scheduler entries can return `Access is denied` to `schtasks` or `Get-ScheduledTask` even though their processes are running.
-- When that happens, reconstruct the live flow from:
-  - `Win32_Process` command lines and parent processes
+- Some GUI-visible tasks still return `Access is denied` or `task not found` to `schtasks` / `Get-ScheduledTask`.
+- When that happens, rebuild the flow from:
+  - `Win32_Process` command lines
   - `Get-NetTCPConnection` / `netstat`
   - wrapper `.bat` / `.ps1`
-  - runtime state files such as `storage\app\folder-video-server\Caddyfile`
-  - recent logs
-- As of `2026-03-25`, this fallback is required for tasks visible in the GUI such as `CaddyServer`, `LaravelBlogServer`, and `VideoHTTPServer`.
+  - `C:\Users\User\.cloudflared\config.yml`
+  - Caddy files under `storage\app\folder-video-server`
+  - recent logs under `storage\logs`
+- This is still required for `CaddyServer`, `LaravelBlogServer`, `VideoHTTPServer`, and legacy Telegram task names.
+- As of `2026-04-07`, `schtasks` returned `The system cannot find the file specified.` for:
+  - `EnsureTgScanGroupMediaHourly`
+  - `Telegram FastAPI Service`
+  - `TG API2`
+  - `Blog Get BT`
+  - `Project Log Cleanup`
+  - `Blog Folder Video API Caddy`
 
-## Relevant Windows Scheduled Tasks
+## Relevant Scheduled and Runtime Entry Points
 
-### `TG Token Scan Dispatch`
+### Telegram FastAPI Watchdog
 
-- State: enabled, ready
-- Schedule:
-  - starts daily at `07:00`
-  - repeats every `2` hours
-  - repeat window `15` hours `1` minute
-- Task action:
+- Verified task on `2026-04-07`:
+  - `\Telegram FastAPI Services`
+- Verified action chain:
+  - `wscript.exe "C:\Users\User\Pictures\train\start_telegram_services.vbs"`
+  - `start_telegram_services.vbs`
+  - `start_telegram_services.bat`
+  - `start_telegram_services.ps1`
+- Current observed repetition:
+  - every `5` minutes
+- Current verified `start_telegram_services.ps1` behavior:
+  - starts `start_telegram_service2.ps1`
+  - starts `start_telegram_service3.ps1`
+  - starts `start_telegram_service4.ps1`
+- Current observed listeners:
+  - `8001`
+  - `8002`
+  - `8003`
+- Important correction:
+  - the watchdog no longer launches `8000`
+  - `C:\Users\User\.cloudflared\config.yml` still maps `tg-api1.mystar.monster -> 127.0.0.1:8000`, but that is not proof that Windows tasks should backfill `8000`
+
+### TG Token Scan Dispatch
+
+- Wrapper:
   - `C:\www\blog\scripts\tg_scan_dispatch.bat`
-
-### `EnsureTgScanGroupMediaHourly`
-
-- State: enabled, ready
-- Schedule:
-  - started on `2026-03-15 16:24`
-  - repeats every hour
-- Task action:
-  - `cmd.exe /c "C:\www\blog\scripts\ensure_tg_scan_group_media.bat"`
-
-### `Telegram FastAPI Service`
-
-- State observed on `2026-03-25`: task disabled, but the runtime can still exist separately
-- Trigger:
-  - system startup
-- Task action:
-  - `C:\Users\User\Pictures\train\start_telegram_service.bat`
-- Start in:
-  - `C:\Users\User\Pictures\train`
-- Service target:
-  - `telegram_service:app`
-  - port `8000`
-
-### `TG API2`
-
-- State observed on `2026-03-25`: enabled, running
-- Trigger:
-  - system startup
-- Task action:
-  - `C:\Users\User\Pictures\train\start_telegram_service2.bat`
-- Start in:
-  - `C:\Users\User\Pictures\train`
-- Service target:
-  - `telegram_service2:app`
-  - port `8001`
-
-### `Telegram FastAPI Services`
-
-- State observed on `2026-03-25`: enabled, ready
-- Schedule:
-  - started on `2026-03-15 16:40`
-  - repeats every hour
-- Task action:
-  - `C:\Users\User\Pictures\train\start_telegram_services.bat`
-- Purpose:
-  - watchdog for ports `8000` and `8001`
-
-### `Blog Get BT`
-
-- State:
-  - repo-managed task
-- Schedule:
-  - daily at `05:00`
-  - daily at `17:00`
-- Task action:
-  - `cmd.exe /c "C:\www\blog\scripts\run_get_bt.bat"`
-
-### `Project Log Cleanup`
-
-- State observed on `2026-03-25`: enabled, ready
-- Schedule:
-  - every `2` days at `03:00`
-- Task action:
-  - `cmd.exe /c "C:\www\blog\scripts\clear_project_logs.bat"`
-- Purpose:
-  - remove untracked `*.log` files under `C:\www\blog` and `C:\Users\User\Pictures\train`
-
-## Relevant Live Processes And Listeners
-
-### Telegram FastAPI runtime
-
-- `TG API2` currently owns the stable listener:
-  - `0.0.0.0:8001`
-  - parent chain: `cmd.exe /c "C:\Users\User\Pictures\train\start_telegram_service2.bat"` -> `python.exe -m uvicorn telegram_service2:app --port 8001`
-- `Telegram FastAPI Service` can be disabled in Task Scheduler while a live runtime still exists:
-  - parent chain: `cmd.exe /c "C:\Users\User\Pictures\train\start_telegram_service.bat"` -> `python.exe -m uvicorn telegram_service:app --port 8000`
-- Important:
-  - do not trust only the task state
-  - verify both listener and HTTP response
-  - `8000` has shown unstable behavior on `2026-03-25`: `/docs` responded with `200`, but media download also hit `cURL error 7` / connection reset against `http://127.0.0.1:8000/groups/download-message-media`
-
-### Folder video / Caddy runtime
-
-- Live listeners observed on `2026-03-25`:
-  - `127.0.0.1:2019`
-  - `0.0.0.0:8090`
-  - `0.0.0.0:9005`
-  - `0.0.0.0:450`
-- Current repo-managed folder-video bootstrap files:
-  - `C:\www\blog\scripts\start-folder-video-api.bat`
-  - `C:\www\blog\scripts\start-folder-video-api.ps1`
-  - `C:\www\blog\scripts\register-folder-video-api-caddy-startup-task.ps1`
-- Current generated runtime config:
-  - `C:\www\blog\storage\app\folder-video-server\Caddyfile`
-  - reverse proxies `:8090` to `https://127.0.0.1:443` with host `blog.test`
-- Important:
-  - GUI may show `CaddyServer` / `VideoHTTPServer`, but when direct task query is blocked, the better source of truth is listener + wrapper + Caddy state
-
-### Laravel local server runtime
-
-- A PHP process was listening on `127.0.0.1:8081` on `2026-03-25`.
-- The exact visible task name in GUI may be `LaravelBlogServer`, but if task query is denied, confirm it from the listener and related wrapper/config chain instead of assuming the task is missing.
-
-## Flow 1: Token Scan Dispatch
-
-### Scheduler to batch
-
-- Task Scheduler runs `C:\www\blog\scripts\tg_scan_dispatch.bat`.
-- The batch file keeps a lock directory in `storage\logs\tg_scan_dispatch.lock`.
-- It alternates target ports by reading and writing `storage\logs\tg_scan_dispatch_next_port.txt`.
-
-### Batch to FastAPI
-
-- The batch chooses one of these pairs:
-  - port `8000` -> task `Telegram FastAPI Service`
-  - port `8001` -> task `TG API2`
-- If the selected port is not listening, the batch starts the matching Windows task and waits up to `30` seconds.
-
-### Batch to Laravel
-
-- After FastAPI is ready, the batch runs:
+- Lock file:
+  - `C:\www\blog\storage\logs\tg_scan_dispatch.lock`
+- Current target selection:
+  - fixed `127.0.0.1:8001`
+  - readiness task: `Telegram FastAPI Services`
+  - selection reason in batch: `fixed_8001`
+- Current Laravel chain:
   - `php artisan tg:scan-group-tokens`
-  - `php artisan tg:dispatch-token-scan-items --done-action=delete --port=<selected-port>`
-- `tg:dispatch-token-scan-items` itself waits `180` seconds and retries the same unresolved QQ/yz token up to `5` extra times; if the token still cannot finish, the command exits with code `3`.
+  - `php artisan tg:dispatch-token-scan-items --done-action=delete --port=8001`
+- Current Laravel routing:
+  - `Messengercode_*` -> `@MessengerCode_bot`
+  - `QQfile_bot:*`, `vi_*`, `iv_*`, `ntmjmqbot_*`, `showfilesbot_*` -> `@showfiles12bot`
+  - `yzfile_bot:*` -> `@yzfile_bot`
+  - `mtfxqbot_*` -> `@mtfxq2bot`
+  - `atfileslinksbot_*` -> `@atfileslinksbot`
+  - `lddeebot_*` -> `@lddeebot`
+  - everything else -> `@vipfiles2bot`
+- Local restart recovery inside `DispatchTokenScanItemsCommand` currently knows these launchers:
+  - `8001` -> `C:\Users\User\Pictures\train\start_telegram_service2.bat`
+  - `8002` -> `C:\Users\User\Pictures\train\start_telegram_service3.bat`
+  - `8003` -> `C:\Users\User\Pictures\train\start_telegram_service4.bat`
 
-### Laravel to TG API
+### EnsureTgScanGroupMediaHourly
 
-- `ScanGroupTokensCommand` calls local FastAPI `groups` endpoints for configured `base_uri` values:
-  - `http://127.0.0.1:8000/`
-  - `http://127.0.0.1:8001/`
-- It scans Telegram group messages, extracts tokens, and inserts new rows into `token_scan_items`.
-- `DispatchTokenScanItemsCommand` posts to:
-  - `POST /bots/send`
-  - `POST /bots/run-all-pages-by-bot` for `@vipfiles2bot` and `@MessengerCode_bot`
-  - `POST /bots/click-matching-button` for `@QQfile_bot` and `@yzfile_bot`
-- Default API host is `http://127.0.0.1`, with the port supplied by the batch file.
+- Legacy task name:
+  - `EnsureTgScanGroupMediaHourly`
+- Current runnable wrapper chain:
+  - `ensure_tg_scan_group_media.bat`
+  - `ensure_tg_scan_group_media.ps1`
+  - `tg_scan_group_media.bat`
+- Current main command:
+  - `php artisan tg:scan-group-media --base-uri=http://127.0.0.1:8001/ --next-limit=1000 --exit-code-when-empty=2`
+- Guard behavior:
+  - the PowerShell wrapper only starts a new batch if neither `tg_scan_group_media.bat` nor `artisan tg:scan-group-media` is already running
+- Current repo-managed schedule source:
+  - `App\Console\Kernel::schedule()` hourly at minute `24`
 
-## Flow 2: Group Media Download
+### Local Backup-Restore Bot Webhook
 
-### Scheduler to batch and PowerShell
+- Bot:
+  - `@new_files_star_bot`
+- This flow is local Windows, not AWS.
+- Public hostname:
+  - `https://new-files-star.mystar.monster`
+- Cloudflare Tunnel source of truth:
+  - `C:\Users\User\.cloudflared\config.yml`
+- Current ingress:
+  - `new-files-star.mystar.monster -> http://127.0.0.1:450`
+- Local HTTP entry:
+  - Caddy listening on `127.0.0.1:450`
+- Current Laravel routes:
+  - `POST /api/telegram/filestore/webhook/new-files-star`
+  - `POST /api/telegram/filestore/webhook/backup-restore`
+- Current controller:
+  - `App\Http\Controllers\TelegramFilestoreBotController::newFilesStarWebhook`
+- Current config source:
+  - `C:\www\blog\config\telegram.php`
+- Current webhook maintenance command:
+  - `php artisan telegram:ensure-backup-restore-webhook`
+- Current internal Laravel schedule in `App\Console\Kernel`:
+  - `filestore:restore-to-bot --all --pending-session-limit=500 --base-uri=http://127.0.0.1:8001 ...` daily at `01:00`
+  - `telegram:ensure-backup-restore-webhook` daily at `04:10`
+- Current restore behavior after commit `4e9cec8`:
+  - `RestoreFilestoreToBotCommand` uses local webhook bridge capture for the configured backup-restore bot when `telegram_filestore_bridge_contexts` exists
+  - it no longer needs to call `deleteWebhook` just to use `getUpdates`
+- Important recovery rule:
+  - if `getWebhookInfo` shows `url=""`, first check for an old long-running `php artisan filestore:restore-to-bot ... --target-bot-username=new_files_star_bot`
+  - stop that old process before rerunning `telegram:ensure-backup-restore-webhook`
 
-- Task Scheduler runs `C:\www\blog\scripts\ensure_tg_scan_group_media.bat`.
-- That batch runs `C:\www\blog\scripts\ensure_tg_scan_group_media.ps1`.
-- The PowerShell script checks whether `tg_scan_group_media.bat` or `artisan tg:scan-group-media` is already running.
-- If not running, it starts `cmd.exe /c C:\www\blog\scripts\tg_scan_group_media.bat`.
+### Folder Video / Caddy
 
-### Batch to Laravel
+- Current observed listeners:
+  - Caddy `2019`, `450`, `8090`, `9005`
+- `450` is the local blog / webhook HTTP entry used by both:
+  - `blog.mystar.monster`
+  - `new-files-star.mystar.monster`
+- `C:\Users\User\AppData\Roaming\Caddy\autosave.json` still shows a separate static-file server on `:9005` rooted at `D:\video`.
 
-- `tg_scan_group_media.bat` runs:
-  - `php artisan tg:scan-group-media --base-uri=<target> --next-limit=1000 --exit-code-when-empty=2`
-- Default base URI is `http://127.0.0.1:8000/`.
-- The batch loops until:
-  - one media item is processed and another loop begins
-  - no more media is available
-  - a flood-wait delay is required
-  - the command fails
+### Local `telegram_filestore` Worker Offload
 
-### Laravel to TG API
+- Working task pair on this host:
+  - `Blog Telegram Filestore Local Workers Logon`
+  - `Blog Telegram Filestore Local Workers Watchdog`
+- Current wrapper parameters previously verified and still expected:
+  - `-MinWorkerCount 16`
+  - `-MaxWorkerCount 200`
+  - `-ScaleDownHoldSeconds 300`
+- Important host-specific rules still in force:
+  - pass explicit `-d curl.cainfo=...` and `-d openssl.cafile=...` to PHP
+  - avoid PowerShell `*>>` for worker logs
+  - read queue metrics through a temporary `.php` file, not stdin-piped PHP source
+  - use .NET file writes for worker state files
 
-- `ScanGroupMediaCommand` reads group pages from:
-  - `GET /groups`
-  - `GET /groups/{peerId}/{startMessageId}?next_limit=<n>&include_raw=false`
-- For media downloads it calls:
-  - `POST /groups/download-message-media`
-- For text-only messages it may extract tokens and queue them into `token_scan_items`.
+## Flow 1: Telegram FastAPI Runtime Layout
 
-### Current runtime note
-
-- `ensure_tg_scan_group_media.log` shows the hourly wrapper is doing its job: it avoids duplicate launches when an older scan is still running.
-- `tg_scan_group_media_runtime.log` on `2026-03-25` shows the command was actively downloading media from `http://127.0.0.1:8000/`, but later hit a connection reset on `/groups/download-message-media`.
-- For this flow, "port open" is not enough. Confirm an actual media endpoint call can complete.
-
-## Flow 3: Telegram FastAPI Services Outside Repo
-
-The currently observed runtime layout is:
-
-- Base directory:
+- Runtime base:
   - `C:\Users\User\Pictures\train`
 - Python:
   - `C:\Users\User\Pictures\train\venv\Scripts\python.exe`
-- Service 1 batch:
-  - `start_telegram_service.bat`
-  - runs `python -m uvicorn telegram_service:app --host 0.0.0.0 --port 8000`
-- Service 2 batch:
-  - `start_telegram_service2.bat`
-  - runs `python -m uvicorn telegram_service2:app --host 0.0.0.0 --port 8001`
-- Watchdog batch:
-  - `start_telegram_services.bat`
-  - starts service 1 or service 2 if their ports are not listening
-- Note:
-  - the same FastAPI source files also exist in `C:\www\blog\python\telegram_service.py` and `C:\www\blog\python\telegram_service2.py`, but the live scheduled tasks currently launch the copies under `C:\Users\User\Pictures\train`
+- Shared route logic:
+  - `C:\www\blog\python\telegram_service_shared.py`
+- Current live wrappers:
+  - `telegram_service2.py` -> `8001` -> `session/main_account2`
+  - `telegram_service3.py` -> `8002` -> `session/main_account3`
+  - `telegram_service4.py` -> `8003` -> `session/main_account4`
+- Legacy wrapper still present but not watchdog-backed:
+  - `telegram_service.py` -> `8000` -> `session/main_account`
 
-## Flow 4: `get-bt`
+## Flow 2: Token Scan Dispatch
 
-### Windows task or manual run
+- `tg_scan_dispatch.bat` no longer rotates between `8000` and `8001`.
+- It now:
+  - hard-codes `8001`
+  - starts `Telegram FastAPI Services` if `8001` is down
+  - runs `tg:scan-group-tokens`
+  - runs `tg:dispatch-token-scan-items --port=8001`
+- `DispatchTokenScanItemsCommand` default port is `8001`.
 
-- Windows task:
+## Flow 3: Group Media Download
+
+- `tg_scan_group_media.bat` now defaults to:
+  - `BASE_URI=http://127.0.0.1:8001/`
+- `ScanGroupTokensCommand` and `ScanGroupMediaCommand` both currently use `8001` in their built-in target maps.
+
+## Flow 4: Local Backup-Restore Bot
+
+- `config/telegram.php` defaults:
+  - `backup_restore_bot_username = new_files_star_bot`
+  - `backup_restore_webhook_url = https://new-files-star.mystar.monster/api/telegram/filestore/webhook/new-files-star`
+- `routes/api.php` exposes both:
+  - `/telegram/filestore/webhook/new-files-star`
+  - `/telegram/filestore/webhook/backup-restore`
+- `TelegramFilestoreBotController::newFilesStarWebhook` handles both routes.
+- `EnsureBackupRestoreWebhookCommand` is the direct fix command when Telegram lost the webhook.
+- `laravel.log` key signal:
+  - `telegram_filestore_webhook_event` with `bot=new_files_star_bot`
+
+## Flow 5: Folder Video Through Caddy
+
+- Wrapper:
+  - `C:\www\blog\scripts\start-folder-video-api.bat`
+- Launcher:
+  - `C:\www\blog\scripts\start-folder-video-api.ps1`
+- Current generated config:
+  - `C:\www\blog\storage\app\folder-video-server\Caddyfile`
+- Current reality:
+  - live HTTP ingress on `450` may still be managed by older GUI-visible tasks like `CaddyServer` / `LaravelBlogServer` / `VideoHTTPServer`
+  - when task query is blocked, trust listeners plus Caddy config over Task Scheduler output
+
+## Flow 6: `get-bt`
+
+- Legacy task name sometimes referenced:
   - `Blog Get BT`
-- Recommended wrapper:
+- Wrapper:
   - `C:\www\blog\scripts\run_get_bt.bat`
-- Command inside the wrapper:
+- Actual command:
   - `php artisan get-bt`
+- Current schedule in `App\Console\Kernel`:
+  - `0 5,17 * * *`
 
-### Laravel chain
+## Flow 7: Project Log Cleanup
 
-- Artisan signature:
+- Legacy task / script path:
+  - `Project Log Cleanup`
+  - `clear_project_logs.bat`
+  - `clear_project_logs.ps1`
+- Current behavior:
+  - delete `*.log` recursively under `C:\www\blog\storage\logs`
+  - if delete fails because the log is locked, truncate it to zero bytes instead
+- Current repo state:
+  - the internal Laravel scheduler entry is commented out in `App\Console\Kernel`
+
+## Laravel Scheduling
+
+- `C:\www\blog\app\Console\Kernel.php` is currently the right source of truth for:
   - `get-bt`
-- Command class:
-  - `App\Console\Commands\CrawlerBtCommand`
-- Controller entry:
-  - `App\Http\Controllers\GetBtDataController::fetchData()`
-- External source:
-  - `https://sukebei.nyaa.si/?f=0&c=0_0&q=%22%2B%2B%2B+FC%22&p=<page>`
-
-### What `get-bt` does
-
-- Requests pages `1` to `3`
-- Parses HTML for `/view/` detail links
-- Passes each detail page URL to `GetBtDataDetailController::fetchDetail()`
-
-## Flow 5: Project Log Cleanup
-
-### Scheduler to batch and PowerShell
-
-- Task Scheduler runs `C:\www\blog\scripts\clear_project_logs.bat`.
-- The batch runs `C:\www\blog\scripts\clear_project_logs.ps1`.
-
-### Cleanup behavior
-
-- The PowerShell script scans:
-  - `C:\www\blog`
-  - `C:\Users\User\Pictures\train`
-- It deletes `*.log` files except those tracked by git in each repo.
-- This task can affect investigation data, so check it before assuming missing logs mean a flow never ran.
-
-## Flow 6: Folder Video LAN API Through Caddy
-
-### Wrapper to PowerShell
-
-- `C:\www\blog\scripts\start-folder-video-api.bat`
-  - `cd /d C:\www\blog`
-  - `powershell -ExecutionPolicy Bypass -File C:\www\blog\scripts\start-folder-video-api.ps1`
-
-### PowerShell to live Caddy
-
-- `start-folder-video-api.ps1`:
-  - ensures a local Caddy binary under `storage\bin\caddy`
-  - writes runtime config to `storage\app\folder-video-server\Caddyfile`
-  - stops legacy `artisan serve` on the target port
-  - starts `caddy.exe run --config <Caddyfile>`
-- Default port:
-  - `8090`
-- Reverse proxy target:
-  - `https://127.0.0.1:443`
-  - host header `blog.test`
-
-### Registration helper
-
-- `register-folder-video-api-caddy-startup-task.ps1` registers a startup task named:
-  - `Blog Folder Video API Caddy`
-- If GUI instead shows older or manually created tasks such as `CaddyServer` / `VideoHTTPServer`, compare them against this wrapper and the live listeners before changing anything.
-
-## Important Note About Laravel Internal Scheduling
-
-`C:\www\blog\app\Console\Kernel.php` currently schedules:
-
-- `command('command:get-bt')->dailyAt('00:00')`
-
-But the actual Artisan signature in `CrawlerBtCommand` is:
-
-- `get-bt`
-
-That means the repo's Laravel scheduler definition does not match the command name as observed on 2026-03-16. For Windows Task Scheduler, call `php artisan get-bt`.
+  - `filestore:restore-to-bot`
+  - `telegram:ensure-backup-restore-webhook`
+  - `filestore:cleanup-stale-sessions`
+  - `ensure_tg_scan_group_media.bat`
+- Older notes that claimed `command:get-bt` was still scheduled are stale for this host.

@@ -41,7 +41,7 @@ class Kernel extends ConsoleKernel
             $restoreTargetBotUsername,
             $restoreWorkerEnvPath
         ))
-            ->dailyAt('11:46')
+            ->dailyAt('01:00')
             ->name('blog-filestore-restore-pending-sessions')
             ->withoutOverlapping(1440)
             ->runInBackground()

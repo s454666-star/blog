@@ -31,7 +31,6 @@ class CommandRunnerControllerTest extends TestCase
         $response->assertSee('比對 DB / 重跑 / Eagle 三邊差異');
         $response->assertSee('video:sync-rerun-sources');
         $response->assertSee('補跑剩餘 token：選 port 執行');
-        $response->assertSee('8000 PORT跑');
         $response->assertSee('8001 PORT跑');
         $response->assertSee('資料夾位置');
         $response->assertSee('影片檔名（留空 = 整個資料夾）');
@@ -50,8 +49,8 @@ class CommandRunnerControllerTest extends TestCase
         $expected = [
             'preset' => [
                 'id' => 'scan_group_tokens',
-                'title' => '掃群組 token 並送去 8000',
-                'summary' => '先掃描預設 Telegram 群組中的 token，再把待處理項目派送到 8000 服務。',
+                'title' => '掃群組 token 並送去 8001',
+                'summary' => '先掃描預設 Telegram 群組中的 token，再把待處理項目派送到 8001 服務。',
             ],
             'success' => true,
             'exit_code' => 0,
@@ -151,16 +150,16 @@ class CommandRunnerControllerTest extends TestCase
         $mock = Mockery::mock(PresetCommandRunnerService::class);
         $mock->shouldReceive('getPreset')
             ->once()
-            ->with('scan_group_tokens_port_8000', [])
+            ->with('scan_group_tokens_port_8001', [])
             ->andReturn([
-                'id' => 'scan_group_tokens_port_8000',
-                'title' => '掃群組 token：跑 8000',
-                'summary' => '先掃描 token，再把待處理項目派送到 8000。',
+                'id' => 'scan_group_tokens_port_8001',
+                'title' => '掃群組 token：跑 8001',
+                'summary' => '先掃描 token，再把待處理項目派送到 8001。',
             ]);
         $mock->shouldReceive('stream')
             ->once()
             ->with(
-                'scan_group_tokens_port_8000',
+                'scan_group_tokens_port_8001',
                 [],
                 Mockery::on(static fn ($callback) => is_callable($callback)),
                 'runner-token-001'
@@ -170,8 +169,8 @@ class CommandRunnerControllerTest extends TestCase
                 $callback('complete', [
                     'preset' => [
                         'id' => $preset,
-                        'title' => '掃群組 token：跑 8000',
-                        'summary' => '先掃描 token，再把待處理項目派送到 8000。',
+                        'title' => '掃群組 token：跑 8001',
+                        'summary' => '先掃描 token，再把待處理項目派送到 8001。',
                     ],
                     'success' => true,
                     'exit_code' => 0,
@@ -183,7 +182,7 @@ class CommandRunnerControllerTest extends TestCase
         $this->app->instance(PresetCommandRunnerService::class, $mock);
 
         $response = $this->post(route('command-runner.stream'), [
-            'preset' => 'scan_group_tokens_port_8000',
+            'preset' => 'scan_group_tokens_port_8001',
             'run_token' => 'runner-token-001',
         ]);
 

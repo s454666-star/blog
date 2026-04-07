@@ -781,7 +781,10 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+            if (
+                $request->url() === 'http://127.0.0.1:8001/bots/forward-messages'
+                && (int) ($request['source_chat_id'] ?? 0) !== 8468381207
+            ) {
                 return Http::response([
                     'status' => 'error',
                     'reason' => 'forward_failed',
@@ -789,7 +792,10 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8001/bots/files') {
+            if (
+                $request->url() === 'http://127.0.0.1:8001/bots/files'
+                && (string) ($request['bot_username'] ?? '') === 'file_backup_restore_bot'
+            ) {
                 return Http::response([
                     'status' => 'ok',
                     'source_chat_id' => 0,
@@ -809,7 +815,10 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8000/bots/files') {
+            if (
+                $request->url() === 'http://127.0.0.1:8001/bots/files'
+                && (string) ($request['bot_username'] ?? '') === 'filestoebot'
+            ) {
                 $minMessageId = (int) ($request['min_message_id'] ?? 0);
 
                 if ($minMessageId <= 0) {
@@ -847,7 +856,7 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8000/bots/send') {
+            if ($request->url() === 'http://127.0.0.1:8001/bots/send') {
                 $this->assertSame('file_backup_restore_bot', (string) $request['bot_username']);
                 $this->assertSame('/start', (string) $request['text']);
 
@@ -857,7 +866,10 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8000/bots/forward-messages') {
+            if (
+                $request->url() === 'http://127.0.0.1:8001/bots/forward-messages'
+                && (int) ($request['source_chat_id'] ?? 0) === 8468381207
+            ) {
                 $this->assertSame(8468381207, (int) $request['source_chat_id']);
                 $this->assertSame([517604], array_map('intval', (array) $request['message_ids']));
 
@@ -869,7 +881,7 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8000/bots/delete-messages') {
+            if ($request->url() === 'http://127.0.0.1:8001/bots/delete-messages') {
                 $chatPeer = (string) $request['chat_peer'];
                 $messageIds = array_map('intval', (array) $request['message_ids']);
 
@@ -965,7 +977,10 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+            if (
+                $request->url() === 'http://127.0.0.1:8001/bots/forward-messages'
+                && (int) ($request['source_chat_id'] ?? 0) !== 8468381207
+            ) {
                 return Http::response([
                     'status' => 'error',
                     'reason' => 'source_messages_not_found',
@@ -1837,7 +1852,10 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+            if (
+                $request->url() === 'http://127.0.0.1:8001/bots/forward-messages'
+                && (int) ($request['source_chat_id'] ?? 0) !== 8468381207
+            ) {
                 return Http::response([
                     'status' => 'error',
                     'reason' => 'source_messages_not_found',
@@ -1845,7 +1863,10 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 500);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8000/bots/files') {
+            if (
+                $request->url() === 'http://127.0.0.1:8001/bots/files'
+                && (string) ($request['bot_username'] ?? '') === 'filestoebot'
+            ) {
                 $minMessageId = (int) ($request['min_message_id'] ?? 0);
 
                 if ($minMessageId <= 0) {
@@ -1883,7 +1904,7 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8000/bots/send') {
+            if ($request->url() === 'http://127.0.0.1:8001/bots/send') {
                 $this->assertSame('file_backup_restore_bot', (string) $request['bot_username']);
                 $this->assertSame('/start', (string) $request['text']);
 
@@ -1893,7 +1914,10 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8000/bots/forward-messages') {
+            if (
+                $request->url() === 'http://127.0.0.1:8001/bots/forward-messages'
+                && (int) ($request['source_chat_id'] ?? 0) === 8468381207
+            ) {
                 $this->assertSame(8468381207, (int) $request['source_chat_id']);
                 $this->assertSame([517604], array_map('intval', (array) $request['message_ids']));
 
@@ -1905,7 +1929,7 @@ class RestoreFilestoreToBotCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($request->url() === 'http://127.0.0.1:8000/bots/delete-messages') {
+            if ($request->url() === 'http://127.0.0.1:8001/bots/delete-messages') {
                 $chatPeer = (string) $request['chat_peer'];
                 $messageIds = array_map('intval', (array) $request['message_ids']);
 

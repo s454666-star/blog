@@ -19,7 +19,7 @@ class DispatchTokenScanItemsCommand extends Command
         {tokens?* : Tokens to process. If omitted, read from token_scan_items}
         {--done-action=delete : Action after success: delete or touch}
         {--limit=0 : Max rows to read from token_scan_items. 0 means unlimited}
-        {--port=8000 : Telegram FastAPI service port. Default 8000}
+        {--port=8001 : Telegram FastAPI service port. Default 8001}
         {--base-uri=* : Explicit Telegram API base URI(s). Overrides --port}
         {--force-bot= : Override token routing and dispatch every token to a specific bot username}
         {--fallback-newjmqbot : Deprecated and ignored. @newjmqbot is disabled.}
@@ -83,7 +83,7 @@ class DispatchTokenScanItemsCommand extends Command
     ];
 
     private const DEFAULT_API_HOST = 'http://127.0.0.1';
-    private const DEFAULT_API_PORT = 8000;
+    private const DEFAULT_API_PORT = 8001;
     private const DIALOGUES_CHAT_ID = 7702694790;
     private const BOT_REPLIES_FETCH_LIMIT = 80;
     private const QQ_YZ_MAX_ATTEMPTS = 20;
@@ -103,7 +103,6 @@ class DispatchTokenScanItemsCommand extends Command
     private const LOCAL_FASTAPI_READY_POLL_MICROSECONDS = 500000;
     private const LOCAL_FASTAPI_READY_HTTP_TIMEOUT_SECONDS = 2;
     private const LOCAL_FASTAPI_RESTART_BATCH_BY_PORT = [
-        8000 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service.bat',
         8001 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service2.bat',
         8002 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service3.bat',
         8003 => 'C:\\Users\\User\\Pictures\\train\\start_telegram_service4.bat',

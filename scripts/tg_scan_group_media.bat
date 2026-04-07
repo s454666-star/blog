@@ -3,7 +3,7 @@ setlocal
 
 set "APP_DIR=C:\www\blog"
 set "PHP_EXE=C:\php\php.exe"
-set "BASE_URI=http://127.0.0.1:8000/"
+set "BASE_URI=http://127.0.0.1:8001/"
 set "NEXT_LIMIT=1000"
 set "EMPTY_EXIT=2"
 set "RUN_LOG=%TEMP%\tg_scan_group_media_last.log"

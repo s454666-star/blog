@@ -11,8 +11,8 @@
     {
         private const BOT_USERNAME = 'ShowFiles3Bot';
 
-        private const API_1_BASE_URL = 'http://127.0.0.1:8000';
-        private const API_2_BASE_URL = 'http://127.0.0.1:8001';
+        private const API_1_BASE_URL = 'http://127.0.0.1:8001';
+        private const API_2_BASE_URL = 'http://127.0.0.1:8002';
 
         public function runAllPagesByBot(Request $request): JsonResponse
         {

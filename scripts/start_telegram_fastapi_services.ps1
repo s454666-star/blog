@@ -1,7 +1,8 @@
 param(
     [string]$BaseDir = 'C:\Users\User\Pictures\train',
-    [int]$PrimaryPort = 8000,
-    [int]$SecondaryPort = 8001
+    [int]$PrimaryPort = 8001,
+    [int]$SecondaryPort = 8002,
+    [int]$TertiaryPort = 8003
 )
 
 $ErrorActionPreference = 'Stop'
@@ -81,5 +82,6 @@ function Ensure-TelegramService {
     }
 }
 
-Ensure-TelegramService -RuntimeBaseDir $BaseDir -ModuleName 'telegram_service' -Port $PrimaryPort
-Ensure-TelegramService -RuntimeBaseDir $BaseDir -ModuleName 'telegram_service2' -Port $SecondaryPort
+Ensure-TelegramService -RuntimeBaseDir $BaseDir -ModuleName 'telegram_service2' -Port $PrimaryPort
+Ensure-TelegramService -RuntimeBaseDir $BaseDir -ModuleName 'telegram_service3' -Port $SecondaryPort
+Ensure-TelegramService -RuntimeBaseDir $BaseDir -ModuleName 'telegram_service4' -Port $TertiaryPort

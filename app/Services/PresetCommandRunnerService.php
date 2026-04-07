@@ -615,13 +615,13 @@ class PresetCommandRunnerService
                 'eyebrow' => 'Telegram Scan',
                 'title' => '掃群組 token 並送去指定 port',
                 'summary' => '先掃描預設 Telegram 群組中的 token，再依你選的 port 把待處理項目派送出去。',
-                'details' => '適合剛補完群組內容或想立刻把新 token 推進 bot 流程時使用。這組流程會先更新 dialogues / token_scan_items，再依你選擇的 8000、8001、8002 或 8003 把處理完成項目送出。',
+                'details' => '適合剛補完群組內容或想立刻把新 token 推進 bot 流程時使用。這組流程會先更新 dialogues / token_scan_items，再依你選擇的 8001、8002 或 8003 把處理完成項目送出。',
                 'highlights' => [
                     '先跑 tg:scan-group-tokens，把群組訊息中的 token 去重後寫入資料表。',
-                    '第二步可以選 8000、8001、8002 或 8003，把 token 派給對應的 Telegram FastAPI。',
+                    '第二步可以選 8001、8002 或 8003，把 token 派給對應的 Telegram FastAPI。',
                     '適合先清最新掃描結果，再直接推到你要的 port。',
                 ],
-                'tags' => ['dialogues', 'token_scan_items', 'port 8000', 'port 8001', 'port 8002', 'port 8003'],
+                'tags' => ['dialogues', 'token_scan_items', 'port 8001', 'port 8002', 'port 8003'],
                 'accent_from' => '#ec5f9b',
                 'accent_to' => '#ff9fba',
                 'accent_soft' => 'rgba(236, 95, 155, 0.18)',
@@ -631,16 +631,13 @@ class PresetCommandRunnerService
                         'command' => [self::PHP_BINARY, 'artisan', 'tg:scan-group-tokens'],
                     ],
                     [
-                        'display' => 'C:\\php\\php.exe artisan tg:dispatch-token-scan-items --done-action=delete --port=8000',
-                        'command' => [self::PHP_BINARY, 'artisan', 'tg:dispatch-token-scan-items', '--done-action=delete', '--port=8000'],
+                        'display' => 'C:\\php\\php.exe artisan tg:dispatch-token-scan-items --done-action=delete --port=8001',
+                        'command' => [self::PHP_BINARY, 'artisan', 'tg:dispatch-token-scan-items', '--done-action=delete', '--port=8001'],
                     ],
                 ],
                 'command_preview' => implode("\n", [
                     'cd ' . self::WORKDIR,
                     'C:\\php\\php.exe artisan tg:scan-group-tokens',
-                    '',
-                    '[8000 PORT]',
-                    'C:\\php\\php.exe artisan tg:dispatch-token-scan-items --done-action=delete --port=8000',
                     '',
                     '[8001 PORT]',
                     'C:\\php\\php.exe artisan tg:dispatch-token-scan-items --done-action=delete --port=8001',
@@ -652,11 +649,6 @@ class PresetCommandRunnerService
                     'C:\\php\\php.exe artisan tg:dispatch-token-scan-items --done-action=delete --port=8003',
                 ]),
                 'button_variants' => [
-                    [
-                        'preset' => 'scan_group_tokens_port_8000',
-                        'label' => '8000 PORT跑',
-                        'title' => '掃群組 token：跑 8000',
-                    ],
                     [
                         'preset' => 'scan_group_tokens_port_8001',
                         'label' => '8001 PORT跑',
@@ -671,22 +663,6 @@ class PresetCommandRunnerService
                         'preset' => 'scan_group_tokens_port_8003',
                         'label' => '8003 PORT跑',
                         'title' => '掃群組 token：跑 8003',
-                    ],
-                ],
-            ],
-            'scan_group_tokens_port_8000' => [
-                'hidden' => true,
-                'eyebrow' => 'Telegram Scan',
-                'title' => '掃群組 token：跑 8000',
-                'summary' => '先掃描 token，再把待處理項目派送到 8000。',
-                'steps' => [
-                    [
-                        'display' => 'C:\\php\\php.exe artisan tg:scan-group-tokens',
-                        'command' => [self::PHP_BINARY, 'artisan', 'tg:scan-group-tokens'],
-                    ],
-                    [
-                        'display' => 'C:\\php\\php.exe artisan tg:dispatch-token-scan-items --done-action=delete --port=8000',
-                        'command' => [self::PHP_BINARY, 'artisan', 'tg:dispatch-token-scan-items', '--done-action=delete', '--port=8000'],
                     ],
                 ],
             ],
@@ -890,14 +866,14 @@ class PresetCommandRunnerService
             'dispatch_remaining_tokens' => [
                 'eyebrow' => 'Backlog Flush',
                 'title' => '補跑剩餘 token：選 port 執行',
-                'summary' => '把 token_scan_items 裡還沒處理完的項目送到指定 port，適合分開清 8000、8001、8002 或 8003 的 backlog。',
-                'details' => '這組不重新掃群組，只處理已經在 token_scan_items 裡排隊的 token。你可以直接在同一張卡上選擇跑 8000、8001、8002 或 8003。',
+                'summary' => '把 token_scan_items 裡還沒處理完的項目送到指定 port，適合分開清 8001、8002 或 8003 的 backlog。',
+                'details' => '這組不重新掃群組，只處理已經在 token_scan_items 裡排隊的 token。你可以直接在同一張卡上選擇跑 8001、8002 或 8003。',
                 'highlights' => [
-                    '可以直接選 8000、8001、8002 或 8003 其中一個 port 來跑。',
+                    '可以直接選 8001、8002 或 8003 其中一個 port 來跑。',
                     '不需要拆成兩張卡，操作還是集中在同一區。',
                     '成功處理後一樣會依 --done-action=delete 刪除已完成列。',
                 ],
-                'tags' => ['backlog', 'port 8000', 'port 8001', 'port 8002', 'port 8003'],
+                'tags' => ['backlog', 'port 8001', 'port 8002', 'port 8003'],
                 'accent_from' => '#ff6f98',
                 'accent_to' => '#ffb07f',
                 'accent_soft' => 'rgba(255, 111, 152, 0.18)',
@@ -909,9 +885,6 @@ class PresetCommandRunnerService
                 ],
                 'command_preview' => implode("\n", [
                     'cd ' . self::WORKDIR,
-                    '[8000 PORT]',
-                    'C:\\php\\php.exe artisan tg:dispatch-token-scan-items --done-action=delete --port=8000',
-                    '',
                     '[8001 PORT]',
                     'C:\\php\\php.exe artisan tg:dispatch-token-scan-items --done-action=delete --port=8001',
                     '',
@@ -922,11 +895,6 @@ class PresetCommandRunnerService
                     'C:\\php\\php.exe artisan tg:dispatch-token-scan-items --done-action=delete --port=8003',
                 ]),
                 'button_variants' => [
-                    [
-                        'preset' => 'dispatch_remaining_tokens_port_8000',
-                        'label' => '8000 PORT跑',
-                        'title' => '補跑剩餘 token：跑 8000',
-                    ],
                     [
                         'preset' => 'dispatch_remaining_tokens_port_8001',
                         'label' => '8001 PORT跑',
@@ -941,18 +909,6 @@ class PresetCommandRunnerService
                         'preset' => 'dispatch_remaining_tokens_port_8003',
                         'label' => '8003 PORT跑',
                         'title' => '補跑剩餘 token：跑 8003',
-                    ],
-                ],
-            ],
-            'dispatch_remaining_tokens_port_8000' => [
-                'hidden' => true,
-                'eyebrow' => 'Backlog Flush',
-                'title' => '補跑剩餘 token：跑 8000',
-                'summary' => '把 token_scan_items 裡還沒處理完的項目送到 8000。',
-                'steps' => [
-                    [
-                        'display' => 'C:\\php\\php.exe artisan tg:dispatch-token-scan-items --done-action=delete --port=8000',
-                        'command' => [self::PHP_BINARY, 'artisan', 'tg:dispatch-token-scan-items', '--done-action=delete', '--port=8000'],
                     ],
                 ],
             ],

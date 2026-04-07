@@ -40,7 +40,7 @@ class DialogueFilestoreDispatchService
         if ($baseUris !== []) {
             $parameters['--base-uri'] = $baseUris;
         } else {
-            $parameters['--port'] = max(1, (int) ($options['--port'] ?? 8000));
+            $parameters['--port'] = max(1, (int) ($options['--port'] ?? 8001));
         }
 
         if (($options['--filestore-delete-source-messages'] ?? false) === true) {

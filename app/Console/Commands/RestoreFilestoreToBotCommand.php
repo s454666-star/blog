@@ -15,7 +15,7 @@ use Illuminate\Support\Str;
 class RestoreFilestoreToBotCommand extends Command
 {
     private const DEFAULT_BASE_URI = 'http://127.0.0.1:8001';
-    private const DEFAULT_FILESTORE_SYNC_BASE_URI = 'http://127.0.0.1:8000';
+    private const DEFAULT_FILESTORE_SYNC_BASE_URI = 'http://127.0.0.1:8001';
     private const DEFAULT_MEMORY_LIMIT = '-1';
     private const MAX_FILE_ATTEMPTS_PER_RUN = 3;
     private const RESTORE_BATCH_SIZE = 10;

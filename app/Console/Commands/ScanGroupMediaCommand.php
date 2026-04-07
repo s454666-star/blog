@@ -51,7 +51,7 @@ class ScanGroupMediaCommand extends Command
     private const TOKEN_STORE_QUEUED = 'queued';
 
     private array $scanTargetsByBaseUri = [
-        'http://127.0.0.1:8000/' => [
+        'http://127.0.0.1:8001/' => [
             2755698006,
             3406828124,
             2457763530,

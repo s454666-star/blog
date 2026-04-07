@@ -4,22 +4,8 @@ setlocal EnableExtensions
 goto main
 
 :select_fastapi_target
-set "NEXT_PORT="
-
-if exist "%PORT_STATE_FILE%" (
-    set /p NEXT_PORT=<"%PORT_STATE_FILE%"
-)
-
-if /i "%NEXT_PORT%"=="8001" (
-    set "FASTAPI_PORT=8001"
-    set "FASTAPI_TASK=Telegram FastAPI Services"
-    >"%PORT_STATE_FILE%" echo 8000
-    exit /b 0
-)
-
-set "FASTAPI_PORT=8000"
+set "FASTAPI_PORT=8001"
 set "FASTAPI_TASK=Telegram FastAPI Services"
->"%PORT_STATE_FILE%" echo 8001
 exit /b 0
 
 :is_port_open
@@ -86,7 +72,6 @@ set "PHP_EXE=C:\php\php.exe"
 set "LOG_DIR=%APP_DIR%\storage\logs"
 set "LOG_FILE=%LOG_DIR%\mtfxqbot_dialogues_filestore_bridge.log"
 set "LOCK_DIR=%LOG_DIR%\mtfxqbot_dialogues_filestore_bridge.lock"
-set "PORT_STATE_FILE=%LOG_DIR%\mtfxqbot_dialogues_filestore_bridge_next_port.txt"
 set "FASTAPI_HOST=127.0.0.1"
 set "FASTAPI_PORT="
 set "FASTAPI_TASK="

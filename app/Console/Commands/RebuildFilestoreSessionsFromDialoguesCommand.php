@@ -18,7 +18,7 @@
 
         public function handle(): int
         {
-            $apiUrl = 'http://127.0.0.1:8000/bots/send-and-run-all-pages';
+            $apiUrl = 'http://127.0.0.1:8001/bots/send-and-run-all-pages';
 
             $manualText = $this->argument('text');
             $manualText = is_string($manualText) ? trim($manualText) : '';

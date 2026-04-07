@@ -53,7 +53,7 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
                 $this->assertSame(['mtfxqbot_4V_notfound0004'], $parameters['tokens']);
                 $this->assertSame('touch', $parameters['--done-action']);
                 $this->assertTrue($parameters['--include-processed']);
-                $this->assertSame(8000, $parameters['--port']);
+                $this->assertSame(8001, $parameters['--port']);
 
                 $output->writeln('Bot returned not found. Keep token_scan_items row untouched.');
 
@@ -61,7 +61,7 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
             });
 
         $result = $this->app->make(DialogueFilestoreDispatchService::class)
-            ->dispatchToken('mtfxqbot_4V_notfound0004', ['--port' => 8000]);
+            ->dispatchToken('mtfxqbot_4V_notfound0004', ['--port' => 8001]);
 
         $this->assertFalse($result['ok']);
         $this->assertSame('not_found', $result['status']);
@@ -75,7 +75,7 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
             ->andReturnUsing(function (string $command, array $parameters, $output): int {
                 $this->assertSame('tg:dispatch-token-scan-items', $command);
                 $this->assertSame(['mtfxqbot_4V_nofiles0005'], $parameters['tokens']);
-                $this->assertSame(8000, $parameters['--port']);
+                $this->assertSame(8001, $parameters['--port']);
 
                 $output->writeln('filestore sync skipped: no forwardable files');
 
@@ -83,7 +83,7 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
             });
 
         $result = $this->app->make(DialogueFilestoreDispatchService::class)
-            ->dispatchToken('mtfxqbot_4V_nofiles0005', ['--port' => 8000]);
+            ->dispatchToken('mtfxqbot_4V_nofiles0005', ['--port' => 8001]);
 
         $this->assertFalse($result['ok']);
         $this->assertSame('no_files', $result['status']);
@@ -97,7 +97,7 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
             ->andReturnUsing(function (string $command, array $parameters, $output): int {
                 $this->assertSame('tg:dispatch-token-scan-items', $command);
                 $this->assertSame(['mtfxqbot_1V_invalid0011'], $parameters['tokens']);
-                $this->assertSame(8000, $parameters['--port']);
+                $this->assertSame(8001, $parameters['--port']);
 
                 $output->writeln('Bot returned no usable mtfxq text/files. Stored token in dialogues with is_sync=1.');
 
@@ -105,7 +105,7 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
             });
 
         $result = $this->app->make(DialogueFilestoreDispatchService::class)
-            ->dispatchToken('mtfxqbot_1V_invalid0011', ['--port' => 8000]);
+            ->dispatchToken('mtfxqbot_1V_invalid0011', ['--port' => 8001]);
 
         $this->assertFalse($result['ok']);
         $this->assertSame('invalid_token', $result['status']);
@@ -122,7 +122,7 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
             ->andReturnUsing(function (string $command, array $parameters, $output): int {
                 $this->assertSame('tg:dispatch-token-scan-items', $command);
                 $this->assertSame(['QQfile_bot:14936_58526_793-573V'], $parameters['tokens']);
-                $this->assertSame(8000, $parameters['--port']);
+                $this->assertSame(8001, $parameters['--port']);
                 $this->assertSame(300, $parameters['--skip-when-total-files-exceeds']);
 
                 $output->writeln(
@@ -134,7 +134,7 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
 
         $result = $this->app->make(DialogueFilestoreDispatchService::class)
             ->dispatchToken('QQfile_bot:14936_58526_793-573V', [
-                '--port' => 8000,
+                '--port' => 8001,
                 '--skip-when-total-files-exceeds' => 300,
             ]);
 
@@ -175,3 +175,4 @@ class DialogueFilestoreDispatchServiceTest extends TestCase
         $this->assertSame(3, $result['exit_code']);
     }
 }
+

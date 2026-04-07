@@ -22,7 +22,7 @@ class BridgeDialogueTokensToFilestoreCommand extends Command
         {--search= : Optional text needle for narrowing dialogues rows before token extraction}
         {--limit=0 : Max unique tokens to dispatch. 0 means unlimited}
         {--row-chunk=500 : Dialogue rows to read per batch}
-        {--port=8000 : Telegram FastAPI service port. Ignored when --base-uri is provided}
+        {--port=8001 : Telegram FastAPI service port. Ignored when --base-uri is provided}
         {--base-uri=* : Explicit Telegram API base URI(s). Overrides --port}
         {--max-dialogue-id=0 : Optional max dialogues.id to scan from}
         {--retry-delay=5 : Wait seconds before retrying a token that still has no files}

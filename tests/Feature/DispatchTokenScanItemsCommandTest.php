@@ -70,8 +70,8 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send' => Http::response(['status' => 'ok'], 200),
-            'http://127.0.0.1:8000/bots/run-all-pages-by-bot' => Http::response([
+            'http://127.0.0.1:8001/bots/send' => Http::response(['status' => 'ok'], 200),
+            'http://127.0.0.1:8001/bots/run-all-pages-by-bot' => Http::response([
                 'status' => 'ok',
                 'reason' => 'completion message detected',
                 'files_unique_count' => 1,
@@ -96,14 +96,14 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/send'
+            return $request->url() === 'http://127.0.0.1:8001/bots/send'
                 && $request['bot_username'] === 'vipfiles2bot'
                 && $request['text'] === 'showfiles3bot_abc123'
                 && $request['clear_previous_replies'] === true;
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
+            return $request->url() === 'http://127.0.0.1:8001/bots/run-all-pages-by-bot'
                 && $request['bot_username'] === 'vipfiles2bot'
                 && $request['clear_previous_replies'] === false
                 && !isset($request['text']);
@@ -123,7 +123,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+            'http://127.0.0.1:8001/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
                 'reason' => 'reached total items after final page click; stop',
                 'files_unique_count' => 35,
@@ -155,7 +155,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/send-and-run-all-pages'
+            return $request->url() === 'http://127.0.0.1:8001/bots/send-and-run-all-pages'
                 && $request['bot_username'] === 'showfiles12bot'
                 && $request['text'] === 'showfilesbot_35P_3V_d1F7Z7H0r306F3x6b168'
                 && $request['clear_previous_replies'] === true
@@ -191,7 +191,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+            'http://127.0.0.1:8001/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
                 'reason' => 'not found',
                 'files_unique_count' => 0,
@@ -230,7 +230,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+            'http://127.0.0.1:8001/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
                 'reason' => 'paused',
                 'files_unique_count' => 0,
@@ -266,7 +266,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+            'http://127.0.0.1:8001/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
                 'reason' => 'reported total_items exceeded limit before pagination',
                 'files_unique_count' => 0,
@@ -302,7 +302,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/send-and-run-all-pages'
+            return $request->url() === 'http://127.0.0.1:8001/bots/send-and-run-all-pages'
                 && $request['bot_username'] === 'showfiles12bot'
                 && $request['text'] === 'QQfile_bot:14936_58526_793-573V'
                 && $request['stop_when_total_items_exceeds'] === 300;
@@ -327,7 +327,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+            'http://127.0.0.1:8001/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
                 'reason' => 'reached total items after final page click; stop',
                 'files_unique_count' => 61,
@@ -379,7 +379,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/send-and-run-all-pages'
+            return $request->url() === 'http://127.0.0.1:8001/bots/send-and-run-all-pages'
                 && $request['bot_username'] === 'mtfxq2bot'
                 && $request['text'] === 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2'
                 && $request['clear_previous_replies'] === true
@@ -433,7 +433,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+            'http://127.0.0.1:8001/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
                 'sent_message_id' => 456789,
                 'reason' => 'reached total items after final page click; stop',
@@ -458,7 +458,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             ], 200),
         ]);
 
-        $this->artisan('tg:dispatch-token-scan-items showfilesbot_13P_keep_source001 --port=8000')
+        $this->artisan('tg:dispatch-token-scan-items showfilesbot_13P_keep_source001 --port=8001')
             ->assertExitCode(0);
 
         $this->assertFalse((bool) $carrier->deleteSourceMessages);
@@ -508,7 +508,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+            'http://127.0.0.1:8001/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
                 'sent_message_id' => 8811,
                 'reason' => 'reached total items after final page click; stop',
@@ -575,7 +575,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+            'http://127.0.0.1:8001/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
                 'reason' => 'not found',
                 'files_unique_count' => 0,
@@ -624,7 +624,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         $requestCount = 0;
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => function () use (&$requestCount) {
+            'http://127.0.0.1:8001/bots/send-and-run-all-pages' => function () use (&$requestCount) {
                 $requestCount++;
 
                 return Http::response([
@@ -677,7 +677,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+            'http://127.0.0.1:8001/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
                 'reason' => 'not found',
                 'files_unique_count' => 0,
@@ -726,7 +726,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send-and-run-all-pages' => Http::response([
+            'http://127.0.0.1:8001/bots/send-and-run-all-pages' => Http::response([
                 'status' => 'ok',
                 'sent_message_id' => 991122,
                 'reason' => 'no page_info and no buttons; observed files collected',
@@ -765,7 +765,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         };
         $this->app->instance(TelegramFilestoreTokenBridgeService::class, $bridgeService);
 
-        $this->artisan('tg:dispatch-token-scan-items mtfxqbot_1V_a107h7O446U27888T0o5 --port=8000 --stopped-early-retry-delay=0 --stopped-early-max-retries=1')
+        $this->artisan('tg:dispatch-token-scan-items mtfxqbot_1V_a107h7O446U27888T0o5 --port=8001 --stopped-early-retry-delay=0 --stopped-early-max-retries=1')
             ->expectsOutputToContain('stored token in dialogues with is_sync=1')
             ->assertExitCode(0);
 
@@ -815,7 +815,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 $url = $request->url();
                 $botUsername = (string) ($request['bot_username'] ?? '');
 
-                if ($url === 'http://127.0.0.1:8000/bots/send-and-run-all-pages' && $botUsername === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/send-and-run-all-pages' && $botUsername === 'mtfxq2bot') {
                     $sendAndRunCount++;
 
                     if ($sendAndRunCount === 1) {
@@ -855,7 +855,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                if (str_starts_with($url, 'http://127.0.0.1:8001/bots/replies')) {
                     $minMessageId = (int) ($request->data()['min_message_id'] ?? 0);
 
                     if ($captchaAnswered && $minMessageId === 473200) {
@@ -896,7 +896,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     return Http::response([], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxq2bot') {
                     $deletedMessagePayloads[] = $request->data();
 
                     return Http::response([
@@ -905,7 +905,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/download-message-media') {
+                if ($url === 'http://127.0.0.1:8001/bots/download-message-media') {
                     return Http::response([
                         'status' => 'ok',
                         'saved_path' => $imagePath,
@@ -926,7 +926,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'mtfxq2bot') {
                     $captchaAnswered = true;
 
                     return Http::response([
@@ -969,7 +969,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/download-message-media'
+            return $request->url() === 'http://127.0.0.1:8001/bots/download-message-media'
                 && $request['bot_username'] === 'mtfxq2bot'
                 && $request['message_id'] === 473115;
         });
@@ -996,14 +996,14 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'mtfxq2bot'
                 && $request['sent_message_id'] === 473115
                 && $request['button_keywords'] === ['4'];
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/delete-messages'
+            return $request->url() === 'http://127.0.0.1:8001/bots/delete-messages'
                 && $request['chat_peer'] === 'mtfxq2bot'
                 && $request['message_ids'] === [473200, 473205, 473215];
         });
@@ -1036,7 +1036,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 $url = $request->url();
                 $botUsername = (string) ($request['bot_username'] ?? '');
 
-                if ($url === 'http://127.0.0.1:8000/bots/send-and-run-all-pages' && $botUsername === 'showfiles12bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/send-and-run-all-pages' && $botUsername === 'showfiles12bot') {
                     $sendAndRunCount++;
 
                     if ($sendAndRunCount === 2) {
@@ -1091,7 +1091,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot' && $botUsername === 'showfiles12bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/run-all-pages-by-bot' && $botUsername === 'showfiles12bot') {
                     $resumeCount++;
 
                     return Http::response([
@@ -1118,7 +1118,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                if (str_starts_with($url, 'http://127.0.0.1:8001/bots/replies')) {
                     if ((int) ($request->data()['summary_only'] ?? 1) === 0) {
                         if ($captchaAnswered && (int) ($request->data()['min_message_id'] ?? 0) === 123300) {
                             return Http::response([
@@ -1176,7 +1176,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     return Http::response([], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'showfiles12bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'showfiles12bot') {
                     $deletedMessagePayloads[] = $request->data();
 
                     return Http::response([
@@ -1185,7 +1185,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/download-message-media') {
+                if ($url === 'http://127.0.0.1:8001/bots/download-message-media') {
                     return Http::response([
                         'status' => 'ok',
                         'saved_path' => $imagePath,
@@ -1206,7 +1206,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'showfiles12bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'showfiles12bot') {
                     $captchaAnswered = true;
 
                     return Http::response([
@@ -1230,7 +1230,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
             });
 
-            $this->artisan('tg:dispatch-token-scan-items --port=8000')
+            $this->artisan('tg:dispatch-token-scan-items --port=8001')
                 ->assertExitCode(0);
         } finally {
             @unlink($imagePath);
@@ -1246,7 +1246,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/download-message-media'
+            return $request->url() === 'http://127.0.0.1:8001/bots/download-message-media'
                 && $request['bot_username'] === 'showfiles12bot'
                 && $request['message_id'] === 123417
                 && $request['folder_label'] === 'showfiles12_captcha';
@@ -1273,20 +1273,20 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'showfiles12bot'
                 && $request['sent_message_id'] === 123417
                 && $request['button_keywords'] === ['2'];
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/delete-messages'
+            return $request->url() === 'http://127.0.0.1:8001/bots/delete-messages'
                 && $request['chat_peer'] === 'showfiles12bot'
                 && $request['message_ids'] === [123300, 123305, 123350, 123417];
         });
 
         Http::assertNotSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
+            return $request->url() === 'http://127.0.0.1:8001/bots/run-all-pages-by-bot'
                 && $request['bot_username'] === 'showfiles12bot';
         });
     }
@@ -1317,7 +1317,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 $url = $request->url();
                 $botUsername = (string) ($request['bot_username'] ?? '');
 
-                if ($url === 'http://127.0.0.1:8000/bots/send-and-run-all-pages' && $botUsername === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/send-and-run-all-pages' && $botUsername === 'mtfxq2bot') {
                     $sendAndRunCount++;
 
                     if ($sendAndRunCount === 1) {
@@ -1357,7 +1357,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                if (str_starts_with($url, 'http://127.0.0.1:8001/bots/replies')) {
                     if (!$staleCaptchaClicked) {
                         return Http::response([
                             [
@@ -1407,14 +1407,14 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     return Http::response([], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxq2bot') {
                     return Http::response([
                         'status' => 'ok',
                         'deleted_count' => count((array) ($request['message_ids'] ?? [])),
                     ], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/download-message-media') {
+                if ($url === 'http://127.0.0.1:8001/bots/download-message-media') {
                     return Http::response([
                         'status' => 'ok',
                         'saved_path' => $imagePath,
@@ -1433,7 +1433,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'mtfxq2bot') {
                     if (($request['sent_message_id'] ?? 0) === 473121) {
                         $staleCaptchaClicked = true;
 
@@ -1474,14 +1474,14 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         $this->assertTrue($newCaptchaSolved);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'mtfxq2bot'
                 && $request['sent_message_id'] === 473121
                 && $request['button_keywords'] === ['重新生成验证码'];
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'mtfxq2bot'
                 && $request['sent_message_id'] === 473130
                 && $request['button_keywords'] === ['4'];
@@ -1514,7 +1514,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 $url = $request->url();
                 $botUsername = (string) ($request['bot_username'] ?? '');
 
-                if ($url === 'http://127.0.0.1:8000/bots/send-and-run-all-pages' && $botUsername === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/send-and-run-all-pages' && $botUsername === 'mtfxq2bot') {
                     $sendAndRunCount++;
 
                     if ($sendAndRunCount === 1) {
@@ -1554,7 +1554,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                if (str_starts_with($url, 'http://127.0.0.1:8001/bots/replies')) {
                     if (!$blockedCaptchaClicked) {
                         return Http::response([
                             [
@@ -1590,14 +1590,14 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     return Http::response([], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxq2bot') {
                     return Http::response([
                         'status' => 'ok',
                         'deleted_count' => count((array) ($request['message_ids'] ?? [])),
                     ], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/download-message-media') {
+                if ($url === 'http://127.0.0.1:8001/bots/download-message-media') {
                     return Http::response([
                         'status' => 'ok',
                         'saved_path' => $imagePath,
@@ -1616,7 +1616,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'mtfxq2bot') {
                     if (($request['sent_message_id'] ?? 0) === 473121) {
                         $blockedCaptchaClicked = true;
 
@@ -1660,14 +1660,14 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'mtfxq2bot'
                 && $request['sent_message_id'] === 473121
                 && $request['button_keywords'] === ['重新生成验证码'];
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'mtfxq2bot'
                 && $request['sent_message_id'] === 473130
                 && $request['button_keywords'] === ['4'];
@@ -1690,7 +1690,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             $url = $request->url();
             $botUsername = (string) ($request['bot_username'] ?? '');
 
-            if ($url === 'http://127.0.0.1:8000/bots/send-and-run-all-pages' && $botUsername === 'mtfxq2bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/send-and-run-all-pages' && $botUsername === 'mtfxq2bot') {
                 $sendAndRunCount++;
 
                 if ($sendAndRunCount === 1) {
@@ -1730,7 +1730,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
-            if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+            if (str_starts_with($url, 'http://127.0.0.1:8001/bots/replies')) {
                 $minMessageId = (int) ($request->data()['min_message_id'] ?? 0);
 
                 if ($minMessageId >= 473120 && !$staleRefreshAttempted) {
@@ -1762,7 +1762,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 return Http::response([], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'mtfxq2bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'mtfxq2bot') {
                 $staleRefreshAttempted = true;
 
                 return Http::response([
@@ -1775,7 +1775,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxq2bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxq2bot') {
                 $deletedMessagePayloads[] = $request->data();
 
                 return Http::response([
@@ -1798,7 +1798,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'mtfxq2bot'
                 && $request['sent_message_id'] === 473121
                 && $request['button_keywords'] === ['重新生成验证码'];
@@ -1829,7 +1829,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 $url = $request->url();
                 $botUsername = (string) ($request['bot_username'] ?? '');
 
-                if ($url === 'http://127.0.0.1:8000/bots/send-and-run-all-pages' && $botUsername === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/send-and-run-all-pages' && $botUsername === 'mtfxq2bot') {
                     if (!$captchaSolved) {
                         return Http::response([
                             'status' => 'ok',
@@ -1867,7 +1867,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+                if (str_starts_with($url, 'http://127.0.0.1:8001/bots/replies')) {
                     if (!$captchaSolved) {
                         return Http::response([
                             [
@@ -1901,7 +1901,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     return Http::response([], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/download-message-media') {
+                if ($url === 'http://127.0.0.1:8001/bots/download-message-media') {
                     return Http::response([
                         'status' => 'ok',
                         'saved_path' => $imagePath,
@@ -1920,7 +1920,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 200);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'mtfxq2bot') {
                     if (($request['sent_message_id'] ?? 0) === 473321) {
                         $captchaSolved = true;
 
@@ -1940,7 +1940,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                     ], 500);
                 }
 
-                if ($url === 'http://127.0.0.1:8000/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxq2bot') {
+                if ($url === 'http://127.0.0.1:8001/bots/delete-messages' && ($request['chat_peer'] ?? null) === 'mtfxq2bot') {
                     return Http::response([
                         'status' => 'ok',
                         'deleted_count' => count((array) ($request['message_ids'] ?? [])),
@@ -1961,14 +1961,14 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'mtfxq2bot'
                 && $request['sent_message_id'] === 473321
                 && $request['button_keywords'] === ['6'];
         });
 
         Http::assertNotSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'mtfxq2bot'
                 && $request['button_keywords'] === ['重新生成验证码'];
         });
@@ -1989,7 +1989,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake(function ($request) {
-            if ($request->url() !== 'http://127.0.0.1:8000/bots/send-and-run-all-pages') {
+            if ($request->url() !== 'http://127.0.0.1:8001/bots/send-and-run-all-pages') {
                 return Http::response(['status' => 'fail', 'reason' => 'unexpected request'], 500);
             }
 
@@ -2025,12 +2025,12 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/send-and-run-all-pages'
+            return $request->url() === 'http://127.0.0.1:8001/bots/send-and-run-all-pages'
                 && $request['text'] === 'mtfxqbot_denied_case';
         });
 
         Http::assertNotSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/send-and-run-all-pages'
+            return $request->url() === 'http://127.0.0.1:8001/bots/send-and-run-all-pages'
                 && ($request['text'] ?? '') === 'mtfxqbot_should_not_run';
         });
     }
@@ -2044,8 +2044,8 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::fake([
-            'http://127.0.0.1:8000/bots/send' => Http::response(['status' => 'ok'], 200),
-            'http://127.0.0.1:8000/bots/run-all-pages-by-bot' => Http::response([
+            'http://127.0.0.1:8001/bots/send' => Http::response(['status' => 'ok'], 200),
+            'http://127.0.0.1:8001/bots/run-all-pages-by-bot' => Http::response([
                 'status' => 'ok',
                 'reason' => 'completion message detected',
                 'files_unique_count' => 0,
@@ -2070,14 +2070,14 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/send'
+            return $request->url() === 'http://127.0.0.1:8001/bots/send'
                 && $request['bot_username'] === 'MessengerCode_bot'
                 && $request['text'] === 'Messengercode_abc123'
                 && $request['clear_previous_replies'] === true;
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot'
+            return $request->url() === 'http://127.0.0.1:8001/bots/run-all-pages-by-bot'
                 && $request['bot_username'] === 'MessengerCode_bot'
                 && $request['clear_previous_replies'] === false
                 && !isset($request['text']);
@@ -2100,14 +2100,14 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             $url = $request->url();
             $botUsername = (string) ($request['bot_username'] ?? '');
 
-            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'QQfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/send' && $botUsername === 'QQfile_bot') {
                 return Http::response([
                     'status' => 'ok',
                     'sent_message_id' => 321,
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
                 return Http::response([
                     'status' => 'ok',
                     'reason' => 'clicked matching button',
@@ -2131,7 +2131,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
-            if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+            if (str_starts_with($url, 'http://127.0.0.1:8001/bots/replies')) {
                 return Http::response([
                     [
                         'bot_username' => 'QQfile_bot',
@@ -2152,13 +2152,13 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/send'
+            return $request->url() === 'http://127.0.0.1:8001/bots/send'
                 && $request['bot_username'] === 'QQfile_bot'
                 && $request['text'] === 'QQfile_bot:14120_108172_755-39P_10V';
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'QQfile_bot'
                 && $request['sent_message_id'] === 321
                 && $request['button_keywords'] === ['推送全部'];
@@ -2205,7 +2205,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'QQfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/send' && $botUsername === 'QQfile_bot') {
                 $sendCount++;
 
                 return Http::response([
@@ -2214,7 +2214,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
                 $buttonKeywords = $request['button_keywords'] ?? [];
 
                 if ($buttonKeywords === ['推送全部'] && !$verificationAnswered) {
@@ -2285,7 +2285,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 }
             }
 
-            if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+            if (str_starts_with($url, 'http://127.0.0.1:8001/bots/replies')) {
                 $minMessageId = (int) ($request->data()['min_message_id'] ?? 0);
 
                 if (!$verificationAnswered && $minMessageId === 321) {
@@ -2362,13 +2362,13 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'QQfile_bot'
                 && $request['button_keywords'] === ['5️⃣'];
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'QQfile_bot'
                 && $request['button_keywords'] === ['查看全部文件'];
         });
@@ -2386,14 +2386,14 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             $url = $request->url();
             $botUsername = (string) ($request['bot_username'] ?? '');
 
-            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'QQfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/send' && $botUsername === 'QQfile_bot') {
                 return Http::response([
                     'status' => 'ok',
                     'sent_message_id' => 101,
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
                 return Http::response([
                     'status' => 'fail',
                     'reason' => 'no matching button found',
@@ -2412,14 +2412,14 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'yzfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/send' && $botUsername === 'yzfile_bot') {
                 return Http::response([
                     'status' => 'ok',
                     'sent_message_id' => 202,
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'yzfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'yzfile_bot') {
                 return Http::response([
                     'status' => 'ok',
                     'reason' => 'clicked matching button',
@@ -2444,7 +2444,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
-            if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+            if (str_starts_with($url, 'http://127.0.0.1:8001/bots/replies')) {
                 return Http::response([
                     [
                         'bot_username' => 'yzfile_bot',
@@ -2465,19 +2465,19 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'QQfile_bot'
                 && $request['sent_message_id'] === 101;
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/send'
+            return $request->url() === 'http://127.0.0.1:8001/bots/send'
                 && $request['bot_username'] === 'yzfile_bot'
                 && $request['text'] === '/start 14120_76302_755';
         });
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'http://127.0.0.1:8000/bots/click-matching-button'
+            return $request->url() === 'http://127.0.0.1:8001/bots/click-matching-button'
                 && $request['bot_username'] === 'yzfile_bot'
                 && $request['sent_message_id'] === 202;
         });
@@ -2498,7 +2498,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             $url = $request->url();
             $botUsername = (string) ($request['bot_username'] ?? '');
 
-            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'MessengerCode_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/send' && $botUsername === 'MessengerCode_bot') {
                 $sendCount++;
 
                 return Http::response([
@@ -2507,7 +2507,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/run-all-pages-by-bot' && $botUsername === 'MessengerCode_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/run-all-pages-by-bot' && $botUsername === 'MessengerCode_bot') {
                 $runCount++;
 
                 if ($runCount === 1) {
@@ -2571,7 +2571,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             $url = $request->url();
             $botUsername = (string) ($request['bot_username'] ?? '');
 
-            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'QQfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/send' && $botUsername === 'QQfile_bot') {
                 $sendCount++;
 
                 if ($sendCount === 1) {
@@ -2586,7 +2586,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
                 $clickCount++;
 
                 if ($clickCount === 1) {
@@ -2630,7 +2630,7 @@ class DispatchTokenScanItemsCommandTest extends TestCase
                 ], 200);
             }
 
-            if (str_starts_with($url, 'http://127.0.0.1:8000/bots/replies')) {
+            if (str_starts_with($url, 'http://127.0.0.1:8001/bots/replies')) {
                 return Http::response([
                     [
                         'bot_username' => 'QQfile_bot',
@@ -2666,13 +2666,13 @@ class DispatchTokenScanItemsCommandTest extends TestCase
             $url = $request->url();
             $botUsername = (string) ($request['bot_username'] ?? '');
 
-            if ($url === 'http://127.0.0.1:8000/bots/send' && $botUsername === 'QQfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/send' && $botUsername === 'QQfile_bot') {
                 return Http::response([
                     'status' => 'ok',
                 ], 200);
             }
 
-            if ($url === 'http://127.0.0.1:8000/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
+            if ($url === 'http://127.0.0.1:8001/bots/click-matching-button' && $botUsername === 'QQfile_bot') {
                 return Http::response([
                     'status' => 'fail',
                     'reason' => 'no matching button found',
@@ -2704,3 +2704,4 @@ class DispatchTokenScanItemsCommandTest extends TestCase
         ]);
     }
 }
+

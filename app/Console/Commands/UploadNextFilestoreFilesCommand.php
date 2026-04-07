@@ -15,8 +15,8 @@ class UploadNextFilestoreFilesCommand extends Command
     private const DEFAULT_CHAT_ID = 7702694790;
     private const DEFAULT_SOURCE_DIR = 'Z:\\video(重跑)';
     private const DEFAULT_TDL_PATH = 'C:\\Users\\User\\Videos\\Captures\\tdl.exe';
-    private const DEFAULT_FASTAPI_BASE_URI = 'http://127.0.0.1:8000/';
-    private const DEFAULT_FASTAPI_FALLBACK_BASE_URI = 'http://127.0.0.1:8001/';
+    private const DEFAULT_FASTAPI_BASE_URI = 'http://127.0.0.1:8001/';
+    private const DEFAULT_FASTAPI_FALLBACK_BASE_URI = 'http://127.0.0.1:8002/';
     private const DEFAULT_BOT_USERNAME = 'filestoebot';
     private const POLL_INTERVAL_MICROSECONDS = 1500000;
 
@@ -26,8 +26,8 @@ class UploadNextFilestoreFilesCommand extends Command
         {--chat-id=7702694790 : 寫入 filestore 的 Telegram chat_id}
         {--source=Z:\\video(重跑) : 來源資料夾}
         {--bot=filestoebot : Telegram bot username（可帶或不帶 @）}
-        {--base-uri=http://127.0.0.1:8000/ : 本機 Telegram FastAPI base uri}
-        {--fallback-base-uri=http://127.0.0.1:8001/ : api-video 失敗時改打的備援 FastAPI base uri}
+        {--base-uri=http://127.0.0.1:8001/ : 本機 Telegram FastAPI base uri}
+        {--fallback-base-uri=http://127.0.0.1:8002/ : api-video 失敗時改打的備援 FastAPI base uri}
         {--api-timeout-seconds=120 : api-video 每次 HTTP 請求 timeout 秒數}
         {--tdl=C:\\Users\\User\\Videos\\Captures\\tdl.exe : tdl.exe 路徑}
         {--tdl-storage= : 傳給 tdl 的 --storage 規格，留空用目前預設已登入 storage}

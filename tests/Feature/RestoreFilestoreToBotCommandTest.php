@@ -1546,6 +1546,150 @@ class RestoreFilestoreToBotCommandTest extends TestCase
         ]);
     }
 
+    public function test_command_uses_webhook_bridge_capture_for_backup_restore_bot_when_bridge_context_table_exists(): void
+    {
+        config()->set('telegram.backup_restore_bot_username', 'new_files_star_bot');
+        config()->set('telegram.backup_restore_bot_token', 'restore-token');
+        config()->set('telegram.backup_restore_target_chat_id', 8491679630);
+        config()->set('telegram.backup_restore_webhook_url', 'https://new-files-star.mystar.monster/api/telegram/filestore/webhook/new-files-star');
+        config()->set('cache.default', 'array');
+
+        Schema::create('telegram_filestore_bridge_contexts', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('session_id');
+            $table->string('context_type', 32);
+            $table->char('context_hash', 64);
+            $table->string('context_value', 255)->nullable();
+            $table->dateTime('expires_at');
+            $table->dateTime('created_at')->nullable();
+            $table->unique(['context_type', 'context_hash'], 'telegram_filestore_bridge_contexts_type_hash_unique');
+            $table->index('session_id', 'telegram_filestore_bridge_contexts_session_idx');
+            $table->index('expires_at', 'telegram_filestore_bridge_contexts_expires_idx');
+        });
+
+        DB::table('telegram_filestore_sessions')->insert([
+            'id' => 73,
+            'chat_id' => 7702694790,
+            'public_token' => 'filestoebot_bridge_capture',
+            'source_token' => 'showfilesbot_bridge_capture',
+            'status' => 'closed',
+            'total_files' => 1,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        DB::table('telegram_filestore_files')->insert([
+            'id' => 7301,
+            'session_id' => 73,
+            'chat_id' => 7702694790,
+            'message_id' => 73001,
+            'file_id' => 'BRIDGE-CAPTURE-SOURCE-FILE-ID',
+            'file_unique_id' => 'BRIDGE-CAPTURE-SOURCE-UNIQ-ID',
+            'source_token' => 'showfilesbot_bridge_capture',
+            'file_name' => 'bridge-capture.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 33,
+            'file_type' => 'document',
+            'raw_payload' => json_encode(['message_id' => 73001], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'created_at' => now(),
+        ]);
+
+        Http::fake(function ($request) {
+            if ($request->url() === 'http://127.0.0.1:8001/bots/forward-messages') {
+                $bridgeSessionId = (int) DB::table('telegram_filestore_sessions')
+                    ->where('status', 'uploading')
+                    ->where('source_token', 'like', '__restore_bridge__%')
+                    ->max('id');
+
+                $this->assertGreaterThan(0, $bridgeSessionId);
+
+                DB::table('telegram_filestore_files')->insert([
+                    'session_id' => $bridgeSessionId,
+                    'chat_id' => 8491679630,
+                    'message_id' => 98201,
+                    'file_id' => 'BRIDGE-CAPTURE-TARGET-FILE-ID',
+                    'file_unique_id' => 'BRIDGE-CAPTURE-TARGET-UNIQ-ID',
+                    'source_token' => null,
+                    'file_name' => 'bridge-capture.bin',
+                    'mime_type' => 'application/octet-stream',
+                    'file_size' => 33,
+                    'file_type' => 'document',
+                    'raw_payload' => json_encode([
+                        'message_id' => 98201,
+                        'chat' => [
+                            'id' => 8491679630,
+                            'type' => 'private',
+                        ],
+                        'document' => [
+                            'file_id' => 'BRIDGE-CAPTURE-TARGET-FILE-ID',
+                            'file_unique_id' => 'BRIDGE-CAPTURE-TARGET-UNIQ-ID',
+                            'file_name' => 'bridge-capture.bin',
+                            'mime_type' => 'application/octet-stream',
+                            'file_size' => 33,
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    'created_at' => now(),
+                ]);
+
+                return Http::response([
+                    'status' => 'ok',
+                    'forwarded_message_ids' => [98201],
+                    'missing_message_ids' => [],
+                    'unforwardable_message_ids' => [],
+                ], 200);
+            }
+
+            if ($request->url() === 'http://127.0.0.1:8001/bots/delete-messages') {
+                return Http::response([
+                    'status' => 'ok',
+                    'deleted_count' => 1,
+                    'undeleted_message_ids' => [],
+                ], 200);
+            }
+
+            return Http::response([
+                'ok' => false,
+                'status' => 'unexpected',
+                'url' => $request->url(),
+            ], 500);
+        });
+
+        $this->artisan('filestore:restore-to-bot --session-id=73 --base-uri=http://127.0.0.1:8001 --target-bot-token=restore-token --target-bot-username=new_files_star_bot --worker-env=tests/Fixtures/missing-worker.env')
+            ->expectsOutputToContain('capture_mode=webhook-bridge')
+            ->expectsOutputToContain('synced=1')
+            ->assertExitCode(0);
+
+        Http::assertNotSent(function ($request): bool {
+            return str_starts_with($request->url(), 'https://api.telegram.org/botrestore-token/getUpdates')
+                || $request->url() === 'https://api.telegram.org/botrestore-token/getWebhookInfo'
+                || $request->url() === 'https://api.telegram.org/botrestore-token/deleteWebhook'
+                || $request->url() === 'https://api.telegram.org/botrestore-token/setWebhook';
+        });
+
+        $this->assertDatabaseHas('telegram_filestore_restore_sessions', [
+            'source_session_id' => 73,
+            'target_bot_username' => 'new_files_star_bot',
+            'target_chat_id' => 8491679630,
+            'status' => 'completed',
+        ]);
+
+        $this->assertDatabaseHas('telegram_filestore_restore_files', [
+            'source_session_id' => 73,
+            'source_file_row_id' => 7301,
+            'target_chat_id' => 8491679630,
+            'target_message_id' => 98201,
+            'target_file_id' => 'BRIDGE-CAPTURE-TARGET-FILE-ID',
+            'status' => 'synced',
+        ]);
+
+        $this->assertSame(
+            0,
+            DB::table('telegram_filestore_sessions')
+                ->where('source_token', 'like', '__restore_bridge__%')
+                ->count()
+        );
+    }
+
     public function test_command_pending_session_limit_counts_only_sessions_that_still_need_restore(): void
     {
         config()->set('telegram.backup_restore_target_chat_id', 8491679630);

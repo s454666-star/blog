@@ -6,10 +6,12 @@ use App\Models\TelegramFilestoreFile;
 use App\Models\TelegramFilestoreRestoreFile;
 use App\Models\TelegramFilestoreRestoreSession;
 use App\Models\TelegramFilestoreSession;
+use App\Services\TelegramFilestoreBridgeContextService;
 use App\Services\TelegramFilestoreStaleSessionCleanupService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class RestoreFilestoreToBotCommand extends Command
@@ -37,9 +39,12 @@ class RestoreFilestoreToBotCommand extends Command
      */
     private array $ensuredTargetDialogs = [];
     private ?string $suspendedTargetBotWebhookUrl = null;
+    private bool $useWebhookBridgeCapture = false;
+    private ?int $restoreBridgeSessionId = null;
 
     public function __construct(
-        private TelegramFilestoreStaleSessionCleanupService $staleSessionCleanupService
+        private TelegramFilestoreStaleSessionCleanupService $staleSessionCleanupService,
+        private TelegramFilestoreBridgeContextService $bridgeContextService
     ) {
         parent::__construct();
     }
@@ -89,6 +94,9 @@ class RestoreFilestoreToBotCommand extends Command
             : max((int) $targetChatIdOption, 0);
         $pollSeconds = max((int) $this->option('poll-seconds'), 1);
         $dryRun = (bool) $this->option('dry-run');
+        $this->suspendedTargetBotWebhookUrl = null;
+        $this->useWebhookBridgeCapture = $this->shouldUseWebhookBridgeCapture($targetBotUsername);
+        $this->restoreBridgeSessionId = null;
 
         if ($baseUri === '') {
             $this->error('base-uri 不可為空。');
@@ -136,6 +144,9 @@ class RestoreFilestoreToBotCommand extends Command
         ));
         if ($workerEnvPath !== '') {
             $this->line('worker_env=' . $workerEnvPath);
+        }
+        if ($this->useWebhookBridgeCapture) {
+            $this->line('capture_mode=webhook-bridge');
         }
         $caBundlePath = $this->resolveCaBundlePath();
         if ($caBundlePath !== null) {
@@ -204,6 +215,15 @@ class RestoreFilestoreToBotCommand extends Command
                     'error' => (string) ($restoreWebhookResult['error'] ?? 'unknown error'),
                 ]);
                 $exitCode = self::FAILURE;
+            }
+
+            $cleanupBridgeResult = $this->cleanupRestoreBridgeSession();
+            if (!($cleanupBridgeResult['ok'] ?? false)) {
+                $this->warn((string) ($cleanupBridgeResult['error'] ?? '無法清理 restore bridge session'));
+                Log::warning('filestore_restore_to_bot_cleanup_bridge_session_failed', [
+                    'target_bot_username' => $targetBotUsername,
+                    'error' => (string) ($cleanupBridgeResult['error'] ?? 'unknown error'),
+                ]);
             }
         }
 
@@ -676,6 +696,13 @@ class RestoreFilestoreToBotCommand extends Command
      */
     private function resolveTargetChatContext(string $targetBotToken, int $targetChatId): array
     {
+        if ($this->useWebhookBridgeCapture && $targetChatId > 0) {
+            return [
+                'chat_id' => $targetChatId,
+                'last_update_id' => 0,
+            ];
+        }
+
         $updatesResult = $this->fetchTelegramUpdates($targetBotToken, 0);
         if (!($updatesResult['ok'] ?? false)) {
             throw new \RuntimeException((string) ($updatesResult['error'] ?? '無法讀取新 bot getUpdates'));
@@ -815,6 +842,10 @@ class RestoreFilestoreToBotCommand extends Command
             ];
         }
 
+        if ($this->useWebhookBridgeCapture) {
+            $this->ensureRestoreBridgeSession($targetChatId, $targetBotUsername);
+        }
+
         $syncReplayResult = ['ok' => false];
         $forwardResult = $this->forwardSourceMessage(
             $baseUri,
@@ -923,13 +954,23 @@ class RestoreFilestoreToBotCommand extends Command
             $captureChatId = (int) $syncReplayResult['target_bot_chat_id'];
         }
 
-        $captureResult = $this->pollTargetBotForForwardedFile(
-            $targetBotToken,
-            $captureChatId,
-            $lastUpdateId,
-            $pollSeconds
-        );
-        $updatedLastUpdateId = (int) ($captureResult['last_update_id'] ?? $lastUpdateId);
+        if ($this->useWebhookBridgeCapture) {
+            $captureResult = $this->captureForwardedFileViaWebhookBridge(
+                (int) $restoreFile->forwarded_message_id,
+                $captureChatId,
+                $targetBotUsername,
+                $pollSeconds
+            );
+            $updatedLastUpdateId = $lastUpdateId;
+        } else {
+            $captureResult = $this->pollTargetBotForForwardedFile(
+                $targetBotToken,
+                $captureChatId,
+                $lastUpdateId,
+                $pollSeconds
+            );
+            $updatedLastUpdateId = (int) ($captureResult['last_update_id'] ?? $lastUpdateId);
+        }
 
         if (!($captureResult['ok'] ?? false)) {
             $forwardBaseUri = ($syncReplayResult['ok'] ?? false)
@@ -995,6 +1036,178 @@ class RestoreFilestoreToBotCommand extends Command
             'ok' => true,
             'last_update_id' => $updatedLastUpdateId,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function captureForwardedFileViaWebhookBridge(
+        int $forwardedMessageId,
+        int $targetChatId,
+        string $targetBotUsername,
+        int $pollSeconds
+    ): array {
+        if ($forwardedMessageId <= 0) {
+            return [
+                'ok' => false,
+                'error' => 'forwarded_message_id 缺失，無法從 webhook bridge 擷取檔案',
+            ];
+        }
+
+        $bridgeSessionId = $this->ensureRestoreBridgeSession($targetChatId, $targetBotUsername);
+        $this->bridgeContextService->rememberPendingForwardedMessageIds($bridgeSessionId, [$forwardedMessageId]);
+
+        $deadline = microtime(true) + max($pollSeconds, 1);
+
+        while (microtime(true) <= $deadline) {
+            $capturedFile = TelegramFilestoreFile::query()
+                ->where('session_id', $bridgeSessionId)
+                ->where('message_id', $forwardedMessageId)
+                ->orderByDesc('id')
+                ->first();
+
+            if ($capturedFile !== null) {
+                $captureResult = $this->buildWebhookBridgeCaptureResult($capturedFile);
+
+                TelegramFilestoreFile::query()
+                    ->whereKey((int) $capturedFile->id)
+                    ->delete();
+
+                return $captureResult;
+            }
+
+            usleep(self::POLL_INTERVAL_MICROSECONDS);
+        }
+
+        return [
+            'ok' => false,
+            'error' => '等待新 bot webhook bridge 收到 forwarded media 逾時',
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildWebhookBridgeCaptureResult(TelegramFilestoreFile $capturedFile): array
+    {
+        $message = $capturedFile->raw_payload;
+        if (is_string($message)) {
+            $decoded = json_decode($message, true);
+            $message = is_array($decoded) ? $decoded : null;
+        }
+
+        if (!is_array($message)) {
+            $message = null;
+        }
+
+        $filePayload = $message !== null
+            ? $this->extractFilePayloadFromMessage($message)
+            : null;
+
+        $targetFileId = trim((string) ($filePayload['file_id'] ?? $capturedFile->file_id ?? ''));
+        if ($targetFileId === '') {
+            return [
+                'ok' => false,
+                'error' => 'webhook bridge payload 缺少 target file_id',
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'target_chat_id' => (int) ($capturedFile->chat_id ?? 0),
+            'target_message_id' => (int) ($capturedFile->message_id ?? 0),
+            'target_file_id' => $targetFileId,
+            'target_file_unique_id' => trim((string) ($filePayload['file_unique_id'] ?? $capturedFile->file_unique_id ?? '')),
+            'file_name' => trim((string) ($filePayload['file_name'] ?? $capturedFile->file_name ?? '')),
+            'mime_type' => trim((string) ($filePayload['mime_type'] ?? $capturedFile->mime_type ?? '')),
+            'file_size' => (int) ($filePayload['file_size'] ?? $capturedFile->file_size ?? 0),
+            'file_type' => trim((string) ($filePayload['file_type'] ?? $capturedFile->file_type ?? 'document')) ?: 'document',
+            'raw_payload' => $message,
+        ];
+    }
+
+    private function ensureRestoreBridgeSession(int $targetChatId, string $targetBotUsername): int
+    {
+        if ($this->restoreBridgeSessionId !== null) {
+            $existing = TelegramFilestoreSession::query()
+                ->whereKey($this->restoreBridgeSessionId)
+                ->where('status', 'uploading')
+                ->first();
+
+            if ($existing !== null) {
+                return (int) $existing->id;
+            }
+        }
+
+        $normalizedBotUsername = ltrim(trim($targetBotUsername), '@');
+        $session = TelegramFilestoreSession::query()->create([
+            'chat_id' => $targetChatId > 0 ? $targetChatId : null,
+            'username' => $normalizedBotUsername !== '' ? $normalizedBotUsername : null,
+            'encrypt_token' => null,
+            'public_token' => null,
+            'source_token' => '__restore_bridge__' . ($normalizedBotUsername !== '' ? $normalizedBotUsername . '__' : '') . Str::lower(Str::random(16)),
+            'status' => 'uploading',
+            'total_files' => 0,
+            'total_size' => 0,
+            'share_count' => 0,
+            'last_shared_at' => null,
+            'close_upload_prompted_at' => null,
+            'is_sending' => 0,
+            'sending_started_at' => null,
+            'sending_finished_at' => null,
+            'created_at' => now(),
+            'closed_at' => null,
+        ]);
+
+        $this->restoreBridgeSessionId = (int) $session->id;
+
+        return $this->restoreBridgeSessionId;
+    }
+
+    /**
+     * @return array{ok:bool,error?:string}
+     */
+    private function cleanupRestoreBridgeSession(): array
+    {
+        $sessionId = $this->restoreBridgeSessionId;
+        if ($sessionId === null || $sessionId <= 0) {
+            return ['ok' => true];
+        }
+
+        try {
+            TelegramFilestoreFile::query()
+                ->where('session_id', $sessionId)
+                ->delete();
+
+            TelegramFilestoreSession::query()
+                ->whereKey($sessionId)
+                ->where('status', 'uploading')
+                ->delete();
+
+            $this->bridgeContextService->forgetPendingSession($sessionId);
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => 'cleanup bridge session exception: ' . $e->getMessage(),
+            ];
+        }
+
+        $this->restoreBridgeSessionId = null;
+
+        return ['ok' => true];
+    }
+
+    private function shouldUseWebhookBridgeCapture(string $targetBotUsername): bool
+    {
+        $normalizedTargetBotUsername = ltrim(trim($targetBotUsername), '@');
+        $configuredBackupBotUsername = ltrim(trim((string) config('telegram.backup_restore_bot_username', 'new_files_star_bot')), '@');
+        $configuredWebhookUrl = trim((string) config('telegram.backup_restore_webhook_url'));
+
+        return $normalizedTargetBotUsername !== ''
+            && $configuredBackupBotUsername !== ''
+            && strcasecmp($normalizedTargetBotUsername, $configuredBackupBotUsername) === 0
+            && $configuredWebhookUrl !== ''
+            && Schema::hasTable('telegram_filestore_bridge_contexts');
     }
 
     /**

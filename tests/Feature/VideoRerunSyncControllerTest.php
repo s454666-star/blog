@@ -149,6 +149,37 @@ class VideoRerunSyncControllerTest extends TestCase
         $this->assertSame(3, $secondRun->skipped_count);
     }
 
+    public function test_limited_eagle_scan_does_not_mark_unscanned_entries_missing(): void
+    {
+        $this->addEagleItem('LIMIT01', '第一筆', 'mp4', 'first-content');
+        $this->addEagleItem('LIMIT02', '第二筆', 'mp4', 'second-content');
+
+        app(VideoRerunSyncService::class)->scan(false);
+        app(VideoRerunSyncService::class)->scan(false, ['eagle' => 1]);
+
+        $this->assertDatabaseHas('video_rerun_sync_entries', [
+            'source_type' => 'eagle',
+            'source_key' => 'LIMIT02',
+            'is_present' => true,
+        ]);
+    }
+
+    public function test_command_outputs_progress_percentage_while_scanning(): void
+    {
+        $this->createDbVideo(105, '資料庫來源.mp4', '資料庫來源/資料庫來源.mp4', 'db-content');
+        $this->createRerunFile('重跑來源.mp4', 'rerun-content');
+        $this->addEagleItem('PROG001', 'Eagle來源', 'mp4', 'eagle-content');
+
+        $this->artisan('video:sync-rerun-sources')
+            ->expectsOutputToContain('正在預估總筆數...')
+            ->expectsOutputToContain('預估總筆數：A=1, B=1, C=1, total=3')
+            ->expectsOutputToContain('開始掃描 A. video_master(type=1) (0/1)')
+            ->expectsOutputToContain('進度 33% (1/3) | A. video_master(type=1) 1/1')
+            ->expectsOutputToContain('進度 66% (2/3) | B. Z:\\video(重跑) 1/1')
+            ->expectsOutputToContain('進度 100% (3/3) | C. Eagle 重跑資源 1/1')
+            ->assertExitCode(0);
+    }
+
     private function fakeEagleApi(): void
     {
         Http::fake(function (\Illuminate\Http\Client\Request $request) {

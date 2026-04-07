@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\VideoRerunSyncService;
+use App\Support\VideoRerunSyncSource;
 use Illuminate\Console\Command;
 
 class SyncRerunVideoSourcesCommand extends Command
@@ -36,7 +37,80 @@ class SyncRerunVideoSourcesCommand extends Command
             ));
         }
 
-        $run = $syncService->scan((bool) $this->option('force'), $limits);
+        $this->line('正在預估總筆數...');
+
+        $lastProgressPercent = -1;
+        $lastSourceType = null;
+
+        $run = $syncService->scan(
+            (bool) $this->option('force'),
+            $limits,
+            function (array $progress) use (&$lastProgressPercent, &$lastSourceType): void {
+                $type = (string) ($progress['type'] ?? '');
+
+                if ($type === 'start') {
+                    $sourceTotals = $progress['source_totals'] ?? [];
+
+                    $this->line(sprintf(
+                        '預估總筆數：A=%d, B=%d, C=%d, total=%d',
+                        (int) ($sourceTotals[VideoRerunSyncSource::DB] ?? 0),
+                        (int) ($sourceTotals[VideoRerunSyncSource::RERUN_DISK] ?? 0),
+                        (int) ($sourceTotals[VideoRerunSyncSource::EAGLE] ?? 0),
+                        (int) ($progress['overall_total'] ?? 0),
+                    ));
+
+                    return;
+                }
+
+                if ($type === 'stage_start') {
+                    $this->line(sprintf(
+                        '開始掃描 %s (%d/%d)',
+                        (string) ($progress['source_label'] ?? $progress['source_type'] ?? 'unknown'),
+                        (int) ($progress['source_processed'] ?? 0),
+                        (int) ($progress['source_total'] ?? 0),
+                    ));
+
+                    return;
+                }
+
+                if ($type === 'finish' && (int) ($progress['overall_total'] ?? 0) === 0) {
+                    $this->line('進度 100% (0/0) | 沒有可掃描的檔案');
+                    return;
+                }
+
+                if ($type !== 'advance') {
+                    return;
+                }
+
+                $overallProcessed = (int) ($progress['overall_processed'] ?? 0);
+                $overallTotal = (int) ($progress['overall_total'] ?? 0);
+                $overallPercent = min(100, (int) floor((float) ($progress['overall_percent'] ?? 0)));
+                $sourceType = (string) ($progress['source_type'] ?? '');
+
+                if ($overallPercent === $lastProgressPercent && $sourceType === $lastSourceType && $overallProcessed !== $overallTotal) {
+                    return;
+                }
+
+                $lastProgressPercent = $overallPercent;
+                $lastSourceType = $sourceType;
+
+                $stats = is_array($progress['stats'] ?? null) ? $progress['stats'] : [];
+
+                $this->line(sprintf(
+                    '進度 %d%% (%d/%d) | %s %d/%d | hashed=%d skipped=%d missing=%d | %s',
+                    $overallPercent,
+                    $overallProcessed,
+                    $overallTotal,
+                    (string) ($progress['source_label'] ?? $sourceType),
+                    (int) ($progress['source_processed'] ?? 0),
+                    (int) ($progress['source_total'] ?? 0),
+                    (int) ($stats['hashed'] ?? 0),
+                    (int) ($stats['skipped'] ?? 0),
+                    (int) ($stats['missing'] ?? 0),
+                    (string) ($progress['display_name'] ?? ''),
+                ));
+            }
+        );
         $summary = $run->summary_json ?? [];
 
         $this->table(

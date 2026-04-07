@@ -22,7 +22,7 @@ class VideoRerunSyncService
     ) {
     }
 
-    public function scan(bool $force = false, array $limits = []): VideoRerunSyncRun
+    public function scan(bool $force = false, array $limits = [], ?callable $progress = null): VideoRerunSyncRun
     {
         $run = VideoRerunSyncRun::create([
             'status' => 'running',
@@ -39,9 +39,59 @@ class VideoRerunSyncService
         ];
 
         try {
-            $this->scanDbEntries($run, $force, $stats, $this->normalizeLimit($limits[VideoRerunSyncSource::DB] ?? null));
-            $this->scanRerunDirectory($run, $force, $stats, $this->normalizeLimit($limits[VideoRerunSyncSource::RERUN_DISK] ?? null));
-            $this->scanEagleLibrary($run, $force, $stats, $this->normalizeLimit($limits[VideoRerunSyncSource::EAGLE] ?? null));
+            $normalizedLimits = [
+                VideoRerunSyncSource::DB => $this->normalizeLimit($limits[VideoRerunSyncSource::DB] ?? null),
+                VideoRerunSyncSource::RERUN_DISK => $this->normalizeLimit($limits[VideoRerunSyncSource::RERUN_DISK] ?? null),
+                VideoRerunSyncSource::EAGLE => $this->normalizeLimit($limits[VideoRerunSyncSource::EAGLE] ?? null),
+            ];
+
+            $plan = $this->buildScanPlan($normalizedLimits);
+            $progressState = $this->createProgressState($plan['source_totals']);
+
+            $this->emitProgress($progress, [
+                'type' => 'start',
+                'source_totals' => $plan['source_totals'],
+                'overall_processed' => 0,
+                'overall_total' => $progressState['overall_total'],
+                'overall_percent' => $this->calculateProgressPercent(0, $progressState['overall_total']),
+                'stats' => $stats,
+            ]);
+
+            $this->startProgressStage($progress, $progressState, VideoRerunSyncSource::DB, $stats);
+            $this->scanDbEntries(
+                $run,
+                $force,
+                $stats,
+                $normalizedLimits[VideoRerunSyncSource::DB],
+                function (array $item) use ($progress, &$progressState, &$stats): void {
+                    $this->advanceProgress($progress, $progressState, VideoRerunSyncSource::DB, $item['display_name'], $stats);
+                }
+            );
+
+            $this->startProgressStage($progress, $progressState, VideoRerunSyncSource::RERUN_DISK, $stats);
+            $this->scanRerunDirectory(
+                $run,
+                $force,
+                $stats,
+                $plan['rerun_root'],
+                $normalizedLimits[VideoRerunSyncSource::RERUN_DISK],
+                function (array $item) use ($progress, &$progressState, &$stats): void {
+                    $this->advanceProgress($progress, $progressState, VideoRerunSyncSource::RERUN_DISK, $item['display_name'], $stats);
+                }
+            );
+
+            $this->startProgressStage($progress, $progressState, VideoRerunSyncSource::EAGLE, $stats);
+            $this->scanEagleLibrary(
+                $run,
+                $force,
+                $stats,
+                $plan['eagle_library_path'],
+                $plan['eagle_items'],
+                $normalizedLimits[VideoRerunSyncSource::EAGLE] === null,
+                function (array $item) use ($progress, &$progressState, &$stats): void {
+                    $this->advanceProgress($progress, $progressState, VideoRerunSyncSource::EAGLE, $item['display_name'], $stats);
+                }
+            );
 
             $diffSummary = app(VideoRerunDiffService::class)->summary();
 
@@ -58,6 +108,15 @@ class VideoRerunSyncService
                 'issue_count' => $diffSummary['issues'],
                 'summary_json' => $diffSummary,
             ])->save();
+
+            $this->emitProgress($progress, [
+                'type' => 'finish',
+                'source_totals' => $plan['source_totals'],
+                'overall_processed' => $progressState['overall_total'],
+                'overall_total' => $progressState['overall_total'],
+                'overall_percent' => $this->calculateProgressPercent($progressState['overall_total'], $progressState['overall_total']),
+                'stats' => $stats,
+            ]);
         } catch (\Throwable $e) {
             $run->forceFill([
                 'status' => 'failed',
@@ -73,7 +132,7 @@ class VideoRerunSyncService
         return $run->fresh();
     }
 
-    private function scanDbEntries(VideoRerunSyncRun $run, bool $force, array &$stats, ?int $limit = null): void
+    private function scanDbEntries(VideoRerunSyncRun $run, bool $force, array &$stats, ?int $limit = null, ?callable $afterItem = null): void
     {
         $diskRoot = $this->dbDiskRoot();
         $seenKeys = [];
@@ -82,25 +141,27 @@ class VideoRerunSyncService
 
         if ($limit !== null) {
             $query->orderByDesc('id');
-            $this->scanDbChunk($query->limit($limit)->get(), $seenKeys, $stats, $run, $force, $diskRoot);
+            $this->scanDbChunk($query->limit($limit)->get(), $seenKeys, $stats, $run, $force, $diskRoot, $afterItem);
             return;
         }
 
         $query->orderBy('id');
-        $query->chunk(250, function ($videos) use (&$seenKeys, &$stats, $run, $force, $diskRoot): void {
-            $this->scanDbChunk($videos, $seenKeys, $stats, $run, $force, $diskRoot);
+        $query->chunk(250, function ($videos) use (&$seenKeys, &$stats, $run, $force, $diskRoot, $afterItem): void {
+            $this->scanDbChunk($videos, $seenKeys, $stats, $run, $force, $diskRoot, $afterItem);
         });
 
         $this->markMissingSourceEntries(VideoRerunSyncSource::DB, $run, $seenKeys);
     }
 
-    private function scanRerunDirectory(VideoRerunSyncRun $run, bool $force, array &$stats, ?int $limit = null): void
+    private function scanRerunDirectory(
+        VideoRerunSyncRun $run,
+        bool $force,
+        array &$stats,
+        string $root,
+        ?int $limit = null,
+        ?callable $afterItem = null,
+    ): void
     {
-        $root = $this->normalizeAbsolutePath((string) config('video_rerun_sync.rerun_root', ''));
-        if ($root === '' || !File::isDirectory($root)) {
-            throw new RuntimeException('重跑資料夾不存在：' . $root);
-        }
-
         $seenKeys = [];
         $count = 0;
         foreach ($this->allFiles($root) as $file) {
@@ -133,6 +194,12 @@ class VideoRerunSyncService
                 $stats
             );
 
+            if ($afterItem !== null) {
+                $afterItem([
+                    'display_name' => $file->getBasename(),
+                ]);
+            }
+
             $count++;
             if ($limit !== null && $count >= $limit) {
                 return;
@@ -142,17 +209,18 @@ class VideoRerunSyncService
         $this->markMissingSourceEntries(VideoRerunSyncSource::RERUN_DISK, $run, $seenKeys);
     }
 
-    private function scanEagleLibrary(VideoRerunSyncRun $run, bool $force, array &$stats, ?int $limit = null): void
+    private function scanEagleLibrary(
+        VideoRerunSyncRun $run,
+        bool $force,
+        array &$stats,
+        string $libraryPath,
+        array $items,
+        bool $markMissing = true,
+        ?callable $afterItem = null,
+    ): void
     {
-        $library = $this->eagleClient->ensureConfiguredLibrary();
-        $libraryPath = $this->normalizeAbsolutePath((string) ($library['path'] ?? ''));
-
-        if ($libraryPath === '' || !File::isDirectory($libraryPath)) {
-            throw new RuntimeException('Eagle library 不存在：' . $libraryPath);
-        }
-
         $seenKeys = [];
-        foreach ($this->eagleClient->listItems($limit) as $item) {
+        foreach ($items as $item) {
             $itemId = (string) ($item['id'] ?? '');
             if ($itemId === '') {
                 continue;
@@ -185,6 +253,12 @@ class VideoRerunSyncService
                     'Eagle item original file not found: ' . rtrim($libraryPath, '/\\') . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . $itemId . '.info'
                 );
 
+                if ($afterItem !== null) {
+                    $afterItem([
+                        'display_name' => (string) ($item['name'] ?? $itemId),
+                    ]);
+                }
+
                 continue;
             }
 
@@ -216,9 +290,15 @@ class VideoRerunSyncService
                 ],
                 $stats
             );
+
+            if ($afterItem !== null) {
+                $afterItem([
+                    'display_name' => $name . ($ext !== '' ? '.' . $ext : ''),
+                ]);
+            }
         }
 
-        if ($limit !== null) {
+        if (!$markMissing) {
             return;
         }
 
@@ -360,7 +440,15 @@ class VideoRerunSyncService
         return $this->normalizeAbsolutePath((string) config("filesystems.disks.{$disk}.root", ''));
     }
 
-    private function scanDbChunk(iterable $videos, array &$seenKeys, array &$stats, VideoRerunSyncRun $run, bool $force, string $diskRoot): void
+    private function scanDbChunk(
+        iterable $videos,
+        array &$seenKeys,
+        array &$stats,
+        VideoRerunSyncRun $run,
+        bool $force,
+        string $diskRoot,
+        ?callable $afterItem = null,
+    ): void
     {
         foreach ($videos as $video) {
             $relativePath = (string) $video->video_path;
@@ -390,7 +478,162 @@ class VideoRerunSyncService
                 ],
                 $stats
             );
+
+            if ($afterItem !== null) {
+                $afterItem([
+                    'display_name' => (string) $video->video_name,
+                ]);
+            }
         }
+    }
+
+    private function buildScanPlan(array $limits): array
+    {
+        $rerunRoot = $this->normalizeAbsolutePath((string) config('video_rerun_sync.rerun_root', ''));
+        if ($rerunRoot === '' || !File::isDirectory($rerunRoot)) {
+            throw new RuntimeException('重跑資料夾不存在：' . $rerunRoot);
+        }
+
+        $eagle = $this->prepareEagleScan($limits[VideoRerunSyncSource::EAGLE] ?? null);
+
+        return [
+            'source_totals' => [
+                VideoRerunSyncSource::DB => $this->countDbEntries($limits[VideoRerunSyncSource::DB] ?? null),
+                VideoRerunSyncSource::RERUN_DISK => $this->countFiles($rerunRoot, $limits[VideoRerunSyncSource::RERUN_DISK] ?? null),
+                VideoRerunSyncSource::EAGLE => count($eagle['items']),
+            ],
+            'rerun_root' => $rerunRoot,
+            'eagle_library_path' => $eagle['library_path'],
+            'eagle_items' => $eagle['items'],
+        ];
+    }
+
+    private function countDbEntries(?int $limit = null): int
+    {
+        $count = VideoMaster::query()
+            ->where('video_type', 1)
+            ->count();
+
+        return $limit === null ? $count : min($count, $limit);
+    }
+
+    private function countFiles(string $root, ?int $limit = null): int
+    {
+        $count = 0;
+
+        foreach ($this->allFiles($root) as $file) {
+            if (!$file->isFile()) {
+                continue;
+            }
+
+            $count++;
+
+            if ($limit !== null && $count >= $limit) {
+                break;
+            }
+        }
+
+        return $count;
+    }
+
+    private function prepareEagleScan(?int $limit = null): array
+    {
+        $library = $this->eagleClient->ensureConfiguredLibrary();
+        $libraryPath = $this->normalizeAbsolutePath((string) ($library['path'] ?? ''));
+
+        if ($libraryPath === '' || !File::isDirectory($libraryPath)) {
+            throw new RuntimeException('Eagle library 不存在：' . $libraryPath);
+        }
+
+        $items = array_values(array_filter(
+            $this->eagleClient->listItems($limit),
+            static fn (array $item): bool => (string) ($item['id'] ?? '') !== ''
+        ));
+
+        return [
+            'library_path' => $libraryPath,
+            'items' => $items,
+        ];
+    }
+
+    private function createProgressState(array $sourceTotals): array
+    {
+        return [
+            'source_totals' => $sourceTotals,
+            'overall_total' => array_sum($sourceTotals),
+            'overall_processed' => 0,
+            'current_source' => null,
+            'current_source_processed' => 0,
+        ];
+    }
+
+    private function startProgressStage(?callable $progress, array &$state, string $sourceType, array $stats): void
+    {
+        $state['current_source'] = $sourceType;
+        $state['current_source_processed'] = 0;
+
+        $this->emitProgress($progress, [
+            'type' => 'stage_start',
+            'source_type' => $sourceType,
+            'source_label' => VideoRerunSyncSource::label($sourceType),
+            'source_processed' => 0,
+            'source_total' => $state['source_totals'][$sourceType] ?? 0,
+            'source_percent' => $this->calculateProgressPercent(0, (int) ($state['source_totals'][$sourceType] ?? 0)),
+            'overall_processed' => $state['overall_processed'],
+            'overall_total' => $state['overall_total'],
+            'overall_percent' => $this->calculateProgressPercent((int) $state['overall_processed'], (int) $state['overall_total']),
+            'stats' => $stats,
+        ]);
+    }
+
+    private function advanceProgress(
+        ?callable $progress,
+        array &$state,
+        string $sourceType,
+        string $displayName,
+        array $stats,
+    ): void {
+        if (($state['current_source'] ?? null) !== $sourceType) {
+            $state['current_source'] = $sourceType;
+            $state['current_source_processed'] = 0;
+        }
+
+        $state['overall_processed']++;
+        $state['current_source_processed']++;
+
+        $sourceTotal = (int) ($state['source_totals'][$sourceType] ?? 0);
+
+        $this->emitProgress($progress, [
+            'type' => 'advance',
+            'source_type' => $sourceType,
+            'source_label' => VideoRerunSyncSource::label($sourceType),
+            'source_processed' => (int) $state['current_source_processed'],
+            'source_total' => $sourceTotal,
+            'source_percent' => $this->calculateProgressPercent((int) $state['current_source_processed'], $sourceTotal),
+            'overall_processed' => (int) $state['overall_processed'],
+            'overall_total' => (int) $state['overall_total'],
+            'overall_percent' => $this->calculateProgressPercent((int) $state['overall_processed'], (int) $state['overall_total']),
+            'display_name' => $displayName,
+            'stats' => $stats,
+        ]);
+    }
+
+    private function calculateProgressPercent(int $processed, int $total): float
+    {
+        if ($total <= 0) {
+            return 100.0;
+        }
+
+        return round(min(100, ($processed / $total) * 100), 1);
+    }
+
+    private function emitProgress(?callable $progress, array $payload): void
+    {
+        if ($progress === null) {
+            return;
+        }
+
+        $progress($payload);
     }
 
     private function joinPaths(string $root, string $relativePath): string

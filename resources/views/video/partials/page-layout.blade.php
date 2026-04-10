@@ -234,20 +234,19 @@
 
 <!-- ===== Blade 模板 (人臉截圖) ===== -->
 <template id="face-screenshot-template">
-    <div class="face-screenshot-container">
+    <div class="face-screenshot-container" data-screenshot-id="{{ '{video_screenshot_id}' }}" data-video-id="{{ '{video_id}' }}">
         <img
             src="{{ rtrim(config('app.video_base_url'), '/') }}/{{ '{face_image_path}' }}"
             class="face-screenshot hover-zoom {{ '{is_master_class}' }}"
             alt="人臉截圖"
             data-id="{{ '{face_id}' }}"
             data-video-id="{{ '{video_id}' }}"
+            data-screenshot-id="{{ '{video_screenshot_id}' }}"
             data-type="face-screenshot"
             loading="lazy"
             decoding="async"
             fetchpriority="low"
         >
-        <button class="set-master-btn" data-id="{{ '{face_id}' }}" data-video-id="{{ '{video_id}' }}">★</button>
-        <button class="delete-icon" data-id="{{ '{face_id}' }}" data-type="face-screenshot">&times;</button>
     </div>
 </template>
 

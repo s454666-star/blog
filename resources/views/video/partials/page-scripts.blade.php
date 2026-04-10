@@ -106,6 +106,41 @@
         $badge.toggleClass('is-active', !!active);
     }
 
+    function syncMasterFacesLoadStatus() {
+        masterFacesLoadedCount = $('.master-face-item').length;
+        updateMasterFacesStatus(
+            masterFacesPage < masterFacesLastPage
+                ? `主面人臉已載入 ${masterFacesLoadedCount} 張，背景續載中...`
+                : `主面人臉已載入完成，共 ${masterFacesLoadedCount} 張。`,
+            masterFacesLoadedCount > 0 && masterFacesPage >= masterFacesLastPage
+        );
+    }
+
+    function focusVideoRowFromMedia($media, options = {}) {
+        const videoId = Number($media.data('video-id') || $media.closest('.video-row').data('id') || 0) || null;
+        if (!videoId) {
+            return null;
+        }
+
+        focusVideoRowById(videoId, options);
+        return videoId;
+    }
+
+    function refreshVideoPosterFromScreenshots($row) {
+        const $video = $row.find('video').first();
+        if (!$video.length) {
+            return;
+        }
+
+        const nextPoster = ($row.find('img.screenshot').first().attr('src') || '').trim();
+        if (nextPoster) {
+            $video.attr('poster', nextPoster);
+            return;
+        }
+
+        $video.removeAttr('poster');
+    }
+
     /* --------------------------------------------------
      * 分頁載入 / 排序
      * -------------------------------------------------- */
@@ -659,13 +694,7 @@
                     const deletedId = $f.data('id');
                     $f.remove();
                     $(`.master-face-item[data-video-id="${deletedId}"]`).remove();
-                    masterFacesLoadedCount = $('.master-face-item').length;
-                    updateMasterFacesStatus(
-                        masterFacesPage < masterFacesLastPage
-                            ? `主面人臉已載入 ${masterFacesLoadedCount} 張，背景續載中...`
-                            : `主面人臉已載入完成，共 ${masterFacesLoadedCount} 張。`,
-                        masterFacesLoadedCount > 0 && masterFacesPage >= masterFacesLastPage
-                    );
+                    syncMasterFacesLoadStatus();
                     showMessage('success', res.message);
                     rebuildAndSort();
                     const $next = $('.video-row').first();
@@ -702,12 +731,16 @@
 
         /* --- Hover 放大截圖 --- */
         const $modal = $('#image-modal'), $modalImg = $modal.find('img');
+        function closeHoverZoomModal() {
+            $modal.removeClass('active');
+            $modalImg.attr('src', '');
+        }
+
         $(document).on('mouseenter', '.hover-zoom', function () {
             $modalImg.attr('src', $(this).attr('src'));
             $modal.addClass('active');
         }).on('mouseleave', '.hover-zoom', function () {
-            $modal.removeClass('active');
-            $modalImg.attr('src', '');
+            closeHoverZoomModal();
         });
 
         /* --- 全螢幕按鈕 --- */
@@ -878,6 +911,7 @@
                 const html = tpl.replace('{is_master_class}', f.is_master ? 'master' : '')
                     .replace(/{face_image_path}/g, f.face_image_path)
                     .replace(/{face_id}/g, f.id)
+                    .replace(/{video_screenshot_id}/g, f.video_screenshot_id || '')
                     .replace(/{video_id}/g, vid);
 
                 if ($pasteTarget.length) {
@@ -994,16 +1028,60 @@
             setFacePastePreview($(this), files[0]);
         });
 
-        $(document).on('click', '.delete-icon', function (e) {
-            e.stopPropagation();
-            const id = $(this).data('id'), type = $(this).data('type');
+        function deleteImage($img) {
+            const id = Number($img.data('id') || 0) || null;
+            const type = String($img.data('type') || '');
+            if (!id || !type) {
+                showMessage('error', '找不到圖片資訊。');
+                return;
+            }
+
+            const isScreenshot = type === 'screenshot';
+            const $container = $img.closest(isScreenshot ? '.screenshot-container' : '.face-screenshot-container');
+            const $row = $img.closest('.video-row');
+            const videoId = Number($img.data('video-id') || $container.data('video-id') || $row.data('id') || 0) || null;
+            const screenshotId = Number($img.data('screenshot-id') || $container.data('screenshot-id') || 0) || null;
+            const removedMasterFace = isScreenshot
+                ? (screenshotId ? $row.find(`.face-screenshot[data-screenshot-id="${screenshotId}"].master`).length > 0 : false)
+                : $img.hasClass('master');
+
             $.post("{{ route('video.deleteScreenshot') }}", {id, type, _token: '{{ csrf_token() }}'}, res => {
-                if (res && res.success) {
-                    $(this).closest(type === 'screenshot' ? '.screenshot-container' : '.face-screenshot-container').remove();
-                    applySizes();
-                    showMessage('success', '圖片刪除成功。');
-                } else showMessage('error', res.message);
+                if (!(res && res.success)) {
+                    showMessage('error', res?.message || '刪除失敗，請稍後再試。');
+                    return;
+                }
+
+                closeHoverZoomModal();
+
+                if (isScreenshot) {
+                    if (screenshotId) {
+                        $row.find(`.face-screenshot-container[data-screenshot-id="${screenshotId}"]`).remove();
+                    }
+                    $container.remove();
+                    refreshVideoPosterFromScreenshots($row);
+                } else {
+                    $container.remove();
+                }
+
+                if (removedMasterFace && videoId) {
+                    $(`.master-face-item[data-video-id="${videoId}"]`).remove();
+                    syncMasterFacesLoadStatus();
+                }
+
+                applySizes();
+                showMessage('success', res.message || '圖片刪除成功。');
             }).fail(() => showMessage('error', '刪除失敗，請稍後再試。'));
+        }
+
+        $(document).on('click', '.screenshot', function (e) {
+            e.stopPropagation();
+            focusVideoRowFromMedia($(this));
+        });
+
+        $(document).on('contextmenu', '.screenshot', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            deleteImage($(this));
         });
 
         /* --- 設為主面人臉 --- */
@@ -1036,21 +1114,20 @@
         $(document).on('click', '.face-screenshot', function (e) {
             e.stopPropagation();
             const $img = $(this);
-            const vid = $img.data('video-id');
-            const $row = $img.closest('.video-row');
-
-            $('.video-row').removeClass('focused');
-            $row.addClass('focused');
-            $('#focus-id').val(vid);
-            focusMasterFace(vid);
+            const vid = focusVideoRowFromMedia($img);
+            if (!vid) {
+                return;
+            }
 
             if (!$img.hasClass('master')) {
                 setMaster($img.data('id'), vid);
             }
         });
-        $(document).on('click', '.set-master-btn', function (e) {
+
+        $(document).on('contextmenu', '.face-screenshot', function (e) {
+            e.preventDefault();
             e.stopPropagation();
-            setMaster($(this).data('id'), $(this).data('video-id'));
+            deleteImage($(this));
         });
 
         /* ------------------ 左欄主面人臉 → 聚焦影片 ------------------ */

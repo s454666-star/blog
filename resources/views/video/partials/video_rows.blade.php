@@ -40,18 +40,19 @@
                 <h5>影片截圖</h5>
                 <div class="d-flex flex-wrap">
                     @foreach($video->screenshots as $screenshot)
-                        <div class="screenshot-container">
+                        <div class="screenshot-container" data-screenshot-id="{{ $screenshot->id }}" data-video-id="{{ $video->id }}">
                             <img
                                 src="{{ $baseUrl }}/{{ ltrim((string) $screenshot->screenshot_path, '/') }}"
                                 alt="截圖"
                                 class="screenshot hover-zoom"
                                 data-id="{{ $screenshot->id }}"
+                                data-video-id="{{ $video->id }}"
+                                data-screenshot-id="{{ $screenshot->id }}"
                                 data-type="screenshot"
                                 loading="lazy"
                                 decoding="async"
                                 fetchpriority="low"
                             >
-                            <button class="delete-icon" data-id="{{ $screenshot->id }}" data-type="screenshot">&times;</button>
                         </div>
                     @endforeach
                 </div>
@@ -62,20 +63,19 @@
                 <div class="d-flex flex-wrap face-upload-area" data-video-id="{{ $video->id }}">
                     @foreach($video->screenshots as $screenshot)
                         @foreach($screenshot->faceScreenshots as $face)
-                            <div class="face-screenshot-container">
+                            <div class="face-screenshot-container" data-screenshot-id="{{ $screenshot->id }}" data-video-id="{{ $video->id }}">
                                 <img
                                     src="{{ $baseUrl }}/{{ ltrim((string) $face->face_image_path, '/') }}"
                                     alt="人臉截圖"
                                     class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}"
                                     data-id="{{ $face->id }}"
                                     data-video-id="{{ $video->id }}"
+                                    data-screenshot-id="{{ $screenshot->id }}"
                                     data-type="face-screenshot"
                                     loading="lazy"
                                     decoding="async"
                                     fetchpriority="low"
                                 >
-                                <button class="set-master-btn" data-id="{{ $face->id }}" data-video-id="{{ $video->id }}">★</button>
-                                <button class="delete-icon" data-id="{{ $face->id }}" data-type="face-screenshot">&times;</button>
                             </div>
                         @endforeach
                     @endforeach

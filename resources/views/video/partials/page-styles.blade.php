@@ -695,6 +695,8 @@
             height: 56px;
             object-fit: cover;
             margin: 5px;
+            cursor: pointer;
+            user-select: none;
             transition: transform .3s, border .3s, box-shadow .3s;
             border-radius: 16px;
             border: 1px solid rgba(165, 92, 246, .14);
@@ -1238,32 +1240,6 @@
             }
         }
 
-        /* === ?芷?身?箔蜓?Ｘ???=== */
-        .delete-icon, .set-master-btn {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            background: rgba(208, 95, 145, .9);
-            color: #fff;
-            border: none;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            text-align: center;
-            line-height: 18px;
-            cursor: pointer;
-            display: none;
-            font-size: 14px;
-            padding: 0;
-            box-shadow: 0 10px 18px rgba(192, 76, 124, .22);
-            z-index: 4
-        }
-
-        .set-master-btn {
-            right: 30px;
-            background: rgba(89, 164, 123, .9)
-        }
-
         .screenshot-container, .face-screenshot-container {
             position: relative;
             display: inline-block;
@@ -1320,10 +1296,6 @@
             animation: rainbowGlowShift 3.2s linear infinite, rainbowFocusPulse 2.1s ease-in-out infinite;
             filter: blur(10px);
             z-index: -1
-        }
-
-        .screenshot-container:hover .delete-icon, .face-screenshot-container:hover .delete-icon, .face-screenshot-container:hover .set-master-btn {
-            display: block
         }
 
         /* === ?刻撟芋撘???=== */

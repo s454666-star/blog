@@ -4,6 +4,7 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 RUNNER_SCRIPT="${RUNNER_SCRIPT:-$PROJECT_DIR/scripts/run_telegram_filestore_worker.sh}"
+MANAGE_SCRIPT="${MANAGE_SCRIPT:-$PROJECT_DIR/scripts/manage_telegram_filestore_workers.sh}"
 PHP_BIN="${PHP_BIN:-$(command -v php)}"
 SCREEN_BIN="${SCREEN_BIN:-$(command -v screen)}"
 PGREP_BIN="${PGREP_BIN:-$(command -v pgrep)}"
@@ -324,8 +325,8 @@ install_cron() {
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-@reboot root /bin/sleep 30 && cd $PROJECT_DIR && /bin/bash $PROJECT_DIR/scripts/manage_telegram_filestore_workers.sh watchdog >> $WATCHDOG_LOG 2>&1
-* * * * * root cd $PROJECT_DIR && /bin/bash $PROJECT_DIR/scripts/manage_telegram_filestore_workers.sh watchdog >> $WATCHDOG_LOG 2>&1
+@reboot root /bin/sleep 30 && cd $PROJECT_DIR && /bin/bash $MANAGE_SCRIPT watchdog >> $WATCHDOG_LOG 2>&1
+* * * * * root cd $PROJECT_DIR && /bin/bash $MANAGE_SCRIPT watchdog >> $WATCHDOG_LOG 2>&1
 EOF
 
     chmod 644 "$CRON_FILE"

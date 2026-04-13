@@ -5,6 +5,7 @@
     use App\Models\TelegramFilestoreFile;
     use App\Models\TelegramFilestoreSession;
     use App\Services\TelegramFilestoreBotProfileResolver;
+    use App\Services\TelegramFilestoreCloseUploadPromptService;
     use Illuminate\Bus\Queueable;
     use Illuminate\Contracts\Queue\ShouldQueue;
     use Illuminate\Foundation\Bus\Dispatchable;
@@ -108,30 +109,28 @@
                     return;
                 }
 
+                $preferFreshMessage = app(TelegramFilestoreCloseUploadPromptService::class)
+                    ->shouldPreferFreshPromptMessage($session);
+
                 $allowedToSend = $this->markCloseUploadPromptIfAllowed($this->sessionId);
                 if (!$allowedToSend) {
                     return;
                 }
 
-                $counts = $this->countFilesByType($this->sessionId);
-                $text = $this->buildCloseUploadPromptText($counts);
-                $keyboard = $this->buildCloseUploadPromptKeyboard();
+                $result = app(TelegramFilestoreCloseUploadPromptService::class)->sendOrRefreshPrompt(
+                    $this->sessionId,
+                    $this->chatId,
+                    $this->botProfile,
+                    $preferFreshMessage
+                );
 
-                $oldMessageId = $this->getCloseUploadPromptMessageId($this->sessionId);
-
-                if ($oldMessageId !== null) {
-                    $ok = $this->editMessageText($this->chatId, $oldMessageId, $text, $keyboard);
-                    if ($ok) {
-                        return;
-                    }
-
-                    $this->forgetCloseUploadPromptMessageId($this->sessionId);
-                }
-
-                $sentMessageId = $this->sendMessageReturningMessageId($this->chatId, $text, $keyboard);
-                if ($sentMessageId !== null) {
-                    $this->rememberCloseUploadPromptMessageId($this->sessionId, $sentMessageId);
-                }
+                Log::info('telegram_filestore_close_prompt_dispatched', [
+                    'session_id' => $this->sessionId,
+                    'chat_id' => $this->chatId,
+                    'action' => $result['action'],
+                    'message_id' => $result['message_id'],
+                    'prefer_fresh_message' => $preferFreshMessage,
+                ]);
             } finally {
                 Cache::forget($lockKey);
             }

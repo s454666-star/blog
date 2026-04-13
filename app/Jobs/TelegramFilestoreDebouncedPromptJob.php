@@ -21,6 +21,8 @@
     {
         use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+        public const QUEUE_NAME = 'telegram_filestore_prompt';
+
         private int $sessionId;
         private int $chatId;
         private string $botProfile;
@@ -46,7 +48,7 @@
             $this->sessionId = $sessionId;
             $this->chatId = $chatId;
             $this->botProfile = app(TelegramFilestoreBotProfileResolver::class)->normalize($botProfile);
-            $this->onQueue('telegram_filestore');
+            $this->onQueue(self::QUEUE_NAME);
         }
 
         public function handle(): void

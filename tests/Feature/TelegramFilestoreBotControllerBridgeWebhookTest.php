@@ -8,8 +8,9 @@ use App\Models\TelegramFilestoreFile;
 use App\Models\TelegramFilestoreSession;
 use App\Services\TelegramFilestoreBridgeContextService;
 use Illuminate\Contracts\Bus\Dispatcher;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -287,6 +288,108 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
         $this->assertSame('mtfxqbot_3V_bridgechat400', $file->source_token);
 
         Queue::assertNotPushed(TelegramFilestoreDebouncedPromptJob::class);
+    }
+
+    public function test_webhook_does_not_bind_manual_upload_to_expired_bridge_chat_context(): void
+    {
+        Queue::fake();
+
+        $baseNow = Carbon::parse('2026-04-13 22:45:50');
+        Carbon::setTestNow($baseNow);
+
+        try {
+            $bridgeSession = TelegramFilestoreSession::query()->create([
+                'chat_id' => 7702694790,
+                'username' => null,
+                'encrypt_token' => null,
+                'public_token' => null,
+                'source_token' => 'mtfxqbot_1V_bridgechatstale',
+                'status' => 'uploading',
+                'total_files' => 0,
+                'total_size' => 0,
+                'share_count' => 0,
+                'created_at' => now(),
+            ]);
+
+            $controlResponse = $this->postJson('/api/telegram/filestore/webhook', [
+                'message' => [
+                    'message_id' => 9102,
+                    'from' => [
+                        'id' => 8491679630,
+                        'is_bot' => false,
+                        'username' => 's4546663',
+                    ],
+                    'chat' => [
+                        'id' => 8491679630,
+                        'username' => 's4546663',
+                        'type' => 'private',
+                    ],
+                    'text' => 'filestorebridge|' . $bridgeSession->id . '|mtfxqbot_1V_bridgechatstale',
+                ],
+            ]);
+
+            $controlResponse->assertOk();
+
+            Cache::flush();
+            Carbon::setTestNow($baseNow->copy()->addMinutes(4));
+
+            $uploadResponse = $this->postJson('/api/telegram/filestore/webhook', [
+                'message' => [
+                    'message_id' => 9103,
+                    'from' => [
+                        'id' => 8491679630,
+                        'is_bot' => false,
+                        'username' => 's4546663',
+                    ],
+                    'chat' => [
+                        'id' => 8491679630,
+                        'username' => 's4546663',
+                        'type' => 'private',
+                    ],
+                    'photo' => [
+                        [
+                            'file_id' => 'small-photo-id',
+                            'file_unique_id' => 'small-photo-uniq',
+                            'file_size' => 256,
+                            'width' => 90,
+                            'height' => 90,
+                        ],
+                        [
+                            'file_id' => 'large-photo-id',
+                            'file_unique_id' => 'manual-photo-uniq',
+                            'file_size' => 2048,
+                            'width' => 1024,
+                            'height' => 1024,
+                        ],
+                    ],
+                ],
+            ]);
+
+            $uploadResponse->assertOk();
+
+            $bridgeSession->refresh();
+
+            $this->assertSame(0, (int) $bridgeSession->total_files);
+            $this->assertDatabaseCount('telegram_filestore_sessions', 2);
+
+            $regularSession = TelegramFilestoreSession::query()
+                ->where('chat_id', 8491679630)
+                ->whereNull('source_token')
+                ->firstOrFail();
+
+            $this->assertSame('uploading', $regularSession->status);
+            $this->assertSame(1, (int) $regularSession->total_files);
+
+            $file = TelegramFilestoreFile::query()->where('session_id', $regularSession->id)->firstOrFail();
+            $this->assertSame('manual-photo-uniq', $file->file_unique_id);
+            $this->assertNull($file->source_token);
+
+            Queue::assertPushed(TelegramFilestoreDebouncedPromptJob::class, function (TelegramFilestoreDebouncedPromptJob $job) use ($regularSession): bool {
+                return true;
+            });
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_webhook_schedules_close_prompt_for_regular_upload_session(): void
@@ -952,6 +1055,56 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
             return str_contains($text, 'showfilesbot_1V_singleok0001')
                 && str_contains($text, '已加入傳送佇列，開始處理中');
         });
+    }
+
+    public function test_webhook_supergroup_token_message_is_ignored(): void
+    {
+        Queue::fake();
+        Http::fake([
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 1],
+            ], 200),
+        ]);
+
+        config()->set('telegram.filestore_bot_token', 'test-token');
+
+        TelegramFilestoreSession::query()->create([
+            'chat_id' => 7702694790,
+            'username' => 'mtfx-user',
+            'encrypt_token' => null,
+            'public_token' => 'filestoebot_1V_supergroupok0001',
+            'source_token' => 'showfilesbot_1V_supergroupok0001',
+            'status' => 'closed',
+            'total_files' => 1,
+            'total_size' => 2048,
+            'share_count' => 0,
+            'is_sending' => 0,
+            'created_at' => now(),
+            'closed_at' => now(),
+        ]);
+
+        $response = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9406,
+                'from' => [
+                    'id' => 1087968824,
+                    'is_bot' => true,
+                    'username' => 'GroupAnonymousBot',
+                ],
+                'chat' => [
+                    'id' => -1003772011392,
+                    'title' => '夢之國度',
+                    'type' => 'supergroup',
+                ],
+                'text' => 'showfilesbot_1V_supergroupok0001 已收錄至機器人 @filestoebot',
+            ],
+        ]);
+
+        $response->assertOk();
+
+        Queue::assertNothingPushed();
+        Http::assertNothingSent();
     }
 
     public function test_new_files_star_webhook_decodes_alias_tokens_and_replies_via_backup_bot_token(): void

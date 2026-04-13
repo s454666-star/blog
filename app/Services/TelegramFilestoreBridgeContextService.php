@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Schema;
 class TelegramFilestoreBridgeContextService
 {
     private const TTL_SECONDS = 1800;
+    private const CHAT_ID_TTL_SECONDS = 180;
     private const TABLE_NAME = 'telegram_filestore_bridge_contexts';
     private const TYPE_FILE_UNIQUE_ID = 'file_unique_id';
     private const TYPE_MESSAGE_ID = 'message_id';
@@ -252,7 +253,7 @@ class TelegramFilestoreBridgeContextService
 
         $rows = [];
         $now = now();
-        $expiresAt = $now->copy()->addSeconds(self::TTL_SECONDS);
+        $expiresAt = $now->copy()->addSeconds($this->ttlSecondsForContextType($contextType));
 
         foreach ($contextValues as $contextValue) {
             $normalized = trim((string) $contextValue);
@@ -334,6 +335,13 @@ class TelegramFilestoreBridgeContextService
     private function hashContextValue(string $value): string
     {
         return hash('sha256', trim($value));
+    }
+
+    private function ttlSecondsForContextType(string $contextType): int
+    {
+        return $contextType === self::TYPE_CHAT_ID
+            ? self::CHAT_ID_TTL_SECONDS
+            : self::TTL_SECONDS;
     }
 
     private function fileKey(string $fileUniqueId): string

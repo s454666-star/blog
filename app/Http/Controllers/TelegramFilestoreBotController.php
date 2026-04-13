@@ -115,19 +115,24 @@
             $chatId = (int)($message['chat']['id'] ?? 0);
             $username = $message['chat']['username'] ?? null;
             $messageId = (int)($message['message_id'] ?? 0);
+            $isPrivateChat = $this->isPrivateChat($message);
 
-            if ($chatId <= 0 || $messageId <= 0) {
+            if ($chatId === 0 || $messageId <= 0) {
                 return response()->json(['ok' => true]);
             }
 
             if (isset($message['text'])) {
                 $text = trim((string)$message['text']);
 
-                if ($this->handleBridgeControlMessage($chatId, $username, $text)) {
+                if ($isPrivateChat && $this->handleBridgeControlMessage($chatId, $username, $text)) {
                     return response()->json(['ok' => true]);
                 }
 
-                if ($text === '/start') {
+                if (!$isPrivateChat) {
+                    return response()->json(['ok' => true]);
+                }
+
+                if ($isPrivateChat && $text === '/start') {
                     $this->sendMessage(
                         $chatId,
                         "Filestore Bot 已啟動\n\n請直接傳送圖片、影片或檔案。\n上傳完成後按「結束上傳」即可產生分享代碼。\n\n指令：\n/myfiles 查詢我的檔案\n/delete 刪除我上傳的檔案"
@@ -135,12 +140,12 @@
                     return response()->json(['ok' => true]);
                 }
 
-                if ($text === '/myfiles') {
+                if ($isPrivateChat && $text === '/myfiles') {
                     $this->handleMyFilesCommand($chatId, 1);
                     return response()->json(['ok' => true]);
                 }
 
-                if (Str::startsWith($text, '/delete')) {
+                if ($isPrivateChat && Str::startsWith($text, '/delete')) {
                     $this->handleDeleteCommand($chatId, $text);
                     return response()->json(['ok' => true]);
                 }
@@ -237,6 +242,10 @@
                     return response()->json(['ok' => true]);
                 }
 
+                return response()->json(['ok' => true]);
+            }
+
+            if (!$isPrivateChat) {
                 return response()->json(['ok' => true]);
             }
 
@@ -402,6 +411,11 @@
         {
             $key = 'filestore_message_dedup_' . $chatId . '_' . $messageId;
             return Cache::add($key, 1, now()->addSeconds(self::MESSAGE_DEDUP_SECONDS));
+        }
+
+        private function isPrivateChat(array $message): bool
+        {
+            return (string) ($message['chat']['type'] ?? '') === 'private';
         }
 
         private function handleCallback(array $callbackQuery): void
@@ -805,6 +819,7 @@
             $session = TelegramFilestoreSession::query()
                 ->where('chat_id', $chatId)
                 ->where('status', 'uploading')
+                ->whereNull('source_token')
                 ->orderByDesc('id')
                 ->first();
 
@@ -999,6 +1014,7 @@
             $session = TelegramFilestoreSession::query()
                 ->where('chat_id', $chatId)
                 ->where('status', 'uploading')
+                ->whereNull('source_token')
                 ->orderByDesc('id')
                 ->first();
 

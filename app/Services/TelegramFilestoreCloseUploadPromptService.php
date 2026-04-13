@@ -350,6 +350,11 @@ class TelegramFilestoreCloseUploadPromptService
             return true;
         }
 
+        $description = strtolower((string) ($resp->json('description') ?? ''));
+        if ($resp->status() === 400 && str_contains($description, 'message is not modified')) {
+            return true;
+        }
+
         Log::warning('telegram_filestore_close_prompt_edit_failed', [
             'chat_id' => $chatId,
             'message_id' => $messageId,

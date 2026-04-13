@@ -15,6 +15,7 @@
     use Illuminate\Support\Facades\DB;
     use Illuminate\Support\Facades\Http;
     use Illuminate\Support\Facades\Log;
+    use Illuminate\Support\Carbon;
     use Throwable;
 
     class TelegramFilestoreDebouncedPromptJob implements ShouldQueue
@@ -30,6 +31,7 @@
         private const DEBOUNCE_SECONDS = 5;
         private const CLOSE_UPLOAD_PROMPT_DEDUP_SECONDS = 3;
         private const CLOSE_UPLOAD_PROMPT_MESSAGE_CACHE_MINUTES = 180;
+        private const TRANSIENT_RETRY_SECONDS = 1;
 
         /**
          * 同一 session debounce job 的互斥鎖（秒）
@@ -83,6 +85,7 @@
             $lockKey = $this->getSessionJobLockKey($this->sessionId);
             $locked = Cache::add($lockKey, 1, now()->addSeconds(self::SESSION_JOB_LOCK_SECONDS));
             if (!$locked) {
+                $this->scheduleRetry(self::TRANSIENT_RETRY_SECONDS, 'session_lock_busy');
                 return;
             }
 
@@ -111,11 +114,17 @@
                     return;
                 }
 
+                $latestFileAt = $this->getLatestFileCreatedAt($this->sessionId);
+                if (!$this->shouldRefreshPrompt($session, $latestFileAt)) {
+                    return;
+                }
+
                 $preferFreshMessage = app(TelegramFilestoreCloseUploadPromptService::class)
                     ->shouldPreferFreshPromptMessage($session);
 
                 $allowedToSend = $this->markCloseUploadPromptIfAllowed($this->sessionId);
                 if (!$allowedToSend) {
+                    $this->scheduleRetry(self::TRANSIENT_RETRY_SECONDS, 'prompt_dedup_window');
                     return;
                 }
 
@@ -146,6 +155,68 @@
         private function getSessionJobLockKey(int $sessionId): string
         {
             return 'filestore_debounce_job_lock_' . $sessionId;
+        }
+
+        private function scheduleRetry(int $delaySeconds, string $reason): void
+        {
+            if ($delaySeconds < 1) {
+                $delaySeconds = 1;
+            }
+
+            self::dispatch($this->sessionId, $this->chatId, $this->botProfile)
+                ->delay(now()->addSeconds($delaySeconds));
+
+            Log::info('telegram_filestore_close_prompt_retry_scheduled', [
+                'session_id' => $this->sessionId,
+                'chat_id' => $this->chatId,
+                'reason' => $reason,
+                'delay_seconds' => $delaySeconds,
+            ]);
+        }
+
+        private function shouldRefreshPrompt(TelegramFilestoreSession $session, ?Carbon $latestFileAt): bool
+        {
+            if ($latestFileAt === null) {
+                return false;
+            }
+
+            if ($this->getCloseUploadPromptMessageId($this->sessionId) === null) {
+                return true;
+            }
+
+            $lastPromptedAt = $this->toCarbon($session->close_upload_prompted_at);
+            if ($lastPromptedAt === null) {
+                return true;
+            }
+
+            return $latestFileAt->greaterThan($lastPromptedAt);
+        }
+
+        private function getLatestFileCreatedAt(int $sessionId): ?Carbon
+        {
+            $value = TelegramFilestoreFile::query()
+                ->where('session_id', $sessionId)
+                ->max('created_at');
+
+            return $this->toCarbon($value);
+        }
+
+        private function toCarbon(mixed $value): ?Carbon
+        {
+            if ($value instanceof Carbon) {
+                return $value->copy();
+            }
+
+            $normalized = trim((string) $value);
+            if ($normalized === '') {
+                return null;
+            }
+
+            try {
+                return Carbon::parse($normalized);
+            } catch (Throwable) {
+                return null;
+            }
         }
 
         private function getCloseUploadPromptMessageCacheKey(int $sessionId): string

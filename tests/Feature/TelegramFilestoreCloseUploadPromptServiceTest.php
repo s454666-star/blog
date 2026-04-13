@@ -140,6 +140,48 @@ class TelegramFilestoreCloseUploadPromptServiceTest extends TestCase
         });
     }
 
+    public function test_service_treats_message_not_modified_as_successful_edit(): void
+    {
+        Http::fake([
+            'https://api.telegram.org/*' => function ($request) {
+                if (str_contains($request->url(), '/editMessageText')) {
+                    return Http::response([
+                        'ok' => false,
+                        'error_code' => 400,
+                        'description' => 'Bad Request: message is not modified',
+                    ], 400);
+                }
+
+                return Http::response([
+                    'ok' => true,
+                    'result' => ['message_id' => 999],
+                ], 200);
+            },
+        ]);
+
+        $sessionId = $this->createUploadingSessionWithFiles();
+        Cache::put('filestore_close_upload_prompt_message_id_' . $sessionId, 333, now()->addMinutes(10));
+        Cache::put(
+            'filestore_close_upload_prompt_created_at_' . $sessionId,
+            now()->subSeconds(30)->toIso8601String(),
+            now()->addMinutes(10)
+        );
+
+        $result = app(TelegramFilestoreCloseUploadPromptService::class)->sendOrRefreshPrompt(
+            $sessionId,
+            8491679630
+        );
+
+        $this->assertSame('edited', $result['action']);
+        $this->assertSame(333, $result['message_id']);
+
+        Http::assertSentCount(1);
+        Http::assertSent(function ($request): bool {
+            return str_contains($request->url(), '/editMessageText')
+                && (int) ($request['message_id'] ?? 0) === 333;
+        });
+    }
+
     public function test_service_prefers_fresh_prompt_when_cached_message_is_legacy(): void
     {
         $sessionId = $this->createUploadingSessionWithFiles();

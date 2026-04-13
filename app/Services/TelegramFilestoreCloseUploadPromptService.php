@@ -14,6 +14,8 @@ class TelegramFilestoreCloseUploadPromptService
 {
     private const CLOSE_UPLOAD_PROMPT_MESSAGE_CACHE_MINUTES = 180;
     private const FRESH_PROMPT_MESSAGE_AFTER_SECONDS = 60;
+    private const MISSING_PROMPT_RESCUE_AFTER_SECONDS = 900;
+    private const MISSING_PROMPT_RESCUE_LOCK_SECONDS = 30;
 
     public function __construct(
         private TelegramFilestoreBotProfileResolver $botProfileResolver
@@ -33,6 +35,64 @@ class TelegramFilestoreCloseUploadPromptService
         }
 
         return $promptCreatedAt->diffInSeconds(now()) >= self::FRESH_PROMPT_MESSAGE_AFTER_SECONDS;
+    }
+
+    public function shouldRescueMissingPrompt(TelegramFilestoreSession $session): bool
+    {
+        if ((string) ($session->status ?? '') !== 'uploading') {
+            return false;
+        }
+
+        if (trim((string) ($session->source_token ?? '')) !== '') {
+            return false;
+        }
+
+        if ($this->getCloseUploadPromptMessageId((int) $session->id) !== null) {
+            return false;
+        }
+
+        $baseline = $this->toCarbon($session->close_upload_prompted_at)
+            ?? $this->toCarbon($session->created_at);
+
+        if ($baseline === null) {
+            return false;
+        }
+
+        return $baseline->diffInSeconds(now()) >= self::MISSING_PROMPT_RESCUE_AFTER_SECONDS;
+    }
+
+    /**
+     * @return array{action:string,message_id:int|null}|null
+     */
+    public function rescueMissingPromptIfNeeded(
+        int $sessionId,
+        int $chatId,
+        string $botProfile = TelegramFilestoreBotProfileResolver::FILESTORE
+    ): ?array {
+        $session = TelegramFilestoreSession::query()->find($sessionId);
+        if (!$session || !$this->shouldRescueMissingPrompt($session)) {
+            return null;
+        }
+
+        $lockKey = 'filestore_close_upload_prompt_rescue_lock_' . $sessionId;
+        $locked = Cache::add($lockKey, 1, now()->addSeconds(self::MISSING_PROMPT_RESCUE_LOCK_SECONDS));
+        if (!$locked) {
+            return null;
+        }
+
+        $session->close_upload_prompted_at = now();
+        $session->save();
+
+        $result = $this->sendOrRefreshPrompt($sessionId, $chatId, $botProfile, true);
+
+        Log::info('telegram_filestore_close_prompt_rescued_sync', [
+            'session_id' => $sessionId,
+            'chat_id' => $chatId,
+            'action' => $result['action'],
+            'message_id' => $result['message_id'],
+        ]);
+
+        return $result;
     }
 
     /**

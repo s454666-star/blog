@@ -403,6 +403,83 @@ class TelegramFilestoreBotControllerBridgeWebhookTest extends TestCase
         Queue::assertPushed(TelegramFilestoreDebouncedPromptJob::class);
     }
 
+    public function test_webhook_rescues_missing_close_prompt_for_old_uploading_session(): void
+    {
+        Queue::fake();
+        Cache::flush();
+
+        Http::fake([
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 4567],
+            ], 200),
+        ]);
+
+        $session = TelegramFilestoreSession::query()->create([
+            'chat_id' => 8491679630,
+            'username' => 's4546663',
+            'encrypt_token' => null,
+            'public_token' => null,
+            'source_token' => null,
+            'status' => 'uploading',
+            'total_files' => 1,
+            'total_size' => 1024,
+            'share_count' => 0,
+            'close_upload_prompted_at' => now()->subHours(5),
+            'created_at' => now()->subHours(5),
+        ]);
+
+        TelegramFilestoreFile::query()->create([
+            'session_id' => (int) $session->id,
+            'chat_id' => 8491679630,
+            'message_id' => 8002,
+            'file_id' => 'OLD-FILE-ID',
+            'file_unique_id' => 'old-uniq-8002',
+            'source_token' => null,
+            'file_name' => 'old.bin',
+            'mime_type' => 'application/octet-stream',
+            'file_size' => 1024,
+            'file_type' => 'document',
+            'raw_payload' => '{}',
+            'created_at' => now()->subHours(5),
+        ]);
+
+        $response = $this->postJson('/api/telegram/filestore/webhook', [
+            'message' => [
+                'message_id' => 9004,
+                'from' => [
+                    'id' => 8491679630,
+                    'is_bot' => false,
+                    'username' => 's4546663',
+                ],
+                'chat' => [
+                    'id' => 8491679630,
+                    'username' => 's4546663',
+                    'type' => 'private',
+                ],
+                'document' => [
+                    'file_id' => 'BAAC-rescue-file-id',
+                    'file_unique_id' => 'rescue-uniq-9004',
+                    'file_name' => 'fresh.bin',
+                    'mime_type' => 'application/octet-stream',
+                    'file_size' => 2048,
+                ],
+            ],
+        ]);
+
+        $response->assertOk();
+
+        Queue::assertPushed(TelegramFilestoreDebouncedPromptJob::class);
+        $this->assertSame(4567, Cache::get('filestore_close_upload_prompt_message_id_' . $session->id));
+        $this->assertNotNull(Cache::get('filestore_close_upload_prompt_created_at_' . $session->id));
+
+        Http::assertSent(function ($request): bool {
+            return str_contains($request->url(), '/sendMessage')
+                && (int) ($request['chat_id'] ?? 0) === 8491679630
+                && str_contains((string) ($request['text'] ?? ''), '是否結束上傳');
+        });
+    }
+
     public function test_webhook_uses_pending_forwarded_message_id_for_bridge_session_without_scheduling_close_prompt(): void
     {
         Queue::fake();

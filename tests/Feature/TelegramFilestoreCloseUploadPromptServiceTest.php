@@ -186,7 +186,46 @@ class TelegramFilestoreCloseUploadPromptServiceTest extends TestCase
         );
     }
 
-    private function createUploadingSessionWithFiles(): int
+    public function test_service_recognizes_old_uploading_session_with_missing_prompt_for_rescue(): void
+    {
+        $sessionId = $this->createUploadingSessionWithFiles(now()->subHours(5), now()->subHours(5));
+
+        $this->assertTrue(
+            app(TelegramFilestoreCloseUploadPromptService::class)->shouldRescueMissingPrompt(
+                $this->findSession($sessionId)
+            )
+        );
+    }
+
+    public function test_service_rescues_missing_prompt_for_old_uploading_session(): void
+    {
+        Http::fake([
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 909],
+            ], 200),
+        ]);
+
+        $sessionId = $this->createUploadingSessionWithFiles(now()->subHours(5), now()->subHours(5));
+
+        $result = app(TelegramFilestoreCloseUploadPromptService::class)->rescueMissingPromptIfNeeded(
+            $sessionId,
+            8491679630
+        );
+
+        $this->assertNotNull($result);
+        $this->assertSame('resent', $result['action']);
+        $this->assertSame(909, $result['message_id']);
+        $this->assertSame(909, Cache::get('filestore_close_upload_prompt_message_id_' . $sessionId));
+
+        Http::assertSent(function ($request): bool {
+            return str_contains($request->url(), '/sendMessage')
+                && (int) ($request['chat_id'] ?? 0) === 8491679630
+                && str_contains((string) ($request['text'] ?? ''), '是否結束上傳');
+        });
+    }
+
+    private function createUploadingSessionWithFiles($createdAt = null, $closeUploadPromptedAt = null): int
     {
         $sessionId = DB::table('telegram_filestore_sessions')->insertGetId([
             'chat_id' => 8491679630,
@@ -194,7 +233,8 @@ class TelegramFilestoreCloseUploadPromptServiceTest extends TestCase
             'status' => 'uploading',
             'total_files' => 2,
             'total_size' => 3000,
-            'created_at' => now(),
+            'created_at' => $createdAt ?? now(),
+            'close_upload_prompted_at' => $closeUploadPromptedAt,
         ]);
 
         DB::table('telegram_filestore_files')->insert([

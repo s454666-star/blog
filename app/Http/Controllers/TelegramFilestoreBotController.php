@@ -10,6 +10,7 @@
     use App\Services\TelegramCodeTokenService;
     use App\Services\TelegramFilestoreBridgeContextService;
     use App\Services\TelegramFilestoreBotProfileResolver;
+    use App\Services\TelegramFilestoreCloseUploadPromptService;
     use App\Services\TelegramFilestoreStaleSessionCleanupService;
     use Illuminate\Contracts\Bus\Dispatcher;
     use Illuminate\Http\Request;
@@ -374,6 +375,9 @@
 
             TelegramFilestoreDebouncedPromptJob::dispatch($sessionId, $chatId, $this->activeBotProfileKey)
                 ->delay(now()->addSeconds(self::DEBOUNCE_SECONDS));
+
+            app(TelegramFilestoreCloseUploadPromptService::class)
+                ->rescueMissingPromptIfNeeded($sessionId, $chatId, $this->activeBotProfileKey);
         }
 
         private function getDebounceLastFileAtCacheKey(int $sessionId): string

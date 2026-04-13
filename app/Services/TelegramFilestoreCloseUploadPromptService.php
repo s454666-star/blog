@@ -22,12 +22,17 @@ class TelegramFilestoreCloseUploadPromptService
 
     public function shouldPreferFreshPromptMessage(TelegramFilestoreSession $session): bool
     {
-        $lastPromptedAt = $this->toCarbon($session->close_upload_prompted_at);
-        if ($lastPromptedAt === null) {
+        $messageId = $this->getCloseUploadPromptMessageId((int) $session->id);
+        if ($messageId === null) {
             return false;
         }
 
-        return now()->diffInSeconds($lastPromptedAt) >= self::FRESH_PROMPT_MESSAGE_AFTER_SECONDS;
+        $promptCreatedAt = $this->getPromptMessageCreatedAt((int) $session->id);
+        if ($promptCreatedAt === null) {
+            return true;
+        }
+
+        return $promptCreatedAt->diffInSeconds(now()) >= self::FRESH_PROMPT_MESSAGE_AFTER_SECONDS;
     }
 
     /**
@@ -167,6 +172,12 @@ class TelegramFilestoreCloseUploadPromptService
             $messageId,
             now()->addMinutes(self::CLOSE_UPLOAD_PROMPT_MESSAGE_CACHE_MINUTES)
         );
+
+        Cache::put(
+            $this->getCloseUploadPromptCreatedAtCacheKey($sessionId),
+            now()->toIso8601String(),
+            now()->addMinutes(self::CLOSE_UPLOAD_PROMPT_MESSAGE_CACHE_MINUTES)
+        );
     }
 
     private function getCloseUploadPromptMessageId(int $sessionId): ?int
@@ -182,11 +193,22 @@ class TelegramFilestoreCloseUploadPromptService
     private function forgetCloseUploadPromptMessageId(int $sessionId): void
     {
         Cache::forget($this->getCloseUploadPromptMessageCacheKey($sessionId));
+        Cache::forget($this->getCloseUploadPromptCreatedAtCacheKey($sessionId));
     }
 
     private function getCloseUploadPromptMessageCacheKey(int $sessionId): string
     {
         return 'filestore_close_upload_prompt_message_id_' . $sessionId;
+    }
+
+    private function getCloseUploadPromptCreatedAtCacheKey(int $sessionId): string
+    {
+        return 'filestore_close_upload_prompt_created_at_' . $sessionId;
+    }
+
+    private function getPromptMessageCreatedAt(int $sessionId): ?Carbon
+    {
+        return $this->toCarbon(Cache::get($this->getCloseUploadPromptCreatedAtCacheKey($sessionId)));
     }
 
     private function sendMessageReturningMessageId(

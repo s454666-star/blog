@@ -82,6 +82,7 @@ class TelegramFilestoreCloseUploadPromptServiceTest extends TestCase
             501,
             Cache::get('filestore_close_upload_prompt_message_id_' . $sessionId)
         );
+        $this->assertNotNull(Cache::get('filestore_close_upload_prompt_created_at_' . $sessionId));
 
         Http::assertSent(function ($request): bool {
             return str_contains($request->url(), '/sendMessage')
@@ -126,6 +127,7 @@ class TelegramFilestoreCloseUploadPromptServiceTest extends TestCase
             777,
             Cache::get('filestore_close_upload_prompt_message_id_' . $sessionId)
         );
+        $this->assertNotNull(Cache::get('filestore_close_upload_prompt_created_at_' . $sessionId));
 
         Http::assertSent(function ($request): bool {
             return str_contains($request->url(), '/deleteMessage')
@@ -136,6 +138,52 @@ class TelegramFilestoreCloseUploadPromptServiceTest extends TestCase
             return str_contains($request->url(), '/sendMessage')
                 && (int) ($request['chat_id'] ?? 0) === 8491679630;
         });
+    }
+
+    public function test_service_prefers_fresh_prompt_when_cached_message_is_legacy(): void
+    {
+        $sessionId = $this->createUploadingSessionWithFiles();
+        Cache::put('filestore_close_upload_prompt_message_id_' . $sessionId, 333, now()->addMinutes(10));
+
+        $this->assertTrue(
+            app(TelegramFilestoreCloseUploadPromptService::class)->shouldPreferFreshPromptMessage(
+                $this->findSession($sessionId)
+            )
+        );
+    }
+
+    public function test_service_prefers_fresh_prompt_when_existing_message_is_old(): void
+    {
+        $sessionId = $this->createUploadingSessionWithFiles();
+        Cache::put('filestore_close_upload_prompt_message_id_' . $sessionId, 333, now()->addMinutes(10));
+        Cache::put(
+            'filestore_close_upload_prompt_created_at_' . $sessionId,
+            now()->subMinutes(2)->toIso8601String(),
+            now()->addMinutes(10)
+        );
+
+        $this->assertTrue(
+            app(TelegramFilestoreCloseUploadPromptService::class)->shouldPreferFreshPromptMessage(
+                $this->findSession($sessionId)
+            )
+        );
+    }
+
+    public function test_service_keeps_editing_recent_prompt_messages(): void
+    {
+        $sessionId = $this->createUploadingSessionWithFiles();
+        Cache::put('filestore_close_upload_prompt_message_id_' . $sessionId, 333, now()->addMinutes(10));
+        Cache::put(
+            'filestore_close_upload_prompt_created_at_' . $sessionId,
+            now()->subSeconds(30)->toIso8601String(),
+            now()->addMinutes(10)
+        );
+
+        $this->assertFalse(
+            app(TelegramFilestoreCloseUploadPromptService::class)->shouldPreferFreshPromptMessage(
+                $this->findSession($sessionId)
+            )
+        );
     }
 
     private function createUploadingSessionWithFiles(): int
@@ -173,5 +221,10 @@ class TelegramFilestoreCloseUploadPromptServiceTest extends TestCase
         ]);
 
         return (int) $sessionId;
+    }
+
+    private function findSession(int $sessionId): object
+    {
+        return \App\Models\TelegramFilestoreSession::query()->findOrFail($sessionId);
     }
 }

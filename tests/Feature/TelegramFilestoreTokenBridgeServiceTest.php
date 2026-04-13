@@ -303,4 +303,19 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
         $this->assertDatabaseMissing('telegram_filestore_files', ['file_unique_id' => 'stale-bridge-uniq']);
         $this->assertDatabaseCount('telegram_filestore_sessions', 0);
     }
+
+    public function test_wait_timeout_scales_up_for_large_forwarded_payloads(): void
+    {
+        $service = app(TelegramFilestoreTokenBridgeService::class);
+        $method = new \ReflectionMethod($service, 'resolveWaitTimeoutSeconds');
+        $method->setAccessible(true);
+
+        $timeout = (int) $method->invoke(
+            $service,
+            1,
+            636507668
+        );
+
+        $this->assertSame(185, $timeout);
+    }
 }

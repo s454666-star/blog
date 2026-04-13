@@ -14,7 +14,11 @@ class TelegramFilestoreTokenBridgeService
     private const FORWARD_TIMEOUT_SECONDS = 600;
     private const DELETE_TIMEOUT_SECONDS = 60;
     private const WAIT_TIMEOUT_SECONDS = 45;
-    private const WAIT_TIMEOUT_MAX_SECONDS = 300;
+    private const WAIT_TIMEOUT_BASE_SECONDS = 60;
+    private const WAIT_TIMEOUT_PER_FILE_SECONDS = 5;
+    private const WAIT_TIMEOUT_PER_FILE_CAP_SECONDS = 120;
+    private const WAIT_TIMEOUT_PER_GIB_SECONDS = 120;
+    private const WAIT_TIMEOUT_MAX_SECONDS = 600;
     private const WAIT_INTERVAL_MICROSECONDS = 500000;
     private const SOURCE_REPLY_FETCH_LIMIT = 5000;
 
@@ -766,7 +770,12 @@ class TelegramFilestoreTokenBridgeService
     {
         $forwardedCount = max($expectedStoredCount, 0);
         $sizeGigabytes = (int) ceil(max($observedTotalBytes, 0) / 1073741824);
-        $calculated = 20 + $forwardedCount + ($sizeGigabytes * 10);
+        $calculated = self::WAIT_TIMEOUT_BASE_SECONDS
+            + min(
+                self::WAIT_TIMEOUT_PER_FILE_CAP_SECONDS,
+                $forwardedCount * self::WAIT_TIMEOUT_PER_FILE_SECONDS
+            )
+            + ($sizeGigabytes * self::WAIT_TIMEOUT_PER_GIB_SECONDS);
 
         return max(
             self::WAIT_TIMEOUT_SECONDS,

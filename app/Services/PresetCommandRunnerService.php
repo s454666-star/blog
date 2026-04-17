@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
 use Symfony\Component\Process\Process;
 use Throwable;
@@ -13,6 +15,8 @@ class PresetCommandRunnerService
     private const PHP_BINARY = 'C:\\php\\php.exe';
     private const RUN_STATE_DIR = 'app\\command-runner-runs';
     private const STOP_EXIT_CODE = 130;
+    private const DUPLICATE_RUN_EXIT_CODE = 75;
+    private const COMMAND_LOCK_SECONDS = 86400;
 
     public function presets(): array
     {
@@ -283,40 +287,45 @@ class PresetCommandRunnerService
             }
         };
 
-        if ($runToken !== null) {
-            $this->writeRunState($runToken, [
-                'run_token' => $runToken,
-                'preset_id' => $preset['id'],
-                'preset_title' => $preset['title'],
-                'status' => 'starting',
-                'stop_requested' => false,
-                'started_at' => $timestamp->format('Y-m-d H:i:s'),
-                'pid' => null,
-            ]);
+        $commandLock = $this->acquireCommandLock($preset);
+        if ($commandLock === false) {
+            return $this->duplicateRunResult($preset, $startedAt, $timestamp, $emit, $runToken);
         }
 
-        $header = $this->normalizeOutput(sprintf(
-            "[%s] Preset: %s\nWorking directory: %s\n\n",
-            $timestamp->format('Y-m-d H:i:s'),
-            $preset['title'],
-            self::WORKDIR
-        ));
-
-        $output .= $header;
-        $emit('start', [
-            'preset' => [
-                'id' => $preset['id'],
-                'title' => $preset['title'],
-                'summary' => $preset['summary'],
-            ],
-            'run_token' => $runToken,
-        ]);
-        $emit('chunk', ['text' => $header]);
-
-        $success = true;
-        $exitCode = 0;
-        $totalSteps = count($preset['steps']);
         try {
+            if ($runToken !== null) {
+                $this->writeRunState($runToken, [
+                    'run_token' => $runToken,
+                    'preset_id' => $preset['id'],
+                    'preset_title' => $preset['title'],
+                    'status' => 'starting',
+                    'stop_requested' => false,
+                    'started_at' => $timestamp->format('Y-m-d H:i:s'),
+                    'pid' => null,
+                ]);
+            }
+
+            $header = $this->normalizeOutput(sprintf(
+                "[%s] Preset: %s\nWorking directory: %s\n\n",
+                $timestamp->format('Y-m-d H:i:s'),
+                $preset['title'],
+                self::WORKDIR
+            ));
+
+            $output .= $header;
+            $emit('start', [
+                'preset' => [
+                    'id' => $preset['id'],
+                    'title' => $preset['title'],
+                    'summary' => $preset['summary'],
+                ],
+                'run_token' => $runToken,
+            ]);
+            $emit('chunk', ['text' => $header]);
+
+            $success = true;
+            $exitCode = 0;
+            $totalSteps = count($preset['steps']);
             foreach ($preset['steps'] as $index => $step) {
                 if ($runToken !== null && $this->isStopRequested($runToken)) {
                     $cancelled = true;
@@ -485,7 +494,120 @@ class PresetCommandRunnerService
             if ($runToken !== null) {
                 $this->deleteRunState($runToken);
             }
+
+            $this->releaseCommandLock($commandLock);
         }
+    }
+
+    private function duplicateRunResult(
+        array $preset,
+        float $startedAt,
+        \Illuminate\Support\Carbon $timestamp,
+        callable $emit,
+        ?string $runToken = null
+    ): array {
+        $header = $this->normalizeOutput(sprintf(
+            "[%s] Preset: %s\nWorking directory: %s\n\n",
+            $timestamp->format('Y-m-d H:i:s'),
+            $preset['title'],
+            self::WORKDIR
+        ));
+        $message = $this->normalizeOutput(
+            "[locked] 同一個 preset 與同一組參數已經在執行中，這次略過，避免重複跑長任務。\n"
+        );
+        $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
+        $finishedAt = now()->format('Y-m-d H:i:s');
+        $footer = $this->normalizeOutput(sprintf(
+            "[finished] success=no locked=yes exit=%d total_duration=%sms\n",
+            self::DUPLICATE_RUN_EXIT_CODE,
+            $durationMs
+        ));
+        $output = $header . $message . $footer;
+
+        $presetPayload = [
+            'id' => $preset['id'],
+            'title' => $preset['title'],
+            'summary' => $preset['summary'],
+        ];
+
+        $emit('start', [
+            'preset' => $presetPayload,
+            'run_token' => $runToken,
+        ]);
+        $emit('chunk', ['text' => $header]);
+        $emit('chunk', [
+            'text' => $message,
+            'stream' => 'stderr',
+        ]);
+        $emit('chunk', ['text' => $footer]);
+        $emit('complete', [
+            'preset' => $presetPayload,
+            'success' => false,
+            'cancelled' => false,
+            'locked' => true,
+            'exit_code' => self::DUPLICATE_RUN_EXIT_CODE,
+            'duration_ms' => $durationMs,
+            'finished_at' => $finishedAt,
+            'run_token' => $runToken,
+        ]);
+
+        return [
+            'preset' => $presetPayload,
+            'success' => false,
+            'cancelled' => false,
+            'locked' => true,
+            'exit_code' => self::DUPLICATE_RUN_EXIT_CODE,
+            'duration_ms' => $durationMs,
+            'finished_at' => $finishedAt,
+            'output' => $output,
+        ];
+    }
+
+    /**
+     * @return Lock|false|null false means an identical command is already running, null means cache locking is unavailable.
+     */
+    private function acquireCommandLock(array $preset): Lock|false|null
+    {
+        try {
+            $lock = Cache::lock($this->commandLockKey($preset), self::COMMAND_LOCK_SECONDS);
+
+            return $lock->get() ? $lock : false;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function releaseCommandLock(?Lock $lock): void
+    {
+        if (!$lock instanceof Lock) {
+            return;
+        }
+
+        try {
+            $lock->release();
+        } catch (Throwable) {
+        }
+    }
+
+    private function commandLockKey(array $preset): string
+    {
+        $steps = [];
+        foreach ((array) ($preset['steps'] ?? []) as $step) {
+            $steps[] = array_values(array_map(
+                static fn (mixed $part): string => (string) $part,
+                (array) ($step['command'] ?? [])
+            ));
+        }
+
+        $payload = [
+            'preset_id' => (string) ($preset['id'] ?? ''),
+            'workdir' => self::WORKDIR,
+            'steps' => $steps,
+        ];
+
+        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return 'command_runner:run_lock:' . sha1($encoded !== false ? $encoded : serialize($payload));
     }
 
     private function drainProcessOutput(Process $process, string &$output, callable $emit): void

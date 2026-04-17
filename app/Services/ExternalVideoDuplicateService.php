@@ -302,7 +302,7 @@ class ExternalVideoDuplicateService
         $feature->loadMissing('frames', 'videoMaster');
 
         return [
-            'video_feature_id' => (int) $feature->id,
+            'video_feature_id' => isset($feature->id) ? (int) $feature->id : null,
             'video_master_id' => $feature->video_master_id !== null ? (int) $feature->video_master_id : null,
             'video_name' => (string) ($feature->video_name ?? ''),
             'video_path' => (string) ($feature->video_path ?? ''),
@@ -314,7 +314,7 @@ class ExternalVideoDuplicateService
             'feature_version' => (string) ($feature->feature_version ?? ''),
             'frames' => $feature->frames->map(function (VideoFeatureFrame $frame): array {
                 return [
-                    'id' => (int) $frame->id,
+                    'id' => isset($frame->id) ? (int) $frame->id : null,
                     'capture_order' => (int) $frame->capture_order,
                     'capture_second' => $frame->capture_second !== null ? (float) $frame->capture_second : null,
                     'screenshot_path' => (string) ($frame->screenshot_path ?? ''),
@@ -399,7 +399,7 @@ class ExternalVideoDuplicateService
                     'image_base64' => $sourceImage['base64'] ?? null,
                 ],
                 'matched' => $matchedFrame instanceof VideoFeatureFrame ? [
-                    'video_feature_frame_id' => (int) $matchedFrame->id,
+                    'video_feature_frame_id' => isset($matchedFrame->id) ? (int) $matchedFrame->id : null,
                     'capture_second' => $matchedFrame->capture_second !== null ? (float) $matchedFrame->capture_second : null,
                     'screenshot_path' => (string) ($matchedFrame->screenshot_path ?? ''),
                     'dhash_hex' => (string) ($matchedFrame->dhash_hex ?? ''),

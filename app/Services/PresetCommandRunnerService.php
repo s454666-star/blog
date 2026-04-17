@@ -716,11 +716,12 @@ class PresetCommandRunnerService
             ],
             'move_video_duplicates' => [
                 'eyebrow' => 'Video DB Compare',
-                'title' => '掃描並搬移和 video_features 重複的影片',
-                'summary' => '把你輸入的資料夾中的影片拿去和既有 video_features 資料庫比對，命中的就搬去疑似重複檔案。',
-                'details' => '這組可以直接輸入要掃描的資料夾路徑，利用既有影片特徵做重複偵測。命中後除了搬檔，還會留下外部重複比對記錄，方便後續在頁面檢視。',
+                'title' => '掃描並搬移和 DB / 暫存索引重複的影片',
+                'summary' => '把你輸入的資料夾中的影片先拿去和既有 video_features 資料庫比對，再比對 C:\\Users\\User\\Videos\\暫 的特徵索引，命中的就搬去疑似重複檔案。',
+                'details' => '這組可以直接輸入要掃描的資料夾路徑。執行前會先同步 C:\\Users\\User\\Videos\\暫 底下的影片特徵 JSON，然後只拿你指定的掃描資料夾去比對 DB 與暫存索引；命中後除了搬檔，也會留下外部重複比對記錄。',
                 'highlights' => [
-                    '目標是 DB 內已抽過特徵的影片，不是只比同資料夾內彼此。',
+                    '先比 DB，再比對 C:\\Users\\User\\Videos\\暫 的影片特徵索引。',
+                    '不會處理 C:\\Users\\User\\Videos\\暫 自己裡面彼此是否重複。',
                     '命中後會搬到原資料夾下的「疑似重複檔案」目錄。',
                     '輸入資料夾後按 Enter 就可以直接開始跑。',
                 ],

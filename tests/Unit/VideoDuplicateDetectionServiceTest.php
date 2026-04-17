@@ -565,4 +565,69 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         $this->assertSame([], $specificAnalysis['candidate_gate']['shared_prefixes']);
         $this->assertSame([], $specificAnalysis['candidate_gate']['reasons']);
     }
+
+    public function test_reference_snapshot_match_can_detect_duplicate_without_db_feature_row(): void
+    {
+        $payload = [
+            'absolute_path' => 'C:\\incoming\\source.mp4',
+            'duration_seconds' => 13.1,
+            'file_size_bytes' => 1000,
+            'frames' => [
+                [
+                    'capture_order' => 1,
+                    'capture_second' => 10.0,
+                    'dhash_hex' => '0011223344556677',
+                    'dhash_prefix' => '00',
+                    'frame_sha1' => str_repeat('a', 40),
+                ],
+                [
+                    'capture_order' => 2,
+                    'capture_second' => 20.0,
+                    'dhash_hex' => '8899aabbccddeeff',
+                    'dhash_prefix' => '88',
+                    'frame_sha1' => str_repeat('b', 40),
+                ],
+            ],
+        ];
+
+        $referenceSnapshots = [[
+            'absolute_path' => 'C:\\Users\\User\\Videos\\暫\\kept.mp4',
+            'video_name' => 'kept.mp4',
+            'file_name' => 'kept.mp4',
+            'file_size_bytes' => 1001,
+            'duration_seconds' => 13.08,
+            'feature_version' => 'v1',
+            'capture_rule' => '10s_x4',
+            'frames' => [
+                [
+                    'capture_order' => 1,
+                    'capture_second' => 10.0,
+                    'dhash_hex' => '0011223344556677',
+                    'dhash_prefix' => '00',
+                    'frame_sha1' => str_repeat('c', 40),
+                ],
+                [
+                    'capture_order' => 2,
+                    'capture_second' => 20.0,
+                    'dhash_hex' => '8899aabbccddeeff',
+                    'dhash_prefix' => '88',
+                    'frame_sha1' => str_repeat('d', 40),
+                ],
+            ],
+        ]];
+
+        $service = new VideoDuplicateDetectionService(new VideoFeatureExtractionService());
+        $analysis = $service->analyzeReferenceSnapshotsMatch($payload, $referenceSnapshots, 80, 2, 3, 15, 250);
+
+        $this->assertSame(1, $analysis['candidate_count']);
+        $this->assertNotNull($analysis['duplicate_match']);
+        $this->assertSame(100.0, $analysis['duplicate_match']['similarity_percent']);
+        $this->assertSame(2, $analysis['duplicate_match']['matched_frames']);
+        $this->assertTrue($analysis['duplicate_match']['passes_threshold']);
+        $this->assertSame(
+            'C:\\Users\\User\\Videos\\暫\\kept.mp4',
+            $analysis['duplicate_match']['feature_snapshot']['absolute_path']
+        );
+        $this->assertNull($analysis['duplicate_match']['feature']->id);
+    }
 }

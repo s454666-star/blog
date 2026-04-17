@@ -164,6 +164,95 @@ class VideoDuplicateDetectionService
         )['duplicate_match'];
     }
 
+    public function analyzeReferenceSnapshotsMatch(
+        array $payload,
+        array $featureSnapshots,
+        int $thresholdPercent = 90,
+        int $minMatch = 2,
+        int $windowSeconds = 3,
+        int $sizePercent = 15,
+        int $maxCandidates = 250
+    ): array {
+        $payloadContext = $this->buildPayloadContext($payload);
+
+        if ($payloadContext['frame_count'] <= 0) {
+            return [
+                'best_result' => null,
+                'duplicate_match' => null,
+                'candidate_count' => 0,
+                'payload_frame_count' => 0,
+                'requested_min_match' => max(1, $minMatch),
+            ];
+        }
+
+        if ($payloadContext['prefixes'] === []) {
+            return [
+                'best_result' => null,
+                'duplicate_match' => null,
+                'candidate_count' => 0,
+                'payload_frame_count' => $payloadContext['frame_count'],
+                'requested_min_match' => max(1, $minMatch),
+            ];
+        }
+
+        $candidateSnapshots = $this->collectSnapshotCandidates(
+            $payloadContext,
+            $featureSnapshots,
+            $windowSeconds,
+            $maxCandidates
+        );
+
+        if ($candidateSnapshots === []) {
+            return [
+                'best_result' => null,
+                'duplicate_match' => null,
+                'candidate_count' => 0,
+                'payload_frame_count' => $payloadContext['frame_count'],
+                'requested_min_match' => max(1, $minMatch),
+            ];
+        }
+
+        $bestResult = null;
+        $bestQualifiedResult = null;
+
+        foreach ($candidateSnapshots as $snapshot) {
+            $candidateFeature = $this->hydrateFeatureFromSnapshot($snapshot);
+            $candidateResult = $this->comparePayloadToFeature(
+                $payloadContext,
+                $candidateFeature,
+                $payloadContext['duration_seconds'],
+                $payloadContext['file_size_bytes'],
+                $thresholdPercent,
+                $minMatch
+            );
+
+            if ($candidateResult === null) {
+                continue;
+            }
+
+            $candidateResult['feature_snapshot'] = $snapshot;
+
+            if ($bestResult === null || $candidateResult['score'] > $bestResult['score']) {
+                $bestResult = $candidateResult;
+            }
+
+            if (
+                ($candidateResult['passes_threshold'] ?? false) &&
+                ($bestQualifiedResult === null || $candidateResult['score'] > $bestQualifiedResult['score'])
+            ) {
+                $bestQualifiedResult = $candidateResult;
+            }
+        }
+
+        return [
+            'best_result' => $bestResult,
+            'duplicate_match' => $bestQualifiedResult,
+            'candidate_count' => count($candidateSnapshots),
+            'payload_frame_count' => $payloadContext['frame_count'],
+            'requested_min_match' => max(1, $minMatch),
+        ];
+    }
+
     private function comparePayloadToFeature(
         array &$payloadContext,
         VideoFeature $feature,
@@ -533,6 +622,206 @@ class VideoDuplicateDetectionService
             'size_gate_ignored' => true,
             'reasons' => $reasons,
         ];
+    }
+
+    private function collectSnapshotCandidates(
+        array $payloadContext,
+        array $featureSnapshots,
+        int $windowSeconds,
+        int $maxCandidates
+    ): array {
+        $durationMin = max(0, $payloadContext['duration_seconds'] - max(0, $windowSeconds));
+        $durationMax = $payloadContext['duration_seconds'] + max(0, $windowSeconds);
+        $limit = max(1, $maxCandidates);
+        $normalizedSnapshots = [];
+
+        foreach ($featureSnapshots as $featureSnapshot) {
+            $normalizedSnapshot = $this->normalizeSnapshotCandidate($featureSnapshot);
+            if ($normalizedSnapshot === null) {
+                continue;
+            }
+
+            $durationSeconds = (float) ($normalizedSnapshot['duration_seconds'] ?? 0);
+            if ($durationSeconds < $durationMin || $durationSeconds > $durationMax) {
+                continue;
+            }
+
+            $normalizedSnapshot['shared_prefix_count'] = count(array_intersect(
+                $payloadContext['prefixes'],
+                $normalizedSnapshot['prefixes']
+            ));
+            $normalizedSnapshot['duration_delta_seconds'] = abs(
+                $durationSeconds - (float) $payloadContext['duration_seconds']
+            );
+            $normalizedSnapshots[] = $normalizedSnapshot;
+        }
+
+        if ($normalizedSnapshots === []) {
+            return [];
+        }
+
+        if ($this->shouldBypassPrefixGate($payloadContext)) {
+            usort($normalizedSnapshots, function (array $left, array $right): int {
+                return $this->compareSnapshotRanking($left, $right);
+            });
+
+            return array_slice($normalizedSnapshots, 0, $limit);
+        }
+
+        $prefixMatchedSnapshots = array_values(array_filter(
+            $normalizedSnapshots,
+            fn (array $snapshot): bool => (int) ($snapshot['shared_prefix_count'] ?? 0) > 0
+        ));
+        usort($prefixMatchedSnapshots, function (array $left, array $right): int {
+            return $this->compareSnapshotRanking($left, $right, true);
+        });
+
+        if (count($prefixMatchedSnapshots) >= $limit) {
+            return array_slice($prefixMatchedSnapshots, 0, $limit);
+        }
+
+        $durationFallbackSnapshots = array_values(array_filter(
+            $normalizedSnapshots,
+            fn (array $snapshot): bool => (int) ($snapshot['shared_prefix_count'] ?? 0) === 0
+        ));
+        usort($durationFallbackSnapshots, function (array $left, array $right): int {
+            return $this->compareSnapshotRanking($left, $right);
+        });
+
+        $fallbackLimit = min($limit, self::DURATION_FALLBACK_CANDIDATES);
+
+        return array_slice(
+            array_merge($prefixMatchedSnapshots, array_slice($durationFallbackSnapshots, 0, $fallbackLimit)),
+            0,
+            $limit
+        );
+    }
+
+    private function normalizeSnapshotCandidate(mixed $snapshot): ?array
+    {
+        if (!is_array($snapshot)) {
+            return null;
+        }
+
+        $absolutePath = trim((string) ($snapshot['absolute_path'] ?? ''));
+        if ($absolutePath === '') {
+            return null;
+        }
+
+        $frames = [];
+        $prefixes = [];
+
+        foreach ((array) ($snapshot['frames'] ?? []) as $frame) {
+            if (!is_array($frame)) {
+                continue;
+            }
+
+            $captureOrder = (int) ($frame['capture_order'] ?? 0);
+            if ($captureOrder <= 0) {
+                continue;
+            }
+
+            $dhashHex = strtolower(trim((string) ($frame['dhash_hex'] ?? '')));
+            if ($dhashHex === '') {
+                continue;
+            }
+
+            $dhashPrefix = trim((string) ($frame['dhash_prefix'] ?? substr($dhashHex, 0, 2)));
+            if ($dhashPrefix !== '') {
+                $prefixes[] = $dhashPrefix;
+            }
+
+            $frames[] = [
+                'capture_order' => $captureOrder,
+                'capture_second' => isset($frame['capture_second']) ? (float) $frame['capture_second'] : null,
+                'label_second' => isset($frame['label_second']) ? (float) $frame['label_second'] : null,
+                'dhash_hex' => $dhashHex,
+                'dhash_prefix' => $dhashPrefix,
+                'frame_sha1' => $frame['frame_sha1'] ?? null,
+                'image_width' => isset($frame['image_width']) ? (int) $frame['image_width'] : null,
+                'image_height' => isset($frame['image_height']) ? (int) $frame['image_height'] : null,
+            ];
+        }
+
+        if ($frames === []) {
+            return null;
+        }
+
+        usort($frames, fn (array $left, array $right): int => $left['capture_order'] <=> $right['capture_order']);
+
+        return [
+            'absolute_path' => $absolutePath,
+            'video_name' => (string) ($snapshot['video_name'] ?? basename($absolutePath)),
+            'file_name' => (string) ($snapshot['file_name'] ?? basename($absolutePath)),
+            'file_size_bytes' => isset($snapshot['file_size_bytes']) ? (int) $snapshot['file_size_bytes'] : null,
+            'duration_seconds' => isset($snapshot['duration_seconds']) ? (float) $snapshot['duration_seconds'] : null,
+            'screenshot_count' => isset($snapshot['screenshot_count']) ? (int) $snapshot['screenshot_count'] : count($frames),
+            'feature_version' => (string) ($snapshot['feature_version'] ?? 'v1'),
+            'capture_rule' => (string) ($snapshot['capture_rule'] ?? '10s_x4'),
+            'frames' => $frames,
+            'prefixes' => array_values(array_unique($prefixes)),
+        ];
+    }
+
+    private function hydrateFeatureFromSnapshot(array $snapshot): VideoFeature
+    {
+        $feature = new VideoFeature();
+        $feature->forceFill([
+            'video_name' => (string) ($snapshot['video_name'] ?? ''),
+            'video_path' => (string) ($snapshot['absolute_path'] ?? ''),
+            'file_name' => (string) ($snapshot['file_name'] ?? ''),
+            'file_size_bytes' => $snapshot['file_size_bytes'] ?? null,
+            'duration_seconds' => $snapshot['duration_seconds'] ?? 0,
+            'screenshot_count' => $snapshot['screenshot_count'] ?? count((array) ($snapshot['frames'] ?? [])),
+            'feature_version' => (string) ($snapshot['feature_version'] ?? 'v1'),
+            'capture_rule' => (string) ($snapshot['capture_rule'] ?? '10s_x4'),
+        ]);
+
+        $featureFrames = collect();
+
+        foreach ((array) ($snapshot['frames'] ?? []) as $frameSnapshot) {
+            $frame = new VideoFeatureFrame();
+            $frame->forceFill([
+                'capture_order' => (int) ($frameSnapshot['capture_order'] ?? 0),
+                'capture_second' => $frameSnapshot['capture_second'] ?? 0,
+                'screenshot_path' => null,
+                'dhash_hex' => (string) ($frameSnapshot['dhash_hex'] ?? ''),
+                'dhash_prefix' => (string) ($frameSnapshot['dhash_prefix'] ?? ''),
+                'frame_sha1' => $frameSnapshot['frame_sha1'] ?? null,
+                'image_width' => $frameSnapshot['image_width'] ?? null,
+                'image_height' => $frameSnapshot['image_height'] ?? null,
+            ]);
+            $featureFrames->push($frame);
+        }
+
+        $feature->setRelation('frames', $featureFrames);
+        $feature->setRelation('videoMaster', null);
+
+        return $feature;
+    }
+
+    private function compareSnapshotRanking(array $left, array $right, bool $preferSharedPrefixes = false): int
+    {
+        if ($preferSharedPrefixes) {
+            $leftSharedPrefixes = (int) ($left['shared_prefix_count'] ?? 0);
+            $rightSharedPrefixes = (int) ($right['shared_prefix_count'] ?? 0);
+
+            if ($leftSharedPrefixes !== $rightSharedPrefixes) {
+                return $rightSharedPrefixes <=> $leftSharedPrefixes;
+            }
+        }
+
+        $leftDurationDelta = (float) ($left['duration_delta_seconds'] ?? INF);
+        $rightDurationDelta = (float) ($right['duration_delta_seconds'] ?? INF);
+
+        if ($leftDurationDelta !== $rightDurationDelta) {
+            return $leftDurationDelta <=> $rightDurationDelta;
+        }
+
+        return strcmp(
+            mb_strtolower((string) ($left['absolute_path'] ?? '')),
+            mb_strtolower((string) ($right['absolute_path'] ?? ''))
+        );
     }
 
     private function shouldBypassPrefixGate(array $payloadContext): bool

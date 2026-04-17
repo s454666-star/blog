@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\VideoFeature;
 use App\Services\ExternalVideoDuplicateService;
+use App\Services\ReferenceVideoFeatureIndexService;
 use App\Services\VideoDuplicateDetectionService;
 use App\Services\VideoFeatureExtractionService;
 use Illuminate\Console\Command;
@@ -33,19 +34,21 @@ class MoveDuplicateVideosCommand extends Command
         {--window-seconds=3 : 時長容許秒數}
         {--size-percent=15 : 相容舊參數；正式比對已不使用檔案大小 gate}
         {--max-candidates=250 : 每支影片最多拉多少 DB 候選}
+        {--reference-dir=C:\Users\User\Videos\暫 : 先同步並比對這個資料夾底下的影片特徵 JSON}
         {--video-feature-id= : 指定單一 video_features.id 進入手動分析模式；若命中重複仍會搬移}
         {--write-log : 相容舊參數；手動分析模式現在預設就會寫 log}
         {--skip-log : 手動 debug 模式不要寫入 external_video_duplicate_logs}
         {--dry-run : 只顯示結果不搬移}';
 
-    protected $description = '掃描資料夾內影片，若特徵已存在於 DB，搬到「疑似重複檔案」資料夾並寫入外部重複檢視資料；若指定 --video-feature-id，則改為手動分析指定 feature，命中重複時同樣搬移並寫入 match/log。';
+    protected $description = '掃描指定資料夾內影片，先比對 DB，再比對暫存參考資料夾的影片特徵 JSON；命中後搬到「疑似重複檔案」資料夾並寫入外部比對 log。指定 --video-feature-id 時則維持手動分析模式。';
 
     private const VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'm4v', 'mpeg', 'mpg'];
 
     public function handle(
         VideoFeatureExtractionService $featureExtractionService,
         VideoDuplicateDetectionService $duplicateDetectionService,
-        ExternalVideoDuplicateService $externalVideoDuplicateService
+        ExternalVideoDuplicateService $externalVideoDuplicateService,
+        ReferenceVideoFeatureIndexService $referenceVideoFeatureIndexService
     ): int {
         $path = $this->normalizeAbsolutePath((string) $this->argument('path'));
         try {
@@ -88,6 +91,43 @@ class MoveDuplicateVideosCommand extends Command
             return self::FAILURE;
         }
 
+        $referenceDir = $this->normalizeAbsolutePath((string) $this->option('reference-dir'));
+        try {
+            $referenceIndex = $referenceVideoFeatureIndexService->syncDirectory($referenceDir);
+        } catch (Throwable $e) {
+            $this->error('同步暫存參考索引失敗：' . $e->getMessage());
+            return self::FAILURE;
+        }
+
+        $shouldCompareReferenceIndex = $this->shouldCompareReferenceIndex($path, (string) $referenceIndex['directory_path']);
+        $referenceSnapshots = is_array($referenceIndex['snapshots'] ?? null) ? $referenceIndex['snapshots'] : [];
+        $referenceComparisonEnabled = $shouldCompareReferenceIndex && $referenceSnapshots !== [];
+
+        $this->line(sprintf(
+            '暫存參考索引：%s（total=%d reused=%d extracted=%d removed=%d failed=%d）',
+            (string) $referenceIndex['index_path'],
+            (int) ($referenceIndex['total_files'] ?? 0),
+            (int) ($referenceIndex['reused_count'] ?? 0),
+            (int) ($referenceIndex['extracted_count'] ?? 0),
+            (int) ($referenceIndex['removed_count'] ?? 0),
+            (int) ($referenceIndex['failed_count'] ?? 0)
+        ));
+
+        if (!$shouldCompareReferenceIndex) {
+            $this->line('  指定掃描資料夾就是暫存參考資料夾本身，這次只同步 JSON，只比對 DB。');
+        } elseif ($referenceSnapshots === []) {
+            $this->line('  暫存參考資料夾目前沒有可比對的影片特徵。');
+        }
+
+        foreach ((array) ($referenceIndex['failed_files'] ?? []) as $failedReferenceFile) {
+            $failedPath = (string) ($failedReferenceFile['absolute_path'] ?? '');
+            $failedMessage = (string) ($failedReferenceFile['message'] ?? '未知錯誤');
+
+            if ($failedPath !== '') {
+                $this->warn('  暫存索引略過：' . $failedPath . ' -> ' . $failedMessage);
+            }
+        }
+
         $duplicateDir = $path . DIRECTORY_SEPARATOR . '疑似重複檔案';
         $files = $this->collectVideoFiles($path, $recursive, $duplicateDir);
 
@@ -104,14 +144,16 @@ class MoveDuplicateVideosCommand extends Command
             $this->line($filePath);
 
             $payload = null;
-            $analysis = null;
+            $databaseAnalysis = null;
+            $referenceAnalysis = null;
+            $combinedAnalysis = null;
             $destinationPath = null;
             $movedToDuplicateDir = false;
             $comparisonLogged = false;
 
             try {
                 $payload = $featureExtractionService->inspectFile($filePath);
-                $analysis = $duplicateDetectionService->analyzeDatabaseMatch(
+                $databaseAnalysis = $duplicateDetectionService->analyzeDatabaseMatch(
                     $payload,
                     $threshold,
                     $minMatch,
@@ -119,7 +161,8 @@ class MoveDuplicateVideosCommand extends Command
                     $sizePercent,
                     $maxCandidates
                 );
-                $match = $analysis['duplicate_match'] ?? null;
+                $combinedAnalysis = $databaseAnalysis;
+                $match = $databaseAnalysis['duplicate_match'] ?? null;
                 $baseLogOptions = [
                     'scan_root_path' => $path,
                     'threshold_percent' => $threshold,
@@ -130,14 +173,85 @@ class MoveDuplicateVideosCommand extends Command
                 ];
 
                 if (!is_array($match)) {
+                    if ($referenceComparisonEnabled) {
+                        $referenceAnalysis = $duplicateDetectionService->analyzeReferenceSnapshotsMatch(
+                            $payload,
+                            $referenceVideoFeatureIndexService->buildComparisonSnapshots($referenceSnapshots, $filePath),
+                            $threshold,
+                            $minMatch,
+                            $windowSeconds,
+                            $sizePercent,
+                            $maxCandidates
+                        );
+                        $combinedAnalysis = $this->mergeAnalyses($databaseAnalysis, $referenceAnalysis);
+                        $referenceMatch = $referenceAnalysis['duplicate_match'] ?? null;
+
+                        if (is_array($referenceMatch)) {
+                            $referenceSnapshot = is_array($referenceMatch['feature_snapshot'] ?? null)
+                                ? $referenceMatch['feature_snapshot']
+                                : [];
+                            $referencePath = $this->normalizeAbsolutePath((string) ($referenceSnapshot['absolute_path'] ?? ''));
+                            $destinationPath = $this->buildUniqueDestination($duplicateDir, basename($filePath));
+
+                            $this->warn(sprintf(
+                                '  命中暫存參考影片=%s，相似度=%s%%，matched=%d/%d',
+                                $referencePath !== '' ? $referencePath : '(unknown)',
+                                number_format((float) $referenceMatch['similarity_percent'], 2),
+                                (int) $referenceMatch['matched_frames'],
+                                (int) $referenceMatch['compared_frames']
+                            ));
+
+                            if ($dryRun) {
+                                $externalVideoDuplicateService->persistComparisonLog(
+                                    $payload,
+                                    $combinedAnalysis,
+                                    $filePath,
+                                    $baseLogOptions + [
+                                        'is_duplicate_detected' => true,
+                                        'operation_status' => 'reference_index_dry_run_match',
+                                        'operation_message' => '命中暫存參考索引，dry-run 模式未搬移檔案。',
+                                    ]
+                                );
+                                $comparisonLogged = true;
+                                continue;
+                            }
+
+                            File::ensureDirectoryExists($duplicateDir);
+                            if (!@rename($filePath, $destinationPath)) {
+                                throw new \RuntimeException('搬移檔案失敗：' . $destinationPath);
+                            }
+
+                            $movedToDuplicateDir = true;
+
+                            $externalVideoDuplicateService->persistComparisonLog(
+                                $payload,
+                                $combinedAnalysis,
+                                $filePath,
+                                $baseLogOptions + [
+                                    'duplicate_file_path' => $destinationPath,
+                                    'is_duplicate_detected' => true,
+                                    'operation_status' => 'reference_index_match_moved',
+                                    'operation_message' => $referencePath !== ''
+                                        ? '命中暫存參考索引影片（' . $referencePath . '），已搬移到疑似重複檔案資料夾。'
+                                        : '命中暫存參考索引影片，已搬移到疑似重複檔案資料夾。',
+                                ]
+                            );
+                            $comparisonLogged = true;
+
+                            $moved++;
+                            $this->info('  已搬移到：' . $destinationPath);
+                            continue;
+                        }
+                    }
+
                     $externalVideoDuplicateService->persistComparisonLog(
                         $payload,
-                        $analysis,
+                        $combinedAnalysis,
                         $filePath,
                         $baseLogOptions + [
                             'is_duplicate_detected' => false,
                             'operation_status' => 'no_match',
-                            'operation_message' => '未命中重複門檻，保留原位。',
+                            'operation_message' => $this->buildAutomaticNoMatchMessage($referenceComparisonEnabled),
                         ]
                     );
                     $comparisonLogged = true;
@@ -161,7 +275,7 @@ class MoveDuplicateVideosCommand extends Command
                 if ($storedVideoPath !== '' && mb_strtolower($storedVideoPath) === mb_strtolower($filePath)) {
                     $externalVideoDuplicateService->persistComparisonLog(
                         $payload,
-                        $analysis,
+                        $databaseAnalysis,
                         $filePath,
                         $baseLogOptions + [
                             'is_duplicate_detected' => true,
@@ -188,7 +302,7 @@ class MoveDuplicateVideosCommand extends Command
                 if ($dryRun) {
                     $externalVideoDuplicateService->persistComparisonLog(
                         $payload,
-                        $analysis,
+                        $databaseAnalysis,
                         $filePath,
                         $baseLogOptions + [
                             'is_duplicate_detected' => true,
@@ -218,7 +332,7 @@ class MoveDuplicateVideosCommand extends Command
                 );
                 $externalVideoDuplicateService->persistComparisonLog(
                     $payload,
-                    $analysis,
+                    $databaseAnalysis,
                     $filePath,
                     $baseLogOptions + [
                         'external_video_duplicate_match_id' => $matchRecord->id,
@@ -247,7 +361,7 @@ class MoveDuplicateVideosCommand extends Command
                     try {
                         $externalVideoDuplicateService->persistComparisonLog(
                             $payload,
-                            is_array($analysis) ? $analysis : null,
+                            is_array($combinedAnalysis) ? $combinedAnalysis : null,
                             $filePath,
                             [
                                 'scan_root_path' => $path,
@@ -257,7 +371,7 @@ class MoveDuplicateVideosCommand extends Command
                                 'window_seconds' => $windowSeconds,
                                 'size_percent' => $sizePercent,
                                 'max_candidates' => $maxCandidates,
-                                'is_duplicate_detected' => is_array($analysis) && is_array($analysis['duplicate_match'] ?? null),
+                                'is_duplicate_detected' => is_array($combinedAnalysis) && is_array($combinedAnalysis['duplicate_match'] ?? null),
                                 'operation_status' => 'error',
                                 'operation_message' => $e->getMessage(),
                             ]
@@ -279,6 +393,88 @@ class MoveDuplicateVideosCommand extends Command
         $this->info(sprintf('完成，moved=%d kept=%d failed=%d', $moved, $kept, $failed));
 
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
+    }
+
+    private function buildAutomaticNoMatchMessage(bool $referenceComparisonEnabled): string
+    {
+        return $referenceComparisonEnabled
+            ? '未命中 DB 或暫存參考索引重複門檻，保留原位。'
+            : '未命中 DB 重複門檻，保留原位。';
+    }
+
+    private function shouldCompareReferenceIndex(string $scanRootPath, string $referenceDir): bool
+    {
+        $normalizedPath = $this->normalizeComparisonPath($scanRootPath);
+        $normalizedReferenceDir = $this->normalizeComparisonPath($referenceDir);
+
+        if ($normalizedPath === '' || $normalizedReferenceDir === '') {
+            return true;
+        }
+
+        return $normalizedPath !== $normalizedReferenceDir;
+    }
+
+    private function normalizeComparisonPath(string $path): string
+    {
+        $normalizedPath = str_replace('/', '\\', $this->normalizeAbsolutePath($path));
+
+        return mb_strtolower(rtrim($normalizedPath, '\\'));
+    }
+
+    private function mergeAnalyses(?array ...$analyses): ?array
+    {
+        $hasAnyAnalysis = false;
+        $bestResult = null;
+        $duplicateMatch = null;
+        $candidateCount = 0;
+        $payloadFrameCount = null;
+        $requestedMinMatch = null;
+
+        foreach ($analyses as $analysis) {
+            if (!is_array($analysis)) {
+                continue;
+            }
+
+            $hasAnyAnalysis = true;
+            $candidateCount += (int) ($analysis['candidate_count'] ?? 0);
+
+            if ($payloadFrameCount === null && array_key_exists('payload_frame_count', $analysis)) {
+                $payloadFrameCount = (int) $analysis['payload_frame_count'];
+            }
+
+            if ($requestedMinMatch === null && array_key_exists('requested_min_match', $analysis)) {
+                $requestedMinMatch = (int) $analysis['requested_min_match'];
+            }
+
+            $candidateBestResult = $analysis['best_result'] ?? null;
+            if (
+                is_array($candidateBestResult) &&
+                ($bestResult === null || (float) ($candidateBestResult['score'] ?? 0) > (float) ($bestResult['score'] ?? 0))
+            ) {
+                $bestResult = $candidateBestResult;
+            }
+
+            $candidateDuplicateMatch = $analysis['duplicate_match'] ?? null;
+            if ($duplicateMatch === null && is_array($candidateDuplicateMatch)) {
+                $duplicateMatch = $candidateDuplicateMatch;
+            }
+        }
+
+        if (!$hasAnyAnalysis) {
+            return null;
+        }
+
+        if ($bestResult === null && is_array($duplicateMatch)) {
+            $bestResult = $duplicateMatch;
+        }
+
+        return [
+            'best_result' => $bestResult,
+            'duplicate_match' => $duplicateMatch,
+            'candidate_count' => $candidateCount,
+            'payload_frame_count' => $payloadFrameCount ?? 0,
+            'requested_min_match' => $requestedMinMatch ?? 0,
+        ];
     }
 
     private function handleManualFeatureMode(

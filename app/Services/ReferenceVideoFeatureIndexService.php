@@ -125,12 +125,7 @@ class ReferenceVideoFeatureIndexService
             }
         }
 
-        usort($snapshots, function (array $left, array $right): int {
-            return strcmp(
-                mb_strtolower((string) ($left['absolute_path'] ?? '')),
-                mb_strtolower((string) ($right['absolute_path'] ?? ''))
-            );
-        });
+        $this->sortSnapshots($snapshots);
 
         $removedCount = count(array_diff(array_keys($existingSnapshotsByPathHash), array_values(array_unique($currentPathHashes))));
         Log::channel(self::LOG_CHANNEL)->info('reference video feature index writing json file', [
@@ -144,15 +139,7 @@ class ReferenceVideoFeatureIndexService
             'limit' => $limit,
         ]);
 
-        $this->writeIndex($indexPath, [
-            'version' => 1,
-            'reference_directory_path' => $directoryPath,
-            'generated_at' => now()->toIso8601String(),
-            'total_files' => count($snapshots),
-            'failed_count' => count($failedFiles),
-            'snapshots' => $snapshots,
-            'failed_files' => $failedFiles,
-        ]);
+        $this->writeIndex($indexPath, $this->buildIndexPayload($directoryPath, $snapshots, $failedFiles));
         Log::channel(self::LOG_CHANNEL)->info('reference video feature index sync finished', [
             'directory_path' => $directoryPath,
             'index_path' => $indexPath,
@@ -175,6 +162,82 @@ class ReferenceVideoFeatureIndexService
             'failed_count' => count($failedFiles),
             'failed_files' => $failedFiles,
             'limit' => $limit,
+        ];
+    }
+
+    public function upsertPayloadSnapshot(
+        string $directoryPath,
+        array $snapshots,
+        array $payload,
+        array $failedFiles = []
+    ): array {
+        $directoryPath = $this->normalizeAbsolutePath($directoryPath);
+        if ($directoryPath === '') {
+            throw new RuntimeException('reference dir 不可為空。');
+        }
+
+        File::ensureDirectoryExists($directoryPath);
+
+        if (!is_dir($directoryPath)) {
+            throw new RuntimeException('reference dir 不是有效資料夾：' . $directoryPath);
+        }
+
+        $snapshot = $this->normalizeSnapshot($this->snapshotFromPayload($payload));
+        if ($snapshot === null) {
+            throw new RuntimeException('無法把無效的影片特徵寫入 reference index。');
+        }
+
+        $absolutePath = $snapshot['absolute_path'];
+        if (!is_file($absolutePath)) {
+            throw new RuntimeException('reference snapshot 來源檔案不存在：' . $absolutePath);
+        }
+
+        if (!$this->isPathInsideDirectory($absolutePath, $directoryPath)) {
+            throw new RuntimeException('reference snapshot 檔案不在指定資料夾內：' . $absolutePath);
+        }
+
+        $snapshot = $this->refreshSnapshotMetadata($snapshot, $absolutePath);
+        $snapshotsByPathHash = [];
+
+        foreach ($snapshots as $existingSnapshot) {
+            $normalizedSnapshot = $this->normalizeSnapshot($existingSnapshot);
+            if ($normalizedSnapshot === null) {
+                continue;
+            }
+
+            $snapshotsByPathHash[$this->hashPath($normalizedSnapshot['absolute_path'])] = $normalizedSnapshot;
+        }
+
+        $snapshotsByPathHash[$this->hashPath($absolutePath)] = $snapshot;
+        $snapshots = array_values($snapshotsByPathHash);
+        $this->sortSnapshots($snapshots);
+
+        $indexPath = $directoryPath . DIRECTORY_SEPARATOR . self::INDEX_FILENAME;
+        Log::channel(self::LOG_CHANNEL)->info('reference video feature index upserting snapshot', [
+            'directory_path' => $directoryPath,
+            'index_path' => $indexPath,
+            'file_path' => $absolutePath,
+            'total_files' => count($snapshots),
+            'failed_count' => count($failedFiles),
+        ]);
+
+        $this->writeIndex($indexPath, $this->buildIndexPayload($directoryPath, $snapshots, $failedFiles));
+
+        Log::channel(self::LOG_CHANNEL)->info('reference video feature index upsert finished', [
+            'directory_path' => $directoryPath,
+            'index_path' => $indexPath,
+            'file_path' => $absolutePath,
+            'total_files' => count($snapshots),
+            'failed_count' => count($failedFiles),
+        ]);
+
+        return [
+            'directory_path' => $directoryPath,
+            'index_path' => $indexPath,
+            'snapshots' => $snapshots,
+            'total_files' => count($snapshots),
+            'failed_count' => count($failedFiles),
+            'failed_files' => $failedFiles,
         ];
     }
 
@@ -412,6 +475,29 @@ class ReferenceVideoFeatureIndexService
         return in_array($extension, self::VIDEO_EXTENSIONS, true);
     }
 
+    private function sortSnapshots(array &$snapshots): void
+    {
+        usort($snapshots, function (array $left, array $right): int {
+            return strcmp(
+                mb_strtolower((string) ($left['absolute_path'] ?? '')),
+                mb_strtolower((string) ($right['absolute_path'] ?? ''))
+            );
+        });
+    }
+
+    private function buildIndexPayload(string $directoryPath, array $snapshots, array $failedFiles = []): array
+    {
+        return [
+            'version' => 1,
+            'reference_directory_path' => $directoryPath,
+            'generated_at' => now()->toIso8601String(),
+            'total_files' => count($snapshots),
+            'failed_count' => count($failedFiles),
+            'snapshots' => $snapshots,
+            'failed_files' => $failedFiles,
+        ];
+    }
+
     private function writeIndex(string $indexPath, array $payload): void
     {
         $encoded = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -442,5 +528,18 @@ class ReferenceVideoFeatureIndexService
         }
 
         return null;
+    }
+
+    private function isPathInsideDirectory(string $path, string $directoryPath): bool
+    {
+        $normalizedPath = mb_strtolower(rtrim(str_replace('/', '\\', $this->normalizeAbsolutePath($path)), '\\'));
+        $normalizedDirectory = mb_strtolower(rtrim(str_replace('/', '\\', $this->normalizeAbsolutePath($directoryPath)), '\\'));
+
+        if ($normalizedPath === '' || $normalizedDirectory === '') {
+            return false;
+        }
+
+        return $normalizedPath === $normalizedDirectory
+            || str_starts_with($normalizedPath, $normalizedDirectory . '\\');
     }
 }

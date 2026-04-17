@@ -193,4 +193,70 @@ class ReferenceVideoFeatureIndexServiceTest extends TestCase
         $this->assertSame(1, count((array) ($storedIndex['snapshots'] ?? [])));
         $this->assertSame($alphaPath, $storedIndex['snapshots'][0]['absolute_path']);
     }
+
+    public function test_upsert_payload_snapshot_writes_incremental_json_without_rescanning_directory(): void
+    {
+        $existingPath = $this->tempDir . DIRECTORY_SEPARATOR . 'existing.mp4';
+        $movedPath = $this->tempDir . DIRECTORY_SEPARATOR . 'incoming.mp4';
+
+        file_put_contents($existingPath, 'existing-video');
+        file_put_contents($movedPath, 'moved-video');
+
+        $existingSnapshot = [
+            'absolute_path' => $existingPath,
+            'video_name' => 'existing.mp4',
+            'file_name' => 'existing.mp4',
+            'file_size_bytes' => filesize($existingPath),
+            'duration_seconds' => 12.3,
+            'file_created_timestamp' => filectime($existingPath),
+            'file_modified_timestamp' => filemtime($existingPath),
+            'screenshot_count' => 1,
+            'feature_version' => 'v1',
+            'capture_rule' => '10s_x4',
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 10.0,
+                'dhash_hex' => '0011223344556677',
+                'dhash_prefix' => '00',
+                'frame_sha1' => str_repeat('a', 40),
+            ]],
+        ];
+
+        $payload = [
+            'absolute_path' => $movedPath,
+            'video_name' => 'incoming.mp4',
+            'file_name' => 'incoming.mp4',
+            'file_size_bytes' => filesize($movedPath),
+            'duration_seconds' => 18.8,
+            'file_created_at' => filectime($movedPath),
+            'file_modified_at' => filemtime($movedPath),
+            'capture_rule' => '10s_x4',
+            'feature_version' => 'v1',
+            'frames' => [[
+                'capture_order' => 1,
+                'label_second' => 10.0,
+                'capture_second' => 10.0,
+                'dhash_hex' => 'ffeeddccbbaa9988',
+                'dhash_prefix' => 'ff',
+                'frame_sha1' => str_repeat('c', 40),
+                'image_width' => 1280,
+                'image_height' => 720,
+            ]],
+        ];
+
+        $featureExtractionService = Mockery::mock(VideoFeatureExtractionService::class);
+        $service = new ReferenceVideoFeatureIndexService($featureExtractionService);
+        $result = $service->upsertPayloadSnapshot($this->tempDir, [$existingSnapshot], $payload);
+
+        $this->assertSame(2, $result['total_files']);
+
+        $storedIndex = json_decode((string) file_get_contents($this->tempDir . DIRECTORY_SEPARATOR . 'video-feature-index.json'), true);
+        $storedPaths = array_map(
+            fn (array $snapshot): string => (string) ($snapshot['absolute_path'] ?? ''),
+            (array) ($storedIndex['snapshots'] ?? [])
+        );
+
+        $this->assertContains($existingPath, $storedPaths);
+        $this->assertContains($movedPath, $storedPaths);
+    }
 }

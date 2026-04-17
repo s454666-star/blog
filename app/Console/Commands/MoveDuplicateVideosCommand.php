@@ -43,7 +43,7 @@ class MoveDuplicateVideosCommand extends Command
         {--skip-log : 手動 debug 模式不要寫入 external_video_duplicate_logs}
         {--dry-run : 只顯示結果不搬移}';
 
-    protected $description = '掃描指定資料夾內影片，先比對 DB，再比對暫存參考資料夾的影片特徵 JSON；命中後搬到「疑似重複檔案」資料夾並寫入外部比對 log。指定 --video-feature-id 時則維持手動分析模式。';
+    protected $description = '掃描指定資料夾內影片，先比對 DB，再比對暫存參考資料夾的影片特徵 JSON；命中重複就搬到「疑似重複檔案」，未命中則搬到暫存參考資料夾並更新 JSON。指定 --video-feature-id 時則維持手動分析模式。';
 
     private const VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'm4v', 'mpeg', 'mpg'];
 
@@ -126,7 +126,8 @@ class MoveDuplicateVideosCommand extends Command
             return self::FAILURE;
         }
 
-        $shouldCompareReferenceIndex = $this->shouldCompareReferenceIndex($path, (string) $referenceIndex['directory_path']);
+        $referenceDir = (string) $referenceIndex['directory_path'];
+        $shouldCompareReferenceIndex = $this->shouldCompareReferenceIndex($path, $referenceDir);
         $referenceSnapshots = is_array($referenceIndex['snapshots'] ?? null) ? $referenceIndex['snapshots'] : [];
         $referenceComparisonEnabled = $shouldCompareReferenceIndex && $referenceSnapshots !== [];
         Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates reference index synced', $commandLogContext + [
@@ -186,6 +187,7 @@ class MoveDuplicateVideosCommand extends Command
         }
 
         $moved = 0;
+        $staged = 0;
         $kept = 0;
         $failed = 0;
 
@@ -203,6 +205,7 @@ class MoveDuplicateVideosCommand extends Command
             $combinedAnalysis = null;
             $destinationPath = null;
             $movedToDuplicateDir = false;
+            $movedToReferenceDir = false;
             $comparisonLogged = false;
 
             try {
@@ -348,6 +351,72 @@ class MoveDuplicateVideosCommand extends Command
                         }
                     }
 
+                    if ($dryRun) {
+                        $externalVideoDuplicateService->persistComparisonLog(
+                            $payload,
+                            $combinedAnalysis,
+                            $filePath,
+                            $baseLogOptions + [
+                                'is_duplicate_detected' => false,
+                                'operation_status' => 'no_match',
+                                'operation_message' => $this->buildAutomaticNoMatchMessage($shouldCompareReferenceIndex, false, true),
+                            ]
+                        );
+                        $comparisonLogged = true;
+                        $kept++;
+                        Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates kept file after no-match dry-run', $fileLogContext + [
+                            'reference_compare_enabled' => $referenceComparisonEnabled,
+                            'reference_dir' => $referenceDir,
+                        ]);
+                        $this->line('  無重複，dry-run 模式未搬移');
+                        continue;
+                    }
+
+                    if ($shouldCompareReferenceIndex) {
+                        $destinationPath = $this->buildUniqueDestination($referenceDir, basename($filePath));
+                        Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates moving file to reference dir after no match', $fileLogContext + [
+                            'reference_dir' => $referenceDir,
+                            'destination_path' => $destinationPath,
+                        ]);
+
+                        File::ensureDirectoryExists($referenceDir);
+                        if (!@rename($filePath, $destinationPath)) {
+                            throw new \RuntimeException('搬移到暫存參考資料夾失敗：' . $destinationPath);
+                        }
+
+                        $movedToReferenceDir = true;
+                        $referenceIndex = $referenceVideoFeatureIndexService->upsertPayloadSnapshot(
+                            $referenceDir,
+                            $referenceSnapshots,
+                            $this->buildMovedPayload($payload, $destinationPath),
+                            (array) ($referenceIndex['failed_files'] ?? [])
+                        );
+                        $referenceSnapshots = is_array($referenceIndex['snapshots'] ?? null) ? $referenceIndex['snapshots'] : [];
+                        $referenceComparisonEnabled = $shouldCompareReferenceIndex && $referenceSnapshots !== [];
+
+                        $externalVideoDuplicateService->persistComparisonLog(
+                            $payload,
+                            $combinedAnalysis,
+                            $filePath,
+                            $baseLogOptions + [
+                                'duplicate_file_path' => $destinationPath,
+                                'is_duplicate_detected' => false,
+                                'operation_status' => 'moved_to_reference_dir',
+                                'operation_message' => $this->buildAutomaticNoMatchMessage($shouldCompareReferenceIndex, true),
+                            ]
+                        );
+                        $comparisonLogged = true;
+                        $staged++;
+                        Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates moved file to reference dir after no match', $fileLogContext + [
+                            'reference_compare_enabled' => $referenceComparisonEnabled,
+                            'reference_dir' => $referenceDir,
+                            'destination_path' => $destinationPath,
+                            'reference_snapshot_count' => count($referenceSnapshots),
+                        ]);
+                        $this->line('  無重複，已搬到暫存參考資料夾：' . $destinationPath);
+                        continue;
+                    }
+
                     $externalVideoDuplicateService->persistComparisonLog(
                         $payload,
                         $combinedAnalysis,
@@ -355,13 +424,14 @@ class MoveDuplicateVideosCommand extends Command
                         $baseLogOptions + [
                             'is_duplicate_detected' => false,
                             'operation_status' => 'no_match',
-                            'operation_message' => $this->buildAutomaticNoMatchMessage($referenceComparisonEnabled),
+                            'operation_message' => $this->buildAutomaticNoMatchMessage(false, false),
                         ]
                     );
                     $comparisonLogged = true;
                     $kept++;
                     Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates kept file after no match', $fileLogContext + [
                         'reference_compare_enabled' => $referenceComparisonEnabled,
+                        'reference_dir' => $referenceDir,
                     ]);
                     $this->line('  無重複，保留原位');
                     continue;
@@ -478,13 +548,30 @@ class MoveDuplicateVideosCommand extends Command
                 $this->info('  已搬移到：' . $destinationPath);
             } catch (Throwable $e) {
                 if (
-                    $movedToDuplicateDir &&
+                    ($movedToDuplicateDir || $movedToReferenceDir) &&
                     is_string($destinationPath) &&
                     $destinationPath !== '' &&
                     File::exists($destinationPath) &&
                     !File::exists($filePath)
                 ) {
                     @rename($destinationPath, $filePath);
+                }
+
+                if ($movedToReferenceDir && $referenceDir !== '') {
+                    try {
+                        $referenceIndex = $referenceVideoFeatureIndexService->syncDirectory($referenceDir);
+                        $referenceSnapshots = is_array($referenceIndex['snapshots'] ?? null) ? $referenceIndex['snapshots'] : [];
+                        $referenceComparisonEnabled = $shouldCompareReferenceIndex && $referenceSnapshots !== [];
+                        Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates repaired reference index after failure', $fileLogContext + [
+                            'reference_dir' => $referenceDir,
+                            'reference_snapshot_count' => count($referenceSnapshots),
+                        ]);
+                    } catch (Throwable $syncException) {
+                        Log::channel(self::LOG_CHANNEL)->warning('video:move-duplicates failed to repair reference index after failure', $fileLogContext + [
+                            'reference_dir' => $referenceDir,
+                            'repair_error_message' => $syncException->getMessage(),
+                        ]);
+                    }
                 }
 
                 if (!$comparisonLogged && is_array($payload)) {
@@ -495,7 +582,9 @@ class MoveDuplicateVideosCommand extends Command
                             $filePath,
                             [
                                 'scan_root_path' => $path,
-                                'duplicate_file_path' => $movedToDuplicateDir && is_string($destinationPath) ? $destinationPath : null,
+                                'duplicate_file_path' => ($movedToDuplicateDir || $movedToReferenceDir) && is_string($destinationPath)
+                                    ? $destinationPath
+                                    : null,
                                 'threshold_percent' => $threshold,
                                 'min_match_required' => $minMatch,
                                 'window_seconds' => $windowSeconds,
@@ -514,6 +603,7 @@ class MoveDuplicateVideosCommand extends Command
                 Log::channel(self::LOG_CHANNEL)->error('video:move-duplicates failed while processing file', $fileLogContext + [
                     'destination_path' => $destinationPath,
                     'moved_to_duplicate_dir' => $movedToDuplicateDir,
+                    'moved_to_reference_dir' => $movedToReferenceDir,
                     'comparison_logged' => $comparisonLogged,
                     'error_message' => $e->getMessage(),
                 ]);
@@ -527,9 +617,10 @@ class MoveDuplicateVideosCommand extends Command
         }
 
         $this->newLine();
-        $this->info(sprintf('完成，moved=%d kept=%d failed=%d', $moved, $kept, $failed));
+        $this->info(sprintf('完成，moved=%d staged=%d kept=%d failed=%d', $moved, $staged, $kept, $failed));
         Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates finished', $commandLogContext + [
             'moved_count' => $moved,
+            'staged_count' => $staged,
             'kept_count' => $kept,
             'failed_count' => $failed,
         ]);
@@ -537,9 +628,23 @@ class MoveDuplicateVideosCommand extends Command
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
     }
 
-    private function buildAutomaticNoMatchMessage(bool $referenceComparisonEnabled): string
+    private function buildAutomaticNoMatchMessage(
+        bool $shouldCompareReferenceIndex,
+        bool $movedToReferenceDir,
+        bool $dryRun = false
+    ): string
     {
-        return $referenceComparisonEnabled
+        if ($movedToReferenceDir) {
+            return '未命中 DB 或暫存參考索引重複門檻，已搬移到暫存參考資料夾並更新 JSON。';
+        }
+
+        if ($dryRun) {
+            return $shouldCompareReferenceIndex
+                ? '未命中 DB 或暫存參考索引重複門檻，dry-run 模式未搬移檔案。'
+                : '未命中 DB 重複門檻，dry-run 模式未搬移檔案。';
+        }
+
+        return $shouldCompareReferenceIndex
             ? '未命中 DB 或暫存參考索引重複門檻，保留原位。'
             : '未命中 DB 重複門檻，保留原位。';
     }
@@ -1310,6 +1415,32 @@ class MoveDuplicateVideosCommand extends Command
         }
 
         return $candidate;
+    }
+
+    private function buildMovedPayload(array $payload, string $destinationPath): array
+    {
+        $destinationPath = $this->normalizeAbsolutePath($destinationPath);
+        $payload['absolute_path'] = $destinationPath;
+        $payload['directory_path'] = $destinationPath !== '' ? dirname($destinationPath) : null;
+        $payload['file_name'] = basename($destinationPath);
+        $payload['video_name'] = basename($destinationPath);
+
+        $fileSize = @filesize($destinationPath);
+        if ($fileSize !== false) {
+            $payload['file_size_bytes'] = (int) $fileSize;
+        }
+
+        $fileCreatedAt = @filectime($destinationPath);
+        if ($fileCreatedAt !== false) {
+            $payload['file_created_at'] = (int) $fileCreatedAt;
+        }
+
+        $fileModifiedAt = @filemtime($destinationPath);
+        if ($fileModifiedAt !== false) {
+            $payload['file_modified_at'] = (int) $fileModifiedAt;
+        }
+
+        return $payload;
     }
 
     private function normalizeAbsolutePath(string $path): string

@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\ExternalVideoDuplicateLog;
-use App\Models\ExternalVideoDuplicateMatch;
 use App\Models\VideoFeature;
 use App\Models\VideoFeatureFrame;
 use App\Services\ExternalVideoDuplicateService;
@@ -88,7 +87,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_manual_feature_mode_moves_duplicate_and_persists_match(): void
+    public function test_manual_feature_mode_deletes_duplicate_and_persists_log(): void
     {
         DB::table('video_master')->insert([
             'id' => 4262,
@@ -207,34 +206,10 @@ class MoveDuplicateVideosCommandTest extends TestCase
             ->andReturn($analysis);
         $this->app->instance(VideoDuplicateDetectionService::class, $duplicateDetectionService);
 
-        $matchRecord = new ExternalVideoDuplicateMatch();
-        $matchRecord->id = 123;
-
-        $logRecord = new ExternalVideoDuplicateLog();
-        $logRecord->id = 456;
-
-        $expectedDuplicateDir = $this->tempDir . DIRECTORY_SEPARATOR . '疑似重複檔案';
-        $capturedDestinationPath = null;
+        $capturedDeletedPath = null;
 
         $externalVideoDuplicateService = Mockery::mock(ExternalVideoDuplicateService::class);
-        $externalVideoDuplicateService->shouldReceive('persistMatchResult')
-            ->once()
-            ->withArgs(function (
-                array $passedPayload,
-                array $passedMatch,
-                string $passedSourcePath,
-                string $passedDuplicatePath,
-                array $options
-            ) use ($payload, $sourcePath, $expectedDuplicateDir, &$capturedDestinationPath): bool {
-                $capturedDestinationPath = $passedDuplicatePath;
-
-                return $passedPayload === $payload
-                    && $passedMatch['similarity_percent'] === 100.0
-                    && $passedSourcePath === $sourcePath
-                    && str_starts_with($passedDuplicatePath, $expectedDuplicateDir)
-                    && ($options['duplicate_directory_path'] ?? null) === $expectedDuplicateDir;
-            })
-            ->andReturn($matchRecord);
+        $externalVideoDuplicateService->shouldReceive('persistMatchResult')->never();
         $externalVideoDuplicateService->shouldReceive('persistComparisonLog')
             ->once()
             ->withArgs(function (
@@ -242,16 +217,21 @@ class MoveDuplicateVideosCommandTest extends TestCase
                 ?array $passedAnalysis,
                 string $passedSourcePath,
                 array $options
-            ) use ($payload, $sourcePath, &$capturedDestinationPath): bool {
+            ) use ($payload, $sourcePath, &$capturedDeletedPath): bool {
+                $capturedDeletedPath = $options['duplicate_file_path'] ?? null;
+
                 return $passedPayload === $payload
                     && is_array($passedAnalysis)
                     && $passedSourcePath === $sourcePath
-                    && ($options['external_video_duplicate_match_id'] ?? null) === 123
-                    && ($options['duplicate_file_path'] ?? null) === $capturedDestinationPath
-                    && ($options['operation_status'] ?? null) === 'match_moved'
+                    && $capturedDeletedPath === $sourcePath
+                    && ($options['operation_status'] ?? null) === 'match_deleted'
                     && ($options['is_duplicate_detected'] ?? null) === true;
             })
-            ->andReturn($logRecord);
+            ->andReturn((function (): ExternalVideoDuplicateLog {
+                $record = new ExternalVideoDuplicateLog();
+                $record->id = 456;
+                return $record;
+            })());
         $this->app->instance(ExternalVideoDuplicateService::class, $externalVideoDuplicateService);
 
         $this->artisan('video:move-duplicates', [
@@ -260,11 +240,10 @@ class MoveDuplicateVideosCommandTest extends TestCase
         ])->assertExitCode(0);
 
         $this->assertFileDoesNotExist($sourcePath);
-        $this->assertNotNull($capturedDestinationPath);
-        $this->assertFileExists($capturedDestinationPath);
+        $this->assertSame($sourcePath, $capturedDeletedPath);
     }
 
-    public function test_command_moves_file_when_reference_index_match_exists_after_db_miss(): void
+    public function test_command_deletes_file_when_reference_index_match_exists_after_db_miss(): void
     {
         $sourcePath = $this->tempDir . DIRECTORY_SEPARATOR . 'incoming.mp4';
         $referenceDir = $this->tempDir . DIRECTORY_SEPARATOR . 'reference';
@@ -374,8 +353,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
         $referenceVideoFeatureIndexService->shouldReceive('upsertPayloadSnapshot')->never();
         $this->app->instance(ReferenceVideoFeatureIndexService::class, $referenceVideoFeatureIndexService);
 
-        $expectedDuplicateDir = $this->tempDir . DIRECTORY_SEPARATOR . '疑似重複檔案';
-        $capturedDuplicatePath = null;
+        $capturedDeletedPath = null;
 
         $externalVideoDuplicateService = Mockery::mock(ExternalVideoDuplicateService::class);
         $externalVideoDuplicateService->shouldReceive('persistComparisonLog')
@@ -385,15 +363,14 @@ class MoveDuplicateVideosCommandTest extends TestCase
                 ?array $passedAnalysis,
                 string $passedSourcePath,
                 array $options
-            ) use ($payload, $sourcePath, $expectedDuplicateDir, &$capturedDuplicatePath): bool {
-                $capturedDuplicatePath = $options['duplicate_file_path'] ?? null;
+            ) use ($payload, $sourcePath, &$capturedDeletedPath): bool {
+                $capturedDeletedPath = $options['duplicate_file_path'] ?? null;
 
                 return $passedPayload === $payload
                     && is_array($passedAnalysis)
                     && $passedSourcePath === $sourcePath
-                    && is_string($capturedDuplicatePath)
-                    && str_starts_with($capturedDuplicatePath, $expectedDuplicateDir)
-                    && ($options['operation_status'] ?? null) === 'reference_index_match_moved'
+                    && $capturedDeletedPath === $sourcePath
+                    && ($options['operation_status'] ?? null) === 'reference_index_match_deleted'
                     && ($options['is_duplicate_detected'] ?? null) === true;
             });
         $this->app->instance(ExternalVideoDuplicateService::class, $externalVideoDuplicateService);
@@ -405,8 +382,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
         ])->assertExitCode(0);
 
         $this->assertFileDoesNotExist($sourcePath);
-        $this->assertIsString($capturedDuplicatePath);
-        $this->assertFileExists($capturedDuplicatePath);
+        $this->assertSame($sourcePath, $capturedDeletedPath);
     }
 
     public function test_command_moves_non_duplicate_file_to_reference_dir_and_updates_index(): void

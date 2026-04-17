@@ -38,12 +38,12 @@ class MoveDuplicateVideosCommand extends Command
         {--size-percent=15 : 相容舊參數；正式比對已不使用檔案大小 gate}
         {--max-candidates=250 : 每支影片最多拉多少 DB 候選}
         {--reference-dir=C:\Users\User\Videos\暫 : 先同步並比對這個資料夾底下的影片特徵 JSON}
-        {--video-feature-id= : 指定單一 video_features.id 進入手動分析模式；若命中重複仍會搬移}
+        {--video-feature-id= : 指定單一 video_features.id 進入手動分析模式；若命中重複仍會直接刪除}
         {--write-log : 相容舊參數；手動分析模式現在預設就會寫 log}
         {--skip-log : 手動 debug 模式不要寫入 external_video_duplicate_logs}
-        {--dry-run : 只顯示結果不搬移}';
+        {--dry-run : 只顯示結果不刪檔、不搬移}';
 
-    protected $description = '掃描指定資料夾內影片，先比對 DB，再比對暫存參考資料夾的影片特徵 JSON；命中重複就搬到「疑似重複檔案」，未命中則搬到暫存參考資料夾並更新 JSON。指定 --video-feature-id 時則維持手動分析模式。';
+    protected $description = '掃描指定資料夾內影片，先比對 DB，再比對暫存參考資料夾的影片特徵 JSON；命中重複就直接刪除，未命中則搬到暫存參考資料夾並更新 JSON。指定 --video-feature-id 時則維持手動分析模式。';
 
     private const VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'm4v', 'mpeg', 'mpg'];
 
@@ -189,7 +189,7 @@ class MoveDuplicateVideosCommand extends Command
             return self::SUCCESS;
         }
 
-        $moved = 0;
+        $deleted = 0;
         $staged = 0;
         $kept = 0;
         $failed = 0;
@@ -207,7 +207,8 @@ class MoveDuplicateVideosCommand extends Command
             $referenceAnalysis = null;
             $combinedAnalysis = null;
             $destinationPath = null;
-            $movedToDuplicateDir = false;
+            $deletedFilePath = null;
+            $deletedSourceFile = false;
             $movedToReferenceDir = false;
             $comparisonLogged = false;
 
@@ -287,13 +288,11 @@ class MoveDuplicateVideosCommand extends Command
                                 ? $referenceMatch['feature_snapshot']
                                 : [];
                             $referencePath = $this->normalizeAbsolutePath((string) ($referenceSnapshot['absolute_path'] ?? ''));
-                            $destinationPath = $this->buildUniqueDestination($duplicateDir, basename($filePath));
                             Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates reference index match found', $fileLogContext + [
                                 'reference_match_path' => $referencePath,
                                 'similarity_percent' => $referenceMatch['similarity_percent'] ?? null,
                                 'matched_frames' => $referenceMatch['matched_frames'] ?? null,
                                 'compared_frames' => $referenceMatch['compared_frames'] ?? null,
-                                'destination_path' => $destinationPath,
                             ]);
 
                             $this->warn(sprintf(
@@ -312,7 +311,7 @@ class MoveDuplicateVideosCommand extends Command
                                     $baseLogOptions + [
                                         'is_duplicate_detected' => true,
                                         'operation_status' => 'reference_index_dry_run_match',
-                                        'operation_message' => '命中暫存參考索引，dry-run 模式未搬移檔案。',
+                                        'operation_message' => '命中暫存參考索引，dry-run 模式未刪除檔案。',
                                     ]
                                 );
                                 $comparisonLogged = true;
@@ -322,34 +321,34 @@ class MoveDuplicateVideosCommand extends Command
                                 continue;
                             }
 
-                            File::ensureDirectoryExists($duplicateDir);
-                            if (!@rename($filePath, $destinationPath)) {
-                                throw new \RuntimeException('搬移檔案失敗：' . $destinationPath);
+                            $deletedFilePath = $filePath;
+                            if (!@unlink($filePath)) {
+                                throw new \RuntimeException('刪除重複檔案失敗：' . $filePath);
                             }
 
-                            $movedToDuplicateDir = true;
+                            $deletedSourceFile = true;
 
                             $externalVideoDuplicateService->persistComparisonLog(
                                 $payload,
                                 $combinedAnalysis,
                                 $filePath,
                                 $baseLogOptions + [
-                                    'duplicate_file_path' => $destinationPath,
+                                    'duplicate_file_path' => $deletedFilePath,
                                     'is_duplicate_detected' => true,
-                                    'operation_status' => 'reference_index_match_moved',
+                                    'operation_status' => 'reference_index_match_deleted',
                                     'operation_message' => $referencePath !== ''
-                                        ? '命中暫存參考索引影片（' . $referencePath . '），已搬移到疑似重複檔案資料夾。'
-                                        : '命中暫存參考索引影片，已搬移到疑似重複檔案資料夾。',
+                                        ? '命中暫存參考索引影片（' . $referencePath . '），已直接刪除檔案。'
+                                        : '命中暫存參考索引影片，已直接刪除檔案。',
                                     ]
                                 );
                             $comparisonLogged = true;
 
-                            $moved++;
-                            Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates moved file by reference index match', $fileLogContext + [
+                            $deleted++;
+                            Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates deleted file by reference index match', $fileLogContext + [
                                 'reference_match_path' => $referencePath,
-                                'destination_path' => $destinationPath,
+                                'deleted_file_path' => $deletedFilePath,
                             ]);
-                            $this->info('  已搬移到：' . $destinationPath);
+                            $this->info('  已直接刪除');
                             continue;
                         }
                     }
@@ -371,7 +370,7 @@ class MoveDuplicateVideosCommand extends Command
                             'reference_compare_enabled' => $referenceComparisonEnabled,
                             'reference_dir' => $referenceDir,
                         ]);
-                        $this->line('  無重複，dry-run 模式未搬移');
+                        $this->line('  無重複，dry-run 模式未異動');
                         continue;
                     }
 
@@ -464,7 +463,7 @@ class MoveDuplicateVideosCommand extends Command
                         $baseLogOptions + [
                             'is_duplicate_detected' => true,
                             'operation_status' => 'same_path_skipped',
-                            'operation_message' => '與 DB 原檔為同一路徑，未搬移。',
+                            'operation_message' => '與 DB 原檔為同一路徑，未刪除。',
                         ]
                     );
                     $comparisonLogged = true;
@@ -478,14 +477,12 @@ class MoveDuplicateVideosCommand extends Command
                     continue;
                 }
 
-                $destinationPath = $this->buildUniqueDestination($duplicateDir, basename($filePath));
                 Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates database match found', $fileLogContext + [
                     'matched_video_master_id' => $feature->video_master_id ?? null,
                     'matched_video_feature_id' => $feature->id ?? null,
                     'similarity_percent' => $match['similarity_percent'] ?? null,
                     'matched_frames' => $match['matched_frames'] ?? null,
                     'compared_frames' => $match['compared_frames'] ?? null,
-                    'destination_path' => $destinationPath,
                 ]);
 
                 $this->warn(sprintf(
@@ -504,7 +501,7 @@ class MoveDuplicateVideosCommand extends Command
                         $baseLogOptions + [
                             'is_duplicate_detected' => true,
                             'operation_status' => 'dry_run_match',
-                            'operation_message' => 'dry-run 模式，未搬移檔案。',
+                            'operation_message' => 'dry-run 模式，未刪除檔案。',
                         ]
                     );
                     $comparisonLogged = true;
@@ -515,47 +512,35 @@ class MoveDuplicateVideosCommand extends Command
                     continue;
                 }
 
-                File::ensureDirectoryExists($duplicateDir);
-                if (!@rename($filePath, $destinationPath)) {
-                    throw new \RuntimeException('搬移檔案失敗：' . $destinationPath);
+                $deletedFilePath = $filePath;
+                if (!@unlink($filePath)) {
+                    throw new \RuntimeException('刪除重複檔案失敗：' . $filePath);
                 }
 
-                $movedToDuplicateDir = true;
-
-                $matchRecord = $externalVideoDuplicateService->persistMatchResult(
-                    $payload,
-                    $match,
-                    $filePath,
-                    $destinationPath,
-                    $baseLogOptions + [
-                        'duplicate_directory_path' => $duplicateDir,
-                    ]
-                );
+                $deletedSourceFile = true;
                 $externalVideoDuplicateService->persistComparisonLog(
                     $payload,
                     $databaseAnalysis,
                     $filePath,
                     $baseLogOptions + [
-                        'external_video_duplicate_match_id' => $matchRecord->id,
-                        'duplicate_file_path' => $destinationPath,
+                        'duplicate_file_path' => $deletedFilePath,
                         'is_duplicate_detected' => true,
-                        'operation_status' => 'match_moved',
-                        'operation_message' => '命中重複並已搬移到疑似重複檔案資料夾。',
+                        'operation_status' => 'match_deleted',
+                        'operation_message' => '命中重複並已直接刪除檔案。',
                     ]
                 );
                 $comparisonLogged = true;
 
-                $moved++;
-                Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates moved file by database match', $fileLogContext + [
+                $deleted++;
+                Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates deleted file by database match', $fileLogContext + [
                     'matched_video_master_id' => $feature->video_master_id ?? null,
                     'matched_video_feature_id' => $feature->id ?? null,
-                    'destination_path' => $destinationPath,
-                    'external_video_duplicate_match_id' => $matchRecord->id ?? null,
+                    'deleted_file_path' => $deletedFilePath,
                 ]);
-                $this->info('  已搬移到：' . $destinationPath);
+                $this->info('  已直接刪除');
             } catch (Throwable $e) {
                 if (
-                    ($movedToDuplicateDir || $movedToReferenceDir) &&
+                    $movedToReferenceDir &&
                     is_string($destinationPath) &&
                     $destinationPath !== '' &&
                     File::exists($destinationPath) &&
@@ -592,9 +577,9 @@ class MoveDuplicateVideosCommand extends Command
                             $filePath,
                             [
                                 'scan_root_path' => $path,
-                                'duplicate_file_path' => ($movedToDuplicateDir || $movedToReferenceDir) && is_string($destinationPath)
-                                    ? $destinationPath
-                                    : null,
+                                'duplicate_file_path' => $deletedSourceFile
+                                    ? $deletedFilePath
+                                    : ($movedToReferenceDir && is_string($destinationPath) ? $destinationPath : null),
                                 'threshold_percent' => $threshold,
                                 'min_match_required' => $minMatch,
                                 'window_seconds' => $windowSeconds,
@@ -612,7 +597,8 @@ class MoveDuplicateVideosCommand extends Command
                 $failed++;
                 Log::channel(self::LOG_CHANNEL)->error('video:move-duplicates failed while processing file', $fileLogContext + [
                     'destination_path' => $destinationPath,
-                    'moved_to_duplicate_dir' => $movedToDuplicateDir,
+                    'deleted_source_file' => $deletedSourceFile,
+                    'deleted_file_path' => $deletedFilePath,
                     'moved_to_reference_dir' => $movedToReferenceDir,
                     'comparison_logged' => $comparisonLogged,
                     'error_message' => $e->getMessage(),
@@ -627,9 +613,9 @@ class MoveDuplicateVideosCommand extends Command
         }
 
         $this->newLine();
-        $this->info(sprintf('完成，moved=%d staged=%d kept=%d failed=%d', $moved, $staged, $kept, $failed));
+        $this->info(sprintf('完成，deleted=%d staged=%d kept=%d failed=%d', $deleted, $staged, $kept, $failed));
         Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates finished', $commandLogContext + [
-            'moved_count' => $moved,
+            'deleted_count' => $deleted,
             'staged_count' => $staged,
             'kept_count' => $kept,
             'failed_count' => $failed,
@@ -650,8 +636,8 @@ class MoveDuplicateVideosCommand extends Command
 
         if ($dryRun) {
             return $shouldCompareReferenceIndex
-                ? '未命中 DB 或暫存參考索引重複門檻，dry-run 模式未搬移檔案。'
-                : '未命中 DB 重複門檻，dry-run 模式未搬移檔案。';
+                ? '未命中 DB 或暫存參考索引重複門檻，dry-run 模式未異動檔案。'
+                : '未命中 DB 重複門檻，dry-run 模式未異動檔案。';
         }
 
         return $shouldCompareReferenceIndex
@@ -782,8 +768,8 @@ class MoveDuplicateVideosCommand extends Command
             $payload = null;
             $analysis = null;
             $isSamePath = false;
-            $destinationPath = null;
-            $movedToDuplicateDir = false;
+            $deletedFilePath = null;
+            $deletedSourceFile = false;
             $comparisonLogged = false;
 
             try {
@@ -841,33 +827,20 @@ class MoveDuplicateVideosCommand extends Command
                                 $baseLogOptions + [
                                     'is_duplicate_detected' => true,
                                     'operation_status' => 'dry_run_match',
-                                    'operation_message' => 'dry-run 模式，未搬移檔案。',
+                                    'operation_message' => 'dry-run 模式，未刪除檔案。',
                                 ]
                             );
                             $comparisonLogged = true;
                         }
 
-                        $this->warn('dry-run 模式，未搬移檔案。');
+                        $this->warn('dry-run 模式，未刪除檔案。');
                     } else {
-                        $duplicateDir = $this->buildDuplicateDirectory($path, $filePath);
-                        $destinationPath = $this->buildUniqueDestination($duplicateDir, basename($filePath));
-
-                        File::ensureDirectoryExists($duplicateDir);
-                        if (!@rename($filePath, $destinationPath)) {
-                            throw new \RuntimeException('搬移檔案失敗：' . $destinationPath);
+                        $deletedFilePath = $filePath;
+                        if (!@unlink($filePath)) {
+                            throw new \RuntimeException('刪除重複檔案失敗：' . $filePath);
                         }
 
-                        $movedToDuplicateDir = true;
-
-                        $matchRecord = $externalVideoDuplicateService->persistMatchResult(
-                            $payload,
-                            $match,
-                            $filePath,
-                            $destinationPath,
-                            $baseLogOptions + [
-                                'duplicate_directory_path' => $duplicateDir,
-                            ]
-                        );
+                        $deletedSourceFile = true;
 
                         if ($writeLog) {
                             $externalVideoDuplicateService->persistComparisonLog(
@@ -875,17 +848,16 @@ class MoveDuplicateVideosCommand extends Command
                                 $this->buildManualLogAnalysis($analysis, $feature, $minMatch),
                                 $filePath,
                                 $baseLogOptions + [
-                                    'external_video_duplicate_match_id' => $matchRecord->id,
-                                    'duplicate_file_path' => $destinationPath,
+                                    'duplicate_file_path' => $deletedFilePath,
                                     'is_duplicate_detected' => true,
-                                    'operation_status' => 'match_moved',
-                                    'operation_message' => '手動分析確認重複，已搬移到疑似重複檔案資料夾。',
+                                    'operation_status' => 'match_deleted',
+                                    'operation_message' => '手動分析確認重複，已直接刪除檔案。',
                                 ]
                             );
                             $comparisonLogged = true;
                         }
 
-                        $this->info('已搬移到：' . $destinationPath);
+                        $this->info('已直接刪除');
                     }
                 } elseif ($writeLog) {
                     $log = $externalVideoDuplicateService->persistComparisonLog(
@@ -907,16 +879,6 @@ class MoveDuplicateVideosCommand extends Command
 
                 $processed++;
             } catch (Throwable $e) {
-                if (
-                    $movedToDuplicateDir &&
-                    is_string($destinationPath) &&
-                    $destinationPath !== '' &&
-                    File::exists($destinationPath) &&
-                    !File::exists($filePath)
-                ) {
-                    @rename($destinationPath, $filePath);
-                }
-
                 if (!$comparisonLogged && is_array($payload)) {
                     try {
                         $externalVideoDuplicateService->persistComparisonLog(
@@ -927,7 +889,7 @@ class MoveDuplicateVideosCommand extends Command
                             $filePath,
                             [
                                 'scan_root_path' => is_dir($path) ? $path : dirname($filePath),
-                                'duplicate_file_path' => $movedToDuplicateDir && is_string($destinationPath) ? $destinationPath : null,
+                                'duplicate_file_path' => $deletedSourceFile ? $deletedFilePath : null,
                                 'threshold_percent' => $threshold,
                                 'min_match_required' => $minMatch,
                                 'window_seconds' => $windowSeconds,
@@ -1113,7 +1075,7 @@ class MoveDuplicateVideosCommand extends Command
             : '未提供';
 
         if ($isSamePath) {
-            return '結論：來源檔案和 DB 原檔是同一路徑；正式掃描模式會走 same_path_skipped，只記 log，不會搬移。';
+            return '結論：來源檔案和 DB 原檔是同一路徑；正式掃描模式會走 same_path_skipped，只記 log，不會刪除。';
         }
 
         if (!$compareResult) {
@@ -1122,7 +1084,7 @@ class MoveDuplicateVideosCommand extends Command
 
         if (!empty($candidateGate['eligible']) && !empty($compareResult['passes_threshold'])) {
             return sprintf(
-                '結論：正式流程候選條件可通過，且強制比對也達門檻（similarity=%s%%, matched=%d/%d）；非 dry-run 時會直接搬移到疑似重複檔案資料夾，並寫入 match/log。',
+                '結論：正式流程候選條件可通過，且強制比對也達門檻（similarity=%s%%, matched=%d/%d）；非 dry-run 時會直接刪除檔案，並寫入 log。',
                 $this->formatPercent($compareResult['similarity_percent'] ?? null),
                 (int) ($compareResult['matched_frames'] ?? 0),
                 (int) ($compareResult['required_matches'] ?? 0)

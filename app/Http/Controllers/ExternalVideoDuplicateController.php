@@ -501,6 +501,8 @@ class ExternalVideoDuplicateController extends Controller
     {
         return match ($status) {
             'match_moved' => ['label' => '命中後已搬移', 'tone' => 'good'],
+            'match_deleted' => ['label' => '命中後已刪除', 'tone' => 'good'],
+            'reference_index_match_deleted' => ['label' => '暫存索引命中後已刪除', 'tone' => 'good'],
             'moved_to_reference_dir' => ['label' => '未重複，已加入暫存索引', 'tone' => 'good'],
             'same_path_skipped' => ['label' => '同一路徑略過', 'tone' => 'soft'],
             'dry_run_match' => ['label' => 'dry-run 命中', 'tone' => 'warn'],

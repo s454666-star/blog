@@ -24,7 +24,7 @@ class CommandRunnerControllerTest extends TestCase
         $response->assertOk();
         $response->assertSee('Blog 指令工具台');
         $response->assertSee('掃群組 token 並送去指定 port');
-        $response->assertSee('掃描並搬移和 DB / 暫存索引重複的影片');
+        $response->assertSee('掃描並刪除和 DB / 暫存索引重複的影片');
         $response->assertSee('掃描指定資料夾內彼此重複的影片');
         $response->assertSee('掃描資料夾重複影片（只掃描不搬移）');
         $response->assertSee('影片重新編碼（中高碼率）');
@@ -80,8 +80,8 @@ class CommandRunnerControllerTest extends TestCase
         $expected = [
             'preset' => [
                 'id' => 'move_video_duplicates',
-                'title' => '掃描並搬移和 DB / 暫存索引重複的影片',
-                'summary' => '把你輸入的資料夾中的影片先拿去和既有 video_features 資料庫比對，再比對 C:\\Users\\User\\Videos\\暫 的特徵索引；命中重複就搬去疑似重複檔案，未命中就搬進暫存參考資料夾。',
+                'title' => '掃描並刪除和 DB / 暫存索引重複的影片',
+                'summary' => '把你輸入的資料夾中的影片先拿去和既有 video_features 資料庫比對，再比對 C:\\Users\\User\\Videos\\暫 的特徵索引；命中重複就直接刪除，未命中就搬進暫存參考資料夾。',
             ],
             'success' => true,
             'exit_code' => 0,

@@ -64,11 +64,17 @@ class VideoDuplicateDetectionService
         $bestQualifiedResult = null;
 
         $candidates = VideoFeature::query()
-            ->with(['frames', 'videoMaster'])
+            ->with(['frames'])
             ->whereIn('id', $candidateIds)
-            ->get();
+            ->get()
+            ->keyBy('id');
 
-        foreach ($candidates as $candidate) {
+        foreach ($candidateIds as $candidateId) {
+            $candidate = $candidates->get($candidateId);
+            if (!$candidate instanceof VideoFeature) {
+                continue;
+            }
+
             $candidateResult = $this->comparePayloadToFeature(
                 $payloadContext,
                 $candidate,
@@ -91,6 +97,10 @@ class VideoDuplicateDetectionService
                 ($bestQualifiedResult === null || $candidateResult['score'] > $bestQualifiedResult['score'])
             ) {
                 $bestQualifiedResult = $candidateResult;
+            }
+
+            if ($this->hasReachedMaxPossibleScore($candidateResult, $payloadContext)) {
+                break;
             }
         }
 
@@ -173,6 +183,67 @@ class VideoDuplicateDetectionService
         int $sizePercent = 15,
         int $maxCandidates = 250
     ): array {
+        return $this->analyzePreparedReferenceSnapshotsMatch(
+            $payload,
+            $this->prepareReferenceSnapshotIndex($featureSnapshots),
+            $thresholdPercent,
+            $minMatch,
+            $windowSeconds,
+            $sizePercent,
+            $maxCandidates
+        );
+    }
+
+    public function prepareReferenceSnapshotIndex(array $featureSnapshots): array
+    {
+        $preparedSnapshots = [];
+
+        foreach ($featureSnapshots as $featureSnapshot) {
+            $normalizedSnapshot = $this->normalizeSnapshotCandidate($featureSnapshot);
+            if ($normalizedSnapshot === null) {
+                continue;
+            }
+
+            $preparedSnapshots[] = $normalizedSnapshot;
+        }
+
+        usort($preparedSnapshots, fn (array $left, array $right): int => $this->comparePreparedSnapshotSort($left, $right));
+
+        return [
+            'snapshots' => $preparedSnapshots,
+        ];
+    }
+
+    public function appendPreparedReferenceSnapshot(array $preparedSnapshotIndex, array $featureSnapshot): array
+    {
+        $normalizedSnapshot = $this->normalizeSnapshotCandidate($featureSnapshot);
+        if ($normalizedSnapshot === null) {
+            return $preparedSnapshotIndex;
+        }
+
+        $preparedSnapshots = array_values(array_filter(
+            (array) ($preparedSnapshotIndex['snapshots'] ?? []),
+            fn (array $snapshot): bool => mb_strtolower((string) ($snapshot['absolute_path'] ?? ''))
+                !== mb_strtolower((string) ($normalizedSnapshot['absolute_path'] ?? ''))
+        ));
+
+        $insertIndex = $this->findPreparedSnapshotInsertIndex($preparedSnapshots, $normalizedSnapshot);
+        array_splice($preparedSnapshots, $insertIndex, 0, [$normalizedSnapshot]);
+
+        return [
+            'snapshots' => $preparedSnapshots,
+        ];
+    }
+
+    public function analyzePreparedReferenceSnapshotsMatch(
+        array $payload,
+        array $preparedSnapshotIndex,
+        int $thresholdPercent = 90,
+        int $minMatch = 2,
+        int $windowSeconds = 3,
+        int $sizePercent = 15,
+        int $maxCandidates = 250
+    ): array {
         $payloadContext = $this->buildPayloadContext($payload);
 
         if ($payloadContext['frame_count'] <= 0) {
@@ -195,9 +266,9 @@ class VideoDuplicateDetectionService
             ];
         }
 
-        $candidateSnapshots = $this->collectSnapshotCandidates(
+        $candidateSnapshots = $this->collectPreparedSnapshotCandidates(
             $payloadContext,
-            $featureSnapshots,
+            (array) ($preparedSnapshotIndex['snapshots'] ?? []),
             $windowSeconds,
             $maxCandidates
         );
@@ -216,10 +287,9 @@ class VideoDuplicateDetectionService
         $bestQualifiedResult = null;
 
         foreach ($candidateSnapshots as $snapshot) {
-            $candidateFeature = $this->hydrateFeatureFromSnapshot($snapshot);
-            $candidateResult = $this->comparePayloadToFeature(
+            $candidateResult = $this->comparePayloadToSnapshot(
                 $payloadContext,
-                $candidateFeature,
+                $snapshot,
                 $payloadContext['duration_seconds'],
                 $payloadContext['file_size_bytes'],
                 $thresholdPercent,
@@ -229,8 +299,6 @@ class VideoDuplicateDetectionService
             if ($candidateResult === null) {
                 continue;
             }
-
-            $candidateResult['feature_snapshot'] = $snapshot;
 
             if ($bestResult === null || $candidateResult['score'] > $bestResult['score']) {
                 $bestResult = $candidateResult;
@@ -242,7 +310,14 @@ class VideoDuplicateDetectionService
             ) {
                 $bestQualifiedResult = $candidateResult;
             }
+
+            if ($this->hasReachedMaxPossibleScore($candidateResult, $payloadContext)) {
+                break;
+            }
         }
+
+        $bestResult = $this->hydrateSnapshotResultFeature($bestResult);
+        $bestQualifiedResult = $this->hydrateSnapshotResultFeature($bestQualifiedResult);
 
         return [
             'best_result' => $bestResult,
@@ -278,10 +353,10 @@ class VideoDuplicateDetectionService
                 continue;
             }
 
-            $frameComparison = $this->resolveFrameComparison(
+            $frameComparison = $this->resolveCandidateFrameComparison(
                 $payloadContext,
-                $feature,
-                $candidateFrame,
+                $feature->frames->count(),
+                (float) ($candidateFrame->capture_second ?? 0),
                 $payloadFramesByOrder[$captureOrder],
                 $candidateHash
             );
@@ -340,10 +415,101 @@ class VideoDuplicateDetectionService
         ];
     }
 
-    private function resolveFrameComparison(
+    private function comparePayloadToSnapshot(
         array &$payloadContext,
-        VideoFeature $feature,
-        VideoFeatureFrame $candidateFrame,
+        array $snapshot,
+        float $payloadDuration,
+        int $payloadFileSize,
+        int $thresholdPercent,
+        int $minMatch
+    ): ?array {
+        $payloadFramesByOrder = $payloadContext['frames_by_order'] ?? [];
+        $candidateFrames = (array) ($snapshot['frames'] ?? []);
+        $candidateFrameCount = count($candidateFrames);
+        $comparedFrames = 0;
+        $matchedFrames = 0;
+        $similarities = [];
+        $frameMatches = [];
+
+        foreach ($candidateFrames as $candidateFrame) {
+            $captureOrder = (int) ($candidateFrame['capture_order'] ?? 0);
+            if ($captureOrder <= 0 || !isset($payloadFramesByOrder[$captureOrder])) {
+                continue;
+            }
+
+            $candidateHash = (string) ($candidateFrame['dhash_hex'] ?? '');
+            if (!$this->featureExtractionService->isValidDhash($candidateHash)) {
+                continue;
+            }
+
+            $frameComparison = $this->resolveCandidateFrameComparison(
+                $payloadContext,
+                $candidateFrameCount,
+                (float) ($candidateFrame['capture_second'] ?? 0),
+                $payloadFramesByOrder[$captureOrder],
+                $candidateHash
+            );
+            if ($frameComparison === null) {
+                continue;
+            }
+
+            $payloadFrame = $frameComparison['payload_frame'];
+            $payloadHash = $frameComparison['payload_hash'];
+            $similarity = $frameComparison['similarity'];
+
+            $comparedFrames++;
+            $similarities[] = $similarity;
+
+            $frameMatches[] = [
+                'capture_order' => $captureOrder,
+                'capture_second' => (float) ($payloadFrame['capture_second'] ?? 0),
+                'matched_video_feature_frame_id' => null,
+                'matched_capture_second' => (float) ($candidateFrame['capture_second'] ?? 0),
+                'payload_dhash_hex' => $payloadHash,
+                'matched_dhash_hex' => $candidateHash,
+                'payload_frame_sha1' => $payloadFrame['frame_sha1'] ?? null,
+                'matched_frame_sha1' => $candidateFrame['frame_sha1'] ?? null,
+                'similarity_percent' => $similarity,
+                'is_threshold_match' => $similarity >= $thresholdPercent,
+            ];
+
+            if ($similarity >= $thresholdPercent) {
+                $matchedFrames++;
+            }
+        }
+
+        if ($comparedFrames <= 0) {
+            return null;
+        }
+
+        $requiredMatches = min(max(1, $minMatch), $comparedFrames);
+        $avgSimilarity = array_sum($similarities) / max(1, count($similarities));
+        $durationDelta = abs((float) ($snapshot['duration_seconds'] ?? 0) - $payloadDuration);
+        $snapshotFileSize = $snapshot['file_size_bytes'] ?? null;
+        $fileSizeDelta = $payloadFileSize > 0 && $snapshotFileSize !== null
+            ? abs((int) $snapshotFileSize - $payloadFileSize)
+            : null;
+        $passesThreshold = $matchedFrames >= $requiredMatches;
+
+        return [
+            'feature' => null,
+            'feature_snapshot' => $snapshot,
+            'similarity_percent' => round($avgSimilarity, 2),
+            'matched_frames' => $matchedFrames,
+            'compared_frames' => $comparedFrames,
+            'required_matches' => $requiredMatches,
+            'passes_threshold' => $passesThreshold,
+            'frame_matches' => $frameMatches,
+            'score' => ($matchedFrames * 1000) + $avgSimilarity,
+            'duration_delta_seconds' => $durationDelta,
+            'file_size_delta_bytes' => $fileSizeDelta,
+        ];
+    }
+
+    private function resolveCandidateFrameComparison(
+        array &$payloadContext,
+        int $candidateFrameCount,
+        float $candidateCaptureSecond,
         array $primaryPayloadFrame,
         string $candidateHash
     ): ?array {
@@ -354,8 +520,8 @@ class VideoDuplicateDetectionService
         $candidatePayloadFrames = [$primaryPayloadFrame];
         $compatibilityPayloadFrame = $this->resolveCompatibilityPayloadFrame(
             $payloadContext,
-            $feature,
-            $candidateFrame,
+            $candidateFrameCount,
+            $candidateCaptureSecond,
             $primaryPayloadFrame
         );
 
@@ -424,22 +590,21 @@ class VideoDuplicateDetectionService
 
     private function resolveCompatibilityPayloadFrame(
         array &$payloadContext,
-        VideoFeature $feature,
-        VideoFeatureFrame $candidateFrame,
+        int $candidateFrameCount,
+        float $candidateCaptureSecond,
         array $primaryPayloadFrame
     ): ?array {
-        if (!$this->shouldInspectCompatibilityFrame($payloadContext, $feature, $candidateFrame, $primaryPayloadFrame)) {
+        if (!$this->shouldInspectCompatibilityFrame($payloadContext, $candidateFrameCount, $candidateCaptureSecond, $primaryPayloadFrame)) {
             return null;
         }
 
-        $captureSecond = (float) ($candidateFrame->capture_second ?? 0);
-        $cacheKey = number_format($captureSecond, 3, '.', '');
+        $cacheKey = number_format($candidateCaptureSecond, 3, '.', '');
 
         if (!array_key_exists($cacheKey, $payloadContext['compatibility_frames_by_second'])) {
             try {
                 $payloadContext['compatibility_frames_by_second'][$cacheKey] = $this->featureExtractionService->inspectFrameAtSecond(
                     (string) $payloadContext['absolute_path'],
-                    $captureSecond,
+                    $candidateCaptureSecond,
                     (string) $payloadContext['tmp_dir'],
                     (int) ($primaryPayloadFrame['capture_order'] ?? 1)
                 );
@@ -455,13 +620,13 @@ class VideoDuplicateDetectionService
 
     private function shouldInspectCompatibilityFrame(
         array $payloadContext,
-        VideoFeature $feature,
-        VideoFeatureFrame $candidateFrame,
+        int $candidateFrameCount,
+        float $candidateCaptureSecond,
         array $primaryPayloadFrame
     ): bool {
         if (
             (int) ($payloadContext['frame_count'] ?? 0) !== 1 ||
-            $feature->frames->count() !== 1
+            $candidateFrameCount !== 1
         ) {
             return false;
         }
@@ -480,7 +645,7 @@ class VideoDuplicateDetectionService
 
         return abs(
             (float) ($primaryPayloadFrame['capture_second'] ?? 0)
-            - (float) ($candidateFrame->capture_second ?? 0)
+            - $candidateCaptureSecond
         ) >= 0.001;
     }
 
@@ -624,9 +789,9 @@ class VideoDuplicateDetectionService
         ];
     }
 
-    private function collectSnapshotCandidates(
+    private function collectPreparedSnapshotCandidates(
         array $payloadContext,
-        array $featureSnapshots,
+        array $preparedSnapshots,
         int $windowSeconds,
         int $maxCandidates
     ): array {
@@ -634,17 +799,27 @@ class VideoDuplicateDetectionService
         $durationMax = $payloadContext['duration_seconds'] + max(0, $windowSeconds);
         $limit = max(1, $maxCandidates);
         $normalizedSnapshots = [];
+        $sourcePathLower = mb_strtolower(trim((string) ($payloadContext['absolute_path'] ?? '')));
+        [$startIndex, $endIndex] = $this->findPreparedSnapshotDurationRange($preparedSnapshots, $durationMin, $durationMax);
 
-        foreach ($featureSnapshots as $featureSnapshot) {
-            $normalizedSnapshot = $this->normalizeSnapshotCandidate($featureSnapshot);
-            if ($normalizedSnapshot === null) {
+        if ($startIndex === null || $endIndex === null) {
+            return [];
+        }
+
+        for ($index = $startIndex; $index <= $endIndex; $index++) {
+            $normalizedSnapshot = $preparedSnapshots[$index] ?? null;
+            if (!is_array($normalizedSnapshot)) {
+                continue;
+            }
+
+            if (
+                $sourcePathLower !== ''
+                && mb_strtolower((string) ($normalizedSnapshot['absolute_path'] ?? '')) === $sourcePathLower
+            ) {
                 continue;
             }
 
             $durationSeconds = (float) ($normalizedSnapshot['duration_seconds'] ?? 0);
-            if ($durationSeconds < $durationMin || $durationSeconds > $durationMax) {
-                continue;
-            }
 
             $normalizedSnapshot['shared_prefix_count'] = count(array_intersect(
                 $payloadContext['prefixes'],
@@ -822,6 +997,127 @@ class VideoDuplicateDetectionService
             mb_strtolower((string) ($left['absolute_path'] ?? '')),
             mb_strtolower((string) ($right['absolute_path'] ?? ''))
         );
+    }
+
+    private function comparePreparedSnapshotSort(array $left, array $right): int
+    {
+        $leftDuration = (float) ($left['duration_seconds'] ?? 0);
+        $rightDuration = (float) ($right['duration_seconds'] ?? 0);
+
+        if ($leftDuration !== $rightDuration) {
+            return $leftDuration <=> $rightDuration;
+        }
+
+        return strcmp(
+            mb_strtolower((string) ($left['absolute_path'] ?? '')),
+            mb_strtolower((string) ($right['absolute_path'] ?? ''))
+        );
+    }
+
+    private function findPreparedSnapshotInsertIndex(array $preparedSnapshots, array $snapshot): int
+    {
+        $low = 0;
+        $high = count($preparedSnapshots);
+
+        while ($low < $high) {
+            $mid = intdiv($low + $high, 2);
+            $comparison = $this->comparePreparedSnapshotSort($preparedSnapshots[$mid], $snapshot);
+
+            if ($comparison <= 0) {
+                $low = $mid + 1;
+                continue;
+            }
+
+            $high = $mid;
+        }
+
+        return $low;
+    }
+
+    private function findPreparedSnapshotDurationRange(array $preparedSnapshots, float $durationMin, float $durationMax): array
+    {
+        if ($preparedSnapshots === []) {
+            return [null, null];
+        }
+
+        $startIndex = $this->findFirstPreparedSnapshotIndexByDuration($preparedSnapshots, $durationMin);
+        $endIndex = $this->findLastPreparedSnapshotIndexByDuration($preparedSnapshots, $durationMax);
+
+        if ($startIndex > $endIndex) {
+            return [null, null];
+        }
+
+        return [$startIndex, $endIndex];
+    }
+
+    private function findFirstPreparedSnapshotIndexByDuration(array $preparedSnapshots, float $targetDuration): int
+    {
+        $low = 0;
+        $high = count($preparedSnapshots);
+
+        while ($low < $high) {
+            $mid = intdiv($low + $high, 2);
+            $midDuration = (float) ($preparedSnapshots[$mid]['duration_seconds'] ?? 0);
+
+            if ($midDuration < $targetDuration) {
+                $low = $mid + 1;
+                continue;
+            }
+
+            $high = $mid;
+        }
+
+        return $low;
+    }
+
+    private function findLastPreparedSnapshotIndexByDuration(array $preparedSnapshots, float $targetDuration): int
+    {
+        $low = 0;
+        $high = count($preparedSnapshots);
+
+        while ($low < $high) {
+            $mid = intdiv($low + $high, 2);
+            $midDuration = (float) ($preparedSnapshots[$mid]['duration_seconds'] ?? 0);
+
+            if ($midDuration <= $targetDuration) {
+                $low = $mid + 1;
+                continue;
+            }
+
+            $high = $mid;
+        }
+
+        return $low - 1;
+    }
+
+    private function hydrateSnapshotResultFeature(?array $result): ?array
+    {
+        if (!is_array($result)) {
+            return null;
+        }
+
+        $snapshot = $result['feature_snapshot'] ?? null;
+        if (is_array($snapshot) && !($result['feature'] ?? null) instanceof VideoFeature) {
+            $result['feature'] = $this->hydrateFeatureFromSnapshot($snapshot);
+        }
+
+        return $result;
+    }
+
+    private function hasReachedMaxPossibleScore(?array $candidateResult, array $payloadContext): bool
+    {
+        if (!is_array($candidateResult)) {
+            return false;
+        }
+
+        $frameCount = (int) ($payloadContext['frame_count'] ?? 0);
+        if ($frameCount <= 0) {
+            return false;
+        }
+
+        $maxPossibleScore = ($frameCount * 1000) + 100;
+
+        return (float) ($candidateResult['score'] ?? -INF) >= $maxPossibleScore;
     }
 
     private function shouldBypassPrefixGate(array $payloadContext): bool

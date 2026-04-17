@@ -630,4 +630,62 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         );
         $this->assertNull($analysis['duplicate_match']['feature']->id);
     }
+
+    public function test_prepared_reference_snapshot_index_can_be_reused_and_appended(): void
+    {
+        $payload = [
+            'absolute_path' => 'C:\\incoming\\source.mp4',
+            'duration_seconds' => 13.1,
+            'file_size_bytes' => 1000,
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 10.0,
+                'dhash_hex' => '0011223344556677',
+                'dhash_prefix' => '00',
+                'frame_sha1' => str_repeat('a', 40),
+            ]],
+        ];
+
+        $service = new VideoDuplicateDetectionService(new VideoFeatureExtractionService());
+        $preparedIndex = $service->prepareReferenceSnapshotIndex([[
+            'absolute_path' => 'C:\\Users\\User\\Videos\\暫\\existing.mp4',
+            'video_name' => 'existing.mp4',
+            'file_name' => 'existing.mp4',
+            'file_size_bytes' => 1001,
+            'duration_seconds' => 13.08,
+            'feature_version' => 'v1',
+            'capture_rule' => '10s_x4',
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 10.0,
+                'dhash_hex' => '8899aabbccddeeff',
+                'dhash_prefix' => '88',
+                'frame_sha1' => str_repeat('b', 40),
+            ]],
+        ]]);
+
+        $preparedIndex = $service->appendPreparedReferenceSnapshot($preparedIndex, [
+            'absolute_path' => 'C:\\Users\\User\\Videos\\暫\\new.mp4',
+            'video_name' => 'new.mp4',
+            'file_name' => 'new.mp4',
+            'file_size_bytes' => 1000,
+            'duration_seconds' => 13.1,
+            'feature_version' => 'v1',
+            'capture_rule' => '10s_x4',
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 10.0,
+                'dhash_hex' => '0011223344556677',
+                'dhash_prefix' => '00',
+                'frame_sha1' => str_repeat('c', 40),
+            ]],
+        ]);
+
+        $analysis = $service->analyzePreparedReferenceSnapshotsMatch($payload, $preparedIndex, 80, 2, 3, 15, 250);
+
+        $this->assertSame(2, $analysis['candidate_count']);
+        $this->assertNotNull($analysis['duplicate_match']);
+        $this->assertSame('C:\\Users\\User\\Videos\\暫\\new.mp4', $analysis['duplicate_match']['feature_snapshot']['absolute_path']);
+        $this->assertSame(100.0, $analysis['duplicate_match']['similarity_percent']);
+    }
 }

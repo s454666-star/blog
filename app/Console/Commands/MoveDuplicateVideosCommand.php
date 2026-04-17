@@ -130,6 +130,9 @@ class MoveDuplicateVideosCommand extends Command
         $shouldCompareReferenceIndex = $this->shouldCompareReferenceIndex($path, $referenceDir);
         $referenceSnapshots = is_array($referenceIndex['snapshots'] ?? null) ? $referenceIndex['snapshots'] : [];
         $referenceComparisonEnabled = $shouldCompareReferenceIndex && $referenceSnapshots !== [];
+        $preparedReferenceSnapshotIndex = $referenceComparisonEnabled
+            ? $duplicateDetectionService->prepareReferenceSnapshotIndex($referenceSnapshots)
+            : ['snapshots' => []];
         Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates reference index synced', $commandLogContext + [
             'reference_dir' => $referenceDir,
             'reference_index_path' => (string) ($referenceIndex['index_path'] ?? ''),
@@ -252,11 +255,11 @@ class MoveDuplicateVideosCommand extends Command
                     if ($referenceComparisonEnabled) {
                         Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates starting reference index comparison', $fileLogContext + [
                             'reference_dir' => $referenceDir,
-                            'reference_snapshot_count' => count($referenceSnapshots),
+                            'reference_snapshot_count' => count((array) ($preparedReferenceSnapshotIndex['snapshots'] ?? [])),
                         ]);
-                        $referenceAnalysis = $duplicateDetectionService->analyzeReferenceSnapshotsMatch(
+                        $referenceAnalysis = $duplicateDetectionService->analyzePreparedReferenceSnapshotsMatch(
                             $payload,
-                            $referenceVideoFeatureIndexService->buildComparisonSnapshots($referenceSnapshots, $filePath),
+                            $preparedReferenceSnapshotIndex,
                             $threshold,
                             $minMatch,
                             $windowSeconds,
@@ -392,6 +395,10 @@ class MoveDuplicateVideosCommand extends Command
                             (array) ($referenceIndex['failed_files'] ?? [])
                         );
                         $referenceSnapshots = is_array($referenceIndex['snapshots'] ?? null) ? $referenceIndex['snapshots'] : [];
+                        $preparedReferenceSnapshotIndex = $duplicateDetectionService->appendPreparedReferenceSnapshot(
+                            $preparedReferenceSnapshotIndex,
+                            $this->buildMovedPayload($payload, $destinationPath)
+                        );
                         $referenceComparisonEnabled = $shouldCompareReferenceIndex && $referenceSnapshots !== [];
 
                         $externalVideoDuplicateService->persistComparisonLog(
@@ -411,7 +418,7 @@ class MoveDuplicateVideosCommand extends Command
                             'reference_compare_enabled' => $referenceComparisonEnabled,
                             'reference_dir' => $referenceDir,
                             'destination_path' => $destinationPath,
-                            'reference_snapshot_count' => count($referenceSnapshots),
+                            'reference_snapshot_count' => count((array) ($preparedReferenceSnapshotIndex['snapshots'] ?? [])),
                         ]);
                         $this->line('  無重複，已搬到暫存參考資料夾：' . $destinationPath);
                         continue;
@@ -562,9 +569,12 @@ class MoveDuplicateVideosCommand extends Command
                         $referenceIndex = $referenceVideoFeatureIndexService->syncDirectory($referenceDir);
                         $referenceSnapshots = is_array($referenceIndex['snapshots'] ?? null) ? $referenceIndex['snapshots'] : [];
                         $referenceComparisonEnabled = $shouldCompareReferenceIndex && $referenceSnapshots !== [];
+                        $preparedReferenceSnapshotIndex = $referenceComparisonEnabled
+                            ? $duplicateDetectionService->prepareReferenceSnapshotIndex($referenceSnapshots)
+                            : ['snapshots' => []];
                         Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates repaired reference index after failure', $fileLogContext + [
                             'reference_dir' => $referenceDir,
-                            'reference_snapshot_count' => count($referenceSnapshots),
+                            'reference_snapshot_count' => count((array) ($preparedReferenceSnapshotIndex['snapshots'] ?? [])),
                         ]);
                     } catch (Throwable $syncException) {
                         Log::channel(self::LOG_CHANNEL)->warning('video:move-duplicates failed to repair reference index after failure', $fileLogContext + [

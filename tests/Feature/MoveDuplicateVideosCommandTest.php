@@ -337,17 +337,20 @@ class MoveDuplicateVideosCommandTest extends TestCase
             ->once()
             ->with($payload, 80, 2, 3, 15, 250)
             ->andReturn($databaseAnalysis);
-        $duplicateDetectionService->shouldReceive('analyzeReferenceSnapshotsMatch')
+        $preparedSnapshotIndex = [
+            'snapshots' => [
+                ['absolute_path' => $referenceMatchPath],
+            ],
+        ];
+        $duplicateDetectionService->shouldReceive('prepareReferenceSnapshotIndex')
             ->once()
             ->with(
-                $payload,
-                Mockery::on(fn (array $snapshots): bool => count($snapshots) === 1 && $snapshots[0]['absolute_path'] === $referenceMatchPath),
-                80,
-                2,
-                3,
-                15,
-                250
+                Mockery::on(fn (array $snapshots): bool => count($snapshots) === 1 && $snapshots[0]['absolute_path'] === $referenceMatchPath)
             )
+            ->andReturn($preparedSnapshotIndex);
+        $duplicateDetectionService->shouldReceive('analyzePreparedReferenceSnapshotsMatch')
+            ->once()
+            ->with($payload, $preparedSnapshotIndex, 80, 2, 3, 15, 250)
             ->andReturn($referenceAnalysis);
         $this->app->instance(VideoDuplicateDetectionService::class, $duplicateDetectionService);
 
@@ -367,15 +370,6 @@ class MoveDuplicateVideosCommandTest extends TestCase
                 'removed_count' => 0,
                 'failed_count' => 0,
                 'failed_files' => [],
-            ]);
-        $referenceVideoFeatureIndexService->shouldReceive('buildComparisonSnapshots')
-            ->once()
-            ->with(
-                Mockery::on(fn (array $snapshots): bool => count($snapshots) === 1 && $snapshots[0]['absolute_path'] === $referenceMatchPath),
-                $sourcePath
-            )
-            ->andReturn([
-                ['absolute_path' => $referenceMatchPath],
             ]);
         $referenceVideoFeatureIndexService->shouldReceive('upsertPayloadSnapshot')->never();
         $this->app->instance(ReferenceVideoFeatureIndexService::class, $referenceVideoFeatureIndexService);
@@ -458,6 +452,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
             'payload_frame_count' => 1,
             'requested_min_match' => 1,
         ];
+        $expectedReferencePath = $referenceDir . DIRECTORY_SEPARATOR . 'incoming.mp4';
 
         $featureExtractionService = Mockery::mock(VideoFeatureExtractionService::class);
         $featureExtractionService->shouldReceive('inspectFile')
@@ -474,21 +469,35 @@ class MoveDuplicateVideosCommandTest extends TestCase
             ->once()
             ->with($payload, 80, 2, 3, 15, 250)
             ->andReturn($databaseAnalysis);
-        $duplicateDetectionService->shouldReceive('analyzeReferenceSnapshotsMatch')
+        $preparedSnapshotIndex = [
+            'snapshots' => [
+                ['absolute_path' => $referenceExistingPath],
+            ],
+        ];
+        $duplicateDetectionService->shouldReceive('prepareReferenceSnapshotIndex')
             ->once()
             ->with(
-                $payload,
-                Mockery::on(fn (array $snapshots): bool => count($snapshots) === 1 && $snapshots[0]['absolute_path'] === $referenceExistingPath),
-                80,
-                2,
-                3,
-                15,
-                250
+                Mockery::on(fn (array $snapshots): bool => count($snapshots) === 1 && $snapshots[0]['absolute_path'] === $referenceExistingPath)
             )
+            ->andReturn($preparedSnapshotIndex);
+        $duplicateDetectionService->shouldReceive('analyzePreparedReferenceSnapshotsMatch')
+            ->once()
+            ->with($payload, $preparedSnapshotIndex, 80, 2, 3, 15, 250)
             ->andReturn($referenceAnalysis);
+        $duplicateDetectionService->shouldReceive('appendPreparedReferenceSnapshot')
+            ->once()
+            ->withArgs(function (array $passedPreparedIndex, array $passedSnapshot) use ($preparedSnapshotIndex, $expectedReferencePath): bool {
+                return $passedPreparedIndex === $preparedSnapshotIndex
+                    && ($passedSnapshot['absolute_path'] ?? null) === $expectedReferencePath
+                    && ($passedSnapshot['file_name'] ?? null) === 'incoming.mp4';
+            })
+            ->andReturn([
+                'snapshots' => [
+                    ['absolute_path' => $referenceExistingPath],
+                    ['absolute_path' => $expectedReferencePath],
+                ],
+            ]);
         $this->app->instance(VideoDuplicateDetectionService::class, $duplicateDetectionService);
-
-        $expectedReferencePath = $referenceDir . DIRECTORY_SEPARATOR . 'incoming.mp4';
 
         $referenceVideoFeatureIndexService = Mockery::mock(ReferenceVideoFeatureIndexService::class);
         $referenceVideoFeatureIndexService->shouldReceive('syncDirectory')
@@ -506,15 +515,6 @@ class MoveDuplicateVideosCommandTest extends TestCase
                 'removed_count' => 0,
                 'failed_count' => 0,
                 'failed_files' => [],
-            ]);
-        $referenceVideoFeatureIndexService->shouldReceive('buildComparisonSnapshots')
-            ->once()
-            ->with(
-                Mockery::on(fn (array $snapshots): bool => count($snapshots) === 1 && $snapshots[0]['absolute_path'] === $referenceExistingPath),
-                $sourcePath
-            )
-            ->andReturn([
-                ['absolute_path' => $referenceExistingPath],
             ]);
         $referenceVideoFeatureIndexService->shouldReceive('upsertPayloadSnapshot')
             ->once()
@@ -626,7 +626,11 @@ class MoveDuplicateVideosCommandTest extends TestCase
             ->once()
             ->with($payload, 80, 2, 3, 15, 250)
             ->andReturn($databaseAnalysis);
-        $duplicateDetectionService->shouldReceive('analyzeReferenceSnapshotsMatch')
+        $duplicateDetectionService->shouldReceive('prepareReferenceSnapshotIndex')
+            ->never();
+        $duplicateDetectionService->shouldReceive('analyzePreparedReferenceSnapshotsMatch')
+            ->never();
+        $duplicateDetectionService->shouldReceive('appendPreparedReferenceSnapshot')
             ->never();
         $this->app->instance(VideoDuplicateDetectionService::class, $duplicateDetectionService);
 
@@ -647,8 +651,6 @@ class MoveDuplicateVideosCommandTest extends TestCase
                 'failed_count' => 0,
                 'failed_files' => [],
             ]);
-        $referenceVideoFeatureIndexService->shouldReceive('buildComparisonSnapshots')
-            ->never();
         $referenceVideoFeatureIndexService->shouldReceive('upsertPayloadSnapshot')
             ->never();
         $this->app->instance(ReferenceVideoFeatureIndexService::class, $referenceVideoFeatureIndexService);

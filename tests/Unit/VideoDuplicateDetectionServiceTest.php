@@ -17,6 +17,7 @@ class VideoDuplicateDetectionServiceTest extends TestCase
     {
         parent::setUp();
 
+        config()->set('cache.default', 'array');
         config()->set('database.default', 'sqlite');
         config()->set('database.connections.sqlite.database', ':memory:');
 
@@ -687,5 +688,64 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         $this->assertNotNull($analysis['duplicate_match']);
         $this->assertSame('C:\\Users\\User\\Videos\\暫\\new.mp4', $analysis['duplicate_match']['feature_snapshot']['absolute_path']);
         $this->assertSame(100.0, $analysis['duplicate_match']['similarity_percent']);
+    }
+
+    public function test_database_candidate_ids_are_reused_from_cache_for_identical_payloads(): void
+    {
+        DB::table('video_master')->insert([
+            'id' => 109,
+            'video_name' => 'cached-candidate.mp4',
+            'video_path' => '\\cached-candidate.mp4',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $feature = VideoFeature::query()->create([
+            'video_master_id' => 109,
+            'video_name' => 'cached-candidate.mp4',
+            'video_path' => '\\cached-candidate.mp4',
+            'file_name' => 'cached-candidate.mp4',
+            'file_size_bytes' => 1200,
+            'duration_seconds' => 8.000,
+            'screenshot_count' => 1,
+            'capture_rule' => 'lt_10s_at_3s',
+            'feature_version' => 'v1',
+        ]);
+
+        VideoFeatureFrame::query()->create([
+            'video_feature_id' => $feature->id,
+            'capture_order' => 1,
+            'capture_second' => 3.000,
+            'screenshot_path' => '\\cached_candidate_feature_01.jpg',
+            'dhash_hex' => '0011223344556677',
+            'dhash_prefix' => '00',
+            'frame_sha1' => str_repeat('9', 40),
+        ]);
+
+        $payload = [
+            'duration_seconds' => 8.000,
+            'file_size_bytes' => 1200,
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 3.000,
+                'dhash_hex' => '0011223344556677',
+                'dhash_prefix' => '00',
+                'frame_sha1' => str_repeat('8', 40),
+            ]],
+        ];
+
+        $service = new VideoDuplicateDetectionService(new VideoFeatureExtractionService());
+
+        DB::connection()->enableQueryLog();
+        DB::flushQueryLog();
+        $service->analyzeDatabaseMatch($payload, 90, 2, 3, 15, 250);
+        $firstQueryCount = count(DB::getQueryLog());
+
+        DB::flushQueryLog();
+        $service->analyzeDatabaseMatch($payload, 90, 2, 3, 15, 250);
+        $secondQueryCount = count(DB::getQueryLog());
+        DB::connection()->disableQueryLog();
+
+        $this->assertGreaterThan($secondQueryCount, $firstQueryCount);
     }
 }

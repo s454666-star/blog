@@ -4,10 +4,17 @@ namespace App\Services;
 
 use App\Models\VideoFeature;
 use App\Models\VideoFeatureFrame;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Throwable;
 
 class VideoDuplicateDetectionService
 {
     private const DURATION_FALLBACK_CANDIDATES = 25;
+    private const DATABASE_CANDIDATE_CACHE_TTL_SECONDS = 600;
+    private const REFERENCE_SNAPSHOT_INDEX_CACHE_TTL_SECONDS = 86400;
+
+    private ?string $databaseCandidateCacheVersion = null;
 
     public function __construct(
         private readonly VideoFeatureExtractionService $featureExtractionService
@@ -195,6 +202,26 @@ class VideoDuplicateDetectionService
     }
 
     public function prepareReferenceSnapshotIndex(array $featureSnapshots): array
+    {
+        if ($featureSnapshots === []) {
+            return ['snapshots' => []];
+        }
+
+        $cacheKey = $this->buildPreparedReferenceSnapshotIndexCacheKey($featureSnapshots);
+        if ($cacheKey === null) {
+            return $this->prepareReferenceSnapshotIndexUncached($featureSnapshots);
+        }
+
+        $preparedIndex = $this->rememberCacheValue(
+            $cacheKey,
+            self::REFERENCE_SNAPSHOT_INDEX_CACHE_TTL_SECONDS,
+            fn (): array => $this->prepareReferenceSnapshotIndexUncached($featureSnapshots)
+        );
+
+        return is_array($preparedIndex) ? $preparedIndex : ['snapshots' => []];
+    }
+
+    private function prepareReferenceSnapshotIndexUncached(array $featureSnapshots): array
     {
         $preparedSnapshots = [];
 
@@ -650,6 +677,29 @@ class VideoDuplicateDetectionService
     }
 
     private function collectCandidateIds(
+        array $payloadContext,
+        int $windowSeconds,
+        int $maxCandidates
+    ): array {
+        $cacheKey = $this->buildDatabaseCandidateIdsCacheKey($payloadContext, $windowSeconds, $maxCandidates);
+        if ($cacheKey === null) {
+            return $this->collectCandidateIdsUncached($payloadContext, $windowSeconds, $maxCandidates);
+        }
+
+        $candidateIds = $this->rememberCacheValue(
+            $cacheKey,
+            self::DATABASE_CANDIDATE_CACHE_TTL_SECONDS,
+            fn (): array => $this->collectCandidateIdsUncached($payloadContext, $windowSeconds, $maxCandidates)
+        );
+
+        if (!is_array($candidateIds)) {
+            return [];
+        }
+
+        return array_values(array_map(static fn (mixed $candidateId): int => (int) $candidateId, $candidateIds));
+    }
+
+    private function collectCandidateIdsUncached(
         array $payloadContext,
         int $windowSeconds,
         int $maxCandidates
@@ -1130,5 +1180,120 @@ class VideoDuplicateDetectionService
     {
         return (int) ($payloadContext['frame_count'] ?? 0) >= 2
             && !empty($payloadContext['prefixes']);
+    }
+
+    private function buildPreparedReferenceSnapshotIndexCacheKey(array $featureSnapshots): ?string
+    {
+        $snapshotSignatures = [];
+
+        foreach ($featureSnapshots as $snapshot) {
+            if (!is_array($snapshot)) {
+                continue;
+            }
+
+            $absolutePath = mb_strtolower(trim((string) ($snapshot['absolute_path'] ?? '')));
+            if ($absolutePath === '') {
+                continue;
+            }
+
+            $snapshotSignatures[] = implode('|', [
+                $absolutePath,
+                (string) ($snapshot['path_sha1'] ?? ''),
+                (string) ($snapshot['file_modified_timestamp'] ?? ''),
+                (string) ($snapshot['file_size_bytes'] ?? ''),
+                (string) ($snapshot['duration_seconds'] ?? ''),
+                (string) ($snapshot['screenshot_count'] ?? count((array) ($snapshot['frames'] ?? []))),
+            ]);
+        }
+
+        if ($snapshotSignatures === []) {
+            return null;
+        }
+
+        sort($snapshotSignatures, SORT_STRING);
+
+        return 'video_duplicate:prepared_reference_snapshots:' . sha1(implode('||', $snapshotSignatures));
+    }
+
+    private function buildDatabaseCandidateIdsCacheKey(
+        array $payloadContext,
+        int $windowSeconds,
+        int $maxCandidates
+    ): ?string {
+        $frameCount = (int) ($payloadContext['frame_count'] ?? 0);
+        if ($frameCount <= 0) {
+            return null;
+        }
+
+        $prefixes = array_values(array_unique(array_map(
+            static fn (mixed $prefix): string => (string) $prefix,
+            (array) ($payloadContext['prefixes'] ?? [])
+        )));
+        sort($prefixes, SORT_STRING);
+
+        $keyPayload = [
+            'version' => $this->resolveDatabaseCandidateCacheVersion(),
+            'frame_count' => $frameCount,
+            'duration_seconds' => number_format((float) ($payloadContext['duration_seconds'] ?? 0), 3, '.', ''),
+            'window_seconds' => max(0, $windowSeconds),
+            'max_candidates' => max(1, $maxCandidates),
+            'bypass_prefix_gate' => $this->shouldBypassPrefixGate($payloadContext),
+            'fallback_to_duration_candidates' => $this->shouldFallbackToDurationCandidates($payloadContext),
+            'prefixes' => $prefixes,
+        ];
+
+        return 'video_duplicate:db_candidate_ids:' . sha1(json_encode(
+            $keyPayload,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        ) ?: serialize($keyPayload));
+    }
+
+    private function resolveDatabaseCandidateCacheVersion(): string
+    {
+        if ($this->databaseCandidateCacheVersion !== null) {
+            return $this->databaseCandidateCacheVersion;
+        }
+
+        try {
+            $featureMeta = DB::table('video_features')
+                ->selectRaw('COUNT(*) as aggregate_count, COALESCE(MAX(id), 0) as aggregate_max_id, COALESCE(MAX(updated_at), "") as aggregate_updated_at')
+                ->first();
+            $frameMeta = DB::table('video_feature_frames')
+                ->selectRaw('COUNT(*) as aggregate_count, COALESCE(MAX(id), 0) as aggregate_max_id, COALESCE(MAX(updated_at), "") as aggregate_updated_at')
+                ->first();
+
+            $versionPayload = [
+                'video_features' => [
+                    'count' => $featureMeta->aggregate_count ?? 0,
+                    'max_id' => $featureMeta->aggregate_max_id ?? 0,
+                    'max_updated_at' => (string) ($featureMeta->aggregate_updated_at ?? ''),
+                ],
+                'video_feature_frames' => [
+                    'count' => $frameMeta->aggregate_count ?? 0,
+                    'max_id' => $frameMeta->aggregate_max_id ?? 0,
+                    'max_updated_at' => (string) ($frameMeta->aggregate_updated_at ?? ''),
+                ],
+            ];
+
+            $encodedPayload = json_encode($versionPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $this->databaseCandidateCacheVersion = sha1($encodedPayload !== false ? $encodedPayload : serialize($versionPayload));
+        } catch (Throwable) {
+            $this->databaseCandidateCacheVersion = 'uncached';
+        }
+
+        return $this->databaseCandidateCacheVersion;
+    }
+
+    private function rememberCacheValue(string $cacheKey, int $ttlSeconds, callable $resolver): mixed
+    {
+        try {
+            return Cache::remember(
+                $cacheKey,
+                now()->addSeconds(max(1, $ttlSeconds)),
+                $resolver
+            );
+        } catch (Throwable) {
+            return $resolver();
+        }
     }
 }

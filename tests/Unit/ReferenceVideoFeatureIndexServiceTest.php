@@ -140,4 +140,57 @@ class ReferenceVideoFeatureIndexServiceTest extends TestCase
         $this->assertContains($newPath, $storedPaths);
         $this->assertNotContains($removedPath, $storedPaths);
     }
+
+    public function test_sync_directory_can_limit_processed_files(): void
+    {
+        $alphaPath = $this->tempDir . DIRECTORY_SEPARATOR . 'alpha.mp4';
+        $betaPath = $this->tempDir . DIRECTORY_SEPARATOR . 'beta.mp4';
+
+        file_put_contents($alphaPath, 'alpha-video');
+        file_put_contents($betaPath, 'beta-video');
+
+        $alphaPayload = [
+            'absolute_path' => $alphaPath,
+            'video_name' => 'alpha.mp4',
+            'file_name' => 'alpha.mp4',
+            'file_size_bytes' => filesize($alphaPath),
+            'duration_seconds' => 12.5,
+            'file_created_at' => now(),
+            'file_modified_at' => now(),
+            'capture_rule' => '10s_x4',
+            'feature_version' => 'v1',
+            'frames' => [[
+                'capture_order' => 1,
+                'label_second' => 10.0,
+                'capture_second' => 10.0,
+                'dhash_hex' => '0011223344556677',
+                'dhash_prefix' => '00',
+                'frame_sha1' => str_repeat('a', 40),
+                'image_width' => 1280,
+                'image_height' => 720,
+            ]],
+        ];
+
+        $featureExtractionService = Mockery::mock(VideoFeatureExtractionService::class);
+        $featureExtractionService->shouldReceive('inspectFile')
+            ->once()
+            ->with($alphaPath)
+            ->andReturn($alphaPayload);
+        $featureExtractionService->shouldReceive('cleanupPayload')
+            ->once()
+            ->with($alphaPayload);
+
+        $service = new ReferenceVideoFeatureIndexService($featureExtractionService);
+        $result = $service->syncDirectory($this->tempDir, 1);
+
+        $this->assertSame(1, $result['limit']);
+        $this->assertSame(1, $result['total_files']);
+        $this->assertSame(1, $result['extracted_count']);
+        $this->assertSame(0, $result['failed_count']);
+        $this->assertSame($alphaPath, $result['snapshots'][0]['absolute_path']);
+
+        $storedIndex = json_decode((string) file_get_contents($this->tempDir . DIRECTORY_SEPARATOR . 'video-feature-index.json'), true);
+        $this->assertSame(1, count((array) ($storedIndex['snapshots'] ?? [])));
+        $this->assertSame($alphaPath, $storedIndex['snapshots'][0]['absolute_path']);
+    }
 }

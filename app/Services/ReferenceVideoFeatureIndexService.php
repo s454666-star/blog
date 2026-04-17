@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
 
@@ -17,9 +18,10 @@ class ReferenceVideoFeatureIndexService
     ) {
     }
 
-    public function syncDirectory(string $directoryPath): array
+    public function syncDirectory(string $directoryPath, int $limit = 0): array
     {
         $directoryPath = $this->normalizeAbsolutePath($directoryPath);
+        $limit = max(0, $limit);
         if ($directoryPath === '') {
             throw new RuntimeException('reference dir 不可為空。');
         }
@@ -32,6 +34,13 @@ class ReferenceVideoFeatureIndexService
 
         $indexPath = $directoryPath . DIRECTORY_SEPARATOR . self::INDEX_FILENAME;
         $existingSnapshots = $this->loadSnapshotsFromIndex($indexPath);
+        Log::info('reference video feature index sync started', [
+            'directory_path' => $directoryPath,
+            'index_path' => $indexPath,
+            'existing_snapshot_count' => count($existingSnapshots),
+            'limit' => $limit,
+            'pid' => getmypid(),
+        ]);
         $existingSnapshotsByPathHash = [];
 
         foreach ($existingSnapshots as $snapshot) {
@@ -45,6 +54,15 @@ class ReferenceVideoFeatureIndexService
 
         $duplicateDir = $this->normalizeAbsolutePath($directoryPath . DIRECTORY_SEPARATOR . '疑似重複檔案');
         $files = $this->collectVideoFiles($directoryPath, $duplicateDir);
+        if ($limit > 0) {
+            $files = array_slice($files, 0, $limit);
+        }
+        Log::info('reference video feature index collected files', [
+            'directory_path' => $directoryPath,
+            'duplicate_directory_path' => $duplicateDir,
+            'file_count' => count($files),
+            'limit' => $limit,
+        ]);
         $currentPathHashes = [];
         $snapshots = [];
         $reusedCount = 0;
@@ -59,23 +77,48 @@ class ReferenceVideoFeatureIndexService
             if ($existingSnapshot !== null && $this->isSnapshotFresh($existingSnapshot, $filePath)) {
                 $snapshots[] = $this->refreshSnapshotMetadata($existingSnapshot, $filePath);
                 $reusedCount++;
+                Log::info('reference video feature index reused existing snapshot', [
+                    'directory_path' => $directoryPath,
+                    'file_path' => $filePath,
+                ]);
                 continue;
             }
 
             $payload = null;
+            Log::info('reference video feature index extracting file payload', [
+                'directory_path' => $directoryPath,
+                'file_path' => $filePath,
+            ]);
 
             try {
                 $payload = $this->featureExtractionService->inspectFile($filePath);
                 $snapshots[] = $this->snapshotFromPayload($payload);
                 $extractedCount++;
+                Log::info('reference video feature index extracted file payload', [
+                    'directory_path' => $directoryPath,
+                    'file_path' => $filePath,
+                    'duration_seconds' => $payload['duration_seconds'] ?? null,
+                    'file_size_bytes' => $payload['file_size_bytes'] ?? null,
+                    'frame_count' => count((array) ($payload['frames'] ?? [])),
+                    'capture_rule' => $payload['capture_rule'] ?? null,
+                ]);
             } catch (Throwable $e) {
                 $failedFiles[] = [
                     'absolute_path' => $filePath,
                     'message' => $e->getMessage(),
                 ];
+                Log::warning('reference video feature index failed to extract file payload', [
+                    'directory_path' => $directoryPath,
+                    'file_path' => $filePath,
+                    'error_message' => $e->getMessage(),
+                ]);
             } finally {
                 if (is_array($payload)) {
                     $this->featureExtractionService->cleanupPayload($payload);
+                    Log::info('reference video feature index cleaned temporary payload', [
+                        'directory_path' => $directoryPath,
+                        'file_path' => $filePath,
+                    ]);
                 }
             }
         }
@@ -88,6 +131,16 @@ class ReferenceVideoFeatureIndexService
         });
 
         $removedCount = count(array_diff(array_keys($existingSnapshotsByPathHash), array_values(array_unique($currentPathHashes))));
+        Log::info('reference video feature index writing json file', [
+            'directory_path' => $directoryPath,
+            'index_path' => $indexPath,
+            'total_files' => count($snapshots),
+            'reused_count' => $reusedCount,
+            'extracted_count' => $extractedCount,
+            'removed_count' => $removedCount,
+            'failed_count' => count($failedFiles),
+            'limit' => $limit,
+        ]);
 
         $this->writeIndex($indexPath, [
             'version' => 1,
@@ -97,6 +150,16 @@ class ReferenceVideoFeatureIndexService
             'failed_count' => count($failedFiles),
             'snapshots' => $snapshots,
             'failed_files' => $failedFiles,
+        ]);
+        Log::info('reference video feature index sync finished', [
+            'directory_path' => $directoryPath,
+            'index_path' => $indexPath,
+            'total_files' => count($snapshots),
+            'reused_count' => $reusedCount,
+            'extracted_count' => $extractedCount,
+            'removed_count' => $removedCount,
+            'failed_count' => count($failedFiles),
+            'limit' => $limit,
         ]);
 
         return [
@@ -109,6 +172,7 @@ class ReferenceVideoFeatureIndexService
             'removed_count' => $removedCount,
             'failed_count' => count($failedFiles),
             'failed_files' => $failedFiles,
+            'limit' => $limit,
         ];
     }
 
@@ -155,6 +219,9 @@ class ReferenceVideoFeatureIndexService
         try {
             $decoded = json_decode((string) file_get_contents($indexPath), true, 512, JSON_THROW_ON_ERROR);
         } catch (Throwable) {
+            Log::warning('reference video feature index json parse failed; fallback to empty snapshots', [
+                'index_path' => $indexPath,
+            ]);
             return [];
         }
 

@@ -9,7 +9,7 @@ return [
     'expiration' => null,
 
     'middleware' => [
-        'verify_csrf_token' => App\Http\Middleware\VerifyCsrfToken::class,
+        'verify_csrf_token' => App\Http\Middleware\PreventRequestForgery::class,
         'encrypt_cookies' => App\Http\Middleware\EncryptCookies::class,
     ],
 

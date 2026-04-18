@@ -318,7 +318,7 @@ class ExtractVideoFeaturesCommandTest extends TestCase
 
         $this->assertNotNull($feature);
         $this->assertSame('broken.mp4', $feature->video_name);
-        $this->assertSame('\\broken.mp4', $feature->video_path);
+        $this->assertSame('broken.mp4', $feature->video_path);
         $this->assertSame('ffmpeg 擷取截圖失敗：boom', $feature->last_error);
     }
 }

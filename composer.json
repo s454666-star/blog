@@ -5,7 +5,7 @@
     "keywords": ["framework", "laravel"],
     "license": "MIT",
     "require": {
-        "php": "^8.2",
+        "php": "^8.4",
         "ext-dom": "*",
         "ext-json": "*",
         "flobee/spss": "^5.0",
@@ -14,23 +14,23 @@
         "guzzlehttp/guzzle": "^7.0.1",
         "intervention/image": "^3.6",
         "killworm737/qrcode": "^1.0",
-        "laravel/framework": "^12.0",
+        "laravel/framework": "13.5.0",
         "laravel/sanctum": "^4.3",
-        "laravel/tinker": "^2.11",
-        "maatwebsite/excel": "^3.1",
+        "laravel/tinker": "^3.0",
+        "maatwebsite/excel": "4.x-dev",
         "pbmedia/laravel-ffmpeg": "^8.9",
-        "phpoffice/phpspreadsheet": "^1.30",
+        "phpoffice/phpspreadsheet": "^5.3",
         "predis/predis": "^2.3",
         "spatie/pdf-to-text": "^1.52",
-        "symfony/dom-crawler": "*"
+        "symfony/dom-crawler": "^8.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
         "laravel/sail": "^1.53",
         "mockery/mockery": "^1.6",
         "nunomaduro/collision": "^8.9",
-        "phpunit/phpunit": "^11.5",
-        "spatie/laravel-ignition": "^2.11"
+        "phpunit/phpunit": "^12.0",
+        "spatie/laravel-ignition": "^2.12"
     },
     "autoload": {
         "psr-4": {

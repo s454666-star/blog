@@ -65,6 +65,13 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->withoutOverlapping();
 
+        $schedule->command('image:ingest-telegram-downloads')
+            ->everyFiveMinutes()
+            ->name('image-ingest-telegram-downloads')
+            ->withoutOverlapping(15)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/telegram_image_ingest.log'));
+
         $schedule->exec($this->hiddenBatchCommand('ensure_tg_scan_group_media.bat'))
             ->hourlyAt(24)
             ->name('blog-ensure-tg-scan-group-media');

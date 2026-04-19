@@ -1,143 +1,231 @@
 <?php
 
-    namespace App\Http\Controllers;
+namespace App\Http\Controllers;
 
-    use App\Models\Article;
-    use Exception;
-    use GuzzleHttp\Client;
-    use GuzzleHttp\Exception\GuzzleException;
-    use DOMDocument;
-    use DOMXPath;
-    use Illuminate\Support\Carbon;
-    use Illuminate\Support\Facades\DB;
-    use Illuminate\Support\Facades\Log;
+use App\Models\Article;
+use DOMDocument;
+use DOMXPath;
+use Exception;
+use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
+use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
-    class GetBtDataDetailController
+class GetBtDataDetailController
+{
+    private const SOURCE_TYPE_BT = 2;
+
+    protected Client $client;
+
+    private GetRealImageController $getRealImageController;
+
+    public function __construct(GetRealImageController $getRealImageController)
     {
-        protected $client;
-        /**
-         * @var GetRealImageController
-         */
-        private $getRealImageController;
+        $this->getRealImageController = $getRealImageController;
+        $this->client = new Client([
+            'allow_redirects' => [
+                'max' => 20,
+                'strict' => true,
+                'referer' => true,
+                'protocols' => ['http', 'https'],
+                'track_redirects' => true,
+            ],
+        ]);
+    }
 
-        public function __construct(GetRealImageController $getRealImageController)
-        {
-            $this->getRealImageController = $getRealImageController;
-            $this->client = new Client([
-                // 允許更多重新導向
-                'allow_redirects' => [
-                    'max'             => 20,  // 最大重新導向次數
-                    'strict'          => true,  // 根據規範嚴格執行重新導向
-                    'referer'         => true,  // 在重新導向時添加 Referer header
-                    'protocols'       => ['http', 'https'],  // 允許的協議
-                    'track_redirects' => true  // 跟蹤並記錄所有的重新導向鏈
-                ],
-            ]);
+    public function fetchDetail(string $detailPageUrl): void
+    {
+        $detailPageUrl = trim($detailPageUrl);
+
+        if ($detailPageUrl === '') {
+            return;
         }
 
-        public function fetchDetail(string $detailPageUrl)
-        {
-            DB::beginTransaction(); // 開始一個新的數據庫事務
-            try {
-                // 第一次請求取得網頁內容
-                $response    = $this->client->request('GET', $detailPageUrl, ['verify' => false]);
-                $htmlContent = $response->getBody()->getContents();
+        $lock = $this->acquireDetailLock($detailPageUrl);
 
-                // 解析 DOM，取得標題、時間、磁力連結與下載連結
-                $dom   = new DOMDocument();
+        if ($lock === false) {
+            Log::info('BT detail skipped because another crawler is already processing the same URL', [
+                'url' => $detailPageUrl,
+            ]);
+
+            return;
+        }
+
+        if ($lock === null) {
+            Log::warning('BT detail skipped because the Redis lock store is unavailable', [
+                'url' => $detailPageUrl,
+            ]);
+
+            return;
+        }
+
+        try {
+            if ($this->articleExists($detailPageUrl)) {
+                echo "文章已存在，跳過儲存。\r\n";
+
+                return;
+            }
+
+            $response = $this->client->request('GET', $detailPageUrl, ['verify' => false]);
+            $htmlContent = $response->getBody()->getContents();
+
+            $dom = new DOMDocument();
+            @$dom->loadHTML($htmlContent);
+            $xpath = new DOMXPath($dom);
+
+            $titleNode = $xpath->query('//h3[@class="panel-title"]')->item(0);
+            $title = $titleNode ? trim($titleNode->nodeValue) : '';
+
+            $timeNode = $xpath->query('//div[@class="row"]/div[@class="col-md-1" and text()="Date:"]/following-sibling::div[@class="col-md-5"]')->item(0);
+            $articleTime = $timeNode ? trim($timeNode->nodeValue) : '';
+            $articleTime = str_replace(' UTC', '', $articleTime);
+            $articleTimeWithSeconds = Carbon::createFromFormat('Y-m-d H:i', $articleTime, 'Asia/Taipei')
+                ->format('Y-m-d H:i:s');
+
+            $magnetLinkNode = $xpath->query('//a[contains(@href,"magnet:?xt=")]')->item(0);
+            $magnetLink = $magnetLinkNode ? trim($magnetLinkNode->getAttribute('href')) : '';
+
+            $downloadLinkNode = $xpath->query('//div[@class="panel-footer clearfix"]/a[contains(@href,"/download/")]')->item(0);
+            $baseUrl = parse_url($detailPageUrl, PHP_URL_SCHEME) . '://' . parse_url($detailPageUrl, PHP_URL_HOST);
+            $downloadLink = $downloadLinkNode ? $baseUrl . trim($downloadLinkNode->getAttribute('href')) : '';
+
+            $attempt = 0;
+            $imageUrls = [];
+
+            do {
+                $dom = new DOMDocument();
                 @$dom->loadHTML($htmlContent);
                 $xpath = new DOMXPath($dom);
 
-                $titleNode = $xpath->query('//h3[@class="panel-title"]')->item(0);
-                $title     = $titleNode ? trim($titleNode->nodeValue) : '';
+                $descriptionNode = $xpath->query('//div[contains(@id,"torrent-description")]')->item(0);
+                $imageUrls = [];
 
-                $timeNode    = $xpath->query('//div[@class="row"]/div[@class="col-md-1" and text()="Date:"]/following-sibling::div[@class="col-md-5"]')->item(0);
-                $articleTime = $timeNode ? trim($timeNode->nodeValue) : '';
-                $articleTime = str_replace(" UTC", "", $articleTime);
-                $articleTimeWithSeconds = Carbon::createFromFormat('Y-m-d H:i', $articleTime, 'Asia/Taipei')->format('Y-m-d H:i:s');
+                if ($descriptionNode) {
+                    $lines = explode("\n", $descriptionNode->textContent);
+                    foreach ($lines as $line) {
+                        if (preg_match('/https:\/\/.*?\.jpg/', $line, $matches)) {
+                            $imageUrls[] = $matches[0];
+                        }
+                    }
+                }
 
-                // 若文章已存在則跳過
-                $existingArticle = Article::where('title', $title)->first();
-                if ($existingArticle) {
-                    echo "文章已存在，跳過儲存。\r\n";
-                    DB::commit();
+                if ($imageUrls !== []) {
+                    break;
+                }
+
+                sleep(30);
+                $attempt++;
+                $response = $this->client->request('GET', $detailPageUrl, ['verify' => false]);
+                $htmlContent = $response->getBody()->getContents();
+            } while ($attempt < 5);
+
+            DB::transaction(function () use (
+                $detailPageUrl,
+                $title,
+                $magnetLink,
+                $downloadLink,
+                $articleTimeWithSeconds,
+                $imageUrls
+            ): void {
+                if ($this->articleExists($detailPageUrl)) {
                     return;
                 }
 
-                $magnetLinkNode = $xpath->query('//a[contains(@href,"magnet:?xt=")]')->item(0);
-                $magnetLink     = $magnetLinkNode ? trim($magnetLinkNode->getAttribute('href')) : '';
-
-                $downloadLinkNode = $xpath->query('//div[@class="panel-footer clearfix"]/a[contains(@href,"/download/")]')->item(0);
-                $baseUrl          = parse_url($detailPageUrl, PHP_URL_SCHEME) . '://' . parse_url($detailPageUrl, PHP_URL_HOST);
-                $downloadLink     = $downloadLinkNode ? $baseUrl . trim($downloadLinkNode->getAttribute('href')) : '';
-
-                // 重試機制：嘗試取得圖片，最多重試5次，每次失敗後等待30秒
-                $attempt = 0;
-                $imageUrls = [];
-                do {
-                    // 解析 DOM 從說明內容中取得圖片網址
-                    $dom = new DOMDocument();
-                    @$dom->loadHTML($htmlContent);
-                    $xpath = new DOMXPath($dom);
-
-                    $descriptionNode = $xpath->query('//div[contains(@id,"torrent-description")]')->item(0);
-                    $imageUrls = [];
-                    if ($descriptionNode) {
-                        $lines = explode("\n", $descriptionNode->textContent);
-                        foreach ($lines as $line) {
-                            if (preg_match('/https:\/\/.*?\.jpg/', $line, $matches)) {
-                                $imageUrls[] = $matches[0];
-                            }
-                        }
-                    }
-
-                    if (!empty($imageUrls)) {
-                        break;
-                    }
-
-                    // 若未取得圖片，等待30秒後重新抓取網頁內容再重試
-                    sleep(30);
-                    $attempt++;
-                    $response    = $this->client->request('GET', $detailPageUrl, ['verify' => false]);
-                    $htmlContent = $response->getBody()->getContents();
-                } while ($attempt < 5);
-
-                // 建立文章記錄，若重試5次後仍無圖片，則以無圖片狀態儲存
                 $article = Article::create([
-                    'title'        => $title,
-                    'password'     => $magnetLink,
-                    'https_link'   => $downloadLink,
-                    'detail_url'   => $detailPageUrl,
+                    'title' => $title,
+                    'password' => $magnetLink,
+                    'https_link' => $downloadLink,
+                    'detail_url' => $detailPageUrl,
                     'article_time' => $articleTimeWithSeconds,
-                    'source_type'  => 2,
-                    'is_disabled'  => 0,
+                    'source_type' => self::SOURCE_TYPE_BT,
+                    'is_disabled' => 0,
                 ]);
 
-                // 處理圖片，若有抓到圖片則存入資料庫
-                if (!empty($imageUrls)) {
-                    foreach ($imageUrls as $imageUrl) {
-                        try {
-                            $realUrl = $this->getRealImageController->processImage($imageUrl);
+                if ($imageUrls === []) {
+                    Log::error('沒有找到圖片，儲存文章但無圖片', ['url' => $detailPageUrl]);
 
-                            $existingImage = $article->images()->where('image_path', $realUrl)->first();
-                            if (!$existingImage && $realUrl) {
-                                $article->images()->create([
-                                    'image_name' => basename($realUrl),
-                                    'image_path' => $realUrl,
-                                ]);
-                            }
-                        } catch (Exception $e) {
-                            Log::error("圖片處理失敗", ['url' => $imageUrl, 'error' => $e->getMessage()]);
-                        }
-                    }
-                } else {
-                    Log::error("沒有找到圖片，儲存文章但無圖片", ['url' => $detailPageUrl]);
+                    return;
                 }
 
-                DB::commit(); // 提交事務
-            } catch (GuzzleException $e) {
-                DB::rollBack(); // 回滾事務
-                Log::error("請求失敗", ['url' => $detailPageUrl, 'error' => $e->getMessage()]);
-            }
+                foreach (array_values(array_unique($imageUrls)) as $imageUrl) {
+                    try {
+                        $realUrl = $this->getRealImageController->processImage($imageUrl);
+
+                        if (!$realUrl) {
+                            continue;
+                        }
+
+                        $existingImage = $article->images()
+                            ->where('image_path', $realUrl)
+                            ->exists();
+
+                        if (!$existingImage) {
+                            $article->images()->create([
+                                'image_name' => basename($realUrl),
+                                'image_path' => $realUrl,
+                            ]);
+                        }
+                    } catch (Exception $e) {
+                        Log::error('圖片處理失敗', [
+                            'url' => $imageUrl,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            });
+        } catch (GuzzleException $e) {
+            Log::error('請求失敗', [
+                'url' => $detailPageUrl,
+                'error' => $e->getMessage(),
+            ]);
+        } finally {
+            $this->releaseDetailLock($lock);
         }
     }
+
+    private function articleExists(string $detailPageUrl): bool
+    {
+        return Article::query()
+            ->where('source_type', self::SOURCE_TYPE_BT)
+            ->where('detail_url', $detailPageUrl)
+            ->exists();
+    }
+
+    /**
+     * @return Lock|false|null false means the URL is already being processed, null means Redis locking is unavailable.
+     */
+    private function acquireDetailLock(string $detailPageUrl): Lock|false|null
+    {
+        try {
+            $lock = Cache::lock(
+                $this->detailLockKey($detailPageUrl),
+                (int) config('bt.detail_lock_seconds', 900)
+            );
+
+            return $lock->get() ? $lock : false;
+        } catch (Throwable $e) {
+            Log::warning('BT detail lock unavailable', [
+                'url' => $detailPageUrl,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    private function releaseDetailLock(?Lock $lock): void
+    {
+        if ($lock instanceof Lock) {
+            $lock->release();
+        }
+    }
+
+    private function detailLockKey(string $detailPageUrl): string
+    {
+        return 'bt-crawler:detail:' . sha1($detailPageUrl);
+    }
+}

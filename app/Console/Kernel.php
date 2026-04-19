@@ -13,17 +13,19 @@ class Kernel extends ConsoleKernel
         $restoreWorkerEnvPath = str_replace('\\', '/', base_path('storage/app/telegram-filestore-local-workers/worker.env'));
 
         // Content jobs
-        $schedule->command('get-bt')
-            ->cron('0 5,17 * * *')
-            ->name('blog-get-bt')
-            ->withoutOverlapping(720)
-            ->runInBackground()
-            ->onSuccess(function () {
-                \Log::info('Command get-bt executed successfully');
-            })
-            ->onFailure(function () {
-                \Log::error('Command get-bt failed');
-            });
+        if (config('bt.crawler_enabled', true)) {
+            $schedule->command('get-bt')
+                ->cron('0 5,17 * * *')
+                ->name('blog-get-bt')
+                ->withoutOverlapping(720)
+                ->runInBackground()
+                ->onSuccess(function () {
+                    \Log::info('Command get-bt executed successfully');
+                })
+                ->onFailure(function () {
+                    \Log::error('Command get-bt failed');
+                });
+        }
 
         $schedule->command('article:extract-number')
             ->dailyAt('02:00')

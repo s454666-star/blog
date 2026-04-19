@@ -9,6 +9,29 @@ use Tests\TestCase;
 
 class PresetCommandRunnerServiceTest extends TestCase
 {
+    public function test_it_builds_exact_duplicate_delete_preset_with_custom_path(): void
+    {
+        $service = new PresetCommandRunnerService();
+
+        $preset = $service->getPreset('delete_exact_video_duplicates', [
+            'path' => 'C:\\Users\\User\\Videos\\暫',
+        ]);
+
+        $this->assertSame('delete_exact_video_duplicates', $preset['id']);
+        $this->assertCount(1, $preset['inputs']);
+        $this->assertSame('C:\\Users\\User\\Videos\\暫', $preset['inputs'][0]['value']);
+        $this->assertSame([
+            'C:\\php\\php.exe',
+            'artisan',
+            'video:delete-exact-duplicates',
+            'C:\\Users\\User\\Videos\\暫',
+        ], $preset['steps'][0]['command']);
+        $this->assertStringContainsString(
+            'video:delete-exact-duplicates "C:\\Users\\User\\Videos\\暫"',
+            $preset['command_preview']
+        );
+    }
+
     public function test_it_builds_reencode_preset_with_optional_blank_video(): void
     {
         $service = new PresetCommandRunnerService();

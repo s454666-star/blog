@@ -26,9 +26,10 @@ class PresetCommandRunnerService
             'dispatch_remaining_tokens' => 1,
             'move_video_duplicates' => 2,
             'move_folder_duplicates' => 3,
-            'scan_video_duplicates' => 4,
-            'sync_rerun_video_sources' => 5,
-            'reencode_video_medium_high' => 6,
+            'delete_exact_video_duplicates' => 4,
+            'scan_video_duplicates' => 5,
+            'sync_rerun_video_sources' => 6,
+            'reencode_video_medium_high' => 7,
         ];
 
         foreach (self::catalog() as $id => $preset) {
@@ -889,6 +890,34 @@ class PresetCommandRunnerService
                 'command_preview_template' => implode("\n", [
                     'cd ' . self::WORKDIR,
                     'php artisan video:move-folder-duplicates "__PATH__"',
+                ]),
+                'steps' => [],
+            ],
+            'delete_exact_video_duplicates' => [
+                'eyebrow' => 'Exact Binary Match',
+                'title' => '掃描完全相同影片並直接刪除重複檔',
+                'summary' => '只看檔案本身；同檔案大小且 SHA-256 完全一樣才刪除，不做截圖比對，大小不同就保留。',
+                'details' => '這組專門處理 C:\\Users\\User\\Videos\\暫 這種暫存資料夾裡的完全相同影片。流程會先用檔案大小分組，再算 SHA-256；只有內容完全一模一樣才會視為重複。每組保留最早那份，後面的直接刪除。若只是畫面像、甚至 duration 一樣，但檔案內容不同，就不會動。',
+                'highlights' => [
+                    '只看檔案內容，不做任何截圖比對。',
+                    '同一組完全相同內容只保留最早那份，後面的直接刪掉。',
+                    '只要檔案大小不同或 SHA-256 不同，就保留不刪。',
+                    '預設直接帶入 C:\\Users\\User\\Videos\\暫。',
+                ],
+                'tags' => ['sha256', 'exact duplicate', '直接刪除'],
+                'accent_from' => '#4f8f6c',
+                'accent_to' => '#c8de7c',
+                'accent_soft' => 'rgba(79, 143, 108, 0.20)',
+                'command_name' => 'video:delete-exact-duplicates',
+                'path_input' => [
+                    'name' => 'path',
+                    'label' => '資料夾位置',
+                    'placeholder' => 'C:\\Users\\User\\Videos\\暫',
+                    'default' => 'C:\\Users\\User\\Videos\\暫',
+                ],
+                'command_preview_template' => implode("\n", [
+                    'cd ' . self::WORKDIR,
+                    'php artisan video:delete-exact-duplicates "__PATH__"',
                 ]),
                 'steps' => [],
             ],

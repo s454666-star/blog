@@ -26,6 +26,7 @@ class CommandRunnerControllerTest extends TestCase
         $response->assertSee('掃群組 token 並送去指定 port');
         $response->assertSee('掃描並刪除和 DB / 暫存索引重複的影片');
         $response->assertSee('掃描指定資料夾內彼此重複的影片');
+        $response->assertSee('掃描完全相同影片並直接刪除重複檔');
         $response->assertSee('掃描資料夾重複影片（只掃描不搬移）');
         $response->assertSee('影片重新編碼（中高碼率）');
         $response->assertSee('比對 DB / 重跑 / Eagle 三邊差異');
@@ -103,6 +104,40 @@ class CommandRunnerControllerTest extends TestCase
         $response = $this->postJson(route('command-runner.run'), [
             'preset' => 'move_video_duplicates',
             'path' => 'C:\\incoming\\video-folder',
+        ]);
+
+        $response->assertOk();
+        $response->assertExactJson($expected);
+    }
+
+    public function test_run_endpoint_forwards_exact_duplicate_path_to_runner(): void
+    {
+        $expected = [
+            'preset' => [
+                'id' => 'delete_exact_video_duplicates',
+                'title' => '掃描完全相同影片並直接刪除重複檔',
+                'summary' => '只看檔案本身；同檔案大小且 SHA-256 完全一樣才刪除，不做截圖比對，大小不同就保留。',
+            ],
+            'success' => true,
+            'exit_code' => 0,
+            'duration_ms' => 1357,
+            'finished_at' => '2026-04-19 15:42:00',
+            'output' => "exact duplicate output\n",
+        ];
+
+        $mock = Mockery::mock(PresetCommandRunnerService::class);
+        $mock->shouldReceive('run')
+            ->once()
+            ->with('delete_exact_video_duplicates', [
+                'path' => 'C:\\Users\\User\\Videos\\暫',
+            ])
+            ->andReturn($expected);
+
+        $this->app->instance(PresetCommandRunnerService::class, $mock);
+
+        $response = $this->postJson(route('command-runner.run'), [
+            'preset' => 'delete_exact_video_duplicates',
+            'path' => 'C:\\Users\\User\\Videos\\暫',
         ]);
 
         $response->assertOk();

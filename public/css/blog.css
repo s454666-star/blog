@@ -77,8 +77,10 @@
 
 .article-info {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
     margin-bottom: 10px;
 }
 
@@ -744,7 +746,7 @@ body .container {
     gap: 14px !important;
 }
 
-.actions button, .search-form button, .button-group button, .button-group a, .custom-btn, .batch-delete-btn, .preserve-btn, .toggle-view-btn, .toggle-images, .password-btn, .link-btn, .seed-link-btn, .download-btn, a.seed-link-btn, a.download-btn {
+.actions button, .search-form button, .button-group button, .button-group a, .custom-btn, .batch-delete-btn, .preserve-btn, .toggle-view-btn, .toggle-images, .password-btn, .link-btn, .seed-link-btn, .download-btn, .rerun-btn, a.seed-link-btn, a.download-btn {
     box-sizing: border-box !important;
     height: var(--ui-btn-h) !important;
     min-height: var(--ui-btn-h) !important;
@@ -771,14 +773,14 @@ body .container {
     pointer-events: auto !important;
 }
 
-.actions button:hover, .search-form button:hover, .button-group button:hover, .button-group a:hover, .custom-btn:hover, .batch-delete-btn:hover, .preserve-btn:hover, .toggle-view-btn:hover, .toggle-images:hover, .password-btn:hover, .link-btn:hover, .seed-link-btn:hover, .download-btn:hover, a.seed-link-btn:hover, a.download-btn:hover {
+.actions button:hover, .search-form button:hover, .button-group button:hover, .button-group a:hover, .custom-btn:hover, .batch-delete-btn:hover, .preserve-btn:hover, .toggle-view-btn:hover, .toggle-images:hover, .password-btn:hover, .link-btn:hover, .seed-link-btn:hover, .download-btn:hover, .rerun-btn:hover, a.seed-link-btn:hover, a.download-btn:hover {
     transform: translateY(-2px) !important;
     filter: brightness(1.10) saturate(1.08) !important;
     box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.14),
     0 18px 44px rgba(0, 0, 0, 0.26) !important;
 }
 
-.actions button:active, .search-form button:active, .button-group button:active, .button-group a:active, .custom-btn:active, .batch-delete-btn:active, .preserve-btn:active, .toggle-view-btn:active, .toggle-images:active, .password-btn:active, .link-btn:active, .seed-link-btn:active, .download-btn:active, a.seed-link-btn:active, a.download-btn:active {
+.actions button:active, .search-form button:active, .button-group button:active, .button-group a:active, .custom-btn:active, .batch-delete-btn:active, .preserve-btn:active, .toggle-view-btn:active, .toggle-images:active, .password-btn:active, .link-btn:active, .seed-link-btn:active, .download-btn:active, .rerun-btn:active, a.seed-link-btn:active, a.download-btn:active {
     transform: translateY(0) !important;
     filter: brightness(0.98) !important;
     box-shadow: 0 10px 18px rgba(0, 0, 0, 0.18) !important;
@@ -814,6 +816,10 @@ a.link-btn, .link-btn {
 
 .download-btn, a.download-btn {
     background-color: #007bff !important;
+}
+
+.rerun-btn {
+    background-color: #f97316 !important;
 }
 
 .search-form button {
@@ -997,7 +1003,7 @@ body::after {
     box-shadow: 0 0 0 4px rgba(59,130,246,0.18);
 }
 
-.ui-btn, .search-form button, .actions .custom-btn, .button-group button, .button-group a, .seed-link-btn, .download-btn, .link-btn, .password-btn, .toggle-images {
+.ui-btn, .search-form button, .actions .custom-btn, .button-group button, .button-group a, .seed-link-btn, .download-btn, .link-btn, .password-btn, .toggle-images, .rerun-btn {
     height: 52px;
     min-height: 52px;
     width: 160px;
@@ -1020,19 +1026,19 @@ body::after {
     transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
 }
 
-.ui-btn:hover, .search-form button:hover, .actions .custom-btn:hover, .button-group button:hover, .button-group a:hover, .seed-link-btn:hover, .download-btn:hover, .link-btn:hover, .password-btn:hover, .toggle-images:hover {
+.ui-btn:hover, .search-form button:hover, .actions .custom-btn:hover, .button-group button:hover, .button-group a:hover, .seed-link-btn:hover, .download-btn:hover, .link-btn:hover, .password-btn:hover, .toggle-images:hover, .rerun-btn:hover {
     transform: translateY(-1px);
     filter: brightness(1.07);
     box-shadow: 0 14px 28px rgba(0,0,0,0.22);
     opacity: 0.98;
 }
 
-.ui-btn:active, .search-form button:active, .actions .custom-btn:active, .button-group button:active, .button-group a:active, .seed-link-btn:active, .download-btn:active, .link-btn:active, .password-btn:active, .toggle-images:active {
+.ui-btn:active, .search-form button:active, .actions .custom-btn:active, .button-group button:active, .button-group a:active, .seed-link-btn:active, .download-btn:active, .link-btn:active, .password-btn:active, .toggle-images:active, .rerun-btn:active {
     transform: translateY(0);
     filter: brightness(0.98);
 }
 
-.ui-btn:focus-visible, .search-form button:focus-visible, .actions .custom-btn:focus-visible, .button-group button:focus-visible, .button-group a:focus-visible, .seed-link-btn:focus-visible, .download-btn:focus-visible, .link-btn:focus-visible, .password-btn:focus-visible, .toggle-images:focus-visible {
+.ui-btn:focus-visible, .search-form button:focus-visible, .actions .custom-btn:focus-visible, .button-group button:focus-visible, .button-group a:focus-visible, .seed-link-btn:focus-visible, .download-btn:focus-visible, .link-btn:focus-visible, .password-btn:focus-visible, .toggle-images:focus-visible, .rerun-btn:focus-visible {
     outline: none;
     box-shadow: 0 0 0 4px rgba(59,130,246,0.25), 0 14px 28px rgba(0,0,0,0.22);
 }
@@ -1063,6 +1069,10 @@ body::after {
 
 .link-btn {
     background: linear-gradient(135deg, #0ea5e9, #2563eb);
+}
+
+.rerun-btn {
+    background: linear-gradient(135deg, #f97316, #ef4444);
 }
 
 .actions {
@@ -1165,7 +1175,7 @@ body::after {
         padding: 16px;
     }
 
-    .ui-btn, .search-form button, .actions .custom-btn, .button-group button, .button-group a, .seed-link-btn, .download-btn, .link-btn, .password-btn, .toggle-images {
+    .ui-btn, .search-form button, .actions .custom-btn, .button-group button, .button-group a, .seed-link-btn, .download-btn, .link-btn, .password-btn, .toggle-images, .rerun-btn {
         width: 100%;
         min-width: 100%;
     }
@@ -1179,4 +1189,46 @@ body::after {
 
 .article[data-images-hidden="1"] img.article-image, .article[data-images-hidden="1"] .article-images img, .article[data-images-hidden="1"] .article-info img {
     display: none !important;
+}
+
+.bt-flash {
+    margin-bottom: 16px;
+    padding: 14px 18px;
+    border-radius: 16px;
+    font-size: 16px;
+    font-weight: 700;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+}
+
+.bt-flash-success {
+    background: rgba(34, 197, 94, 0.15);
+    border: 1px solid rgba(22, 163, 74, 0.28);
+    color: #166534;
+}
+
+.bt-flash-error {
+    background: rgba(239, 68, 68, 0.14);
+    border: 1px solid rgba(220, 38, 38, 0.28);
+    color: #991b1b;
+}
+
+.bt-image-state {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 16px;
+    border-radius: 999px;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.bt-image-state-ready {
+    background: rgba(34, 197, 94, 0.14);
+    color: #166534;
+}
+
+.bt-image-state-missing {
+    background: rgba(249, 115, 22, 0.16);
+    color: #9a3412;
 }

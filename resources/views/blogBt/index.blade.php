@@ -3,6 +3,14 @@
 
 @section('content')
     <div class="container">
+        @if (session('success'))
+            <div class="bt-flash bt-flash-success">{{ session('success') }}</div>
+        @endif
+
+        @if (session('error'))
+            <div class="bt-flash bt-flash-error">{{ session('error') }}</div>
+        @endif
+
         <!-- Search Form -->
         <form action="{{ route('blogBt.index') }}" method="GET" class="search-form">
             <input type="text" name="search" placeholder="搜尋文章..." value="{{ request()->search }}">
@@ -45,12 +53,26 @@
                                 onclick="window.open('{{ $article->https_link }}', '_blank', 'noopener')">
                             下載
                         </button>
+
+                        @if ((int) $article->images_count === 0)
+                            <span class="bt-image-state bt-image-state-missing">目前沒有圖片，可直接重跑</span>
+                            <button type="button"
+                                    class="rerun-btn bt-rerun-btn"
+                                    data-rerun-url="{{ route('blogBt.rerun', $article->article_id) }}"
+                                    data-rerun-title="{{ e($article->title) }}">
+                                重跑
+                            </button>
+                        @else
+                            <span class="bt-image-state bt-image-state-ready">圖片 {{ $article->images_count }} 張</span>
+                        @endif
                     </div>
 
-                    <!-- Toggle Images Button -->
-                    <button type="button" class="toggle-images" data-target="#images-{{ $article->article_id }}" style="background-color: #8e44ad !important;">
-                        隱藏圖片
-                    </button>
+                    @if ((int) $article->images_count > 0)
+                        <!-- Toggle Images Button -->
+                        <button type="button" class="toggle-images" data-target="#images-{{ $article->article_id }}" style="background-color: #8e44ad !important;">
+                            隱藏圖片
+                        </button>
+                    @endif
 
                     <!-- Article Images -->
                     <div id="images-{{ $article->article_id }}" class="article-images">
@@ -65,6 +87,10 @@
             <div class="pagination-container">
                 {{ $articles->appends(request()->query())->links() }}
             </div>
+        </form>
+
+        <form id="bt-rerun-form" method="POST" hidden>
+            @csrf
         </form>
     </div>
 
@@ -133,6 +159,33 @@
                     e.stopPropagation();
                     const raw = this.getAttribute('data-seed-link') || '';
                     openSeedOrUrl(raw);
+                });
+            });
+
+            document.querySelectorAll('.bt-rerun-btn').forEach(btn => {
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const rerunUrl = this.getAttribute('data-rerun-url') || '';
+                    const title = this.getAttribute('data-rerun-title') || '這篇 BT 文章';
+                    if (!rerunUrl) {
+                        showToast('找不到重跑網址');
+                        return;
+                    }
+
+                    if (!window.confirm(`確定要重跑這篇無圖片文章嗎？\n\n${title}`)) {
+                        return;
+                    }
+
+                    const rerunForm = document.getElementById('bt-rerun-form');
+                    if (!rerunForm) {
+                        showToast('找不到重跑表單');
+                        return;
+                    }
+
+                    rerunForm.setAttribute('action', rerunUrl);
+                    rerunForm.submit();
                 });
             });
 

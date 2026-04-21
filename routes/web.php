@@ -103,6 +103,7 @@ Route::prefix('blog')->group(function () {
 
 Route::get('/blog-bt', [ BlogBtController::class, 'index' ])->name('blogBt.index');
 Route::get('/bt', [ BlogBtController::class, 'index' ])->name('blogBt.index');
+Route::post('/blog-bt/{article}/rerun', [BlogBtController::class, 'rerun'])->name('blogBt.rerun');
 
 Route::get('/ocr', function () {
     return view('ocr');

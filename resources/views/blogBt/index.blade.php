@@ -60,7 +60,7 @@
                             @if ((int) $article->images_count === 0)
                                 <span class="bt-image-state bt-image-state-missing">目前沒有圖片，可直接重跑</span>
                                 <button type="button"
-                                        class="rerun-btn bt-rerun-btn"
+                                        class="download-btn rerun-btn bt-rerun-btn"
                                         data-rerun-url="{{ route('blogBt.rerun', $article->article_id) }}"
                                         data-rerun-title="{{ e($article->title) }}">
                                     重跑
@@ -172,13 +172,8 @@
                     e.stopPropagation();
 
                     const rerunUrl = this.getAttribute('data-rerun-url') || '';
-                    const title = this.getAttribute('data-rerun-title') || '這篇 BT 文章';
                     if (!rerunUrl) {
                         showToast('找不到重跑網址');
-                        return;
-                    }
-
-                    if (!window.confirm(`確定要重跑這篇無圖片文章嗎？\n\n${title}`)) {
                         return;
                     }
 

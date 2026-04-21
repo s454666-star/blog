@@ -40,31 +40,35 @@
 
                     <!-- Article Info Buttons -->
                     <div class="article-info">
-                        <!-- 重要：加上 type="button"，避免提交表單 -->
-                        <button type="button"
-                                class="seed-link-btn"
-                                data-seed-link="{{ e($article->password) }}">
-                            種子鏈結
-                        </button>
-
-                        <!-- 重要：加上 type="button"，避免提交表單 -->
-                        <button type="button"
-                                class="download-btn"
-                                onclick="window.open('{{ $article->https_link }}', '_blank', 'noopener')">
-                            下載
-                        </button>
-
-                        @if ((int) $article->images_count === 0)
-                            <span class="bt-image-state bt-image-state-missing">目前沒有圖片，可直接重跑</span>
+                        <div class="article-info-actions">
+                            <!-- 重要：加上 type="button"，避免提交表單 -->
                             <button type="button"
-                                    class="rerun-btn bt-rerun-btn"
-                                    data-rerun-url="{{ route('blogBt.rerun', $article->article_id) }}"
-                                    data-rerun-title="{{ e($article->title) }}">
-                                重跑
+                                    class="seed-link-btn"
+                                    data-seed-link="{{ e($article->password) }}">
+                                種子鏈結
                             </button>
-                        @else
-                            <span class="bt-image-state bt-image-state-ready">圖片 {{ $article->images_count }} 張</span>
-                        @endif
+
+                            <!-- 重要：加上 type="button"，避免提交表單 -->
+                            <button type="button"
+                                    class="download-btn"
+                                    onclick="window.open('{{ $article->https_link }}', '_blank', 'noopener')">
+                                下載
+                            </button>
+                        </div>
+
+                        <div class="article-info-meta">
+                            @if ((int) $article->images_count === 0)
+                                <span class="bt-image-state bt-image-state-missing">目前沒有圖片，可直接重跑</span>
+                                <button type="button"
+                                        class="rerun-btn bt-rerun-btn"
+                                        data-rerun-url="{{ route('blogBt.rerun', $article->article_id) }}"
+                                        data-rerun-title="{{ e($article->title) }}">
+                                    重跑
+                                </button>
+                            @else
+                                <span class="bt-image-state bt-image-state-ready">圖片 {{ $article->images_count }} 張</span>
+                            @endif
+                        </div>
                     </div>
 
                     @if ((int) $article->images_count > 0)

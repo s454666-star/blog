@@ -77,16 +77,29 @@
 
 .article-info {
     display: flex;
-    justify-content: flex-start;
+    justify-content: space-between;
     align-items: center;
     flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 10px;
+    gap: 16px;
+    margin-bottom: 14px;
 }
 
 .article-info p, .article-info a {
     margin: 0;
     padding: 0;
+}
+
+.article-info-actions,
+.article-info-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.article-info-meta {
+    margin-left: auto;
+    justify-content: flex-end;
 }
 
 .pagination-button {
@@ -223,7 +236,7 @@
     text-decoration: none;
     font-size: 16px;
     transition: background 0.3s ease-in-out;
-    margin-right: 10px;
+    margin-right: 0;
 }
 
 .seed-link-btn {
@@ -1215,12 +1228,14 @@ body::after {
 .bt-image-state {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     min-height: 44px;
     padding: 0 16px;
     border-radius: 999px;
     font-size: 15px;
     font-weight: 700;
     line-height: 1;
+    text-align: center;
 }
 
 .bt-image-state-ready {
@@ -1231,4 +1246,41 @@ body::after {
 .bt-image-state-missing {
     background: rgba(249, 115, 22, 0.16);
     color: #9a3412;
+}
+
+.article-info .rerun-btn,
+.article-info .seed-link-btn,
+.article-info .download-btn {
+    flex: 0 0 auto;
+}
+
+.article-info .rerun-btn {
+    width: 160px !important;
+    min-width: 160px !important;
+    height: 52px !important;
+    min-height: 52px !important;
+    padding: 0 18px !important;
+    border-radius: 14px !important;
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+@media (max-width: 900px) {
+    .article-info {
+        align-items: stretch;
+    }
+
+    .article-info-actions,
+    .article-info-meta {
+        width: 100%;
+    }
+
+    .article-info-meta {
+        margin-left: 0;
+        justify-content: flex-start;
+    }
 }

@@ -26,7 +26,8 @@ class FaceIdentityController extends Controller
         }
 
         $peopleQuery = FaceIdentityPerson::query()
-            ->where('video_count', '>', 0);
+            ->where('video_count', '>', 0)
+            ->withMax('videos', 'file_modified_at');
 
         if ($q !== '') {
             $peopleQuery->where(function ($query) use ($q): void {
@@ -57,10 +58,12 @@ class FaceIdentityController extends Controller
                             },
                         ])
                         ->withCount('samples')
+                        ->orderByDesc('file_modified_at')
                         ->orderByDesc('last_scanned_at')
-                        ->orderBy('id');
+                        ->orderByDesc('id');
                 },
             ])
+            ->orderByDesc('videos_max_file_modified_at')
             ->orderByDesc('last_seen_at')
             ->orderByDesc('id')
             ->paginate($perPage)

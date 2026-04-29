@@ -242,6 +242,8 @@ class MoveDuplicateVideosCommand extends Command
                     'db_best_compared_frames' => is_array($databaseAnalysis['best_result'] ?? null)
                         ? ($databaseAnalysis['best_result']['compared_frames'] ?? null)
                         : null,
+                    'db_repaired_feature_count' => (int) ($databaseAnalysis['repaired_database_feature_count'] ?? 0),
+                    'db_repaired_feature_ids' => $databaseAnalysis['repaired_database_feature_ids'] ?? [],
                 ]);
                 $baseLogOptions = [
                     'scan_root_path' => $path,

@@ -4,9 +4,11 @@ namespace Tests\Unit;
 
 use App\Models\VideoFeature;
 use App\Models\VideoFeatureFrame;
+use App\Models\VideoMaster;
 use App\Services\VideoDuplicateDetectionService;
 use App\Services\VideoFeatureExtractionService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
 use Tests\TestCase;
@@ -32,6 +34,7 @@ class VideoDuplicateDetectionServiceTest extends TestCase
             $table->id();
             $table->string('video_name', 255)->nullable();
             $table->string('video_path', 500)->nullable();
+            $table->decimal('duration', 10, 3)->nullable();
             $table->timestamps();
         });
 
@@ -707,6 +710,138 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         $this->assertSame(2, $analysis['best_result']['required_matches']);
         $this->assertSame('standard_min_match', $analysis['best_result']['match_rule']);
         $this->assertFalse($analysis['best_result']['passes_threshold']);
+    }
+
+    public function test_database_match_repairs_incomplete_feature_when_source_file_exists(): void
+    {
+        DB::table('video_master')->insert([
+            'id' => 112,
+            'video_name' => 'repairable.mp4',
+            'video_path' => '\\repairable.mp4',
+            'duration' => 91.916,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $feature = VideoFeature::query()->create([
+            'video_master_id' => 112,
+            'video_name' => 'repairable.mp4',
+            'video_path' => '\\repairable.mp4',
+            'file_name' => 'repairable.mp4',
+            'duration_seconds' => 91.916,
+            'screenshot_count' => 0,
+            'capture_rule' => '10s_x4',
+            'feature_version' => 'v1',
+            'last_error' => 'ffprobe 失敗：',
+        ]);
+
+        $repairDir = storage_path('framework/testing/video-duplicate-repair');
+        File::ensureDirectoryExists($repairDir);
+        $sourcePath = $repairDir . DIRECTORY_SEPARATOR . 'repairable.mp4';
+        file_put_contents($sourcePath, 'video-placeholder');
+
+        $extractionService = new class($sourcePath) extends VideoFeatureExtractionService {
+            public int $repairCalls = 0;
+
+            public function __construct(private readonly string $sourcePath)
+            {
+            }
+
+            public function resolveAbsoluteVideoPath(VideoMaster $video): string
+            {
+                return $this->sourcePath;
+            }
+
+            public function extractForVideo(VideoMaster $video, bool $refresh = false): VideoFeature
+            {
+                $this->repairCalls++;
+
+                $feature = VideoFeature::query()->firstOrNew([
+                    'video_master_id' => $video->id,
+                ]);
+                $feature->fill([
+                    'video_name' => 'repairable.mp4',
+                    'video_path' => '\\repairable.mp4',
+                    'file_name' => 'repairable.mp4',
+                    'file_size_bytes' => 123456,
+                    'duration_seconds' => 91.916,
+                    'screenshot_count' => 4,
+                    'capture_rule' => '10s_x4',
+                    'feature_version' => 'v1',
+                    'last_error' => null,
+                ]);
+                $feature->save();
+                $feature->frames()->delete();
+
+                foreach ([
+                    [1, 10.000, '193424ecc4241bf0', '19'],
+                    [2, 20.000, '01013169c804531a', '01'],
+                    [3, 30.000, '010101418482d431', '01'],
+                    [4, 40.000, '0301010e1f32a673', '03'],
+                ] as [$order, $second, $hex, $prefix]) {
+                    VideoFeatureFrame::query()->create([
+                        'video_feature_id' => $feature->id,
+                        'capture_order' => $order,
+                        'capture_second' => $second,
+                        'screenshot_path' => sprintf('\\repairable_feature_%02d.jpg', $order),
+                        'dhash_hex' => $hex,
+                        'dhash_prefix' => $prefix,
+                        'frame_sha1' => str_repeat((string) $order, 40),
+                    ]);
+                }
+
+                return $feature->fresh('frames');
+            }
+        };
+
+        $payload = [
+            'duration_seconds' => 91.905,
+            'file_size_bytes' => 195151520,
+            'frames' => [
+                [
+                    'capture_order' => 1,
+                    'capture_second' => 10.000,
+                    'dhash_hex' => '193424e4e4341af0',
+                    'dhash_prefix' => '19',
+                    'frame_sha1' => str_repeat('a', 40),
+                ],
+                [
+                    'capture_order' => 2,
+                    'capture_second' => 20.000,
+                    'dhash_hex' => '01003068c804d61b',
+                    'dhash_prefix' => '01',
+                    'frame_sha1' => str_repeat('b', 40),
+                ],
+                [
+                    'capture_order' => 3,
+                    'capture_second' => 30.000,
+                    'dhash_hex' => '030000408482d431',
+                    'dhash_prefix' => '03',
+                    'frame_sha1' => str_repeat('c', 40),
+                ],
+                [
+                    'capture_order' => 4,
+                    'capture_second' => 40.000,
+                    'dhash_hex' => '0300000e1f32a673',
+                    'dhash_prefix' => '03',
+                    'frame_sha1' => str_repeat('d', 40),
+                ],
+            ],
+        ];
+
+        $service = new VideoDuplicateDetectionService($extractionService);
+        $analysis = $service->analyzeDatabaseMatch($payload, 80, 2, 3, 15, 250);
+
+        $this->assertSame(1, $extractionService->repairCalls);
+        $this->assertSame(1, $analysis['repaired_database_feature_count']);
+        $this->assertSame([$feature->id], $analysis['repaired_database_feature_ids']);
+        $this->assertNotNull($analysis['duplicate_match']);
+        $this->assertSame($feature->id, $analysis['duplicate_match']['feature']->id);
+        $this->assertSame(92.75, $analysis['duplicate_match']['similarity_percent']);
+        $this->assertSame(4, $analysis['duplicate_match']['matched_frames']);
+        $this->assertTrue($analysis['duplicate_match']['passes_threshold']);
+
+        File::deleteDirectory($repairDir);
     }
 
     public function test_reference_snapshot_match_can_detect_duplicate_without_db_feature_row(): void

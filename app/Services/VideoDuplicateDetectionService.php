@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\VideoFeature;
 use App\Models\VideoFeatureFrame;
+use App\Models\VideoMaster;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -42,6 +43,8 @@ class VideoDuplicateDetectionService
                 'candidate_count' => 0,
                 'payload_frame_count' => 0,
                 'requested_min_match' => max(1, $minMatch),
+                'repaired_database_feature_count' => 0,
+                'repaired_database_feature_ids' => [],
             ];
         }
 
@@ -52,8 +55,16 @@ class VideoDuplicateDetectionService
                 'candidate_count' => 0,
                 'payload_frame_count' => $payloadContext['frame_count'],
                 'requested_min_match' => max(1, $minMatch),
+                'repaired_database_feature_count' => 0,
+                'repaired_database_feature_ids' => [],
             ];
         }
+
+        $repairedFeatureIds = $this->repairIncompleteDatabaseFeaturesForPayload(
+            $payloadContext,
+            $windowSeconds,
+            $maxCandidates
+        );
 
         $candidateIds = $this->collectCandidateIds(
             $payloadContext,
@@ -68,6 +79,8 @@ class VideoDuplicateDetectionService
                 'candidate_count' => 0,
                 'payload_frame_count' => $payloadContext['frame_count'],
                 'requested_min_match' => max(1, $minMatch),
+                'repaired_database_feature_count' => count($repairedFeatureIds),
+                'repaired_database_feature_ids' => $repairedFeatureIds,
             ];
         }
 
@@ -121,6 +134,8 @@ class VideoDuplicateDetectionService
             'candidate_count' => count($candidateIds),
             'payload_frame_count' => $payloadContext['frame_count'],
             'requested_min_match' => max(1, $minMatch),
+            'repaired_database_feature_count' => count($repairedFeatureIds),
+            'repaired_database_feature_ids' => $repairedFeatureIds,
         ];
     }
 
@@ -135,6 +150,13 @@ class VideoDuplicateDetectionService
         $payloadContext = $this->buildPayloadContext($payload);
 
         $feature->loadMissing(['frames', 'videoMaster']);
+        $repairedFeatureIds = [];
+        $repairedFeature = $this->repairIncompleteFeature($feature);
+        if ($repairedFeature instanceof VideoFeature) {
+            $feature = $repairedFeature->loadMissing(['frames', 'videoMaster']);
+            $repairedFeatureIds[] = (int) $feature->id;
+            $this->databaseCandidateCacheVersion = null;
+        }
 
         $candidateGate = $this->buildCandidateGateSummary(
             $payloadContext,
@@ -164,6 +186,8 @@ class VideoDuplicateDetectionService
                 : null,
             'payload_frame_count' => $payloadContext['frame_count'],
             'requested_min_match' => max(1, $minMatch),
+            'repaired_database_feature_count' => count($repairedFeatureIds),
+            'repaired_database_feature_ids' => $repairedFeatureIds,
         ];
     }
 
@@ -747,6 +771,92 @@ class VideoDuplicateDetectionService
         return $averageSimilarity >= max(0, $thresholdPercent - self::TWO_FRAME_AVERAGE_SIMILARITY_SLACK)
             && $strongestSimilarity >= min(100, $thresholdPercent + self::TWO_FRAME_STRONG_FRAME_BONUS)
             && $weakestSimilarity >= max(0, $thresholdPercent - self::TWO_FRAME_WEAK_FRAME_SLACK);
+    }
+
+    private function repairIncompleteDatabaseFeaturesForPayload(
+        array $payloadContext,
+        int $windowSeconds,
+        int $maxCandidates
+    ): array {
+        $durationMin = max(0, $payloadContext['duration_seconds'] - max(0, $windowSeconds));
+        $durationMax = $payloadContext['duration_seconds'] + max(0, $windowSeconds);
+        $limit = max(1, $maxCandidates);
+        $repairedFeatureIds = [];
+
+        $features = VideoFeature::query()
+            ->with(['frames', 'videoMaster'])
+            ->withCount('frames')
+            ->whereBetween('duration_seconds', [$durationMin, $durationMax])
+            ->orderByRaw(
+                'ABS(CAST(video_features.duration_seconds AS DECIMAL(10,3)) - ?) ASC',
+                [$payloadContext['duration_seconds']]
+            )
+            ->limit($limit)
+            ->get();
+
+        foreach ($features as $feature) {
+            $repairedFeature = $this->repairIncompleteFeature($feature);
+            if (!$repairedFeature instanceof VideoFeature) {
+                continue;
+            }
+
+            $repairedFeatureIds[] = (int) $repairedFeature->id;
+        }
+
+        if ($repairedFeatureIds !== []) {
+            $this->databaseCandidateCacheVersion = null;
+        }
+
+        return array_values(array_unique($repairedFeatureIds));
+    }
+
+    private function repairIncompleteFeature(VideoFeature $feature): ?VideoFeature
+    {
+        $feature->loadMissing(['frames', 'videoMaster']);
+
+        if (!$this->shouldRepairIncompleteFeature($feature)) {
+            return null;
+        }
+
+        if (!$feature->videoMaster instanceof VideoMaster) {
+            return null;
+        }
+
+        try {
+            $absolutePath = $this->featureExtractionService->resolveAbsoluteVideoPath($feature->videoMaster);
+            if ($absolutePath === '' || !is_file($absolutePath)) {
+                return null;
+            }
+
+            return $this->featureExtractionService->extractForVideo($feature->videoMaster, true);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function shouldRepairIncompleteFeature(VideoFeature $feature): bool
+    {
+        $expectedCount = $this->expectedFrameCountForFeature($feature);
+        if ($expectedCount <= 0) {
+            return false;
+        }
+
+        $actualCount = $feature->relationLoaded('frames')
+            ? $feature->frames->count()
+            : (int) ($feature->frames_count ?? 0);
+
+        return $actualCount < $expectedCount;
+    }
+
+    private function expectedFrameCountForFeature(VideoFeature $feature): int
+    {
+        $durationSeconds = (float) (
+            $feature->videoMaster?->duration
+            ?? $feature->duration_seconds
+            ?? 0
+        );
+
+        return count($this->featureExtractionService->buildCapturePlan($durationSeconds));
     }
 
     private function collectCandidateIds(

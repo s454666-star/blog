@@ -567,6 +567,148 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         $this->assertSame([], $specificAnalysis['candidate_gate']['reasons']);
     }
 
+    public function test_two_frame_database_match_allows_strong_partial_when_duration_is_tight(): void
+    {
+        DB::table('video_master')->insert([
+            'id' => 110,
+            'video_name' => 'selfie.mp4',
+            'video_path' => '\\selfie.mp4',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $feature = VideoFeature::query()->create([
+            'video_master_id' => 110,
+            'video_name' => 'selfie.mp4',
+            'video_path' => '\\selfie.mp4',
+            'file_name' => 'selfie.mp4',
+            'file_size_bytes' => 20784501,
+            'duration_seconds' => 28.073,
+            'screenshot_count' => 2,
+            'capture_rule' => '10s_x4',
+            'feature_version' => 'v1',
+        ]);
+
+        foreach ([
+            [1, 10.000, 'f8d0d5d8d9dc98d5', 'f8'],
+            [2, 20.000, '70f1f0e1e4c9e9f8', '70'],
+        ] as [$order, $second, $hex, $prefix]) {
+            VideoFeatureFrame::query()->create([
+                'video_feature_id' => $feature->id,
+                'capture_order' => $order,
+                'capture_second' => $second,
+                'screenshot_path' => sprintf('\\selfie_feature_%02d.jpg', $order),
+                'dhash_hex' => $hex,
+                'dhash_prefix' => $prefix,
+                'frame_sha1' => str_repeat((string) $order, 40),
+            ]);
+        }
+
+        $payload = [
+            'duration_seconds' => 28.093,
+            'file_size_bytes' => 3520129,
+            'frames' => [
+                [
+                    'capture_order' => 1,
+                    'capture_second' => 10.000,
+                    'dhash_hex' => 'fad8d8d8c8dc9cd4',
+                    'dhash_prefix' => 'fa',
+                    'frame_sha1' => str_repeat('a', 40),
+                ],
+                [
+                    'capture_order' => 2,
+                    'capture_second' => 20.000,
+                    'dhash_hex' => 'd0f1e8d9dcd4bce8',
+                    'dhash_prefix' => 'd0',
+                    'frame_sha1' => str_repeat('b', 40),
+                ],
+            ],
+        ];
+
+        $service = new VideoDuplicateDetectionService(new VideoFeatureExtractionService());
+        $analysis = $service->analyzeDatabaseMatch($payload, 80, 2, 3, 15, 250);
+
+        $this->assertSame(1, $analysis['candidate_count']);
+        $this->assertNotNull($analysis['duplicate_match']);
+        $this->assertSame($feature->id, $analysis['duplicate_match']['feature']->id);
+        $this->assertSame(77.5, $analysis['duplicate_match']['similarity_percent']);
+        $this->assertSame(1, $analysis['duplicate_match']['matched_frames']);
+        $this->assertSame(2, $analysis['duplicate_match']['compared_frames']);
+        $this->assertSame(1, $analysis['duplicate_match']['required_matches']);
+        $this->assertSame('two_frame_strong_partial', $analysis['duplicate_match']['match_rule']);
+        $this->assertTrue($analysis['duplicate_match']['passes_threshold']);
+    }
+
+    public function test_two_frame_database_match_still_fails_when_second_frame_is_too_different(): void
+    {
+        DB::table('video_master')->insert([
+            'id' => 111,
+            'video_name' => 'different.mp4',
+            'video_path' => '\\different.mp4',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $feature = VideoFeature::query()->create([
+            'video_master_id' => 111,
+            'video_name' => 'different.mp4',
+            'video_path' => '\\different.mp4',
+            'file_name' => 'different.mp4',
+            'file_size_bytes' => 20784501,
+            'duration_seconds' => 28.073,
+            'screenshot_count' => 2,
+            'capture_rule' => '10s_x4',
+            'feature_version' => 'v1',
+        ]);
+
+        foreach ([
+            [1, 10.000, 'f8d0d5d8d9dc98d5', 'f8'],
+            [2, 20.000, '70f1f0e1e4c9e9f8', '70'],
+        ] as [$order, $second, $hex, $prefix]) {
+            VideoFeatureFrame::query()->create([
+                'video_feature_id' => $feature->id,
+                'capture_order' => $order,
+                'capture_second' => $second,
+                'screenshot_path' => sprintf('\\different_feature_%02d.jpg', $order),
+                'dhash_hex' => $hex,
+                'dhash_prefix' => $prefix,
+                'frame_sha1' => str_repeat((string) $order, 40),
+            ]);
+        }
+
+        $payload = [
+            'duration_seconds' => 28.093,
+            'file_size_bytes' => 3520129,
+            'frames' => [
+                [
+                    'capture_order' => 1,
+                    'capture_second' => 10.000,
+                    'dhash_hex' => 'fad8d8d8c8dc9cd4',
+                    'dhash_prefix' => 'fa',
+                    'frame_sha1' => str_repeat('a', 40),
+                ],
+                [
+                    'capture_order' => 2,
+                    'capture_second' => 20.000,
+                    'dhash_hex' => '0000000000000000',
+                    'dhash_prefix' => '00',
+                    'frame_sha1' => str_repeat('b', 40),
+                ],
+            ],
+        ];
+
+        $service = new VideoDuplicateDetectionService(new VideoFeatureExtractionService());
+        $analysis = $service->analyzeDatabaseMatch($payload, 80, 2, 3, 15, 250);
+
+        $this->assertNull($analysis['duplicate_match']);
+        $this->assertNotNull($analysis['best_result']);
+        $this->assertSame(1, $analysis['best_result']['matched_frames']);
+        $this->assertSame(2, $analysis['best_result']['compared_frames']);
+        $this->assertSame(2, $analysis['best_result']['required_matches']);
+        $this->assertSame('standard_min_match', $analysis['best_result']['match_rule']);
+        $this->assertFalse($analysis['best_result']['passes_threshold']);
+    }
+
     public function test_reference_snapshot_match_can_detect_duplicate_without_db_feature_row(): void
     {
         $payload = [

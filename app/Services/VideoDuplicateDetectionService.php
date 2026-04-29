@@ -13,6 +13,10 @@ class VideoDuplicateDetectionService
     private const DURATION_FALLBACK_CANDIDATES = 25;
     private const DATABASE_CANDIDATE_CACHE_TTL_SECONDS = 600;
     private const REFERENCE_SNAPSHOT_INDEX_CACHE_TTL_SECONDS = 86400;
+    private const TWO_FRAME_DURATION_DELTA_SECONDS = 0.5;
+    private const TWO_FRAME_AVERAGE_SIMILARITY_SLACK = 5;
+    private const TWO_FRAME_STRONG_FRAME_BONUS = 5;
+    private const TWO_FRAME_WEAK_FRAME_SLACK = 15;
 
     private ?string $databaseCandidateCacheVersion = null;
 
@@ -420,12 +424,19 @@ class VideoDuplicateDetectionService
             return null;
         }
 
-        $requiredMatches = min(max(1, $minMatch), $comparedFrames);
         $avgSimilarity = array_sum($similarities) / max(1, count($similarities));
         $durationDelta = abs((float) $feature->duration_seconds - $payloadDuration);
         $fileSizeDelta = $payloadFileSize > 0 && $feature->file_size_bytes !== null
             ? abs((int) $feature->file_size_bytes - $payloadFileSize)
             : null;
+        [$requiredMatches, $matchRule] = $this->resolveRequiredMatches(
+            $minMatch,
+            $comparedFrames,
+            $matchedFrames,
+            $similarities,
+            $durationDelta,
+            $thresholdPercent
+        );
         $passesThreshold = $matchedFrames >= $requiredMatches;
 
         return [
@@ -435,6 +446,7 @@ class VideoDuplicateDetectionService
             'compared_frames' => $comparedFrames,
             'required_matches' => $requiredMatches,
             'passes_threshold' => $passesThreshold,
+            'match_rule' => $matchRule,
             'frame_matches' => $frameMatches,
             'score' => ($matchedFrames * 1000) + $avgSimilarity,
             'duration_delta_seconds' => $durationDelta,
@@ -509,13 +521,20 @@ class VideoDuplicateDetectionService
             return null;
         }
 
-        $requiredMatches = min(max(1, $minMatch), $comparedFrames);
         $avgSimilarity = array_sum($similarities) / max(1, count($similarities));
         $durationDelta = abs((float) ($snapshot['duration_seconds'] ?? 0) - $payloadDuration);
         $snapshotFileSize = $snapshot['file_size_bytes'] ?? null;
         $fileSizeDelta = $payloadFileSize > 0 && $snapshotFileSize !== null
             ? abs((int) $snapshotFileSize - $payloadFileSize)
             : null;
+        [$requiredMatches, $matchRule] = $this->resolveRequiredMatches(
+            $minMatch,
+            $comparedFrames,
+            $matchedFrames,
+            $similarities,
+            $durationDelta,
+            $thresholdPercent
+        );
         $passesThreshold = $matchedFrames >= $requiredMatches;
 
         return [
@@ -526,6 +545,7 @@ class VideoDuplicateDetectionService
             'compared_frames' => $comparedFrames,
             'required_matches' => $requiredMatches,
             'passes_threshold' => $passesThreshold,
+            'match_rule' => $matchRule,
             'frame_matches' => $frameMatches,
             'score' => ($matchedFrames * 1000) + $avgSimilarity,
             'duration_delta_seconds' => $durationDelta,
@@ -674,6 +694,59 @@ class VideoDuplicateDetectionService
             (float) ($primaryPayloadFrame['capture_second'] ?? 0)
             - $candidateCaptureSecond
         ) >= 0.001;
+    }
+
+    private function resolveRequiredMatches(
+        int $requestedMinMatch,
+        int $comparedFrames,
+        int $matchedFrames,
+        array $similarities,
+        float $durationDeltaSeconds,
+        int $thresholdPercent
+    ): array {
+        $requiredMatches = min(max(1, $requestedMinMatch), $comparedFrames);
+        if ($this->shouldUseTwoFrameStrongPartialMatch(
+            $requiredMatches,
+            $comparedFrames,
+            $matchedFrames,
+            $similarities,
+            $durationDeltaSeconds,
+            $thresholdPercent
+        )) {
+            return [1, 'two_frame_strong_partial'];
+        }
+
+        return [$requiredMatches, 'standard_min_match'];
+    }
+
+    private function shouldUseTwoFrameStrongPartialMatch(
+        int $requiredMatches,
+        int $comparedFrames,
+        int $matchedFrames,
+        array $similarities,
+        float $durationDeltaSeconds,
+        int $thresholdPercent
+    ): bool {
+        if (
+            $requiredMatches <= 1 ||
+            $comparedFrames !== 2 ||
+            $matchedFrames !== 1 ||
+            count($similarities) !== 2
+        ) {
+            return false;
+        }
+
+        if ($durationDeltaSeconds > self::TWO_FRAME_DURATION_DELTA_SECONDS) {
+            return false;
+        }
+
+        $averageSimilarity = array_sum($similarities) / count($similarities);
+        $strongestSimilarity = max($similarities);
+        $weakestSimilarity = min($similarities);
+
+        return $averageSimilarity >= max(0, $thresholdPercent - self::TWO_FRAME_AVERAGE_SIMILARITY_SLACK)
+            && $strongestSimilarity >= min(100, $thresholdPercent + self::TWO_FRAME_STRONG_FRAME_BONUS)
+            && $weakestSimilarity >= max(0, $thresholdPercent - self::TWO_FRAME_WEAK_FRAME_SLACK);
     }
 
     private function collectCandidateIds(

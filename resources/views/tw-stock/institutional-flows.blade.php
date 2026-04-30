@@ -623,6 +623,21 @@
         dataset.borderColor = values.map(value => signedBarColor(value, positiveBorder, negativeBorder));
     }
 
+    function generateStableLegendLabels(chart) {
+        return Chart.defaults.plugins.legend.labels.generateLabels(chart).map(label => {
+            const dataset = chart.data.datasets[label.datasetIndex];
+            if (!dataset?.legendColor) {
+                return label;
+            }
+
+            return {
+                ...label,
+                fillStyle: dataset.legendColor,
+                strokeStyle: dataset.legendBorderColor || dataset.legendColor,
+            };
+        });
+    }
+
     const commonOptions = {
         responsive: true,
         maintainAspectRatio: false,
@@ -639,6 +654,7 @@
                     font: {
                         weight: 700,
                     },
+                    generateLabels: generateStableLegendLabels,
                 },
             },
             tooltip: {
@@ -678,6 +694,8 @@
                     unit: ' 億',
                     backgroundColor: initialVisibleData.foreignNet.map(value => signedBarColor(value, 'rgba(220, 38, 38, 0.74)', 'rgba(4, 120, 87, 0.72)')),
                     borderColor: initialVisibleData.foreignNet.map(value => signedBarColor(value, '#dc2626', '#047857')),
+                    legendColor: 'rgba(220, 38, 38, 0.74)',
+                    legendBorderColor: '#dc2626',
                     borderWidth: 1,
                     yAxisID: 'yDaily',
                 },
@@ -688,6 +706,8 @@
                     unit: ' 億',
                     backgroundColor: initialVisibleData.investmentTrustNet.map(value => signedBarColor(value, 'rgba(248, 113, 113, 0.62)', 'rgba(16, 185, 129, 0.58)')),
                     borderColor: initialVisibleData.investmentTrustNet.map(value => signedBarColor(value, '#ef4444', '#059669')),
+                    legendColor: 'rgba(16, 185, 129, 0.58)',
+                    legendBorderColor: '#059669',
                     borderWidth: 1,
                     yAxisID: 'yDaily',
                 },

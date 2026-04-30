@@ -33,6 +33,13 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping(720)
             ->runInBackground();
 
+        $schedule->command('tw-stock:fetch-institutional-flows')
+            ->dailyAt('16:00')
+            ->name('tw-stock-fetch-institutional-flows')
+            ->withoutOverlapping(120)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_institutional_flows.log'));
+
         // Telegram / filestore
         $schedule->command('schedule:unlock-stale-filestore-restore')
             ->everyMinute()

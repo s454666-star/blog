@@ -14,8 +14,8 @@
             --muted: #667085;
             --foreign: #2563eb;
             --trust: #c47f17;
-            --positive: #047857;
-            --negative: #dc2626;
+            --positive: #dc2626;
+            --negative: #047857;
             --violet: #6d28d9;
         }
 
@@ -276,15 +276,15 @@
         }
 
         .pill.buy {
-            border-color: #a7f3d0;
+            border-color: #fecaca;
             color: var(--positive);
-            background: #ecfdf5;
+            background: #fef2f2;
         }
 
         .pill.sell {
-            border-color: #fecaca;
+            border-color: #a7f3d0;
             color: var(--negative);
-            background: #fef2f2;
+            background: #ecfdf5;
         }
 
         .pill.flat {
@@ -676,8 +676,8 @@
                     label: '外資買賣超',
                     data: initialVisibleData.foreignNet,
                     unit: ' 億',
-                    backgroundColor: initialVisibleData.foreignNet.map(value => signedBarColor(value, 'rgba(37, 99, 235, 0.78)', 'rgba(220, 38, 38, 0.72)')),
-                    borderColor: initialVisibleData.foreignNet.map(value => signedBarColor(value, '#2563eb', '#dc2626')),
+                    backgroundColor: initialVisibleData.foreignNet.map(value => signedBarColor(value, 'rgba(220, 38, 38, 0.74)', 'rgba(4, 120, 87, 0.72)')),
+                    borderColor: initialVisibleData.foreignNet.map(value => signedBarColor(value, '#dc2626', '#047857')),
                     borderWidth: 1,
                     yAxisID: 'yDaily',
                 },
@@ -686,8 +686,8 @@
                     label: '投信買賣超',
                     data: initialVisibleData.investmentTrustNet,
                     unit: ' 億',
-                    backgroundColor: initialVisibleData.investmentTrustNet.map(value => signedBarColor(value, 'rgba(196, 127, 23, 0.78)', 'rgba(248, 113, 113, 0.55)')),
-                    borderColor: initialVisibleData.investmentTrustNet.map(value => signedBarColor(value, '#c47f17', '#ef4444')),
+                    backgroundColor: initialVisibleData.investmentTrustNet.map(value => signedBarColor(value, 'rgba(248, 113, 113, 0.62)', 'rgba(16, 185, 129, 0.58)')),
+                    borderColor: initialVisibleData.investmentTrustNet.map(value => signedBarColor(value, '#ef4444', '#059669')),
                     borderWidth: 1,
                     yAxisID: 'yDaily',
                 },
@@ -840,19 +840,19 @@
         updateBarDatasetColors(
             stockFlowChart.data.datasets[0],
             visibleData.foreignNet,
-            'rgba(37, 99, 235, 0.78)',
-            'rgba(220, 38, 38, 0.72)',
-            '#2563eb',
-            '#dc2626'
+            'rgba(220, 38, 38, 0.74)',
+            'rgba(4, 120, 87, 0.72)',
+            '#dc2626',
+            '#047857'
         );
         stockFlowChart.data.datasets[1].data = visibleData.investmentTrustNet;
         updateBarDatasetColors(
             stockFlowChart.data.datasets[1],
             visibleData.investmentTrustNet,
-            'rgba(196, 127, 23, 0.78)',
-            'rgba(248, 113, 113, 0.55)',
-            '#c47f17',
-            '#ef4444'
+            'rgba(248, 113, 113, 0.62)',
+            'rgba(16, 185, 129, 0.58)',
+            '#ef4444',
+            '#059669'
         );
         stockFlowChart.data.datasets[2].data = visibleData.foreignCumulative;
         stockFlowChart.data.datasets[3].data = visibleData.investmentTrustCumulative;

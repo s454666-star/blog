@@ -220,12 +220,31 @@
 
         tbody tr {
             background: rgba(255, 255, 255, 0.58);
-            transition: background 160ms ease, transform 160ms ease;
+            cursor: default;
+            transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
         }
 
         tbody tr:hover {
-            background: #ffffff;
+            background: linear-gradient(90deg, rgba(254, 242, 242, 0.98), rgba(255, 251, 235, 0.98) 52%, rgba(239, 246, 255, 0.96));
+            box-shadow:
+                inset 5px 0 0 var(--red),
+                0 10px 22px rgba(15, 23, 42, 0.10);
             transform: translateY(-1px);
+        }
+
+        tbody tr:hover td {
+            border-bottom-color: #fecaca;
+        }
+
+        tbody tr:hover .code {
+            color: #ffffff;
+            border-color: var(--red);
+            background: var(--red);
+            box-shadow: 0 8px 18px rgba(220, 38, 38, 0.22);
+        }
+
+        tbody tr:hover .name {
+            color: #991b1b;
         }
 
         .stock {

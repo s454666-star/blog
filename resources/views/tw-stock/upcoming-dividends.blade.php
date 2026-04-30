@@ -224,6 +224,14 @@
             transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
         }
 
+        tbody tr:nth-child(odd) {
+            background: rgba(255, 255, 255, 0.72);
+        }
+
+        tbody tr:nth-child(even) {
+            background: rgba(239, 246, 255, 0.66);
+        }
+
         tbody tr:hover {
             background: linear-gradient(90deg, rgba(254, 242, 242, 0.98), rgba(255, 251, 235, 0.98) 52%, rgba(239, 246, 255, 0.96));
             box-shadow:

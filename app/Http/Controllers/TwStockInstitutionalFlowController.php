@@ -11,9 +11,9 @@ class TwStockInstitutionalFlowController extends Controller
     public function index(Request $request): View
     {
         $allowedDays = [20, 30, 40, 60];
-        $days = (int) $request->query('days', 30);
+        $days = (int) $request->query('days', 60);
         if (!in_array($days, $allowedDays, true)) {
-            $days = 30;
+            $days = 60;
         }
 
         $allRows = TwStockInstitutionalFlow::query()

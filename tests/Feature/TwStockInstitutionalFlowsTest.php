@@ -82,11 +82,11 @@ class TwStockInstitutionalFlowsTest extends TestCase
         $this->assertSame(42317, (int) $record->investment_trust_txf_open_interest_net_contracts);
     }
 
-    public function test_dashboard_defaults_to_latest_thirty_trade_days_and_supports_day_filter(): void
+    public function test_dashboard_defaults_to_latest_sixty_trade_days_and_supports_day_filter(): void
     {
-        $start = Carbon::parse('2026-03-01');
+        $start = Carbon::parse('2026-01-01');
 
-        for ($i = 0; $i < 35; $i++) {
+        for ($i = 0; $i < 65; $i++) {
             DB::table('tw_stock_institutional_flows')->insert([
                 'trade_date' => $start->copy()->addDays($i)->toDateString(),
                 'foreign_stock_net_amount' => ($i + 1) * 100_000_000,
@@ -101,10 +101,10 @@ class TwStockInstitutionalFlowsTest extends TestCase
 
         $this->get(route('tw-stock.institutional-flows.index'))
             ->assertOk()
-            ->assertSee('近 30 個交易日明細')
-            ->assertSee('2026-04-04')
+            ->assertSee('近 60 個交易日明細')
             ->assertSee('2026-03-06')
-            ->assertDontSee('2026-03-05</td>', false);
+            ->assertSee('2026-01-06')
+            ->assertDontSee('2026-01-05</td>', false);
 
         $this->get(route('tw-stock.institutional-flows.index', ['days' => 20]))
             ->assertOk()

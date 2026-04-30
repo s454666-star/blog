@@ -53,13 +53,15 @@ class TwStockInstitutionalFlowController extends Controller
             'lastStoredDate' => $preparedRows->last()['date'] ?? null,
             'totalRows' => $preparedRows->count(),
             'chartData' => [
-                'labels' => $visibleRows->pluck('date')->all(),
-                'foreignNet' => $visibleRows->pluck('foreign_stock_net_100m')->all(),
-                'investmentTrustNet' => $visibleRows->pluck('investment_trust_stock_net_100m')->all(),
-                'foreignCumulative' => $visibleRows->pluck('foreign_cumulative_100m')->all(),
-                'investmentTrustCumulative' => $visibleRows->pluck('investment_trust_cumulative_100m')->all(),
-                'foreignOpenInterest' => $visibleRows->pluck('foreign_txf_open_interest_net_contracts')->all(),
-                'investmentTrustOpenInterest' => $visibleRows->pluck('investment_trust_txf_open_interest_net_contracts')->all(),
+                'windowSize' => $days,
+                'initialStartIndex' => max($preparedRows->count() - $days, 0),
+                'labels' => $preparedRows->pluck('date')->all(),
+                'foreignNet' => $preparedRows->pluck('foreign_stock_net_100m')->all(),
+                'investmentTrustNet' => $preparedRows->pluck('investment_trust_stock_net_100m')->all(),
+                'foreignCumulative' => $preparedRows->pluck('foreign_cumulative_100m')->all(),
+                'investmentTrustCumulative' => $preparedRows->pluck('investment_trust_cumulative_100m')->all(),
+                'foreignOpenInterest' => $preparedRows->pluck('foreign_txf_open_interest_net_contracts')->all(),
+                'investmentTrustOpenInterest' => $preparedRows->pluck('investment_trust_txf_open_interest_net_contracts')->all(),
             ],
         ]);
     }

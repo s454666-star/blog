@@ -178,9 +178,34 @@
             min-height: 430px;
         }
 
+        .chart-box canvas {
+            cursor: grab;
+            touch-action: pan-y;
+        }
+
+        .chart-box.is-dragging canvas {
+            cursor: grabbing;
+        }
+
         .chart-box.compact {
             height: 430px;
             min-height: 430px;
+        }
+
+        .range-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 26px;
+            margin-top: 7px;
+            padding: 0 10px;
+            border: 1px solid #dbe3ef;
+            border-radius: 8px;
+            color: #334155;
+            background: #f8fafc;
+            font-weight: 800;
+            font-size: 12px;
+            font-variant-numeric: tabular-nums;
         }
 
         .table-panel {
@@ -425,7 +450,10 @@
             <article class="chart-panel">
                 <div class="panel-head">
                     <h2 class="panel-title">每日買賣超與累計現貨部位</h2>
-                    <div class="legend-note">柱：每日買賣超；線：自 {{ $firstStoredDate }} 起累計</div>
+                    <div class="legend-note">
+                        柱：每日買賣超；線：自 {{ $firstStoredDate }} 起累計
+                        <span id="stockFlowRange" class="range-pill"></span>
+                    </div>
                 </div>
                 <div class="chart-box">
                     <canvas id="stockFlowChart"></canvas>
@@ -435,7 +463,10 @@
             <article class="chart-panel">
                 <div class="panel-head">
                     <h2 class="panel-title">臺股期貨淨未平倉</h2>
-                    <div class="legend-note">外資 / 投信，單位：口</div>
+                    <div class="legend-note">
+                        外資 / 投信，單位：口
+                        <span id="openInterestRange" class="range-pill"></span>
+                    </div>
                 </div>
                 <div class="chart-box compact">
                     <canvas id="openInterestChart"></canvas>
@@ -503,6 +534,12 @@
 @if ($rows->isNotEmpty())
 <script>
     const chartData = @json($chartData);
+    const stockFlowRangeEl = document.getElementById('stockFlowRange');
+    const openInterestRangeEl = document.getElementById('openInterestRange');
+    const totalPointCount = chartData.labels.length;
+    const viewportSize = Math.max(1, Math.min(Number(chartData.windowSize || 60), totalPointCount));
+    const maxViewportStart = Math.max(totalPointCount - viewportSize, 0);
+    let viewportStart = clamp(Number(chartData.initialStartIndex || maxViewportStart), 0, maxViewportStart);
 
     function signedBarColor(value, positiveColor, negativeColor) {
         if (value === null || Number(value) === 0) {
@@ -521,6 +558,57 @@
             maximumFractionDigits: digits,
             minimumFractionDigits: digits,
         });
+    }
+
+    function clamp(value, min, max) {
+        return Math.min(Math.max(value, min), max);
+    }
+
+    function visibleSlice(values) {
+        return values.slice(viewportStart, viewportStart + viewportSize);
+    }
+
+    function getVisibleChartData() {
+        return {
+            labels: visibleSlice(chartData.labels),
+            foreignNet: visibleSlice(chartData.foreignNet),
+            investmentTrustNet: visibleSlice(chartData.investmentTrustNet),
+            foreignCumulative: visibleSlice(chartData.foreignCumulative),
+            investmentTrustCumulative: visibleSlice(chartData.investmentTrustCumulative),
+            foreignOpenInterest: visibleSlice(chartData.foreignOpenInterest),
+            investmentTrustOpenInterest: visibleSlice(chartData.investmentTrustOpenInterest),
+        };
+    }
+
+    function updateRangeLabel(visibleData) {
+        const firstDate = visibleData.labels[0] || '';
+        const lastDate = visibleData.labels[visibleData.labels.length - 1] || '';
+        const label = firstDate && lastDate
+            ? `${firstDate} ~ ${lastDate}`
+            : '';
+
+        if (stockFlowRangeEl) {
+            stockFlowRangeEl.textContent = label;
+        }
+
+        if (openInterestRangeEl) {
+            openInterestRangeEl.textContent = label;
+        }
+    }
+
+    function setViewportStart(nextStart) {
+        const normalizedStart = clamp(nextStart, 0, maxViewportStart);
+        if (normalizedStart === viewportStart) {
+            return;
+        }
+
+        viewportStart = normalizedStart;
+        refreshCharts();
+    }
+
+    function updateBarDatasetColors(dataset, values, positiveColor, negativeColor, positiveBorder, negativeBorder) {
+        dataset.backgroundColor = values.map(value => signedBarColor(value, positiveColor, negativeColor));
+        dataset.borderColor = values.map(value => signedBarColor(value, positiveBorder, negativeBorder));
     }
 
     const commonOptions = {
@@ -564,34 +652,37 @@
         },
     };
 
-    new Chart(document.getElementById('stockFlowChart'), {
+    const initialVisibleData = getVisibleChartData();
+    updateRangeLabel(initialVisibleData);
+
+    const stockFlowChart = new Chart(document.getElementById('stockFlowChart'), {
         data: {
-            labels: chartData.labels,
+            labels: initialVisibleData.labels,
             datasets: [
                 {
                     type: 'bar',
                     label: '外資買賣超',
-                    data: chartData.foreignNet,
+                    data: initialVisibleData.foreignNet,
                     unit: ' 億',
-                    backgroundColor: chartData.foreignNet.map(value => signedBarColor(value, 'rgba(37, 99, 235, 0.78)', 'rgba(220, 38, 38, 0.72)')),
-                    borderColor: chartData.foreignNet.map(value => signedBarColor(value, '#2563eb', '#dc2626')),
+                    backgroundColor: initialVisibleData.foreignNet.map(value => signedBarColor(value, 'rgba(37, 99, 235, 0.78)', 'rgba(220, 38, 38, 0.72)')),
+                    borderColor: initialVisibleData.foreignNet.map(value => signedBarColor(value, '#2563eb', '#dc2626')),
                     borderWidth: 1,
                     yAxisID: 'yDaily',
                 },
                 {
                     type: 'bar',
                     label: '投信買賣超',
-                    data: chartData.investmentTrustNet,
+                    data: initialVisibleData.investmentTrustNet,
                     unit: ' 億',
-                    backgroundColor: chartData.investmentTrustNet.map(value => signedBarColor(value, 'rgba(196, 127, 23, 0.78)', 'rgba(248, 113, 113, 0.55)')),
-                    borderColor: chartData.investmentTrustNet.map(value => signedBarColor(value, '#c47f17', '#ef4444')),
+                    backgroundColor: initialVisibleData.investmentTrustNet.map(value => signedBarColor(value, 'rgba(196, 127, 23, 0.78)', 'rgba(248, 113, 113, 0.55)')),
+                    borderColor: initialVisibleData.investmentTrustNet.map(value => signedBarColor(value, '#c47f17', '#ef4444')),
                     borderWidth: 1,
                     yAxisID: 'yDaily',
                 },
                 {
                     type: 'line',
                     label: '外資累計現貨',
-                    data: chartData.foreignCumulative,
+                    data: initialVisibleData.foreignCumulative,
                     unit: ' 億',
                     borderColor: '#047857',
                     backgroundColor: '#047857',
@@ -603,7 +694,7 @@
                 {
                     type: 'line',
                     label: '投信累計現貨',
-                    data: chartData.investmentTrustCumulative,
+                    data: initialVisibleData.investmentTrustCumulative,
                     unit: ' 億',
                     borderColor: '#6d28d9',
                     backgroundColor: '#6d28d9',
@@ -650,14 +741,14 @@
         },
     });
 
-    new Chart(document.getElementById('openInterestChart'), {
+    const openInterestChart = new Chart(document.getElementById('openInterestChart'), {
         type: 'line',
         data: {
-            labels: chartData.labels,
+            labels: initialVisibleData.labels,
             datasets: [
                 {
                     label: '外資淨未平倉',
-                    data: chartData.foreignOpenInterest,
+                    data: initialVisibleData.foreignOpenInterest,
                     unit: ' 口',
                     digits: 0,
                     borderColor: '#2563eb',
@@ -668,7 +759,7 @@
                 },
                 {
                     label: '投信淨未平倉',
-                    data: chartData.investmentTrustOpenInterest,
+                    data: initialVisibleData.investmentTrustOpenInterest,
                     unit: ' 口',
                     digits: 0,
                     borderColor: '#c47f17',
@@ -699,6 +790,104 @@
             },
         },
     });
+
+    function refreshCharts() {
+        const visibleData = getVisibleChartData();
+        updateRangeLabel(visibleData);
+
+        stockFlowChart.data.labels = visibleData.labels;
+        stockFlowChart.data.datasets[0].data = visibleData.foreignNet;
+        updateBarDatasetColors(
+            stockFlowChart.data.datasets[0],
+            visibleData.foreignNet,
+            'rgba(37, 99, 235, 0.78)',
+            'rgba(220, 38, 38, 0.72)',
+            '#2563eb',
+            '#dc2626'
+        );
+        stockFlowChart.data.datasets[1].data = visibleData.investmentTrustNet;
+        updateBarDatasetColors(
+            stockFlowChart.data.datasets[1],
+            visibleData.investmentTrustNet,
+            'rgba(196, 127, 23, 0.78)',
+            'rgba(248, 113, 113, 0.55)',
+            '#c47f17',
+            '#ef4444'
+        );
+        stockFlowChart.data.datasets[2].data = visibleData.foreignCumulative;
+        stockFlowChart.data.datasets[3].data = visibleData.investmentTrustCumulative;
+        stockFlowChart.update('none');
+
+        openInterestChart.data.labels = visibleData.labels;
+        openInterestChart.data.datasets[0].data = visibleData.foreignOpenInterest;
+        openInterestChart.data.datasets[1].data = visibleData.investmentTrustOpenInterest;
+        openInterestChart.update('none');
+    }
+
+    function attachHorizontalPan(chart) {
+        const chartBox = chart.canvas.closest('.chart-box');
+        if (!chartBox || maxViewportStart <= 0) {
+            return;
+        }
+
+        let pointerStartX = 0;
+        let viewportStartAtPointerDown = 0;
+
+        chartBox.addEventListener('pointerdown', event => {
+            if (event.button !== 0) {
+                return;
+            }
+
+            pointerStartX = event.clientX;
+            viewportStartAtPointerDown = viewportStart;
+            chartBox.classList.add('is-dragging');
+            chartBox.setPointerCapture(event.pointerId);
+        });
+
+        chartBox.addEventListener('pointermove', event => {
+            if (!chartBox.classList.contains('is-dragging')) {
+                return;
+            }
+
+            const chartArea = chart.chartArea || {left: 0, right: chart.width};
+            const chartWidth = Math.max(chartArea.right - chartArea.left, 1);
+            const pointWidth = Math.max(chartWidth / Math.max(viewportSize - 1, 1), 1);
+            const indexShift = Math.round((pointerStartX - event.clientX) / pointWidth);
+
+            setViewportStart(viewportStartAtPointerDown + indexShift);
+        });
+
+        function endPointerDrag(event) {
+            if (!chartBox.classList.contains('is-dragging')) {
+                return;
+            }
+
+            chartBox.classList.remove('is-dragging');
+
+            if (chartBox.hasPointerCapture(event.pointerId)) {
+                chartBox.releasePointerCapture(event.pointerId);
+            }
+        }
+
+        chartBox.addEventListener('pointerup', endPointerDrag);
+        chartBox.addEventListener('pointercancel', endPointerDrag);
+
+        chartBox.addEventListener('wheel', event => {
+            const horizontalDelta = Math.abs(event.deltaX) >= Math.abs(event.deltaY)
+                ? event.deltaX
+                : (event.shiftKey ? event.deltaY : 0);
+
+            if (horizontalDelta === 0) {
+                return;
+            }
+
+            event.preventDefault();
+            setViewportStart(viewportStart + Math.sign(horizontalDelta) * Math.max(Math.round(viewportSize / 12), 1));
+        }, {passive: false});
+    }
+
+    attachHorizontalPan(stockFlowChart);
+    attachHorizontalPan(openInterestChart);
 </script>
 @endif
 </body>

@@ -102,6 +102,8 @@ class TwStockInstitutionalFlowsTest extends TestCase
         $this->get(route('tw-stock.institutional-flows.index'))
             ->assertOk()
             ->assertSee('近 60 個交易日明細')
+            ->assertSee('"windowSize":60', false)
+            ->assertSee('"initialStartIndex":5', false)
             ->assertSee('2026-03-06')
             ->assertSee('2026-01-06')
             ->assertDontSee('2026-01-05</td>', false);

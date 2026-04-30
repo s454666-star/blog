@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>近 30 天除息股票</title>
+    <title>近 30 天除權息股票</title>
     <style>
         :root {
             --bg: #eef3f8;
@@ -187,7 +187,7 @@
 
         table {
             width: 100%;
-            min-width: 1160px;
+            min-width: 1260px;
             border-collapse: collapse;
             table-layout: fixed;
             font-variant-numeric: tabular-nums;
@@ -287,6 +287,18 @@
             font-weight: 900;
         }
 
+        .change-cell {
+            font-weight: 900;
+        }
+
+        .change-cell.up {
+            color: var(--red);
+        }
+
+        .change-cell.down {
+            color: var(--green);
+        }
+
         .yield-bar {
             width: 100%;
             height: 7px;
@@ -381,6 +393,19 @@
     $formatPrice = static fn ($value): string => $value === null ? 'N/A' : number_format((float) $value, 2);
     $formatDividend = static fn ($value): string => $value === null ? 'N/A' : number_format((float) $value, 4);
     $formatYield = static fn ($value): string => $value === null ? 'N/A' : number_format((float) $value, 2) . '%';
+    $formatChange = static fn ($value): string => $value === null ? 'N/A' : (($value > 0 ? '+' : '') . number_format((float) $value, 2) . '%');
+    $dividendLabel = static function ($row) use ($formatDividend): string {
+        $parts = [];
+        if ((float) ($row->cash_dividend ?? 0) > 0.0) {
+            $parts[] = '息 ' . $formatDividend($row->cash_dividend);
+        }
+
+        if ((float) ($row->stock_dividend ?? 0) > 0.0) {
+            $parts[] = '權 ' . $formatDividend($row->stock_dividend);
+        }
+
+        return $parts !== [] ? implode(' / ', $parts) : 'N/A';
+    };
     $fillLabel = static function ($row): string {
         if ($row->last_fill_days !== null) {
             return number_format((int) $row->last_fill_days) . ' 天';
@@ -397,10 +422,10 @@
 <main class="shell">
     <header class="topbar">
         <div>
-            <h1>近 30 天除息股票</h1>
+            <h1>近 30 天除權息股票</h1>
             <div class="meta">
                 顯示區間：{{ $today->toDateString() }} ~ {{ $endDate->toDateString() }}，
-                除息隔天自動不顯示；殖利率以本次現金股利 ÷ 最新收盤價估算
+                除權息隔天自動不顯示；殖利率以本次現金股利 ÷ 最新收盤價估算
             </div>
         </div>
         <nav class="nav-actions" aria-label="台股頁面">
@@ -412,10 +437,10 @@
         <article class="summary-card">
             <div class="label">符合條件</div>
             <div class="value">{{ number_format($totalRows) }}</div>
-            <div class="sub">僅納入 4 碼一般股票且現金股利大於 0</div>
+            <div class="sub">僅納入 4 碼一般股票，含現金股利或股票股利</div>
         </article>
         <article class="summary-card">
-            <div class="label">最近除息日</div>
+            <div class="label">最近除權息日</div>
             <div class="value">{{ $nextExDate?->toDateString() ?? 'N/A' }}</div>
             <div class="sub">資料每日由排程更新</div>
         </article>
@@ -427,17 +452,17 @@
         <article class="summary-card">
             <div class="label">最後抓取</div>
             <div class="value">{{ $lastFetchedAt?->format('m-d H:i') ?? 'N/A' }}</div>
-            <div class="sub">TWSE / TPEx / FinMind 歷史價格</div>
+            <div class="sub">每日重抓最新股價、殖利率與 20 天漲跌幅</div>
         </article>
     </section>
 
     <section class="table-panel">
         <div class="table-head">
-            <h2 class="panel-title">除息清單</h2>
-            <div class="meta">股價單位：元；股利單位：元/股；上次填息天數以交易日計</div>
+            <h2 class="panel-title">除權息清單</h2>
+            <div class="meta">股價單位：元；股利單位：元/股；上次填息天數以交易日計；20 天漲跌幅以最近交易日對 20 天前交易日估算</div>
         </div>
         @if ($rows->isEmpty())
-            <div class="empty">目前沒有未來 30 天內符合條件的除息股票。</div>
+            <div class="empty">目前沒有未來 30 天內符合條件的除權息股票。</div>
         @else
             <div class="table-wrap">
                 <table>
@@ -447,6 +472,7 @@
                             <th>股價</th>
                             <th>股利發放</th>
                             <th>殖利率</th>
+                            <th>近 20 天漲跌</th>
                             <th>除息日</th>
                             <th>幾天後</th>
                             <th>上次填息天數</th>
@@ -470,10 +496,13 @@
                                     </div>
                                 </td>
                                 <td>{{ $formatPrice($row->latest_close_price) }}</td>
-                                <td>{{ $formatDividend($row->cash_dividend) }}</td>
+                                <td>{{ $dividendLabel($row) }}</td>
                                 <td class="yield-cell">
                                     {{ $formatYield($row->dividend_yield_percent) }}
                                     <div class="yield-bar"><span style="width: {{ $yieldWidth }}%"></span></div>
+                                </td>
+                                <td class="change-cell {{ $row->price_change_20_days_percent === null ? '' : ($row->price_change_20_days_percent >= 0 ? 'up' : 'down') }}">
+                                    {{ $formatChange($row->price_change_20_days_percent) }}
                                 </td>
                                 <td>{{ $row->ex_dividend_date->toDateString() }}</td>
                                 <td>

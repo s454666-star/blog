@@ -94,7 +94,7 @@ class TwStockUpcomingDividendsTest extends TestCase
             '--days' => 30,
         ])->assertExitCode(0);
 
-        $this->assertSame(2, DB::table('tw_stock_upcoming_dividends')->count());
+        $this->assertSame(4, DB::table('tw_stock_upcoming_dividends')->count());
         $this->assertDatabaseMissing('tw_stock_upcoming_dividends', ['stock_code' => '00939']);
         $this->assertDatabaseMissing('tw_stock_upcoming_dividends', ['stock_code' => '9999']);
         $this->assertDatabaseMissing('tw_stock_upcoming_dividends', ['stock_code' => '8888']);
@@ -103,8 +103,10 @@ class TwStockUpcomingDividendsTest extends TestCase
         $this->assertSame('京鼎', $twse->stock_name);
         $this->assertSame('2026-05-27', substr((string) $twse->ex_dividend_date, 0, 10));
         $this->assertEqualsWithDelta(10.983792, (float) $twse->cash_dividend, 0.000001);
+        $this->assertEqualsWithDelta(0, (float) $twse->stock_dividend, 0.000001);
         $this->assertEqualsWithDelta(400.0, (float) $twse->latest_close_price, 0.0001);
         $this->assertEqualsWithDelta(2.7459, (float) $twse->dividend_yield_percent, 0.0001);
+        $this->assertEqualsWithDelta(14.2857, (float) $twse->price_change_20_days_percent, 0.0001);
         $this->assertSame(27, (int) $twse->days_until_ex_dividend);
         $this->assertSame('2025-07-01', substr((string) $twse->last_ex_dividend_date, 0, 10));
         $this->assertSame('2025-07-02', substr((string) $twse->last_fill_date, 0, 10));
@@ -117,6 +119,18 @@ class TwStockUpcomingDividendsTest extends TestCase
         $this->assertSame(6, (int) $tpex->days_until_ex_dividend);
         $this->assertNull($tpex->last_fill_days);
         $this->assertSame('unfilled', $tpex->last_fill_status);
+
+        $stockOnly = DB::table('tw_stock_upcoming_dividends')->where('stock_code', '6712')->first();
+        $this->assertSame('長聖', $stockOnly->stock_name);
+        $this->assertSame('除權', $stockOnly->ex_dividend_type);
+        $this->assertEqualsWithDelta(0.5, (float) $stockOnly->stock_dividend, 0.0001);
+        $this->assertSame(14, (int) $stockOnly->days_until_ex_dividend);
+
+        $supplemental = DB::table('tw_stock_upcoming_dividends')->where('stock_code', '3257')->first();
+        $this->assertSame('虹冠電', $supplemental->stock_name);
+        $this->assertSame('2026-05-22', substr((string) $supplemental->ex_dividend_date, 0, 10));
+        $this->assertEqualsWithDelta(2.8, (float) $supplemental->cash_dividend, 0.0001);
+        $this->assertEqualsWithDelta(5.6, (float) $supplemental->price_change_20_days_percent, 0.0001);
     }
 
     public function test_dashboard_only_shows_not_yet_expired_next_thirty_days(): void
@@ -130,12 +144,13 @@ class TwStockUpcomingDividendsTest extends TestCase
 
         $this->get(route('tw-stock.upcoming-dividends.index'))
             ->assertOk()
-            ->assertSee('近 30 天除息股票')
+            ->assertSee('近 30 天除權息股票')
             ->assertSee('3413')
             ->assertSee('京鼎')
             ->assertSee('8074')
             ->assertSee('鉅橡')
             ->assertSee('上次填息天數')
+            ->assertSee('近 20 天漲跌')
             ->assertSee('2026-04-30 ~ 2026-05-30')
             ->assertDontSee('昨天除息')
             ->assertDontSee('太遠除息');
@@ -150,6 +165,7 @@ class TwStockUpcomingDividendsTest extends TestCase
                     'Code' => '3413',
                     'Name' => '京鼎',
                     'Exdividend' => '息',
+                    'StockDividendRatio' => '',
                     'CashDividend' => '10.983792',
                 ],
                 [
@@ -157,6 +173,7 @@ class TwStockUpcomingDividendsTest extends TestCase
                     'Code' => '00939',
                     'Name' => '統一台灣高息動能',
                     'Exdividend' => '息',
+                    'StockDividendRatio' => '',
                     'CashDividend' => '0.070000',
                 ],
             ]);
@@ -169,7 +186,16 @@ class TwStockUpcomingDividendsTest extends TestCase
                     'SecuritiesCompanyCode' => '8074',
                     'CompanyName' => '鉅橡',
                     'ExRrightsExDividend' => '除權息',
+                    'StockDividendRatio' => '0.00000000',
                     'CashDividend' => '1.10000000',
+                ],
+                [
+                    'ExRrightsExDividendDate' => '1150514',
+                    'SecuritiesCompanyCode' => '6712',
+                    'CompanyName' => '長聖',
+                    'ExRrightsExDividend' => '除權',
+                    'StockDividendRatio' => '0.05000000',
+                    'CashDividend' => '0.00000000',
                 ],
             ]);
         }
@@ -182,6 +208,12 @@ class TwStockUpcomingDividendsTest extends TestCase
                     'Name' => '京鼎',
                     'ClosingPrice' => '400.00',
                 ],
+                [
+                    'Date' => '1150429',
+                    'Code' => '3257',
+                    'Name' => '虹冠電',
+                    'ClosingPrice' => '52.80',
+                ],
             ]);
         }
 
@@ -193,7 +225,17 @@ class TwStockUpcomingDividendsTest extends TestCase
                     'CompanyName' => '鉅橡',
                     'Close' => '23.20',
                 ],
+                [
+                    'Date' => '1150430',
+                    'SecuritiesCompanyCode' => '6712',
+                    'CompanyName' => '長聖',
+                    'Close' => '128.50',
+                ],
             ]);
+        }
+
+        if (str_starts_with($url, 'https://winvest.tw/Stock/Dividend')) {
+            return Http::response($this->winvestHtml());
         }
 
         if (str_starts_with($url, 'https://api.finmindtrade.com/api/v4/data')) {
@@ -228,6 +270,8 @@ class TwStockUpcomingDividendsTest extends TestCase
             return [
                 ['date' => '2025-07-01', 'close' => 295],
                 ['date' => '2025-07-02', 'close' => 301],
+                ['date' => '2026-04-10', 'close' => 350],
+                ['date' => '2026-04-30', 'close' => 400],
             ];
         }
 
@@ -246,6 +290,39 @@ class TwStockUpcomingDividendsTest extends TestCase
             return [
                 ['date' => '2025-08-01', 'close' => 22],
                 ['date' => '2025-08-04', 'close' => 23],
+                ['date' => '2026-04-10', 'close' => 20],
+                ['date' => '2026-04-30', 'close' => 23.2],
+            ];
+        }
+
+        if ($dataset === 'TaiwanStockDividendResult' && $stockCode === '6712') {
+            return [];
+        }
+
+        if ($dataset === 'TaiwanStockPrice' && $stockCode === '6712') {
+            return [
+                ['date' => '2026-04-10', 'close' => 125],
+                ['date' => '2026-04-30', 'close' => 128.5],
+            ];
+        }
+
+        if ($dataset === 'TaiwanStockDividendResult' && $stockCode === '3257') {
+            return [
+                [
+                    'date' => '2025-07-15',
+                    'stock_or_cache_dividend' => '息',
+                    'stock_and_cache_dividend' => 1.4,
+                    'before_price' => 50,
+                ],
+            ];
+        }
+
+        if ($dataset === 'TaiwanStockPrice' && $stockCode === '3257') {
+            return [
+                ['date' => '2025-07-15', 'close' => 49],
+                ['date' => '2025-07-16', 'close' => 51],
+                ['date' => '2026-04-10', 'close' => 50],
+                ['date' => '2026-04-30', 'close' => 52.8],
             ];
         }
 
@@ -266,8 +343,12 @@ class TwStockUpcomingDividendsTest extends TestCase
             'ex_dividend_date' => '2026-05-27',
             'ex_dividend_type' => '息',
             'cash_dividend' => 10.983792,
+            'stock_dividend' => 0,
             'latest_close_price' => 400,
             'latest_price_date' => '2026-04-29',
+            'price_20_days_ago' => 350,
+            'price_20_days_ago_date' => '2026-04-10',
+            'price_change_20_days_percent' => 14.2857,
             'dividend_yield_percent' => 2.7459,
             'days_until_ex_dividend' => 27,
             'last_ex_dividend_date' => '2025-07-01',
@@ -282,6 +363,39 @@ class TwStockUpcomingDividendsTest extends TestCase
         ], $overrides);
     }
 
+    private function winvestHtml(): string
+    {
+        return <<<'HTML'
+<!doctype html>
+<html lang="zh-Hant">
+<body>
+<table>
+    <tbody>
+        <tr>
+            <td>2026/05/22</td>
+            <td><a href="/Stock/Symbol/Dividend/3257">虹冠電 <br>(3257)</a></td>
+            <td>52.8</td>
+            <td>2.8</td>
+            <td>5.30 %</td>
+            <td>2026/06/22</td>
+            <td></td>
+        </tr>
+        <tr>
+            <td>2026/05/27</td>
+            <td><a href="/Stock/Symbol/Dividend/3413">京鼎 <br>(3413)</a></td>
+            <td>400</td>
+            <td>10.983</td>
+            <td>2.75 %</td>
+            <td>2026/06/22</td>
+            <td></td>
+        </tr>
+    </tbody>
+</table>
+</body>
+</html>
+HTML;
+    }
+
     private function createTable(): void
     {
         Schema::create('tw_stock_upcoming_dividends', function (Blueprint $table): void {
@@ -293,8 +407,12 @@ class TwStockUpcomingDividendsTest extends TestCase
             $table->date('ex_dividend_date');
             $table->string('ex_dividend_type', 16);
             $table->decimal('cash_dividend', 12, 6);
+            $table->decimal('stock_dividend', 12, 6)->default(0);
             $table->decimal('latest_close_price', 12, 4)->nullable();
             $table->date('latest_price_date')->nullable();
+            $table->decimal('price_20_days_ago', 12, 4)->nullable();
+            $table->date('price_20_days_ago_date')->nullable();
+            $table->decimal('price_change_20_days_percent', 8, 4)->nullable();
             $table->decimal('dividend_yield_percent', 8, 4)->nullable();
             $table->unsignedInteger('days_until_ex_dividend');
             $table->date('last_ex_dividend_date')->nullable();

@@ -16,8 +16,12 @@ class TwStockUpcomingDividend extends Model
     protected $casts = [
         'ex_dividend_date' => 'date',
         'cash_dividend' => 'float',
+        'stock_dividend' => 'float',
         'latest_close_price' => 'float',
         'latest_price_date' => 'date',
+        'price_20_days_ago' => 'float',
+        'price_20_days_ago_date' => 'date',
+        'price_change_20_days_percent' => 'float',
         'dividend_yield_percent' => 'float',
         'days_until_ex_dividend' => 'integer',
         'last_ex_dividend_date' => 'date',

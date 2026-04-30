@@ -15,7 +15,7 @@ class FetchTwStockUpcomingDividendsCommand extends Command
         {--days=30 : 往後查詢天數}
         {--include-funds : 包含 ETF、債券 ETF、REIT 等非 4 碼股票代號}';
 
-    protected $description = '抓取未來 30 天台股除息股票、最新股價、殖利率與上次填息天數。';
+    protected $description = '抓取未來 30 天台股除權息股票、最新股價、殖利率、近 20 天漲跌幅與上次填息天數。';
 
     public function handle(TwStockUpcomingDividendFetcher $fetcher): int
     {
@@ -51,7 +51,7 @@ class FetchTwStockUpcomingDividendsCommand extends Command
                 $payload['ex_dividend_date'],
                 $payload['stock_code'],
                 $payload['stock_name'],
-                number_format((float) $payload['cash_dividend'], 4),
+                $this->dividendLabel($payload),
                 $payload['latest_close_price'] !== null ? number_format((float) $payload['latest_close_price'], 2) : 'N/A',
                 $payload['dividend_yield_percent'] !== null ? number_format((float) $payload['dividend_yield_percent'], 2) : 'N/A',
                 $payload['last_fill_days'] !== null ? $payload['last_fill_days'] . ' 天' : $this->fillStatusLabel((string) $payload['last_fill_status']),
@@ -101,5 +101,22 @@ class FetchTwStockUpcomingDividendsCommand extends Command
             'no_history' => '無歷史',
             default => 'N/A',
         };
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function dividendLabel(array $payload): string
+    {
+        $parts = [];
+        if ((float) ($payload['cash_dividend'] ?? 0) > 0.0) {
+            $parts[] = '息 ' . number_format((float) $payload['cash_dividend'], 4);
+        }
+
+        if ((float) ($payload['stock_dividend'] ?? 0) > 0.0) {
+            $parts[] = '權 ' . number_format((float) $payload['stock_dividend'], 4);
+        }
+
+        return $parts !== [] ? implode(' / ', $parts) : 'N/A';
     }
 }

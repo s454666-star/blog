@@ -40,6 +40,13 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_institutional_flows.log'));
 
+        $schedule->command('tw-stock:fetch-upcoming-dividends')
+            ->dailyAt('16:20')
+            ->name('tw-stock-fetch-upcoming-dividends')
+            ->withoutOverlapping(120)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_upcoming_dividends.log'));
+
         // Telegram / filestore
         $schedule->command('schedule:unlock-stale-filestore-restore')
             ->everyMinute()

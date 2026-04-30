@@ -92,7 +92,7 @@
 
         .summary-grid {
             display: grid;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-columns: repeat(6, minmax(0, 1fr));
             gap: 12px;
             margin-bottom: 14px;
         }
@@ -227,7 +227,7 @@
 
         table {
             width: 100%;
-            min-width: 1120px;
+            min-width: 1240px;
             border-collapse: collapse;
             table-layout: fixed;
             font-variant-numeric: tabular-nums;
@@ -366,6 +366,10 @@
         return $value === null ? 'N/A' : number_format((int) $value);
     };
 
+    $formatIndex = static function ($value): string {
+        return $value === null ? 'N/A' : number_format((float) $value, 2);
+    };
+
     $directionClass = static function ($value): string {
         if ($value === null || (float) $value === 0.0) {
             return 'flat';
@@ -417,6 +421,11 @@
                 <div class="sub">最後抓取：{{ $latest['fetched_at'] ?? 'N/A' }}</div>
             </article>
             <article class="summary-card">
+                <div class="label">加權指數</div>
+                <div class="value">{{ $formatIndex($latest['taiex_close_index']) }}</div>
+                <div class="sub">收盤指數，來源：證交所</div>
+            </article>
+            <article class="summary-card">
                 <div class="label">外資買賣超</div>
                 <div class="value {{ ($latest['foreign_stock_net_100m'] ?? 0) >= 0 ? 'positive' : 'negative' }}">
                     {{ $format100m($latest['foreign_stock_net_100m']) }} 億
@@ -449,9 +458,9 @@
         <section class="charts">
             <article class="chart-panel">
                 <div class="panel-head">
-                    <h2 class="panel-title">每日買賣超與累計現貨部位</h2>
+                    <h2 class="panel-title">每日買賣超、累計現貨與加權指數</h2>
                     <div class="legend-note">
-                        柱：每日買賣超；線：自 {{ $firstStoredDate }} 起累計
+                        柱：每日買賣超；線：自 {{ $firstStoredDate }} 起累計與加權指數
                         <span id="stockFlowRange" class="range-pill"></span>
                     </div>
                 </div>
@@ -484,6 +493,7 @@
                     <thead>
                         <tr>
                             <th>日期</th>
+                            <th>加權指數</th>
                             <th>外資買賣超</th>
                             <th>外資方向</th>
                             <th>外資累計現貨</th>
@@ -498,6 +508,7 @@
                         @foreach ($rows->reverse()->values() as $row)
                             <tr>
                                 <td>{{ $row['date'] }}</td>
+                                <td>{{ $formatIndex($row['taiex_close_index']) }}</td>
                                 <td class="{{ ($row['foreign_stock_net_100m'] ?? 0) >= 0 ? 'positive' : 'negative' }}">
                                     {{ $format100m($row['foreign_stock_net_100m']) }}
                                 </td>
@@ -575,6 +586,7 @@
             investmentTrustNet: visibleSlice(chartData.investmentTrustNet),
             foreignCumulative: visibleSlice(chartData.foreignCumulative),
             investmentTrustCumulative: visibleSlice(chartData.investmentTrustCumulative),
+            taiexClose: visibleSlice(chartData.taiexClose),
             foreignOpenInterest: visibleSlice(chartData.foreignOpenInterest),
             investmentTrustOpenInterest: visibleSlice(chartData.investmentTrustOpenInterest),
         };
@@ -703,6 +715,19 @@
                     borderWidth: 2,
                     yAxisID: 'yCumulative',
                 },
+                {
+                    type: 'line',
+                    label: '加權指數',
+                    data: initialVisibleData.taiexClose,
+                    unit: ' 點',
+                    digits: 2,
+                    borderColor: '#0f172a',
+                    backgroundColor: '#0f172a',
+                    tension: 0.24,
+                    pointRadius: 1.8,
+                    borderWidth: 2,
+                    yAxisID: 'yTaiex',
+                },
             ],
         },
         options: {
@@ -735,6 +760,21 @@
                     },
                     ticks: {
                         color: '#64748b',
+                    },
+                },
+                yTaiex: {
+                    position: 'right',
+                    offset: true,
+                    title: {
+                        display: true,
+                        text: '加權指數',
+                        color: '#475569',
+                    },
+                    grid: {
+                        drawOnChartArea: false,
+                    },
+                    ticks: {
+                        color: '#475569',
                     },
                 },
             },
@@ -816,6 +856,7 @@
         );
         stockFlowChart.data.datasets[2].data = visibleData.foreignCumulative;
         stockFlowChart.data.datasets[3].data = visibleData.investmentTrustCumulative;
+        stockFlowChart.data.datasets[4].data = visibleData.taiexClose;
         stockFlowChart.update('none');
 
         openInterestChart.data.labels = visibleData.labels;

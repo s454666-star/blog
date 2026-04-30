@@ -52,7 +52,7 @@ class TwStockInstitutionalFlowsTest extends TestCase
     public function test_fetch_command_stores_twse_and_taifex_institutional_flow_data(): void
     {
         Http::fake([
-            'https://www.twse.com.tw/*' => Http::response([
+            'https://www.twse.com.tw/fund/BFI82U*' => Http::response([
                 'stat' => 'OK',
                 'date' => '20260430',
                 'title' => '115年04月30日 三大法人買賣金額統計表',
@@ -63,6 +63,23 @@ class TwStockInstitutionalFlowsTest extends TestCase
                     ['外資自營商', '0', '0', '0'],
                 ],
             ]),
+            'https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST*' => Http::sequence()
+                ->push([
+                    'stat' => 'OK',
+                    'title' => '115年03月 發行量加權股價指數歷史資料',
+                    'fields' => ['日期', '開盤指數', '最高指數', '最低指數', '收盤指數'],
+                    'data' => [
+                        ['115/03/31', '31,000.00', '31,200.00', '30,900.00', '31,100.00'],
+                    ],
+                ])
+                ->push([
+                    'stat' => 'OK',
+                    'title' => '115年04月 發行量加權股價指數歷史資料',
+                    'fields' => ['日期', '開盤指數', '最高指數', '最低指數', '收盤指數'],
+                    'data' => [
+                        ['115/04/30', '38,601.66', '39,222.19', '38,436.78', '38,926.63'],
+                    ],
+                ]),
             'https://www.taifex.com.tw/*' => Http::response($this->taifexHtml()),
         ]);
 
@@ -80,6 +97,7 @@ class TwStockInstitutionalFlowsTest extends TestCase
         $this->assertSame(-44044, (int) $record->foreign_txf_open_interest_net_contracts);
         $this->assertSame(122, (int) $record->investment_trust_txf_trade_net_contracts);
         $this->assertSame(42317, (int) $record->investment_trust_txf_open_interest_net_contracts);
+        $this->assertEqualsWithDelta(38926.63, (float) $record->taiex_close_index, 0.001);
     }
 
     public function test_dashboard_defaults_to_latest_sixty_trade_days_and_supports_day_filter(): void
@@ -91,6 +109,7 @@ class TwStockInstitutionalFlowsTest extends TestCase
                 'trade_date' => $start->copy()->addDays($i)->toDateString(),
                 'foreign_stock_net_amount' => ($i + 1) * 100_000_000,
                 'investment_trust_stock_net_amount' => -($i + 1) * 10_000_000,
+                'taiex_close_index' => 20000 + $i,
                 'foreign_txf_open_interest_net_contracts' => -40000 - $i,
                 'investment_trust_txf_open_interest_net_contracts' => 10000 + $i,
                 'fetched_at' => now(),
@@ -104,6 +123,8 @@ class TwStockInstitutionalFlowsTest extends TestCase
             ->assertSee('近 60 個交易日明細')
             ->assertSee('"windowSize":60', false)
             ->assertSee('"initialStartIndex":5', false)
+            ->assertSee('"taiexClose"', false)
+            ->assertSee('加權指數')
             ->assertSee('2026-03-06')
             ->assertSee('2026-01-06')
             ->assertDontSee('2026-01-05</td>', false);
@@ -132,6 +153,12 @@ class TwStockInstitutionalFlowsTest extends TestCase
             $table->unsignedInteger('investment_trust_txf_open_interest_long_contracts')->nullable();
             $table->unsignedInteger('investment_trust_txf_open_interest_short_contracts')->nullable();
             $table->integer('investment_trust_txf_open_interest_net_contracts')->nullable();
+            $table->decimal('taiex_open_index', 10, 2)->nullable();
+            $table->decimal('taiex_high_index', 10, 2)->nullable();
+            $table->decimal('taiex_low_index', 10, 2)->nullable();
+            $table->decimal('taiex_close_index', 10, 2)->nullable();
+            $table->string('taiex_source_title')->nullable();
+            $table->json('taiex_payload')->nullable();
             $table->string('twse_source_title')->nullable();
             $table->json('twse_payload')->nullable();
             $table->json('taifex_payload')->nullable();

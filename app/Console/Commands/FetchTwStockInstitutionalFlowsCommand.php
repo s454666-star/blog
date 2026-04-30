@@ -53,8 +53,11 @@ class FetchTwStockInstitutionalFlowsCommand extends Command
 
                 $saved++;
                 $this->info(sprintf(
-                    '%s saved: 外資 %.2f 億, 投信 %.2f 億, 外資OI %s, 投信OI %s',
+                    '%s saved: 加權 %s, 外資 %.2f 億, 投信 %.2f 億, 外資OI %s, 投信OI %s',
                     $date->toDateString(),
+                    $payload['taiex_close_index'] !== null
+                        ? number_format((float) $payload['taiex_close_index'], 2)
+                        : 'N/A',
                     ((int) $payload['foreign_stock_net_amount']) / 100_000_000,
                     ((int) $payload['investment_trust_stock_net_amount']) / 100_000_000,
                     $payload['foreign_txf_open_interest_net_contracts'] !== null

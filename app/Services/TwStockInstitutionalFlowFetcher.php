@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use DOMDocument;
 use DOMElement;
@@ -14,7 +15,14 @@ class TwStockInstitutionalFlowFetcher
 {
     private const TWSE_URL = 'https://www.twse.com.tw/fund/BFI82U';
 
+    private const TAIEX_URL = 'https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST';
+
     private const TAIFEX_URL = 'https://www.taifex.com.tw/cht/3/futContractsDate';
+
+    /**
+     * @var array<string, array<string, mixed>>
+     */
+    private array $taiexMonthCache = [];
 
     /**
      * @return array<string, mixed>|null
@@ -27,6 +35,7 @@ class TwStockInstitutionalFlowFetcher
         }
 
         $taifex = $this->fetchTaifexTxfFlows($date);
+        $taiex = $this->fetchTaiexDailyIndex($date);
 
         return [
             'trade_date' => $date->toDateString(),
@@ -44,9 +53,15 @@ class TwStockInstitutionalFlowFetcher
             'investment_trust_txf_open_interest_long_contracts' => $taifex['investment_trust']['open_interest_long_contracts'] ?? null,
             'investment_trust_txf_open_interest_short_contracts' => $taifex['investment_trust']['open_interest_short_contracts'] ?? null,
             'investment_trust_txf_open_interest_net_contracts' => $taifex['investment_trust']['open_interest_net_contracts'] ?? null,
+            'taiex_open_index' => $taiex['open_index'] ?? null,
+            'taiex_high_index' => $taiex['high_index'] ?? null,
+            'taiex_low_index' => $taiex['low_index'] ?? null,
+            'taiex_close_index' => $taiex['close_index'] ?? null,
+            'taiex_source_title' => $taiex['title'] ?? null,
             'twse_source_title' => $twse['title'] ?? null,
             'twse_payload' => $twse['payload'],
             'taifex_payload' => $taifex['payload'],
+            'taiex_payload' => $taiex['payload'] ?? null,
             'fetched_at' => now(),
         ];
     }
@@ -158,6 +173,89 @@ class TwStockInstitutionalFlowFetcher
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchTaiexDailyIndex(CarbonInterface $date): ?array
+    {
+        $monthKey = $date->format('Ym');
+
+        if (!array_key_exists($monthKey, $this->taiexMonthCache)) {
+            $this->taiexMonthCache[$monthKey] = $this->fetchTaiexMonthIndexes($date);
+        }
+
+        return $this->taiexMonthCache[$monthKey]['by_date'][$date->toDateString()] ?? null;
+    }
+
+    /**
+     * @return array{title: string|null, by_date: array<string, array<string, mixed>>}
+     */
+    private function fetchTaiexMonthIndexes(CarbonInterface $date): array
+    {
+        $month = CarbonImmutable::parse($date->toDateString());
+        $targetMonth = $month->format('Y-m');
+        $queryDates = array_values(array_unique([
+            $month->format('Ymd'),
+            $month->startOfMonth()->format('Ymd'),
+            $month->day(15)->format('Ymd'),
+            $month->endOfMonth()->format('Ymd'),
+        ]));
+
+        foreach ($queryDates as $queryDate) {
+            $response = $this->http()
+                ->get(self::TAIEX_URL, [
+                    'response' => 'json',
+                    'date' => $queryDate,
+                ])
+                ->throw()
+                ->json();
+
+            if (!is_array($response) || ($response['stat'] ?? null) !== 'OK') {
+                continue;
+            }
+
+            $title = isset($response['title']) ? (string) $response['title'] : null;
+            $byDate = [];
+
+            foreach (($response['data'] ?? []) as $row) {
+                if (!is_array($row) || count($row) < 5) {
+                    continue;
+                }
+
+                $tradeDate = $this->parseRocDate((string) $row[0]);
+                if ($tradeDate === null || !str_starts_with($tradeDate, $targetMonth)) {
+                    continue;
+                }
+
+                $byDate[$tradeDate] = [
+                    'title' => $title,
+                    'open_index' => $this->parseDecimal((string) $row[1]),
+                    'high_index' => $this->parseDecimal((string) $row[2]),
+                    'low_index' => $this->parseDecimal((string) $row[3]),
+                    'close_index' => $this->parseDecimal((string) $row[4]),
+                    'payload' => [
+                        'status' => 'OK',
+                        'title' => $title,
+                        'fields' => $response['fields'] ?? null,
+                        'row' => $row,
+                    ],
+                ];
+            }
+
+            if ($byDate !== []) {
+                return [
+                    'title' => $title,
+                    'by_date' => $byDate,
+                ];
+            }
+        }
+
+        return [
+            'title' => null,
+            'by_date' => [],
+        ];
+    }
+
+    /**
      * @return array<string, array<string, int|null>>
      */
     private function parseTaifexRows(string $html): array
@@ -248,6 +346,35 @@ class TwStockInstitutionalFlowFetcher
         }
 
         return (int) $normalized;
+    }
+
+    private function parseDecimal(string $value): ?string
+    {
+        $normalized = str_replace([',', "\xc2\xa0", ' '], '', trim($value));
+
+        if ($normalized === '' || $normalized === '-' || $normalized === '－') {
+            return null;
+        }
+
+        return number_format((float) $normalized, 2, '.', '');
+    }
+
+    private function parseRocDate(string $value): ?string
+    {
+        $parts = explode('/', trim($value));
+        if (count($parts) !== 3) {
+            return null;
+        }
+
+        $year = (int) $parts[0] + 1911;
+        $month = (int) $parts[1];
+        $day = (int) $parts[2];
+
+        if (!checkdate($month, $day, $year)) {
+            return null;
+        }
+
+        return sprintf('%04d-%02d-%02d', $year, $month, $day);
     }
 
     private function http(): PendingRequest

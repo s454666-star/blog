@@ -19,7 +19,7 @@ class DeleteExactVideoDuplicatesCommand extends Command
 
     protected $description = '只看檔案內容找出完全相同的影片；同內容保留最早那份，其餘直接刪除，不做截圖比對。';
 
-    private const VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'm4v', 'mpeg', 'mpg'];
+    private const VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', '3gp', 'ts'];
 
     public function handle(MediaDurationProbeService $durationProbeService): int
     {
@@ -35,7 +35,7 @@ class DeleteExactVideoDuplicatesCommand extends Command
 
         $this->info('Root: ' . $rootPath);
         $this->line(sprintf(
-            'recursive=%d dry-run=%d files=%d hash=sha256',
+            'recursive=%d dry-run=%d files=%d hash=sha256-base64',
             $recursive ? 1 : 0,
             $dryRun ? 1 : 0,
             count($files)
@@ -80,26 +80,26 @@ class DeleteExactVideoDuplicatesCommand extends Command
                 continue;
             }
 
-            $entriesByHash = [];
+            $entriesByFingerprint = [];
 
             foreach ($sizeEntries as $entry) {
-                $hash = @hash_file('sha256', (string) $entry['path']);
-                if (!is_string($hash) || $hash === '') {
+                $rawHash = @hash_file('sha256', (string) $entry['path'], true);
+                if (!is_string($rawHash) || $rawHash === '') {
                     $failed++;
                     $this->error('無法計算 SHA-256：' . $entry['path']);
                     continue;
                 }
 
-                $entry['sha256'] = strtolower($hash);
-                $entriesByHash[$entry['sha256']][] = $entry;
+                $entry['fingerprint_base64'] = base64_encode($rawHash);
+                $entriesByFingerprint[$entry['fingerprint_base64']][] = $entry;
             }
 
-            foreach ($entriesByHash as $hashEntries) {
-                if (count($hashEntries) < 2) {
+            foreach ($entriesByFingerprint as $fingerprintEntries) {
+                if (count($fingerprintEntries) < 2) {
                     continue;
                 }
 
-                foreach ($hashEntries as $index => $entry) {
+                foreach ($fingerprintEntries as $index => $entry) {
                     $durationSeconds = null;
                     $durationError = null;
 
@@ -109,13 +109,13 @@ class DeleteExactVideoDuplicatesCommand extends Command
                         $durationError = $e->getMessage();
                     }
 
-                    $hashEntries[$index]['duration_seconds'] = $durationSeconds;
-                    $hashEntries[$index]['duration_error'] = $durationError;
+                    $fingerprintEntries[$index]['duration_seconds'] = $durationSeconds;
+                    $fingerprintEntries[$index]['duration_error'] = $durationError;
                 }
 
-                usort($hashEntries, fn (array $left, array $right): int => $this->compareKeepPriority($left, $right));
+                usort($fingerprintEntries, fn (array $left, array $right): int => $this->compareKeepPriority($left, $right));
 
-                $keeper = array_shift($hashEntries);
+                $keeper = array_shift($fingerprintEntries);
                 if (!is_array($keeper)) {
                     continue;
                 }
@@ -125,14 +125,14 @@ class DeleteExactVideoDuplicatesCommand extends Command
 
                 $durationSummary = $this->formatDuration($keeper['duration_seconds'] ?? null, $keeper['duration_error'] ?? null);
                 $this->warn(sprintf(
-                    '完全相同：size=%s duration=%s sha256=%s…',
+                    '完全相同：size=%s duration=%s base64=%s…',
                     $this->formatBytes((int) $keeper['file_size_bytes']),
                     $durationSummary,
-                    substr((string) ($keeper['sha256'] ?? ''), 0, 12)
+                    substr((string) ($keeper['fingerprint_base64'] ?? ''), 0, 12)
                 ));
                 $this->line('  保留：' . $keeper['path']);
 
-                foreach ($hashEntries as $duplicate) {
+                foreach ($fingerprintEntries as $duplicate) {
                     $duplicateDuration = $this->formatDuration(
                         $duplicate['duration_seconds'] ?? null,
                         $duplicate['duration_error'] ?? null

@@ -54,6 +54,7 @@ class DeleteExactVideoDuplicatesCommandTest extends TestCase
         $this->artisan('video:delete-exact-duplicates', [
             'path' => $this->tempDir,
         ])
+            ->expectsOutputToContain('hash=sha256-base64')
             ->expectsOutputToContain('完全相同')
             ->expectsOutputToContain('已刪除')
             ->assertExitCode(0);

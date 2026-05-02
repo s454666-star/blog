@@ -88,6 +88,16 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/telegram_image_ingest.log'));
 
+        $schedule->command('video:delete-exact-duplicates', [
+            'C:\Users\User\Downloads\Video',
+            '--recursive' => '1',
+        ])
+            ->everyTenMinutes()
+            ->name('video-delete-download-exact-duplicates')
+            ->withoutOverlapping(15)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/download_video_exact_duplicates.log'));
+
         $schedule->exec($this->hiddenBatchCommand('ensure_tg_scan_group_media.bat'))
             ->hourlyAt(24)
             ->name('blog-ensure-tg-scan-group-media');

@@ -193,6 +193,34 @@ class MoveDuplicateVideosCommand extends Command
         $staged = 0;
         $kept = 0;
         $failed = 0;
+        $sourceExactDuplicateDryRuns = 0;
+
+        $sourceExactDuplicateScan = $this->deleteSourceExactDuplicatesBeforeComparison(
+            $files,
+            $path,
+            $threshold,
+            $minMatch,
+            $windowSeconds,
+            $sizePercent,
+            $maxCandidates,
+            $dryRun,
+            $externalVideoDuplicateService,
+            $commandLogContext + [
+                'duplicate_directory_path' => $duplicateDir,
+            ]
+        );
+        $files = $sourceExactDuplicateScan['files'];
+        $deleted += $sourceExactDuplicateScan['deleted_count'];
+        $failed += $sourceExactDuplicateScan['failed_count'];
+        $sourceExactDuplicateDryRuns = $sourceExactDuplicateScan['dry_run_count'];
+
+        Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates source exact duplicate scan finished', $commandLogContext + [
+            'duplicate_directory_path' => $duplicateDir,
+            'source_exact_duplicate_deleted_count' => $sourceExactDuplicateScan['deleted_count'],
+            'source_exact_duplicate_dry_run_count' => $sourceExactDuplicateScan['dry_run_count'],
+            'source_exact_duplicate_failed_count' => $sourceExactDuplicateScan['failed_count'],
+            'remaining_file_count' => count($files),
+        ]);
 
         foreach ($files as $filePath) {
             $this->line($filePath);
@@ -615,8 +643,16 @@ class MoveDuplicateVideosCommand extends Command
         }
 
         $this->newLine();
-        $this->info(sprintf('完成，deleted=%d staged=%d kept=%d failed=%d', $deleted, $staged, $kept, $failed));
+        $this->info(sprintf(
+            '完成，source_exact_dry_run=%d deleted=%d staged=%d kept=%d failed=%d',
+            $sourceExactDuplicateDryRuns,
+            $deleted,
+            $staged,
+            $kept,
+            $failed
+        ));
         Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates finished', $commandLogContext + [
+            'source_exact_duplicate_dry_run_count' => $sourceExactDuplicateDryRuns,
             'deleted_count' => $deleted,
             'staged_count' => $staged,
             'kept_count' => $kept,
@@ -624,6 +660,228 @@ class MoveDuplicateVideosCommand extends Command
         ]);
 
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * Remove exact duplicate source files before the expensive screenshot/DB comparisons.
+     *
+     * The comparison key is a streamed SHA-1 over the file's base64 representation, so it keeps
+     * the user's requested base64 comparison behavior without holding full video strings in memory.
+     */
+    private function deleteSourceExactDuplicatesBeforeComparison(
+        array $files,
+        string $scanRootPath,
+        int $threshold,
+        int $minMatch,
+        int $windowSeconds,
+        int $sizePercent,
+        int $maxCandidates,
+        bool $dryRun,
+        ExternalVideoDuplicateService $externalVideoDuplicateService,
+        array $logContext
+    ): array {
+        $keptByBase64Key = [];
+        $remainingFiles = [];
+        $deleted = 0;
+        $dryRunCount = 0;
+        $failed = 0;
+
+        $this->line('來源資料夾 base64 exact duplicate 前置掃描：' . count($files) . ' files');
+
+        foreach ($files as $filePath) {
+            $fileLogContext = $logContext + [
+                'file_path' => $filePath,
+            ];
+
+            try {
+                $fingerprint = $this->buildBase64Fingerprint($filePath);
+            } catch (Throwable $e) {
+                $failed++;
+                $remainingFiles[] = $filePath;
+                Log::channel(self::LOG_CHANNEL)->warning('video:move-duplicates source exact duplicate fingerprint failed', $fileLogContext + [
+                    'error_message' => $e->getMessage(),
+                ]);
+                $this->warn('  base64 掃描略過：' . $filePath . ' -> ' . $e->getMessage());
+                continue;
+            }
+
+            $base64Key = $fingerprint['file_size_bytes'] . ':' . $fingerprint['base64_sha1'];
+            if (!isset($keptByBase64Key[$base64Key])) {
+                $keptByBase64Key[$base64Key] = [
+                    'path' => $filePath,
+                    'fingerprint' => $fingerprint,
+                ];
+                $remainingFiles[] = $filePath;
+                continue;
+            }
+
+            $keptPath = (string) $keptByBase64Key[$base64Key]['path'];
+            $payload = $this->buildSourceExactDuplicatePayload($filePath, $fingerprint);
+            $analysis = $this->buildSourceExactDuplicateAnalysis($keptPath, $fingerprint);
+
+            Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates source exact duplicate found', $fileLogContext + [
+                'kept_file_path' => $keptPath,
+                'base64_sha1' => $fingerprint['base64_sha1'],
+                'file_size_bytes' => $fingerprint['file_size_bytes'],
+                'dry_run' => $dryRun,
+            ]);
+
+            $this->warn('  來源資料夾 base64 重複，保留：' . $keptPath);
+            $this->warn('  重複檔案：' . $filePath);
+
+            try {
+                if ($dryRun) {
+                    $externalVideoDuplicateService->persistComparisonLog(
+                        $payload,
+                        $analysis,
+                        $filePath,
+                        [
+                            'scan_root_path' => $scanRootPath,
+                            'threshold_percent' => $threshold,
+                            'min_match_required' => $minMatch,
+                            'window_seconds' => $windowSeconds,
+                            'size_percent' => $sizePercent,
+                            'max_candidates' => $maxCandidates,
+                            'is_duplicate_detected' => true,
+                            'operation_status' => 'source_exact_duplicate_dry_run',
+                            'operation_message' => '來源資料夾內 base64 內容重複；保留 ' . $keptPath . '，dry-run 模式未刪除檔案。',
+                        ]
+                    );
+
+                    $dryRunCount++;
+                    $this->line('  dry-run 模式，未刪除來源重複檔');
+                    continue;
+                }
+
+                if (!@unlink($filePath)) {
+                    throw new \RuntimeException('刪除來源資料夾重複檔案失敗：' . $filePath);
+                }
+
+                $externalVideoDuplicateService->persistComparisonLog(
+                    $payload,
+                    $analysis,
+                    $filePath,
+                    [
+                        'scan_root_path' => $scanRootPath,
+                        'duplicate_file_path' => $filePath,
+                        'threshold_percent' => $threshold,
+                        'min_match_required' => $minMatch,
+                        'window_seconds' => $windowSeconds,
+                        'size_percent' => $sizePercent,
+                        'max_candidates' => $maxCandidates,
+                        'is_duplicate_detected' => true,
+                        'operation_status' => 'source_exact_duplicate_deleted',
+                        'operation_message' => '來源資料夾內 base64 內容重複；保留 ' . $keptPath . '，已刪除此重複檔案。',
+                    ]
+                );
+
+                $deleted++;
+                $this->info('  已刪除來源重複檔');
+            } catch (Throwable $e) {
+                $failed++;
+                if (is_file($filePath)) {
+                    $remainingFiles[] = $filePath;
+                }
+
+                Log::channel(self::LOG_CHANNEL)->error('video:move-duplicates source exact duplicate delete/log failed', $fileLogContext + [
+                    'kept_file_path' => $keptPath,
+                    'base64_sha1' => $fingerprint['base64_sha1'],
+                    'error_message' => $e->getMessage(),
+                ]);
+                $this->error('  來源重複檔處理失敗：' . $e->getMessage());
+            }
+        }
+
+        return [
+            'files' => $remainingFiles,
+            'deleted_count' => $deleted,
+            'dry_run_count' => $dryRunCount,
+            'failed_count' => $failed,
+        ];
+    }
+
+    private function buildBase64Fingerprint(string $filePath): array
+    {
+        if (!is_file($filePath)) {
+            throw new \RuntimeException('檔案已不存在或不是有效檔案。');
+        }
+
+        $handle = @fopen($filePath, 'rb');
+        if (!is_resource($handle)) {
+            throw new \RuntimeException('無法讀取檔案。');
+        }
+
+        $hash = hash_init('sha1');
+        $bytesRead = 0;
+
+        try {
+            while (!feof($handle)) {
+                $chunk = fread($handle, 1572864); // 1.5 MiB, divisible by 3 for stable base64 chunking.
+                if ($chunk === false) {
+                    throw new \RuntimeException('讀取檔案失敗。');
+                }
+
+                if ($chunk === '') {
+                    continue;
+                }
+
+                $bytesRead += strlen($chunk);
+                hash_update($hash, base64_encode($chunk));
+            }
+        } finally {
+            fclose($handle);
+        }
+
+        $fileSize = @filesize($filePath);
+        $fileCreatedAt = @filectime($filePath);
+        $fileModifiedAt = @filemtime($filePath);
+
+        return [
+            'base64_sha1' => hash_final($hash),
+            'file_size_bytes' => $fileSize !== false ? (int) $fileSize : $bytesRead,
+            'file_created_at' => $fileCreatedAt !== false ? (int) $fileCreatedAt : null,
+            'file_modified_at' => $fileModifiedAt !== false ? (int) $fileModifiedAt : null,
+        ];
+    }
+
+    private function buildSourceExactDuplicatePayload(string $filePath, array $fingerprint): array
+    {
+        return [
+            'absolute_path' => $filePath,
+            'video_name' => basename($filePath),
+            'file_name' => basename($filePath),
+            'file_size_bytes' => $fingerprint['file_size_bytes'] ?? null,
+            'duration_seconds' => 0,
+            'file_created_at' => $fingerprint['file_created_at'] ?? null,
+            'file_modified_at' => $fingerprint['file_modified_at'] ?? null,
+            'capture_rule' => 'source_base64_exact',
+            'feature_version' => 'base64-exact-v1',
+            'frames' => [],
+        ];
+    }
+
+    private function buildSourceExactDuplicateAnalysis(string $keptPath, array $fingerprint): array
+    {
+        $match = [
+            'similarity_percent' => 100.0,
+            'matched_frames' => 0,
+            'compared_frames' => 0,
+            'required_matches' => 0,
+            'passes_threshold' => true,
+            'duration_delta_seconds' => 0,
+            'file_size_delta_bytes' => 0,
+            'source_exact_duplicate' => true,
+            'source_exact_match_path' => $keptPath,
+            'base64_sha1' => $fingerprint['base64_sha1'] ?? null,
+        ];
+
+        return [
+            'best_result' => $match,
+            'duplicate_match' => $match,
+            'candidate_count' => 1,
+            'payload_frame_count' => 0,
+            'requested_min_match' => 0,
+        ];
     }
 
     private function buildAutomaticNoMatchMessage(

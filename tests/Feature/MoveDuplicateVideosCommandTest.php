@@ -385,6 +385,170 @@ class MoveDuplicateVideosCommandTest extends TestCase
         $this->assertSame($sourcePath, $capturedDeletedPath);
     }
 
+    public function test_command_deletes_source_exact_duplicate_before_feature_comparison(): void
+    {
+        $sourcePath = $this->tempDir . DIRECTORY_SEPARATOR . 'a.mp4';
+        $duplicatePath = $this->tempDir . DIRECTORY_SEPARATOR . 'b.mp4';
+        $referenceDir = $this->tempDir . DIRECTORY_SEPARATOR . 'reference';
+        $expectedReferencePath = $referenceDir . DIRECTORY_SEPARATOR . 'a.mp4';
+
+        File::ensureDirectoryExists($referenceDir);
+        file_put_contents($sourcePath, 'same-video-bytes');
+        file_put_contents($duplicatePath, 'same-video-bytes');
+
+        $payload = [
+            'absolute_path' => $sourcePath,
+            'video_name' => 'a.mp4',
+            'file_name' => 'a.mp4',
+            'file_size_bytes' => 16,
+            'duration_seconds' => 13.1,
+            'file_created_at' => now(),
+            'file_modified_at' => now(),
+            'capture_rule' => '10s_x4',
+            'feature_version' => 'v1',
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 10.0,
+                'dhash_hex' => '0011223344556677',
+                'dhash_prefix' => '00',
+                'frame_sha1' => str_repeat('a', 40),
+            ]],
+        ];
+
+        $databaseAnalysis = [
+            'best_result' => null,
+            'duplicate_match' => null,
+            'candidate_count' => 0,
+            'payload_frame_count' => 1,
+            'requested_min_match' => 1,
+        ];
+
+        $featureExtractionService = Mockery::mock(VideoFeatureExtractionService::class);
+        $featureExtractionService->shouldReceive('inspectFile')
+            ->once()
+            ->with($sourcePath)
+            ->andReturn($payload);
+        $featureExtractionService->shouldReceive('inspectFile')
+            ->never()
+            ->with($duplicatePath);
+        $featureExtractionService->shouldReceive('cleanupPayload')
+            ->once()
+            ->with($payload);
+        $this->app->instance(VideoFeatureExtractionService::class, $featureExtractionService);
+
+        $duplicateDetectionService = Mockery::mock(VideoDuplicateDetectionService::class);
+        $duplicateDetectionService->shouldReceive('analyzeDatabaseMatch')
+            ->once()
+            ->with($payload, 80, 2, 3, 15, 250)
+            ->andReturn($databaseAnalysis);
+        $duplicateDetectionService->shouldReceive('prepareReferenceSnapshotIndex')
+            ->never();
+        $duplicateDetectionService->shouldReceive('analyzePreparedReferenceSnapshotsMatch')
+            ->never();
+        $duplicateDetectionService->shouldReceive('appendPreparedReferenceSnapshot')
+            ->once()
+            ->withArgs(function (array $passedPreparedIndex, array $passedSnapshot) use ($expectedReferencePath): bool {
+                return ($passedPreparedIndex['snapshots'] ?? null) === []
+                    && ($passedSnapshot['absolute_path'] ?? null) === $expectedReferencePath
+                    && ($passedSnapshot['file_name'] ?? null) === 'a.mp4';
+            })
+            ->andReturn([
+                'snapshots' => [
+                    ['absolute_path' => $expectedReferencePath],
+                ],
+            ]);
+        $this->app->instance(VideoDuplicateDetectionService::class, $duplicateDetectionService);
+
+        $referenceVideoFeatureIndexService = Mockery::mock(ReferenceVideoFeatureIndexService::class);
+        $referenceVideoFeatureIndexService->shouldReceive('syncDirectory')
+            ->once()
+            ->with($referenceDir)
+            ->andReturn([
+                'directory_path' => $referenceDir,
+                'index_path' => $referenceDir . DIRECTORY_SEPARATOR . 'video-feature-index.json',
+                'snapshots' => [],
+                'total_files' => 0,
+                'reused_count' => 0,
+                'extracted_count' => 0,
+                'removed_count' => 0,
+                'failed_count' => 0,
+                'failed_files' => [],
+            ]);
+        $referenceVideoFeatureIndexService->shouldReceive('upsertPayloadSnapshot')
+            ->once()
+            ->withArgs(function (
+                string $passedDirectoryPath,
+                array $passedSnapshots,
+                array $passedPayload,
+                array $passedFailedFiles
+            ) use ($referenceDir, $expectedReferencePath): bool {
+                return $passedDirectoryPath === $referenceDir
+                    && $passedSnapshots === []
+                    && ($passedPayload['absolute_path'] ?? null) === $expectedReferencePath
+                    && ($passedPayload['file_name'] ?? null) === 'a.mp4'
+                    && $passedFailedFiles === [];
+            })
+            ->andReturn([
+                'directory_path' => $referenceDir,
+                'index_path' => $referenceDir . DIRECTORY_SEPARATOR . 'video-feature-index.json',
+                'snapshots' => [
+                    ['absolute_path' => $expectedReferencePath],
+                ],
+                'total_files' => 1,
+                'failed_count' => 0,
+                'failed_files' => [],
+            ]);
+        $this->app->instance(ReferenceVideoFeatureIndexService::class, $referenceVideoFeatureIndexService);
+
+        $capturedStatuses = [];
+
+        $externalVideoDuplicateService = Mockery::mock(ExternalVideoDuplicateService::class);
+        $externalVideoDuplicateService->shouldReceive('persistComparisonLog')
+            ->twice()
+            ->withArgs(function (
+                array $passedPayload,
+                ?array $passedAnalysis,
+                string $passedSourcePath,
+                array $options
+            ) use ($payload, $sourcePath, $duplicatePath, $expectedReferencePath, &$capturedStatuses): bool {
+                $status = $options['operation_status'] ?? null;
+                $capturedStatuses[] = $status;
+
+                if ($status === 'source_exact_duplicate_deleted') {
+                    return ($passedPayload['absolute_path'] ?? null) === $duplicatePath
+                        && is_array($passedAnalysis)
+                        && $passedSourcePath === $duplicatePath
+                        && ($options['duplicate_file_path'] ?? null) === $duplicatePath
+                        && ($options['is_duplicate_detected'] ?? null) === true;
+                }
+
+                if ($status === 'moved_to_reference_dir') {
+                    return $passedPayload === $payload
+                        && is_array($passedAnalysis)
+                        && $passedSourcePath === $sourcePath
+                        && ($options['duplicate_file_path'] ?? null) === $expectedReferencePath
+                        && ($options['is_duplicate_detected'] ?? null) === false;
+                }
+
+                return false;
+            });
+        $this->app->instance(ExternalVideoDuplicateService::class, $externalVideoDuplicateService);
+
+        $this->artisan('video:move-duplicates', [
+            'path' => $this->tempDir,
+            '--recursive' => 0,
+            '--reference-dir' => $referenceDir,
+        ])->assertExitCode(0);
+
+        $this->assertFileDoesNotExist($duplicatePath);
+        $this->assertFileDoesNotExist($sourcePath);
+        $this->assertFileExists($expectedReferencePath);
+        $this->assertSame([
+            'source_exact_duplicate_deleted',
+            'moved_to_reference_dir',
+        ], $capturedStatuses);
+    }
+
     public function test_command_moves_non_duplicate_file_to_reference_dir_and_updates_index(): void
     {
         $sourcePath = $this->tempDir . DIRECTORY_SEPARATOR . 'incoming.mp4';

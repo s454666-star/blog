@@ -20,10 +20,11 @@ class ReferenceVideoFeatureIndexService
     ) {
     }
 
-    public function syncDirectory(string $directoryPath, int $limit = 0): array
+    public function syncDirectory(string $directoryPath, int $limit = 0, int $minAgeSeconds = 0): array
     {
         $directoryPath = $this->normalizeAbsolutePath($directoryPath);
         $limit = max(0, $limit);
+        $minAgeSeconds = max(0, $minAgeSeconds);
         if ($directoryPath === '') {
             throw new RuntimeException('reference dir 不可為空。');
         }
@@ -41,6 +42,7 @@ class ReferenceVideoFeatureIndexService
             'index_path' => $indexPath,
             'existing_snapshot_count' => count($existingSnapshots),
             'limit' => $limit,
+            'min_age_seconds' => $minAgeSeconds,
             'pid' => getmypid(),
         ]);
         $existingSnapshotsByPathHash = [];
@@ -64,12 +66,14 @@ class ReferenceVideoFeatureIndexService
             'duplicate_directory_path' => $duplicateDir,
             'file_count' => count($files),
             'limit' => $limit,
+            'min_age_seconds' => $minAgeSeconds,
         ]);
         $currentPathHashes = [];
         $snapshots = [];
         $reusedCount = 0;
         $extractedCount = 0;
         $failedFiles = [];
+        $deferredFiles = [];
 
         foreach ($files as $filePath) {
             $pathHash = $this->hashPath($filePath);
@@ -82,6 +86,21 @@ class ReferenceVideoFeatureIndexService
                 Log::channel(self::LOG_CHANNEL)->info('reference video feature index reused existing snapshot', [
                     'directory_path' => $directoryPath,
                     'file_path' => $filePath,
+                ]);
+                continue;
+            }
+
+            $notReadyReason = $this->describeFileNotReady($filePath, $minAgeSeconds);
+            if ($notReadyReason !== null) {
+                $deferredFiles[] = [
+                    'absolute_path' => $filePath,
+                    'message' => $notReadyReason,
+                ];
+                Log::channel(self::LOG_CHANNEL)->info('reference video feature index deferred unstable file', [
+                    'directory_path' => $directoryPath,
+                    'file_path' => $filePath,
+                    'message' => $notReadyReason,
+                    'min_age_seconds' => $minAgeSeconds,
                 ]);
                 continue;
             }
@@ -136,10 +155,12 @@ class ReferenceVideoFeatureIndexService
             'extracted_count' => $extractedCount,
             'removed_count' => $removedCount,
             'failed_count' => count($failedFiles),
+            'deferred_count' => count($deferredFiles),
             'limit' => $limit,
+            'min_age_seconds' => $minAgeSeconds,
         ]);
 
-        $this->writeIndex($indexPath, $this->buildIndexPayload($directoryPath, $snapshots, $failedFiles));
+        $this->writeIndex($indexPath, $this->buildIndexPayload($directoryPath, $snapshots, $failedFiles, $deferredFiles));
         Log::channel(self::LOG_CHANNEL)->info('reference video feature index sync finished', [
             'directory_path' => $directoryPath,
             'index_path' => $indexPath,
@@ -148,7 +169,9 @@ class ReferenceVideoFeatureIndexService
             'extracted_count' => $extractedCount,
             'removed_count' => $removedCount,
             'failed_count' => count($failedFiles),
+            'deferred_count' => count($deferredFiles),
             'limit' => $limit,
+            'min_age_seconds' => $minAgeSeconds,
         ]);
 
         return [
@@ -161,7 +184,10 @@ class ReferenceVideoFeatureIndexService
             'removed_count' => $removedCount,
             'failed_count' => count($failedFiles),
             'failed_files' => $failedFiles,
+            'deferred_count' => count($deferredFiles),
+            'deferred_files' => $deferredFiles,
             'limit' => $limit,
+            'min_age_seconds' => $minAgeSeconds,
         ];
     }
 
@@ -485,7 +511,12 @@ class ReferenceVideoFeatureIndexService
         });
     }
 
-    private function buildIndexPayload(string $directoryPath, array $snapshots, array $failedFiles = []): array
+    private function buildIndexPayload(
+        string $directoryPath,
+        array $snapshots,
+        array $failedFiles = [],
+        array $deferredFiles = []
+    ): array
     {
         return [
             'version' => 1,
@@ -493,9 +524,41 @@ class ReferenceVideoFeatureIndexService
             'generated_at' => now()->toIso8601String(),
             'total_files' => count($snapshots),
             'failed_count' => count($failedFiles),
+            'deferred_count' => count($deferredFiles),
             'snapshots' => $snapshots,
             'failed_files' => $failedFiles,
+            'deferred_files' => $deferredFiles,
         ];
+    }
+
+    private function describeFileNotReady(string $filePath, int $minAgeSeconds): ?string
+    {
+        if (!is_file($filePath)) {
+            return '檔案已不存在或不是有效檔案。';
+        }
+
+        $modifiedTimestamp = @filemtime($filePath);
+        if ($minAgeSeconds > 0 && is_int($modifiedTimestamp)) {
+            $ageSeconds = time() - $modifiedTimestamp;
+            if ($ageSeconds < $minAgeSeconds) {
+                $ageSeconds = max(0, $ageSeconds);
+
+                return sprintf(
+                    '檔案剛更新 %d 秒前，等待至少 %d 秒後再索引。',
+                    $ageSeconds,
+                    $minAgeSeconds
+                );
+            }
+        }
+
+        $handle = @fopen($filePath, 'rb');
+        if (!is_resource($handle)) {
+            return '檔案目前被其他程式鎖定，稍後再索引。';
+        }
+
+        fclose($handle);
+
+        return null;
     }
 
     private function writeIndex(string $indexPath, array $payload): void

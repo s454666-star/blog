@@ -38,6 +38,7 @@ class MoveDuplicateVideosCommand extends Command
         {--size-percent=15 : 相容舊參數；正式比對已不使用檔案大小 gate}
         {--max-candidates=250 : 每支影片最多拉多少 DB 候選}
         {--reference-dir=C:\Users\User\Videos\暫 : 先同步並比對這個資料夾底下的影片特徵 JSON}
+        {--min-age-seconds=120 : 檔案最後修改後至少等待幾秒才處理，避免掃到下載或寫入中的影片}
         {--video-feature-id= : 指定單一 video_features.id 進入手動分析模式；若命中重複仍會直接刪除}
         {--write-log : 相容舊參數；手動分析模式現在預設就會寫 log}
         {--skip-log : 手動 debug 模式不要寫入 external_video_duplicate_logs}
@@ -66,6 +67,7 @@ class MoveDuplicateVideosCommand extends Command
         $windowSeconds = max(0, (int) $this->option('window-seconds'));
         $sizePercent = max(0, min(90, (int) $this->option('size-percent')));
         $maxCandidates = max(1, (int) $this->option('max-candidates'));
+        $minAgeSeconds = max(0, (int) $this->option('min-age-seconds'));
         $dryRun = (bool) $this->option('dry-run');
         $writeLog = !(bool) $this->option('skip-log');
         if ((bool) $this->option('write-log')) {
@@ -80,6 +82,7 @@ class MoveDuplicateVideosCommand extends Command
             'window_seconds' => $windowSeconds,
             'size_percent' => $sizePercent,
             'max_candidates' => $maxCandidates,
+            'min_age_seconds' => $minAgeSeconds,
             'dry_run' => $dryRun,
             'write_log' => $writeLog,
             'manual_feature_id' => $manualFeatureId,
@@ -116,7 +119,7 @@ class MoveDuplicateVideosCommand extends Command
             'reference_dir' => $referenceDir,
         ]);
         try {
-            $referenceIndex = $referenceVideoFeatureIndexService->syncDirectory($referenceDir);
+            $referenceIndex = $referenceVideoFeatureIndexService->syncDirectory($referenceDir, 0, $minAgeSeconds);
         } catch (Throwable $e) {
             Log::channel(self::LOG_CHANNEL)->error('video:move-duplicates failed to sync reference index', $commandLogContext + [
                 'reference_dir' => $referenceDir,
@@ -141,17 +144,19 @@ class MoveDuplicateVideosCommand extends Command
             'reference_extracted_count' => (int) ($referenceIndex['extracted_count'] ?? 0),
             'reference_removed_count' => (int) ($referenceIndex['removed_count'] ?? 0),
             'reference_failed_count' => (int) ($referenceIndex['failed_count'] ?? 0),
+            'reference_deferred_count' => (int) ($referenceIndex['deferred_count'] ?? 0),
             'reference_compare_enabled' => $referenceComparisonEnabled,
         ]);
 
         $this->line(sprintf(
-            '暫存參考索引：%s（total=%d reused=%d extracted=%d removed=%d failed=%d）',
+            '暫存參考索引：%s（total=%d reused=%d extracted=%d removed=%d failed=%d deferred=%d）',
             (string) $referenceIndex['index_path'],
             (int) ($referenceIndex['total_files'] ?? 0),
             (int) ($referenceIndex['reused_count'] ?? 0),
             (int) ($referenceIndex['extracted_count'] ?? 0),
             (int) ($referenceIndex['removed_count'] ?? 0),
-            (int) ($referenceIndex['failed_count'] ?? 0)
+            (int) ($referenceIndex['failed_count'] ?? 0),
+            (int) ($referenceIndex['deferred_count'] ?? 0)
         ));
 
         if (!$shouldCompareReferenceIndex) {
@@ -174,6 +179,20 @@ class MoveDuplicateVideosCommand extends Command
             }
         }
 
+        foreach ((array) ($referenceIndex['deferred_files'] ?? []) as $deferredReferenceFile) {
+            $deferredPath = (string) ($deferredReferenceFile['absolute_path'] ?? '');
+            $deferredMessage = (string) ($deferredReferenceFile['message'] ?? '檔案尚未穩定');
+
+            if ($deferredPath !== '') {
+                Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates reference index deferred file', $commandLogContext + [
+                    'reference_dir' => $referenceDir,
+                    'file_path' => $deferredPath,
+                    'message' => $deferredMessage,
+                ]);
+                $this->warn('  暫存索引延後：' . $deferredPath . ' -> ' . $deferredMessage);
+            }
+        }
+
         $duplicateDir = $path . DIRECTORY_SEPARATOR . '疑似重複檔案';
         $files = $this->collectVideoFiles($path, $recursive, $duplicateDir);
         Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates collected files', $commandLogContext + [
@@ -193,7 +212,46 @@ class MoveDuplicateVideosCommand extends Command
         $staged = 0;
         $kept = 0;
         $failed = 0;
+        $deferred = 0;
         $sourceExactDuplicateDryRuns = 0;
+
+        $sourceFileReadiness = $this->deferUnstableSourceFiles(
+            $files,
+            $minAgeSeconds,
+            $commandLogContext + [
+                'duplicate_directory_path' => $duplicateDir,
+            ]
+        );
+        $files = $sourceFileReadiness['files'];
+        $deferred += $sourceFileReadiness['deferred_count'];
+
+        if ($files === []) {
+            Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates deferred all collected files', $commandLogContext + [
+                'duplicate_directory_path' => $duplicateDir,
+                'deferred_count' => $deferred,
+            ]);
+            $this->warn('目前影片都仍在寫入或剛修改，這次延後處理。');
+            $this->newLine();
+            $this->info(sprintf(
+                '完成，source_exact_dry_run=%d deleted=%d staged=%d kept=%d deferred=%d failed=%d',
+                $sourceExactDuplicateDryRuns,
+                $deleted,
+                $staged,
+                $kept,
+                $deferred,
+                $failed
+            ));
+            Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates finished', $commandLogContext + [
+                'source_exact_duplicate_dry_run_count' => $sourceExactDuplicateDryRuns,
+                'deleted_count' => $deleted,
+                'staged_count' => $staged,
+                'kept_count' => $kept,
+                'deferred_count' => $deferred,
+                'failed_count' => $failed,
+            ]);
+
+            return self::SUCCESS;
+        }
 
         $sourceExactDuplicateScan = $this->deleteSourceExactDuplicatesBeforeComparison(
             $files,
@@ -581,7 +639,7 @@ class MoveDuplicateVideosCommand extends Command
 
                 if ($movedToReferenceDir && $referenceDir !== '') {
                     try {
-                        $referenceIndex = $referenceVideoFeatureIndexService->syncDirectory($referenceDir);
+                        $referenceIndex = $referenceVideoFeatureIndexService->syncDirectory($referenceDir, 0, $minAgeSeconds);
                         $referenceSnapshots = is_array($referenceIndex['snapshots'] ?? null) ? $referenceIndex['snapshots'] : [];
                         $referenceComparisonEnabled = $shouldCompareReferenceIndex && $referenceSnapshots !== [];
                         $preparedReferenceSnapshotIndex = $referenceComparisonEnabled
@@ -644,11 +702,12 @@ class MoveDuplicateVideosCommand extends Command
 
         $this->newLine();
         $this->info(sprintf(
-            '完成，source_exact_dry_run=%d deleted=%d staged=%d kept=%d failed=%d',
+            '完成，source_exact_dry_run=%d deleted=%d staged=%d kept=%d deferred=%d failed=%d',
             $sourceExactDuplicateDryRuns,
             $deleted,
             $staged,
             $kept,
+            $deferred,
             $failed
         ));
         Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates finished', $commandLogContext + [
@@ -656,6 +715,7 @@ class MoveDuplicateVideosCommand extends Command
             'deleted_count' => $deleted,
             'staged_count' => $staged,
             'kept_count' => $kept,
+            'deferred_count' => $deferred,
             'failed_count' => $failed,
         ]);
 
@@ -668,6 +728,40 @@ class MoveDuplicateVideosCommand extends Command
      * The comparison key is a streamed SHA-1 over the file's base64 representation, so it keeps
      * the user's requested base64 comparison behavior without holding full video strings in memory.
      */
+    private function deferUnstableSourceFiles(array $files, int $minAgeSeconds, array $logContext): array
+    {
+        if ($files === []) {
+            return [
+                'files' => [],
+                'deferred_count' => 0,
+            ];
+        }
+
+        $remainingFiles = [];
+        $deferred = 0;
+
+        foreach ($files as $filePath) {
+            $notReadyReason = $this->describeFileNotReady($filePath, $minAgeSeconds);
+            if ($notReadyReason === null) {
+                $remainingFiles[] = $filePath;
+                continue;
+            }
+
+            $deferred++;
+            Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates deferred unstable source file', $logContext + [
+                'file_path' => $filePath,
+                'message' => $notReadyReason,
+                'min_age_seconds' => $minAgeSeconds,
+            ]);
+            $this->warn('  來源檔延後：' . $filePath . ' -> ' . $notReadyReason);
+        }
+
+        return [
+            'files' => $remainingFiles,
+            'deferred_count' => $deferred,
+        ];
+    }
+
     private function deleteSourceExactDuplicatesBeforeComparison(
         array $files,
         string $scanRootPath,
@@ -842,6 +936,36 @@ class MoveDuplicateVideosCommand extends Command
             'file_created_at' => $fileCreatedAt !== false ? (int) $fileCreatedAt : null,
             'file_modified_at' => $fileModifiedAt !== false ? (int) $fileModifiedAt : null,
         ];
+    }
+
+    private function describeFileNotReady(string $filePath, int $minAgeSeconds): ?string
+    {
+        if (!is_file($filePath)) {
+            return '檔案已不存在或不是有效檔案。';
+        }
+
+        $modifiedTimestamp = @filemtime($filePath);
+        if ($minAgeSeconds > 0 && is_int($modifiedTimestamp)) {
+            $ageSeconds = time() - $modifiedTimestamp;
+            if ($ageSeconds < $minAgeSeconds) {
+                $ageSeconds = max(0, $ageSeconds);
+
+                return sprintf(
+                    '檔案剛更新 %d 秒前，等待至少 %d 秒後再處理。',
+                    $ageSeconds,
+                    $minAgeSeconds
+                );
+            }
+        }
+
+        $handle = @fopen($filePath, 'rb');
+        if (!is_resource($handle)) {
+            return '檔案目前被其他程式鎖定，稍後再處理。';
+        }
+
+        fclose($handle);
+
+        return null;
     }
 
     private function buildSourceExactDuplicatePayload(string $filePath, array $fingerprint): array

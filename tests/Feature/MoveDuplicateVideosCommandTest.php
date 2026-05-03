@@ -237,6 +237,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
         $this->artisan('video:move-duplicates', [
             'path' => $this->tempDir,
             '--video-feature-id' => $feature->id,
+            '--min-age-seconds' => 0,
         ])->assertExitCode(0);
 
         $this->assertFileDoesNotExist($sourcePath);
@@ -336,7 +337,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
         $referenceVideoFeatureIndexService = Mockery::mock(ReferenceVideoFeatureIndexService::class);
         $referenceVideoFeatureIndexService->shouldReceive('syncDirectory')
             ->once()
-            ->with($referenceDir)
+            ->with($referenceDir, 0, 0)
             ->andReturn([
                 'directory_path' => $referenceDir,
                 'index_path' => $referenceDir . DIRECTORY_SEPARATOR . 'video-feature-index.json',
@@ -379,6 +380,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
             'path' => $this->tempDir,
             '--recursive' => 0,
             '--reference-dir' => $referenceDir,
+            '--min-age-seconds' => 0,
         ])->assertExitCode(0);
 
         $this->assertFileDoesNotExist($sourcePath);
@@ -462,7 +464,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
         $referenceVideoFeatureIndexService = Mockery::mock(ReferenceVideoFeatureIndexService::class);
         $referenceVideoFeatureIndexService->shouldReceive('syncDirectory')
             ->once()
-            ->with($referenceDir)
+            ->with($referenceDir, 0, 0)
             ->andReturn([
                 'directory_path' => $referenceDir,
                 'index_path' => $referenceDir . DIRECTORY_SEPARATOR . 'video-feature-index.json',
@@ -538,6 +540,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
             'path' => $this->tempDir,
             '--recursive' => 0,
             '--reference-dir' => $referenceDir,
+            '--min-age-seconds' => 0,
         ])->assertExitCode(0);
 
         $this->assertFileDoesNotExist($duplicatePath);
@@ -642,7 +645,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
         $referenceVideoFeatureIndexService = Mockery::mock(ReferenceVideoFeatureIndexService::class);
         $referenceVideoFeatureIndexService->shouldReceive('syncDirectory')
             ->once()
-            ->with($referenceDir)
+            ->with($referenceDir, 0, 0)
             ->andReturn([
                 'directory_path' => $referenceDir,
                 'index_path' => $referenceDir . DIRECTORY_SEPARATOR . 'video-feature-index.json',
@@ -711,6 +714,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
             'path' => $this->tempDir,
             '--recursive' => 0,
             '--reference-dir' => $referenceDir,
+            '--min-age-seconds' => 0,
         ])->assertExitCode(0);
 
         $this->assertFileDoesNotExist($sourcePath);
@@ -777,7 +781,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
         $referenceVideoFeatureIndexService = Mockery::mock(ReferenceVideoFeatureIndexService::class);
         $referenceVideoFeatureIndexService->shouldReceive('syncDirectory')
             ->once()
-            ->with($this->tempDir)
+            ->with($this->tempDir, 0, 0)
             ->andReturn([
                 'directory_path' => $this->tempDir,
                 'index_path' => $this->tempDir . DIRECTORY_SEPARATOR . 'video-feature-index.json',
@@ -817,9 +821,65 @@ class MoveDuplicateVideosCommandTest extends TestCase
             'path' => $this->tempDir,
             '--recursive' => 0,
             '--reference-dir' => $this->tempDir,
+            '--min-age-seconds' => 0,
         ])->assertExitCode(0);
 
         $this->assertFileExists($sourcePath);
         $this->assertDirectoryDoesNotExist($this->tempDir . DIRECTORY_SEPARATOR . '疑似重複檔案');
+    }
+
+    public function test_command_defers_recent_source_files_without_running_feature_comparison(): void
+    {
+        $sourcePath = $this->tempDir . DIRECTORY_SEPARATOR . 'incoming.mp4';
+        $referenceDir = $this->tempDir . DIRECTORY_SEPARATOR . 'reference';
+
+        File::ensureDirectoryExists($referenceDir);
+        file_put_contents($sourcePath, 'still-writing-video');
+        touch($sourcePath, time());
+
+        $featureExtractionService = Mockery::mock(VideoFeatureExtractionService::class);
+        $featureExtractionService->shouldReceive('inspectFile')->never();
+        $featureExtractionService->shouldReceive('cleanupPayload')->never();
+        $this->app->instance(VideoFeatureExtractionService::class, $featureExtractionService);
+
+        $duplicateDetectionService = Mockery::mock(VideoDuplicateDetectionService::class);
+        $duplicateDetectionService->shouldReceive('prepareReferenceSnapshotIndex')->never();
+        $duplicateDetectionService->shouldReceive('analyzeDatabaseMatch')->never();
+        $duplicateDetectionService->shouldReceive('analyzePreparedReferenceSnapshotsMatch')->never();
+        $this->app->instance(VideoDuplicateDetectionService::class, $duplicateDetectionService);
+
+        $referenceVideoFeatureIndexService = Mockery::mock(ReferenceVideoFeatureIndexService::class);
+        $referenceVideoFeatureIndexService->shouldReceive('syncDirectory')
+            ->once()
+            ->with($referenceDir, 0, 120)
+            ->andReturn([
+                'directory_path' => $referenceDir,
+                'index_path' => $referenceDir . DIRECTORY_SEPARATOR . 'video-feature-index.json',
+                'snapshots' => [],
+                'total_files' => 0,
+                'reused_count' => 0,
+                'extracted_count' => 0,
+                'removed_count' => 0,
+                'failed_count' => 0,
+                'failed_files' => [],
+                'deferred_count' => 0,
+                'deferred_files' => [],
+            ]);
+        $referenceVideoFeatureIndexService->shouldReceive('upsertPayloadSnapshot')->never();
+        $this->app->instance(ReferenceVideoFeatureIndexService::class, $referenceVideoFeatureIndexService);
+
+        $externalVideoDuplicateService = Mockery::mock(ExternalVideoDuplicateService::class);
+        $externalVideoDuplicateService->shouldReceive('persistComparisonLog')->never();
+        $this->app->instance(ExternalVideoDuplicateService::class, $externalVideoDuplicateService);
+
+        $this->artisan('video:move-duplicates', [
+            'path' => $this->tempDir,
+            '--recursive' => 0,
+            '--reference-dir' => $referenceDir,
+        ])
+            ->expectsOutputToContain('來源檔延後：' . $sourcePath)
+            ->assertExitCode(0);
+
+        $this->assertFileExists($sourcePath);
     }
 }

@@ -194,6 +194,30 @@ class ReferenceVideoFeatureIndexServiceTest extends TestCase
         $this->assertSame($alphaPath, $storedIndex['snapshots'][0]['absolute_path']);
     }
 
+    public function test_sync_directory_defers_recent_files_without_counting_them_as_failures(): void
+    {
+        $recentPath = $this->tempDir . DIRECTORY_SEPARATOR . 'recent.mp4';
+        file_put_contents($recentPath, 'still-writing-video');
+        touch($recentPath, time());
+
+        $featureExtractionService = Mockery::mock(VideoFeatureExtractionService::class);
+        $featureExtractionService->shouldReceive('inspectFile')->never();
+        $featureExtractionService->shouldReceive('cleanupPayload')->never();
+
+        $service = new ReferenceVideoFeatureIndexService($featureExtractionService);
+        $result = $service->syncDirectory($this->tempDir, 0, 120);
+
+        $this->assertSame(0, $result['total_files']);
+        $this->assertSame(0, $result['failed_count']);
+        $this->assertSame(1, $result['deferred_count']);
+        $this->assertSame($recentPath, $result['deferred_files'][0]['absolute_path']);
+        $this->assertStringContainsString('等待至少 120 秒後再索引', $result['deferred_files'][0]['message']);
+
+        $storedIndex = json_decode((string) file_get_contents($this->tempDir . DIRECTORY_SEPARATOR . 'video-feature-index.json'), true);
+        $this->assertSame(1, $storedIndex['deferred_count']);
+        $this->assertSame([], $storedIndex['snapshots']);
+    }
+
     public function test_upsert_payload_snapshot_writes_incremental_json_without_rescanning_directory(): void
     {
         $existingPath = $this->tempDir . DIRECTORY_SEPARATOR . 'existing.mp4';

@@ -844,6 +844,116 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         File::deleteDirectory($repairDir);
     }
 
+    public function test_database_match_repairs_stale_feature_version_before_comparing(): void
+    {
+        DB::table('video_master')->insert([
+            'id' => 113,
+            'video_name' => 'stale.mp4',
+            'video_path' => '\\stale.mp4',
+            'duration' => 11.567,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $feature = VideoFeature::query()->create([
+            'video_master_id' => 113,
+            'video_name' => 'stale.mp4',
+            'video_path' => '\\stale.mp4',
+            'file_name' => 'stale.mp4',
+            'duration_seconds' => 11.567,
+            'screenshot_count' => 1,
+            'capture_rule' => '10s_x4',
+            'feature_version' => 'v1',
+            'last_error' => null,
+        ]);
+
+        VideoFeatureFrame::query()->create([
+            'video_feature_id' => $feature->id,
+            'capture_order' => 1,
+            'capture_second' => 10.000,
+            'screenshot_path' => '\\stale_feature_01.jpg',
+            'dhash_hex' => '0000000000000000',
+            'dhash_prefix' => '00',
+            'frame_sha1' => str_repeat('0', 40),
+        ]);
+
+        $repairDir = storage_path('framework/testing/video-duplicate-stale-repair');
+        File::ensureDirectoryExists($repairDir);
+        $sourcePath = $repairDir . DIRECTORY_SEPARATOR . 'stale.mp4';
+        file_put_contents($sourcePath, 'video-placeholder');
+
+        $extractionService = new class($sourcePath) extends VideoFeatureExtractionService {
+            public int $repairCalls = 0;
+
+            public function __construct(private readonly string $sourcePath)
+            {
+            }
+
+            public function resolveAbsoluteVideoPath(VideoMaster $video): string
+            {
+                return $this->sourcePath;
+            }
+
+            public function extractForVideo(VideoMaster $video, bool $refresh = false): VideoFeature
+            {
+                $this->repairCalls++;
+
+                $feature = VideoFeature::query()->firstOrNew([
+                    'video_master_id' => $video->id,
+                ]);
+                $feature->fill([
+                    'video_name' => 'stale.mp4',
+                    'video_path' => '\\stale.mp4',
+                    'file_name' => 'stale.mp4',
+                    'file_size_bytes' => 57468233,
+                    'duration_seconds' => 11.567,
+                    'screenshot_count' => 1,
+                    'capture_rule' => '10s_x4',
+                    'feature_version' => $this->currentFeatureVersion(),
+                    'last_error' => null,
+                ]);
+                $feature->save();
+                $feature->frames()->delete();
+
+                VideoFeatureFrame::query()->create([
+                    'video_feature_id' => $feature->id,
+                    'capture_order' => 1,
+                    'capture_second' => 10.000,
+                    'screenshot_path' => '\\stale_feature_01.jpg',
+                    'dhash_hex' => 'b3b2f03c3eb894d4',
+                    'dhash_prefix' => 'b3',
+                    'frame_sha1' => str_repeat('1', 40),
+                ]);
+
+                return $feature->fresh('frames');
+            }
+        };
+
+        $payload = [
+            'duration_seconds' => 11.567,
+            'file_size_bytes' => 3362056,
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 10.000,
+                'dhash_hex' => 'b3b2f13c3eb894d4',
+                'dhash_prefix' => 'b3',
+                'frame_sha1' => str_repeat('a', 40),
+            ]],
+        ];
+
+        $service = new VideoDuplicateDetectionService($extractionService);
+        $analysis = $service->analyzeDatabaseMatch($payload, 90, 2, 3, 15, 250);
+
+        $this->assertSame(1, $extractionService->repairCalls);
+        $this->assertSame(1, $analysis['repaired_database_feature_count']);
+        $this->assertSame([$feature->id], $analysis['repaired_database_feature_ids']);
+        $this->assertNotNull($analysis['duplicate_match']);
+        $this->assertSame($feature->id, $analysis['duplicate_match']['feature']->id);
+        $this->assertSame(98.0, $analysis['duplicate_match']['similarity_percent']);
+
+        File::deleteDirectory($repairDir);
+    }
+
     public function test_reference_snapshot_match_can_detect_duplicate_without_db_feature_row(): void
     {
         $payload = [

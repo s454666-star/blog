@@ -19,7 +19,16 @@ use Throwable;
 class VideoFeatureExtractionService
 {
     private const HASH_BITS = 64;
+    private const FEATURE_VERSION = 'v2';
+    private const BLACK_BORDER_BRIGHTNESS_THRESHOLD = 16;
+    private const BLACK_BORDER_MAX_BRIGHT_PIXEL_RATIO = 0.02;
+    private const BLACK_BORDER_MIN_REMAINING_RATIO = 0.50;
     private const TRANSIENT_PROCESS_RETRY_ATTEMPTS = 3;
+
+    public function currentFeatureVersion(): string
+    {
+        return self::FEATURE_VERSION;
+    }
 
     public function buildCapturePlan(float $durationSeconds): array
     {
@@ -111,7 +120,7 @@ class VideoFeatureExtractionService
             'file_created_at' => $this->timestampToCarbon(@filectime($absolutePath)),
             'file_modified_at' => $this->timestampToCarbon(@filemtime($absolutePath)),
             'capture_rule' => $durationSeconds < 10.0 ? 'lt_10s_at_3s' : '10s_x4',
-            'feature_version' => 'v1',
+            'feature_version' => self::FEATURE_VERSION,
             'frames' => $frames,
             'tmp_dir' => $tmpDir,
         ];
@@ -334,7 +343,7 @@ class VideoFeatureExtractionService
             'path_sha1' => sha1(strtolower($videoPath)),
             'duration_seconds' => (float) ($video->duration ?? 0),
             'capture_rule' => '10s_x4',
-            'feature_version' => 'v1',
+            'feature_version' => self::FEATURE_VERSION,
             'last_error' => $message,
         ]);
         $feature->save();
@@ -652,20 +661,24 @@ class VideoFeatureExtractionService
             throw new RuntimeException('讀取 JPEG 失敗：' . $jpegPath);
         }
 
+        $hashSource = $this->cropNearBlackBorders($img);
         $small = imagecreatetruecolor(9, 8);
         imagecopyresampled(
             $small,
-            $img,
+            $hashSource,
             0,
             0,
             0,
             0,
             9,
             8,
-            imagesx($img),
-            imagesy($img)
+            imagesx($hashSource),
+            imagesy($hashSource)
         );
 
+        if ($hashSource !== $img) {
+            imagedestroy($hashSource);
+        }
         imagedestroy($img);
 
         $bytes = array_fill(0, 8, 0);
@@ -698,15 +711,127 @@ class VideoFeatureExtractionService
         return strtolower($hex);
     }
 
-    private function grayAt($img, int $x, int $y): int
+    private function cropNearBlackBorders(\GdImage $img): \GdImage
+    {
+        $width = imagesx($img);
+        $height = imagesy($img);
+
+        if ($width <= 1 || $height <= 1) {
+            return $img;
+        }
+
+        $left = 0;
+        while ($left < $width - 1 && $this->isMostlyBlackColumn($img, $left, $height)) {
+            $left++;
+        }
+
+        $right = $width - 1;
+        while ($right > $left && $this->isMostlyBlackColumn($img, $right, $height)) {
+            $right--;
+        }
+
+        $top = 0;
+        while ($top < $height - 1 && $this->isMostlyBlackRow($img, $top, $width, $left, $right)) {
+            $top++;
+        }
+
+        $bottom = $height - 1;
+        while ($bottom > $top && $this->isMostlyBlackRow($img, $bottom, $width, $left, $right)) {
+            $bottom--;
+        }
+
+        if ($left === 0 && $right === $width - 1 && $top === 0 && $bottom === $height - 1) {
+            return $img;
+        }
+
+        $cropWidth = $right - $left + 1;
+        $cropHeight = $bottom - $top + 1;
+
+        if (
+            $cropWidth < (int) floor($width * self::BLACK_BORDER_MIN_REMAINING_RATIO)
+            || $cropHeight < (int) floor($height * self::BLACK_BORDER_MIN_REMAINING_RATIO)
+        ) {
+            return $img;
+        }
+
+        $cropped = imagecrop($img, [
+            'x' => $left,
+            'y' => $top,
+            'width' => $cropWidth,
+            'height' => $cropHeight,
+        ]);
+
+        return $cropped instanceof \GdImage ? $cropped : $img;
+    }
+
+    private function isMostlyBlackColumn(\GdImage $img, int $x, int $height): bool
+    {
+        $step = max(1, intdiv($height, 200));
+        $sampleCount = 0;
+        $brightCount = 0;
+        $brightnessTotal = 0;
+
+        for ($y = 0; $y < $height; $y += $step) {
+            [$r, $g, $b] = $this->rgbAt($img, $x, $y);
+            $brightness = max($r, $g, $b);
+            $brightnessTotal += $brightness;
+            $sampleCount++;
+
+            if ($brightness > self::BLACK_BORDER_BRIGHTNESS_THRESHOLD) {
+                $brightCount++;
+            }
+        }
+
+        return $this->isMostlyBlackSample($sampleCount, $brightCount, $brightnessTotal);
+    }
+
+    private function isMostlyBlackRow(\GdImage $img, int $y, int $width, int $left, int $right): bool
+    {
+        $step = max(1, intdiv(max(1, $right - $left + 1), 200));
+        $sampleCount = 0;
+        $brightCount = 0;
+        $brightnessTotal = 0;
+
+        for ($x = $left; $x <= $right && $x < $width; $x += $step) {
+            [$r, $g, $b] = $this->rgbAt($img, $x, $y);
+            $brightness = max($r, $g, $b);
+            $brightnessTotal += $brightness;
+            $sampleCount++;
+
+            if ($brightness > self::BLACK_BORDER_BRIGHTNESS_THRESHOLD) {
+                $brightCount++;
+            }
+        }
+
+        return $this->isMostlyBlackSample($sampleCount, $brightCount, $brightnessTotal);
+    }
+
+    private function isMostlyBlackSample(int $sampleCount, int $brightCount, int $brightnessTotal): bool
+    {
+        if ($sampleCount <= 0) {
+            return false;
+        }
+
+        return ($brightCount / $sampleCount) <= self::BLACK_BORDER_MAX_BRIGHT_PIXEL_RATIO
+            && ($brightnessTotal / $sampleCount) <= self::BLACK_BORDER_BRIGHTNESS_THRESHOLD;
+    }
+
+    private function grayAt(\GdImage $img, int $x, int $y): int
+    {
+        [$r, $g, $b] = $this->rgbAt($img, $x, $y);
+
+        return (int) floor(($r + $g + $b) / 3);
+    }
+
+    private function rgbAt(\GdImage $img, int $x, int $y): array
     {
         $rgb = imagecolorat($img, $x, $y);
 
-        $r = ($rgb >> 16) & 255;
-        $g = ($rgb >> 8) & 255;
-        $b = $rgb & 255;
-
-        return (int) floor(($r + $g + $b) / 3);
+        return [
+            ($rgb >> 16) & 255,
+            ($rgb >> 8) & 255,
+            $rgb & 255,
+        ];
     }
 
     private function hammingDistanceHex64(string $hexA, string $hexB): int

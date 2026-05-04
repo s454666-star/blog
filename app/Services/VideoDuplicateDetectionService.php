@@ -18,6 +18,8 @@ class VideoDuplicateDetectionService
     private const TWO_FRAME_AVERAGE_SIMILARITY_SLACK = 5;
     private const TWO_FRAME_STRONG_FRAME_BONUS = 5;
     private const TWO_FRAME_WEAK_FRAME_SLACK = 15;
+    private const STALE_FEATURE_REPAIR_CANDIDATES = 10;
+    private const STALE_FEATURE_REPAIR_DURATION_DELTA_SECONDS = 0.25;
 
     private ?string $databaseCandidateCacheVersion = null;
 
@@ -794,8 +796,32 @@ class VideoDuplicateDetectionService
             ->limit($limit)
             ->get();
 
+        $staleCompleteRepairCount = 0;
+
         foreach ($features as $feature) {
-            $repairedFeature = $this->repairIncompleteFeature($feature);
+            $feature->loadMissing(['frames', 'videoMaster']);
+
+            $hasStaleVersion = $this->hasStaleFeatureVersion($feature);
+            $hasIncompleteFrameSet = $this->hasIncompleteFrameSet($feature);
+
+            if (!$hasStaleVersion && !$hasIncompleteFrameSet) {
+                continue;
+            }
+
+            if ($hasStaleVersion && !$hasIncompleteFrameSet) {
+                $durationDelta = abs((float) ($feature->duration_seconds ?? 0) - (float) $payloadContext['duration_seconds']);
+                if ($durationDelta > self::STALE_FEATURE_REPAIR_DURATION_DELTA_SECONDS) {
+                    continue;
+                }
+
+                if ($staleCompleteRepairCount >= self::STALE_FEATURE_REPAIR_CANDIDATES) {
+                    continue;
+                }
+
+                $staleCompleteRepairCount++;
+            }
+
+            $repairedFeature = $this->repairFeatureFromSource($feature);
             if (!$repairedFeature instanceof VideoFeature) {
                 continue;
             }
@@ -822,19 +848,19 @@ class VideoDuplicateDetectionService
             return null;
         }
 
-        try {
-            $absolutePath = $this->featureExtractionService->resolveAbsoluteVideoPath($feature->videoMaster);
-            if ($absolutePath === '' || !is_file($absolutePath)) {
-                return null;
-            }
-
-            return $this->featureExtractionService->extractForVideo($feature->videoMaster, true);
-        } catch (Throwable) {
-            return null;
-        }
+        return $this->repairFeatureFromSource($feature);
     }
 
     private function shouldRepairIncompleteFeature(VideoFeature $feature): bool
+    {
+        if ($this->hasStaleFeatureVersion($feature)) {
+            return true;
+        }
+
+        return $this->hasIncompleteFrameSet($feature);
+    }
+
+    private function hasIncompleteFrameSet(VideoFeature $feature): bool
     {
         $expectedCount = $this->expectedFrameCountForFeature($feature);
         if ($expectedCount <= 0) {
@@ -846,6 +872,29 @@ class VideoDuplicateDetectionService
             : (int) ($feature->frames_count ?? 0);
 
         return $actualCount < $expectedCount;
+    }
+
+    private function hasStaleFeatureVersion(VideoFeature $feature): bool
+    {
+        return trim((string) ($feature->feature_version ?? '')) !== $this->featureExtractionService->currentFeatureVersion();
+    }
+
+    private function repairFeatureFromSource(VideoFeature $feature): ?VideoFeature
+    {
+        if (!$feature->videoMaster instanceof VideoMaster) {
+            return null;
+        }
+
+        try {
+            $absolutePath = $this->featureExtractionService->resolveAbsoluteVideoPath($feature->videoMaster);
+            if ($absolutePath === '' || !is_file($absolutePath)) {
+                return null;
+            }
+
+            return $this->featureExtractionService->extractForVideo($feature->videoMaster, true);
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     private function expectedFrameCountForFeature(VideoFeature $feature): int

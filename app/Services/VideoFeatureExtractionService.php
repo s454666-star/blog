@@ -61,6 +61,17 @@ class VideoFeatureExtractionService
         return $plan;
     }
 
+    public function expectedFrameCount(?float $durationSeconds, ?float $fallbackDurationSeconds = null): int
+    {
+        $resolvedDurationSeconds = (float) ($durationSeconds ?? 0.0);
+
+        if ($resolvedDurationSeconds <= 0.0 && $fallbackDurationSeconds !== null) {
+            $resolvedDurationSeconds = (float) $fallbackDurationSeconds;
+        }
+
+        return count($this->buildCapturePlan($resolvedDurationSeconds));
+    }
+
     public function inspectFile(string $absolutePath): array
     {
         $absolutePath = $this->normalizeAbsolutePath($absolutePath);
@@ -131,7 +142,10 @@ class VideoFeatureExtractionService
         $video->loadMissing('feature.frames');
 
         if (!$refresh && $video->feature !== null) {
-            $expectedCount = count($this->buildCapturePlan((float) ($video->duration ?? 0)));
+            $expectedCount = $this->expectedFrameCount(
+                $video->feature->duration_seconds !== null ? (float) $video->feature->duration_seconds : null,
+                $video->duration !== null ? (float) $video->duration : null
+            );
             if ($expectedCount > 0 && $video->feature->frames->count() >= $expectedCount) {
                 return $video->feature->fresh('frames');
             }
@@ -248,8 +262,19 @@ class VideoFeatureExtractionService
             throw $e;
         }
 
+        $createdFileLookup = [];
+        foreach ($createdFiles as $createdFile) {
+            if (is_string($createdFile) && $createdFile !== '') {
+                $createdFileLookup[mb_strtolower($this->normalizeAbsolutePath($createdFile))] = true;
+            }
+        }
+
         foreach ($oldFramePaths as $oldFramePath) {
             if (is_string($oldFramePath) && $oldFramePath !== '' && File::exists($oldFramePath)) {
+                if (isset($createdFileLookup[mb_strtolower($this->normalizeAbsolutePath($oldFramePath))])) {
+                    continue;
+                }
+
                 File::delete($oldFramePath);
             }
         }

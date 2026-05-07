@@ -83,7 +83,10 @@ class ExtractVideoFeaturesCommand extends Command
                         continue;
                     }
 
-                    $expectedCount = count($service->buildCapturePlan((float) ($video->duration ?? 0)));
+                    $expectedCount = $service->expectedFrameCount(
+                        $video->feature?->duration_seconds !== null ? (float) $video->feature->duration_seconds : null,
+                        $video->duration !== null ? (float) $video->duration : null
+                    );
                     $existingCount = (int) ($video->feature?->frames?->count() ?? 0);
 
                     if (!$refresh && $lastError === '' && $existingCount >= $expectedCount && $expectedCount > 0) {

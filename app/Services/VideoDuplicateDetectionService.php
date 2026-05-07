@@ -899,13 +899,10 @@ class VideoDuplicateDetectionService
 
     private function expectedFrameCountForFeature(VideoFeature $feature): int
     {
-        $durationSeconds = (float) (
-            $feature->videoMaster?->duration
-            ?? $feature->duration_seconds
-            ?? 0
+        return $this->featureExtractionService->expectedFrameCount(
+            $feature->duration_seconds !== null ? (float) $feature->duration_seconds : null,
+            $feature->videoMaster?->duration !== null ? (float) $feature->videoMaster->duration : null
         );
-
-        return count($this->featureExtractionService->buildCapturePlan($durationSeconds));
     }
 
     private function collectCandidateIds(

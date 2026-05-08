@@ -122,6 +122,8 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('value="120"', false)
             ->assertSee('name="sort"', false)
             ->assertSee('sort=eps_yoy', false)
+            ->assertSee('data-tooltip="點一下排序：高到低"', false)
+            ->assertSee('data-tooltip="點一下排序：低到高"', false)
             ->assertSee('data-auto-submit-form', false)
             ->assertDontSee('套用')
             ->assertDontSee('重設')

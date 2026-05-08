@@ -727,6 +727,10 @@
                 : $defaultSortDirection($key),
         ]);
     };
+    $sortNextDirection = fn (string $key): string => $sort === $key
+        ? ($direction === 'asc' ? 'desc' : 'asc')
+        : $defaultSortDirection($key);
+    $sortTooltip = fn (string $key): string => '點一下排序：' . ($sortNextDirection($key) === 'desc' ? '高到低' : '低到高');
     $sortIcon = fn (string $key): string => $sort !== $key ? '↕' : ($direction === 'asc' ? '▲' : '▼');
     $sortAria = fn (string $key): string => $sort !== $key ? 'none' : ($direction === 'asc' ? 'ascending' : 'descending');
     $groupMeta = function (?int $rank, int $total): array {
@@ -838,7 +842,7 @@
                     <tr>
                         @foreach ($sortableColumns as $key => $label)
                             <th aria-sort="{{ $sortAria($key) }}">
-                                <a class="sort-link {{ $sort === $key ? 'active' : '' }}" href="{{ $sortUrl($key) }}">
+                                <a class="sort-link {{ $sort === $key ? 'active' : '' }}" href="{{ $sortUrl($key) }}" data-tooltip="{{ $sortTooltip($key) }}" title="{{ $sortTooltip($key) }}" aria-label="{{ $label }}，{{ $sortTooltip($key) }}">
                                     <span>{{ $label }}</span>
                                     <span class="sort-icon" aria-hidden="true">{{ $sortIcon($key) }}</span>
                                 </a>
@@ -973,8 +977,8 @@
 
     let copyTooltipTimer = null;
 
-    function positionCopyTooltip(button) {
-        const rect = button.getBoundingClientRect();
+    function positionCopyTooltip(target) {
+        const rect = target.getBoundingClientRect();
         const left = Math.max(12, Math.min(window.innerWidth - 12, rect.left + (rect.width / 2)));
         const top = Math.max(12, rect.top - 8);
 
@@ -982,10 +986,10 @@
         copyTooltip.style.top = `${top}px`;
     }
 
-    function showCopyTooltip(button, text = null) {
+    function showCopyTooltip(target, text = null) {
         window.clearTimeout(copyTooltipTimer);
-        copyTooltip.textContent = text || button.dataset.tooltip || '點一下複製';
-        positionCopyTooltip(button);
+        copyTooltip.textContent = text || target.dataset.tooltip || '點一下操作';
+        positionCopyTooltip(target);
         copyTooltip.classList.add('visible');
     }
 
@@ -994,17 +998,17 @@
     }
 
     document.addEventListener('pointerover', (event) => {
-        const button = event.target.closest('.copy-stock');
-        if (!button) {
+        const tooltipTarget = event.target.closest('[data-tooltip]');
+        if (!tooltipTarget) {
             return;
         }
 
-        showCopyTooltip(button);
+        showCopyTooltip(tooltipTarget);
     });
 
     document.addEventListener('pointerout', (event) => {
-        const button = event.target.closest('.copy-stock');
-        if (!button || button.contains(event.relatedTarget)) {
+        const tooltipTarget = event.target.closest('[data-tooltip]');
+        if (!tooltipTarget || tooltipTarget.contains(event.relatedTarget)) {
             return;
         }
 
@@ -1012,14 +1016,14 @@
     });
 
     document.addEventListener('focusin', (event) => {
-        const button = event.target.closest('.copy-stock');
-        if (button) {
-            showCopyTooltip(button);
+        const tooltipTarget = event.target.closest('[data-tooltip]');
+        if (tooltipTarget) {
+            showCopyTooltip(tooltipTarget);
         }
     });
 
     document.addEventListener('focusout', (event) => {
-        if (event.target.closest('.copy-stock')) {
+        if (event.target.closest('[data-tooltip]')) {
             hideCopyTooltip();
         }
     });

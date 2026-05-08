@@ -47,6 +47,16 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_upcoming_dividends.log'));
 
+        $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=1 --min-volume-lots=1000 --sleep-ms=80')
+            ->dailyAt('16:45')
+            ->name('tw-stock-fetch-q1-financial-reports')
+            ->withoutOverlapping(180)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_q1_financial_reports.log'))
+            ->when(fn (): bool => now(config('app.timezone'))->lessThanOrEqualTo(
+                \Carbon\CarbonImmutable::parse('2026-05-15 23:59:59', config('app.timezone'))
+            ));
+
         // Telegram / filestore
         $schedule->command('schedule:unlock-stale-filestore-restore')
             ->everyMinute()

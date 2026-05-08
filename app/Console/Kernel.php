@@ -47,8 +47,9 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_upcoming_dividends.log'));
 
-        $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=1 --min-volume-lots=1000 --sleep-ms=80')
+        $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=1 --min-volume-lots=1000 --sleep-ms=80 --skip-non-trading-day')
             ->dailyAt('16:45')
+            ->weekdays()
             ->name('tw-stock-fetch-q1-financial-reports')
             ->withoutOverlapping(180)
             ->runInBackground()

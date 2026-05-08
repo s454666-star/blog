@@ -15,6 +15,7 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
         {--quarter=1 : 財報季別，預設 Q1}
         {--min-volume-lots=1000 : 排除低量股票，最新日成交量至少幾張}
         {--sleep-ms=80 : 對公開 API 的單檔節流毫秒數}
+        {--skip-non-trading-day : 如果公開報價資料不是今天，視為非交易日並略過}
         {--limit= : 限制候選股票數，測試用}
         {--export-json= : 將入庫後資料匯出成 JSON 檔案路徑}';
 
@@ -31,6 +32,12 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
         $limit = $this->option('limit') !== null && $this->option('limit') !== ''
             ? max(1, (int) $this->option('limit'))
             : null;
+
+        if ((bool) $this->option('skip-non-trading-day') && !$fetcher->hasTodayOfficialQuote()) {
+            $this->info('略過：今天沒有官方最新報價資料，視為非交易日或市場休市。');
+
+            return self::SUCCESS;
+        }
 
         try {
             $payloads = $fetcher->fetch($year, $quarter, $minVolumeLots, $sleepMs, $limit);

@@ -86,7 +86,6 @@ class TwStockQ1FinancialReportFetcher
                 $dailyPriceSource = $dailyRows !== [] ? 'Yahoo Finance chart public endpoint' : null;
             }
 
-            $dailyRows = $this->filterDailyRowsThroughDate($dailyRows, $candidate['latest_price_date']);
             $latestDaily = $dailyRows[0] ?? null;
             $latestVolumeLots = $this->parseInteger($latestDaily['成交量'] ?? null) ?? $candidate['volume_lots'];
 
@@ -141,6 +140,37 @@ class TwStockQ1FinancialReportFetcher
         }
 
         return $this->scoreAndRank($rows);
+    }
+
+    public function hasTodayOfficialQuote(?CarbonImmutable $date = null): bool
+    {
+        $targetDate = ($date ?? CarbonImmutable::now('Asia/Taipei'))->format('Y-m-d');
+
+        return $this->officialQuoteHasDate(self::TWSE_DAILY_PRICE_URL, $targetDate)
+            || $this->officialQuoteHasDate(self::TPEX_DAILY_PRICE_URL, $targetDate);
+    }
+
+    private function officialQuoteHasDate(string $url, string $targetDate): bool
+    {
+        try {
+            $rows = $this->http()->get($url)->throw()->json();
+        } catch (Throwable $e) {
+            report($e);
+
+            return false;
+        }
+
+        if (!is_array($rows)) {
+            return false;
+        }
+
+        foreach ($rows as $row) {
+            if (is_array($row) && $this->parseRocDate((string) ($row['Date'] ?? '')) === $targetDate) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -775,28 +805,6 @@ class TwStockQ1FinancialReportFetcher
         }
 
         return $this->periodChange($dailyRows, 1);
-    }
-
-    /**
-     * @param list<array<string, mixed>> $dailyRows
-     * @return list<array<string, mixed>>
-     */
-    private function filterDailyRowsThroughDate(array $dailyRows, ?string $latestPriceDate): array
-    {
-        if ($latestPriceDate === null || $latestPriceDate === '') {
-            return $dailyRows;
-        }
-
-        $latestYmd = str_replace('-', '', $latestPriceDate);
-        if (strlen($latestYmd) !== 8) {
-            return $dailyRows;
-        }
-
-        return array_values(array_filter($dailyRows, function (array $row) use ($latestYmd): bool {
-            $date = preg_replace('/\D+/', '', (string) ($row['交易日'] ?? '')) ?? '';
-
-            return strlen($date) === 8 && $date <= $latestYmd;
-        }));
     }
 
     /**

@@ -191,28 +191,45 @@ class TwStockQ1FinancialReportFetcher
      */
     public function fetchMarketData(array $candidate): array
     {
-        $dailyRows = $this->fetchOfficialDailyRows($candidate);
+        $officialQuoteCandidate = $this->fetchLatestOfficialQuoteCandidate($candidate);
+        $marketCandidate = $officialQuoteCandidate === null
+            ? $candidate
+            : array_replace($candidate, [
+                'latest_close_price' => $officialQuoteCandidate['latest_close_price'],
+                'latest_price_date' => $officialQuoteCandidate['latest_price_date'],
+                'volume_lots' => $officialQuoteCandidate['volume_lots'],
+            ]);
+
+        $dailyRows = $this->fetchOfficialDailyRows($marketCandidate);
         $dailyPriceSource = $dailyRows !== []
-            ? $candidate['exchange'] . ' official monthly trading data'
+            ? $marketCandidate['exchange'] . ' official monthly trading data'
             : null;
 
         if ($dailyRows === []) {
-            $dailyRows = $this->fetchDailyRows((string) $candidate['stock_code']);
+            $dailyRows = $this->fetchDailyRows((string) $marketCandidate['stock_code']);
             $dailyPriceSource = $dailyRows !== [] ? 'nStock api/v2/daily-stock-data/data' : null;
         }
 
         if ($dailyRows === []) {
-            $dailyRows = $this->fetchYahooDailyRows($candidate);
+            $dailyRows = $this->fetchYahooDailyRows($marketCandidate);
             $dailyPriceSource = $dailyRows !== [] ? 'Yahoo Finance chart public endpoint' : null;
+        }
+
+        if ($officialQuoteCandidate !== null) {
+            $dailyRows = $this->mergeOfficialQuoteDailyRow($dailyRows, $officialQuoteCandidate);
+            $quoteSource = (string) ($officialQuoteCandidate['source_payload']['source'] ?? 'official quote');
+            $dailyPriceSource = $dailyPriceSource === null || $dailyPriceSource === $quoteSource
+                ? $quoteSource
+                : $quoteSource . ' + ' . $dailyPriceSource;
         }
 
         $latestDaily = $dailyRows[0] ?? null;
         $latestClose = $this->parseDecimal(is_array($latestDaily) ? ($latestDaily['收盤價'] ?? null) : null)
-            ?? $this->parseDecimal($candidate['latest_close_price'] ?? null);
+            ?? $this->parseDecimal($marketCandidate['latest_close_price'] ?? null);
         $latestPriceDate = $this->parseYmdDate((string) (is_array($latestDaily) ? ($latestDaily['交易日'] ?? '') : ''))
-            ?? $this->dateString($candidate['latest_price_date'] ?? null);
+            ?? $this->dateString($marketCandidate['latest_price_date'] ?? null);
         $latestVolumeLots = $this->parseInteger(is_array($latestDaily) ? ($latestDaily['成交量'] ?? null) : null)
-            ?? (int) ($candidate['volume_lots'] ?? 0);
+            ?? (int) ($marketCandidate['volume_lots'] ?? 0);
 
         return [
             'latest_close_price' => $latestClose,
@@ -223,7 +240,80 @@ class TwStockQ1FinancialReportFetcher
             'price_change_20d_percent' => $this->periodChange($dailyRows, 20),
             'daily_price_source' => $dailyPriceSource,
             'latest_daily_rows' => $dailyRows,
+            'official_quote_row' => $officialQuoteCandidate['source_payload']['row'] ?? null,
+            'official_quote_source' => $officialQuoteCandidate['source_payload']['source'] ?? null,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     * @return array<string, mixed>|null
+     */
+    private function fetchLatestOfficialQuoteCandidate(array $candidate): ?array
+    {
+        $exchange = (string) ($candidate['exchange'] ?? '');
+        $stockCode = (string) ($candidate['stock_code'] ?? '');
+        if ($exchange === '' || $stockCode === '') {
+            return null;
+        }
+
+        try {
+            $candidates = $exchange === 'TPEx'
+                ? $this->tpexCandidates(0)
+                : $this->twseCandidates(0);
+        } catch (Throwable $e) {
+            report($e);
+
+            return null;
+        }
+
+        foreach ($candidates as $quoteCandidate) {
+            if ((string) ($quoteCandidate['stock_code'] ?? '') === $stockCode) {
+                return $quoteCandidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $dailyRows
+     * @param array<string, mixed> $officialQuoteCandidate
+     * @return list<array<string, mixed>>
+     */
+    private function mergeOfficialQuoteDailyRow(array $dailyRows, array $officialQuoteCandidate): array
+    {
+        $date = $this->dateString($officialQuoteCandidate['latest_price_date'] ?? null);
+        $close = $this->parseDecimal($officialQuoteCandidate['latest_close_price'] ?? null);
+        $volumeLots = $this->parseInteger($officialQuoteCandidate['volume_lots'] ?? null);
+        if ($date === null || $close === null || $volumeLots === null) {
+            return $dailyRows;
+        }
+
+        $rowsByDate = [
+            str_replace('-', '', $date) => [
+                '交易日' => str_replace('-', '', $date),
+                '收盤價' => (string) $close,
+                '成交量' => (string) $volumeLots,
+            ],
+        ];
+
+        foreach ($dailyRows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $rowDate = (string) ($row['交易日'] ?? '');
+            if ($rowDate === '' || array_key_exists($rowDate, $rowsByDate)) {
+                continue;
+            }
+
+            $rowsByDate[$rowDate] = $row;
+        }
+
+        krsort($rowsByDate);
+
+        return array_values($rowsByDate);
     }
 
     public function hasTodayOfficialQuote(?CarbonImmutable $date = null): bool

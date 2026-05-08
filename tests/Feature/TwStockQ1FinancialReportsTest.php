@@ -491,6 +491,94 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertSame(1, (int) $row->rank);
     }
 
+    public function test_market_data_only_uses_latest_official_quote_when_daily_history_is_stale(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            $this->row([
+                'stock_code' => '8261',
+                'stock_name' => '富鼎',
+                'latest_close_price' => 120,
+                'latest_price_date' => '2026-05-07',
+                'volume_lots' => 1500,
+                'price_change_1d_percent' => 0,
+                'price_change_5d_percent' => 0,
+                'price_change_20d_percent' => 0,
+                'rank' => 2,
+            ]),
+            $this->row([
+                'stock_code' => '3054',
+                'stock_name' => '立萬利',
+                'latest_close_price' => 75.5,
+                'latest_price_date' => '2026-05-07',
+                'volume_lots' => 1457,
+                'rank' => 1,
+            ]),
+        ]);
+
+        $stale8261Rows = array_values(array_filter(
+            $this->twseMonthlyRowsForMarketData(126, -1.56, 120, 100, 1500),
+            fn (array $row): bool => $row[0] !== $this->rocDate('20260508'),
+        ));
+        $stale3054Rows = array_values(array_filter(
+            $this->twseMonthlyRowsForMarketData(75.5, 2.30, 70, 62, 1457),
+            fn (array $row): bool => $row[0] !== $this->rocDate('20260508'),
+        ));
+
+        Http::fake(function ($request) use ($stale8261Rows, $stale3054Rows) {
+            $url = $request->url();
+
+            if (str_starts_with($url, 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL')) {
+                return Http::response([
+                    [
+                        'Date' => '1150508',
+                        'Code' => '8261',
+                        'Name' => '富鼎',
+                        'TradeVolume' => '1600000',
+                        'ClosingPrice' => '130.00',
+                    ],
+                    [
+                        'Date' => '1150508',
+                        'Code' => '3054',
+                        'Name' => '立萬利',
+                        'TradeVolume' => '672000',
+                        'ClosingPrice' => '70.40',
+                    ],
+                ]);
+            }
+
+            if (str_starts_with($url, 'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY')) {
+                parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+
+                return Http::response([
+                    'stat' => 'OK',
+                    'data' => (string) ($query['stockNo'] ?? '') === '3054' ? $stale3054Rows : $stale8261Rows,
+                ]);
+            }
+
+            return Http::response([], 404);
+        });
+
+        $this->artisan('tw-stock:fetch-q1-financial-reports', [
+            '--year' => 2026,
+            '--quarter' => 1,
+            '--market-data-only' => true,
+            '--min-volume-lots' => 1000,
+            '--sleep-ms' => 0,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseMissing('tw_stock_q1_financial_reports', ['stock_code' => '3054']);
+
+        $row = DB::table('tw_stock_q1_financial_reports')->where('stock_code', '8261')->first();
+        $previousClose = 126 / (1 + (-1.56 / 100));
+        $this->assertNotNull($row);
+        $this->assertSame('2026-05-08', substr((string) $row->latest_price_date, 0, 10));
+        $this->assertEqualsWithDelta(130, (float) $row->latest_close_price, 0.0001);
+        $this->assertEqualsWithDelta(1600, (int) $row->volume_lots, 0.0001);
+        $this->assertEqualsWithDelta(((130 - $previousClose) / $previousClose) * 100, (float) $row->price_change_1d_percent, 0.0001);
+        $this->assertNotNull($row->price_change_5d_percent);
+        $this->assertNotNull($row->price_change_20d_percent);
+    }
+
     private function fakeResponse(string $url): mixed
     {
         if (str_starts_with($url, 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL')) {
@@ -499,7 +587,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
                     'Date' => '1150508',
                     'Code' => '8261',
                     'Name' => '富鼎',
-                    'TradeVolume' => '1500000',
+                    'TradeVolume' => '4695000',
                     'ClosingPrice' => '126.00',
                 ],
                 [

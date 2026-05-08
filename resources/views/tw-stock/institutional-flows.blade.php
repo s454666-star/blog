@@ -448,6 +448,7 @@
             <nav class="nav-actions" aria-label="台股頁面">
                 <a href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
                 <a href="{{ route('tw-stock.annual-comparison.index') }}">年度比較</a>
+                <a href="{{ route('tw-stock.daily-prices.index') }}">每日漲幅</a>
                 <a class="active" href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
                 <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
             </nav>

@@ -25,6 +25,7 @@ use App\Http\Controllers\StaticProxyController;
 use App\Http\Controllers\TdlCommandController;
     use App\Http\Controllers\TelegramWebhookController;
 use App\Http\Controllers\TestImageController;
+use App\Http\Controllers\TwStockDailyPriceController;
 use App\Http\Controllers\TwStockInstitutionalFlowController;
 use App\Http\Controllers\TwStockQ1FinancialReportController;
 use App\Http\Controllers\TwStockUpcomingDividendController;
@@ -176,6 +177,10 @@ Route::get('/btdig/images/{image}', [BtdigController::class, 'image'])->name('bt
 Route::post('/btdig/mark-copied', [BtdigController::class, 'markCopied'])->name('btdig.markCopied');
 Route::get('/tw-stock/q1-financial-reports', [TwStockQ1FinancialReportController::class, 'index'])->name('tw-stock.q1-financial-reports.index');
 Route::get('/tw-stock/annual-financial-comparison', [TwStockQ1FinancialReportController::class, 'annualComparison'])->name('tw-stock.annual-comparison.index');
+Route::get('/tw-stock/daily-price-rankings', [TwStockDailyPriceController::class, 'index'])->name('tw-stock.daily-prices.index');
+Route::get('/tw-stock/daily-price-rankings/{stockCode}', [TwStockDailyPriceController::class, 'show'])
+    ->where('stockCode', '[A-Za-z0-9]+')
+    ->name('tw-stock.daily-prices.show');
 Route::get('/tw-stock/upcoming-dividends', [TwStockUpcomingDividendController::class, 'index'])->name('tw-stock.upcoming-dividends.index');
 Route::get('/tw-stock/institutional-flows', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.institutional-flows.index');
 Route::get('/tw-stock', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.index');

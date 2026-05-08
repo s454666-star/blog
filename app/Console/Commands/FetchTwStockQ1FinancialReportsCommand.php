@@ -345,9 +345,10 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
             return ['updated' => 0, 'deleted' => 0];
         }
 
+        $expectedLatestTradingDate = $fetcher->expectedLatestTradingDate();
         $this->constrainYearQuarterPairs(TwStockQ1FinancialReport::query(), $pairs)
             ->orderBy('id')
-            ->chunkById(100, function ($rows) use ($fetcher, $minVolumeLots, $sleepMs, $shardCount, $shardIndex, &$updated, &$deleted): void {
+            ->chunkById(100, function ($rows) use ($fetcher, $minVolumeLots, $sleepMs, $shardCount, $shardIndex, $expectedLatestTradingDate, &$updated, &$deleted): void {
                 foreach ($rows as $row) {
                     $stockCode = (string) $row->stock_code;
                     if (!$this->stockCodeBelongsToShard($stockCode, $shardCount, $shardIndex)) {
@@ -360,6 +361,7 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
 
                     $marketData = $fetcher->fetchMarketData($this->marketDataCandidate($row));
                     $hasRequiredMarketData = ($marketData['latest_price_date'] ?? null) !== null
+                        && (string) ($marketData['latest_price_date'] ?? '') === $expectedLatestTradingDate
                         && ($marketData['price_change_1d_percent'] ?? null) !== null
                         && ($marketData['price_change_5d_percent'] ?? null) !== null
                         && ($marketData['price_change_20d_percent'] ?? null) !== null
@@ -375,6 +377,8 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
                     $sourcePayload = is_array($row->source_payload) ? $row->source_payload : [];
                     $sourcePayload['daily_price_source'] = $marketData['daily_price_source'];
                     $sourcePayload['latest_daily_rows'] = array_slice($marketData['latest_daily_rows'], 0, 21);
+                    $sourcePayload['official_quote_row'] = $marketData['official_quote_row'] ?? ($sourcePayload['official_quote_row'] ?? null);
+                    $sourcePayload['quote_source'] = $marketData['official_quote_source'] ?? ($sourcePayload['quote_source'] ?? null);
 
                     $row->forceFill([
                         'latest_close_price' => $marketData['latest_close_price'],

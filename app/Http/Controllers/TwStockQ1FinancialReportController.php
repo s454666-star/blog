@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\TwStockAnnualFinancialComparison;
 use App\Models\TwStockQ1FinancialReport;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
@@ -11,6 +12,14 @@ use Illuminate\Support\Collection;
 
 class TwStockQ1FinancialReportController extends Controller
 {
+    private const DASHBOARD_MIN_VOLUME_LOTS = 1000;
+
+    private const ANNUAL_COMPARISON_START_YEAR = 2020;
+
+    private const ANNUAL_COMPARISON_END_YEAR = 2025;
+
+    private const CURRENT_CONTEXT_YEAR = 2026;
+
     public function index(Request $request): View
     {
         $allowedPerPage = [50, 250, 500];
@@ -39,6 +48,12 @@ class TwStockQ1FinancialReportController extends Controller
         $groupTotalRows = TwStockQ1FinancialReport::query()
             ->where('fiscal_year', $year)
             ->where('quarter', 1)
+            ->where('volume_lots', '>=', self::DASHBOARD_MIN_VOLUME_LOTS)
+            ->whereNotNull('q1_revenue_billion')
+            ->whereNotNull('q1_eps')
+            ->whereNotNull('price_change_1d_percent')
+            ->whereNotNull('price_change_5d_percent')
+            ->whereNotNull('price_change_20d_percent')
             ->count();
         $rows = $this->paginateRows(
             $request,
@@ -76,11 +91,82 @@ class TwStockQ1FinancialReportController extends Controller
         ]);
     }
 
+    public function annualComparison(Request $request): View
+    {
+        $allowedPerPage = [50, 100, 200, 500];
+        $perPage = (int) $request->query('per_page', 100);
+        if (!in_array($perPage, $allowedPerPage, true)) {
+            $perPage = 100;
+        }
+
+        $sort = (string) $request->query('sort', 'eps');
+        if (!in_array($sort, ['revenue', 'eps'], true)) {
+            $sort = 'eps';
+        }
+
+        $filters = collect(['revenue_growth', 'eps_growth', 'eps_yoy_positive', 'net_margin'])
+            ->filter(fn (string $filter): bool => $request->boolean($filter))
+            ->values()
+            ->all();
+        $search = trim((string) $request->query('q', ''));
+
+        $baseQuery = TwStockAnnualFinancialComparison::query()
+            ->where('context_year', self::CURRENT_CONTEXT_YEAR)
+            ->when($search !== '', function (Builder $query) use ($search): void {
+                $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
+                $query->where(function (Builder $query) use ($like): void {
+                    $query->where('stock_code', 'like', $like)
+                        ->orWhere('stock_name', 'like', $like);
+                });
+            });
+
+        foreach ($filters as $filter) {
+            match ($filter) {
+                'revenue_growth' => $baseQuery->where('revenue_filter_pass', true),
+                'eps_growth' => $baseQuery->where('eps_filter_pass', true),
+                'eps_yoy_positive' => $baseQuery->where('eps_yoy_all_positive', true),
+                'net_margin' => $baseQuery->where('net_margin_filter_pass', true),
+                default => null,
+            };
+        }
+
+        $sortColumn = $sort === 'eps' ? 'eps_yoy_sum' : 'revenue_yoy_sum';
+        $stocks = (clone $baseQuery)
+            ->orderByRaw($sortColumn . ' IS NULL')
+            ->orderByDesc($sortColumn)
+            ->orderBy('stock_code')
+            ->paginate($perPage)
+            ->withQueryString();
+
+        return view('tw-stock.annual-comparison', [
+            'stocks' => $stocks,
+            'sort' => $sort,
+            'filters' => $filters,
+            'search' => $search,
+            'allowedPerPage' => $allowedPerPage,
+            'perPage' => $perPage,
+            'summary' => [
+                'total' => (clone $baseQuery)->count(),
+                'revenuePass' => (clone $baseQuery)->where('revenue_filter_pass', true)->count(),
+                'epsPass' => (clone $baseQuery)->where('eps_filter_pass', true)->count(),
+                'epsPositivePass' => (clone $baseQuery)->where('eps_yoy_all_positive', true)->count(),
+                'netMarginPass' => (clone $baseQuery)->where('net_margin_filter_pass', true)->count(),
+            ],
+            'years' => range(self::ANNUAL_COMPARISON_START_YEAR + 1, self::ANNUAL_COMPARISON_END_YEAR),
+        ]);
+    }
+
     private function reportQuery(int $year, string $search, ?float $priceMin, ?float $priceMax): Builder
     {
         return TwStockQ1FinancialReport::query()
             ->where('fiscal_year', $year)
             ->where('quarter', 1)
+            ->where('volume_lots', '>=', self::DASHBOARD_MIN_VOLUME_LOTS)
+            ->whereNotNull('q1_revenue_billion')
+            ->whereNotNull('q1_eps')
+            ->whereNotNull('price_change_1d_percent')
+            ->whereNotNull('price_change_5d_percent')
+            ->whereNotNull('price_change_20d_percent')
             ->when($search !== '', function (Builder $query) use ($search): void {
                 $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
                 $query->where(function (Builder $query) use ($like): void {

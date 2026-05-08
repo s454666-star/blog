@@ -23,6 +23,10 @@ class TwStockQ1FinancialReportFetcher
 
     private const NSTOCK_MONTHLY_REVENUE_URL = 'https://www.nstock.tw/api/v2/monthly-revenue/data';
 
+    private const MOPS_MONTHLY_REVENUE_DOWNLOAD_URL = 'https://mopsov.twse.com.tw/server-java/FileDownLoad';
+
+    private const MOPS_MONTHLY_REVENUE_MARKETS = ['sii', 'otc'];
+
     private const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/%s';
 
     private const CNYES_SYMBOL_NEWS_URL = 'https://api.cnyes.com/media/api/v1/newslist/TWS:%s:STOCK/symbolNews';
@@ -52,6 +56,31 @@ class TwStockQ1FinancialReportFetcher
     private array $nstockMonthlyRevenueRowsCache = [];
 
     /**
+     * @var array<string, array<string, array<string, mixed>>>
+     */
+    private array $mopsMonthlyRevenueRowsCache = [];
+
+    /**
+     * @var array<int, list<array<string, mixed>>>
+     */
+    private array $volumeQualifiedCandidatesCache = [];
+
+    /**
+     * @var array<string, list<array<string, mixed>>>
+     */
+    private array $officialDailyRowsCache = [];
+
+    /**
+     * @var array<string, list<array<string, mixed>>>
+     */
+    private array $nstockDailyRowsCache = [];
+
+    /**
+     * @var array<string, list<array<string, mixed>>>
+     */
+    private array $yahooDailyRowsCache = [];
+
+    /**
      * @var array<string, list<array<string, string>>>
      */
     private array $mopsAnnouncementRowsCache = [];
@@ -59,14 +88,25 @@ class TwStockQ1FinancialReportFetcher
     /**
      * @return list<array<string, mixed>>
      */
-    public function fetch(int $year, int $quarter = 1, int $minVolumeLots = 1000, int $sleepMs = 80, ?int $limit = null): array
-    {
+    public function fetch(
+        int $year,
+        int $quarter = 1,
+        int $minVolumeLots = 1000,
+        int $sleepMs = 80,
+        ?int $limit = null,
+        int $monthlyRevenueMonths = 60,
+        bool $refreshMarketData = true,
+        bool $useAnnouncementFallbacks = true,
+        int $shardCount = 1,
+        int $shardIndex = 0,
+    ): array {
         $period = sprintf('%04d%02d', $year, $quarter);
         $candidates = $this->volumeQualifiedCandidates($minVolumeLots);
 
         if ($limit !== null && $limit > 0) {
             $candidates = array_slice($candidates, 0, $limit);
         }
+        $candidates = $this->filterCandidatesForShard($candidates, $shardCount, $shardIndex);
 
         $rows = [];
         $now = now();
@@ -75,36 +115,30 @@ class TwStockQ1FinancialReportFetcher
                 usleep($sleepMs * 1000);
             }
 
-            $financialRow = $this->fetchQuarterFinancialRow($candidate['stock_code'], $period, $year, $quarter);
+            $financialRow = $this->fetchQuarterFinancialRow($candidate['stock_code'], $period, $year, $quarter, $useAnnouncementFallbacks);
             if ($financialRow === null) {
                 continue;
             }
 
-            $dailyRows = $this->fetchOfficialDailyRows($candidate);
-            $dailyPriceSource = $dailyRows !== []
-                ? $candidate['exchange'] . ' official monthly trading data'
-                : null;
-
-            if ($dailyRows === []) {
-                $dailyRows = $this->fetchDailyRows($candidate['stock_code']);
-                $dailyPriceSource = $dailyRows !== [] ? 'nStock api/v2/daily-stock-data/data' : null;
+            $marketData = [
+                'latest_close_price' => $candidate['latest_close_price'],
+                'latest_price_date' => $candidate['latest_price_date'],
+                'volume_lots' => $candidate['volume_lots'],
+                'price_change_1d_percent' => null,
+                'price_change_5d_percent' => null,
+                'price_change_20d_percent' => null,
+                'daily_price_source' => $candidate['source_payload']['source'] ?? null,
+                'latest_daily_rows' => [],
+            ];
+            if ($refreshMarketData) {
+                $marketData = $this->fetchMarketData($candidate);
             }
 
-            if ($dailyRows === []) {
-                $dailyRows = $this->fetchYahooDailyRows($candidate);
-                $dailyPriceSource = $dailyRows !== [] ? 'Yahoo Finance chart public endpoint' : null;
-            }
-
-            $latestDaily = $dailyRows[0] ?? null;
-            $latestVolumeLots = $this->parseInteger($latestDaily['成交量'] ?? null) ?? $candidate['volume_lots'];
-
-            if ($latestVolumeLots < $minVolumeLots) {
+            if ((int) ($marketData['volume_lots'] ?? 0) < $minVolumeLots) {
                 continue;
             }
 
-            $latestClose = $this->parseDecimal($latestDaily['收盤價'] ?? null) ?? $candidate['latest_close_price'];
-            $latestPriceDate = $this->parseYmdDate((string) ($latestDaily['交易日'] ?? '')) ?? $candidate['latest_price_date'];
-            $recentMonthlyRevenues = $this->fetchRecentMonthlyRevenueRows($candidate['stock_code']);
+            $recentMonthlyRevenues = $this->fetchRecentMonthlyRevenueRows($candidate['stock_code'], $monthlyRevenueMonths);
 
             $rows[] = [
                 'fiscal_year' => $year,
@@ -115,10 +149,10 @@ class TwStockQ1FinancialReportFetcher
                 'stock_name' => $candidate['stock_name'],
                 'industry' => null,
                 'q1_revenue_billion' => $this->decimal($this->parseDecimal($financialRow['季營收(億)'] ?? null), 4),
-                'q1_revenue_yoy_percent' => $this->decimal($this->parseDecimal($financialRow['單季年成長(％)'] ?? $financialRow['單季年成長(%)'] ?? null), 4),
+                'q1_revenue_yoy_percent' => $this->decimal($this->parseDecimal($financialRow['單季年成長(％)'] ?? $financialRow['單季年成長(%)'] ?? null), 4, 999999),
                 'q1_revenue_score' => null,
                 'q1_eps' => $this->decimal($this->parseDecimal($financialRow['公告基本每股盈餘(元)'] ?? null), 4),
-                'q1_eps_yoy_percent' => $this->decimal($this->parseDecimal($financialRow['公告基本每股盈餘年成長2(%)'] ?? $financialRow['EPS年增率'] ?? null), 4),
+                'q1_eps_yoy_percent' => $this->decimal($this->parseDecimal($financialRow['公告基本每股盈餘年成長2(%)'] ?? $financialRow['EPS年增率'] ?? null), 4, 999999),
                 'q1_gross_margin_percent' => $this->decimal($this->parseDecimal($financialRow['單季毛利率(％)'] ?? $financialRow['單季毛利率(%)'] ?? null), 4, 1000),
                 'q1_operating_margin_percent' => $this->decimal($this->parseDecimal($financialRow['單季營業利益率(％)'] ?? $financialRow['單季營業利益率(%)'] ?? null), 4, 1000),
                 'q1_net_margin_percent' => $this->decimal($this->parseDecimal($financialRow['單季稅後淨利率(％)'] ?? $financialRow['單季稅後淨利率(%)'] ?? null), 4, 1000),
@@ -127,21 +161,21 @@ class TwStockQ1FinancialReportFetcher
                 'roa_percent' => $this->decimal($this->parseDecimal($financialRow['稅後資產報酬率(%)'] ?? null), 4, 1000),
                 'operating_profit_mix_percent' => $this->decimal($this->parseDecimal($financialRow['本業佔比'] ?? null), 4, 1000),
                 'recent_monthly_revenues' => $recentMonthlyRevenues,
-                'latest_close_price' => $this->decimal($latestClose, 4),
-                'latest_price_date' => $latestPriceDate,
-                'volume_lots' => $latestVolumeLots,
-                'price_change_1d_percent' => $this->decimal($this->oneDayChange($dailyRows), 4),
-                'price_change_5d_percent' => $this->decimal($this->periodChange($dailyRows, 5), 4),
-                'price_change_20d_percent' => $this->decimal($this->periodChange($dailyRows, 20), 4),
+                'latest_close_price' => $this->decimal($this->parseDecimal($marketData['latest_close_price'] ?? null), 4),
+                'latest_price_date' => $marketData['latest_price_date'],
+                'volume_lots' => (int) ($marketData['volume_lots'] ?? 0),
+                'price_change_1d_percent' => $refreshMarketData ? $this->decimal($this->parseDecimal($marketData['price_change_1d_percent'] ?? null), 4) : null,
+                'price_change_5d_percent' => $refreshMarketData ? $this->decimal($this->parseDecimal($marketData['price_change_5d_percent'] ?? null), 4) : null,
+                'price_change_20d_percent' => $refreshMarketData ? $this->decimal($this->parseDecimal($marketData['price_change_20d_percent'] ?? null), 4) : null,
                 'rank' => null,
                 'source_payload' => [
                     'quote_source' => $candidate['source_payload']['source'] ?? null,
                     'eps_source' => $financialRow['_source'] ?? 'nStock api/v2/eps/data',
-                    'daily_price_source' => $dailyPriceSource,
+                    'daily_price_source' => $marketData['daily_price_source'],
                     'official_quote_row' => $candidate['source_payload']['row'] ?? null,
                     'financial_row' => $financialRow,
                     'monthly_revenue_source' => 'nStock api/v2/monthly-revenue/data',
-                    'latest_daily_rows' => array_slice($dailyRows, 0, 21),
+                    'latest_daily_rows' => array_slice($marketData['latest_daily_rows'], 0, 21),
                     'score_formula' => 'EPS YoY分位數 35% + 毛利率分位數 25% + 營益率分位數 25% + 淨利率分位數 15%',
                 ],
                 'fetched_at' => $now,
@@ -151,12 +185,68 @@ class TwStockQ1FinancialReportFetcher
         return $this->scoreAndRank($rows);
     }
 
+    /**
+     * @param array<string, mixed> $candidate
+     * @return array<string, mixed>
+     */
+    public function fetchMarketData(array $candidate): array
+    {
+        $dailyRows = $this->fetchOfficialDailyRows($candidate);
+        $dailyPriceSource = $dailyRows !== []
+            ? $candidate['exchange'] . ' official monthly trading data'
+            : null;
+
+        if ($dailyRows === []) {
+            $dailyRows = $this->fetchDailyRows((string) $candidate['stock_code']);
+            $dailyPriceSource = $dailyRows !== [] ? 'nStock api/v2/daily-stock-data/data' : null;
+        }
+
+        if ($dailyRows === []) {
+            $dailyRows = $this->fetchYahooDailyRows($candidate);
+            $dailyPriceSource = $dailyRows !== [] ? 'Yahoo Finance chart public endpoint' : null;
+        }
+
+        $latestDaily = $dailyRows[0] ?? null;
+        $latestClose = $this->parseDecimal(is_array($latestDaily) ? ($latestDaily['收盤價'] ?? null) : null)
+            ?? $this->parseDecimal($candidate['latest_close_price'] ?? null);
+        $latestPriceDate = $this->parseYmdDate((string) (is_array($latestDaily) ? ($latestDaily['交易日'] ?? '') : ''))
+            ?? $this->dateString($candidate['latest_price_date'] ?? null);
+        $latestVolumeLots = $this->parseInteger(is_array($latestDaily) ? ($latestDaily['成交量'] ?? null) : null)
+            ?? (int) ($candidate['volume_lots'] ?? 0);
+
+        return [
+            'latest_close_price' => $latestClose,
+            'latest_price_date' => $latestPriceDate,
+            'volume_lots' => $latestVolumeLots,
+            'price_change_1d_percent' => $this->oneDayChange($dailyRows),
+            'price_change_5d_percent' => $this->periodChange($dailyRows, 5),
+            'price_change_20d_percent' => $this->periodChange($dailyRows, 20),
+            'daily_price_source' => $dailyPriceSource,
+            'latest_daily_rows' => $dailyRows,
+        ];
+    }
+
     public function hasTodayOfficialQuote(?CarbonImmutable $date = null): bool
     {
-        $targetDate = ($date ?? CarbonImmutable::now('Asia/Taipei'))->format('Y-m-d');
+        return $this->hasExpectedLatestOfficialQuote($date);
+    }
+
+    public function hasExpectedLatestOfficialQuote(?CarbonImmutable $date = null): bool
+    {
+        $targetDate = $this->expectedLatestTradingDate($date);
 
         return $this->officialQuoteHasDate(self::TWSE_DAILY_PRICE_URL, $targetDate)
             || $this->officialQuoteHasDate(self::TPEX_DAILY_PRICE_URL, $targetDate);
+    }
+
+    public function expectedLatestTradingDate(?CarbonImmutable $date = null): string
+    {
+        $targetDate = $date ?? CarbonImmutable::now('Asia/Taipei');
+        while ($targetDate->isWeekend()) {
+            $targetDate = $targetDate->subDay();
+        }
+
+        return $targetDate->format('Y-m-d');
     }
 
     private function officialQuoteHasDate(string $url, string $targetDate): bool
@@ -187,6 +277,10 @@ class TwStockQ1FinancialReportFetcher
      */
     private function volumeQualifiedCandidates(int $minVolumeLots): array
     {
+        if (array_key_exists($minVolumeLots, $this->volumeQualifiedCandidatesCache)) {
+            return $this->volumeQualifiedCandidatesCache[$minVolumeLots];
+        }
+
         $rows = [
             ...$this->twseCandidates($minVolumeLots),
             ...$this->tpexCandidates($minVolumeLots),
@@ -200,7 +294,24 @@ class TwStockQ1FinancialReportFetcher
             $right['exchange'],
         ]);
 
-        return $rows;
+        return $this->volumeQualifiedCandidatesCache[$minVolumeLots] = $rows;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $candidates
+     * @return list<array<string, mixed>>
+     */
+    private function filterCandidatesForShard(array $candidates, int $shardCount, int $shardIndex): array
+    {
+        if ($shardCount <= 1) {
+            return $candidates;
+        }
+
+        return array_values(array_filter($candidates, function (array $candidate) use ($shardCount, $shardIndex): bool {
+            $stockCode = (string) ($candidate['stock_code'] ?? '');
+
+            return ((int) sprintf('%u', crc32($stockCode)) % $shardCount) === $shardIndex;
+        }));
     }
 
     /**
@@ -284,11 +395,34 @@ class TwStockQ1FinancialReportFetcher
     /**
      * @return array<string, mixed>|null
      */
-    private function fetchQuarterFinancialRow(string $stockCode, string $period, int $year, int $quarter): ?array
-    {
-        return $this->fetchNstockQuarterFinancialRow($stockCode, $period)
-            ?? $this->fetchMopsQuarterFinancialAnnouncementRow($stockCode, $year, $quarter)
+    private function fetchQuarterFinancialRow(
+        string $stockCode,
+        string $period,
+        int $year,
+        int $quarter,
+        bool $useAnnouncementFallbacks,
+    ): ?array {
+        $row = $this->fetchNstockQuarterFinancialRow($stockCode, $period);
+        if ($row !== null || !$useAnnouncementFallbacks) {
+            return $row;
+        }
+
+        return $this->fetchMopsQuarterFinancialAnnouncementRow($stockCode, $year, $quarter)
             ?? $this->fetchCnyesQuarterFinancialAnnouncementRow($stockCode, $year, $quarter);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function fetchRecentMonthlyRevenueRows(string $stockCode, int $months = 60): array
+    {
+        $rows = $this->fetchRecentMonthlyRevenueRowsFromNstock($stockCode, $months);
+
+        if (count($rows) >= $months || $rows === [] || $months <= 60) {
+            return $rows;
+        }
+
+        return $this->fillRecentMonthlyRevenueRowsFromMops($stockCode, $rows, $months);
     }
 
     /**
@@ -776,6 +910,15 @@ class TwStockQ1FinancialReportFetcher
      */
     private function fetchOfficialDailyRows(array $candidate): array
     {
+        $cacheKey = implode(':', [
+            (string) ($candidate['exchange'] ?? ''),
+            (string) ($candidate['stock_code'] ?? ''),
+            (string) ($candidate['latest_price_date'] ?? ''),
+        ]);
+        if (array_key_exists($cacheKey, $this->officialDailyRowsCache)) {
+            return $this->officialDailyRowsCache[$cacheKey];
+        }
+
         $latestPriceDate = $candidate['latest_price_date'] ?? null;
         $startMonth = $latestPriceDate
             ? CarbonImmutable::parse((string) $latestPriceDate)->startOfMonth()
@@ -800,7 +943,7 @@ class TwStockQ1FinancialReportFetcher
         $rows = array_values($deduped);
         usort($rows, fn (array $left, array $right): int => (string) $right['交易日'] <=> (string) $left['交易日']);
 
-        return $rows;
+        return $this->officialDailyRowsCache[$cacheKey] = $rows;
     }
 
     /**
@@ -903,6 +1046,10 @@ class TwStockQ1FinancialReportFetcher
      */
     private function fetchDailyRows(string $stockCode): array
     {
+        if (array_key_exists($stockCode, $this->nstockDailyRowsCache)) {
+            return $this->nstockDailyRowsCache[$stockCode];
+        }
+
         try {
             $response = $this->http()
                 ->get(self::NSTOCK_DAILY_STOCK_DATA_URL, ['stock_id' => $stockCode])
@@ -911,11 +1058,11 @@ class TwStockQ1FinancialReportFetcher
         } catch (Throwable $e) {
             report($e);
 
-            return [];
+            return $this->nstockDailyRowsCache[$stockCode] = [];
         }
 
         if (!is_array($response) || !is_array($response['data'] ?? null)) {
-            return [];
+            return $this->nstockDailyRowsCache[$stockCode] = [];
         }
 
         foreach ($response['data'] as $stockData) {
@@ -923,10 +1070,10 @@ class TwStockQ1FinancialReportFetcher
                 continue;
             }
 
-            return array_values(array_filter($stockData['日K'], 'is_array'));
+            return $this->nstockDailyRowsCache[$stockCode] = array_values(array_filter($stockData['日K'], 'is_array'));
         }
 
-        return [];
+        return $this->nstockDailyRowsCache[$stockCode] = [];
     }
 
     /**
@@ -935,6 +1082,11 @@ class TwStockQ1FinancialReportFetcher
      */
     private function fetchYahooDailyRows(array $candidate): array
     {
+        $cacheKey = (string) ($candidate['exchange'] ?? '') . ':' . (string) ($candidate['stock_code'] ?? '');
+        if (array_key_exists($cacheKey, $this->yahooDailyRowsCache)) {
+            return $this->yahooDailyRowsCache[$cacheKey];
+        }
+
         $suffix = $candidate['exchange'] === 'TPEx' ? '.TWO' : '.TW';
 
         try {
@@ -948,14 +1100,14 @@ class TwStockQ1FinancialReportFetcher
         } catch (Throwable $e) {
             report($e);
 
-            return [];
+            return $this->yahooDailyRowsCache[$cacheKey] = [];
         }
 
         $result = $response['chart']['result'][0] ?? null;
         $timestamps = $result['timestamp'] ?? null;
         $quote = $result['indicators']['quote'][0] ?? null;
         if (!is_array($timestamps) || !is_array($quote)) {
-            return [];
+            return $this->yahooDailyRowsCache[$cacheKey] = [];
         }
 
         $closes = $quote['close'] ?? [];
@@ -981,13 +1133,13 @@ class TwStockQ1FinancialReportFetcher
 
         usort($rows, fn (array $left, array $right): int => (string) $right['交易日'] <=> (string) $left['交易日']);
 
-        return $rows;
+        return $this->yahooDailyRowsCache[$cacheKey] = $rows;
     }
 
     /**
      * @return list<array<string, mixed>>
      */
-    private function fetchRecentMonthlyRevenueRows(string $stockCode, int $months = 4): array
+    private function fetchRecentMonthlyRevenueRowsFromNstock(string $stockCode, int $months = 60): array
     {
         if (array_key_exists($stockCode, $this->nstockMonthlyRevenueRowsCache)) {
             return array_slice($this->nstockMonthlyRevenueRowsCache[$stockCode], 0, $months);
@@ -1036,10 +1188,188 @@ class TwStockQ1FinancialReportFetcher
 
             usort($rows, fn (array $left, array $right): int => (string) $right['year_month'] <=> (string) $left['year_month']);
 
-            return $this->nstockMonthlyRevenueRowsCache[$stockCode] = array_slice($rows, 0, $months);
+            $this->nstockMonthlyRevenueRowsCache[$stockCode] = $rows;
+
+            return array_slice($rows, 0, $months);
         }
 
         return $this->nstockMonthlyRevenueRowsCache[$stockCode] = [];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
+     */
+    private function fillRecentMonthlyRevenueRowsFromMops(string $stockCode, array $rows, int $months): array
+    {
+        $rowsByMonth = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $yearMonth = (string) ($row['year_month'] ?? '');
+            if (strlen($yearMonth) === 6) {
+                $rowsByMonth[$yearMonth] = $row;
+            }
+        }
+
+        $availableMonths = array_keys($rowsByMonth);
+        if ($availableMonths === []) {
+            return $rows;
+        }
+
+        $latestYearMonth = max($availableMonths);
+
+        try {
+            $latestMonth = CarbonImmutable::createFromFormat('Ym', $latestYearMonth)->startOfMonth();
+        } catch (Throwable $e) {
+            report($e);
+
+            return $rows;
+        }
+
+        for ($index = 0; $index < $months; $index++) {
+            $yearMonth = $latestMonth->subMonths($index)->format('Ym');
+            if (array_key_exists($yearMonth, $rowsByMonth)) {
+                continue;
+            }
+
+            $mopsRow = $this->fetchMopsMonthlyRevenueRow($stockCode, $yearMonth);
+            if ($mopsRow !== null) {
+                $rowsByMonth[$yearMonth] = $mopsRow;
+            }
+        }
+
+        krsort($rowsByMonth);
+
+        return array_slice(array_values($rowsByMonth), 0, $months);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchMopsMonthlyRevenueRow(string $stockCode, string $yearMonth): ?array
+    {
+        $rows = $this->fetchMopsMonthlyRevenueRows($yearMonth);
+
+        return $rows[$stockCode] ?? null;
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function fetchMopsMonthlyRevenueRows(string $yearMonth): array
+    {
+        if (array_key_exists($yearMonth, $this->mopsMonthlyRevenueRowsCache)) {
+            return $this->mopsMonthlyRevenueRowsCache[$yearMonth];
+        }
+
+        $year = (int) substr($yearMonth, 0, 4);
+        $month = (int) substr($yearMonth, 4, 2);
+        $rocYear = $year - 1911;
+        $rows = [];
+
+        foreach (self::MOPS_MONTHLY_REVENUE_MARKETS as $market) {
+            try {
+                $response = $this->http()
+                    ->asForm()
+                    ->post(self::MOPS_MONTHLY_REVENUE_DOWNLOAD_URL, [
+                        'step' => '9',
+                        'functionName' => 'show_file2',
+                        'filePath' => sprintf('/t21/%s/', $market),
+                        'fileName' => sprintf('t21sc03_%d_%d.csv', $rocYear, $month),
+                    ])
+                    ->throw()
+                    ->body();
+            } catch (Throwable $e) {
+                report($e);
+
+                continue;
+            }
+
+            foreach ($this->parseMopsMonthlyRevenueCsv($response, $yearMonth) as $stockCode => $row) {
+                $rows[$stockCode] = $row;
+            }
+        }
+
+        return $this->mopsMonthlyRevenueRowsCache[$yearMonth] = $rows;
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function parseMopsMonthlyRevenueCsv(string $csv, string $yearMonth): array
+    {
+        $lines = preg_split('/\r\n|\n|\r/', trim($csv));
+        if (!is_array($lines) || $lines === []) {
+            return [];
+        }
+
+        $header = str_getcsv((string) array_shift($lines), ',', '"', '\\');
+        if ($header === []) {
+            return [];
+        }
+
+        $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $header[0]) ?? (string) $header[0];
+        $indexes = array_flip($header);
+        $required = [
+            '公司代號',
+            '營業收入-當月營收',
+            '營業收入-上月比較增減(%)',
+            '營業收入-去年同月增減(%)',
+            '累計營業收入-當月累計營收',
+            '累計營業收入-前期比較增減(%)',
+        ];
+
+        foreach ($required as $field) {
+            if (!array_key_exists($field, $indexes)) {
+                return [];
+            }
+        }
+
+        $rows = [];
+        foreach ($lines as $line) {
+            if (!is_string($line) || trim($line) === '') {
+                continue;
+            }
+
+            $columns = str_getcsv($line, ',', '"', '\\');
+            $stockCode = trim((string) ($columns[$indexes['公司代號']] ?? ''));
+            if ($stockCode === '') {
+                continue;
+            }
+
+            $monthlyRevenueThousand = $this->parseDecimal($columns[$indexes['營業收入-當月營收']] ?? null);
+            $cumulativeRevenueThousand = $this->parseDecimal($columns[$indexes['累計營業收入-當月累計營收']] ?? null);
+
+            $rows[$stockCode] = [
+                'year_month' => $yearMonth,
+                'revenue_billion' => $monthlyRevenueThousand === null
+                    ? null
+                    : $this->decimal($monthlyRevenueThousand / 100000, 4),
+                'revenue_yoy_percent' => $this->decimal(
+                    $this->parseDecimal($columns[$indexes['營業收入-去年同月增減(%)']] ?? null),
+                    4,
+                    100000,
+                ),
+                'revenue_mom_percent' => $this->decimal(
+                    $this->parseDecimal($columns[$indexes['營業收入-上月比較增減(%)']] ?? null),
+                    4,
+                    100000,
+                ),
+                'cumulative_revenue_billion' => $cumulativeRevenueThousand === null
+                    ? null
+                    : $this->decimal($cumulativeRevenueThousand / 100000, 4),
+                'cumulative_yoy_percent' => $this->decimal(
+                    $this->parseDecimal($columns[$indexes['累計營業收入-前期比較增減(%)']] ?? null),
+                    4,
+                    100000,
+                ),
+            ];
+        }
+
+        return $rows;
     }
 
     private function oneDayChange(array $dailyRows): ?float
@@ -1198,6 +1528,20 @@ class TwStockQ1FinancialReportFetcher
         }
 
         return sprintf('%04d-%02d-%02d', $year, $month, $day);
+    }
+
+    private function dateString(mixed $value): ?string
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d');
+        }
+
+        $value = trim((string) $value);
+        if ($value === '') {
+            return null;
+        }
+
+        return $this->parseYmdDate($value) ?? $value;
     }
 
     private function parseDecimal(mixed $value): ?float

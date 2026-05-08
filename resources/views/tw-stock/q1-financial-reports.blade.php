@@ -117,6 +117,12 @@
             background: #1f2937;
         }
 
+        .nav-actions a.active {
+            border-color: #1f2937;
+            color: #ffffff;
+            background: #1f2937;
+        }
+
         .summary-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -760,7 +766,9 @@
             </div>
         </div>
         <nav class="nav-actions" aria-label="台股頁面">
-            <a href="{{ route('tw-stock.institutional-flows.index') }}">法人進出</a>
+            <a class="active" href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
+            <a href="{{ route('tw-stock.annual-comparison.index') }}">年度比較</a>
+            <a href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
             <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
         </nav>
     </header>

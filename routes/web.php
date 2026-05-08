@@ -175,6 +175,7 @@ Route::get('/btdig', [BtdigController::class, 'index'])->name('btdig.index');
 Route::get('/btdig/images/{image}', [BtdigController::class, 'image'])->name('btdig.image');
 Route::post('/btdig/mark-copied', [BtdigController::class, 'markCopied'])->name('btdig.markCopied');
 Route::get('/tw-stock/q1-financial-reports', [TwStockQ1FinancialReportController::class, 'index'])->name('tw-stock.q1-financial-reports.index');
+Route::get('/tw-stock/annual-financial-comparison', [TwStockQ1FinancialReportController::class, 'annualComparison'])->name('tw-stock.annual-comparison.index');
 Route::get('/tw-stock/upcoming-dividends', [TwStockUpcomingDividendController::class, 'index'])->name('tw-stock.upcoming-dividends.index');
 Route::get('/tw-stock/institutional-flows', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.institutional-flows.index');
 Route::get('/tw-stock', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.index');

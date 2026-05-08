@@ -46,6 +46,13 @@
             margin-bottom: 18px;
         }
 
+        .top-actions {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 10px;
+        }
+
         h1 {
             margin: 0;
             font-size: 30px;
@@ -86,6 +93,35 @@
         }
 
         .segments a.active {
+            color: #ffffff;
+            background: #1f2937;
+        }
+
+        .nav-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .nav-actions a {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 38px;
+            padding: 0 14px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            color: #334155;
+            background: var(--panel);
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 800;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+        }
+
+        .nav-actions a.active {
+            border-color: #1f2937;
             color: #ffffff;
             background: #1f2937;
         }
@@ -305,6 +341,10 @@
                 flex-direction: column;
             }
 
+            .top-actions {
+                align-items: flex-start;
+            }
+
             .summary-grid,
             .charts {
                 grid-template-columns: 1fr 1fr;
@@ -330,6 +370,11 @@
             }
 
             .segments {
+                width: 100%;
+            }
+
+            .top-actions,
+            .nav-actions {
                 width: 100%;
             }
 
@@ -399,14 +444,22 @@
                 共 {{ number_format($totalRows) }} 個交易日
             </div>
         </div>
-        <nav class="segments" aria-label="天數切換">
-            @foreach ($allowedDays as $allowedDay)
-                <a href="{{ route('tw-stock.institutional-flows.index', ['days' => $allowedDay]) }}"
-                   class="{{ $days === $allowedDay ? 'active' : '' }}">
-                    {{ $allowedDay }}天
-                </a>
-            @endforeach
-        </nav>
+        <div class="top-actions">
+            <nav class="nav-actions" aria-label="台股頁面">
+                <a href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
+                <a href="{{ route('tw-stock.annual-comparison.index') }}">年度比較</a>
+                <a class="active" href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
+                <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
+            </nav>
+            <nav class="segments" aria-label="天數切換">
+                @foreach ($allowedDays as $allowedDay)
+                    <a href="{{ route('tw-stock.institutional-flows.index', ['days' => $allowedDay]) }}"
+                       class="{{ $days === $allowedDay ? 'active' : '' }}">
+                        {{ $allowedDay }}天
+                    </a>
+                @endforeach
+            </nav>
+        </div>
     </header>
 
     @if ($rows->isEmpty())

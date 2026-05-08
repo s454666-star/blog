@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\TwStockQ1FinancialReportFetcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
@@ -45,6 +46,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
 
     protected function tearDown(): void
     {
+        Schema::dropIfExists('tw_stock_annual_financial_comparisons');
         Schema::dropIfExists('tw_stock_q1_financial_reports');
 
         Carbon::setTestNow();
@@ -81,7 +83,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertEqualsWithDelta(51.96, (float) $top->q1_operating_margin_percent, 0.01);
         $this->assertEqualsWithDelta(41.55, (float) $top->q1_net_margin_percent, 0.01);
         $recentMonthlyRevenues = json_decode((string) $top->recent_monthly_revenues, true, 512, JSON_THROW_ON_ERROR);
-        $this->assertCount(4, $recentMonthlyRevenues);
+        $this->assertCount(6, $recentMonthlyRevenues);
         $this->assertSame('202604', $recentMonthlyRevenues[0]['year_month']);
         $this->assertEqualsWithDelta(66.71, (float) $recentMonthlyRevenues[0]['revenue_billion'], 0.0001);
         $this->assertEqualsWithDelta(583.1, (float) $recentMonthlyRevenues[0]['revenue_yoy_percent'], 0.0001);
@@ -96,6 +98,43 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertEqualsWithDelta(5.0, (float) $second->price_change_5d_percent, 0.0001);
         $this->assertEqualsWithDelta(26.0, (float) $second->price_change_20d_percent, 0.0001);
         $this->assertSame(4695, (int) $second->volume_lots);
+    }
+
+    public function test_fetch_command_preserves_longer_monthly_revenue_history(): void
+    {
+        Http::fake(fn ($request) => $this->fakeResponse($request->url()));
+
+        $longMonthlyRows = [];
+        $month = CarbonImmutable::create(2026, 4, 1);
+        for ($index = 0; $index < 10; $index++) {
+            $longMonthlyRows[] = [
+                'year_month' => $month->subMonths($index)->format('Ym'),
+                'revenue_billion' => 10 + $index,
+            ];
+        }
+
+        DB::table('tw_stock_q1_financial_reports')->insert($this->row([
+            'exchange' => 'TPEx',
+            'stock_code' => '5289',
+            'stock_name' => '宜鼎',
+            'q1_revenue_score' => 10,
+            'recent_monthly_revenues' => json_encode($longMonthlyRows, JSON_THROW_ON_ERROR),
+            'rank' => 3,
+        ]));
+
+        $this->artisan('tw-stock:fetch-q1-financial-reports', [
+            '--year' => 2026,
+            '--quarter' => 1,
+            '--min-volume-lots' => 1000,
+            '--sleep-ms' => 0,
+        ])->assertExitCode(0);
+
+        $row = DB::table('tw_stock_q1_financial_reports')->where('stock_code', '5289')->where('exchange', 'TPEx')->first();
+        $monthlyRows = json_decode((string) $row->recent_monthly_revenues, true, 512, JSON_THROW_ON_ERROR);
+
+        $this->assertCount(10, $monthlyRows);
+        $this->assertSame('202604', $monthlyRows[0]['year_month']);
+        $this->assertEqualsWithDelta(100.0, (float) $row->q1_revenue_score, 0.0001);
     }
 
     public function test_dashboard_supports_search_and_per_page_options(): void
@@ -165,6 +204,14 @@ class TwStockQ1FinancialReportsTest extends TestCase
                 'rank' => 3,
                 'recent_monthly_revenues' => json_encode([['revenue_yoy_percent' => -5, 'revenue_mom_percent' => 1]], JSON_THROW_ON_ERROR),
             ]),
+            $this->row([
+                'stock_code' => '1111',
+                'stock_name' => '低量備用',
+                'q1_revenue_score' => 1000,
+                'latest_close_price' => 10,
+                'volume_lots' => 99,
+                'rank' => 4,
+            ]),
         ]);
 
         $priceResponse = $this->get(route('tw-stock.q1-financial-reports.index', [
@@ -175,6 +222,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
 
         $priceResponse->assertOk();
         $this->assertTableOrder($priceResponse->getContent(), ['8261', '9951', '5289']);
+        $priceResponse->assertDontSee('低量備用');
         $priceResponse->assertSee('sort=price', false)
             ->assertSee('direction=desc', false);
 
@@ -186,6 +234,110 @@ class TwStockQ1FinancialReportsTest extends TestCase
 
         $monthlyResponse->assertOk();
         $this->assertTableOrder($monthlyResponse->getContent(), ['8261', '9951', '5289']);
+    }
+
+    public function test_annual_comparison_supports_sort_filters_and_per_page_options(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert(array_merge(
+            $this->annualComparisonRows(
+                '2408',
+                '南亞科',
+                [2020 => 100, 2021 => 125, 2022 => 150, 2023 => 180, 2024 => 225, 2025 => 280, 2026 => 90],
+                [2020 => 1.0, 2021 => 1.3, 2022 => 1.6, 2023 => 2.0, 2024 => 2.4, 2025 => 3.0, 2026 => 0.8],
+                22.5,
+                true,
+            ),
+            $this->annualComparisonRows(
+                '8261',
+                '富鼎',
+                [2020 => 100, 2021 => 96, 2022 => 92, 2023 => 88, 2024 => 84, 2025 => 80, 2026 => 18],
+                [2020 => 3.0, 2021 => 2.5, 2022 => 2.0, 2023 => 1.5, 2024 => 1.0, 2025 => 0.7, 2026 => 0.2],
+                9.5,
+                false,
+            ),
+        ));
+
+        $this->artisan('tw-stock:refresh-annual-financial-comparisons', [
+            '--context-year' => 2026,
+            '--start-year' => 2020,
+            '--end-year' => 2025,
+        ])->assertExitCode(0);
+
+        $this->assertSame(2, DB::table('tw_stock_annual_financial_comparisons')->count());
+
+        $response = $this->get(route('tw-stock.annual-comparison.index'));
+
+        $response->assertOk()
+            ->assertSee('台股年度營收 EPS 比較')
+            ->assertSee('營收加總排序')
+            ->assertSee('EPS 加總排序')
+            ->assertSee('營收 5 年 YoY 合計 &gt; 30%', false)
+            ->assertSee('EPS 5 年 YoY 合計 &gt; 20%', false)
+            ->assertSee('每年 EPS YoY 均為正')
+            ->assertSee('淨利率近 8 季或近 2 年平均 &gt; 15%', false)
+            ->assertSee('name="sort" value="eps"', false)
+            ->assertSee('value="50"', false)
+            ->assertSee('value="100" selected', false)
+            ->assertSee('value="200"', false)
+            ->assertSee('value="500"', false)
+            ->assertSee('data-copy-value="2408"', false)
+            ->assertSee('2020 → 2021')
+            ->assertSee('點一下複製');
+
+        $html = $response->getContent();
+        $highGrowthPosition = strpos($html, 'data-copy-value="2408"');
+        $lowGrowthPosition = strpos($html, 'data-copy-value="8261"');
+
+        $this->assertNotFalse($highGrowthPosition);
+        $this->assertNotFalse($lowGrowthPosition);
+        $this->assertLessThan($lowGrowthPosition, $highGrowthPosition);
+
+        $filtered = $this->get(route('tw-stock.annual-comparison.index', [
+            'sort' => 'eps',
+            'per_page' => 50,
+            'eps_growth' => 1,
+            'eps_yoy_positive' => 1,
+            'net_margin' => 1,
+        ]));
+
+        $filtered->assertOk()
+            ->assertSee('name="sort" value="eps"', false)
+            ->assertSee('value="50" selected', false)
+            ->assertSee('name="eps_growth" value="1" checked', false)
+            ->assertSee('name="eps_yoy_positive" value="1" checked', false)
+            ->assertSee('name="net_margin" value="1" checked', false)
+            ->assertSee('data-copy-value="2408"', false)
+            ->assertDontSee('data-copy-value="8261"', false);
+    }
+
+    public function test_monthly_revenue_fetcher_fills_short_nstock_history_from_mops_csv(): void
+    {
+        Http::fake(function ($request) {
+            $url = $request->url();
+
+            if (str_starts_with($url, 'https://www.nstock.tw/api/v2/monthly-revenue/data')) {
+                return Http::response(['data' => [
+                    [
+                        '股票代號' => '5289',
+                        '月營收' => $this->monthlyRevenueRowsWithSixtyMonths(),
+                    ],
+                ]]);
+            }
+
+            if (str_starts_with($url, 'https://mopsov.twse.com.tw/server-java/FileDownLoad')) {
+                return Http::response($this->mopsMonthlyRevenueCsv(), 200);
+            }
+
+            return Http::response([], 404);
+        });
+
+        $rows = app(TwStockQ1FinancialReportFetcher::class)->fetchRecentMonthlyRevenueRows('5289', 61);
+
+        $this->assertCount(61, $rows);
+        $this->assertSame('202604', $rows[0]['year_month']);
+        $this->assertSame('202104', $rows[60]['year_month']);
+        $this->assertEqualsWithDelta(12.34, (float) $rows[60]['revenue_billion'], 0.0001);
+        $this->assertEqualsWithDelta(25.5, (float) $rows[60]['revenue_yoy_percent'], 0.0001);
     }
 
     public function test_fetch_command_uses_mops_announcements_when_eps_api_has_not_synced(): void
@@ -215,6 +367,128 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertEqualsWithDelta(0.17, (float) $sis->q1_eps, 0.0001);
         $this->assertEqualsWithDelta(10.5002, (float) $sis->q1_revenue_billion, 0.0001);
         $this->assertStringContainsString('MOPS ajax_t05st01', (string) $sis->source_payload);
+    }
+
+    public function test_fetch_command_can_backfill_years_and_all_quarters_into_existing_table_rows(): void
+    {
+        Http::fake(fn ($request) => $this->fakeBackfillResponse($request));
+
+        $this->artisan('tw-stock:fetch-q1-financial-reports', [
+            '--year' => 2026,
+            '--backfill-years' => 2,
+            '--all-quarters' => true,
+            '--monthly-revenue-months' => 5,
+            '--skip-market-data-refresh' => true,
+            '--skip-announcement-fallbacks' => true,
+            '--keep-missing' => true,
+            '--min-volume-lots' => 1000,
+            '--sleep-ms' => 0,
+        ])->assertExitCode(0);
+
+        $this->assertSame(5, DB::table('tw_stock_q1_financial_reports')->count());
+        $this->assertDatabaseMissing('tw_stock_q1_financial_reports', [
+            'stock_code' => '8261',
+            'fiscal_year' => 2026,
+            'quarter' => 2,
+        ]);
+
+        $q4 = DB::table('tw_stock_q1_financial_reports')
+            ->where('stock_code', '8261')
+            ->where('fiscal_year', 2025)
+            ->where('quarter', 4)
+            ->first();
+
+        $this->assertNotNull($q4);
+        $this->assertSame('202504', $q4->financial_period);
+        $this->assertEqualsWithDelta(4.44, (float) $q4->q1_eps, 0.0001);
+        $this->assertEqualsWithDelta(44.40, (float) $q4->q1_gross_margin_percent, 0.0001);
+        $this->assertEqualsWithDelta(24.40, (float) $q4->q1_operating_margin_percent, 0.0001);
+        $this->assertEqualsWithDelta(14.40, (float) $q4->q1_net_margin_percent, 0.0001);
+
+        $monthlyRevenues = json_decode((string) $q4->recent_monthly_revenues, true, 512, JSON_THROW_ON_ERROR);
+        $this->assertCount(5, $monthlyRevenues);
+        $this->assertSame('202604', $monthlyRevenues[0]['year_month']);
+        $this->assertSame('202512', $monthlyRevenues[4]['year_month']);
+    }
+
+    public function test_skip_non_trading_day_accepts_previous_friday_quote_on_weekend(): void
+    {
+        Carbon::setTestNow('2026-05-09 10:00:00');
+        CarbonImmutable::setTestNow('2026-05-09 10:00:00');
+        Http::fake(fn ($request) => $this->fakeResponse($request->url()));
+
+        $this->artisan('tw-stock:fetch-q1-financial-reports', [
+            '--year' => 2026,
+            '--quarter' => 1,
+            '--min-volume-lots' => 1000,
+            '--sleep-ms' => 0,
+            '--skip-non-trading-day' => true,
+        ])->assertExitCode(0);
+
+        $this->assertSame(3, DB::table('tw_stock_q1_financial_reports')->count());
+    }
+
+    public function test_market_data_only_refreshes_latest_price_changes_and_prunes_low_volume_rows(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            $this->row([
+                'stock_code' => '8261',
+                'stock_name' => '富鼎',
+                'latest_close_price' => 120,
+                'latest_price_date' => '2026-05-07',
+                'volume_lots' => 1500,
+                'price_change_1d_percent' => 0,
+                'price_change_5d_percent' => 0,
+                'price_change_20d_percent' => 0,
+                'rank' => 2,
+            ]),
+            $this->row([
+                'stock_code' => '3054',
+                'stock_name' => '立萬利',
+                'latest_close_price' => 75.5,
+                'latest_price_date' => '2026-05-07',
+                'volume_lots' => 1457,
+                'rank' => 1,
+            ]),
+        ]);
+
+        Http::fake(function ($request) {
+            $url = $request->url();
+
+            if (str_starts_with($url, 'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY')) {
+                parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+                $stockCode = (string) ($query['stockNo'] ?? '');
+
+                return Http::response([
+                    'stat' => 'OK',
+                    'data' => $stockCode === '3054'
+                        ? $this->twseMonthlyRowsForMarketData(75.5, 2.30, 70, 62, 900)
+                        : $this->twseMonthlyRows('8261'),
+                ]);
+            }
+
+            return Http::response([], 404);
+        });
+
+        $this->artisan('tw-stock:fetch-q1-financial-reports', [
+            '--year' => 2026,
+            '--quarter' => 1,
+            '--market-data-only' => true,
+            '--min-volume-lots' => 1000,
+            '--sleep-ms' => 0,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseMissing('tw_stock_q1_financial_reports', ['stock_code' => '3054']);
+
+        $row = DB::table('tw_stock_q1_financial_reports')->where('stock_code', '8261')->first();
+        $this->assertNotNull($row);
+        $this->assertSame('2026-05-08', substr((string) $row->latest_price_date, 0, 10));
+        $this->assertEqualsWithDelta(126, (float) $row->latest_close_price, 0.0001);
+        $this->assertEqualsWithDelta(-1.56, (float) $row->price_change_1d_percent, 0.0001);
+        $this->assertEqualsWithDelta(5.0, (float) $row->price_change_5d_percent, 0.0001);
+        $this->assertEqualsWithDelta(26.0, (float) $row->price_change_20d_percent, 0.0001);
+        $this->assertSame(4695, (int) $row->volume_lots);
+        $this->assertSame(1, (int) $row->rank);
     }
 
     private function fakeResponse(string $url): mixed
@@ -426,6 +700,14 @@ class TwStockQ1FinancialReportsTest extends TestCase
             return [];
         }
 
+        return $this->twseMonthlyRowsForMarketData(126, -1.56, 120, 100, 4695);
+    }
+
+    /**
+     * @return list<array<int, string>>
+     */
+    private function twseMonthlyRowsForMarketData(float $latestClose, float $oneDayChange, float $fiveDayClose, float $twentyDayClose, int $volumeLots): array
+    {
         return array_map(fn (array $row): array => [
             $this->rocDate((string) $row['交易日']),
             number_format(((int) $row['成交量']) * 1000),
@@ -436,7 +718,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             (string) $row['收盤價'],
             '',
             '',
-        ], array_reverse($this->dailyRows(126, -1.56, 120, 100, 4695)));
+        ], array_reverse($this->dailyRows($latestClose, $oneDayChange, $fiveDayClose, $twentyDayClose, $volumeLots)));
     }
 
     /**
@@ -481,9 +763,10 @@ class TwStockQ1FinancialReportsTest extends TestCase
     private function dailyRows(float $latestClose, float $oneDayChange, float $fiveDayClose, float $twentyDayClose, int $volumeLots): array
     {
         $rows = [];
+        $latestDate = CarbonImmutable::createFromFormat('Ymd', '20260508');
         for ($index = 0; $index <= 20; $index++) {
             $rows[] = [
-                '交易日' => sprintf('202604%02d', 30 - $index),
+                '交易日' => $latestDate->subDays($index)->format('Ymd'),
                 '收盤價' => (string) ($latestClose - $index),
                 '漲幅(%)' => $index === 0 ? (string) $oneDayChange : '0',
                 '成交量' => (string) $volumeLots,
@@ -537,6 +820,22 @@ class TwStockQ1FinancialReportsTest extends TestCase
                     '單月營收(億)' => '33.31',
                     '累計營收(億)' => '33.31',
                 ],
+                [
+                    '年月' => '202512',
+                    '單月營收年成長(%)' => '288.8',
+                    '累計營收成長(%)' => '288.8',
+                    '單月營收月變動(%)' => '8.8',
+                    '單月營收(億)' => '30.12',
+                    '累計營收(億)' => '399.99',
+                ],
+                [
+                    '年月' => '202511',
+                    '單月營收年成長(%)' => '277.7',
+                    '累計營收成長(%)' => '277.7',
+                    '單月營收月變動(%)' => '7.7',
+                    '單月營收(億)' => '29.11',
+                    '累計營收(億)' => '369.87',
+                ],
             ];
         }
 
@@ -550,6 +849,35 @@ class TwStockQ1FinancialReportsTest extends TestCase
                 '累計營收(億)' => '28',
             ],
         ];
+    }
+
+    /**
+     * @return list<array<string, string>>
+     */
+    private function monthlyRevenueRowsWithSixtyMonths(): array
+    {
+        $rows = [];
+        $month = CarbonImmutable::create(2026, 4, 1);
+        for ($index = 0; $index < 60; $index++) {
+            $rows[] = [
+                '年月' => $month->subMonths($index)->format('Ym'),
+                '單月營收年成長(%)' => '10',
+                '累計營收成長(%)' => '8',
+                '單月營收月變動(%)' => '5',
+                '單月營收(億)' => '8',
+                '累計營收(億)' => '28',
+            ];
+        }
+
+        return $rows;
+    }
+
+    private function mopsMonthlyRevenueCsv(): string
+    {
+        return "\xEF\xBB\xBF" . implode("\n", [
+            '出表日期,資料年月,公司代號,公司名稱,產業別,營業收入-當月營收,營業收入-上月營收,營業收入-去年當月營收,營業收入-上月比較增減(%),營業收入-去年同月增減(%),累計營業收入-當月累計營收,累計營業收入-去年累計營收,累計營業收入-前期比較增減(%),備註',
+            '"115/05/07","114/10","5289","宜鼎","電子零組件業","1234000","1000000","983267","23.4","25.5","9876000","8000000","23.45","-"',
+        ]);
     }
 
     private function fakeMopsFallbackResponse(mixed $request): mixed
@@ -688,6 +1016,92 @@ class TwStockQ1FinancialReportsTest extends TestCase
         return Http::response(['stat' => 'ok', 'data' => [], 'tables' => [['data' => []]]]);
     }
 
+    private function fakeBackfillResponse(mixed $request): mixed
+    {
+        $url = $request->url();
+
+        if (str_starts_with($url, 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL')) {
+            return Http::response([
+                [
+                    'Date' => '1150508',
+                    'Code' => '8261',
+                    'Name' => '富鼎',
+                    'TradeVolume' => '1500000',
+                    'ClosingPrice' => '126.00',
+                ],
+            ]);
+        }
+
+        if (str_starts_with($url, 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes')) {
+            return Http::response([]);
+        }
+
+        if (str_starts_with($url, 'https://www.nstock.tw/api/v2/eps/data')) {
+            return Http::response(['data' => [
+                [
+                    '股票代號' => '8261',
+                    '季度EPS' => [
+                        $this->quarterRow('202601', 1.61, 16.1, 36.1, 26.1, 21.1),
+                        $this->quarterRow('202504', 4.44, 44.4, 44.4, 24.4, 14.4),
+                        $this->quarterRow('202503', 3.33, 33.3, 43.3, 23.3, 13.3),
+                        $this->quarterRow('202502', 2.22, 22.2, 42.2, 22.2, 12.2),
+                        $this->quarterRow('202501', 1.11, 11.1, 41.1, 21.1, 11.1),
+                    ],
+                ],
+            ]]);
+        }
+
+        if (str_starts_with($url, 'https://www.nstock.tw/api/v2/monthly-revenue/data')) {
+            return Http::response(['data' => [
+                [
+                    '股票代號' => '8261',
+                    '月營收' => $this->monthlyRevenueRows('5289'),
+                ],
+            ]]);
+        }
+
+        if (str_starts_with($url, 'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY')) {
+            return Http::response([
+                'stat' => 'OK',
+                'data' => $this->twseMonthlyRows('8261'),
+            ]);
+        }
+
+        if (str_starts_with($url, 'https://mopsov.twse.com.tw/mops/web/ajax_t05st01')) {
+            return Http::response('<html><body><table></table></body></html>');
+        }
+
+        if (str_starts_with($url, 'https://api.cnyes.com/media/api/v1/newslist/')) {
+            return Http::response(['items' => ['data' => []]]);
+        }
+
+        return Http::response(['stat' => 'ok', 'data' => [], 'tables' => [['data' => []]]]);
+    }
+
+    private function quarterRow(
+        string $period,
+        float $eps,
+        float $revenueBillion,
+        float $grossMargin,
+        float $operatingMargin,
+        float $netMargin,
+    ): array {
+        return [
+            '年季' => $period,
+            '公告基本每股盈餘(元)' => (string) $eps,
+            '公告基本每股盈餘年成長2(%)' => (string) ($eps * 10),
+            '季營收(億)' => (string) $revenueBillion,
+            '單季年成長(％)' => (string) ($revenueBillion * 2),
+            '單季毛利率(％)' => (string) $grossMargin,
+            '單季營業利益率(％)' => (string) $operatingMargin,
+            '單季稅後淨利率(％)' => (string) $netMargin,
+            '單季稅後淨利(億)' => (string) ($revenueBillion * ($netMargin / 100)),
+            '稅後權益報酬率(%)' => '4.00',
+            '稅後資產報酬率(%)' => '2.50',
+            '本業佔比' => '90.00',
+        ];
+    }
+
     private function mopsListHtml(
         string $stockCode,
         string $stockName,
@@ -774,6 +1188,74 @@ HTML;
         }
     }
 
+    /**
+     * @param array<int, float|int> $annualRevenueBillion
+     * @param array<int, float|int> $annualEps
+     * @return list<array<string, mixed>>
+     */
+    private function annualComparisonRows(
+        string $stockCode,
+        string $stockName,
+        array $annualRevenueBillion,
+        array $annualEps,
+        float $netMargin,
+        bool $fullRecentMargins,
+    ): array {
+        $monthlyRevenues = [];
+        foreach ($annualRevenueBillion as $year => $revenueBillion) {
+            $monthlyRevenues[] = [
+                'year_month' => sprintf('%04d%s', $year, (int) $year === 2026 ? '04' : '12'),
+                'revenue_billion' => $revenueBillion,
+            ];
+        }
+
+        usort(
+            $monthlyRevenues,
+            fn (array $left, array $right): int => strcmp((string) $right['year_month'], (string) $left['year_month'])
+        );
+
+        $monthlyJson = json_encode($monthlyRevenues, JSON_THROW_ON_ERROR);
+        $rows = [];
+
+        foreach ($annualEps as $year => $eps) {
+            $rows[] = $this->row([
+                'fiscal_year' => $year,
+                'quarter' => 1,
+                'financial_period' => sprintf('%04d01', $year),
+                'exchange' => 'TWSE',
+                'stock_code' => $stockCode,
+                'stock_name' => $stockName,
+                'q1_eps' => $eps,
+                'q1_net_margin_percent' => $netMargin,
+                'q1_gross_margin_percent' => $netMargin + 12,
+                'q1_operating_margin_percent' => $netMargin + 5,
+                'recent_monthly_revenues' => $monthlyJson,
+            ]);
+        }
+
+        if ($fullRecentMargins) {
+            foreach ([2024, 2025] as $year) {
+                foreach ([2, 3, 4] as $quarter) {
+                    $rows[] = $this->row([
+                        'fiscal_year' => $year,
+                        'quarter' => $quarter,
+                        'financial_period' => sprintf('%04d%02d', $year, $quarter),
+                        'exchange' => 'TWSE',
+                        'stock_code' => $stockCode,
+                        'stock_name' => $stockName,
+                        'q1_eps' => 0,
+                        'q1_net_margin_percent' => $netMargin,
+                        'q1_gross_margin_percent' => $netMargin + 12,
+                        'q1_operating_margin_percent' => $netMargin + 5,
+                        'recent_monthly_revenues' => $monthlyJson,
+                    ]);
+                }
+            }
+        }
+
+        return $rows;
+    }
+
     private function rocDate(string $ymd): string
     {
         $year = (int) substr($ymd, 0, 4) - 1911;
@@ -853,6 +1335,32 @@ HTML;
             $table->unsignedInteger('rank')->nullable();
             $table->json('source_payload')->nullable();
             $table->timestamp('fetched_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::create('tw_stock_annual_financial_comparisons', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedSmallInteger('context_year');
+            $table->unsignedSmallInteger('comparison_start_year');
+            $table->unsignedSmallInteger('comparison_end_year');
+            $table->string('exchange', 12);
+            $table->string('stock_code', 12);
+            $table->string('stock_name');
+            $table->decimal('revenue_yoy_sum', 20, 4)->nullable();
+            $table->decimal('eps_yoy_sum', 20, 4)->nullable();
+            $table->decimal('recent_net_margin_average', 12, 4)->nullable();
+            $table->decimal('last_two_year_net_margin_average', 12, 4)->nullable();
+            $table->boolean('revenue_filter_pass')->default(false);
+            $table->boolean('eps_filter_pass')->default(false);
+            $table->boolean('eps_yoy_all_positive')->default(false);
+            $table->boolean('net_margin_filter_pass')->default(false);
+            $table->decimal('current_revenue_billion', 20, 4)->nullable();
+            $table->unsignedTinyInteger('current_revenue_months')->default(0);
+            $table->decimal('current_eps', 12, 4)->nullable();
+            $table->decimal('latest_close_price', 12, 4)->nullable();
+            $table->unsignedInteger('volume_lots')->nullable();
+            $table->json('comparisons');
+            $table->timestamp('generated_at')->nullable();
             $table->timestamps();
         });
     }

@@ -391,39 +391,6 @@
             outline: none;
         }
 
-        .copy-stock::after {
-            position: absolute;
-            left: 0;
-            bottom: calc(100% + 7px);
-            z-index: 8;
-            min-width: max-content;
-            padding: 5px 7px;
-            border-radius: 6px;
-            color: #ffffff;
-            background: #111827;
-            box-shadow: 0 10px 22px rgba(15, 23, 42, 0.18);
-            content: attr(data-tooltip);
-            font-size: 10px;
-            font-weight: 800;
-            line-height: 1;
-            opacity: 0;
-            pointer-events: none;
-            transform: translateY(3px);
-            transition: opacity 140ms ease, transform 140ms ease;
-        }
-
-        .copy-stock:hover::after,
-        .copy-stock:focus-visible::after {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-        .copy-stock.copied::after {
-            content: "已複製";
-            opacity: 1;
-            transform: translateY(0);
-        }
-
         .stock-code {
             color: #0f172a;
             font-size: 13px;
@@ -436,6 +403,29 @@
             font-size: 12px;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+
+        .copy-tooltip {
+            position: fixed;
+            z-index: 9999;
+            min-width: max-content;
+            padding: 6px 8px;
+            border-radius: 6px;
+            color: #ffffff;
+            background: #111827;
+            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.22);
+            font-size: 11px;
+            font-weight: 900;
+            line-height: 1;
+            opacity: 0;
+            pointer-events: none;
+            transform: translate(-50%, -8px);
+            transition: opacity 140ms ease, transform 140ms ease;
+        }
+
+        .copy-tooltip.visible {
+            opacity: 1;
+            transform: translate(-50%, -12px);
         }
 
         .rank {
@@ -795,7 +785,7 @@
     </section>
 
     <section class="filter-panel" aria-label="篩選">
-        <form class="filters" method="get" action="{{ route('tw-stock.q1-financial-reports.index') }}">
+        <form class="filters" method="get" action="{{ route('tw-stock.q1-financial-reports.index') }}" data-auto-submit-form>
             <input type="hidden" name="sort" value="{{ $sort }}">
             <input type="hidden" name="direction" value="{{ $direction }}">
             <label>
@@ -810,15 +800,15 @@
             </label>
             <label>
                 搜尋
-                <input type="search" name="q" value="{{ $search }}" placeholder="代號、名稱、產業">
+                <input type="search" name="q" value="{{ $search }}" placeholder="代號、名稱、產業" data-auto-submit-field>
             </label>
             <label>
                 股價下限
-                <input type="number" name="price_min" value="{{ $priceValue($priceMin) }}" min="0" step="0.01" placeholder="可不填">
+                <input type="number" name="price_min" value="{{ $priceValue($priceMin) }}" min="0" step="0.01" placeholder="可不填" data-auto-submit-field>
             </label>
             <label>
                 股價上限
-                <input type="number" name="price_max" value="{{ $priceValue($priceMax) }}" min="0" step="0.01" placeholder="可不填">
+                <input type="number" name="price_max" value="{{ $priceValue($priceMax) }}" min="0" step="0.01" placeholder="可不填" data-auto-submit-field>
             </label>
             <label>
                 每頁
@@ -828,8 +818,6 @@
                     @endforeach
                 </select>
             </label>
-            <button class="btn primary" type="submit">套用</button>
-            <a class="btn" href="{{ route('tw-stock.q1-financial-reports.index') }}">重設</a>
         </form>
     </section>
 
@@ -869,12 +857,12 @@
                             <td data-label="分組"><span class="group-badge">{{ $group['label'] }}</span></td>
                             <td data-label="股票">
                                 <div class="stock-code">
-                                    <button class="copy-stock" type="button" data-copy-value="{{ $row->stock_code }}" data-tooltip="點一下複製代碼" aria-label="複製股票代碼 {{ $row->stock_code }}">
+                                    <button class="copy-stock" type="button" data-copy-value="{{ $row->stock_code }}" data-tooltip="點一下複製代碼" title="點一下複製代碼" aria-label="複製股票代碼 {{ $row->stock_code }}">
                                         {{ $row->stock_code }}
                                     </button>
                                 </div>
                                 <div class="stock-name">
-                                    <button class="copy-stock" type="button" data-copy-value="{{ $row->stock_name }}" data-tooltip="點一下複製名稱" aria-label="複製股票名稱 {{ $row->stock_name }}">
+                                    <button class="copy-stock" type="button" data-copy-value="{{ $row->stock_name }}" data-tooltip="點一下複製名稱" title="點一下複製名稱" aria-label="複製股票名稱 {{ $row->stock_name }}">
                                         {{ $row->stock_name }}
                                     </button>
                                 </div>
@@ -934,6 +922,108 @@
     </section>
 </main>
 <script>
+    const filterForm = document.querySelector('[data-auto-submit-form]');
+    if (filterForm) {
+        const submitFieldsSelector = '[data-auto-submit-field]';
+        let filterSubmitTimer = null;
+        let lastFilterSignature = new URLSearchParams(new FormData(filterForm)).toString();
+
+        function submitFilters() {
+            const nextSignature = new URLSearchParams(new FormData(filterForm)).toString();
+            if (nextSignature === lastFilterSignature || !filterForm.reportValidity()) {
+                return;
+            }
+
+            lastFilterSignature = nextSignature;
+            filterForm.submit();
+        }
+
+        function submitFiltersAfterFocusSettles() {
+            window.clearTimeout(filterSubmitTimer);
+            filterSubmitTimer = window.setTimeout(() => {
+                if (document.activeElement && filterForm.contains(document.activeElement)) {
+                    return;
+                }
+
+                submitFilters();
+            }, 80);
+        }
+
+        filterForm.querySelectorAll(submitFieldsSelector).forEach((field) => {
+            field.addEventListener('blur', submitFiltersAfterFocusSettles);
+            field.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter') {
+                    return;
+                }
+
+                event.preventDefault();
+                submitFilters();
+            });
+        });
+
+        filterForm.querySelectorAll('select').forEach((field) => {
+            field.addEventListener('change', submitFilters);
+        });
+    }
+
+    const copyTooltip = document.createElement('div');
+    copyTooltip.className = 'copy-tooltip';
+    copyTooltip.setAttribute('role', 'status');
+    document.body.appendChild(copyTooltip);
+
+    let copyTooltipTimer = null;
+
+    function positionCopyTooltip(button) {
+        const rect = button.getBoundingClientRect();
+        const left = Math.max(12, Math.min(window.innerWidth - 12, rect.left + (rect.width / 2)));
+        const top = Math.max(12, rect.top - 8);
+
+        copyTooltip.style.left = `${left}px`;
+        copyTooltip.style.top = `${top}px`;
+    }
+
+    function showCopyTooltip(button, text = null) {
+        window.clearTimeout(copyTooltipTimer);
+        copyTooltip.textContent = text || button.dataset.tooltip || '點一下複製';
+        positionCopyTooltip(button);
+        copyTooltip.classList.add('visible');
+    }
+
+    function hideCopyTooltip() {
+        copyTooltip.classList.remove('visible');
+    }
+
+    document.addEventListener('pointerover', (event) => {
+        const button = event.target.closest('.copy-stock');
+        if (!button) {
+            return;
+        }
+
+        showCopyTooltip(button);
+    });
+
+    document.addEventListener('pointerout', (event) => {
+        const button = event.target.closest('.copy-stock');
+        if (!button || button.contains(event.relatedTarget)) {
+            return;
+        }
+
+        hideCopyTooltip();
+    });
+
+    document.addEventListener('focusin', (event) => {
+        const button = event.target.closest('.copy-stock');
+        if (button) {
+            showCopyTooltip(button);
+        }
+    });
+
+    document.addEventListener('focusout', (event) => {
+        if (event.target.closest('.copy-stock')) {
+            hideCopyTooltip();
+        }
+    });
+
     document.addEventListener('click', async (event) => {
         const button = event.target.closest('.copy-stock');
         if (!button) {
@@ -956,8 +1046,15 @@
         }
 
         button.classList.add('copied');
-        window.setTimeout(() => button.classList.remove('copied'), 900);
+        showCopyTooltip(button, '已複製');
+        copyTooltipTimer = window.setTimeout(() => {
+            button.classList.remove('copied');
+            hideCopyTooltip();
+        }, 900);
     });
+
+    window.addEventListener('scroll', hideCopyTooltip, { passive: true });
+    window.addEventListener('resize', hideCopyTooltip);
 </script>
 </body>
 </html>

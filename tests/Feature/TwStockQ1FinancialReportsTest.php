@@ -120,12 +120,96 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('value="100"', false)
             ->assertSee('name="price_max"', false)
             ->assertSee('value="120"', false)
+            ->assertSee('name="sort"', false)
+            ->assertSee('sort=eps_yoy', false)
+            ->assertSee('data-copy-value="9951"', false)
+            ->assertSee('點一下複製代碼')
+            ->assertSee('點一下複製名稱')
             ->assertSee('9951')
             ->assertSee('皇田')
             ->assertSee('value="50"', false)
             ->assertSee('value="250"', false)
             ->assertSee('value="500"', false)
             ->assertDontSee('富鼎');
+    }
+
+    public function test_dashboard_sorts_all_matching_rows_before_paginating(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            $this->row([
+                'stock_code' => '9951',
+                'stock_name' => '皇田',
+                'q1_revenue_score' => 60,
+                'latest_close_price' => 110,
+                'rank' => 1,
+                'recent_monthly_revenues' => json_encode([['revenue_yoy_percent' => 12, 'revenue_mom_percent' => 1]], JSON_THROW_ON_ERROR),
+            ]),
+            $this->row([
+                'stock_code' => '8261',
+                'stock_name' => '富鼎',
+                'q1_revenue_score' => 40,
+                'latest_close_price' => 80,
+                'rank' => 2,
+                'recent_monthly_revenues' => json_encode([['revenue_yoy_percent' => 25, 'revenue_mom_percent' => 1]], JSON_THROW_ON_ERROR),
+            ]),
+            $this->row([
+                'stock_code' => '5289',
+                'stock_name' => '宜鼎',
+                'q1_revenue_score' => 100,
+                'latest_close_price' => 1600,
+                'rank' => 3,
+                'recent_monthly_revenues' => json_encode([['revenue_yoy_percent' => -5, 'revenue_mom_percent' => 1]], JSON_THROW_ON_ERROR),
+            ]),
+        ]);
+
+        $priceResponse = $this->get(route('tw-stock.q1-financial-reports.index', [
+            'sort' => 'price',
+            'direction' => 'asc',
+            'per_page' => 50,
+        ]));
+
+        $priceResponse->assertOk();
+        $this->assertTableOrder($priceResponse->getContent(), ['8261', '9951', '5289']);
+        $priceResponse->assertSee('sort=price', false)
+            ->assertSee('direction=desc', false);
+
+        $monthlyResponse = $this->get(route('tw-stock.q1-financial-reports.index', [
+            'sort' => 'month_1',
+            'direction' => 'desc',
+            'per_page' => 50,
+        ]));
+
+        $monthlyResponse->assertOk();
+        $this->assertTableOrder($monthlyResponse->getContent(), ['8261', '9951', '5289']);
+    }
+
+    public function test_fetch_command_uses_mops_announcements_when_eps_api_has_not_synced(): void
+    {
+        Http::fake(fn ($request) => $this->fakeMopsFallbackResponse($request));
+
+        $this->artisan('tw-stock:fetch-q1-financial-reports', [
+            '--year' => 2026,
+            '--quarter' => 1,
+            '--min-volume-lots' => 1000,
+            '--sleep-ms' => 0,
+        ])->assertExitCode(0);
+
+        $this->assertSame(2, DB::table('tw_stock_q1_financial_reports')->count());
+
+        $kinik = DB::table('tw_stock_q1_financial_reports')->where('stock_code', '1785')->first();
+        $this->assertNotNull($kinik);
+        $this->assertSame('光洋科', $kinik->stock_name);
+        $this->assertEqualsWithDelta(2.54, (float) $kinik->q1_eps, 0.0001);
+        $this->assertEqualsWithDelta(145.5789, (float) $kinik->q1_revenue_billion, 0.0001);
+        $this->assertEqualsWithDelta(18.2288, (float) $kinik->q1_gross_margin_percent, 0.0001);
+        $this->assertStringContainsString('MOPS ajax_t05st01', (string) $kinik->source_payload);
+
+        $sis = DB::table('tw_stock_q1_financial_reports')->where('stock_code', '2363')->first();
+        $this->assertNotNull($sis);
+        $this->assertSame('矽統', $sis->stock_name);
+        $this->assertEqualsWithDelta(0.17, (float) $sis->q1_eps, 0.0001);
+        $this->assertEqualsWithDelta(10.5002, (float) $sis->q1_revenue_billion, 0.0001);
+        $this->assertStringContainsString('MOPS ajax_t05st01', (string) $sis->source_payload);
     }
 
     private function fakeResponse(string $url): mixed
@@ -463,6 +547,186 @@ class TwStockQ1FinancialReportsTest extends TestCase
         ];
     }
 
+    private function fakeMopsFallbackResponse(mixed $request): mixed
+    {
+        $url = $request->url();
+        $data = method_exists($request, 'data') ? $request->data() : [];
+
+        if (str_starts_with($url, 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL')) {
+            return Http::response([
+                [
+                    'Date' => '1150508',
+                    'Code' => '2363',
+                    'Name' => '矽統',
+                    'TradeVolume' => '2000000',
+                    'ClosingPrice' => '20.00',
+                ],
+            ]);
+        }
+
+        if (str_starts_with($url, 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes')) {
+            return Http::response([
+                [
+                    'Date' => '1150508',
+                    'SecuritiesCompanyCode' => '1785',
+                    'CompanyName' => '光洋科',
+                    'TradingShares' => '3000000',
+                    'Close' => '74.00',
+                ],
+            ]);
+        }
+
+        if (str_starts_with($url, 'https://www.nstock.tw/api/v2/eps/data')) {
+            parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+            $stockCode = (string) ($query['stock_id'] ?? '');
+
+            return Http::response(['data' => [
+                [
+                    '股票代號' => $stockCode,
+                    '季度EPS' => match ($stockCode) {
+                        '1785' => [[
+                            '年季' => '202501',
+                            '公告基本每股盈餘(元)' => '0.60',
+                            '季營收(億)' => '8.24',
+                        ]],
+                        '2363' => [[
+                            '年季' => '202501',
+                            '公告基本每股盈餘(元)' => '0.05',
+                            '季營收(億)' => '8.00',
+                        ]],
+                        default => [],
+                    },
+                ],
+            ]]);
+        }
+
+        if (str_starts_with($url, 'https://mopsov.twse.com.tw/mops/web/ajax_t05st01')) {
+            if (($data['step'] ?? null) === '1' && ($data['co_id'] ?? null) === '1785' && ($data['month'] ?? null) === '05') {
+                return Http::response($this->mopsListHtml(
+                    '1785',
+                    '光洋科',
+                    '115/05/08',
+                    '17:55:57',
+                    '本公司民國115年度第一季合併財務報告業經董事會決議',
+                    '20260508',
+                    '175557',
+                    '2',
+                    'otc',
+                ));
+            }
+
+            if (($data['step'] ?? null) === '1' && ($data['co_id'] ?? null) === '2363' && ($data['month'] ?? null) === '04') {
+                return Http::response($this->mopsListHtml(
+                    '2363',
+                    '矽統',
+                    '115/04/27',
+                    '16:23:39',
+                    '公告本公司董事會決議通過民國115年第一季合併財務報告',
+                    '20260427',
+                    '162339',
+                    '1',
+                    'sii',
+                ));
+            }
+
+            if (($data['step'] ?? null) === '2' && ($data['co_id'] ?? null) === '1785') {
+                return Http::response($this->mopsDetailHtml([
+                    'revenue' => '14,557,891',
+                    'gross_profit' => '2,653,726',
+                    'operating_profit' => '2,020,785',
+                    'net_income' => '1,591,892',
+                    'parent_net_income' => '1,514,364',
+                    'eps' => '2.54',
+                    'assets' => '39,179,443',
+                    'parent_equity' => '16,634,762',
+                ]));
+            }
+
+            if (($data['step'] ?? null) === '2' && ($data['co_id'] ?? null) === '2363') {
+                return Http::response($this->mopsDetailHtml([
+                    'revenue' => '1,050,018',
+                    'gross_profit' => '302,351',
+                    'operating_profit' => '75,564',
+                    'net_income' => '87,746',
+                    'parent_net_income' => '87,795',
+                    'eps' => '0.17',
+                    'assets' => '22,546,270',
+                    'parent_equity' => '20,360,333',
+                ]));
+            }
+
+            return Http::response('<html><body><table></table></body></html>');
+        }
+
+        if (str_starts_with($url, 'https://api.cnyes.com/media/api/v1/newslist/')) {
+            return Http::response(['items' => ['data' => []]]);
+        }
+
+        if (str_starts_with($url, 'https://www.nstock.tw/api/v2/monthly-revenue/data')) {
+            return Http::response(['data' => [
+                [
+                    '股票代號' => '0000',
+                    '月營收' => $this->monthlyRevenueRows('0000'),
+                ],
+            ]]);
+        }
+
+        if (str_starts_with($url, 'https://www.nstock.tw/api/v2/daily-stock-data/data')) {
+            return Http::response(['data' => [
+                [
+                    '股票代號' => '0000',
+                    '日K' => $this->dailyRows(74, 2, 70, 60, 3000),
+                ],
+            ]]);
+        }
+
+        return Http::response(['stat' => 'ok', 'data' => [], 'tables' => [['data' => []]]]);
+    }
+
+    private function mopsListHtml(
+        string $stockCode,
+        string $stockName,
+        string $rocDate,
+        string $spokenTime,
+        string $title,
+        string $spokeDate,
+        string $spokeTime,
+        string $seqNo,
+        string $typek,
+    ): string {
+        return <<<HTML
+<html><body>
+<table class='hasBorder'>
+<tr class='odd'>
+<td>&nbsp;{$stockCode}</td><td>&nbsp;{$stockName}</td><td>&nbsp;{$rocDate}</td><td>&nbsp;{$spokenTime}</td>
+<td><pre><font size='3'>&nbsp;{$title}</font></pre></td>
+<td><input type='button' onclick="document.t05st01_fm.action='ajax_t05st01';document.t05st01_fm.seq_no.value='{$seqNo}';document.t05st01_fm.spoke_time.value='{$spokeTime}';document.t05st01_fm.spoke_date.value='{$spokeDate}';document.t05st01_fm.co_id.value='{$stockCode}';document.t05st01_fm.TYPEK.value='{$typek}';openWindow(this.form ,'');"></td>
+</tr>
+</table>
+</body></html>
+HTML;
+    }
+
+    /**
+     * @param array<string, string> $values
+     */
+    private function mopsDetailHtml(array $values): string
+    {
+        return <<<HTML
+<html><body>
+<p>3.財務報告或年度自結財務資訊報導期間起訖日期(XXX/XX/XX~XXX/XX/XX):115/01/01~115/03/31</p>
+<p>4.1月1日累計至本期止營業收入(仟元):{$values['revenue']}</p>
+<p>5.1月1日累計至本期止營業毛利(毛損) (仟元):{$values['gross_profit']}</p>
+<p>6.1月1日累計至本期止營業利益(損失) (仟元):{$values['operating_profit']}</p>
+<p>8.1月1日累計至本期止本期淨利(淨損) (仟元):{$values['net_income']}</p>
+<p>9.1月1日累計至本期止歸屬於母公司業主淨利(損) (仟元):{$values['parent_net_income']}</p>
+<p>10.1月1日累計至本期止基本每股盈餘(損失) (元):{$values['eps']}</p>
+<p>11.期末總資產(仟元):{$values['assets']}</p>
+<p>13.期末歸屬於母公司業主之權益(仟元):{$values['parent_equity']}</p>
+</body></html>
+HTML;
+    }
+
     private function cnyesFinancialNewsHtml(): string
     {
         return <<<'HTML'
@@ -486,6 +750,23 @@ class TwStockQ1FinancialReportsTest extends TestCase
 </body>
 </html>
 HTML;
+    }
+
+    /**
+     * @param list<string> $stockCodes
+     */
+    private function assertTableOrder(string $html, array $stockCodes): void
+    {
+        preg_match('/<tbody>(.*?)<\\/tbody>/s', $html, $matches);
+        $this->assertNotEmpty($matches[1] ?? null);
+
+        $lastPosition = -1;
+        foreach ($stockCodes as $stockCode) {
+            $position = strpos($matches[1], $stockCode);
+            $this->assertNotFalse($position, 'Missing stock code in table: ' . $stockCode);
+            $this->assertGreaterThan($lastPosition, $position, 'Unexpected table order for stock code: ' . $stockCode);
+            $lastPosition = $position;
+        }
     }
 
     private function rocDate(string $ymd): string

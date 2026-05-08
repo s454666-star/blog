@@ -273,6 +273,40 @@
             white-space: normal;
         }
 
+        .sort-link {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 3px;
+            min-height: 24px;
+            color: inherit;
+            text-decoration: none;
+            transition: color 150ms ease, transform 150ms ease;
+        }
+
+        .sort-link:hover,
+        .sort-link.active {
+            color: #111827;
+        }
+
+        .sort-link:hover {
+            transform: translateY(-1px);
+        }
+
+        .sort-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 12px;
+            color: #94a3b8;
+            font-size: 9px;
+            line-height: 1;
+        }
+
+        .sort-link.active .sort-icon {
+            color: #1d4ed8;
+        }
+
         tbody tr {
             --group-color: var(--blue);
             --group-bg: rgba(29, 78, 216, 0.045);
@@ -306,6 +340,11 @@
             text-align: center;
         }
 
+        th:nth-child(1) .sort-link,
+        th:nth-child(2) .sort-link {
+            justify-content: center;
+        }
+
         th:nth-child(2),
         td:nth-child(2) {
             width: 4%;
@@ -318,14 +357,76 @@
             text-align: left;
         }
 
+        th:nth-child(3) .sort-link {
+            justify-content: flex-start;
+        }
+
         th:nth-child(4),
         td:nth-child(4) {
             width: 5.5%;
         }
 
+        .copy-stock {
+            position: relative;
+            display: inline-flex;
+            max-width: 100%;
+            min-height: 22px;
+            align-items: center;
+            border: 0;
+            padding: 0;
+            color: inherit;
+            background: transparent;
+            font: inherit;
+            line-height: 1.15;
+            text-align: left;
+            cursor: pointer;
+            transition: color 140ms ease, transform 140ms ease;
+            transform-origin: left center;
+        }
+
+        .copy-stock:hover,
+        .copy-stock:focus-visible {
+            color: #1d4ed8;
+            transform: scale(1.18);
+            outline: none;
+        }
+
+        .copy-stock::after {
+            position: absolute;
+            left: 0;
+            bottom: calc(100% + 7px);
+            z-index: 8;
+            min-width: max-content;
+            padding: 5px 7px;
+            border-radius: 6px;
+            color: #ffffff;
+            background: #111827;
+            box-shadow: 0 10px 22px rgba(15, 23, 42, 0.18);
+            content: attr(data-tooltip);
+            font-size: 10px;
+            font-weight: 800;
+            line-height: 1;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(3px);
+            transition: opacity 140ms ease, transform 140ms ease;
+        }
+
+        .copy-stock:hover::after,
+        .copy-stock:focus-visible::after {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .copy-stock.copied::after {
+            content: "已複製";
+            opacity: 1;
+            transform: translateY(0);
+        }
+
         .stock-code {
             color: #0f172a;
-            font-size: 12px;
+            font-size: 13px;
             font-weight: 900;
         }
 
@@ -626,6 +727,18 @@
     $dateText = fn ($value): string => $value ? \Illuminate\Support\Carbon::parse($value)->format('Y-m-d') : '--';
     $dateTimeText = fn ($value): string => $value ? \Illuminate\Support\Carbon::parse($value)->format('Y-m-d H:i') : '--';
     $priceValue = fn ($value): string => $value === null ? '' : rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.');
+    $defaultSortDirection = fn (string $key): string => in_array($key, ['rank', 'group', 'stock'], true) ? 'asc' : 'desc';
+    $sortUrl = function (string $key) use ($sort, $direction, $defaultSortDirection): string {
+        return route('tw-stock.q1-financial-reports.index', [
+            ...request()->except('page'),
+            'sort' => $key,
+            'direction' => $sort === $key
+                ? ($direction === 'asc' ? 'desc' : 'asc')
+                : $defaultSortDirection($key),
+        ]);
+    };
+    $sortIcon = fn (string $key): string => $sort !== $key ? '↕' : ($direction === 'asc' ? '▲' : '▼');
+    $sortAria = fn (string $key): string => $sort !== $key ? 'none' : ($direction === 'asc' ? 'ascending' : 'descending');
     $groupMeta = function (?int $rank, int $total): array {
         $rank = max(1, (int) ($rank ?? 1));
         $total = max(1, $total);
@@ -683,6 +796,8 @@
 
     <section class="filter-panel" aria-label="篩選">
         <form class="filters" method="get" action="{{ route('tw-stock.q1-financial-reports.index') }}">
+            <input type="hidden" name="sort" value="{{ $sort }}">
+            <input type="hidden" name="direction" value="{{ $direction }}">
             <label>
                 年度
                 <select name="year">
@@ -733,28 +848,14 @@
                 <table>
                     <thead>
                     <tr>
-                        <th>排名</th>
-                        <th>分組</th>
-                        <th>股票</th>
-                        <th>Q1整體財報評分</th>
-                        <th>Q1營收(億)</th>
-                        <th>營收YoY</th>
-                        <th>Q1 EPS</th>
-                        <th>EPS YoY</th>
-                        <th>毛利率</th>
-                        <th>營益率</th>
-                        <th>淨利率</th>
-                        <th>ROE</th>
-                        <th>本業佔比</th>
-                        <th>股價</th>
-                        <th>1日</th>
-                        <th>5日</th>
-                        <th>20日</th>
-                        <th>成交量(張)</th>
-                        <th>近1月營收</th>
-                        <th>近2月營收</th>
-                        <th>近3月營收</th>
-                        <th>近4月營收</th>
+                        @foreach ($sortableColumns as $key => $label)
+                            <th aria-sort="{{ $sortAria($key) }}">
+                                <a class="sort-link {{ $sort === $key ? 'active' : '' }}" href="{{ $sortUrl($key) }}">
+                                    <span>{{ $label }}</span>
+                                    <span class="sort-icon" aria-hidden="true">{{ $sortIcon($key) }}</span>
+                                </a>
+                            </th>
+                        @endforeach
                     </tr>
                     </thead>
                     <tbody>
@@ -767,8 +868,16 @@
                             <td data-label="排名"><span class="rank {{ $row->rank <= 10 ? 'top' : '' }}">{{ $row->rank }}</span></td>
                             <td data-label="分組"><span class="group-badge">{{ $group['label'] }}</span></td>
                             <td data-label="股票">
-                                <div class="stock-code">{{ $row->stock_code }}</div>
-                                <div class="stock-name">{{ $row->stock_name }}</div>
+                                <div class="stock-code">
+                                    <button class="copy-stock" type="button" data-copy-value="{{ $row->stock_code }}" data-tooltip="點一下複製代碼" aria-label="複製股票代碼 {{ $row->stock_code }}">
+                                        {{ $row->stock_code }}
+                                    </button>
+                                </div>
+                                <div class="stock-name">
+                                    <button class="copy-stock" type="button" data-copy-value="{{ $row->stock_name }}" data-tooltip="點一下複製名稱" aria-label="複製股票名稱 {{ $row->stock_name }}">
+                                        {{ $row->stock_name }}
+                                    </button>
+                                </div>
                             </td>
                             <td data-label="Q1整體財報評分">
                                 <div class="score-cell">
@@ -824,5 +933,31 @@
         @endif
     </section>
 </main>
+<script>
+    document.addEventListener('click', async (event) => {
+        const button = event.target.closest('.copy-stock');
+        if (!button) {
+            return;
+        }
+
+        const value = button.dataset.copyValue || button.textContent.trim();
+        try {
+            await navigator.clipboard.writeText(value);
+        } catch (error) {
+            const textarea = document.createElement('textarea');
+            textarea.value = value;
+            textarea.setAttribute('readonly', 'readonly');
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            textarea.remove();
+        }
+
+        button.classList.add('copied');
+        window.setTimeout(() => button.classList.remove('copied'), 900);
+    });
+</script>
 </body>
 </html>

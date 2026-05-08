@@ -29,6 +29,10 @@ class TwStockQ1FinancialReportFetcher
 
     private const CNYES_NEWS_URL = 'https://news.cnyes.com/news/id/%s';
 
+    private const MOPS_MAJOR_ANNOUNCEMENT_URL = 'https://mopsov.twse.com.tw/mops/web/ajax_t05st01';
+
+    private const MOPS_MAJOR_ANNOUNCEMENT_REFERER = 'https://mopsov.twse.com.tw/mops/web/t05st01';
+
     private const EPS_GROWTH_WEIGHT = 0.35;
 
     private const GROSS_MARGIN_WEIGHT = 0.25;
@@ -46,6 +50,11 @@ class TwStockQ1FinancialReportFetcher
      * @var array<string, list<array<string, mixed>>>
      */
     private array $nstockMonthlyRevenueRowsCache = [];
+
+    /**
+     * @var array<string, list<array<string, string>>>
+     */
+    private array $mopsAnnouncementRowsCache = [];
 
     /**
      * @return list<array<string, mixed>>
@@ -127,7 +136,7 @@ class TwStockQ1FinancialReportFetcher
                 'rank' => null,
                 'source_payload' => [
                     'quote_source' => $candidate['source_payload']['source'] ?? null,
-                    'eps_source' => 'nStock api/v2/eps/data',
+                    'eps_source' => $financialRow['_source'] ?? 'nStock api/v2/eps/data',
                     'daily_price_source' => $dailyPriceSource,
                     'official_quote_row' => $candidate['source_payload']['row'] ?? null,
                     'financial_row' => $financialRow,
@@ -278,6 +287,7 @@ class TwStockQ1FinancialReportFetcher
     private function fetchQuarterFinancialRow(string $stockCode, string $period, int $year, int $quarter): ?array
     {
         return $this->fetchNstockQuarterFinancialRow($stockCode, $period)
+            ?? $this->fetchMopsQuarterFinancialAnnouncementRow($stockCode, $year, $quarter)
             ?? $this->fetchCnyesQuarterFinancialAnnouncementRow($stockCode, $year, $quarter);
     }
 
@@ -352,55 +362,15 @@ class TwStockQ1FinancialReportFetcher
         }
 
         $text = $this->plainTextFromHtml($html);
-        $rocYear = $year - 1911;
-        if (!str_contains($text, sprintf('%03d/01/01~%03d/03/31', $rocYear, $rocYear))
-            && !str_contains($text, sprintf('%d/01/01~%d/03/31', $rocYear, $rocYear))) {
-            return null;
-        }
-
-        $revenueThousand = $this->announcementValue($text, '營業收入');
-        $grossProfitThousand = $this->announcementValue($text, '營業毛利');
-        $operatingProfitThousand = $this->announcementValue($text, '營業利益');
-        $netIncomeThousand = $this->announcementValue($text, '本期淨利');
-        $parentNetIncomeThousand = $this->announcementValue($text, '歸屬於母公司業主淨利');
-        $eps = $this->announcementValue($text, '基本每股盈餘');
-        $totalAssetsThousand = $this->announcementValue($text, '期末總資產');
-        $parentEquityThousand = $this->announcementValue($text, '期末歸屬於母公司業主之權益');
-
-        if ($revenueThousand === null || $revenueThousand <= 0.0 || $eps === null) {
-            return null;
-        }
-
-        $revenueBillion = $revenueThousand / 100000;
-        $previousYearRevenueBillion = $this->previousYearRevenueBillion($stockCode, $year, $quarter);
-        $previousYearEps = $this->previousYearEps($stockCode, $year, $quarter);
-
-        return [
-            '年季' => sprintf('%04d%02d', $year, $quarter),
-            '公告基本每股盈餘(元)' => $this->decimal($eps, 2),
-            '公告基本每股盈餘年成長2(%)' => $this->growthPercent($eps, $previousYearEps),
-            '季營收(億)' => $this->decimal($revenueBillion, 4),
-            '單季年成長(％)' => $this->growthPercent($revenueBillion, $previousYearRevenueBillion),
-            '單季毛利率(％)' => $this->marginPercent($grossProfitThousand, $revenueThousand),
-            '單季營業利益率(％)' => $this->marginPercent($operatingProfitThousand, $revenueThousand),
-            '單季稅後淨利率(％)' => $this->marginPercent($netIncomeThousand, $revenueThousand),
-            '單季稅後淨利(億)' => $netIncomeThousand === null ? null : $this->decimal($netIncomeThousand / 100000, 4),
-            '稅後權益報酬率(%)' => $this->marginPercent($parentNetIncomeThousand, $parentEquityThousand),
-            '稅後資產報酬率(%)' => $this->marginPercent($netIncomeThousand, $totalAssetsThousand),
-            '本業佔比' => $this->marginPercent($operatingProfitThousand, $netIncomeThousand),
-            '_source' => 'Cnyes TW stock announcement',
-            '_source_url' => sprintf(self::CNYES_NEWS_URL, $newsId),
-            '_raw' => [
-                'news_id' => $newsId,
-                'revenue_thousand' => $revenueThousand,
-                'gross_profit_thousand' => $grossProfitThousand,
-                'operating_profit_thousand' => $operatingProfitThousand,
-                'net_income_thousand' => $netIncomeThousand,
-                'parent_net_income_thousand' => $parentNetIncomeThousand,
-                'total_assets_thousand' => $totalAssetsThousand,
-                'parent_equity_thousand' => $parentEquityThousand,
-            ],
-        ];
+        return $this->financialAnnouncementTextToRow(
+            $text,
+            $stockCode,
+            $year,
+            $quarter,
+            'Cnyes TW stock announcement',
+            sprintf(self::CNYES_NEWS_URL, $newsId),
+            ['news_id' => $newsId],
+        );
     }
 
     private function findCnyesQuarterFinancialNewsId(string $stockCode, int $year, int $quarter): ?int
@@ -424,37 +394,315 @@ class TwStockQ1FinancialReportFetcher
             return null;
         }
 
-        $rocYear = (string) ($year - 1911);
-        $quarterLabels = [
-            $rocYear . '年第' . $quarter . '季',
-            $rocYear . '年第一季',
-            str_pad($rocYear, 3, '0', STR_PAD_LEFT) . '年第' . $quarter . '季',
-            str_pad($rocYear, 3, '0', STR_PAD_LEFT) . '年第一季',
-        ];
-
         foreach ($rows as $row) {
             if (!is_array($row)) {
                 continue;
             }
 
             $title = (string) ($row['title'] ?? '');
-            $matchesQuarter = false;
-            foreach ($quarterLabels as $quarterLabel) {
-                if (str_contains($title, $quarterLabel)) {
-                    $matchesQuarter = true;
-                    break;
-                }
-            }
-
-            if ($matchesQuarter
-                && str_contains($title, '董事會通過')
-                && str_contains($title, '財務報告')
-                && isset($row['newsId'])) {
+            if ($this->isQuarterFinancialAnnouncementText($title, $year, $quarter) && isset($row['newsId'])) {
                 return (int) $row['newsId'];
             }
         }
 
         return null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchMopsQuarterFinancialAnnouncementRow(string $stockCode, int $year, int $quarter): ?array
+    {
+        foreach ($this->mopsAnnouncementMonths($quarter) as $month) {
+            foreach ($this->fetchMopsAnnouncementRows($stockCode, $year - 1911, $month) as $announcement) {
+                if (!$this->isQuarterFinancialAnnouncementText($announcement['title'] ?? '', $year, $quarter)) {
+                    continue;
+                }
+
+                $html = $this->fetchMopsAnnouncementDetail($announcement);
+                if ($html === null) {
+                    continue;
+                }
+
+                $row = $this->financialAnnouncementTextToRow(
+                    $this->plainTextFromHtml($html),
+                    $stockCode,
+                    $year,
+                    $quarter,
+                    'MOPS ajax_t05st01',
+                    self::MOPS_MAJOR_ANNOUNCEMENT_REFERER,
+                    $announcement,
+                );
+
+                if ($row !== null) {
+                    return $row;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function mopsAnnouncementMonths(int $quarter): array
+    {
+        $startMonth = ($quarter * 3) + 1;
+        $endMonth = min($startMonth + 1, 12);
+        if ($startMonth > 12) {
+            return [];
+        }
+
+        return range($endMonth, $startMonth);
+    }
+
+    /**
+     * @return list<array<string, string>>
+     */
+    private function fetchMopsAnnouncementRows(string $stockCode, int $rocYear, int $month): array
+    {
+        $key = $stockCode . ':' . $rocYear . ':' . $month;
+        if (array_key_exists($key, $this->mopsAnnouncementRowsCache)) {
+            return $this->mopsAnnouncementRowsCache[$key];
+        }
+
+        try {
+            $html = $this->http()
+                ->asForm()
+                ->withHeaders(['Referer' => self::MOPS_MAJOR_ANNOUNCEMENT_REFERER])
+                ->post(self::MOPS_MAJOR_ANNOUNCEMENT_URL, [
+                    'step' => '1',
+                    'firstin' => '1',
+                    'off' => '1',
+                    'keyword4' => '',
+                    'code1' => '',
+                    'TYPEK2' => '',
+                    'checkbtn' => '',
+                    'queryName' => 'co_id',
+                    'inpuType' => 'co_id',
+                    'TYPEK' => 'all',
+                    'co_id' => $stockCode,
+                    'year' => (string) $rocYear,
+                    'month' => sprintf('%02d', $month),
+                    'b_date' => '',
+                    'e_date' => '',
+                ])
+                ->throw()
+                ->body();
+        } catch (Throwable $e) {
+            report($e);
+
+            return $this->mopsAnnouncementRowsCache[$key] = [];
+        }
+
+        return $this->mopsAnnouncementRowsCache[$key] = $this->parseMopsAnnouncementRows($html);
+    }
+
+    /**
+     * @return list<array<string, string>>
+     */
+    private function parseMopsAnnouncementRows(string $html): array
+    {
+        if (!preg_match_all("/<tr class='(?:even|odd)'>(.*?)<\\/tr>/is", $html, $matches)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($matches[1] as $block) {
+            $params = $this->mopsAnnouncementParams($block);
+            if ($params === []) {
+                continue;
+            }
+
+            $params['title'] = $this->plainTextFromHtml($block);
+            $rows[] = $params;
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function mopsAnnouncementParams(string $html): array
+    {
+        $fields = [
+            'seq_no' => "/seq_no\\.value='([^']+)'/i",
+            'spoke_time' => "/spoke_time\\.value='([^']+)'/i",
+            'spoke_date' => "/spoke_date\\.value='([^']+)'/i",
+            'co_id' => "/co_id\\.value='([^']+)'/i",
+            'typek' => "/TYPEK\\.value='([^']+)'/i",
+        ];
+
+        $params = [];
+        foreach ($fields as $field => $pattern) {
+            if (!preg_match($pattern, $html, $matches)) {
+                return [];
+            }
+
+            $params[$field] = $matches[1];
+        }
+
+        return $params;
+    }
+
+    /**
+     * @param array<string, string> $announcement
+     */
+    private function fetchMopsAnnouncementDetail(array $announcement): ?string
+    {
+        $date = $this->parseYmdDate($announcement['spoke_date'] ?? '');
+        if ($date === null) {
+            return null;
+        }
+
+        $dateParts = explode('-', $date);
+        $rocYear = (int) $dateParts[0] - 1911;
+
+        try {
+            return $this->http()
+                ->asForm()
+                ->withHeaders(['Referer' => self::MOPS_MAJOR_ANNOUNCEMENT_REFERER])
+                ->post(self::MOPS_MAJOR_ANNOUNCEMENT_URL, [
+                    'step' => '2',
+                    'firstin' => 'true',
+                    'off' => '1',
+                    'TYPEK' => $announcement['typek'] ?? '',
+                    'co_id' => $announcement['co_id'] ?? '',
+                    'year' => (string) $rocYear,
+                    'month' => $dateParts[1],
+                    'b_date' => $dateParts[2],
+                    'e_date' => $dateParts[2],
+                    'spoke_date' => $announcement['spoke_date'] ?? '',
+                    'spoke_time' => $announcement['spoke_time'] ?? '',
+                    'seq_no' => $announcement['seq_no'] ?? '',
+                ])
+                ->throw()
+                ->body();
+        } catch (Throwable $e) {
+            report($e);
+
+            return null;
+        }
+    }
+
+    private function isQuarterFinancialAnnouncementText(string $text, int $year, int $quarter): bool
+    {
+        $compact = preg_replace('/\s+/u', '', $text) ?? $text;
+        if (!str_contains($compact, '財務報告') || !str_contains($compact, '董事會')) {
+            return false;
+        }
+
+        $rocYear = (string) ($year - 1911);
+        $paddedRocYear = str_pad($rocYear, 3, '0', STR_PAD_LEFT);
+        $chineseQuarter = $this->chineseQuarter($quarter);
+        $labels = [
+            $rocYear . '年第' . $quarter . '季',
+            $rocYear . '年度第' . $quarter . '季',
+            '民國' . $rocYear . '年度第' . $quarter . '季',
+            $paddedRocYear . '年第' . $quarter . '季',
+            $paddedRocYear . '年度第' . $quarter . '季',
+            $rocYear . '年' . $chineseQuarter . '季',
+            $rocYear . '年度' . $chineseQuarter . '季',
+            '民國' . $rocYear . '年度' . $chineseQuarter . '季',
+            $paddedRocYear . '年' . $chineseQuarter . '季',
+            $paddedRocYear . '年度' . $chineseQuarter . '季',
+        ];
+
+        foreach ($labels as $label) {
+            if (str_contains($compact, $label)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function chineseQuarter(int $quarter): string
+    {
+        return match ($quarter) {
+            1 => '第一',
+            2 => '第二',
+            3 => '第三',
+            4 => '第四',
+            default => '第' . $quarter,
+        };
+    }
+
+    /**
+     * @param array<string, mixed> $sourceMeta
+     * @return array<string, mixed>|null
+     */
+    private function financialAnnouncementTextToRow(
+        string $text,
+        string $stockCode,
+        int $year,
+        int $quarter,
+        string $source,
+        ?string $sourceUrl,
+        array $sourceMeta = [],
+    ): ?array {
+        $valueText = $this->normalizeAnnouncementItemSeparators($text);
+        $compact = preg_replace('/\s+/u', '', $valueText) ?? $valueText;
+        $rocYear = $year - 1911;
+        if (!str_contains($compact, sprintf('%03d/01/01~%03d/03/31', $rocYear, $rocYear))
+            && !str_contains($compact, sprintf('%d/01/01~%d/03/31', $rocYear, $rocYear))) {
+            return null;
+        }
+
+        $revenueThousand = $this->announcementValue($valueText, '營業收入');
+        $grossProfitThousand = $this->announcementValue($valueText, '營業毛利');
+        $operatingProfitThousand = $this->announcementValue($valueText, '營業利益');
+        $netIncomeThousand = $this->announcementValue($valueText, '本期淨利');
+        $parentNetIncomeThousand = $this->announcementValue($valueText, '歸屬於母公司業主淨利');
+        $eps = $this->announcementValue($valueText, '基本每股盈餘');
+        $totalAssetsThousand = $this->announcementValue($valueText, '期末總資產');
+        $parentEquityThousand = $this->announcementValue($valueText, '期末歸屬於母公司業主之權益');
+
+        if ($revenueThousand === null || $revenueThousand <= 0.0 || $eps === null) {
+            return null;
+        }
+
+        $revenueBillion = $revenueThousand / 100000;
+        $previousYearRevenueBillion = $this->previousYearRevenueBillion($stockCode, $year, $quarter);
+        $previousYearEps = $this->previousYearEps($stockCode, $year, $quarter);
+
+        return [
+            '年季' => sprintf('%04d%02d', $year, $quarter),
+            '公告基本每股盈餘(元)' => $this->decimal($eps, 2),
+            '公告基本每股盈餘年成長2(%)' => $this->growthPercent($eps, $previousYearEps),
+            '季營收(億)' => $this->decimal($revenueBillion, 4),
+            '單季年成長(％)' => $this->growthPercent($revenueBillion, $previousYearRevenueBillion),
+            '單季毛利率(％)' => $this->marginPercent($grossProfitThousand, $revenueThousand),
+            '單季營業利益率(％)' => $this->marginPercent($operatingProfitThousand, $revenueThousand),
+            '單季稅後淨利率(％)' => $this->marginPercent($netIncomeThousand, $revenueThousand),
+            '單季稅後淨利(億)' => $netIncomeThousand === null ? null : $this->decimal($netIncomeThousand / 100000, 4),
+            '稅後權益報酬率(%)' => $this->marginPercent($parentNetIncomeThousand, $parentEquityThousand),
+            '稅後資產報酬率(%)' => $this->marginPercent($netIncomeThousand, $totalAssetsThousand),
+            '本業佔比' => $this->marginPercent($operatingProfitThousand, $netIncomeThousand),
+            '_source' => $source,
+            '_source_url' => $sourceUrl,
+            '_raw' => [
+                ...$sourceMeta,
+                'revenue_thousand' => $revenueThousand,
+                'gross_profit_thousand' => $grossProfitThousand,
+                'operating_profit_thousand' => $operatingProfitThousand,
+                'net_income_thousand' => $netIncomeThousand,
+                'parent_net_income_thousand' => $parentNetIncomeThousand,
+                'total_assets_thousand' => $totalAssetsThousand,
+                'parent_equity_thousand' => $parentEquityThousand,
+            ],
+        ];
+    }
+
+    private function normalizeAnnouncementItemSeparators(string $text): string
+    {
+        return (string) preg_replace(
+            '/(?<!^)(?=(?:[1-9]|1[0-4])\\.(?:提報|審計|財務報告|1月1日|期末|其他))/u',
+            "\n",
+            $text,
+        );
     }
 
     private function previousYearRevenueBillion(string $stockCode, int $year, int $quarter): ?float

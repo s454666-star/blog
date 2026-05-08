@@ -6,6 +6,8 @@ use App\Models\TwStockQ1FinancialReport;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 
 class TwStockQ1FinancialReportController extends Controller
 {
@@ -22,14 +24,27 @@ class TwStockQ1FinancialReportController extends Controller
         $search = trim((string) $request->query('q', ''));
         $priceMin = $this->priceFilterValue($request->query('price_min'));
         $priceMax = $this->priceFilterValue($request->query('price_max'));
+        $sortableColumns = $this->sortableColumns();
+        $sort = (string) $request->query('sort', 'score');
+        if (!array_key_exists($sort, $sortableColumns)) {
+            $sort = 'score';
+        }
+
+        $direction = strtolower((string) $request->query('direction', 'desc'));
+        if (!in_array($direction, ['asc', 'desc'], true)) {
+            $direction = 'desc';
+        }
 
         $baseQuery = $this->reportQuery($year, $search, $priceMin, $priceMax);
-        $rows = (clone $baseQuery)
-            ->orderByDesc('q1_revenue_score')
-            ->orderBy('rank')
-            ->orderBy('stock_code')
-            ->paginate($perPage)
-            ->withQueryString();
+        $groupTotalRows = TwStockQ1FinancialReport::query()
+            ->where('fiscal_year', $year)
+            ->where('quarter', 1)
+            ->count();
+        $rows = $this->paginateRows(
+            $request,
+            $this->sortRows((clone $baseQuery)->get(), $sort, $direction, $groupTotalRows),
+            $perPage,
+        );
 
         $availableYears = TwStockQ1FinancialReport::query()
             ->select('fiscal_year')
@@ -46,13 +61,13 @@ class TwStockQ1FinancialReportController extends Controller
             'search' => $search,
             'priceMin' => $priceMin,
             'priceMax' => $priceMax,
+            'sort' => $sort,
+            'direction' => $direction,
+            'sortableColumns' => $sortableColumns,
             'availableYears' => $availableYears,
             'rows' => $rows,
             'totalRows' => (clone $baseQuery)->count(),
-            'groupTotalRows' => TwStockQ1FinancialReport::query()
-                ->where('fiscal_year', $year)
-                ->where('quarter', 1)
-                ->count(),
+            'groupTotalRows' => $groupTotalRows,
             'lastFetchedAt' => (clone $baseQuery)->max('fetched_at'),
             'latestPriceDate' => (clone $baseQuery)->max('latest_price_date'),
             'topScoreRow' => (clone $baseQuery)->orderByDesc('q1_revenue_score')->first(),
@@ -76,6 +91,162 @@ class TwStockQ1FinancialReportController extends Controller
             })
             ->when($priceMin !== null, fn (Builder $query): Builder => $query->where('latest_close_price', '>=', $priceMin))
             ->when($priceMax !== null, fn (Builder $query): Builder => $query->where('latest_close_price', '<=', $priceMax));
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function sortableColumns(): array
+    {
+        return [
+            'rank' => '排名',
+            'group' => '分組',
+            'stock' => '股票',
+            'score' => 'Q1整體財報評分',
+            'revenue' => 'Q1營收(億)',
+            'revenue_yoy' => '營收YoY',
+            'eps' => 'Q1 EPS',
+            'eps_yoy' => 'EPS YoY',
+            'gross_margin' => '毛利率',
+            'operating_margin' => '營益率',
+            'net_margin' => '淨利率',
+            'roe' => 'ROE',
+            'operating_profit_mix' => '本業佔比',
+            'price' => '股價',
+            'change_1d' => '1日',
+            'change_5d' => '5日',
+            'change_20d' => '20日',
+            'volume' => '成交量(張)',
+            'month_1' => '近1月營收',
+            'month_2' => '近2月營收',
+            'month_3' => '近3月營收',
+            'month_4' => '近4月營收',
+        ];
+    }
+
+    /**
+     * @param Collection<int, TwStockQ1FinancialReport> $rows
+     * @return Collection<int, TwStockQ1FinancialReport>
+     */
+    private function sortRows(Collection $rows, string $sort, string $direction, int $groupTotalRows): Collection
+    {
+        return $rows
+            ->sort(function (TwStockQ1FinancialReport $left, TwStockQ1FinancialReport $right) use ($sort, $direction, $groupTotalRows): int {
+                $leftValue = $this->sortValue($left, $sort, $groupTotalRows);
+                $rightValue = $this->sortValue($right, $sort, $groupTotalRows);
+                $comparison = $this->compareSortValues($leftValue, $rightValue);
+
+                if ($comparison !== 0) {
+                    if ($leftValue === null || $rightValue === null) {
+                        return $comparison;
+                    }
+
+                    return $direction === 'asc' ? $comparison : -$comparison;
+                }
+
+                return $this->compareSortValues((int) $left->rank, (int) $right->rank)
+                    ?: strcmp((string) $left->stock_code, (string) $right->stock_code);
+            })
+            ->values();
+    }
+
+    private function sortValue(TwStockQ1FinancialReport $row, string $sort, int $groupTotalRows): mixed
+    {
+        return match ($sort) {
+            'rank' => (int) $row->rank,
+            'group' => $this->groupSortValue((int) $row->rank, $groupTotalRows),
+            'stock' => (string) $row->stock_code,
+            'score' => $this->numericSortValue($row->q1_revenue_score),
+            'revenue' => $this->numericSortValue($row->q1_revenue_billion),
+            'revenue_yoy' => $this->numericSortValue($row->q1_revenue_yoy_percent),
+            'eps' => $this->numericSortValue($row->q1_eps),
+            'eps_yoy' => $this->numericSortValue($row->q1_eps_yoy_percent),
+            'gross_margin' => $this->numericSortValue($row->q1_gross_margin_percent),
+            'operating_margin' => $this->numericSortValue($row->q1_operating_margin_percent),
+            'net_margin' => $this->numericSortValue($row->q1_net_margin_percent),
+            'roe' => $this->numericSortValue($row->roe_percent),
+            'operating_profit_mix' => $this->numericSortValue($row->operating_profit_mix_percent),
+            'price' => $this->numericSortValue($row->latest_close_price),
+            'change_1d' => $this->numericSortValue($row->price_change_1d_percent),
+            'change_5d' => $this->numericSortValue($row->price_change_5d_percent),
+            'change_20d' => $this->numericSortValue($row->price_change_20d_percent),
+            'volume' => $this->numericSortValue($row->volume_lots),
+            'month_1' => $this->monthlyRevenueSortValue($row, 0),
+            'month_2' => $this->monthlyRevenueSortValue($row, 1),
+            'month_3' => $this->monthlyRevenueSortValue($row, 2),
+            'month_4' => $this->monthlyRevenueSortValue($row, 3),
+            default => $this->numericSortValue($row->q1_revenue_score),
+        };
+    }
+
+    private function compareSortValues(mixed $left, mixed $right): int
+    {
+        if ($left === null && $right === null) {
+            return 0;
+        }
+
+        if ($left === null) {
+            return 1;
+        }
+
+        if ($right === null) {
+            return -1;
+        }
+
+        if (is_numeric($left) && is_numeric($right)) {
+            return (float) $left <=> (float) $right;
+        }
+
+        return strnatcasecmp((string) $left, (string) $right);
+    }
+
+    private function numericSortValue(mixed $value): ?float
+    {
+        return $value === null ? null : (float) $value;
+    }
+
+    private function groupSortValue(int $rank, int $total): int
+    {
+        $total = max(1, $total);
+        $frontCutoff = (int) ceil($total / 3);
+        $middleCutoff = (int) ceil($total * 2 / 3);
+
+        return match (true) {
+            $rank <= $frontCutoff => 1,
+            $rank <= $middleCutoff => 2,
+            default => 3,
+        };
+    }
+
+    private function monthlyRevenueSortValue(TwStockQ1FinancialReport $row, int $index): ?float
+    {
+        $monthlyRevenueRows = collect($row->recent_monthly_revenues ?? [])->values();
+        $monthlyRevenue = $monthlyRevenueRows->get($index);
+        if (!is_array($monthlyRevenue)) {
+            return null;
+        }
+
+        return $this->numericSortValue($monthlyRevenue['revenue_yoy_percent'] ?? null);
+    }
+
+    /**
+     * @param Collection<int, TwStockQ1FinancialReport> $rows
+     * @return LengthAwarePaginator<int, TwStockQ1FinancialReport>
+     */
+    private function paginateRows(Request $request, Collection $rows, int $perPage): LengthAwarePaginator
+    {
+        $page = max(1, LengthAwarePaginator::resolveCurrentPage());
+
+        return new LengthAwarePaginator(
+            $rows->slice(($page - 1) * $perPage, $perPage)->values(),
+            $rows->count(),
+            $perPage,
+            $page,
+            [
+                'path' => $request->url(),
+                'query' => $request->query(),
+            ],
+        );
     }
 
     private function priceFilterValue(mixed $value): ?float

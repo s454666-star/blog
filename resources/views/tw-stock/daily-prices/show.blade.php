@@ -405,11 +405,12 @@
         rightPriceScale: { borderColor: '#d7e2ea' },
         timeScale: {
             borderColor: '#d7e2ea',
-            rightOffset: 8,
+            rightOffset: 0,
             barSpacing: 8,
             minBarSpacing: 2,
-            fixLeftEdge: false,
-            lockVisibleTimeRangeOnResize: false
+            fixLeftEdge: true,
+            fixRightEdge: true,
+            lockVisibleTimeRangeOnResize: true
         },
         handleScroll: {
             mouseWheel: true,
@@ -538,7 +539,59 @@
     const resize = () => chart.applyOptions({ width: chartElement.clientWidth, height: chartElement.clientHeight });
     window.addEventListener('resize', resize);
     resize();
-    chart.timeScale().fitContent();
+
+    const DEFAULT_VISIBLE_TRADING_DAYS = 22;
+    const lastLogicalIndex = chartRows.length - 1;
+    let isApplyingVisibleRange = false;
+
+    function clampVisibleLogicalRange(range) {
+        if (isApplyingVisibleRange || range === null || lastLogicalIndex < 0) {
+            return;
+        }
+
+        const span = range.to - range.from;
+        if (!Number.isFinite(span) || span <= 0) {
+            return;
+        }
+
+        let nextFrom = range.from;
+        let nextTo = range.to;
+
+        if (nextTo > lastLogicalIndex) {
+            nextTo = lastLogicalIndex;
+            nextFrom = nextTo - span;
+        }
+
+        if (nextFrom < 0) {
+            nextFrom = 0;
+            nextTo = Math.min(lastLogicalIndex, nextFrom + span);
+        }
+
+        if (Math.abs(nextFrom - range.from) <= 0.001 && Math.abs(nextTo - range.to) <= 0.001) {
+            return;
+        }
+
+        isApplyingVisibleRange = true;
+        chart.timeScale().setVisibleLogicalRange({ from: nextFrom, to: nextTo });
+        requestAnimationFrame(() => {
+            isApplyingVisibleRange = false;
+        });
+    }
+
+    function showLatestMonth() {
+        if (lastLogicalIndex < 0) {
+            return;
+        }
+
+        const visibleBars = Math.min(DEFAULT_VISIBLE_TRADING_DAYS, chartRows.length);
+        chart.timeScale().setVisibleLogicalRange({
+            from: Math.max(0, lastLogicalIndex - visibleBars + 1),
+            to: lastLogicalIndex
+        });
+    }
+
+    chart.timeScale().subscribeVisibleLogicalRangeChange(clampVisibleLogicalRange);
+    showLatestMonth();
 </script>
 </body>
 </html>

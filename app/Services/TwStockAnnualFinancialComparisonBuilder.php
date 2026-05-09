@@ -8,9 +8,9 @@ use Illuminate\Support\Collection;
 
 class TwStockAnnualFinancialComparisonBuilder
 {
-    private const REVENUE_WEIGHTED_YOY_PASS_THRESHOLD = 60.0;
+    private const REVENUE_WEIGHTED_YOY_PASS_THRESHOLD = 52.0;
 
-    private const EPS_WEIGHTED_YOY_PASS_THRESHOLD = 38.0;
+    private const EPS_WEIGHTED_YOY_PASS_THRESHOLD = 34.0;
 
     /**
      * @var list<float>

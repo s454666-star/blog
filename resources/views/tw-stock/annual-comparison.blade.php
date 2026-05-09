@@ -722,11 +722,11 @@
             <div class="filter-row">
                 <label class="check">
                     <input type="checkbox" name="revenue_growth" value="1" {{ $filterChecked('revenue_growth') ? 'checked' : '' }} data-auto-submit>
-                    營收 5 年 YoY 加權 &gt; 60%
+                    營收 5 年 YoY 加權 &gt; 52%
                 </label>
                 <label class="check">
                     <input type="checkbox" name="eps_growth" value="1" {{ $filterChecked('eps_growth') ? 'checked' : '' }} data-auto-submit>
-                    EPS 5 年 YoY 加權 &gt; 38%
+                    EPS 5 年 YoY 加權 &gt; 34%
                 </label>
                 <label class="check">
                     <input type="checkbox" name="current_q1_eps_yoy" value="1" {{ $filterChecked('current_q1_eps_yoy') ? 'checked' : '' }} data-auto-submit>
@@ -738,7 +738,7 @@
                 </label>
                 <label class="check">
                     <input type="checkbox" name="current_q1_revenue_yoy" value="1" {{ $filterChecked('current_q1_revenue_yoy') ? 'checked' : '' }} data-auto-submit>
-                    2026 Q1 營收 YoY &gt; 8%
+                    2026 Q1 營收 YoY &gt; 7%
                 </label>
                 <label class="check">
                     <input type="checkbox" name="recent_two_month_high" value="1" {{ $filterChecked('recent_two_month_high') ? 'checked' : '' }} data-auto-submit>
@@ -813,7 +813,7 @@
                                 @if ($passes($stock['end_year_revenue_yoy_percent'], 15))
                                     <span class="badge pass">2025 營收 PASS</span>
                                 @endif
-                                @if ($passes($stock['current_q1_revenue_yoy_percent'], 8))
+                                @if ($passes($stock['current_q1_revenue_yoy_percent'], 7))
                                     <span class="badge pass">Q1 營收 YoY PASS</span>
                                 @endif
                                 @if ($recentHigh)

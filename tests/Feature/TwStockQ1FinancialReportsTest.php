@@ -407,6 +407,26 @@ class TwStockQ1FinancialReportsTest extends TestCase
                 9.5,
                 false,
             ),
+            $this->annualComparisonRows(
+                '2451',
+                '創見',
+                [2020 => 100, 2021 => 105, 2022 => 110, 2023 => 115, 2024 => 100, 2025 => 120, 2026 => 22],
+                [2020 => 2.0, 2021 => 2.2, 2022 => 2.4, 2023 => 2.6, 2024 => 2.8, 2025 => 3.1, 2026 => 0.8],
+                18.5,
+                true,
+                9.2,
+                4.9,
+            ),
+            $this->annualComparisonRows(
+                '3034',
+                '聯詠',
+                [2020 => 100, 2021 => 106, 2022 => 112, 2023 => 118, 2024 => 100, 2025 => 122, 2026 => 23],
+                [2020 => 2.0, 2021 => 2.3, 2022 => 2.6, 2023 => 2.9, 2024 => 3.1, 2025 => 3.4, 2026 => 0.9],
+                19.5,
+                true,
+                4.9,
+                9.2,
+            ),
         ));
 
         $this->artisan('tw-stock:refresh-annual-financial-comparisons', [
@@ -415,7 +435,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             '--end-year' => 2025,
         ])->assertExitCode(0);
 
-        $this->assertSame(2, DB::table('tw_stock_annual_financial_comparisons')->count());
+        $this->assertSame(4, DB::table('tw_stock_annual_financial_comparisons')->count());
 
         $response = $this->get(route('tw-stock.annual-comparison.index'));
 
@@ -423,9 +443,12 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('台股年度營收 EPS 比較')
             ->assertSee('營收加總排序')
             ->assertSee('EPS 加總排序')
-            ->assertSee('營收 5 年 YoY 合計 &gt; 30%', false)
-            ->assertSee('EPS 5 年 YoY 合計 &gt; 20%', false)
-            ->assertSee('每年 EPS YoY 均為正')
+            ->assertSee('營收 5 年 YoY 合計 &gt; 40%', false)
+            ->assertSee('EPS 5 年 YoY 合計 &gt; 25%', false)
+            ->assertSee('2026 Q1 EPS YoY &gt; 5%', false)
+            ->assertSee('2025 年營收 YoY &gt; 15%', false)
+            ->assertSee('2026 Q1 營收 YoY &gt; 5%', false)
+            ->assertDontSee('每年 EPS YoY 均為正')
             ->assertSee('淨利率近 8 季或近 2 年平均 &gt; 15%', false)
             ->assertSee('name="sort" value="eps"', false)
             ->assertSee('value="50"', false)
@@ -447,19 +470,21 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $filtered = $this->get(route('tw-stock.annual-comparison.index', [
             'sort' => 'eps',
             'per_page' => 50,
-            'eps_growth' => 1,
-            'eps_yoy_positive' => 1,
-            'net_margin' => 1,
+            'current_q1_eps_yoy' => 1,
+            'end_year_revenue_yoy' => 1,
+            'current_q1_revenue_yoy' => 1,
         ]));
 
         $filtered->assertOk()
             ->assertSee('name="sort" value="eps"', false)
             ->assertSee('value="50" selected', false)
-            ->assertSee('name="eps_growth" value="1" checked', false)
-            ->assertSee('name="eps_yoy_positive" value="1" checked', false)
-            ->assertSee('name="net_margin" value="1" checked', false)
+            ->assertSee('name="current_q1_eps_yoy" value="1" checked', false)
+            ->assertSee('name="end_year_revenue_yoy" value="1" checked', false)
+            ->assertSee('name="current_q1_revenue_yoy" value="1" checked', false)
             ->assertSee('data-copy-value="2408"', false)
-            ->assertDontSee('data-copy-value="8261"', false);
+            ->assertDontSee('data-copy-value="8261"', false)
+            ->assertDontSee('data-copy-value="2451"', false)
+            ->assertDontSee('data-copy-value="3034"', false);
     }
 
     public function test_monthly_revenue_fetcher_fills_short_nstock_history_from_mops_csv(): void
@@ -1582,6 +1607,8 @@ HTML;
         array $annualEps,
         float $netMargin,
         bool $fullRecentMargins,
+        float $currentQ1RevenueYoyPercent = 9.17,
+        float $currentQ1EpsYoyPercent = 8.28,
     ): array {
         $monthlyRevenues = [];
         foreach ($annualRevenueBillion as $year => $revenueBillion) {
@@ -1608,6 +1635,8 @@ HTML;
                 'stock_code' => $stockCode,
                 'stock_name' => $stockName,
                 'q1_eps' => $eps,
+                'q1_revenue_yoy_percent' => $currentQ1RevenueYoyPercent,
+                'q1_eps_yoy_percent' => $currentQ1EpsYoyPercent,
                 'q1_net_margin_percent' => $netMargin,
                 'q1_gross_margin_percent' => $netMargin + 12,
                 'q1_operating_margin_percent' => $netMargin + 5,
@@ -1626,6 +1655,8 @@ HTML;
                         'stock_code' => $stockCode,
                         'stock_name' => $stockName,
                         'q1_eps' => 0,
+                        'q1_revenue_yoy_percent' => $currentQ1RevenueYoyPercent,
+                        'q1_eps_yoy_percent' => $currentQ1EpsYoyPercent,
                         'q1_net_margin_percent' => $netMargin,
                         'q1_gross_margin_percent' => $netMargin + 12,
                         'q1_operating_margin_percent' => $netMargin + 5,
@@ -1784,6 +1815,9 @@ HTML;
             $table->decimal('current_revenue_billion', 20, 4)->nullable();
             $table->unsignedTinyInteger('current_revenue_months')->default(0);
             $table->decimal('current_eps', 12, 4)->nullable();
+            $table->decimal('current_q1_eps_yoy_percent', 10, 4)->nullable();
+            $table->decimal('current_q1_revenue_yoy_percent', 10, 4)->nullable();
+            $table->decimal('end_year_revenue_yoy_percent', 10, 4)->nullable();
             $table->decimal('latest_close_price', 12, 4)->nullable();
             $table->unsignedInteger('volume_lots')->nullable();
             $table->json('comparisons');

@@ -57,6 +57,8 @@ class TwStockAnnualFinancialComparisonBuilder
                 'stock_name',
                 'fiscal_year',
                 'quarter',
+                'q1_revenue_yoy_percent',
+                'q1_eps_yoy_percent',
                 'latest_close_price',
                 'volume_lots',
             ])
@@ -197,6 +199,7 @@ class TwStockAnnualFinancialComparisonBuilder
         $revenueYoySum = $this->sumExistingValues($comparisons, 'revenue_yoy_percent');
         $epsYoySum = $this->sumExistingValues($comparisons, 'eps_yoy_percent');
         $epsYoyAllPositive = $this->allGrowthValuesPositive($comparisons, 'eps_yoy_percent');
+        $endYearRevenueYoy = $this->growthValueForYear($comparisons, $endYear, 'revenue_yoy_percent');
         $recentNetMarginAverage = $this->recentNetMarginAverage($netMarginRows, 8);
         $lastTwoYearNetMarginAverage = $this->lastTwoYearNetMarginAverage($netMarginRows, $endYear);
         $currentRevenueMonths = $this->currentRevenueMonths($monthlyRows, $contextYear);
@@ -211,8 +214,8 @@ class TwStockAnnualFinancialComparisonBuilder
             'comparisons' => $comparisons,
             'revenue_yoy_sum' => $revenueYoySum,
             'eps_yoy_sum' => $epsYoySum,
-            'revenue_filter_pass' => $revenueYoySum !== null && $revenueYoySum > 30,
-            'eps_filter_pass' => $epsYoySum !== null && $epsYoySum > 20,
+            'revenue_filter_pass' => $revenueYoySum !== null && $revenueYoySum > 40,
+            'eps_filter_pass' => $epsYoySum !== null && $epsYoySum > 25,
             'eps_yoy_all_positive' => $epsYoyAllPositive,
             'net_margin_filter_pass' => ($recentNetMarginAverage !== null && $recentNetMarginAverage > 15)
                 || ($lastTwoYearNetMarginAverage !== null && $lastTwoYearNetMarginAverage > 15),
@@ -221,6 +224,9 @@ class TwStockAnnualFinancialComparisonBuilder
             'current_revenue_billion' => $currentRevenueMonths['revenue_billion'],
             'current_revenue_months' => $currentRevenueMonths['months'],
             'current_eps' => $annualMetrics[$contextYear]['eps'] ?? null,
+            'current_q1_eps_yoy_percent' => $this->nullableFloat($latest->q1_eps_yoy_percent),
+            'current_q1_revenue_yoy_percent' => $this->nullableFloat($latest->q1_revenue_yoy_percent),
+            'end_year_revenue_yoy_percent' => $endYearRevenueYoy,
             'latest_close_price' => $latest->latest_close_price,
             'volume_lots' => $latest->volume_lots,
             'generated_at' => now(),
@@ -299,6 +305,20 @@ class TwStockAnnualFinancialComparisonBuilder
         }
 
         return true;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     */
+    private function growthValueForYear(array $rows, int $year, string $field): ?float
+    {
+        foreach ($rows as $row) {
+            if ((int) ($row['year'] ?? 0) === $year) {
+                return $this->nullableFloat($row[$field] ?? null);
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -174,9 +174,9 @@
 
         .summary {
             display: grid;
-            grid-template-columns: repeat(5, minmax(92px, 1fr));
+            grid-template-columns: repeat(7, minmax(92px, 1fr));
             gap: 8px;
-            min-width: 420px;
+            min-width: 640px;
         }
 
         .stat {
@@ -329,7 +329,7 @@
 
         .metrics {
             display: grid;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
             gap: 8px;
         }
 
@@ -521,6 +521,7 @@
     $fmt = fn ($value, int $decimals = 2): string => $value === null ? '--' : number_format((float) $value, $decimals);
     $pct = fn ($value, int $decimals = 2): string => $value === null ? '--' : number_format((float) $value, $decimals) . '%';
     $tone = fn ($value): string => $value === null ? 'muted' : ((float) $value >= 0 ? 'pos' : 'neg');
+    $passes = fn ($value, float $threshold): bool => $value !== null && (float) $value > $threshold;
     $filterChecked = fn (string $filter): bool => in_array($filter, $filters, true);
     $sortUrl = fn (string $target): string => request()->fullUrlWithQuery(['sort' => $target, 'page' => null]);
 @endphp
@@ -556,15 +557,23 @@
             <div class="filter-row">
                 <label class="check">
                     <input type="checkbox" name="revenue_growth" value="1" {{ $filterChecked('revenue_growth') ? 'checked' : '' }} data-auto-submit>
-                    營收 5 年 YoY 合計 &gt; 30%
+                    營收 5 年 YoY 合計 &gt; 40%
                 </label>
                 <label class="check">
                     <input type="checkbox" name="eps_growth" value="1" {{ $filterChecked('eps_growth') ? 'checked' : '' }} data-auto-submit>
-                    EPS 5 年 YoY 合計 &gt; 20%
+                    EPS 5 年 YoY 合計 &gt; 25%
                 </label>
                 <label class="check">
-                    <input type="checkbox" name="eps_yoy_positive" value="1" {{ $filterChecked('eps_yoy_positive') ? 'checked' : '' }} data-auto-submit>
-                    每年 EPS YoY 均為正
+                    <input type="checkbox" name="current_q1_eps_yoy" value="1" {{ $filterChecked('current_q1_eps_yoy') ? 'checked' : '' }} data-auto-submit>
+                    2026 Q1 EPS YoY &gt; 5%
+                </label>
+                <label class="check">
+                    <input type="checkbox" name="end_year_revenue_yoy" value="1" {{ $filterChecked('end_year_revenue_yoy') ? 'checked' : '' }} data-auto-submit>
+                    2025 年營收 YoY &gt; 15%
+                </label>
+                <label class="check">
+                    <input type="checkbox" name="current_q1_revenue_yoy" value="1" {{ $filterChecked('current_q1_revenue_yoy') ? 'checked' : '' }} data-auto-submit>
+                    2026 Q1 營收 YoY &gt; 5%
                 </label>
                 <label class="check">
                     <input type="checkbox" name="net_margin" value="1" {{ $filterChecked('net_margin') ? 'checked' : '' }} data-auto-submit>
@@ -586,8 +595,16 @@
                 <div class="value">{{ number_format($summary['epsPass']) }}</div>
             </div>
             <div class="stat">
-                <div class="label">EPS 年年正</div>
-                <div class="value">{{ number_format($summary['epsPositivePass']) }}</div>
+                <div class="label">Q1 EPS YoY</div>
+                <div class="value">{{ number_format($summary['currentQ1EpsYoyPass']) }}</div>
+            </div>
+            <div class="stat">
+                <div class="label">2025 營收 YoY</div>
+                <div class="value">{{ number_format($summary['endYearRevenueYoyPass']) }}</div>
+            </div>
+            <div class="stat">
+                <div class="label">Q1 營收 YoY</div>
+                <div class="value">{{ number_format($summary['currentQ1RevenueYoyPass']) }}</div>
             </div>
             <div class="stat">
                 <div class="label">淨利率條件</div>
@@ -610,7 +627,9 @@
                                 <span class="badge">{{ $stock['exchange'] }}</span>
                                 <span class="badge {{ $stock['revenue_filter_pass'] ? 'pass' : 'fail' }}">營收 {{ $stock['revenue_filter_pass'] ? 'PASS' : 'WAIT' }}</span>
                                 <span class="badge {{ $stock['eps_filter_pass'] ? 'pass' : 'fail' }}">EPS {{ $stock['eps_filter_pass'] ? 'PASS' : 'WAIT' }}</span>
-                                <span class="badge {{ $stock['eps_yoy_all_positive'] ? 'pass' : 'fail' }}">EPS 年年 {{ $stock['eps_yoy_all_positive'] ? 'PASS' : 'WAIT' }}</span>
+                                <span class="badge {{ $passes($stock['current_q1_eps_yoy_percent'], 5) ? 'pass' : 'fail' }}">Q1 EPS YoY {{ $passes($stock['current_q1_eps_yoy_percent'], 5) ? 'PASS' : 'WAIT' }}</span>
+                                <span class="badge {{ $passes($stock['end_year_revenue_yoy_percent'], 15) ? 'pass' : 'fail' }}">2025 營收 {{ $passes($stock['end_year_revenue_yoy_percent'], 15) ? 'PASS' : 'WAIT' }}</span>
+                                <span class="badge {{ $passes($stock['current_q1_revenue_yoy_percent'], 5) ? 'pass' : 'fail' }}">Q1 營收 YoY {{ $passes($stock['current_q1_revenue_yoy_percent'], 5) ? 'PASS' : 'WAIT' }}</span>
                                 <span class="badge {{ $stock['net_margin_filter_pass'] ? 'pass' : 'fail' }}">淨利率 {{ $stock['net_margin_filter_pass'] ? 'PASS' : 'WAIT' }}</span>
                             </div>
                             <div class="meta">
@@ -641,6 +660,21 @@
                             <div class="metric">
                                 <div class="label">2026 Q1 EPS</div>
                                 <div class="value">{{ $fmt($stock['current_eps']) }}</div>
+                                <div class="bar"></div>
+                            </div>
+                            <div class="metric">
+                                <div class="label">2026 Q1 EPS YoY</div>
+                                <div class="value {{ $tone($stock['current_q1_eps_yoy_percent']) }}">{{ $pct($stock['current_q1_eps_yoy_percent']) }}</div>
+                                <div class="bar"></div>
+                            </div>
+                            <div class="metric">
+                                <div class="label">2025 營收 YoY</div>
+                                <div class="value {{ $tone($stock['end_year_revenue_yoy_percent']) }}">{{ $pct($stock['end_year_revenue_yoy_percent']) }}</div>
+                                <div class="bar"></div>
+                            </div>
+                            <div class="metric">
+                                <div class="label">2026 Q1 營收 YoY</div>
+                                <div class="value {{ $tone($stock['current_q1_revenue_yoy_percent']) }}">{{ $pct($stock['current_q1_revenue_yoy_percent']) }}</div>
                                 <div class="bar"></div>
                             </div>
                         </div>

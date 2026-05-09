@@ -108,7 +108,14 @@ class TwStockQ1FinancialReportController extends Controller
             $sort = 'eps';
         }
 
-        $filters = collect(['revenue_growth', 'eps_growth', 'eps_yoy_positive', 'net_margin'])
+        $filters = collect([
+            'revenue_growth',
+            'eps_growth',
+            'current_q1_eps_yoy',
+            'end_year_revenue_yoy',
+            'current_q1_revenue_yoy',
+            'net_margin',
+        ])
             ->filter(fn (string $filter): bool => $request->boolean($filter))
             ->values()
             ->all();
@@ -128,7 +135,9 @@ class TwStockQ1FinancialReportController extends Controller
             match ($filter) {
                 'revenue_growth' => $baseQuery->where('revenue_filter_pass', true),
                 'eps_growth' => $baseQuery->where('eps_filter_pass', true),
-                'eps_yoy_positive' => $baseQuery->where('eps_yoy_all_positive', true),
+                'current_q1_eps_yoy' => $baseQuery->where('current_q1_eps_yoy_percent', '>', 5),
+                'end_year_revenue_yoy' => $baseQuery->where('end_year_revenue_yoy_percent', '>', 15),
+                'current_q1_revenue_yoy' => $baseQuery->where('current_q1_revenue_yoy_percent', '>', 5),
                 'net_margin' => $baseQuery->where('net_margin_filter_pass', true),
                 default => null,
             };
@@ -153,7 +162,9 @@ class TwStockQ1FinancialReportController extends Controller
                 'total' => (clone $baseQuery)->count(),
                 'revenuePass' => (clone $baseQuery)->where('revenue_filter_pass', true)->count(),
                 'epsPass' => (clone $baseQuery)->where('eps_filter_pass', true)->count(),
-                'epsPositivePass' => (clone $baseQuery)->where('eps_yoy_all_positive', true)->count(),
+                'currentQ1EpsYoyPass' => (clone $baseQuery)->where('current_q1_eps_yoy_percent', '>', 5)->count(),
+                'endYearRevenueYoyPass' => (clone $baseQuery)->where('end_year_revenue_yoy_percent', '>', 15)->count(),
+                'currentQ1RevenueYoyPass' => (clone $baseQuery)->where('current_q1_revenue_yoy_percent', '>', 5)->count(),
                 'netMarginPass' => (clone $baseQuery)->where('net_margin_filter_pass', true)->count(),
             ],
             'years' => range(self::ANNUAL_COMPARISON_START_YEAR + 1, self::ANNUAL_COMPARISON_END_YEAR),

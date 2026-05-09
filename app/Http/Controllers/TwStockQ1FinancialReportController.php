@@ -140,13 +140,15 @@ class TwStockQ1FinancialReportController extends Controller
                         ->orWhere('stock_name', 'like', $like);
                 });
             });
-        $baseRows = $baseQuery->get();
+        $baseRows = $baseQuery->get($this->annualComparisonListColumns());
         $recentTwoMonthHighKeys = $this->recentTwoMonthHighKeys($baseRows);
         $filteredRows = $this->filterAnnualComparisonRows($baseRows, $filters, $recentTwoMonthHighKeys);
-        $stocks = $this->paginateRows(
-            $request,
-            $this->sortAnnualComparisonRows($filteredRows, $sort),
-            $perPage,
+        $stocks = $this->hydrateAnnualComparisonPage(
+            $this->paginateRows(
+                $request,
+                $this->sortAnnualComparisonRows($filteredRows, $sort),
+                $perPage,
+            ),
         );
 
         return view('tw-stock.annual-comparison', [
@@ -169,6 +171,58 @@ class TwStockQ1FinancialReportController extends Controller
             'recentTwoMonthHighKeys' => $recentTwoMonthHighKeys,
             'years' => range(self::ANNUAL_COMPARISON_START_YEAR + 1, self::ANNUAL_COMPARISON_END_YEAR),
         ]);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function annualComparisonListColumns(): array
+    {
+        return [
+            'id',
+            'exchange',
+            'stock_code',
+            'stock_name',
+            'revenue_yoy_sum',
+            'eps_yoy_sum',
+            'revenue_filter_pass',
+            'eps_filter_pass',
+            'net_margin_filter_pass',
+            'current_q1_eps_yoy_percent',
+            'current_q1_revenue_yoy_percent',
+            'end_year_revenue_yoy_percent',
+        ];
+    }
+
+    /**
+     * @param LengthAwarePaginator<int, TwStockAnnualFinancialComparison> $stocks
+     * @return LengthAwarePaginator<int, TwStockAnnualFinancialComparison>
+     */
+    private function hydrateAnnualComparisonPage(LengthAwarePaginator $stocks): LengthAwarePaginator
+    {
+        $ids = $stocks->getCollection()
+            ->pluck('id')
+            ->filter()
+            ->values()
+            ->all();
+
+        if ($ids === []) {
+            return $stocks;
+        }
+
+        $fullRows = TwStockAnnualFinancialComparison::query()
+            ->whereIn('id', $ids)
+            ->get()
+            ->keyBy('id');
+
+        $stocks->setCollection(
+            $stocks->getCollection()
+                ->map(fn (TwStockAnnualFinancialComparison $stock): ?TwStockAnnualFinancialComparison => $fullRows->get($stock->id))
+                ->filter()
+                ->values(),
+        );
+
+        return $stocks;
     }
 
     /**

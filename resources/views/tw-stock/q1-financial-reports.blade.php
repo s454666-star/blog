@@ -695,24 +695,6 @@
             background: rgba(248, 250, 252, 0.72);
         }
 
-        .pagination nav {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-        }
-
-        .pagination a,
-        .pagination span {
-            color: #334155;
-            font-size: 13px;
-            text-decoration: none;
-        }
-
-        .pagination svg {
-            width: 18px;
-            height: 18px;
-        }
-
         .empty {
             padding: 40px 16px;
             color: var(--muted);
@@ -1168,7 +1150,7 @@
             </div>
             <div class="pagination">
                 <div class="count-text">共 {{ number_format($rows->total()) }} 筆</div>
-                {{ $rows->links() }}
+                {{ $rows->links('tw-stock.partials.pagination') }}
             </div>
         @endif
     </section>

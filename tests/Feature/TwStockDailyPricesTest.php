@@ -166,6 +166,44 @@ class TwStockDailyPricesTest extends TestCase
         $this->assertSame(1500, (int) $row->volume_lots);
     }
 
+    public function test_daily_price_index_uses_shared_tw_stock_pagination(): void
+    {
+        $now = now();
+        $rows = [];
+        foreach (range(1, 51) as $index) {
+            $rows[] = [
+                'exchange' => 'TWSE',
+                'stock_code' => sprintf('9%03d', $index),
+                'stock_name' => '測試股' . $index,
+                'trade_date' => '2026-05-08',
+                'open_price' => 100,
+                'high_price' => 110,
+                'low_price' => 90,
+                'close_price' => 100 + $index,
+                'previous_close_price' => 100,
+                'price_change_amount' => $index,
+                'price_change_percent' => $index / 10,
+                'volume_lots' => 1000 + $index,
+                'volume_shares' => (1000 + $index) * 1000,
+                'trade_value' => 1000000,
+                'transaction_count' => 100,
+                'source' => 'test',
+                'fetched_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        DB::table('tw_stock_daily_prices')->insert($rows);
+
+        $this->get(route('tw-stock.daily-prices.index', ['per_page' => 50]))
+            ->assertOk()
+            ->assertSee('tw-stock-pagination', false)
+            ->assertSee('tw-stock-pagination__item active', false)
+            ->assertSee('aria-label="第 2 頁"', false)
+            ->assertSee('aria-label="下一頁"', false);
+    }
+
     private function createTables(): void
     {
         Schema::create('tw_stock_daily_prices', function (Blueprint $table): void {

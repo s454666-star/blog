@@ -276,22 +276,8 @@
         }
 
         .pager {
-            padding: 14px;
+            padding: 18px 14px;
             background: #f8fbfd;
-        }
-
-        .pager nav > div:first-child { display: none; }
-        .pager nav > div:last-child {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            color: var(--muted);
-            font-size: 13px;
-        }
-        .pager nav a,
-        .pager nav span {
-            border-radius: 8px !important;
         }
 
         @media (max-width: 1100px) {
@@ -439,7 +425,7 @@
             @endforeach
             </tbody>
         </table>
-        <div class="pager">{{ $rows->links() }}</div>
+        <div class="pager">{{ $rows->links('tw-stock.partials.pagination') }}</div>
     </section>
 </main>
 </body>

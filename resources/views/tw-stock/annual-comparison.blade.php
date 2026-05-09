@@ -461,15 +461,6 @@
             margin-top: 18px;
         }
 
-        .pager nav > div:first-child {
-            display: none;
-        }
-
-        .pager a,
-        .pager span {
-            border-radius: 8px !important;
-        }
-
         .copy-tooltip {
             position: fixed;
             z-index: 50;
@@ -627,9 +618,15 @@
                                 <span class="badge">{{ $stock['exchange'] }}</span>
                                 <span class="badge {{ $stock['revenue_filter_pass'] ? 'pass' : 'fail' }}">營收 {{ $stock['revenue_filter_pass'] ? 'PASS' : 'WAIT' }}</span>
                                 <span class="badge {{ $stock['eps_filter_pass'] ? 'pass' : 'fail' }}">EPS {{ $stock['eps_filter_pass'] ? 'PASS' : 'WAIT' }}</span>
-                                <span class="badge {{ $passes($stock['current_q1_eps_yoy_percent'], 5) ? 'pass' : 'fail' }}">Q1 EPS YoY {{ $passes($stock['current_q1_eps_yoy_percent'], 5) ? 'PASS' : 'WAIT' }}</span>
-                                <span class="badge {{ $passes($stock['end_year_revenue_yoy_percent'], 15) ? 'pass' : 'fail' }}">2025 營收 {{ $passes($stock['end_year_revenue_yoy_percent'], 15) ? 'PASS' : 'WAIT' }}</span>
-                                <span class="badge {{ $passes($stock['current_q1_revenue_yoy_percent'], 5) ? 'pass' : 'fail' }}">Q1 營收 YoY {{ $passes($stock['current_q1_revenue_yoy_percent'], 5) ? 'PASS' : 'WAIT' }}</span>
+                                @if ($passes($stock['current_q1_eps_yoy_percent'], 5))
+                                    <span class="badge pass">Q1 EPS YoY PASS</span>
+                                @endif
+                                @if ($passes($stock['end_year_revenue_yoy_percent'], 15))
+                                    <span class="badge pass">2025 營收 PASS</span>
+                                @endif
+                                @if ($passes($stock['current_q1_revenue_yoy_percent'], 5))
+                                    <span class="badge pass">Q1 營收 YoY PASS</span>
+                                @endif
                                 <span class="badge {{ $stock['net_margin_filter_pass'] ? 'pass' : 'fail' }}">淨利率 {{ $stock['net_margin_filter_pass'] ? 'PASS' : 'WAIT' }}</span>
                             </div>
                             <div class="meta">
@@ -724,7 +721,7 @@
         </main>
 
         <div class="pager">
-            {{ $stocks->links() }}
+            {{ $stocks->links('tw-stock.partials.pagination') }}
         </div>
     @endif
 </div>

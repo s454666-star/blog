@@ -29,6 +29,18 @@ class TwStockQ1FinancialReportController extends Controller
 
     private const CURRENT_CONTEXT_YEAR = 2026;
 
+    private const ANNUAL_REVENUE_WEIGHTED_YOY_THRESHOLD = 52.0;
+
+    private const ANNUAL_EPS_WEIGHTED_YOY_THRESHOLD = 34.0;
+
+    private const ANNUAL_CURRENT_Q1_EPS_YOY_THRESHOLD = 5.0;
+
+    private const ANNUAL_END_YEAR_REVENUE_YOY_THRESHOLD = 15.0;
+
+    private const ANNUAL_CURRENT_Q1_REVENUE_YOY_THRESHOLD = 7.0;
+
+    private const ANNUAL_NET_MARGIN_THRESHOLD = 15.0;
+
     public function index(Request $request): View
     {
         $allowedPerPage = [50, 250, 500];
@@ -131,6 +143,7 @@ class TwStockQ1FinancialReportController extends Controller
             ->values()
             ->all();
         $search = trim((string) $request->query('q', ''));
+        $thresholds = $this->annualComparisonThresholds($request);
 
         $baseQuery = TwStockAnnualFinancialComparison::query()
             ->where('context_year', self::CURRENT_CONTEXT_YEAR)
@@ -143,7 +156,7 @@ class TwStockQ1FinancialReportController extends Controller
             });
         $baseRows = $baseQuery->get($this->annualComparisonListColumns());
         $recentTwoMonthHighKeys = $this->recentTwoMonthHighKeys($baseRows);
-        $filteredRows = $this->filterAnnualComparisonRows($baseRows, $filters, $recentTwoMonthHighKeys);
+        $filteredRows = $this->filterAnnualComparisonRows($baseRows, $filters, $recentTwoMonthHighKeys, $thresholds);
         $stocks = $this->hydrateAnnualComparisonPage(
             $this->paginateRows(
                 $request,
@@ -161,15 +174,16 @@ class TwStockQ1FinancialReportController extends Controller
             'perPage' => $perPage,
             'summary' => [
                 'total' => $filteredRows->count(),
-                'revenuePass' => $filteredRows->where('revenue_filter_pass', true)->count(),
-                'epsPass' => $filteredRows->where('eps_filter_pass', true)->count(),
-                'currentQ1EpsYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->nullableFloat($row->current_q1_eps_yoy_percent) > 5)->count(),
-                'endYearRevenueYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->nullableFloat($row->end_year_revenue_yoy_percent) > 15)->count(),
-                'currentQ1RevenueYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->nullableFloat($row->current_q1_revenue_yoy_percent) > 7)->count(),
+                'revenuePass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->passesThreshold($row->revenue_yoy_sum, $thresholds['revenue_growth']))->count(),
+                'epsPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->passesThreshold($row->eps_yoy_sum, $thresholds['eps_growth']))->count(),
+                'currentQ1EpsYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->passesThreshold($row->current_q1_eps_yoy_percent, $thresholds['current_q1_eps_yoy']))->count(),
+                'endYearRevenueYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->passesThreshold($row->end_year_revenue_yoy_percent, $thresholds['end_year_revenue_yoy']))->count(),
+                'currentQ1RevenueYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->passesThreshold($row->current_q1_revenue_yoy_percent, $thresholds['current_q1_revenue_yoy']))->count(),
                 'recentTwoMonthHighPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => isset($recentTwoMonthHighKeys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)]))->count(),
-                'netMarginPass' => $filteredRows->where('net_margin_filter_pass', true)->count(),
+                'netMarginPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->annualNetMarginPass($row, $thresholds['net_margin']))->count(),
             ],
             'recentTwoMonthHighKeys' => $recentTwoMonthHighKeys,
+            'thresholds' => $thresholds,
             'years' => range(self::ANNUAL_COMPARISON_START_YEAR + 1, self::ANNUAL_COMPARISON_END_YEAR),
         ]);
     }
@@ -189,10 +203,34 @@ class TwStockQ1FinancialReportController extends Controller
             'revenue_filter_pass',
             'eps_filter_pass',
             'net_margin_filter_pass',
+            'recent_net_margin_average',
+            'last_two_year_net_margin_average',
             'current_q1_eps_yoy_percent',
             'current_q1_revenue_yoy_percent',
             'end_year_revenue_yoy_percent',
         ];
+    }
+
+    /**
+     * @return array<string, float>
+     */
+    private function annualComparisonThresholds(Request $request): array
+    {
+        return [
+            'revenue_growth' => $this->thresholdValue($request->query('revenue_growth_threshold'), self::ANNUAL_REVENUE_WEIGHTED_YOY_THRESHOLD),
+            'eps_growth' => $this->thresholdValue($request->query('eps_growth_threshold'), self::ANNUAL_EPS_WEIGHTED_YOY_THRESHOLD),
+            'current_q1_eps_yoy' => $this->thresholdValue($request->query('current_q1_eps_yoy_threshold'), self::ANNUAL_CURRENT_Q1_EPS_YOY_THRESHOLD),
+            'end_year_revenue_yoy' => $this->thresholdValue($request->query('end_year_revenue_yoy_threshold'), self::ANNUAL_END_YEAR_REVENUE_YOY_THRESHOLD),
+            'current_q1_revenue_yoy' => $this->thresholdValue($request->query('current_q1_revenue_yoy_threshold'), self::ANNUAL_CURRENT_Q1_REVENUE_YOY_THRESHOLD),
+            'net_margin' => $this->thresholdValue($request->query('net_margin_threshold'), self::ANNUAL_NET_MARGIN_THRESHOLD),
+        ];
+    }
+
+    private function thresholdValue(mixed $value, float $default): float
+    {
+        $value = trim((string) $value);
+
+        return $value === '' || !is_numeric($value) ? $default : (float) $value;
     }
 
     /**
@@ -293,21 +331,22 @@ class TwStockQ1FinancialReportController extends Controller
      * @param Collection<int, TwStockAnnualFinancialComparison> $rows
      * @param list<string> $filters
      * @param array<string, true> $recentTwoMonthHighKeys
+     * @param array<string, float> $thresholds
      * @return Collection<int, TwStockAnnualFinancialComparison>
      */
-    private function filterAnnualComparisonRows(Collection $rows, array $filters, array $recentTwoMonthHighKeys): Collection
+    private function filterAnnualComparisonRows(Collection $rows, array $filters, array $recentTwoMonthHighKeys, array $thresholds): Collection
     {
         return $rows
-            ->filter(function (TwStockAnnualFinancialComparison $row) use ($filters, $recentTwoMonthHighKeys): bool {
+            ->filter(function (TwStockAnnualFinancialComparison $row) use ($filters, $recentTwoMonthHighKeys, $thresholds): bool {
                 foreach ($filters as $filter) {
                     $passes = match ($filter) {
-                        'revenue_growth' => (bool) $row->revenue_filter_pass,
-                        'eps_growth' => (bool) $row->eps_filter_pass,
-                        'current_q1_eps_yoy' => $this->nullableFloat($row->current_q1_eps_yoy_percent) > 5,
-                        'end_year_revenue_yoy' => $this->nullableFloat($row->end_year_revenue_yoy_percent) > 15,
-                        'current_q1_revenue_yoy' => $this->nullableFloat($row->current_q1_revenue_yoy_percent) > 7,
+                        'revenue_growth' => $this->passesThreshold($row->revenue_yoy_sum, $thresholds['revenue_growth']),
+                        'eps_growth' => $this->passesThreshold($row->eps_yoy_sum, $thresholds['eps_growth']),
+                        'current_q1_eps_yoy' => $this->passesThreshold($row->current_q1_eps_yoy_percent, $thresholds['current_q1_eps_yoy']),
+                        'end_year_revenue_yoy' => $this->passesThreshold($row->end_year_revenue_yoy_percent, $thresholds['end_year_revenue_yoy']),
+                        'current_q1_revenue_yoy' => $this->passesThreshold($row->current_q1_revenue_yoy_percent, $thresholds['current_q1_revenue_yoy']),
                         'recent_two_month_high' => isset($recentTwoMonthHighKeys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)]),
-                        'net_margin' => (bool) $row->net_margin_filter_pass,
+                        'net_margin' => $this->annualNetMarginPass($row, $thresholds['net_margin']),
                         default => true,
                     };
 
@@ -319,6 +358,19 @@ class TwStockQ1FinancialReportController extends Controller
                 return true;
             })
             ->values();
+    }
+
+    private function annualNetMarginPass(TwStockAnnualFinancialComparison $row, float $threshold): bool
+    {
+        return $this->passesThreshold($row->recent_net_margin_average, $threshold)
+            || $this->passesThreshold($row->last_two_year_net_margin_average, $threshold);
+    }
+
+    private function passesThreshold(mixed $value, float $threshold): bool
+    {
+        $numeric = $this->nullableFloat($value);
+
+        return $numeric !== null && $numeric > $threshold;
     }
 
     /**

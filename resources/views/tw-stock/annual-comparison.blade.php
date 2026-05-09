@@ -234,10 +234,44 @@
             box-shadow: 0 12px 24px rgba(23, 32, 51, 0.10);
         }
 
-        .check input {
+        .check input[type="checkbox"] {
             width: 18px;
             height: 18px;
             accent-color: var(--blue);
+        }
+
+        .threshold-check {
+            gap: 8px;
+            padding-right: 8px;
+        }
+
+        .threshold-input {
+            width: 68px;
+            min-height: 30px;
+            border: 1px solid rgba(148, 163, 184, 0.56);
+            border-radius: 8px;
+            padding: 0 8px;
+            color: #1d4ed8;
+            background: #f8fbff;
+            font: inherit;
+            font-size: 14px;
+            font-weight: 950;
+            text-align: right;
+            outline: none;
+            box-shadow: inset 0 1px 2px rgba(23, 32, 51, 0.06);
+            transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+        }
+
+        .threshold-input:focus {
+            border-color: var(--blue);
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+        }
+
+        .threshold-unit {
+            margin-left: -4px;
+            color: #475569;
+            font-weight: 950;
         }
 
         .stock-list {
@@ -684,6 +718,7 @@
     $fmt = fn ($value, int $decimals = 2): string => $value === null ? '--' : number_format((float) $value, $decimals);
     $pct = fn ($value, int $decimals = 2): string => $value === null ? '--' : number_format((float) $value, $decimals) . '%';
     $signedPct = fn ($value, int $decimals = 2): string => $value === null ? '--' : (((float) $value > 0 ? '+' : '') . number_format((float) $value, $decimals) . '%');
+    $thresholdText = fn ($value): string => rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.');
     $tone = fn ($value): string => $value === null ? 'muted' : ((float) $value >= 0 ? 'pos' : 'neg');
     $expectedTone = fn ($value): string => $value === null ? 'neutral' : ((float) $value >= 0 ? 'up' : 'down');
     $passes = fn ($value, float $threshold): bool => $value !== null && (float) $value > $threshold;
@@ -720,33 +755,45 @@
                 </select>
             </div>
             <div class="filter-row">
-                <label class="check">
+                <label class="check threshold-check">
                     <input type="checkbox" name="revenue_growth" value="1" {{ $filterChecked('revenue_growth') ? 'checked' : '' }} data-auto-submit>
-                    營收 5 年 YoY 加權 &gt; 52%
+                    <span>營收 5 年 YoY 加權 &gt;</span>
+                    <input class="threshold-input" type="number" name="revenue_growth_threshold" value="{{ $thresholdText($thresholds['revenue_growth']) }}" step="0.01" data-auto-submit aria-label="營收 5 年 YoY 加權門檻">
+                    <span class="threshold-unit">%</span>
                 </label>
-                <label class="check">
+                <label class="check threshold-check">
                     <input type="checkbox" name="eps_growth" value="1" {{ $filterChecked('eps_growth') ? 'checked' : '' }} data-auto-submit>
-                    EPS 5 年 YoY 加權 &gt; 34%
+                    <span>EPS 5 年 YoY 加權 &gt;</span>
+                    <input class="threshold-input" type="number" name="eps_growth_threshold" value="{{ $thresholdText($thresholds['eps_growth']) }}" step="0.01" data-auto-submit aria-label="EPS 5 年 YoY 加權門檻">
+                    <span class="threshold-unit">%</span>
                 </label>
-                <label class="check">
+                <label class="check threshold-check">
                     <input type="checkbox" name="current_q1_eps_yoy" value="1" {{ $filterChecked('current_q1_eps_yoy') ? 'checked' : '' }} data-auto-submit>
-                    2026 Q1 EPS YoY &gt; 5%
+                    <span>2026 Q1 EPS YoY &gt;</span>
+                    <input class="threshold-input" type="number" name="current_q1_eps_yoy_threshold" value="{{ $thresholdText($thresholds['current_q1_eps_yoy']) }}" step="0.01" data-auto-submit aria-label="2026 Q1 EPS YoY 門檻">
+                    <span class="threshold-unit">%</span>
                 </label>
-                <label class="check">
+                <label class="check threshold-check">
                     <input type="checkbox" name="end_year_revenue_yoy" value="1" {{ $filterChecked('end_year_revenue_yoy') ? 'checked' : '' }} data-auto-submit>
-                    2025 年營收 YoY &gt; 15%
+                    <span>2025 年營收 YoY &gt;</span>
+                    <input class="threshold-input" type="number" name="end_year_revenue_yoy_threshold" value="{{ $thresholdText($thresholds['end_year_revenue_yoy']) }}" step="0.01" data-auto-submit aria-label="2025 年營收 YoY 門檻">
+                    <span class="threshold-unit">%</span>
                 </label>
-                <label class="check">
+                <label class="check threshold-check">
                     <input type="checkbox" name="current_q1_revenue_yoy" value="1" {{ $filterChecked('current_q1_revenue_yoy') ? 'checked' : '' }} data-auto-submit>
-                    2026 Q1 營收 YoY &gt; 7%
+                    <span>2026 Q1 營收 YoY &gt;</span>
+                    <input class="threshold-input" type="number" name="current_q1_revenue_yoy_threshold" value="{{ $thresholdText($thresholds['current_q1_revenue_yoy']) }}" step="0.01" data-auto-submit aria-label="2026 Q1 營收 YoY 門檻">
+                    <span class="threshold-unit">%</span>
                 </label>
                 <label class="check">
                     <input type="checkbox" name="recent_two_month_high" value="1" {{ $filterChecked('recent_two_month_high') ? 'checked' : '' }} data-auto-submit>
                     近 3 日創兩月新高
                 </label>
-                <label class="check">
+                <label class="check threshold-check">
                     <input type="checkbox" name="net_margin" value="1" {{ $filterChecked('net_margin') ? 'checked' : '' }} data-auto-submit>
-                    淨利率近 8 季或近 2 年平均 &gt; 15%
+                    <span>淨利率近 8 季或近 2 年平均 &gt;</span>
+                    <input class="threshold-input" type="number" name="net_margin_threshold" value="{{ $thresholdText($thresholds['net_margin']) }}" step="0.01" data-auto-submit aria-label="淨利率門檻">
+                    <span class="threshold-unit">%</span>
                 </label>
             </div>
         </div>
@@ -797,6 +844,12 @@
                     $valuationGroupPe = $stock['valuation_group_pe'] ?? null;
                     $expectedPrice = $stock['expected_price'] ?? null;
                     $expectedPriceChangePercent = $stock['expected_price_change_percent'] ?? null;
+                    $revenuePass = $passes($stock['revenue_yoy_sum'], $thresholds['revenue_growth']);
+                    $epsPass = $passes($stock['eps_yoy_sum'], $thresholds['eps_growth']);
+                    $currentQ1EpsPass = $passes($stock['current_q1_eps_yoy_percent'], $thresholds['current_q1_eps_yoy']);
+                    $endYearRevenuePass = $passes($stock['end_year_revenue_yoy_percent'], $thresholds['end_year_revenue_yoy']);
+                    $currentQ1RevenuePass = $passes($stock['current_q1_revenue_yoy_percent'], $thresholds['current_q1_revenue_yoy']);
+                    $netMarginPass = $passes($stock['recent_net_margin_average'], $thresholds['net_margin']) || $passes($stock['last_two_year_net_margin_average'], $thresholds['net_margin']);
                 @endphp
                 <article class="stock-card" style="animation-delay: {{ min($loop->index * 28, 360) }}ms">
                     <header class="stock-head">
@@ -805,21 +858,21 @@
                                 <button class="code copyable" type="button" data-copy-value="{{ $stock['stock_code'] }}">{{ $stock['stock_code'] }}</button>
                                 <button class="name copyable" type="button" data-copy-value="{{ $stock['stock_name'] }}">{{ $stock['stock_name'] }}</button>
                                 <span class="badge">{{ $stock['exchange'] }}</span>
-                                <span class="badge {{ $stock['revenue_filter_pass'] ? 'pass' : 'fail' }}">營收 {{ $stock['revenue_filter_pass'] ? 'PASS' : 'WAIT' }}</span>
-                                <span class="badge {{ $stock['eps_filter_pass'] ? 'pass' : 'fail' }}">EPS {{ $stock['eps_filter_pass'] ? 'PASS' : 'WAIT' }}</span>
-                                @if ($passes($stock['current_q1_eps_yoy_percent'], 5))
+                                <span class="badge {{ $revenuePass ? 'pass' : 'fail' }}">營收 {{ $revenuePass ? 'PASS' : 'WAIT' }}</span>
+                                <span class="badge {{ $epsPass ? 'pass' : 'fail' }}">EPS {{ $epsPass ? 'PASS' : 'WAIT' }}</span>
+                                @if ($currentQ1EpsPass)
                                     <span class="badge pass">Q1 EPS YoY PASS</span>
                                 @endif
-                                @if ($passes($stock['end_year_revenue_yoy_percent'], 15))
+                                @if ($endYearRevenuePass)
                                     <span class="badge pass">2025 營收 PASS</span>
                                 @endif
-                                @if ($passes($stock['current_q1_revenue_yoy_percent'], 7))
+                                @if ($currentQ1RevenuePass)
                                     <span class="badge pass">Q1 營收 YoY PASS</span>
                                 @endif
                                 @if ($recentHigh)
                                     <span class="badge hot">近 3 日新高</span>
                                 @endif
-                                <span class="badge {{ $stock['net_margin_filter_pass'] ? 'pass' : 'fail' }}">淨利率 {{ $stock['net_margin_filter_pass'] ? 'PASS' : 'WAIT' }}</span>
+                                <span class="badge {{ $netMarginPass ? 'pass' : 'fail' }}">淨利率 {{ $netMarginPass ? 'PASS' : 'WAIT' }}</span>
                             </div>
                             <div class="meta stock-meta">
                                 <span class="meta-chip price-chip">股價 <strong>{{ $fmt($stock['latest_close_price']) }}</strong></span>

@@ -551,18 +551,24 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('台股年度營收 EPS 比較')
             ->assertSee('營收加權排序')
             ->assertSee('EPS 加權排序')
-            ->assertSee('營收 5 年 YoY 加權 &gt; 52%', false)
-            ->assertSee('EPS 5 年 YoY 加權 &gt; 34%', false)
-            ->assertSee('2026 Q1 EPS YoY &gt; 5%', false)
-            ->assertSee('2025 年營收 YoY &gt; 15%', false)
-            ->assertSee('2026 Q1 營收 YoY &gt; 7%', false)
+            ->assertSee('營收 5 年 YoY 加權 &gt;', false)
+            ->assertSee('name="revenue_growth_threshold" value="52"', false)
+            ->assertSee('EPS 5 年 YoY 加權 &gt;', false)
+            ->assertSee('name="eps_growth_threshold" value="34"', false)
+            ->assertSee('2026 Q1 EPS YoY &gt;', false)
+            ->assertSee('name="current_q1_eps_yoy_threshold" value="5"', false)
+            ->assertSee('2025 年營收 YoY &gt;', false)
+            ->assertSee('name="end_year_revenue_yoy_threshold" value="15"', false)
+            ->assertSee('2026 Q1 營收 YoY &gt;', false)
+            ->assertSee('name="current_q1_revenue_yoy_threshold" value="7"', false)
+            ->assertSee('淨利率近 8 季或近 2 年平均 &gt;', false)
+            ->assertSee('name="net_margin_threshold" value="15"', false)
             ->assertSee('近 3 日創兩月新高')
             ->assertSee('近 3 日新高')
             ->assertDontSee('每年 EPS YoY 均為正')
             ->assertDontSee('Q1 EPS YoY WAIT')
             ->assertDontSee('2025 營收 WAIT')
             ->assertDontSee('Q1 營收 YoY WAIT')
-            ->assertSee('淨利率近 8 季或近 2 年平均 &gt; 15%', false)
             ->assertSee('name="sort" value="eps"', false)
             ->assertSee('value="50"', false)
             ->assertSee('value="100" selected', false)
@@ -591,6 +597,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             'current_q1_eps_yoy' => 1,
             'end_year_revenue_yoy' => 1,
             'current_q1_revenue_yoy' => 1,
+            'current_q1_revenue_yoy_threshold' => 9,
             'recent_two_month_high' => 1,
         ]));
 
@@ -600,6 +607,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('name="current_q1_eps_yoy" value="1" checked', false)
             ->assertSee('name="end_year_revenue_yoy" value="1" checked', false)
             ->assertSee('name="current_q1_revenue_yoy" value="1" checked', false)
+            ->assertSee('name="current_q1_revenue_yoy_threshold" value="9"', false)
             ->assertSee('name="recent_two_month_high" value="1" checked', false)
             ->assertSee('data-copy-value="2408"', false)
             ->assertDontSee('data-copy-value="8261"', false)

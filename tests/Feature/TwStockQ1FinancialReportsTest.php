@@ -187,6 +187,8 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('value="120"', false)
             ->assertSee('name="valuation_groups[]"', false)
             ->assertSee('全部族群')
+            ->assertSee("document.querySelectorAll('[data-multi-select][open]')", false)
+            ->assertSee("multiSelect.removeAttribute('open')", false)
             ->assertSee('name="sort"', false)
             ->assertSee('近3日兩月新高')
             ->assertSee('sort=eps_yoy', false)

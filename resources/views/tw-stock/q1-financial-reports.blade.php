@@ -1255,6 +1255,14 @@
         });
     }
 
+    document.addEventListener('pointerdown', (event) => {
+        document.querySelectorAll('[data-multi-select][open]').forEach((multiSelect) => {
+            if (!multiSelect.contains(event.target)) {
+                multiSelect.removeAttribute('open');
+            }
+        });
+    });
+
     const copyTooltip = document.createElement('div');
     copyTooltip.className = 'copy-tooltip';
     copyTooltip.setAttribute('role', 'status');

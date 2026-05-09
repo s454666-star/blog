@@ -483,7 +483,8 @@ class TwStockQ1FinancialReportController extends Controller
         $startDate = Carbon::parse($latestDate)
             ->subMonths(self::RECENT_HIGH_QUERY_MONTHS)
             ->toDateString();
-        $dailyRowsByStock = TwStockDailyPrice::query()
+        $dailyRows = TwStockDailyPrice::query()
+            ->select(['exchange', 'stock_code', 'high_price'])
             ->whereIn('stock_code', $stockCodes)
             ->whereIn('exchange', $exchanges)
             ->where('trade_date', '>=', $startDate)
@@ -491,30 +492,43 @@ class TwStockQ1FinancialReportController extends Controller
             ->orderBy('exchange')
             ->orderBy('stock_code')
             ->orderByDesc('trade_date')
-            ->get(['exchange', 'stock_code', 'trade_date', 'high_price'])
-            ->groupBy(fn (TwStockDailyPrice $row): string => $this->stockKey((string) $row->exchange, (string) $row->stock_code));
+            ->toBase()
+            ->cursor();
 
         $flags = [];
-        foreach ($rows as $row) {
-            $stockKey = $this->stockKey((string) $row->exchange, (string) $row->stock_code);
-            $dailyRows = $dailyRowsByStock
-                ->get($stockKey, collect())
-                ->take(self::RECENT_HIGH_LOOKBACK_TRADING_DAYS)
-                ->values();
+        $currentStockKey = null;
+        $tradingDays = 0;
+        $lookbackHigh = null;
+        $recentHigh = null;
+        $finalizeStock = function () use (&$flags, &$currentStockKey, &$lookbackHigh, &$recentHigh): void {
+            if ($currentStockKey !== null && $recentHigh !== null && $lookbackHigh !== null && $recentHigh >= $lookbackHigh) {
+                $flags[$currentStockKey] = true;
+            }
+        };
 
-            if ($dailyRows->isEmpty()) {
+        foreach ($dailyRows as $dailyRow) {
+            $stockKey = $this->stockKey((string) $dailyRow->exchange, (string) $dailyRow->stock_code);
+            if ($stockKey !== $currentStockKey) {
+                $finalizeStock();
+                $currentStockKey = $stockKey;
+                $tradingDays = 0;
+                $lookbackHigh = null;
+                $recentHigh = null;
+            }
+
+            if ($tradingDays >= self::RECENT_HIGH_LOOKBACK_TRADING_DAYS) {
                 continue;
             }
 
-            $lookbackHigh = $dailyRows->max(fn (TwStockDailyPrice $dailyRow): float => (float) $dailyRow->high_price);
-            $recentHigh = $dailyRows
-                ->take(self::RECENT_HIGH_SIGNAL_TRADING_DAYS)
-                ->max(fn (TwStockDailyPrice $dailyRow): float => (float) $dailyRow->high_price);
-
-            if ($recentHigh !== null && $lookbackHigh !== null && (float) $recentHigh >= (float) $lookbackHigh) {
-                $flags[$stockKey] = true;
+            $highPrice = (float) $dailyRow->high_price;
+            $lookbackHigh = $lookbackHigh === null ? $highPrice : max($lookbackHigh, $highPrice);
+            if ($tradingDays < self::RECENT_HIGH_SIGNAL_TRADING_DAYS) {
+                $recentHigh = $recentHigh === null ? $highPrice : max($recentHigh, $highPrice);
             }
+
+            $tradingDays++;
         }
+        $finalizeStock();
 
         return $flags;
     }

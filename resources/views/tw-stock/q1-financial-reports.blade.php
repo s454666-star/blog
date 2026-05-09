@@ -244,12 +244,12 @@
         }
 
         .table-wrap {
-            overflow-x: visible;
+            overflow-x: auto;
         }
 
         table {
             width: 100%;
-            min-width: 0;
+            min-width: 1780px;
             border-collapse: collapse;
             table-layout: fixed;
             font-size: 11px;
@@ -370,6 +370,11 @@
         th:nth-child(4),
         td:nth-child(4) {
             width: 5.5%;
+        }
+
+        th:nth-child(15),
+        td:nth-child(15) {
+            width: 6.8%;
         }
 
         .copy-stock {
@@ -515,9 +520,17 @@
             justify-items: end;
         }
 
+        .expected-price-main {
+            display: grid;
+            gap: 2px;
+            justify-items: end;
+        }
+
         .expected-diff {
-            margin-left: 4px;
+            display: inline-flex;
+            max-width: 100%;
             font-weight: 900;
+            white-space: nowrap;
         }
 
         .monthly-cell {
@@ -660,6 +673,7 @@
             th,
             td {
                 display: block;
+                min-width: 0;
                 width: 100%;
             }
 
@@ -922,7 +936,7 @@
                                     <span class="neutral">--</span>
                                 @else
                                     <div class="expected-price-cell">
-                                        <div>
+                                        <div class="expected-price-main">
                                             <span class="price">{{ $fmt($expectedPrice, 2) }}</span>
                                             <span class="expected-diff {{ $pctClass($expectedPriceChangePercent) }}">({{ $signedPct($expectedPriceChangePercent) }})</span>
                                         </div>

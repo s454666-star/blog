@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\TwStockAnnualFinancialComparison;
+use App\Models\TwStockCompanyProfile;
 use App\Models\TwStockDailyPrice;
 use App\Models\TwStockQ1FinancialReport;
 use Illuminate\Contracts\View\View;
@@ -215,14 +216,77 @@ class TwStockQ1FinancialReportController extends Controller
             ->get()
             ->keyBy('id');
 
-        $stocks->setCollection(
+        $stocks->setCollection($this->attachAnnualComparisonValuationMeta(
             $stocks->getCollection()
                 ->map(fn (TwStockAnnualFinancialComparison $stock): ?TwStockAnnualFinancialComparison => $fullRows->get($stock->id))
                 ->filter()
                 ->values(),
-        );
+        ));
 
         return $stocks;
+    }
+
+    /**
+     * @param Collection<int, TwStockAnnualFinancialComparison> $stocks
+     * @return Collection<int, TwStockAnnualFinancialComparison>
+     */
+    private function attachAnnualComparisonValuationMeta(Collection $stocks): Collection
+    {
+        if ($stocks->isEmpty()) {
+            return $stocks;
+        }
+
+        $stockCodes = $stocks
+            ->pluck('stock_code')
+            ->map(fn ($value): string => (string) $value)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $exchanges = $stocks
+            ->pluck('exchange')
+            ->map(fn ($value): string => (string) $value)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $profiles = TwStockCompanyProfile::query()
+            ->whereIn('stock_code', $stockCodes)
+            ->whereIn('exchange', $exchanges)
+            ->get(['exchange', 'stock_code', 'valuation_group', 'valuation_group_pe'])
+            ->keyBy(fn (TwStockCompanyProfile $profile): string => $this->stockKey((string) $profile->exchange, (string) $profile->stock_code));
+
+        return $stocks->each(function (TwStockAnnualFinancialComparison $stock) use ($profiles): void {
+            $profile = $profiles->get($this->stockKey((string) $stock->exchange, (string) $stock->stock_code));
+            $valuationGroupPe = $this->nullableFloat($profile?->valuation_group_pe);
+            $expectedPrice = $this->annualExpectedPrice($stock, $valuationGroupPe);
+
+            $stock->setAttribute('valuation_group', $profile?->valuation_group);
+            $stock->setAttribute('valuation_group_pe', $valuationGroupPe);
+            $stock->setAttribute('expected_price', $expectedPrice);
+            $stock->setAttribute('expected_price_change_percent', $this->annualExpectedPriceChangePercent($stock, $expectedPrice));
+        });
+    }
+
+    private function annualExpectedPrice(TwStockAnnualFinancialComparison $stock, ?float $valuationGroupPe): ?float
+    {
+        $currentEps = $this->nullableFloat($stock->current_eps);
+        if ($currentEps === null || $currentEps <= 0 || $valuationGroupPe === null || $valuationGroupPe <= 0) {
+            return null;
+        }
+
+        return $currentEps * 4 * $valuationGroupPe;
+    }
+
+    private function annualExpectedPriceChangePercent(TwStockAnnualFinancialComparison $stock, ?float $expectedPrice): ?float
+    {
+        $latestClosePrice = $this->nullableFloat($stock->latest_close_price);
+        if ($expectedPrice === null || $latestClosePrice === null || $latestClosePrice <= 0) {
+            return null;
+        }
+
+        return (($expectedPrice - $latestClosePrice) / $latestClosePrice) * 100;
     }
 
     /**

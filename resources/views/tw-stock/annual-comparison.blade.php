@@ -242,22 +242,63 @@
 
         .stock-list {
             display: grid;
-            gap: 12px;
+            gap: 16px;
         }
 
         .stock-card {
+            position: relative;
+            isolation: isolate;
             overflow: hidden;
-            border: 1px solid rgba(216, 225, 238, 0.98);
+            border: 1px solid rgba(203, 213, 225, 0.96);
             border-radius: 8px;
-            background: rgba(255, 255, 255, 0.94);
-            box-shadow: var(--shadow);
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94)),
+                linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(15, 118, 110, 0.08));
+            box-shadow: 0 18px 44px rgba(23, 32, 51, 0.09), 0 2px 0 rgba(255, 255, 255, 0.92) inset;
             transform: translateY(0);
+            transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
             animation: enter 360ms ease both;
         }
 
+        .stock-card::before {
+            position: absolute;
+            inset: 0 0 auto 0;
+            z-index: 2;
+            height: 4px;
+            content: "";
+            background: linear-gradient(90deg, var(--blue), var(--teal), var(--amber), var(--rose));
+            opacity: 0.78;
+            transform: scaleX(0.22);
+            transform-origin: left;
+            transition: transform 240ms ease, opacity 180ms ease;
+        }
+
+        .stock-card::after {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            content: "";
+            background: linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.55) 18%, transparent 38%);
+            opacity: 0;
+            transform: translateX(-18%);
+            transition: opacity 200ms ease, transform 360ms ease;
+        }
+
         .stock-card:hover {
-            border-color: #9fb1c8;
-            box-shadow: 0 22px 54px rgba(23, 32, 51, 0.14);
+            transform: translateY(-4px);
+            border-color: rgba(37, 99, 235, 0.54);
+            box-shadow: 0 28px 64px rgba(23, 32, 51, 0.16), 0 0 0 4px rgba(37, 99, 235, 0.08);
+        }
+
+        .stock-card:hover::before {
+            opacity: 1;
+            transform: scaleX(1);
+        }
+
+        .stock-card:hover::after {
+            opacity: 1;
+            transform: translateX(0);
         }
 
         @keyframes enter {
@@ -272,6 +313,8 @@
         }
 
         .stock-head {
+            position: relative;
+            z-index: 1;
             display: grid;
             grid-template-columns: minmax(240px, 1fr) minmax(360px, 1.6fr);
             gap: 12px;
@@ -281,12 +324,19 @@
             background:
                 linear-gradient(90deg, rgba(37, 99, 235, 0.08), transparent 46%),
                 linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.88));
+            transition: background 180ms ease;
+        }
+
+        .stock-card:hover .stock-head {
+            background:
+                linear-gradient(90deg, rgba(37, 99, 235, 0.13), rgba(15, 118, 110, 0.08) 54%, rgba(245, 158, 11, 0.08)),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.90));
         }
 
         .identity {
             display: grid;
             align-content: center;
-            gap: 8px;
+            gap: 10px;
         }
 
         .stock-title {
@@ -305,6 +355,7 @@
             cursor: pointer;
             font: inherit;
             font-weight: 950;
+            transition: color 160ms ease, transform 160ms ease, text-shadow 160ms ease;
         }
 
         .code {
@@ -315,16 +366,123 @@
             font-size: 18px;
         }
 
+        .stock-title .copyable:hover {
+            color: var(--blue);
+            transform: translateY(-1px);
+            text-shadow: 0 8px 18px rgba(37, 99, 235, 0.18);
+        }
+
         .badge {
             display: inline-flex;
             min-height: 26px;
             align-items: center;
+            border: 1px solid transparent;
             border-radius: 999px;
             padding: 0 10px;
             color: #1f2937;
             background: #eef2ff;
             font-size: 12px;
             font-weight: 900;
+            transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease, border-color 160ms ease;
+        }
+
+        .badge:hover {
+            transform: translateY(-2px);
+            border-color: rgba(37, 99, 235, 0.28);
+            filter: saturate(1.12);
+            box-shadow: 0 12px 24px rgba(37, 99, 235, 0.16);
+        }
+
+        .stock-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin-top: 2px;
+        }
+
+        .meta-chip {
+            display: inline-flex;
+            min-height: 34px;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid rgba(203, 213, 225, 0.9);
+            border-radius: 8px;
+            padding: 0 10px;
+            color: #475569;
+            background: rgba(255, 255, 255, 0.86);
+            font-size: 12px;
+            font-weight: 900;
+            box-shadow: 0 8px 18px rgba(23, 32, 51, 0.06);
+            transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+        }
+
+        .meta-chip strong {
+            color: #0f172a;
+            font-size: 14px;
+            font-weight: 950;
+        }
+
+        .meta-chip em {
+            color: inherit;
+            font-style: normal;
+            font-size: 12px;
+            font-weight: 950;
+        }
+
+        .meta-chip:hover {
+            transform: translateY(-2px);
+            border-color: rgba(37, 99, 235, 0.42);
+            background: #fff;
+            box-shadow: 0 14px 28px rgba(23, 32, 51, 0.12);
+        }
+
+        .price-chip strong {
+            color: #1d4ed8;
+        }
+
+        .volume-chip strong {
+            color: #b45309;
+        }
+
+        .group-chip {
+            color: #1e3a8a;
+            border-color: rgba(37, 99, 235, 0.22);
+            background: linear-gradient(135deg, rgba(239, 246, 255, 0.96), rgba(240, 253, 250, 0.88));
+        }
+
+        .group-chip strong {
+            color: #1d4ed8;
+        }
+
+        .expected-chip {
+            color: #7f1d1d;
+            border-color: rgba(225, 29, 72, 0.22);
+            background: linear-gradient(135deg, rgba(255, 241, 242, 0.98), rgba(255, 251, 235, 0.88));
+        }
+
+        .expected-chip strong {
+            color: var(--rose);
+        }
+
+        .expected-chip.down {
+            color: #065f46;
+            border-color: rgba(4, 120, 87, 0.24);
+            background: linear-gradient(135deg, rgba(236, 253, 245, 0.98), rgba(240, 253, 250, 0.88));
+        }
+
+        .expected-chip.down strong {
+            color: var(--green);
+        }
+
+        .expected-chip.neutral {
+            color: #475569;
+            border-color: rgba(148, 163, 184, 0.34);
+            background: #f8fafc;
+        }
+
+        .expected-chip.neutral strong {
+            color: #64748b;
         }
 
         .metrics {
@@ -341,6 +499,13 @@
             border-radius: 8px;
             padding: 10px;
             background: #fff;
+            transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+        }
+
+        .metric:hover {
+            transform: translateY(-2px);
+            border-color: rgba(37, 99, 235, 0.34);
+            box-shadow: 0 12px 24px rgba(23, 32, 51, 0.10);
         }
 
         .metric .label {
@@ -372,6 +537,8 @@
         }
 
         .table-wrap {
+            position: relative;
+            z-index: 1;
             overflow-x: auto;
         }
 
@@ -409,7 +576,7 @@
         }
 
         tbody tr:hover td {
-            background: #fbfdff;
+            background: #f5f9ff;
         }
 
         .copyable {
@@ -516,7 +683,9 @@
 @php
     $fmt = fn ($value, int $decimals = 2): string => $value === null ? '--' : number_format((float) $value, $decimals);
     $pct = fn ($value, int $decimals = 2): string => $value === null ? '--' : number_format((float) $value, $decimals) . '%';
+    $signedPct = fn ($value, int $decimals = 2): string => $value === null ? '--' : (((float) $value > 0 ? '+' : '') . number_format((float) $value, $decimals) . '%');
     $tone = fn ($value): string => $value === null ? 'muted' : ((float) $value >= 0 ? 'pos' : 'neg');
+    $expectedTone = fn ($value): string => $value === null ? 'neutral' : ((float) $value >= 0 ? 'up' : 'down');
     $passes = fn ($value, float $threshold): bool => $value !== null && (float) $value > $threshold;
     $filterChecked = fn (string $filter): bool => in_array($filter, $filters, true);
     $sortUrl = fn (string $target): string => request()->fullUrlWithQuery(['sort' => $target, 'page' => null]);
@@ -624,6 +793,10 @@
             @foreach ($stocks as $stock)
                 @php
                     $recentHigh = isset($recentTwoMonthHighKeys[$stock['exchange'] . '|' . $stock['stock_code']]);
+                    $valuationGroup = $stock['valuation_group'] ?? null;
+                    $valuationGroupPe = $stock['valuation_group_pe'] ?? null;
+                    $expectedPrice = $stock['expected_price'] ?? null;
+                    $expectedPriceChangePercent = $stock['expected_price_change_percent'] ?? null;
                 @endphp
                 <article class="stock-card" style="animation-delay: {{ min($loop->index * 28, 360) }}ms">
                     <header class="stock-head">
@@ -648,8 +821,23 @@
                                 @endif
                                 <span class="badge {{ $stock['net_margin_filter_pass'] ? 'pass' : 'fail' }}">淨利率 {{ $stock['net_margin_filter_pass'] ? 'PASS' : 'WAIT' }}</span>
                             </div>
-                            <div class="meta">
-                                股價 {{ $fmt($stock['latest_close_price']) }}，成交量 {{ $stock['volume_lots'] === null ? '--' : number_format((int) $stock['volume_lots']) }} 張
+                            <div class="meta stock-meta">
+                                <span class="meta-chip price-chip">股價 <strong>{{ $fmt($stock['latest_close_price']) }}</strong></span>
+                                <span class="meta-chip volume-chip">成交量 <strong>{{ $stock['volume_lots'] === null ? '--' : number_format((int) $stock['volume_lots']) }}</strong> 張</span>
+                                @if ($valuationGroup)
+                                    <span class="meta-chip group-chip">
+                                        族群 <strong>{{ $valuationGroup }}</strong>
+                                        @if ($valuationGroupPe !== null)
+                                            <em>{{ $fmt($valuationGroupPe, 1) }}x</em>
+                                        @endif
+                                    </span>
+                                @endif
+                                <span class="meta-chip expected-chip {{ $expectedTone($expectedPriceChangePercent) }}">
+                                    預期股價 <strong>{{ $fmt($expectedPrice) }}</strong>
+                                    @if ($expectedPriceChangePercent !== null)
+                                        <em>{{ $signedPct($expectedPriceChangePercent) }}</em>
+                                    @endif
+                                </span>
                             </div>
                         </div>
                         <div class="metrics">

@@ -514,6 +514,36 @@ class TwStockQ1FinancialReportsTest extends TestCase
             );
         }
         DB::table('tw_stock_daily_prices')->insert($dailyRows);
+        DB::table('tw_stock_company_profiles')->insert([
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '2408',
+                'stock_name' => '南亞科',
+                'industry' => '半導體業',
+                'industry_code' => null,
+                'valuation_group' => '記憶體/儲存',
+                'valuation_group_pe' => 38.0,
+                'source_date' => '2026-05-08',
+                'source_payload' => null,
+                'fetched_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '8261',
+                'stock_name' => '富鼎',
+                'industry' => '半導體業',
+                'industry_code' => null,
+                'valuation_group' => 'IC設計',
+                'valuation_group_pe' => 45.0,
+                'source_date' => '2026-05-08',
+                'source_payload' => null,
+                'fetched_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
 
         $response = $this->get(route('tw-stock.annual-comparison.index'));
 
@@ -539,6 +569,11 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('value="200"', false)
             ->assertSee('value="500"', false)
             ->assertSee('data-copy-value="2408"', false)
+            ->assertSee('族群')
+            ->assertSee('記憶體/儲存')
+            ->assertSee('38.0x')
+            ->assertSee('預期股價')
+            ->assertSee('121.60')
             ->assertSee('2020 → 2021')
             ->assertSee('點一下複製');
 

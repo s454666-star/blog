@@ -174,9 +174,9 @@
 
         .summary {
             display: grid;
-            grid-template-columns: repeat(7, minmax(92px, 1fr));
+            grid-template-columns: repeat(8, minmax(88px, 1fr));
             gap: 8px;
-            min-width: 640px;
+            min-width: 720px;
         }
 
         .stat {
@@ -440,6 +440,11 @@
             background: #166534;
         }
 
+        .hot {
+            color: #fff;
+            background: linear-gradient(135deg, #e11d48, #f59e0b);
+        }
+
         .fail {
             color: #475569;
             background: #f1f5f9;
@@ -536,8 +541,8 @@
         <div>
             <div class="search-row">
                 <input type="search" name="q" value="{{ $search }}" placeholder="搜尋股票代號或名稱" data-auto-submit>
-                <a class="sort-link {{ $sort === 'revenue' ? 'active' : '' }}" href="{{ $sortUrl('revenue') }}">營收加總排序</a>
-                <a class="sort-link {{ $sort === 'eps' ? 'active' : '' }}" href="{{ $sortUrl('eps') }}">EPS 加總排序</a>
+                <a class="sort-link {{ $sort === 'revenue' ? 'active' : '' }}" href="{{ $sortUrl('revenue') }}">營收加權排序</a>
+                <a class="sort-link {{ $sort === 'eps' ? 'active' : '' }}" href="{{ $sortUrl('eps') }}">EPS 加權排序</a>
                 <input type="hidden" name="sort" value="{{ $sort }}">
                 <select name="per_page" data-auto-submit aria-label="每頁筆數">
                     @foreach ($allowedPerPage as $option)
@@ -548,11 +553,11 @@
             <div class="filter-row">
                 <label class="check">
                     <input type="checkbox" name="revenue_growth" value="1" {{ $filterChecked('revenue_growth') ? 'checked' : '' }} data-auto-submit>
-                    營收 5 年 YoY 合計 &gt; 40%
+                    營收 5 年 YoY 加權 &gt; 60%
                 </label>
                 <label class="check">
                     <input type="checkbox" name="eps_growth" value="1" {{ $filterChecked('eps_growth') ? 'checked' : '' }} data-auto-submit>
-                    EPS 5 年 YoY 合計 &gt; 25%
+                    EPS 5 年 YoY 加權 &gt; 38%
                 </label>
                 <label class="check">
                     <input type="checkbox" name="current_q1_eps_yoy" value="1" {{ $filterChecked('current_q1_eps_yoy') ? 'checked' : '' }} data-auto-submit>
@@ -564,7 +569,11 @@
                 </label>
                 <label class="check">
                     <input type="checkbox" name="current_q1_revenue_yoy" value="1" {{ $filterChecked('current_q1_revenue_yoy') ? 'checked' : '' }} data-auto-submit>
-                    2026 Q1 營收 YoY &gt; 5%
+                    2026 Q1 營收 YoY &gt; 8%
+                </label>
+                <label class="check">
+                    <input type="checkbox" name="recent_two_month_high" value="1" {{ $filterChecked('recent_two_month_high') ? 'checked' : '' }} data-auto-submit>
+                    近 3 日創兩月新高
                 </label>
                 <label class="check">
                     <input type="checkbox" name="net_margin" value="1" {{ $filterChecked('net_margin') ? 'checked' : '' }} data-auto-submit>
@@ -598,6 +607,10 @@
                 <div class="value">{{ number_format($summary['currentQ1RevenueYoyPass']) }}</div>
             </div>
             <div class="stat">
+                <div class="label">近 3 日新高</div>
+                <div class="value">{{ number_format($summary['recentTwoMonthHighPass']) }}</div>
+            </div>
+            <div class="stat">
                 <div class="label">淨利率條件</div>
                 <div class="value">{{ number_format($summary['netMarginPass']) }}</div>
             </div>
@@ -609,6 +622,9 @@
     @else
         <main class="stock-list">
             @foreach ($stocks as $stock)
+                @php
+                    $recentHigh = isset($recentTwoMonthHighKeys[$stock['exchange'] . '|' . $stock['stock_code']]);
+                @endphp
                 <article class="stock-card" style="animation-delay: {{ min($loop->index * 28, 360) }}ms">
                     <header class="stock-head">
                         <div class="identity">
@@ -624,8 +640,11 @@
                                 @if ($passes($stock['end_year_revenue_yoy_percent'], 15))
                                     <span class="badge pass">2025 營收 PASS</span>
                                 @endif
-                                @if ($passes($stock['current_q1_revenue_yoy_percent'], 5))
+                                @if ($passes($stock['current_q1_revenue_yoy_percent'], 8))
                                     <span class="badge pass">Q1 營收 YoY PASS</span>
+                                @endif
+                                @if ($recentHigh)
+                                    <span class="badge hot">近 3 日新高</span>
                                 @endif
                                 <span class="badge {{ $stock['net_margin_filter_pass'] ? 'pass' : 'fail' }}">淨利率 {{ $stock['net_margin_filter_pass'] ? 'PASS' : 'WAIT' }}</span>
                             </div>
@@ -635,12 +654,12 @@
                         </div>
                         <div class="metrics">
                             <div class="metric">
-                                <div class="label">營收 YoY 合計</div>
+                                <div class="label">營收 YoY 加權</div>
                                 <div class="value {{ $tone($stock['revenue_yoy_sum']) }}">{{ $pct($stock['revenue_yoy_sum']) }}</div>
                                 <div class="bar"></div>
                             </div>
                             <div class="metric">
-                                <div class="label">EPS YoY 合計</div>
+                                <div class="label">EPS YoY 加權</div>
                                 <div class="value {{ $tone($stock['eps_yoy_sum']) }}">{{ $pct($stock['eps_yoy_sum']) }}</div>
                                 <div class="bar"></div>
                             </div>

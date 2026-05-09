@@ -490,18 +490,44 @@ class TwStockQ1FinancialReportsTest extends TestCase
         ])->assertExitCode(0);
 
         $this->assertSame(4, DB::table('tw_stock_annual_financial_comparisons')->count());
+        $topAnnual = DB::table('tw_stock_annual_financial_comparisons')->where('stock_code', '2408')->first();
+        $this->assertEqualsWithDelta(173.61, (float) $topAnnual->revenue_yoy_sum, 0.01);
+        $this->assertEqualsWithDelta(178.08, (float) $topAnnual->eps_yoy_sum, 0.01);
+        $this->assertSame(1, (int) $topAnnual->revenue_filter_pass);
+        $this->assertSame(1, (int) $topAnnual->eps_filter_pass);
+
+        $latestDate = CarbonImmutable::create(2026, 5, 8);
+        $dailyRows = [];
+        for ($index = 0; $index < 50; $index++) {
+            $date = $latestDate->subDays($index)->toDateString();
+            $dailyRows[] = $this->dailyPriceRow(
+                '2408',
+                '南亞科',
+                $date,
+                $index === 1 ? 132.0 : 118.0 - min($index, 20),
+            );
+            $dailyRows[] = $this->dailyPriceRow(
+                '8261',
+                '富鼎',
+                $date,
+                $index === 8 ? 132.0 : 118.0 - min($index, 20),
+            );
+        }
+        DB::table('tw_stock_daily_prices')->insert($dailyRows);
 
         $response = $this->get(route('tw-stock.annual-comparison.index'));
 
         $response->assertOk()
             ->assertSee('台股年度營收 EPS 比較')
-            ->assertSee('營收加總排序')
-            ->assertSee('EPS 加總排序')
-            ->assertSee('營收 5 年 YoY 合計 &gt; 40%', false)
-            ->assertSee('EPS 5 年 YoY 合計 &gt; 25%', false)
+            ->assertSee('營收加權排序')
+            ->assertSee('EPS 加權排序')
+            ->assertSee('營收 5 年 YoY 加權 &gt; 60%', false)
+            ->assertSee('EPS 5 年 YoY 加權 &gt; 38%', false)
             ->assertSee('2026 Q1 EPS YoY &gt; 5%', false)
             ->assertSee('2025 年營收 YoY &gt; 15%', false)
-            ->assertSee('2026 Q1 營收 YoY &gt; 5%', false)
+            ->assertSee('2026 Q1 營收 YoY &gt; 8%', false)
+            ->assertSee('近 3 日創兩月新高')
+            ->assertSee('近 3 日新高')
             ->assertDontSee('每年 EPS YoY 均為正')
             ->assertDontSee('Q1 EPS YoY WAIT')
             ->assertDontSee('2025 營收 WAIT')
@@ -530,6 +556,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             'current_q1_eps_yoy' => 1,
             'end_year_revenue_yoy' => 1,
             'current_q1_revenue_yoy' => 1,
+            'recent_two_month_high' => 1,
         ]));
 
         $filtered->assertOk()
@@ -538,6 +565,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('name="current_q1_eps_yoy" value="1" checked', false)
             ->assertSee('name="end_year_revenue_yoy" value="1" checked', false)
             ->assertSee('name="current_q1_revenue_yoy" value="1" checked', false)
+            ->assertSee('name="recent_two_month_high" value="1" checked', false)
             ->assertSee('data-copy-value="2408"', false)
             ->assertDontSee('data-copy-value="8261"', false)
             ->assertDontSee('data-copy-value="2451"', false)

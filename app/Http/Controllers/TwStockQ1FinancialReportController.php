@@ -123,6 +123,7 @@ class TwStockQ1FinancialReportController extends Controller
             'current_q1_eps_yoy',
             'end_year_revenue_yoy',
             'current_q1_revenue_yoy',
+            'recent_two_month_high',
             'net_margin',
         ])
             ->filter(fn (string $filter): bool => $request->boolean($filter))
@@ -139,6 +140,7 @@ class TwStockQ1FinancialReportController extends Controller
                         ->orWhere('stock_name', 'like', $like);
                 });
             });
+        $recentTwoMonthHighKeys = $this->recentTwoMonthHighKeys((clone $baseQuery)->get(['exchange', 'stock_code']));
 
         foreach ($filters as $filter) {
             match ($filter) {
@@ -146,7 +148,8 @@ class TwStockQ1FinancialReportController extends Controller
                 'eps_growth' => $baseQuery->where('eps_filter_pass', true),
                 'current_q1_eps_yoy' => $baseQuery->where('current_q1_eps_yoy_percent', '>', 5),
                 'end_year_revenue_yoy' => $baseQuery->where('end_year_revenue_yoy_percent', '>', 15),
-                'current_q1_revenue_yoy' => $baseQuery->where('current_q1_revenue_yoy_percent', '>', 5),
+                'current_q1_revenue_yoy' => $baseQuery->where('current_q1_revenue_yoy_percent', '>', 8),
+                'recent_two_month_high' => $this->applyStockKeyFilter($baseQuery, $recentTwoMonthHighKeys),
                 'net_margin' => $baseQuery->where('net_margin_filter_pass', true),
                 default => null,
             };
@@ -173,9 +176,11 @@ class TwStockQ1FinancialReportController extends Controller
                 'epsPass' => (clone $baseQuery)->where('eps_filter_pass', true)->count(),
                 'currentQ1EpsYoyPass' => (clone $baseQuery)->where('current_q1_eps_yoy_percent', '>', 5)->count(),
                 'endYearRevenueYoyPass' => (clone $baseQuery)->where('end_year_revenue_yoy_percent', '>', 15)->count(),
-                'currentQ1RevenueYoyPass' => (clone $baseQuery)->where('current_q1_revenue_yoy_percent', '>', 5)->count(),
+                'currentQ1RevenueYoyPass' => (clone $baseQuery)->where('current_q1_revenue_yoy_percent', '>', 8)->count(),
+                'recentTwoMonthHighPass' => $this->applyStockKeyFilter(clone $baseQuery, $recentTwoMonthHighKeys)->count(),
                 'netMarginPass' => (clone $baseQuery)->where('net_margin_filter_pass', true)->count(),
             ],
+            'recentTwoMonthHighKeys' => $recentTwoMonthHighKeys,
             'years' => range(self::ANNUAL_COMPARISON_START_YEAR + 1, self::ANNUAL_COMPARISON_END_YEAR),
         ]);
     }
@@ -325,8 +330,24 @@ class TwStockQ1FinancialReportController extends Controller
      */
     private function attachRecentTwoMonthHighFlags(Collection $rows): Collection
     {
+        $recentTwoMonthHighKeys = $this->recentTwoMonthHighKeys($rows);
+
+        return $rows->each(function ($row) use ($recentTwoMonthHighKeys): void {
+            $row->setAttribute(
+                'recent_two_month_high',
+                isset($recentTwoMonthHighKeys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)]),
+            );
+        });
+    }
+
+    /**
+     * @param Collection<int, object> $rows
+     * @return array<string, true>
+     */
+    private function recentTwoMonthHighKeys(Collection $rows): array
+    {
         if ($rows->isEmpty()) {
-            return $rows;
+            return [];
         }
 
         $stockCodes = $rows
@@ -345,7 +366,7 @@ class TwStockQ1FinancialReportController extends Controller
             ->all();
 
         if ($stockCodes === [] || $exchanges === []) {
-            return $rows->each(fn (TwStockQ1FinancialReport $row): TwStockQ1FinancialReport => $row->setAttribute('recent_two_month_high', false));
+            return [];
         }
 
         $latestDate = TwStockDailyPrice::query()
@@ -353,7 +374,7 @@ class TwStockQ1FinancialReportController extends Controller
             ->whereIn('exchange', $exchanges)
             ->max('trade_date');
         if ($latestDate === null) {
-            return $rows->each(fn (TwStockQ1FinancialReport $row): TwStockQ1FinancialReport => $row->setAttribute('recent_two_month_high', false));
+            return [];
         }
 
         $startDate = Carbon::parse($latestDate)
@@ -370,15 +391,16 @@ class TwStockQ1FinancialReportController extends Controller
             ->get(['exchange', 'stock_code', 'trade_date', 'high_price'])
             ->groupBy(fn (TwStockDailyPrice $row): string => $this->stockKey((string) $row->exchange, (string) $row->stock_code));
 
-        return $rows->each(function (TwStockQ1FinancialReport $row) use ($dailyRowsByStock): void {
+        $flags = [];
+        foreach ($rows as $row) {
+            $stockKey = $this->stockKey((string) $row->exchange, (string) $row->stock_code);
             $dailyRows = $dailyRowsByStock
-                ->get($this->stockKey((string) $row->exchange, (string) $row->stock_code), collect())
+                ->get($stockKey, collect())
                 ->take(self::RECENT_HIGH_LOOKBACK_TRADING_DAYS)
                 ->values();
 
             if ($dailyRows->isEmpty()) {
-                $row->setAttribute('recent_two_month_high', false);
-                return;
+                continue;
             }
 
             $lookbackHigh = $dailyRows->max(fn (TwStockDailyPrice $dailyRow): float => (float) $dailyRow->high_price);
@@ -386,10 +408,31 @@ class TwStockQ1FinancialReportController extends Controller
                 ->take(self::RECENT_HIGH_SIGNAL_TRADING_DAYS)
                 ->max(fn (TwStockDailyPrice $dailyRow): float => (float) $dailyRow->high_price);
 
-            $row->setAttribute(
-                'recent_two_month_high',
-                $recentHigh !== null && $lookbackHigh !== null && (float) $recentHigh >= (float) $lookbackHigh,
-            );
+            if ($recentHigh !== null && $lookbackHigh !== null && (float) $recentHigh >= (float) $lookbackHigh) {
+                $flags[$stockKey] = true;
+            }
+        }
+
+        return $flags;
+    }
+
+    /**
+     * @param array<string, true> $stockKeys
+     */
+    private function applyStockKeyFilter(Builder $query, array $stockKeys): Builder
+    {
+        if ($stockKeys === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(function (Builder $query) use ($stockKeys): void {
+            foreach (array_keys($stockKeys) as $stockKey) {
+                [$exchange, $stockCode] = explode('|', $stockKey, 2);
+                $query->orWhere(function (Builder $query) use ($exchange, $stockCode): void {
+                    $query->where('exchange', $exchange)
+                        ->where('stock_code', $stockCode);
+                });
+            }
         });
     }
 

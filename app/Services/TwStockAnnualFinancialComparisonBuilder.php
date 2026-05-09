@@ -8,6 +8,15 @@ use Illuminate\Support\Collection;
 
 class TwStockAnnualFinancialComparisonBuilder
 {
+    private const REVENUE_WEIGHTED_YOY_PASS_THRESHOLD = 60.0;
+
+    private const EPS_WEIGHTED_YOY_PASS_THRESHOLD = 38.0;
+
+    /**
+     * @var list<float>
+     */
+    private const YEARLY_GROWTH_WEIGHTS = [0.5, 1.0, 1.5, 2.0, 2.5];
+
     /**
      * @return Collection<int, array<string, mixed>>
      */
@@ -196,8 +205,8 @@ class TwStockAnnualFinancialComparisonBuilder
             ];
         }
 
-        $revenueYoySum = $this->sumExistingValues($comparisons, 'revenue_yoy_percent');
-        $epsYoySum = $this->sumExistingValues($comparisons, 'eps_yoy_percent');
+        $revenueYoySum = $this->weightedSumExistingValues($comparisons, 'revenue_yoy_percent');
+        $epsYoySum = $this->weightedSumExistingValues($comparisons, 'eps_yoy_percent');
         $epsYoyAllPositive = $this->allGrowthValuesPositive($comparisons, 'eps_yoy_percent');
         $endYearRevenueYoy = $this->growthValueForYear($comparisons, $endYear, 'revenue_yoy_percent');
         $recentNetMarginAverage = $this->recentNetMarginAverage($netMarginRows, 8);
@@ -214,8 +223,8 @@ class TwStockAnnualFinancialComparisonBuilder
             'comparisons' => $comparisons,
             'revenue_yoy_sum' => $revenueYoySum,
             'eps_yoy_sum' => $epsYoySum,
-            'revenue_filter_pass' => $revenueYoySum !== null && $revenueYoySum > 40,
-            'eps_filter_pass' => $epsYoySum !== null && $epsYoySum > 25,
+            'revenue_filter_pass' => $revenueYoySum !== null && $revenueYoySum > self::REVENUE_WEIGHTED_YOY_PASS_THRESHOLD,
+            'eps_filter_pass' => $epsYoySum !== null && $epsYoySum > self::EPS_WEIGHTED_YOY_PASS_THRESHOLD,
             'eps_yoy_all_positive' => $epsYoyAllPositive,
             'net_margin_filter_pass' => ($recentNetMarginAverage !== null && $recentNetMarginAverage > 15)
                 || ($lastTwoYearNetMarginAverage !== null && $lastTwoYearNetMarginAverage > 15),
@@ -286,6 +295,25 @@ class TwStockAnnualFinancialComparisonBuilder
         ), fn (?float $value): bool => $value !== null));
 
         return $values === [] ? null : array_sum($values);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     */
+    private function weightedSumExistingValues(array $rows, string $field): ?float
+    {
+        $weightedSum = null;
+
+        foreach (array_values($rows) as $index => $row) {
+            $value = $this->nullableFloat($row[$field] ?? null);
+            if ($value === null) {
+                continue;
+            }
+
+            $weightedSum = ($weightedSum ?? 0.0) + ($value * (self::YEARLY_GROWTH_WEIGHTS[$index] ?? 1.0));
+        }
+
+        return $weightedSum;
     }
 
     /**

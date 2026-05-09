@@ -20,6 +20,10 @@ class InjectFancyCursor
         /** @var Response $response */
         $response = $next($request);
 
+        if ($this->usesNativeCursor($request)) {
+            return $response;
+        }
+
         if ($response instanceof BinaryFileResponse || $response instanceof StreamedResponse) {
             return $response;
         }
@@ -69,6 +73,11 @@ class InjectFancyCursor
         }
 
         return $response;
+    }
+
+    private function usesNativeCursor(Request $request): bool
+    {
+        return strtolower($request->getHost()) === 'stock.mystar.monster';
     }
 
     private function assetUrl(string $path): string

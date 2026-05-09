@@ -34,4 +34,14 @@ class PageCursorInjectionTest extends TestCase
         $response->assertDontSee('fancy-cursor.css', false);
         $response->assertDontSee('data-fancy-cursor=', false);
     }
+
+    public function test_stock_subdomain_uses_native_cursor(): void
+    {
+        $response = $this->get('http://stock.mystar.monster/');
+
+        $response->assertOk();
+        $response->assertDontSee('fancy-cursor.css', false);
+        $response->assertDontSee('fancy-cursor.js', false);
+        $response->assertDontSee('data-fancy-cursor=', false);
+    }
 }

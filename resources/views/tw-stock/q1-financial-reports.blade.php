@@ -439,6 +439,19 @@
             --group-bg: rgba(100, 116, 139, 0.07);
         }
 
+        tbody tr.recent-high-row {
+            background:
+                linear-gradient(90deg, rgba(220, 38, 38, 0.16), rgba(245, 158, 11, 0.11) 42%, rgba(255, 255, 255, 0.42) 100%),
+                linear-gradient(90deg, var(--group-bg), transparent 28%);
+            box-shadow: inset 4px 0 0 #dc2626;
+        }
+
+        tbody tr.recent-high-row:hover {
+            background:
+                linear-gradient(90deg, rgba(220, 38, 38, 0.20), rgba(245, 158, 11, 0.14) 44%, rgba(255, 255, 255, 0.62) 100%),
+                linear-gradient(90deg, var(--group-bg), transparent 28%);
+        }
+
         th:nth-child(1),
         td:nth-child(1) {
             width: 2.8%;
@@ -469,6 +482,16 @@
         th:nth-child(4),
         td:nth-child(4) {
             width: 5.5%;
+        }
+
+        th:nth-child(13),
+        td:nth-child(13) {
+            width: 4.8%;
+            text-align: center;
+        }
+
+        th:nth-child(13) .sort-link {
+            justify-content: center;
         }
 
         th:nth-child(15),
@@ -610,6 +633,26 @@
 
         .price {
             color: #0f172a;
+            font-weight: 900;
+        }
+
+        .recent-high-check {
+            display: inline-flex;
+            width: 26px;
+            height: 26px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            color: #ffffff;
+            background: linear-gradient(135deg, #dc2626, #f59e0b);
+            box-shadow: 0 8px 16px rgba(220, 38, 38, 0.20);
+            font-size: 15px;
+            font-weight: 900;
+            line-height: 1;
+        }
+
+        .recent-high-empty {
+            color: #cbd5e1;
             font-weight: 900;
         }
 
@@ -792,6 +835,12 @@
                 border-radius: 8px;
                 background: rgba(255, 255, 255, 0.94);
                 box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
+            }
+
+            tbody tr.recent-high-row {
+                border-color: rgba(220, 38, 38, 0.26);
+                border-left-color: #dc2626;
+                background: linear-gradient(135deg, rgba(255, 247, 237, 0.96), rgba(255, 241, 242, 0.96));
             }
 
             tbody tr:hover {
@@ -1061,7 +1110,7 @@
                             $revenueMomentumPercent = $row->latestMonthlyRevenueVsQ1AveragePercent();
                             $revenuePeAdjustmentPercent = $row->revenueMomentumPeAdjustmentPercent();
                         @endphp
-                        <tr class="group-{{ $group['class'] }}">
+                        <tr class="group-{{ $group['class'] }} {{ $row->recent_two_month_high ? 'recent-high-row' : '' }}">
                             <td data-label="排名"><span class="rank {{ $row->rank <= 10 ? 'top' : '' }}">{{ $row->rank }}</span></td>
                             <td data-label="分組"><span class="group-badge">{{ $group['label'] }}</span></td>
                             <td data-label="股票">
@@ -1092,7 +1141,13 @@
                             <td data-label="營益率">{{ $pctShort($row->q1_operating_margin_percent) }}</td>
                             <td data-label="淨利率">{{ $pctShort($row->q1_net_margin_percent) }}</td>
                             <td data-label="ROE">{{ $pctShort($row->roe_percent) }}</td>
-                            <td data-label="本業佔比">{{ $pctShort($row->operating_profit_mix_percent) }}</td>
+                            <td data-label="近3日兩月新高">
+                                @if ($row->recent_two_month_high)
+                                    <span class="recent-high-check" aria-label="近三日內有兩個月新高">✓</span>
+                                @else
+                                    <span class="recent-high-empty" aria-hidden="true">--</span>
+                                @endif
+                            </td>
                             <td data-label="股價">
                                 <div class="price">{{ $fmt($row->latest_close_price, 2) }}</div>
                                 <div class="sub">{{ $dateText($row->latest_price_date) }}</div>

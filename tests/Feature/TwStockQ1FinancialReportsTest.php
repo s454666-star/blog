@@ -188,11 +188,13 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('name="valuation_groups[]"', false)
             ->assertSee('全部族群')
             ->assertSee('name="sort"', false)
+            ->assertSee('近3日兩月新高')
             ->assertSee('sort=eps_yoy', false)
             ->assertSee('sort=expected_price', false)
             ->assertSee('data-tooltip="點一下排序：高到低"', false)
             ->assertSee('data-tooltip="點一下排序：低到高"', false)
             ->assertSee('data-auto-submit-form', false)
+            ->assertDontSee('本業佔比')
             ->assertDontSee('成交量(張)')
             ->assertDontSee('套用')
             ->assertDontSee('重設')
@@ -245,6 +247,56 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('9951')
             ->assertSee('5289')
             ->assertDontSee('8261');
+    }
+
+    public function test_dashboard_marks_recent_two_month_high_from_daily_prices(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            $this->row([
+                'stock_code' => '9951',
+                'stock_name' => '皇田',
+                'rank' => 2,
+            ]),
+            $this->row([
+                'stock_code' => '8261',
+                'stock_name' => '富鼎',
+                'rank' => 1,
+            ]),
+        ]);
+
+        $latestDate = CarbonImmutable::create(2026, 5, 8);
+        $dailyRows = [];
+        for ($index = 0; $index < 50; $index++) {
+            $date = $latestDate->subDays($index)->toDateString();
+
+            $dailyRows[] = $this->dailyPriceRow(
+                '9951',
+                '皇田',
+                $date,
+                $index === 1 ? 132.0 : 118.0 - min($index, 20),
+            );
+            $dailyRows[] = $this->dailyPriceRow(
+                '8261',
+                '富鼎',
+                $date,
+                $index === 8 ? 132.0 : 118.0 - min($index, 20),
+            );
+        }
+
+        DB::table('tw_stock_daily_prices')->insert($dailyRows);
+
+        $response = $this->get(route('tw-stock.q1-financial-reports.index', [
+            'sort' => 'recent_two_month_high',
+            'direction' => 'desc',
+            'per_page' => 50,
+        ]));
+
+        $response->assertOk()
+            ->assertSee('近3日兩月新高')
+            ->assertSee('recent-high-row', false)
+            ->assertSee('aria-label="近三日內有兩個月新高"', false)
+            ->assertDontSee('本業佔比');
+        $this->assertTableOrder($response->getContent(), ['9951', '8261']);
     }
 
     public function test_dashboard_shows_valuation_group_when_expected_price_is_unavailable(): void
@@ -1189,6 +1241,33 @@ class TwStockQ1FinancialReportsTest extends TestCase
         }
 
         DB::table('tw_stock_daily_prices')->insert($payloads);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function dailyPriceRow(string $stockCode, string $stockName, string $tradeDate, float $highPrice): array
+    {
+        return [
+            'exchange' => 'TWSE',
+            'stock_code' => $stockCode,
+            'stock_name' => $stockName,
+            'trade_date' => $tradeDate,
+            'open_price' => $highPrice - 1,
+            'high_price' => $highPrice,
+            'low_price' => $highPrice - 2,
+            'close_price' => $highPrice - 1,
+            'previous_close_price' => $highPrice - 2,
+            'price_change_amount' => 1,
+            'price_change_percent' => 1,
+            'volume_lots' => 1500,
+            'volume_shares' => 1500000,
+            'source' => 'test daily prices',
+            'source_payload' => json_encode(['test' => true], JSON_THROW_ON_ERROR),
+            'fetched_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
     }
 
     /**

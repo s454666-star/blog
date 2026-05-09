@@ -3,16 +3,24 @@
 namespace App\Http\Controllers;
 
 use App\Models\TwStockAnnualFinancialComparison;
+use App\Models\TwStockDailyPrice;
 use App\Models\TwStockQ1FinancialReport;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Carbon;
 
 class TwStockQ1FinancialReportController extends Controller
 {
     private const DASHBOARD_MIN_VOLUME_LOTS = 1000;
+
+    private const RECENT_HIGH_LOOKBACK_TRADING_DAYS = 44;
+
+    private const RECENT_HIGH_SIGNAL_TRADING_DAYS = 3;
+
+    private const RECENT_HIGH_QUERY_MONTHS = 4;
 
     private const ANNUAL_COMPARISON_START_YEAR = 2020;
 
@@ -57,9 +65,10 @@ class TwStockQ1FinancialReportController extends Controller
             ->whereNotNull('price_change_5d_percent')
             ->whereNotNull('price_change_20d_percent')
             ->count();
+        $matchingRows = $this->attachRecentTwoMonthHighFlags((clone $baseQuery)->get());
         $rows = $this->paginateRows(
             $request,
-            $this->sortRows((clone $baseQuery)->get(), $sort, $direction, $groupTotalRows),
+            $this->sortRows($matchingRows, $sort, $direction, $groupTotalRows),
             $perPage,
         );
 
@@ -216,7 +225,7 @@ class TwStockQ1FinancialReportController extends Controller
             'operating_margin' => '營益率',
             'net_margin' => '淨利率',
             'roe' => 'ROE',
-            'operating_profit_mix' => '本業佔比',
+            'recent_two_month_high' => '近3日兩月新高',
             'price' => '股價',
             'expected_price' => '預期股價',
             'change_1d' => '1日',
@@ -270,7 +279,7 @@ class TwStockQ1FinancialReportController extends Controller
             'operating_margin' => $this->numericSortValue($row->q1_operating_margin_percent),
             'net_margin' => $this->numericSortValue($row->q1_net_margin_percent),
             'roe' => $this->numericSortValue($row->roe_percent),
-            'operating_profit_mix' => $this->numericSortValue($row->operating_profit_mix_percent),
+            'recent_two_month_high' => $row->getAttribute('recent_two_month_high') ? 1 : 0,
             'price' => $this->numericSortValue($row->latest_close_price),
             'expected_price' => $this->numericSortValue($row->expectedPriceChangePercent()),
             'change_1d' => $this->numericSortValue($row->price_change_1d_percent),
@@ -308,6 +317,85 @@ class TwStockQ1FinancialReportController extends Controller
     private function numericSortValue(mixed $value): ?float
     {
         return $value === null ? null : (float) $value;
+    }
+
+    /**
+     * @param Collection<int, TwStockQ1FinancialReport> $rows
+     * @return Collection<int, TwStockQ1FinancialReport>
+     */
+    private function attachRecentTwoMonthHighFlags(Collection $rows): Collection
+    {
+        if ($rows->isEmpty()) {
+            return $rows;
+        }
+
+        $stockCodes = $rows
+            ->pluck('stock_code')
+            ->map(fn ($value): string => (string) $value)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $exchanges = $rows
+            ->pluck('exchange')
+            ->map(fn ($value): string => (string) $value)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($stockCodes === [] || $exchanges === []) {
+            return $rows->each(fn (TwStockQ1FinancialReport $row): TwStockQ1FinancialReport => $row->setAttribute('recent_two_month_high', false));
+        }
+
+        $latestDate = TwStockDailyPrice::query()
+            ->whereIn('stock_code', $stockCodes)
+            ->whereIn('exchange', $exchanges)
+            ->max('trade_date');
+        if ($latestDate === null) {
+            return $rows->each(fn (TwStockQ1FinancialReport $row): TwStockQ1FinancialReport => $row->setAttribute('recent_two_month_high', false));
+        }
+
+        $startDate = Carbon::parse($latestDate)
+            ->subMonths(self::RECENT_HIGH_QUERY_MONTHS)
+            ->toDateString();
+        $dailyRowsByStock = TwStockDailyPrice::query()
+            ->whereIn('stock_code', $stockCodes)
+            ->whereIn('exchange', $exchanges)
+            ->where('trade_date', '>=', $startDate)
+            ->whereNotNull('high_price')
+            ->orderBy('exchange')
+            ->orderBy('stock_code')
+            ->orderByDesc('trade_date')
+            ->get(['exchange', 'stock_code', 'trade_date', 'high_price'])
+            ->groupBy(fn (TwStockDailyPrice $row): string => $this->stockKey((string) $row->exchange, (string) $row->stock_code));
+
+        return $rows->each(function (TwStockQ1FinancialReport $row) use ($dailyRowsByStock): void {
+            $dailyRows = $dailyRowsByStock
+                ->get($this->stockKey((string) $row->exchange, (string) $row->stock_code), collect())
+                ->take(self::RECENT_HIGH_LOOKBACK_TRADING_DAYS)
+                ->values();
+
+            if ($dailyRows->isEmpty()) {
+                $row->setAttribute('recent_two_month_high', false);
+                return;
+            }
+
+            $lookbackHigh = $dailyRows->max(fn (TwStockDailyPrice $dailyRow): float => (float) $dailyRow->high_price);
+            $recentHigh = $dailyRows
+                ->take(self::RECENT_HIGH_SIGNAL_TRADING_DAYS)
+                ->max(fn (TwStockDailyPrice $dailyRow): float => (float) $dailyRow->high_price);
+
+            $row->setAttribute(
+                'recent_two_month_high',
+                $recentHigh !== null && $lookbackHigh !== null && (float) $recentHigh >= (float) $lookbackHigh,
+            );
+        });
+    }
+
+    private function stockKey(string $exchange, string $stockCode): string
+    {
+        return $exchange . '|' . $stockCode;
     }
 
     private function groupSortValue(int $rank, int $total): int

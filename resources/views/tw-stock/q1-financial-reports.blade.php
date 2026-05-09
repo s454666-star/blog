@@ -750,7 +750,7 @@
             }
         }
 
-        @media (max-width: 900px) {
+        @media (max-width: 1440px) {
             .filters,
             .nav-actions {
                 width: 100%;
@@ -818,7 +818,7 @@
 
             td {
                 display: grid;
-                grid-template-columns: 112px minmax(0, 1fr);
+                grid-template-columns: minmax(86px, 24vw) minmax(0, 1fr);
                 gap: 12px;
                 align-items: center;
                 min-height: 40px;
@@ -844,12 +844,59 @@
             }
 
             .score-cell,
-            .monthly-cell {
+            .monthly-cell,
+            .expected-price-cell,
+            .expected-price-main {
                 justify-items: end;
             }
 
             .score-track {
                 width: min(120px, 42vw);
+            }
+
+            .pe-adjustment-note,
+            .valuation-group-note {
+                overflow-wrap: anywhere;
+                text-align: right;
+            }
+        }
+
+        @media (min-width: 1441px) and (max-width: 1800px) {
+            body .shell {
+                width: calc(100vw - 8px);
+            }
+
+            table {
+                min-width: 1440px;
+                font-size: 10px;
+            }
+
+            th,
+            td {
+                padding-right: 3px;
+                padding-left: 3px;
+            }
+
+            .rank {
+                min-width: 30px;
+            }
+
+            .group-badge {
+                min-width: 50px;
+                font-size: 10px;
+            }
+
+            .stock-code {
+                font-size: 12px;
+            }
+
+            .stock-name,
+            .sub {
+                font-size: 10px;
+            }
+
+            .score-track {
+                width: 48px;
             }
         }
 @include('tw-stock.partials.shared-shell-width')
@@ -994,7 +1041,7 @@
         </form>
     </section>
 
-    <section class="table-panel" aria-label="Q1 財報排名表">
+    <section id="q1-report-table" class="table-panel" aria-label="Q1 財報排名表">
         <div class="table-head">
             <h2 class="panel-title">公開資訊比較表</h2>
             <div class="count-text">

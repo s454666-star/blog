@@ -509,6 +509,17 @@
             font-weight: 900;
         }
 
+        .expected-price-cell {
+            display: grid;
+            gap: 4px;
+            justify-items: end;
+        }
+
+        .expected-diff {
+            margin-left: 4px;
+            font-weight: 900;
+        }
+
         .monthly-cell {
             display: grid;
             gap: 4px;
@@ -719,6 +730,7 @@
     $fmt = fn ($value, int $decimals = 2): string => $value === null ? '--' : number_format((float) $value, $decimals);
     $pctText = fn ($value): string => $value === null ? '--' : number_format((float) $value, 2, '.', '') . '%';
     $pctShort = fn ($value): string => $value === null ? '--' : number_format((float) $value, abs((float) $value) >= 100 ? 0 : 2, '.', '') . '%';
+    $signedPct = fn ($value): string => $value === null ? '--' : ((float) $value >= 0 ? '+' : '') . number_format((float) $value, abs((float) $value) >= 100 ? 0 : 2, '.', '') . '%';
     $pctClass = fn ($value): string => $value === null ? 'neutral' : ((float) $value >= 0 ? 'positive' : 'negative');
     $scoreWidth = fn ($value): float => max(0, min(100, (float) ($value ?? 0)));
     $dateText = fn ($value): string => $value ? \Illuminate\Support\Carbon::parse($value)->format('Y-m-d') : '--';
@@ -763,7 +775,7 @@
         <div>
             <h1>{{ $year }} Q1 財報評分排名</h1>
             <div class="meta">
-                只列入已公布 Q1 財報且最新日成交量大於 1,000 張的普通股，排序依 EPS YoY、毛利率、營益率、淨利率加權評分由高到低。
+                只列入已公布 Q1 財報且符合 1,000 張以上流動性門檻的普通股，排序依 EPS YoY、毛利率、營益率、淨利率加權評分由高到低。
             </div>
         </div>
         <nav class="nav-actions" aria-label="台股頁面">
@@ -779,7 +791,7 @@
         <article class="summary-card">
             <div class="label">已入榜股票</div>
             <div class="value">{{ number_format($totalRows) }}</div>
-            <div class="sub">最新成交量門檻：1,000 張</div>
+            <div class="sub">流動性門檻：1,000 張</div>
         </article>
         <article class="summary-card">
             <div class="label">最高財報評分</div>
@@ -865,6 +877,9 @@
                         @php
                             $monthlyRevenueRows = collect($row->recent_monthly_revenues ?? [])->take(4)->values();
                             $group = $groupMeta($row->rank, $groupTotalRows);
+                            $expectedPrice = $row->expectedPrice();
+                            $expectedPriceChangePercent = $row->expectedPriceChangePercent();
+                            $reasonablePeRatio = $row->reasonablePeRatio();
                         @endphp
                         <tr class="group-{{ $group['class'] }}">
                             <td data-label="排名"><span class="rank {{ $row->rank <= 10 ? 'top' : '' }}">{{ $row->rank }}</span></td>
@@ -902,10 +917,22 @@
                                 <div class="price">{{ $fmt($row->latest_close_price, 2) }}</div>
                                 <div class="sub">{{ $dateText($row->latest_price_date) }}</div>
                             </td>
+                            <td data-label="預期股價">
+                                @if ($expectedPrice === null)
+                                    <span class="neutral">--</span>
+                                @else
+                                    <div class="expected-price-cell">
+                                        <div>
+                                            <span class="price">{{ $fmt($expectedPrice, 2) }}</span>
+                                            <span class="expected-diff {{ $pctClass($expectedPriceChangePercent) }}">({{ $signedPct($expectedPriceChangePercent) }})</span>
+                                        </div>
+                                        <div class="sub">PE {{ $fmt($reasonablePeRatio, 1) }}x</div>
+                                    </div>
+                                @endif
+                            </td>
                             <td data-label="1日" class="{{ $pctClass($row->price_change_1d_percent) }}">{{ $pctShort($row->price_change_1d_percent) }}</td>
                             <td data-label="5日" class="{{ $pctClass($row->price_change_5d_percent) }}">{{ $pctShort($row->price_change_5d_percent) }}</td>
                             <td data-label="20日" class="{{ $pctClass($row->price_change_20d_percent) }}">{{ $pctShort($row->price_change_20d_percent) }}</td>
-                            <td data-label="成交量(張)">{{ number_format((int) $row->volume_lots) }}</td>
                             @for ($monthIndex = 0; $monthIndex < 4; $monthIndex++)
                                 @php
                                     $monthlyRevenue = $monthlyRevenueRows->get($monthIndex);

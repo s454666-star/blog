@@ -154,6 +154,10 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertOk()
             ->assertSee('2026 Q1 財報評分排名')
             ->assertSee('Q1整體財報評分')
+            ->assertSee('預期股價')
+            ->assertSee('133.14')
+            ->assertSee('(+21.03%)')
+            ->assertSee('PE 21.2x')
             ->assertSee('近1月營收')
             ->assertSee('前段班')
             ->assertSee('name="price_min"', false)
@@ -162,9 +166,11 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('value="120"', false)
             ->assertSee('name="sort"', false)
             ->assertSee('sort=eps_yoy', false)
+            ->assertSee('sort=expected_price', false)
             ->assertSee('data-tooltip="點一下排序：高到低"', false)
             ->assertSee('data-tooltip="點一下排序：低到高"', false)
             ->assertSee('data-auto-submit-form', false)
+            ->assertDontSee('成交量(張)')
             ->assertDontSee('套用')
             ->assertDontSee('重設')
             ->assertSee('data-copy-value="9951"', false)
@@ -226,6 +232,17 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $priceResponse->assertDontSee('低量備用');
         $priceResponse->assertSee('sort=price', false)
             ->assertSee('direction=desc', false);
+
+        $expectedPriceResponse = $this->get(route('tw-stock.q1-financial-reports.index', [
+            'sort' => 'expected_price',
+            'direction' => 'desc',
+            'per_page' => 50,
+        ]));
+
+        $expectedPriceResponse->assertOk();
+        $this->assertTableOrder($expectedPriceResponse->getContent(), ['5289', '9951', '8261']);
+        $expectedPriceResponse->assertSee('sort=expected_price', false)
+            ->assertSee('direction=asc', false);
 
         $monthlyResponse = $this->get(route('tw-stock.q1-financial-reports.index', [
             'sort' => 'month_1',

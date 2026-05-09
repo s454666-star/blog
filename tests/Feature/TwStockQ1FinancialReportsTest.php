@@ -48,6 +48,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
     {
         Schema::dropIfExists('tw_stock_annual_financial_comparisons');
         Schema::dropIfExists('tw_stock_q1_financial_reports');
+        Schema::dropIfExists('tw_stock_daily_prices');
 
         Carbon::setTestNow();
         CarbonImmutable::setTestNow();
@@ -452,23 +453,9 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ]),
         ]);
 
-        Http::fake(function ($request) {
-            $url = $request->url();
-
-            if (str_starts_with($url, 'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY')) {
-                parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
-                $stockCode = (string) ($query['stockNo'] ?? '');
-
-                return Http::response([
-                    'stat' => 'OK',
-                    'data' => $stockCode === '3054'
-                        ? $this->twseMonthlyRowsForMarketData(75.5, 2.30, 70, 62, 900)
-                        : $this->twseMonthlyRows('8261'),
-                ]);
-            }
-
-            return Http::response([], 404);
-        });
+        $this->seedDailyPriceRows('8261', '富鼎', 126, -1.56, 120, 100, 4695);
+        $this->seedDailyPriceRows('3054', '立萬利', 75.5, 2.30, 70, 62, 900);
+        Http::fake(fn () => Http::response([], 404));
 
         $this->artisan('tw-stock:fetch-q1-financial-reports', [
             '--year' => 2026,
@@ -489,6 +476,8 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertEqualsWithDelta(26.0, (float) $row->price_change_20d_percent, 0.0001);
         $this->assertSame(4695, (int) $row->volume_lots);
         $this->assertSame(1, (int) $row->rank);
+        $sourcePayload = json_decode((string) $row->source_payload, true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('tw_stock_daily_prices (/tw-stock/daily-price-rankings)', $sourcePayload['daily_price_source']);
     }
 
     public function test_market_data_only_uses_latest_official_quote_when_daily_history_is_stale(): void
@@ -867,6 +856,49 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $rows[20]['收盤價'] = (string) $twentyDayClose;
 
         return $rows;
+    }
+
+    private function seedDailyPriceRows(
+        string $stockCode,
+        string $stockName,
+        float $latestClose,
+        float $oneDayChange,
+        float $fiveDayClose,
+        float $twentyDayClose,
+        int $volumeLots,
+        string $exchange = 'TWSE',
+    ): void {
+        $rows = $this->dailyRows($latestClose, $oneDayChange, $fiveDayClose, $twentyDayClose, $volumeLots);
+        $payloads = [];
+        foreach ($rows as $index => $row) {
+            $close = (float) $row['收盤價'];
+            $previousClose = isset($rows[$index + 1]) ? (float) $rows[$index + 1]['收盤價'] : null;
+            $changeAmount = $previousClose === null ? null : $close - $previousClose;
+            $payloads[] = [
+                'exchange' => $exchange,
+                'stock_code' => $stockCode,
+                'stock_name' => $stockName,
+                'trade_date' => CarbonImmutable::createFromFormat('Ymd', (string) $row['交易日'])->toDateString(),
+                'open_price' => $close,
+                'high_price' => $close,
+                'low_price' => $close,
+                'close_price' => $close,
+                'previous_close_price' => $previousClose,
+                'price_change_amount' => $changeAmount,
+                'price_change_percent' => $index === 0
+                    ? $oneDayChange
+                    : ($previousClose !== null && $previousClose > 0 ? (($close - $previousClose) / $previousClose) * 100 : null),
+                'volume_lots' => $volumeLots,
+                'volume_shares' => $volumeLots * 1000,
+                'source' => 'test daily prices',
+                'source_payload' => json_encode(['test' => true], JSON_THROW_ON_ERROR),
+                'fetched_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        }
+
+        DB::table('tw_stock_daily_prices')->insert($payloads);
     }
 
     /**
@@ -1392,6 +1424,30 @@ HTML;
 
     private function createTable(): void
     {
+        Schema::create('tw_stock_daily_prices', function (Blueprint $table): void {
+            $table->id();
+            $table->string('exchange', 12);
+            $table->string('stock_code', 12);
+            $table->string('stock_name');
+            $table->date('trade_date');
+            $table->decimal('open_price', 12, 4)->nullable();
+            $table->decimal('high_price', 12, 4)->nullable();
+            $table->decimal('low_price', 12, 4)->nullable();
+            $table->decimal('close_price', 12, 4);
+            $table->decimal('previous_close_price', 12, 4)->nullable();
+            $table->decimal('price_change_amount', 12, 4)->nullable();
+            $table->decimal('price_change_percent', 10, 4)->nullable();
+            $table->unsignedBigInteger('volume_lots')->default(0);
+            $table->unsignedBigInteger('volume_shares')->default(0);
+            $table->unsignedBigInteger('trade_value')->nullable();
+            $table->unsignedInteger('transaction_count')->nullable();
+            $table->string('source')->nullable();
+            $table->json('source_payload')->nullable();
+            $table->timestamp('fetched_at')->nullable();
+            $table->timestamps();
+            $table->unique(['exchange', 'stock_code', 'trade_date']);
+        });
+
         Schema::create('tw_stock_q1_financial_reports', function (Blueprint $table): void {
             $table->id();
             $table->unsignedSmallInteger('fiscal_year');

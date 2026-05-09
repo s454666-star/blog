@@ -117,7 +117,7 @@ class TwStockDailyPricesTest extends TestCase
             ->assertSee('data-overlay-mode="ma"', false)
             ->assertSee('data-overlay-mode="bollinger"', false)
             ->assertSee('布林軌道')
-            ->assertSee('DEFAULT_VISIBLE_TRADING_DAYS = 22', false)
+            ->assertSee('DEFAULT_VISIBLE_TRADING_DAYS = 44', false)
             ->assertSee('fixRightEdge: true', false)
             ->assertSee('setVisibleLogicalRange', false)
             ->assertDontSee('chart.timeScale().fitContent()', false)

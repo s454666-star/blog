@@ -540,7 +540,7 @@
     window.addEventListener('resize', resize);
     resize();
 
-    const DEFAULT_VISIBLE_TRADING_DAYS = 22;
+    const DEFAULT_VISIBLE_TRADING_DAYS = 44;
     const lastLogicalIndex = chartRows.length - 1;
     let isApplyingVisibleRange = false;
 

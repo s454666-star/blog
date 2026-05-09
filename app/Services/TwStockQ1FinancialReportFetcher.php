@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\TwStockDailyPrice;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
@@ -191,6 +192,11 @@ class TwStockQ1FinancialReportFetcher
      */
     public function fetchMarketData(array $candidate): array
     {
+        $storedMarketData = $this->fetchStoredDailyPriceMarketData($candidate);
+        if ($storedMarketData !== null) {
+            return $storedMarketData;
+        }
+
         $officialQuoteCandidate = $this->fetchLatestOfficialQuoteCandidate($candidate);
         $marketCandidate = $officialQuoteCandidate === null
             ? $candidate
@@ -242,6 +248,55 @@ class TwStockQ1FinancialReportFetcher
             'latest_daily_rows' => $dailyRows,
             'official_quote_row' => $officialQuoteCandidate['source_payload']['row'] ?? null,
             'official_quote_source' => $officialQuoteCandidate['source_payload']['source'] ?? null,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     * @return array<string, mixed>|null
+     */
+    private function fetchStoredDailyPriceMarketData(array $candidate): ?array
+    {
+        $exchange = (string) ($candidate['exchange'] ?? '');
+        $stockCode = (string) ($candidate['stock_code'] ?? '');
+        if ($exchange === '' || $stockCode === '') {
+            return null;
+        }
+
+        $storedRows = TwStockDailyPrice::query()
+            ->where('exchange', $exchange)
+            ->where('stock_code', $stockCode)
+            ->orderByDesc('trade_date')
+            ->limit(21)
+            ->get();
+
+        if ($storedRows->count() < 21) {
+            return null;
+        }
+
+        $dailyRows = $storedRows->map(fn (TwStockDailyPrice $row): array => [
+            '交易日' => $row->trade_date?->format('Ymd') ?? '',
+            '收盤價' => (string) $row->close_price,
+            '成交量' => (string) $row->volume_lots,
+            '漲幅(%)' => $row->price_change_percent === null ? null : (string) $row->price_change_percent,
+        ])->all();
+
+        $latest = $storedRows->first();
+        if (!$latest instanceof TwStockDailyPrice || $latest->trade_date === null || $latest->close_price === null) {
+            return null;
+        }
+
+        return [
+            'latest_close_price' => (float) $latest->close_price,
+            'latest_price_date' => $latest->trade_date->toDateString(),
+            'volume_lots' => (int) $latest->volume_lots,
+            'price_change_1d_percent' => $latest->price_change_percent ?? $this->periodChange($dailyRows, 1),
+            'price_change_5d_percent' => $this->periodChange($dailyRows, 5),
+            'price_change_20d_percent' => $this->periodChange($dailyRows, 20),
+            'daily_price_source' => 'tw_stock_daily_prices (/tw-stock/daily-price-rankings)',
+            'latest_daily_rows' => $dailyRows,
+            'official_quote_row' => null,
+            'official_quote_source' => null,
         ];
     }
 

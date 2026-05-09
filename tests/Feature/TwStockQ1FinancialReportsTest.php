@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\TwStockQ1FinancialReport;
 use App\Services\TwStockQ1FinancialReportFetcher;
 use App\Services\TwStockQ1ValuationService;
 use Carbon\CarbonImmutable;
@@ -184,6 +185,8 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('value="100"', false)
             ->assertSee('name="price_max"', false)
             ->assertSee('value="120"', false)
+            ->assertSee('name="valuation_groups[]"', false)
+            ->assertSee('全部族群')
             ->assertSee('name="sort"', false)
             ->assertSee('sort=eps_yoy', false)
             ->assertSee('sort=expected_price', false)
@@ -204,6 +207,46 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertDontSee('富鼎');
     }
 
+    public function test_dashboard_filters_by_multiple_valuation_groups(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            $this->row([
+                'stock_code' => '9951',
+                'stock_name' => '皇田',
+                'valuation_group' => '汽車/電動車',
+                'valuation_group_pe' => 22.0,
+                'rank' => 1,
+            ]),
+            $this->row([
+                'stock_code' => '8261',
+                'stock_name' => '富鼎',
+                'valuation_group' => 'IC設計',
+                'valuation_group_pe' => 45.0,
+                'rank' => 2,
+            ]),
+            $this->row([
+                'stock_code' => '5289',
+                'stock_name' => '宜鼎',
+                'valuation_group' => '記憶體/儲存',
+                'valuation_group_pe' => 38.0,
+                'rank' => 3,
+            ]),
+        ]);
+
+        $response = $this->get(route('tw-stock.q1-financial-reports.index', [
+            'valuation_groups' => ['汽車/電動車', '記憶體/儲存'],
+            'per_page' => 50,
+        ]));
+
+        $response->assertOk()
+            ->assertSee('汽車/電動車、記憶體/儲存')
+            ->assertSee('value="汽車/電動車" checked', false)
+            ->assertSee('value="記憶體/儲存" checked', false)
+            ->assertSee('9951')
+            ->assertSee('5289')
+            ->assertDontSee('8261');
+    }
+
     public function test_dashboard_shows_valuation_group_when_expected_price_is_unavailable(): void
     {
         DB::table('tw_stock_q1_financial_reports')->insert($this->row([
@@ -222,6 +265,57 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertOk()
             ->assertSee('--')
             ->assertSee('通信網路 24.0x');
+    }
+
+    public function test_reasonable_pe_uses_latest_post_q1_monthly_revenue_momentum(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            $this->row([
+                'stock_code' => '1111',
+                'valuation_group_pe' => 20.0,
+                'q1_revenue_score' => 50.0,
+                'q1_revenue_billion' => 30.0,
+                'recent_monthly_revenues' => json_encode([
+                    ['year_month' => '202604', 'revenue_billion' => 15.0],
+                    ['year_month' => '202605', 'revenue_billion' => 20.0],
+                    ['year_month' => '202603', 'revenue_billion' => 9.0],
+                ], JSON_THROW_ON_ERROR),
+            ]),
+            $this->row([
+                'stock_code' => '2222',
+                'valuation_group_pe' => 20.0,
+                'q1_revenue_score' => 50.0,
+                'q1_revenue_billion' => 30.0,
+                'recent_monthly_revenues' => json_encode([
+                    ['year_month' => '202604', 'revenue_billion' => 5.0],
+                ], JSON_THROW_ON_ERROR),
+            ]),
+            $this->row([
+                'stock_code' => '3333',
+                'valuation_group_pe' => 20.0,
+                'q1_revenue_score' => 50.0,
+                'q1_revenue_billion' => 30.0,
+                'recent_monthly_revenues' => json_encode([
+                    ['year_month' => '202603', 'revenue_billion' => 15.0],
+                ], JSON_THROW_ON_ERROR),
+            ]),
+        ]);
+
+        $higher = TwStockQ1FinancialReport::query()->where('stock_code', '1111')->firstOrFail();
+        $lower = TwStockQ1FinancialReport::query()->where('stock_code', '2222')->firstOrFail();
+        $notPublished = TwStockQ1FinancialReport::query()->where('stock_code', '3333')->firstOrFail();
+
+        $this->assertEqualsWithDelta(100.0, $higher->latestMonthlyRevenueVsQ1AveragePercent(), 0.0001);
+        $this->assertEqualsWithDelta(20.0, $higher->revenueMomentumPeAdjustmentPercent(), 0.0001);
+        $this->assertEqualsWithDelta(24.6, $higher->reasonablePeRatio(), 0.0001);
+
+        $this->assertEqualsWithDelta(-50.0, $lower->latestMonthlyRevenueVsQ1AveragePercent(), 0.0001);
+        $this->assertEqualsWithDelta(-20.0, $lower->revenueMomentumPeAdjustmentPercent(), 0.0001);
+        $this->assertEqualsWithDelta(16.4, $lower->reasonablePeRatio(), 0.0001);
+
+        $this->assertNull($notPublished->latestMonthlyRevenueVsQ1AveragePercent());
+        $this->assertNull($notPublished->revenueMomentumPeAdjustmentPercent());
+        $this->assertEqualsWithDelta(20.5, $notPublished->reasonablePeRatio(), 0.0001);
     }
 
     public function test_dashboard_sorts_all_matching_rows_before_paginating(): void
@@ -280,7 +374,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
         ]));
 
         $expectedPriceResponse->assertOk();
-        $this->assertTableOrder($expectedPriceResponse->getContent(), ['5289', '9951', '8261']);
+        $this->assertTableOrder($expectedPriceResponse->getContent(), ['8261', '9951', '5289']);
         $expectedPriceResponse->assertSee('sort=expected_price', false)
             ->assertSee('direction=asc', false);
 

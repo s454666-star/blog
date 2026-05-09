@@ -33,6 +33,8 @@ class TwStockQ1FinancialReportController extends Controller
         $search = trim((string) $request->query('q', ''));
         $priceMin = $this->priceFilterValue($request->query('price_min'));
         $priceMax = $this->priceFilterValue($request->query('price_max'));
+        $availableValuationGroups = $this->availableValuationGroups($year);
+        $valuationGroups = $this->selectedValuationGroups($request->query('valuation_groups', []), $availableValuationGroups);
         $sortableColumns = $this->sortableColumns();
         $sort = (string) $request->query('sort', 'score');
         if (!array_key_exists($sort, $sortableColumns)) {
@@ -44,7 +46,7 @@ class TwStockQ1FinancialReportController extends Controller
             $direction = 'desc';
         }
 
-        $baseQuery = $this->reportQuery($year, $search, $priceMin, $priceMax);
+        $baseQuery = $this->reportQuery($year, $search, $priceMin, $priceMax, $valuationGroups);
         $groupTotalRows = TwStockQ1FinancialReport::query()
             ->where('fiscal_year', $year)
             ->where('quarter', 1)
@@ -76,6 +78,8 @@ class TwStockQ1FinancialReportController extends Controller
             'search' => $search,
             'priceMin' => $priceMin,
             'priceMax' => $priceMax,
+            'valuationGroups' => $valuationGroups,
+            'availableValuationGroups' => $availableValuationGroups,
             'sort' => $sort,
             'direction' => $direction,
             'sortableColumns' => $sortableColumns,
@@ -156,7 +160,10 @@ class TwStockQ1FinancialReportController extends Controller
         ]);
     }
 
-    private function reportQuery(int $year, string $search, ?float $priceMin, ?float $priceMax): Builder
+    /**
+     * @param list<string> $valuationGroups
+     */
+    private function reportQuery(int $year, string $search, ?float $priceMin, ?float $priceMax, array $valuationGroups): Builder
     {
         return TwStockQ1FinancialReport::query()
             ->where('fiscal_year', $year)
@@ -176,7 +183,8 @@ class TwStockQ1FinancialReportController extends Controller
                 });
             })
             ->when($priceMin !== null, fn (Builder $query): Builder => $query->where('latest_close_price', '>=', $priceMin))
-            ->when($priceMax !== null, fn (Builder $query): Builder => $query->where('latest_close_price', '<=', $priceMax));
+            ->when($priceMax !== null, fn (Builder $query): Builder => $query->where('latest_close_price', '<=', $priceMax))
+            ->when($valuationGroups !== [], fn (Builder $query): Builder => $query->whereIn('valuation_group', $valuationGroups));
     }
 
     /**
@@ -253,7 +261,7 @@ class TwStockQ1FinancialReportController extends Controller
             'roe' => $this->numericSortValue($row->roe_percent),
             'operating_profit_mix' => $this->numericSortValue($row->operating_profit_mix_percent),
             'price' => $this->numericSortValue($row->latest_close_price),
-            'expected_price' => $this->numericSortValue($row->expectedPrice()),
+            'expected_price' => $this->numericSortValue($row->expectedPriceChangePercent()),
             'change_1d' => $this->numericSortValue($row->price_change_1d_percent),
             'change_5d' => $this->numericSortValue($row->price_change_5d_percent),
             'change_20d' => $this->numericSortValue($row->price_change_20d_percent),
@@ -343,5 +351,46 @@ class TwStockQ1FinancialReportController extends Controller
         }
 
         return max(0.0, (float) $value);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function availableValuationGroups(int $year): array
+    {
+        return TwStockQ1FinancialReport::query()
+            ->where('fiscal_year', $year)
+            ->where('quarter', 1)
+            ->where('volume_lots', '>=', self::DASHBOARD_MIN_VOLUME_LOTS)
+            ->whereNotNull('q1_revenue_billion')
+            ->whereNotNull('q1_eps')
+            ->whereNotNull('price_change_1d_percent')
+            ->whereNotNull('price_change_5d_percent')
+            ->whereNotNull('price_change_20d_percent')
+            ->whereNotNull('valuation_group')
+            ->select('valuation_group')
+            ->distinct()
+            ->orderBy('valuation_group')
+            ->pluck('valuation_group')
+            ->map(fn ($value): string => (string) $value)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param list<string> $availableValuationGroups
+     * @return list<string>
+     */
+    private function selectedValuationGroups(mixed $value, array $availableValuationGroups): array
+    {
+        $values = is_array($value) ? $value : [$value];
+        $available = array_fill_keys($availableValuationGroups, true);
+
+        return collect($values)
+            ->map(fn ($item): string => trim((string) $item))
+            ->filter(fn (string $item): bool => $item !== '' && isset($available[$item]))
+            ->unique()
+            ->values()
+            ->all();
     }
 }

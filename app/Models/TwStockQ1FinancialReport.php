@@ -14,6 +14,8 @@ class TwStockQ1FinancialReport extends Model
 
     private const MAX_REASONABLE_PE_RATIO = 72.0;
 
+    private const MAX_REVENUE_MOMENTUM_PE_ADJUSTMENT_PERCENT = 20.0;
+
     protected $table = 'tw_stock_q1_financial_reports';
 
     protected $guarded = [];
@@ -65,17 +67,42 @@ class TwStockQ1FinancialReport extends Model
             return null;
         }
 
-        if ($this->q1_revenue_score === null) {
-            return $groupPe;
+        $scoreAdjustedPe = $groupPe;
+        if ($this->q1_revenue_score !== null) {
+            $score = max(0.0, min(100.0, (float) $this->q1_revenue_score));
+            $scoreMultiplier = 0.80 + (($score / 100) * 0.45);
+            $scoreAdjustedPe = $groupPe * $scoreMultiplier;
         }
-
-        $score = max(0.0, min(100.0, (float) $this->q1_revenue_score));
-        $scoreMultiplier = 0.80 + (($score / 100) * 0.45);
 
         return max(
             self::MIN_REASONABLE_PE_RATIO,
-            min(self::MAX_REASONABLE_PE_RATIO, $groupPe * $scoreMultiplier),
+            min(self::MAX_REASONABLE_PE_RATIO, $scoreAdjustedPe * $this->revenueMomentumPeMultiplier()),
         );
+    }
+
+    public function latestMonthlyRevenueVsQ1AveragePercent(): ?float
+    {
+        $q1AverageRevenue = $this->q1AverageMonthlyRevenueBillion();
+        $latestMonthlyRevenue = $this->latestPostQuarterMonthlyRevenueBillion();
+
+        if ($q1AverageRevenue === null || $q1AverageRevenue <= 0 || $latestMonthlyRevenue === null) {
+            return null;
+        }
+
+        return (($latestMonthlyRevenue - $q1AverageRevenue) / $q1AverageRevenue) * 100;
+    }
+
+    public function revenueMomentumPeAdjustmentPercent(): ?float
+    {
+        $momentumPercent = $this->latestMonthlyRevenueVsQ1AveragePercent();
+
+        if ($momentumPercent === null) {
+            return null;
+        }
+
+        $clampedMomentum = max(-50.0, min(50.0, $momentumPercent));
+
+        return ($clampedMomentum / 50.0) * self::MAX_REVENUE_MOMENTUM_PE_ADJUSTMENT_PERCENT;
     }
 
     public function expectedPrice(): ?float
@@ -99,5 +126,74 @@ class TwStockQ1FinancialReport extends Model
         }
 
         return (($expectedPrice - (float) $this->latest_close_price) / (float) $this->latest_close_price) * 100;
+    }
+
+    private function revenueMomentumPeMultiplier(): float
+    {
+        $adjustmentPercent = $this->revenueMomentumPeAdjustmentPercent();
+
+        if ($adjustmentPercent === null) {
+            return 1.0;
+        }
+
+        return 1.0 + ($adjustmentPercent / 100.0);
+    }
+
+    private function q1AverageMonthlyRevenueBillion(): ?float
+    {
+        if ($this->q1_revenue_billion === null || (float) $this->q1_revenue_billion <= 0) {
+            return null;
+        }
+
+        return (float) $this->q1_revenue_billion / 3.0;
+    }
+
+    private function latestPostQuarterMonthlyRevenueBillion(): ?float
+    {
+        if (!is_array($this->recent_monthly_revenues)) {
+            return null;
+        }
+
+        $quarterEndYearMonth = $this->quarterEndYearMonth();
+        if ($quarterEndYearMonth === null) {
+            return null;
+        }
+
+        $latestYearMonth = null;
+        $latestRevenue = null;
+
+        foreach ($this->recent_monthly_revenues as $monthlyRevenue) {
+            if (!is_array($monthlyRevenue)) {
+                continue;
+            }
+
+            $yearMonth = (string) ($monthlyRevenue['year_month'] ?? '');
+            if (!preg_match('/^\d{6}$/', $yearMonth) || $yearMonth <= $quarterEndYearMonth) {
+                continue;
+            }
+
+            $revenue = $monthlyRevenue['revenue_billion'] ?? null;
+            if ($revenue === null || !is_numeric($revenue)) {
+                continue;
+            }
+
+            if ($latestYearMonth === null || $yearMonth > $latestYearMonth) {
+                $latestYearMonth = $yearMonth;
+                $latestRevenue = (float) $revenue;
+            }
+        }
+
+        return $latestRevenue;
+    }
+
+    private function quarterEndYearMonth(): ?string
+    {
+        if ($this->fiscal_year === null || $this->quarter === null) {
+            return null;
+        }
+
+        $quarter = max(1, min(4, (int) $this->quarter));
+
+        return sprintf('%04d%02d', (int) $this->fiscal_year, $quarter * 3);
     }
 }

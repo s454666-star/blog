@@ -179,6 +179,8 @@
         }
 
         .filter-panel {
+            position: relative;
+            z-index: 30;
             margin-bottom: 14px;
             padding: 14px;
         }
@@ -218,7 +220,104 @@
             width: 120px;
         }
 
+        .multi-select {
+            position: relative;
+            min-width: 220px;
+        }
+
+        .multi-select summary {
+            display: grid;
+            gap: 5px;
+            min-height: 38px;
+            padding: 8px 34px 8px 12px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            color: var(--muted);
+            background: #ffffff;
+            font-size: 12px;
+            font-weight: 800;
+            cursor: pointer;
+            list-style: none;
+        }
+
+        .multi-select summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .multi-select summary::after {
+            position: absolute;
+            top: 17px;
+            right: 12px;
+            width: 7px;
+            height: 7px;
+            content: "";
+            border-right: 2px solid #64748b;
+            border-bottom: 2px solid #64748b;
+            transform: rotate(45deg);
+            transition: transform 150ms ease;
+        }
+
+        .multi-select[open] summary::after {
+            transform: rotate(225deg);
+        }
+
+        .multi-select-title {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1;
+        }
+
+        .multi-select-value {
+            overflow: hidden;
+            color: var(--text);
+            font-size: 14px;
+            line-height: 1.2;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .multi-select-menu {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            z-index: 60;
+            display: grid;
+            width: min(360px, calc(100vw - 32px));
+            max-height: 320px;
+            overflow: auto;
+            padding: 8px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #ffffff;
+            box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+        }
+
+        .multi-select-option {
+            display: flex;
+            min-height: 32px;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            color: #334155;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .multi-select-option:hover {
+            background: #f1f5f9;
+        }
+
+        .multi-select-option input {
+            width: 15px;
+            height: 15px;
+            min-height: 0;
+            padding: 0;
+        }
+
         .table-panel {
+            position: relative;
+            z-index: 1;
             overflow: visible;
         }
 
@@ -542,6 +641,14 @@
             white-space: normal;
         }
 
+        .pe-adjustment-note {
+            max-width: 100%;
+            font-size: 10px;
+            font-weight: 900;
+            line-height: 1.2;
+            white-space: normal;
+        }
+
         .monthly-cell {
             display: grid;
             gap: 4px;
@@ -775,6 +882,9 @@
     $sortTooltip = fn (string $key): string => '點一下排序：' . ($sortNextDirection($key) === 'desc' ? '高到低' : '低到高');
     $sortIcon = fn (string $key): string => $sort !== $key ? '↕' : ($direction === 'asc' ? '▲' : '▼');
     $sortAria = fn (string $key): string => $sort !== $key ? 'none' : ($direction === 'asc' ? 'ascending' : 'descending');
+    $valuationGroupSummary = count($valuationGroups) === 0
+        ? '全部族群'
+        : implode('、', array_slice($valuationGroups, 0, 2)) . (count($valuationGroups) > 2 ? ' +' . (count($valuationGroups) - 2) : '');
     $groupMeta = function (?int $rank, int $total): array {
         $rank = max(1, (int) ($rank ?? 1));
         $total = max(1, $total);
@@ -859,6 +969,20 @@
                 股價上限
                 <input type="number" name="price_max" value="{{ $priceValue($priceMax) }}" min="0" step="0.01" placeholder="可不填" data-auto-submit-field>
             </label>
+            <details class="multi-select" data-multi-select>
+                <summary>
+                    <span class="multi-select-title">族群</span>
+                    <span class="multi-select-value">{{ $valuationGroupSummary }}</span>
+                </summary>
+                <div class="multi-select-menu">
+                    @foreach ($availableValuationGroups as $groupOption)
+                        <label class="multi-select-option">
+                            <input type="checkbox" name="valuation_groups[]" value="{{ $groupOption }}" @checked(in_array($groupOption, $valuationGroups, true))>
+                            <span>{{ $groupOption }}</span>
+                        </label>
+                    @endforeach
+                </div>
+            </details>
             <label>
                 每頁
                 <select name="per_page">
@@ -905,6 +1029,8 @@
                             $reasonablePeRatio = $row->reasonablePeRatio();
                             $valuationGroup = $row->valuation_group;
                             $valuationGroupPe = $row->valuation_group_pe;
+                            $revenueMomentumPercent = $row->latestMonthlyRevenueVsQ1AveragePercent();
+                            $revenuePeAdjustmentPercent = $row->revenueMomentumPeAdjustmentPercent();
                         @endphp
                         <tr class="group-{{ $group['class'] }}">
                             <td data-label="排名"><span class="rank {{ $row->rank <= 10 ? 'top' : '' }}">{{ $row->rank }}</span></td>
@@ -957,6 +1083,11 @@
                                             <span class="expected-diff {{ $pctClass($expectedPriceChangePercent) }}">({{ $signedPct($expectedPriceChangePercent) }})</span>
                                         </div>
                                         <div class="sub">PE {{ $fmt($reasonablePeRatio, 1) }}x</div>
+                                        @if ($revenueMomentumPercent !== null && $revenuePeAdjustmentPercent !== null)
+                                            <div class="pe-adjustment-note {{ $pctClass($revenueMomentumPercent) }}">
+                                                月營收 vs Q1均 {{ $signedPct($revenueMomentumPercent) }} / PE {{ $signedPct($revenuePeAdjustmentPercent) }}
+                                            </div>
+                                        @endif
                                         @if ($valuationGroup && $valuationGroupPe)
                                             <div class="valuation-group-note">{{ $valuationGroup }} {{ $fmt($valuationGroupPe, 1) }}x</div>
                                         @endif
@@ -1035,7 +1166,7 @@
             });
         });
 
-        filterForm.querySelectorAll('select').forEach((field) => {
+        filterForm.querySelectorAll('select, input[type="checkbox"]').forEach((field) => {
             field.addEventListener('change', submitFilters);
         });
     }

@@ -86,6 +86,11 @@ class TwStockQ1FinancialReportFetcher
      */
     private array $mopsAnnouncementRowsCache = [];
 
+    /**
+     * @var array<string, array<string, list<array<string, string>>>>
+     */
+    private array $mopsQuarterAnnouncementRowsByStockCache = [];
+
     public function __construct(
         private readonly TwStockQ1ValuationService $valuationService,
         private readonly TwStockCompanyProfileService $companyProfileService,
@@ -574,8 +579,12 @@ class TwStockQ1FinancialReportFetcher
             return $row;
         }
 
-        return $this->fetchMopsQuarterFinancialAnnouncementRow($stockCode, $year, $quarter)
-            ?? $this->fetchCnyesQuarterFinancialAnnouncementRow($stockCode, $year, $quarter);
+        $mopsRow = $this->fetchMopsQuarterFinancialAnnouncementRow($stockCode, $year, $quarter);
+        if ($mopsRow !== null) {
+            return $mopsRow;
+        }
+
+        return $this->fetchCnyesQuarterFinancialAnnouncementRow($stockCode, $year, $quarter);
     }
 
     /**
@@ -714,34 +723,162 @@ class TwStockQ1FinancialReportFetcher
      */
     private function fetchMopsQuarterFinancialAnnouncementRow(string $stockCode, int $year, int $quarter): ?array
     {
+        $announcementRowsByStock = $this->fetchMopsQuarterAnnouncementRowsByStock($year, $quarter);
+        if ($announcementRowsByStock !== []) {
+            return $this->mopsAnnouncementsToFinancialRow(
+                $announcementRowsByStock[$stockCode] ?? [],
+                $stockCode,
+                $year,
+                $quarter,
+            );
+        }
+
         foreach ($this->mopsAnnouncementMonths($quarter) as $month) {
-            foreach ($this->fetchMopsAnnouncementRows($stockCode, $year - 1911, $month) as $announcement) {
-                if (!$this->isQuarterFinancialAnnouncementText($announcement['title'] ?? '', $year, $quarter)) {
-                    continue;
-                }
+            $row = $this->mopsAnnouncementsToFinancialRow(
+                $this->fetchMopsAnnouncementRows($stockCode, $year - 1911, $month),
+                $stockCode,
+                $year,
+                $quarter,
+            );
 
-                $html = $this->fetchMopsAnnouncementDetail($announcement);
-                if ($html === null) {
-                    continue;
-                }
-
-                $row = $this->financialAnnouncementTextToRow(
-                    $this->plainTextFromHtml($html),
-                    $stockCode,
-                    $year,
-                    $quarter,
-                    'MOPS ajax_t05st01',
-                    self::MOPS_MAJOR_ANNOUNCEMENT_REFERER,
-                    $announcement,
-                );
-
-                if ($row !== null) {
-                    return $row;
-                }
+            if ($row !== null) {
+                return $row;
             }
         }
 
         return null;
+    }
+
+    /**
+     * @param list<array<string, string>> $announcements
+     * @return array<string, mixed>|null
+     */
+    private function mopsAnnouncementsToFinancialRow(array $announcements, string $stockCode, int $year, int $quarter): ?array
+    {
+        foreach ($announcements as $announcement) {
+            if (!$this->isQuarterFinancialAnnouncementText($announcement['title'] ?? '', $year, $quarter)) {
+                continue;
+            }
+
+            $html = $this->fetchMopsAnnouncementDetail($announcement);
+            if ($html === null) {
+                continue;
+            }
+
+            $row = $this->financialAnnouncementTextToRow(
+                $this->plainTextFromHtml($html),
+                $stockCode,
+                $year,
+                $quarter,
+                'MOPS ajax_t05st01',
+                self::MOPS_MAJOR_ANNOUNCEMENT_REFERER,
+                $announcement,
+            );
+
+            if ($row !== null) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<string, list<array<string, string>>>
+     */
+    private function fetchMopsQuarterAnnouncementRowsByStock(int $year, int $quarter): array
+    {
+        $key = $year . ':' . $quarter;
+        if (array_key_exists($key, $this->mopsQuarterAnnouncementRowsByStockCache)) {
+            return $this->mopsQuarterAnnouncementRowsByStockCache[$key];
+        }
+
+        $rowsByStock = [];
+        foreach ($this->mopsQuarterAnnouncementDates($year, $quarter) as $date) {
+            foreach ($this->fetchMopsDailyAnnouncementRows($date) as $announcement) {
+                $stockCode = (string) ($announcement['co_id'] ?? '');
+                if (!$this->isCommonStockCode($stockCode)
+                    || !$this->isQuarterFinancialAnnouncementText($announcement['title'] ?? '', $year, $quarter)) {
+                    continue;
+                }
+
+                $rowsByStock[$stockCode][] = $announcement;
+            }
+        }
+
+        return $this->mopsQuarterAnnouncementRowsByStockCache[$key] = $rowsByStock;
+    }
+
+    /**
+     * @return list<CarbonImmutable>
+     */
+    private function mopsQuarterAnnouncementDates(int $year, int $quarter): array
+    {
+        $startMonth = ($quarter * 3) + 1;
+        if ($startMonth > 12) {
+            return [];
+        }
+
+        $timezone = (string) config('app.timezone', 'Asia/Taipei');
+        $start = CarbonImmutable::create($year, $startMonth, 1, 0, 0, 0, $timezone);
+        $end = $start->addMonthNoOverflow()->endOfMonth();
+        $today = CarbonImmutable::now($timezone)->endOfDay();
+        if ($end->greaterThan($today)) {
+            $end = $today;
+        }
+
+        if ($start->greaterThan($end)) {
+            return [];
+        }
+
+        $dates = [];
+        for ($date = $start; $date->lessThanOrEqualTo($end); $date = $date->addDay()) {
+            $dates[] = $date;
+        }
+
+        return $dates;
+    }
+
+    /**
+     * @return list<array<string, string>>
+     */
+    private function fetchMopsDailyAnnouncementRows(CarbonImmutable $date): array
+    {
+        $key = 'daily:' . $date->toDateString();
+        if (array_key_exists($key, $this->mopsAnnouncementRowsCache)) {
+            return $this->mopsAnnouncementRowsCache[$key];
+        }
+
+        try {
+            $html = $this->http()
+                ->asForm()
+                ->withHeaders(['Referer' => self::MOPS_MAJOR_ANNOUNCEMENT_REFERER])
+                ->post(self::MOPS_MAJOR_ANNOUNCEMENT_URL, [
+                    'step' => '1',
+                    'firstin' => '1',
+                    'off' => '1',
+                    'keyword4' => '',
+                    'code1' => '',
+                    'TYPEK2' => '',
+                    'checkbtn' => '',
+                    'queryName' => 'all',
+                    'inpuType' => 'date',
+                    'TYPEK' => 'all',
+                    'co_id' => '',
+                    'year' => (string) ($date->year - 1911),
+                    'month' => $date->format('m'),
+                    'b_date' => $date->format('d'),
+                    'e_date' => $date->format('d'),
+                ])
+                ->throw()
+                ->body();
+        } catch (Throwable $e) {
+            report($e);
+
+            return $this->mopsAnnouncementRowsCache[$key] = [];
+        }
+
+        return $this->mopsAnnouncementRowsCache[$key] = $this->parseMopsAnnouncementRows($html);
     }
 
     /**
@@ -891,33 +1028,20 @@ class TwStockQ1FinancialReportFetcher
     private function isQuarterFinancialAnnouncementText(string $text, int $year, int $quarter): bool
     {
         $compact = preg_replace('/\s+/u', '', $text) ?? $text;
-        if (!str_contains($compact, '財務報告') || !str_contains($compact, '董事會')) {
+        if (str_contains($compact, '代子公司')
+            || str_contains($compact, '預計')
+            || str_contains($compact, '召開日期')) {
             return false;
         }
 
-        $rocYear = (string) ($year - 1911);
-        $paddedRocYear = str_pad($rocYear, 3, '0', STR_PAD_LEFT);
-        $chineseQuarter = $this->chineseQuarter($quarter);
-        $labels = [
-            $rocYear . '年第' . $quarter . '季',
-            $rocYear . '年度第' . $quarter . '季',
-            '民國' . $rocYear . '年度第' . $quarter . '季',
-            $paddedRocYear . '年第' . $quarter . '季',
-            $paddedRocYear . '年度第' . $quarter . '季',
-            $rocYear . '年' . $chineseQuarter . '季',
-            $rocYear . '年度' . $chineseQuarter . '季',
-            '民國' . $rocYear . '年度' . $chineseQuarter . '季',
-            $paddedRocYear . '年' . $chineseQuarter . '季',
-            $paddedRocYear . '年度' . $chineseQuarter . '季',
-        ];
-
-        foreach ($labels as $label) {
-            if (str_contains($compact, $label)) {
-                return true;
-            }
-        }
-
-        return false;
+        return ($this->containsQuarterLabel($compact, $year, $quarter)
+            || $this->containsQuarterLabel($compact, $year - 1911, $quarter))
+            && (
+                str_contains($compact, '財務報告')
+                || str_contains($compact, '財務報表')
+                || str_contains($compact, '財報')
+                || str_contains($compact, '每股盈餘')
+            );
     }
 
     private function chineseQuarter(int $quarter): string
@@ -929,6 +1053,33 @@ class TwStockQ1FinancialReportFetcher
             4 => '第四',
             default => '第' . $quarter,
         };
+    }
+
+    private function containsQuarterLabel(string $compact, int $year, int $quarter): bool
+    {
+        $yearText = (string) $year;
+        $paddedYearText = $year < 1000 ? str_pad($yearText, 3, '0', STR_PAD_LEFT) : $yearText;
+        $chineseQuarter = $this->chineseQuarter($quarter);
+        $labels = [
+            $yearText . '年第' . $quarter . '季',
+            $yearText . '年度第' . $quarter . '季',
+            '民國' . $yearText . '年度第' . $quarter . '季',
+            $yearText . '年' . $chineseQuarter . '季',
+            $yearText . '年度' . $chineseQuarter . '季',
+            '民國' . $yearText . '年度' . $chineseQuarter . '季',
+            $paddedYearText . '年第' . $quarter . '季',
+            $paddedYearText . '年度第' . $quarter . '季',
+            $paddedYearText . '年' . $chineseQuarter . '季',
+            $paddedYearText . '年度' . $chineseQuarter . '季',
+        ];
+
+        foreach ($labels as $label) {
+            if (str_contains($compact, $label)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -947,12 +1098,14 @@ class TwStockQ1FinancialReportFetcher
         $valueText = $this->normalizeAnnouncementItemSeparators($text);
         $compact = preg_replace('/\s+/u', '', $valueText) ?? $valueText;
         $rocYear = $year - 1911;
-        if (!str_contains($compact, sprintf('%03d/01/01~%03d/03/31', $rocYear, $rocYear))
-            && !str_contains($compact, sprintf('%d/01/01~%d/03/31', $rocYear, $rocYear))) {
+        if (!$this->containsQuarterPeriod($compact, $rocYear, $quarter)
+            && !$this->containsQuarterLabel($compact, $year, $quarter)
+            && !$this->containsQuarterLabel($compact, $rocYear, $quarter)) {
             return null;
         }
 
-        $revenueThousand = $this->announcementValue($valueText, '營業收入');
+        $revenueThousand = $this->announcementValue($valueText, '營業收入')
+            ?? $this->announcementValue($valueText, '淨收益');
         $grossProfitThousand = $this->announcementValue($valueText, '營業毛利');
         $operatingProfitThousand = $this->announcementValue($valueText, '營業利益');
         $netIncomeThousand = $this->announcementValue($valueText, '本期淨利');
@@ -960,6 +1113,28 @@ class TwStockQ1FinancialReportFetcher
         $eps = $this->announcementValue($valueText, '基本每股盈餘');
         $totalAssetsThousand = $this->announcementValue($valueText, '期末總資產');
         $parentEquityThousand = $this->announcementValue($valueText, '期末歸屬於母公司業主之權益');
+
+        if ($revenueThousand === null) {
+            $interestIncomeThousand = $this->announcementValue($valueText, '利息淨收益');
+            $nonInterestIncomeThousand = $this->announcementValue($valueText, '利息以外淨損益');
+            if ($interestIncomeThousand !== null && $nonInterestIncomeThousand !== null) {
+                $revenueThousand = $interestIncomeThousand + $nonInterestIncomeThousand;
+            }
+        }
+
+        if ($revenueThousand === null || $eps === null) {
+            $pressReleaseRow = $this->financialPressReleaseTextToRow($valueText, $stockCode, $year, $quarter);
+            if ($pressReleaseRow !== null) {
+                $pressReleaseRow['_source'] = $source;
+                $pressReleaseRow['_source_url'] = $sourceUrl;
+                $pressReleaseRow['_raw'] = [
+                    ...$sourceMeta,
+                    ...($pressReleaseRow['_raw'] ?? []),
+                ];
+
+                return $pressReleaseRow;
+            }
+        }
 
         if ($revenueThousand === null || $revenueThousand <= 0.0 || $eps === null) {
             return null;
@@ -993,6 +1168,84 @@ class TwStockQ1FinancialReportFetcher
                 'parent_net_income_thousand' => $parentNetIncomeThousand,
                 'total_assets_thousand' => $totalAssetsThousand,
                 'parent_equity_thousand' => $parentEquityThousand,
+            ],
+        ];
+    }
+
+    private function containsQuarterPeriod(string $compact, int $rocYear, int $quarter): bool
+    {
+        if ($quarter !== 1) {
+            return false;
+        }
+
+        $yearPatterns = [
+            (string) $rocYear,
+            str_pad((string) $rocYear, 3, '0', STR_PAD_LEFT),
+        ];
+
+        foreach ($yearPatterns as $yearPattern) {
+            $pattern = sprintf(
+                '/%s\\/?0?1\\/?0?1[~\\-－至到]+%s\\/?0?3\\/?3?1/u',
+                preg_quote($yearPattern, '/'),
+                preg_quote($yearPattern, '/'),
+            );
+
+            if (preg_match($pattern, $compact) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function financialPressReleaseTextToRow(string $text, string $stockCode, int $year, int $quarter): ?array
+    {
+        if ($quarter !== 1) {
+            return null;
+        }
+
+        $revenueBillion = $this->announcementTaiwanDollarBillion($text, '合併營收')
+            ?? $this->announcementTaiwanDollarBillion($text, '營收');
+        $netIncomeBillion = $this->announcementTaiwanDollarBillion($text, '稅後純益')
+            ?? $this->announcementTaiwanDollarBillion($text, '本期淨利');
+        $eps = $this->announcementPressReleaseValue($text, '每股盈餘');
+
+        if ($revenueBillion === null || $revenueBillion <= 0.0 || $eps === null) {
+            return null;
+        }
+
+        $previousYearRevenueBillion = $this->previousYearRevenueBillion($stockCode, $year, $quarter);
+        $previousYearEps = $this->previousYearEps($stockCode, $year, $quarter);
+        $revenueYoyPercent = $this->growthPercent($revenueBillion, $previousYearRevenueBillion)
+            ?? $this->announcementGrowthPercent($text, '營收');
+        $epsYoyPercent = $this->growthPercent($eps, $previousYearEps)
+            ?? $this->announcementGrowthPercent($text, '每股盈餘');
+        $grossMarginPercent = $this->announcementPressReleaseValue($text, '毛利率');
+        $operatingMarginPercent = $this->announcementPressReleaseValue($text, '營業利益率');
+        $netMarginPercent = $this->announcementPressReleaseValue($text, '稅後純益率');
+
+        return [
+            '年季' => sprintf('%04d%02d', $year, $quarter),
+            '公告基本每股盈餘(元)' => $this->decimal($eps, 2),
+            '公告基本每股盈餘年成長2(%)' => $epsYoyPercent,
+            '季營收(億)' => $this->decimal($revenueBillion, 4),
+            '單季年成長(％)' => $revenueYoyPercent,
+            '單季毛利率(％)' => $this->decimal($grossMarginPercent, 4, 1000),
+            '單季營業利益率(％)' => $this->decimal($operatingMarginPercent, 4, 1000),
+            '單季稅後淨利率(％)' => $this->decimal($netMarginPercent, 4, 1000),
+            '單季稅後淨利(億)' => $netIncomeBillion === null ? null : $this->decimal($netIncomeBillion, 4),
+            '稅後權益報酬率(%)' => null,
+            '稅後資產報酬率(%)' => null,
+            '本業佔比' => $operatingMarginPercent === null || $netMarginPercent === null || abs($netMarginPercent) < 0.000001
+                ? null
+                : $this->decimal(($operatingMarginPercent / $netMarginPercent) * 100, 4, 1000),
+            '_raw' => [
+                'revenue_billion' => $revenueBillion,
+                'net_income_billion' => $netIncomeBillion,
+                'press_release_parser' => true,
             ],
         ];
     }
@@ -1036,6 +1289,69 @@ class TwStockQ1FinancialReportFetcher
         }
 
         return $this->decimal(($value / $denominator) * 100, 4, 1000);
+    }
+
+    private function announcementTaiwanDollarBillion(string $text, string $label): ?float
+    {
+        if (!preg_match('/' . preg_quote($label, '/') . '[^。；;\n]*?(?:新台幣|新臺幣)\s*([^。；;\n]*?(?:兆|億|千萬)[^。；;\n]*)/u', $text, $matches)) {
+            return null;
+        }
+
+        $normalized = str_replace([',', "\xc2\xa0", ' '], '', $matches[1]);
+        $value = 0.0;
+        $matched = false;
+
+        if (preg_match('/([\(（]?-?\d+(?:\.\d+)?[\)）]?)兆/u', $normalized, $trillion)) {
+            $parsed = $this->parseAccountingNumber($trillion[1]);
+            if ($parsed !== null) {
+                $value += $parsed * 10000;
+                $matched = true;
+            }
+        }
+
+        if (preg_match('/([\(（]?-?\d+(?:\.\d+)?[\)）]?)億/u', $normalized, $hundredMillion)) {
+            $parsed = $this->parseAccountingNumber($hundredMillion[1]);
+            if ($parsed !== null) {
+                $value += $parsed;
+                $matched = true;
+            }
+        }
+
+        if (preg_match('/([\(（]?-?\d+(?:\.\d+)?[\)）]?)千萬/u', $normalized, $tenMillion)) {
+            $parsed = $this->parseAccountingNumber($tenMillion[1]);
+            if ($parsed !== null) {
+                $value += $parsed / 10;
+                $matched = true;
+            }
+        }
+
+        return $matched ? $value : null;
+    }
+
+    private function announcementPressReleaseValue(string $text, string $label): ?float
+    {
+        if (!preg_match('/' . preg_quote($label, '/') . '[^:：。；;\n]*?(?:為|達|是|則為|約)?[^-?\d\(（。；;\n]*([\(（]?-?\d+(?:,\d{3})*(?:\.\d+)?[\)）]?)/u', $text, $matches)) {
+            return null;
+        }
+
+        return $this->parseAccountingNumber($matches[1]);
+    }
+
+    private function announcementGrowthPercent(string $text, string $label): ?string
+    {
+        if (preg_match('/' . preg_quote($label, '/') . '[^。；;\n%]{0,40}?(?:增加|成長|年增)[^\d\(（-]*([\(（]?-?\d+(?:,\d{3})*(?:\.\d+)?[\)）]?)\s*%/u', $text, $matches)) {
+            $value = $this->parseAccountingNumber($matches[1]);
+
+            return $value === null ? null : $this->decimal($value, 4, 100000);
+        }
+
+        if (preg_match('/' . preg_quote($label, '/') . '[^。；;\n%]{0,40}?(?:減少|衰退|年減)[^\d\(（-]*([\(（]?-?\d+(?:,\d{3})*(?:\.\d+)?[\)）]?)\s*%/u', $text, $matches)) {
+            $value = $this->parseAccountingNumber($matches[1]);
+
+            return $value === null ? null : $this->decimal(-abs($value), 4, 100000);
+        }
+
+        return null;
     }
 
     private function announcementValue(string $text, string $label): ?float

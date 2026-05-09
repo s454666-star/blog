@@ -656,7 +656,17 @@ class TwStockQ1FinancialReportsTest extends TestCase
             '--sleep-ms' => 0,
         ])->assertExitCode(0);
 
-        $this->assertSame(2, DB::table('tw_stock_q1_financial_reports')->count());
+        $this->assertSame(3, DB::table('tw_stock_q1_financial_reports')->count());
+
+        $tsmc = DB::table('tw_stock_q1_financial_reports')->where('stock_code', '2330')->first();
+        $this->assertNotNull($tsmc);
+        $this->assertSame('台積電', $tsmc->stock_name);
+        $this->assertEqualsWithDelta(22.08, (float) $tsmc->q1_eps, 0.0001);
+        $this->assertEqualsWithDelta(11341.0, (float) $tsmc->q1_revenue_billion, 0.0001);
+        $this->assertEqualsWithDelta(66.2, (float) $tsmc->q1_gross_margin_percent, 0.0001);
+        $this->assertEqualsWithDelta(58.1, (float) $tsmc->q1_operating_margin_percent, 0.0001);
+        $this->assertEqualsWithDelta(50.5, (float) $tsmc->q1_net_margin_percent, 0.0001);
+        $this->assertStringContainsString('MOPS ajax_t05st01', (string) $tsmc->source_payload);
 
         $kinik = DB::table('tw_stock_q1_financial_reports')->where('stock_code', '1785')->first();
         $this->assertNotNull($kinik);
@@ -1451,6 +1461,13 @@ class TwStockQ1FinancialReportsTest extends TestCase
             return Http::response([
                 [
                     'Date' => '1150508',
+                    'Code' => '2330',
+                    'Name' => '台積電',
+                    'TradeVolume' => '31730000',
+                    'ClosingPrice' => '2290.00',
+                ],
+                [
+                    'Date' => '1150508',
                     'Code' => '2363',
                     'Name' => '矽統',
                     'TradeVolume' => '2000000',
@@ -1489,6 +1506,11 @@ class TwStockQ1FinancialReportsTest extends TestCase
                             '公告基本每股盈餘(元)' => '0.05',
                             '季營收(億)' => '8.00',
                         ]],
+                        '2330' => [[
+                            '年季' => '202501',
+                            '公告基本每股盈餘(元)' => '13.94',
+                            '季營收(億)' => '8392.54',
+                        ]],
                         default => [],
                     },
                 ],
@@ -1496,6 +1518,52 @@ class TwStockQ1FinancialReportsTest extends TestCase
         }
 
         if (str_starts_with($url, 'https://mopsov.twse.com.tw/mops/web/ajax_t05st01')) {
+            if (($data['step'] ?? null) === '1' && ($data['queryName'] ?? null) === 'all') {
+                if (($data['month'] ?? null) === '04' && ($data['b_date'] ?? null) === '16') {
+                    return Http::response($this->mopsListHtml(
+                        '2330',
+                        '台積電',
+                        '115/04/16',
+                        '15:38:13',
+                        '台積公司2026年第一季每股盈餘新台幣22.08元',
+                        '20260416',
+                        '153813',
+                        '3',
+                        'sii',
+                    ));
+                }
+
+                if (($data['month'] ?? null) === '04' && ($data['b_date'] ?? null) === '27') {
+                    return Http::response($this->mopsListHtml(
+                        '2363',
+                        '矽統',
+                        '115/04/27',
+                        '16:23:39',
+                        '公告本公司董事會決議通過民國115年第一季合併財務報告',
+                        '20260427',
+                        '162339',
+                        '1',
+                        'sii',
+                    ));
+                }
+
+                if (($data['month'] ?? null) === '05' && ($data['b_date'] ?? null) === '08') {
+                    return Http::response($this->mopsListHtml(
+                        '1785',
+                        '光洋科',
+                        '115/05/08',
+                        '17:55:57',
+                        '本公司民國115年度第一季合併財務報告業經董事會決議',
+                        '20260508',
+                        '175557',
+                        '2',
+                        'otc',
+                    ));
+                }
+
+                return Http::response('<html><body><table></table></body></html>');
+            }
+
             if (($data['step'] ?? null) === '1' && ($data['co_id'] ?? null) === '1785' && ($data['month'] ?? null) === '05') {
                 return Http::response($this->mopsListHtml(
                     '1785',
@@ -1548,6 +1616,15 @@ class TwStockQ1FinancialReportsTest extends TestCase
                     'assets' => '22,546,270',
                     'parent_equity' => '20,360,333',
                 ]));
+            }
+
+            if (($data['step'] ?? null) === '2' && ($data['co_id'] ?? null) === '2330') {
+                return Http::response(<<<'HTML'
+<html><body>
+台積公司2026年第一季合併營收新台幣1兆1,341億元，稅後純益新台幣5,729億元，每股盈餘新台幣22.08元。
+毛利率為66.2%，營業利益率為58.1%，稅後純益率為50.5%。
+</body></html>
+HTML);
             }
 
             return Http::response('<html><body><table></table></body></html>');

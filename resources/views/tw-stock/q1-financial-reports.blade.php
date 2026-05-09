@@ -533,6 +533,15 @@
             white-space: nowrap;
         }
 
+        .valuation-group-note {
+            max-width: 100%;
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 800;
+            line-height: 1.25;
+            white-space: normal;
+        }
+
         .monthly-cell {
             display: grid;
             gap: 4px;
@@ -894,6 +903,8 @@
                             $expectedPrice = $row->expectedPrice();
                             $expectedPriceChangePercent = $row->expectedPriceChangePercent();
                             $reasonablePeRatio = $row->reasonablePeRatio();
+                            $valuationGroup = $row->valuation_group;
+                            $valuationGroupPe = $row->valuation_group_pe;
                         @endphp
                         <tr class="group-{{ $group['class'] }}">
                             <td data-label="排名"><span class="rank {{ $row->rank <= 10 ? 'top' : '' }}">{{ $row->rank }}</span></td>
@@ -941,6 +952,9 @@
                                             <span class="expected-diff {{ $pctClass($expectedPriceChangePercent) }}">({{ $signedPct($expectedPriceChangePercent) }})</span>
                                         </div>
                                         <div class="sub">PE {{ $fmt($reasonablePeRatio, 1) }}x</div>
+                                        @if ($valuationGroup && $valuationGroupPe)
+                                            <div class="valuation-group-note">{{ $valuationGroup }} {{ $fmt($valuationGroupPe, 1) }}x</div>
+                                        @endif
                                     </div>
                                 @endif
                             </td>

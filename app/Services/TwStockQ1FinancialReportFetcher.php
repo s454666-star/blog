@@ -86,6 +86,10 @@ class TwStockQ1FinancialReportFetcher
      */
     private array $mopsAnnouncementRowsCache = [];
 
+    public function __construct(private readonly TwStockQ1ValuationService $valuationService)
+    {
+    }
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -1590,6 +1594,7 @@ class TwStockQ1FinancialReportFetcher
 
         foreach ($rows as $index => $row) {
             $rows[$index]['rank'] = $index + 1;
+            $rows[$index] = $this->valuationService->applyToPayload($rows[$index]);
         }
 
         return $rows;

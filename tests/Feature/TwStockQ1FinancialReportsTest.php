@@ -76,6 +76,8 @@ class TwStockQ1FinancialReportsTest extends TestCase
 
         $top = DB::table('tw_stock_q1_financial_reports')->where('rank', 1)->first();
         $this->assertSame('5289', $top->stock_code);
+        $this->assertSame('記憶體/儲存', $top->valuation_group);
+        $this->assertEqualsWithDelta(38.0, (float) $top->valuation_group_pe, 0.0001);
         $this->assertEqualsWithDelta(100.0, (float) $top->q1_revenue_score, 0.0001);
         $this->assertEqualsWithDelta(131.8261, (float) $top->q1_revenue_billion, 0.0001);
         $this->assertEqualsWithDelta(403.39, (float) $top->q1_revenue_yoy_percent, 0.01);
@@ -92,6 +94,8 @@ class TwStockQ1FinancialReportsTest extends TestCase
 
         $second = DB::table('tw_stock_q1_financial_reports')->where('rank', 2)->first();
         $this->assertSame('8261', $second->stock_code);
+        $this->assertSame('IC設計', $second->valuation_group);
+        $this->assertEqualsWithDelta(45.0, (float) $second->valuation_group_pe, 0.0001);
         $this->assertEqualsWithDelta(50.0, (float) $second->q1_revenue_score, 0.0001);
         $this->assertEqualsWithDelta(7.82, (float) $second->q1_revenue_billion, 0.0001);
         $this->assertEqualsWithDelta(9.17, (float) $second->q1_revenue_yoy_percent, 0.0001);
@@ -155,9 +159,10 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('2026 Q1 財報評分排名')
             ->assertSee('Q1整體財報評分')
             ->assertSee('預期股價')
-            ->assertSee('133.14')
-            ->assertSee('(+21.03%)')
-            ->assertSee('PE 21.2x')
+            ->assertSee('167.99')
+            ->assertSee('(+52.72%)')
+            ->assertSee('PE 26.8x')
+            ->assertSee('市場平均 25.0x')
             ->assertSee('近1月營收')
             ->assertSee('前段班')
             ->assertSee('name="price_min"', false)
@@ -1413,6 +1418,8 @@ HTML;
             'exchange' => 'TWSE',
             'stock_code' => '8261',
             'stock_name' => '富鼎',
+            'valuation_group' => '市場平均',
+            'valuation_group_pe' => 25.0,
             'q1_revenue_billion' => 7.82,
             'q1_revenue_yoy_percent' => 9.17,
             'q1_revenue_score' => 40,
@@ -1474,6 +1481,8 @@ HTML;
             $table->string('stock_code', 12);
             $table->string('stock_name');
             $table->string('industry')->nullable();
+            $table->string('valuation_group', 32)->nullable();
+            $table->decimal('valuation_group_pe', 8, 4)->nullable();
             $table->decimal('q1_revenue_billion', 14, 4)->nullable();
             $table->decimal('q1_revenue_yoy_percent', 10, 4)->nullable();
             $table->decimal('q1_revenue_score', 8, 4)->nullable();

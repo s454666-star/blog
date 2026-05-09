@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\TwStockQ1ValuationService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -11,7 +12,7 @@ class TwStockQ1FinancialReport extends Model
 
     private const MIN_REASONABLE_PE_RATIO = 8.0;
 
-    private const MAX_REASONABLE_PE_RATIO = 30.0;
+    private const MAX_REASONABLE_PE_RATIO = 72.0;
 
     protected $table = 'tw_stock_q1_financial_reports';
 
@@ -22,6 +23,7 @@ class TwStockQ1FinancialReport extends Model
         'quarter' => 'integer',
         'q1_revenue_billion' => 'float',
         'q1_revenue_yoy_percent' => 'float',
+        'valuation_group_pe' => 'float',
         'q1_revenue_score' => 'float',
         'q1_eps' => 'float',
         'q1_eps_yoy_percent' => 'float',
@@ -55,14 +57,25 @@ class TwStockQ1FinancialReport extends Model
 
     public function reasonablePeRatio(): ?float
     {
-        if ($this->q1_revenue_score === null) {
+        $groupPe = $this->valuation_group_pe === null
+            ? TwStockQ1ValuationService::MARKET_REFERENCE_PE
+            : (float) $this->valuation_group_pe;
+
+        if ($groupPe <= 0) {
             return null;
         }
 
-        $score = max(0.0, min(100.0, (float) $this->q1_revenue_score));
+        if ($this->q1_revenue_score === null) {
+            return $groupPe;
+        }
 
-        return self::MIN_REASONABLE_PE_RATIO
-            + (($score / 100) * (self::MAX_REASONABLE_PE_RATIO - self::MIN_REASONABLE_PE_RATIO));
+        $score = max(0.0, min(100.0, (float) $this->q1_revenue_score));
+        $scoreMultiplier = 0.80 + (($score / 100) * 0.45);
+
+        return max(
+            self::MIN_REASONABLE_PE_RATIO,
+            min(self::MAX_REASONABLE_PE_RATIO, $groupPe * $scoreMultiplier),
+        );
     }
 
     public function expectedPrice(): ?float

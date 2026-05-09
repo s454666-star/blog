@@ -4,11 +4,13 @@ namespace App\Console\Commands;
 
 use App\Models\TwStockQ1FinancialReport;
 use App\Services\TwStockQ1FinancialReportFetcher;
+use App\Services\TwStockQ1ValuationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class FetchTwStockQ1FinancialReportsCommand extends Command
@@ -34,7 +36,9 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
 
     protected $description = '抓取台股財報、成交量、股價漲跌幅，計算財報評分並入庫。';
 
-    public function handle(TwStockQ1FinancialReportFetcher $fetcher): int
+    private ?bool $valuationColumnsExist = null;
+
+    public function handle(TwStockQ1FinancialReportFetcher $fetcher, TwStockQ1ValuationService $valuationService): int
     {
         $year = $this->option('year') !== null && $this->option('year') !== ''
             ? (int) $this->option('year')
@@ -83,7 +87,7 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
         if ((bool) $this->option('market-data-only')) {
             $result = $this->refreshMarketDataRows($fetcher, $years, $quarters, $minVolumeLots, $sleepMs, $shardCount, $shardIndex);
             $reranked = $shardCount === 1
-                ? $this->rerankStoredRows($years, $quarters, $minVolumeLots)
+                ? $this->rerankStoredRows($years, $quarters, $minVolumeLots, $valuationService)
                 : 0;
 
             $this->info(sprintf(
@@ -192,6 +196,7 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
         $keptIds = [];
         foreach ($payloads as $payload) {
             $updatePayload = $payload;
+            $updatePayload = $this->filterPayloadForCurrentSchema($updatePayload);
             if ($preserveEmptyMarketData) {
                 foreach (['price_change_1d_percent', 'price_change_5d_percent', 'price_change_20d_percent'] as $field) {
                     if (($updatePayload[$field] ?? null) === null) {
@@ -416,7 +421,7 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
      * @param list<int> $years
      * @param list<int> $quarters
      */
-    private function rerankStoredRows(array $years, array $quarters, int $minVolumeLots): int
+    private function rerankStoredRows(array $years, array $quarters, int $minVolumeLots, TwStockQ1ValuationService $valuationService): int
     {
         $updated = 0;
         foreach ($years as $year) {
@@ -439,7 +444,12 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
                     ->get();
 
                 foreach ($rows as $index => $row) {
-                    $row->forceFill(['rank' => $index + 1])->save();
+                    $valuation = $valuationService->valuationForModel($row);
+                    $row->forceFill($this->filterPayloadForCurrentSchema([
+                        'rank' => $index + 1,
+                        'valuation_group' => $valuation['valuation_group'],
+                        'valuation_group_pe' => $valuation['valuation_group_pe'],
+                    ]))->save();
                     $updated++;
                 }
             }
@@ -489,6 +499,37 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
         }
 
         return is_array($decoded) ? count($decoded) : 0;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function filterPayloadForCurrentSchema(array $payload): array
+    {
+        if ($this->hasValuationColumns()) {
+            return $payload;
+        }
+
+        unset($payload['valuation_group'], $payload['valuation_group_pe']);
+
+        return $payload;
+    }
+
+    private function hasValuationColumns(): bool
+    {
+        if ($this->valuationColumnsExist !== null) {
+            return $this->valuationColumnsExist;
+        }
+
+        try {
+            $this->valuationColumnsExist = Schema::hasColumn('tw_stock_q1_financial_reports', 'valuation_group')
+                && Schema::hasColumn('tw_stock_q1_financial_reports', 'valuation_group_pe');
+        } catch (Throwable) {
+            $this->valuationColumnsExist = false;
+        }
+
+        return $this->valuationColumnsExist;
     }
 
     private function exportJson(string $path, int $year, int $quarter): void

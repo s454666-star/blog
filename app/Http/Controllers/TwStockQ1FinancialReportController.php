@@ -140,28 +140,14 @@ class TwStockQ1FinancialReportController extends Controller
                         ->orWhere('stock_name', 'like', $like);
                 });
             });
-        $recentTwoMonthHighKeys = $this->recentTwoMonthHighKeys((clone $baseQuery)->get(['exchange', 'stock_code']));
-
-        foreach ($filters as $filter) {
-            match ($filter) {
-                'revenue_growth' => $baseQuery->where('revenue_filter_pass', true),
-                'eps_growth' => $baseQuery->where('eps_filter_pass', true),
-                'current_q1_eps_yoy' => $baseQuery->where('current_q1_eps_yoy_percent', '>', 5),
-                'end_year_revenue_yoy' => $baseQuery->where('end_year_revenue_yoy_percent', '>', 15),
-                'current_q1_revenue_yoy' => $baseQuery->where('current_q1_revenue_yoy_percent', '>', 8),
-                'recent_two_month_high' => $this->applyStockKeyFilter($baseQuery, $recentTwoMonthHighKeys),
-                'net_margin' => $baseQuery->where('net_margin_filter_pass', true),
-                default => null,
-            };
-        }
-
-        $sortColumn = $sort === 'eps' ? 'eps_yoy_sum' : 'revenue_yoy_sum';
-        $stocks = (clone $baseQuery)
-            ->orderByRaw($sortColumn . ' IS NULL')
-            ->orderByDesc($sortColumn)
-            ->orderBy('stock_code')
-            ->paginate($perPage)
-            ->withQueryString();
+        $baseRows = $baseQuery->get();
+        $recentTwoMonthHighKeys = $this->recentTwoMonthHighKeys($baseRows);
+        $filteredRows = $this->filterAnnualComparisonRows($baseRows, $filters, $recentTwoMonthHighKeys);
+        $stocks = $this->paginateRows(
+            $request,
+            $this->sortAnnualComparisonRows($filteredRows, $sort),
+            $perPage,
+        );
 
         return view('tw-stock.annual-comparison', [
             'stocks' => $stocks,
@@ -171,18 +157,81 @@ class TwStockQ1FinancialReportController extends Controller
             'allowedPerPage' => $allowedPerPage,
             'perPage' => $perPage,
             'summary' => [
-                'total' => (clone $baseQuery)->count(),
-                'revenuePass' => (clone $baseQuery)->where('revenue_filter_pass', true)->count(),
-                'epsPass' => (clone $baseQuery)->where('eps_filter_pass', true)->count(),
-                'currentQ1EpsYoyPass' => (clone $baseQuery)->where('current_q1_eps_yoy_percent', '>', 5)->count(),
-                'endYearRevenueYoyPass' => (clone $baseQuery)->where('end_year_revenue_yoy_percent', '>', 15)->count(),
-                'currentQ1RevenueYoyPass' => (clone $baseQuery)->where('current_q1_revenue_yoy_percent', '>', 8)->count(),
-                'recentTwoMonthHighPass' => $this->applyStockKeyFilter(clone $baseQuery, $recentTwoMonthHighKeys)->count(),
-                'netMarginPass' => (clone $baseQuery)->where('net_margin_filter_pass', true)->count(),
+                'total' => $filteredRows->count(),
+                'revenuePass' => $filteredRows->where('revenue_filter_pass', true)->count(),
+                'epsPass' => $filteredRows->where('eps_filter_pass', true)->count(),
+                'currentQ1EpsYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->nullableFloat($row->current_q1_eps_yoy_percent) > 5)->count(),
+                'endYearRevenueYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->nullableFloat($row->end_year_revenue_yoy_percent) > 15)->count(),
+                'currentQ1RevenueYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->nullableFloat($row->current_q1_revenue_yoy_percent) > 8)->count(),
+                'recentTwoMonthHighPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => isset($recentTwoMonthHighKeys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)]))->count(),
+                'netMarginPass' => $filteredRows->where('net_margin_filter_pass', true)->count(),
             ],
             'recentTwoMonthHighKeys' => $recentTwoMonthHighKeys,
             'years' => range(self::ANNUAL_COMPARISON_START_YEAR + 1, self::ANNUAL_COMPARISON_END_YEAR),
         ]);
+    }
+
+    /**
+     * @param Collection<int, TwStockAnnualFinancialComparison> $rows
+     * @param list<string> $filters
+     * @param array<string, true> $recentTwoMonthHighKeys
+     * @return Collection<int, TwStockAnnualFinancialComparison>
+     */
+    private function filterAnnualComparisonRows(Collection $rows, array $filters, array $recentTwoMonthHighKeys): Collection
+    {
+        return $rows
+            ->filter(function (TwStockAnnualFinancialComparison $row) use ($filters, $recentTwoMonthHighKeys): bool {
+                foreach ($filters as $filter) {
+                    $passes = match ($filter) {
+                        'revenue_growth' => (bool) $row->revenue_filter_pass,
+                        'eps_growth' => (bool) $row->eps_filter_pass,
+                        'current_q1_eps_yoy' => $this->nullableFloat($row->current_q1_eps_yoy_percent) > 5,
+                        'end_year_revenue_yoy' => $this->nullableFloat($row->end_year_revenue_yoy_percent) > 15,
+                        'current_q1_revenue_yoy' => $this->nullableFloat($row->current_q1_revenue_yoy_percent) > 8,
+                        'recent_two_month_high' => isset($recentTwoMonthHighKeys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)]),
+                        'net_margin' => (bool) $row->net_margin_filter_pass,
+                        default => true,
+                    };
+
+                    if (!$passes) {
+                        return false;
+                    }
+                }
+
+                return true;
+            })
+            ->values();
+    }
+
+    /**
+     * @param Collection<int, TwStockAnnualFinancialComparison> $rows
+     * @return Collection<int, TwStockAnnualFinancialComparison>
+     */
+    private function sortAnnualComparisonRows(Collection $rows, string $sort): Collection
+    {
+        $sortColumn = $sort === 'eps' ? 'eps_yoy_sum' : 'revenue_yoy_sum';
+
+        return $rows
+            ->sort(function (TwStockAnnualFinancialComparison $left, TwStockAnnualFinancialComparison $right) use ($sortColumn): int {
+                $leftValue = $this->nullableFloat($left->{$sortColumn});
+                $rightValue = $this->nullableFloat($right->{$sortColumn});
+
+                if ($leftValue === null && $rightValue === null) {
+                    return strcmp((string) $left->stock_code, (string) $right->stock_code);
+                }
+
+                if ($leftValue === null) {
+                    return 1;
+                }
+
+                if ($rightValue === null) {
+                    return -1;
+                }
+
+                return ($rightValue <=> $leftValue)
+                    ?: strcmp((string) $left->stock_code, (string) $right->stock_code);
+            })
+            ->values();
     }
 
     /**
@@ -416,29 +465,14 @@ class TwStockQ1FinancialReportController extends Controller
         return $flags;
     }
 
-    /**
-     * @param array<string, true> $stockKeys
-     */
-    private function applyStockKeyFilter(Builder $query, array $stockKeys): Builder
-    {
-        if ($stockKeys === []) {
-            return $query->whereRaw('1 = 0');
-        }
-
-        return $query->where(function (Builder $query) use ($stockKeys): void {
-            foreach (array_keys($stockKeys) as $stockKey) {
-                [$exchange, $stockCode] = explode('|', $stockKey, 2);
-                $query->orWhere(function (Builder $query) use ($exchange, $stockCode): void {
-                    $query->where('exchange', $exchange)
-                        ->where('stock_code', $stockCode);
-                });
-            }
-        });
-    }
-
     private function stockKey(string $exchange, string $stockCode): string
     {
         return $exchange . '|' . $stockCode;
+    }
+
+    private function nullableFloat(mixed $value): ?float
+    {
+        return $value === null || $value === '' ? null : (float) $value;
     }
 
     private function groupSortValue(int $rank, int $total): int

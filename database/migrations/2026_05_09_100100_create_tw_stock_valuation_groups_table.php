@@ -38,7 +38,8 @@ return new class extends Migration
             ['營建資產', 13.0, 130],
             ['航運', 12.0, 140],
             ['原物料/傳產', 14.0, 150],
-            ['市場平均', 25.0, 999],
+            ['其他業', 16.0, 160],
+            ['其他', 20.0, 999],
         ];
 
         DB::table('tw_stock_valuation_groups')->insert(array_map(

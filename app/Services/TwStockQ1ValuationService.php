@@ -27,7 +27,8 @@ class TwStockQ1ValuationService
         '營建資產' => 13.0,
         '航運' => 12.0,
         '原物料/傳產' => 14.0,
-        '市場平均' => self::MARKET_REFERENCE_PE,
+        '其他業' => 16.0,
+        '其他' => 20.0,
     ];
 
     /**
@@ -89,6 +90,45 @@ class TwStockQ1ValuationService
         '原物料/傳產' => ['水泥', '塑膠', '化工', '鋼鐵', '紡織', '造紙', '橡膠', '玻璃', '油電燃氣'],
     ];
 
+    private const INDUSTRY_GROUPS = [
+        '水泥工業' => '原物料/傳產',
+        '食品工業' => '食品/觀光/消費',
+        '塑膠工業' => '原物料/傳產',
+        '紡織纖維' => '原物料/傳產',
+        '電機機械' => '原物料/傳產',
+        '電器電纜' => '綠能/電力',
+        '玻璃陶瓷' => '原物料/傳產',
+        '造紙工業' => '原物料/傳產',
+        '鋼鐵工業' => '原物料/傳產',
+        '橡膠工業' => '原物料/傳產',
+        '汽車工業' => '汽車/電動車',
+        '建材營造業' => '營建資產',
+        '航運業' => '航運',
+        '觀光餐旅' => '食品/觀光/消費',
+        '金融保險業' => '金融保險',
+        '貿易百貨業' => '食品/觀光/消費',
+        '其他業' => '其他業',
+        '化學工業' => '原物料/傳產',
+        '生技醫療業' => '生技醫療',
+        '油電燃氣業' => '綠能/電力',
+        '半導體業' => '半導體製造/設備/材料',
+        '電腦及週邊設備業' => 'AI伺服器/電腦週邊',
+        '光電業' => '光電/面板',
+        '通信網路業' => '通信網路',
+        '電子零組件業' => '電子零組件/PCB',
+        '電子通路業' => '電子零組件/PCB',
+        '資訊服務業' => 'AI伺服器/電腦週邊',
+        '其他電子業' => 'AI伺服器/電腦週邊',
+        '文化創意業' => '食品/觀光/消費',
+        '農業科技業' => '食品/觀光/消費',
+        '電子商務業' => '食品/觀光/消費',
+        '綠能環保業' => '綠能/電力',
+        '數位雲端業' => 'AI伺服器/電腦週邊',
+        '運動休閒業' => '食品/觀光/消費',
+        '居家生活業' => '食品/觀光/消費',
+        '存託憑證' => '其他業',
+    ];
+
     /**
      * @param array<string, mixed> $row
      * @return array<string, mixed>
@@ -107,7 +147,7 @@ class TwStockQ1ValuationService
         if (isset($row['source_payload']) && is_array($row['source_payload'])) {
             $row['source_payload']['valuation_group'] = $valuation['valuation_group'];
             $row['source_payload']['valuation_group_pe'] = $valuation['valuation_group_pe'];
-            $row['source_payload']['valuation_reference'] = 'TWSE/TPEx 2026-05-08 listed+OTC PE: all median 21.84, trimmed<=80 average 25.01; group PE is a conservative rounded benchmark.';
+            $row['source_payload']['valuation_reference'] = 'TWSE/TPEx 2026-05-08 official PE data: all median 21.84, trimmed<=80 average 25.01; group PE is keyed from official industry and stock-specific subgroups.';
         }
 
         return $row;
@@ -142,7 +182,7 @@ class TwStockQ1ValuationService
     {
         $map = $this->groupPeMap();
 
-        return $map[$group] ?? $map['市場平均'] ?? self::MARKET_REFERENCE_PE;
+        return $map[$group] ?? $map['其他'] ?? 20.0;
     }
 
     /**
@@ -184,6 +224,10 @@ class TwStockQ1ValuationService
             }
         }
 
+        if ($industry !== null && isset(self::INDUSTRY_GROUPS[$industry])) {
+            return self::INDUSTRY_GROUPS[$industry];
+        }
+
         $haystack = $industry . ' ' . $stockName;
         foreach (self::KEYWORD_GROUPS as $group => $keywords) {
             foreach ($keywords as $keyword) {
@@ -193,6 +237,6 @@ class TwStockQ1ValuationService
             }
         }
 
-        return '市場平均';
+        return '其他';
     }
 }

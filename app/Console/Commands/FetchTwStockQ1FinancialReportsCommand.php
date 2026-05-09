@@ -384,8 +384,13 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
                     $sourcePayload['latest_daily_rows'] = array_slice($marketData['latest_daily_rows'], 0, 21);
                     $sourcePayload['official_quote_row'] = $marketData['official_quote_row'] ?? ($sourcePayload['official_quote_row'] ?? null);
                     $sourcePayload['quote_source'] = $marketData['official_quote_source'] ?? ($sourcePayload['quote_source'] ?? null);
+                    $profile = $fetcher->fetchCompanyProfile((string) $row->exchange, $stockCode);
+                    $industry = $row->industry ?: ($profile['industry'] ?? null);
+                    $stockName = $profile['stock_name'] ?? (string) $row->stock_name;
 
                     $row->forceFill([
+                        'stock_name' => $stockName,
+                        'industry' => $industry,
                         'latest_close_price' => $marketData['latest_close_price'],
                         'latest_price_date' => $marketData['latest_price_date'],
                         'volume_lots' => $marketData['volume_lots'],

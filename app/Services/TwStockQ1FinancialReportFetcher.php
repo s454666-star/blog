@@ -86,8 +86,10 @@ class TwStockQ1FinancialReportFetcher
      */
     private array $mopsAnnouncementRowsCache = [];
 
-    public function __construct(private readonly TwStockQ1ValuationService $valuationService)
-    {
+    public function __construct(
+        private readonly TwStockQ1ValuationService $valuationService,
+        private readonly TwStockCompanyProfileService $companyProfileService,
+    ) {
     }
 
     /**
@@ -143,6 +145,7 @@ class TwStockQ1FinancialReportFetcher
                 continue;
             }
 
+            $profile = $this->fetchCompanyProfile($candidate['exchange'], $candidate['stock_code']);
             $recentMonthlyRevenues = $this->fetchRecentMonthlyRevenueRows($candidate['stock_code'], $monthlyRevenueMonths);
 
             $rows[] = [
@@ -151,8 +154,8 @@ class TwStockQ1FinancialReportFetcher
                 'financial_period' => $period,
                 'exchange' => $candidate['exchange'],
                 'stock_code' => $candidate['stock_code'],
-                'stock_name' => $candidate['stock_name'],
-                'industry' => null,
+                'stock_name' => $profile['stock_name'] ?? $candidate['stock_name'],
+                'industry' => $profile['industry'] ?? null,
                 'q1_revenue_billion' => $this->decimal($this->parseDecimal($financialRow['季營收(億)'] ?? null), 4),
                 'q1_revenue_yoy_percent' => $this->decimal($this->parseDecimal($financialRow['單季年成長(％)'] ?? $financialRow['單季年成長(%)'] ?? null), 4, 999999),
                 'q1_revenue_score' => null,
@@ -253,6 +256,21 @@ class TwStockQ1FinancialReportFetcher
             'official_quote_row' => $officialQuoteCandidate['source_payload']['row'] ?? null,
             'official_quote_source' => $officialQuoteCandidate['source_payload']['source'] ?? null,
         ];
+    }
+
+    public function fetchIndustry(string $exchange, string $stockCode): ?string
+    {
+        $profile = $this->fetchCompanyProfile($exchange, $stockCode);
+
+        return is_array($profile) ? ($profile['industry'] ?? null) : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function fetchCompanyProfile(string $exchange, string $stockCode): ?array
+    {
+        return $this->companyProfileService->profile($exchange, $stockCode);
     }
 
     /**

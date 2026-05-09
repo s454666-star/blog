@@ -47,6 +47,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
     protected function tearDown(): void
     {
         Schema::dropIfExists('tw_stock_annual_financial_comparisons');
+        Schema::dropIfExists('tw_stock_company_profiles');
         Schema::dropIfExists('tw_stock_q1_financial_reports');
         Schema::dropIfExists('tw_stock_daily_prices');
 
@@ -76,6 +77,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
 
         $top = DB::table('tw_stock_q1_financial_reports')->where('rank', 1)->first();
         $this->assertSame('5289', $top->stock_code);
+        $this->assertSame('半導體業', $top->industry);
         $this->assertSame('記憶體/儲存', $top->valuation_group);
         $this->assertEqualsWithDelta(38.0, (float) $top->valuation_group_pe, 0.0001);
         $this->assertEqualsWithDelta(100.0, (float) $top->q1_revenue_score, 0.0001);
@@ -94,6 +96,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
 
         $second = DB::table('tw_stock_q1_financial_reports')->where('rank', 2)->first();
         $this->assertSame('8261', $second->stock_code);
+        $this->assertSame('半導體業', $second->industry);
         $this->assertSame('IC設計', $second->valuation_group);
         $this->assertEqualsWithDelta(45.0, (float) $second->valuation_group_pe, 0.0001);
         $this->assertEqualsWithDelta(50.0, (float) $second->q1_revenue_score, 0.0001);
@@ -145,7 +148,17 @@ class TwStockQ1FinancialReportsTest extends TestCase
     public function test_dashboard_supports_search_and_per_page_options(): void
     {
         DB::table('tw_stock_q1_financial_reports')->insert([
-            $this->row(['stock_code' => '9951', 'stock_name' => '皇田', 'q1_revenue_score' => 60, 'latest_close_price' => 110, 'rank' => 1]),
+            $this->row([
+                'exchange' => 'TPEx',
+                'stock_code' => '9951',
+                'stock_name' => '皇田',
+                'industry' => '汽車工業',
+                'valuation_group' => '汽車/電動車',
+                'valuation_group_pe' => 22.0,
+                'q1_revenue_score' => 60,
+                'latest_close_price' => 110,
+                'rank' => 1,
+            ]),
             $this->row(['stock_code' => '8261', 'stock_name' => '富鼎', 'q1_revenue_score' => 40, 'latest_close_price' => 80, 'rank' => 2]),
         ]);
 
@@ -159,10 +172,11 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('2026 Q1 財報評分排名')
             ->assertSee('Q1整體財報評分')
             ->assertSee('預期股價')
-            ->assertSee('167.99')
-            ->assertSee('(+52.72%)')
-            ->assertSee('PE 26.8x')
-            ->assertSee('市場平均 25.0x')
+            ->assertSee('147.83')
+            ->assertSee('(+34.39%)')
+            ->assertSee('PE 23.5x')
+            ->assertSee('汽車/電動車 22.0x')
+            ->assertDontSee('市場平均')
             ->assertSee('近1月營收')
             ->assertSee('前段班')
             ->assertSee('name="price_min"', false)
@@ -451,6 +465,38 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertSame(3, DB::table('tw_stock_q1_financial_reports')->count());
     }
 
+    public function test_company_profile_refresh_stores_all_stock_industries_and_valuation_groups(): void
+    {
+        Http::fake(fn ($request) => $this->fakeResponse($request->url()));
+
+        $this->artisan('tw-stock:refresh-company-profiles')->assertExitCode(0);
+
+        $this->assertDatabaseHas('tw_stock_company_profiles', [
+            'exchange' => 'TWSE',
+            'stock_code' => '2330',
+            'industry' => '半導體業',
+            'valuation_group' => '半導體製造/設備/材料',
+        ]);
+        $this->assertDatabaseHas('tw_stock_company_profiles', [
+            'exchange' => 'TWSE',
+            'stock_code' => '1101',
+            'industry' => '水泥工業',
+            'valuation_group' => '原物料/傳產',
+        ]);
+        $this->assertDatabaseHas('tw_stock_company_profiles', [
+            'exchange' => 'TPEx',
+            'stock_code' => '9951',
+            'industry' => '汽車工業',
+            'valuation_group' => '汽車/電動車',
+        ]);
+        $this->assertDatabaseHas('tw_stock_company_profiles', [
+            'exchange' => 'TPEx',
+            'stock_code' => '5289',
+            'industry' => '半導體業',
+            'valuation_group' => '記憶體/儲存',
+        ]);
+    }
+
     public function test_market_data_only_refreshes_latest_price_changes_and_prunes_low_volume_rows(): void
     {
         DB::table('tw_stock_q1_financial_reports')->insert([
@@ -625,6 +671,29 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ]);
         }
 
+        if (str_starts_with($url, 'https://openapi.twse.com.tw/v1/opendata/t187ap03_L')) {
+            return Http::response([
+                [
+                    '出表日期' => '1150508',
+                    '公司代號' => '1101',
+                    '公司簡稱' => '台泥',
+                    '產業別' => '01',
+                ],
+                [
+                    '出表日期' => '1150508',
+                    '公司代號' => '2330',
+                    '公司簡稱' => '台積電',
+                    '產業別' => '24',
+                ],
+                [
+                    '出表日期' => '1150508',
+                    '公司代號' => '8261',
+                    '公司簡稱' => '富鼎',
+                    '產業別' => '24',
+                ],
+            ]);
+        }
+
         if (str_starts_with($url, 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes')) {
             return Http::response([
                 [
@@ -640,6 +709,23 @@ class TwStockQ1FinancialReportsTest extends TestCase
                     'CompanyName' => '宜鼎',
                     'TradingShares' => '6796000',
                     'Close' => '1600.00',
+                ],
+            ]);
+        }
+
+        if (str_starts_with($url, 'https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O')) {
+            return Http::response([
+                [
+                    'Date' => '1150508',
+                    'SecuritiesCompanyCode' => '5289',
+                    'CompanyAbbreviation' => '宜鼎',
+                    'SecuritiesIndustryCode' => '24',
+                ],
+                [
+                    'Date' => '1150508',
+                    'SecuritiesCompanyCode' => '9951',
+                    'CompanyAbbreviation' => '皇田',
+                    'SecuritiesIndustryCode' => '12',
                 ],
             ]);
         }
@@ -1418,8 +1504,9 @@ HTML;
             'exchange' => 'TWSE',
             'stock_code' => '8261',
             'stock_name' => '富鼎',
-            'valuation_group' => '市場平均',
-            'valuation_group_pe' => 25.0,
+            'industry' => '半導體業',
+            'valuation_group' => 'IC設計',
+            'valuation_group_pe' => 45.0,
             'q1_revenue_billion' => 7.82,
             'q1_revenue_yoy_percent' => 9.17,
             'q1_revenue_score' => 40,
@@ -1506,6 +1593,22 @@ HTML;
             $table->json('source_payload')->nullable();
             $table->timestamp('fetched_at')->nullable();
             $table->timestamps();
+        });
+
+        Schema::create('tw_stock_company_profiles', function (Blueprint $table): void {
+            $table->id();
+            $table->string('exchange', 12);
+            $table->string('stock_code', 12);
+            $table->string('stock_name');
+            $table->string('industry')->nullable();
+            $table->string('industry_code', 8)->nullable();
+            $table->string('valuation_group', 32);
+            $table->decimal('valuation_group_pe', 8, 4);
+            $table->date('source_date')->nullable();
+            $table->json('source_payload')->nullable();
+            $table->timestamp('fetched_at')->nullable();
+            $table->timestamps();
+            $table->unique(['exchange', 'stock_code']);
         });
 
         Schema::create('tw_stock_annual_financial_comparisons', function (Blueprint $table): void {

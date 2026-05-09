@@ -944,7 +944,12 @@
                             </td>
                             <td data-label="預期股價">
                                 @if ($expectedPrice === null)
-                                    <span class="neutral">--</span>
+                                    <div class="expected-price-cell">
+                                        <span class="neutral">--</span>
+                                        @if ($valuationGroup && $valuationGroupPe)
+                                            <div class="valuation-group-note">{{ $valuationGroup }} {{ $fmt($valuationGroupPe, 1) }}x</div>
+                                        @endif
+                                    </div>
                                 @else
                                     <div class="expected-price-cell">
                                         <div class="expected-price-main">

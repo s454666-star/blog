@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\TwStockQ1FinancialReportFetcher;
+use App\Services\TwStockQ1ValuationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
@@ -201,6 +202,26 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('value="250"', false)
             ->assertSee('value="500"', false)
             ->assertDontSee('富鼎');
+    }
+
+    public function test_dashboard_shows_valuation_group_when_expected_price_is_unavailable(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert($this->row([
+            'stock_code' => '3138',
+            'stock_name' => '耀登',
+            'industry' => '通信網路業',
+            'valuation_group' => '通信網路',
+            'valuation_group_pe' => 24.0,
+            'q1_eps' => -0.02,
+            'q1_revenue_score' => 52,
+            'latest_close_price' => 155,
+            'rank' => 1,
+        ]));
+
+        $this->get(route('tw-stock.q1-financial-reports.index', ['q' => '3138']))
+            ->assertOk()
+            ->assertSee('--')
+            ->assertSee('通信網路 24.0x');
     }
 
     public function test_dashboard_sorts_all_matching_rows_before_paginating(): void
@@ -495,6 +516,35 @@ class TwStockQ1FinancialReportsTest extends TestCase
             'industry' => '半導體業',
             'valuation_group' => '記憶體/儲存',
         ]);
+    }
+
+    public function test_valuation_groups_use_business_specific_overrides_before_official_industry(): void
+    {
+        $service = app(TwStockQ1ValuationService::class);
+
+        $cases = [
+            ['3293', '鈊象', '文化創意業', '遊戲/數位內容', 24.0],
+            ['5284', 'jpp-KY', '其他業', '航太/國防', 30.0],
+            ['2633', '台灣高鐵', '航運業', '交通運輸', 14.0],
+            ['3138', '耀登', '通信網路業', '通信網路', 24.0],
+            ['2337', '旺宏', '半導體業', '記憶體/儲存', 38.0],
+            ['6197', '佳必琪', '電子零組件業', '高速傳輸/連接器', 32.0],
+            ['6214', '精誠', '資訊服務業', '資訊服務/雲端', 20.0],
+            ['2360', '致茂', '其他電子業', '電子設備/檢測', 27.0],
+            ['3014', '聯陽', '半導體業', 'IC設計', 45.0],
+            ['3008', '大立光', '光電業', '光學/鏡頭', 24.0],
+            ['1503', '士電', '電機機械', '電線電纜/重電', 18.0],
+            ['1605', '華新', '電器電纜', '電線電纜/重電', 18.0],
+            ['6505', '台塑化', '油電燃氣業', '石化/油品', 12.0],
+            ['9921', '巨大', '運動休閒業', '運動休閒/品牌消費', 16.0],
+        ];
+
+        foreach ($cases as [$stockCode, $stockName, $industry, $expectedGroup, $expectedPe]) {
+            $valuation = $service->valuationForValues($stockCode, $stockName, $industry);
+
+            $this->assertSame($expectedGroup, $valuation['valuation_group'], $stockCode);
+            $this->assertEqualsWithDelta($expectedPe, $valuation['valuation_group_pe'], 0.0001, $stockCode);
+        }
     }
 
     public function test_market_data_only_refreshes_latest_price_changes_and_prunes_low_volume_rows(): void

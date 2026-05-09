@@ -308,6 +308,7 @@
             #kline-chart { height: 520px; min-height: 520px; }
             .table-panel { overflow-x: auto; }
         }
+@include('tw-stock.partials.shared-shell-width')
     </style>
 </head>
 <body>

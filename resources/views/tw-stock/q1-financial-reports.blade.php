@@ -711,6 +711,7 @@
                 width: min(120px, 42vw);
             }
         }
+@include('tw-stock.partials.shared-shell-width')
     </style>
 </head>
 <body>

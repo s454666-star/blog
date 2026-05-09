@@ -317,6 +317,7 @@
             .table-panel { overflow-x: auto; }
             th, td { padding: 11px 10px; }
         }
+@include('tw-stock.partials.shared-shell-width')
     </style>
 </head>
 <body>

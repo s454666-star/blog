@@ -399,6 +399,7 @@
                 min-height: 340px;
             }
         }
+@include('tw-stock.partials.shared-shell-width')
     </style>
 </head>
 <body>

@@ -513,6 +513,7 @@
                 padding-top: 14px;
             }
         }
+@include('tw-stock.partials.shared-shell-width')
     </style>
 </head>
 <body>

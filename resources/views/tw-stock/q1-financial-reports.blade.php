@@ -185,6 +185,10 @@
             padding: 14px;
         }
 
+        .filter-panel .filters {
+            align-items: flex-start;
+        }
+
         label {
             display: grid;
             gap: 5px;
@@ -220,9 +224,43 @@
             width: 120px;
         }
 
+        .filter-field {
+            --filter-label-height: 20px;
+            --filter-control-height: 56px;
+            display: grid;
+            grid-template-rows: var(--filter-label-height) var(--filter-control-height);
+            gap: 6px;
+            align-items: start;
+        }
+
+        .filter-label {
+            display: flex;
+            height: var(--filter-label-height);
+            align-items: center;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .filter-field > input:not([type="checkbox"]),
+        .filter-field > select,
+        .filter-field .multi-select summary,
+        .filter-field .check {
+            height: var(--filter-control-height);
+            min-height: var(--filter-control-height);
+        }
+
+        .filter-field--groups {
+            min-width: 330px;
+        }
+
+        .filter-field--groups .multi-select {
+            width: 100%;
+        }
+
         .check {
             display: inline-flex;
-            min-height: 38px;
             align-items: center;
             gap: 8px;
             padding: 0 12px 0 10px;
@@ -257,15 +295,14 @@
         }
 
         .multi-select summary {
-            display: grid;
-            gap: 5px;
-            min-height: 38px;
-            padding: 8px 34px 8px 12px;
+            display: flex;
+            align-items: center;
+            padding: 0 40px 0 16px;
             border: 1px solid var(--line);
             border-radius: 8px;
-            color: var(--muted);
+            color: var(--text);
             background: #ffffff;
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 800;
             cursor: pointer;
             list-style: none;
@@ -277,32 +314,24 @@
 
         .multi-select summary::after {
             position: absolute;
-            top: 17px;
+            top: 50%;
             right: 12px;
             width: 7px;
             height: 7px;
             content: "";
             border-right: 2px solid #64748b;
             border-bottom: 2px solid #64748b;
-            transform: rotate(45deg);
+            transform: translateY(-65%) rotate(45deg);
             transition: transform 150ms ease;
         }
 
         .multi-select[open] summary::after {
-            transform: rotate(225deg);
-        }
-
-        .multi-select-title {
-            color: var(--muted);
-            font-size: 12px;
-            line-height: 1;
+            transform: translateY(-35%) rotate(225deg);
         }
 
         .multi-select-value {
             overflow: hidden;
-            color: var(--text);
-            font-size: 14px;
-            line-height: 1.2;
+            line-height: 1.25;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
@@ -1056,8 +1085,8 @@
         <form class="filters" method="get" action="{{ route('tw-stock.q1-financial-reports.index') }}" data-auto-submit-form>
             <input type="hidden" name="sort" value="{{ $sort }}">
             <input type="hidden" name="direction" value="{{ $direction }}">
-            <label>
-                年度
+            <label class="filter-field">
+                <span class="filter-label">年度</span>
                 <select name="year">
                     @forelse ($availableYears as $availableYear)
                         <option value="{{ $availableYear }}" @selected($availableYear === $year)>{{ $availableYear }}</option>
@@ -1066,38 +1095,43 @@
                     @endforelse
                 </select>
             </label>
-            <label>
-                搜尋
+            <label class="filter-field">
+                <span class="filter-label">搜尋</span>
                 <input type="search" name="q" value="{{ $search }}" placeholder="代號、名稱、產業" data-auto-submit-field>
             </label>
-            <label>
-                股價下限
+            <label class="filter-field">
+                <span class="filter-label">股價下限</span>
                 <input type="number" name="price_min" value="{{ $priceValue($priceMin) }}" min="0" step="0.01" placeholder="可不填" data-auto-submit-field>
             </label>
-            <label>
-                股價上限
+            <label class="filter-field">
+                <span class="filter-label">股價上限</span>
                 <input type="number" name="price_max" value="{{ $priceValue($priceMax) }}" min="0" step="0.01" placeholder="可不填" data-auto-submit-field>
             </label>
-            <details class="multi-select" data-multi-select>
-                <summary>
-                    <span class="multi-select-title">族群</span>
-                    <span class="multi-select-value">{{ $valuationGroupSummary }}</span>
-                </summary>
-                <div class="multi-select-menu">
-                    @foreach ($availableValuationGroups as $groupOption)
-                        <label class="multi-select-option">
-                            <input type="checkbox" name="valuation_groups[]" value="{{ $groupOption }}" @checked(in_array($groupOption, $valuationGroups, true))>
-                            <span>{{ $groupOption }}</span>
-                        </label>
-                    @endforeach
-                </div>
-            </details>
-            <label class="check">
-                <input type="checkbox" name="recent_two_month_high" value="1" @checked($recentTwoMonthHighOnly)>
-                近3日創兩個月新高
+            <div class="filter-field filter-field--groups">
+                <span class="filter-label">族群</span>
+                <details class="multi-select" data-multi-select>
+                    <summary>
+                        <span class="multi-select-value">{{ $valuationGroupSummary }}</span>
+                    </summary>
+                    <div class="multi-select-menu">
+                        @foreach ($availableValuationGroups as $groupOption)
+                            <label class="multi-select-option">
+                                <input type="checkbox" name="valuation_groups[]" value="{{ $groupOption }}" @checked(in_array($groupOption, $valuationGroups, true))>
+                                <span>{{ $groupOption }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                </details>
+            </div>
+            <label class="filter-field">
+                <span class="filter-label">條件</span>
+                <span class="check">
+                    <input type="checkbox" name="recent_two_month_high" value="1" @checked($recentTwoMonthHighOnly)>
+                    <span>近3日創兩個月新高</span>
+                </span>
             </label>
-            <label>
-                每頁
+            <label class="filter-field">
+                <span class="filter-label">每頁</span>
                 <select name="per_page">
                     @foreach ($allowedPerPage as $option)
                         <option value="{{ $option }}" @selected($option === $perPage)>{{ $option }}</option>

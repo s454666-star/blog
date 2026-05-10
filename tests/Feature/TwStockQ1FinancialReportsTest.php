@@ -667,7 +667,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             '--sleep-ms' => 0,
         ])->assertExitCode(0);
 
-        $this->assertSame(3, DB::table('tw_stock_q1_financial_reports')->count());
+        $this->assertSame(4, DB::table('tw_stock_q1_financial_reports')->count());
 
         $tsmc = DB::table('tw_stock_q1_financial_reports')->where('stock_code', '2330')->first();
         $this->assertNotNull($tsmc);
@@ -693,6 +693,13 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertEqualsWithDelta(0.17, (float) $sis->q1_eps, 0.0001);
         $this->assertEqualsWithDelta(10.5002, (float) $sis->q1_revenue_billion, 0.0001);
         $this->assertStringContainsString('MOPS ajax_t05st01', (string) $sis->source_payload);
+
+        $lungteh = DB::table('tw_stock_q1_financial_reports')->where('stock_code', '6753')->first();
+        $this->assertNotNull($lungteh);
+        $this->assertSame('龍德造船', $lungteh->stock_name);
+        $this->assertEqualsWithDelta(2.70, (float) $lungteh->q1_eps, 0.0001);
+        $this->assertEqualsWithDelta(13.2492, (float) $lungteh->q1_revenue_billion, 0.0001);
+        $this->assertStringContainsString('MOPS ajax_t05st01', (string) $lungteh->source_payload);
     }
 
     public function test_fetch_command_can_backfill_years_and_all_quarters_into_existing_table_rows(): void
@@ -1484,6 +1491,13 @@ class TwStockQ1FinancialReportsTest extends TestCase
                     'TradeVolume' => '2000000',
                     'ClosingPrice' => '20.00',
                 ],
+                [
+                    'Date' => '1150508',
+                    'Code' => '6753',
+                    'Name' => '龍德造船',
+                    'TradeVolume' => '3707000',
+                    'ClosingPrice' => '145.00',
+                ],
             ]);
         }
 
@@ -1521,6 +1535,11 @@ class TwStockQ1FinancialReportsTest extends TestCase
                             '年季' => '202501',
                             '公告基本每股盈餘(元)' => '13.94',
                             '季營收(億)' => '8392.54',
+                        ]],
+                        '6753' => [[
+                            '年季' => '202501',
+                            '公告基本每股盈餘(元)' => '1.00',
+                            '季營收(億)' => '8.00',
                         ]],
                         default => [],
                     },
@@ -1569,6 +1588,16 @@ class TwStockQ1FinancialReportsTest extends TestCase
                         '175557',
                         '2',
                         'otc',
+                    ) . $this->mopsListHtml(
+                        '6753',
+                        '龍德造船',
+                        '115/05/08',
+                        '17:39:01',
+                        '公告本公司董事會通過115年第一季財務報告',
+                        '20260508',
+                        '173901',
+                        '1',
+                        'sii',
                     ));
                 }
 
@@ -1636,6 +1665,19 @@ class TwStockQ1FinancialReportsTest extends TestCase
 毛利率為66.2%，營業利益率為58.1%，稅後純益率為50.5%。
 </body></html>
 HTML);
+            }
+
+            if (($data['step'] ?? null) === '2' && ($data['co_id'] ?? null) === '6753') {
+                return Http::response($this->mopsCurrencyDetailHtml([
+                    'revenue' => '1,324,923',
+                    'gross_profit' => '438,584',
+                    'operating_profit' => '383,922',
+                    'net_income' => '317,126',
+                    'parent_net_income' => '317,126',
+                    'eps' => '2.70',
+                    'assets' => '10,821,486',
+                    'parent_equity' => '5,014,378',
+                ]));
             }
 
             return Http::response('<html><body><table></table></body></html>');
@@ -1792,6 +1834,26 @@ HTML;
 <p>10.1月1日累計至本期止基本每股盈餘(損失) (元):{$values['eps']}</p>
 <p>11.期末總資產(仟元):{$values['assets']}</p>
 <p>13.期末歸屬於母公司業主之權益(仟元):{$values['parent_equity']}</p>
+</body></html>
+HTML;
+    }
+
+    /**
+     * @param array<string, string> $values
+     */
+    private function mopsCurrencyDetailHtml(array $values): string
+    {
+        return <<<HTML
+<html><body>
+<p>3.財務報告或年度自結財務資訊報導期間起訖日期(XXX/XX/XX~XXX/XX/XX):115/01/01~115/03/31</p>
+<p>4.1月1日累計至本期止營業收入(仟元):新台幣{$values['revenue']}仟元</p>
+<p>5.1月1日累計至本期止營業毛利(毛損) (仟元):新台幣{$values['gross_profit']}仟元</p>
+<p>6.1月1日累計至本期止營業利益(損失) (仟元):新台幣{$values['operating_profit']}仟元</p>
+<p>8.1月1日累計至本期止本期淨利(淨損) (仟元):新台幣{$values['net_income']}仟元</p>
+<p>9.1月1日累計至本期止歸屬於母公司業主淨利(損) (仟元):新台幣{$values['parent_net_income']}仟元</p>
+<p>10.1月1日累計至本期止基本每股盈餘(損失) (元):新台幣{$values['eps']}元</p>
+<p>11.期末總資產(仟元):新台幣{$values['assets']}仟元</p>
+<p>13.期末歸屬於母公司業主之權益(仟元):新台幣{$values['parent_equity']}仟元</p>
 </body></html>
 HTML;
     }

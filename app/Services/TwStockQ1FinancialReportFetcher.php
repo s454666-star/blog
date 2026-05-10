@@ -1356,7 +1356,9 @@ class TwStockQ1FinancialReportFetcher
 
     private function announcementValue(string $text, string $label): ?float
     {
-        if (!preg_match('/' . preg_quote($label, '/') . '[^:：]*[:：]\s*([\(（]?-?[\d,]+(?:\.\d+)?[\)）]?)/u', $text, $matches)) {
+        $currencyPrefix = '(?:新台幣|新臺幣|台幣|臺幣|NT\\$?|TWD)?\s*';
+        $numberPattern = '([\(（]?-?[\d,]+(?:\.\d+)?[\)）]?)';
+        if (!preg_match('/' . preg_quote($label, '/') . '[^:：]*[:：]\s*' . $currencyPrefix . $numberPattern . '/iu', $text, $matches)) {
             return null;
         }
 

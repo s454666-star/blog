@@ -299,6 +299,17 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('aria-label="近三日內有兩個月新高"', false)
             ->assertDontSee('本業佔比');
         $this->assertTableOrder($response->getContent(), ['9951', '8261']);
+
+        $filteredResponse = $this->get(route('tw-stock.q1-financial-reports.index', [
+            'recent_two_month_high' => 1,
+            'per_page' => 50,
+        ]));
+
+        $filteredResponse->assertOk()
+            ->assertSee('name="recent_two_month_high" value="1" checked', false)
+            ->assertSee('9951')
+            ->assertDontSee('8261');
+        $this->assertTableOrder($filteredResponse->getContent(), ['9951']);
     }
 
     public function test_dashboard_shows_valuation_group_when_expected_price_is_unavailable(): void

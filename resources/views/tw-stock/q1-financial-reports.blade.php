@@ -220,6 +220,37 @@
             width: 120px;
         }
 
+        .check {
+            display: inline-flex;
+            min-height: 38px;
+            align-items: center;
+            gap: 8px;
+            padding: 0 12px 0 10px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            color: #334155;
+            background: #ffffff;
+            font-size: 13px;
+            font-weight: 900;
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+            transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+        }
+
+        .check:hover {
+            transform: translateY(-1px);
+            border-color: #a9b7ca;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.10);
+        }
+
+        .check input[type="checkbox"] {
+            width: 17px;
+            height: 17px;
+            min-height: 0;
+            padding: 0;
+            accent-color: var(--blue);
+        }
+
         .multi-select {
             position: relative;
             min-width: 220px;
@@ -1061,6 +1092,10 @@
                     @endforeach
                 </div>
             </details>
+            <label class="check">
+                <input type="checkbox" name="recent_two_month_high" value="1" @checked($recentTwoMonthHighOnly)>
+                近3日創兩個月新高
+            </label>
             <label>
                 每頁
                 <select name="per_page">

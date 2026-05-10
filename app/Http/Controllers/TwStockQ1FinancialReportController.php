@@ -56,6 +56,7 @@ class TwStockQ1FinancialReportController extends Controller
         $priceMax = $this->priceFilterValue($request->query('price_max'));
         $availableValuationGroups = $this->availableValuationGroups($year);
         $valuationGroups = $this->selectedValuationGroups($request->query('valuation_groups', []), $availableValuationGroups);
+        $recentTwoMonthHighOnly = $request->boolean('recent_two_month_high');
         $sortableColumns = $this->sortableColumns();
         $sort = (string) $request->query('sort', 'score');
         if (!array_key_exists($sort, $sortableColumns)) {
@@ -79,6 +80,12 @@ class TwStockQ1FinancialReportController extends Controller
             ->whereNotNull('price_change_20d_percent')
             ->count();
         $matchingRows = $this->attachRecentTwoMonthHighFlags((clone $baseQuery)->get());
+        if ($recentTwoMonthHighOnly) {
+            $matchingRows = $matchingRows
+                ->filter(fn (TwStockQ1FinancialReport $row): bool => (bool) $row->getAttribute('recent_two_month_high'))
+                ->values();
+        }
+
         $rows = $this->paginateRows(
             $request,
             $this->sortRows($matchingRows, $sort, $direction, $groupTotalRows),
@@ -102,18 +109,19 @@ class TwStockQ1FinancialReportController extends Controller
             'priceMax' => $priceMax,
             'valuationGroups' => $valuationGroups,
             'availableValuationGroups' => $availableValuationGroups,
+            'recentTwoMonthHighOnly' => $recentTwoMonthHighOnly,
             'sort' => $sort,
             'direction' => $direction,
             'sortableColumns' => $sortableColumns,
             'availableYears' => $availableYears,
             'rows' => $rows,
-            'totalRows' => (clone $baseQuery)->count(),
+            'totalRows' => $matchingRows->count(),
             'groupTotalRows' => $groupTotalRows,
-            'lastFetchedAt' => (clone $baseQuery)->max('fetched_at'),
-            'latestPriceDate' => (clone $baseQuery)->max('latest_price_date'),
-            'topScoreRow' => (clone $baseQuery)->orderByDesc('q1_revenue_score')->first(),
-            'topRevenueRow' => (clone $baseQuery)->orderByDesc('q1_revenue_billion')->first(),
-            'topGrowthRow' => (clone $baseQuery)->orderByDesc('q1_revenue_yoy_percent')->first(),
+            'lastFetchedAt' => $matchingRows->max('fetched_at'),
+            'latestPriceDate' => $matchingRows->max('latest_price_date'),
+            'topScoreRow' => $this->topQ1RowBy($matchingRows, 'q1_revenue_score'),
+            'topRevenueRow' => $this->topQ1RowBy($matchingRows, 'q1_revenue_billion'),
+            'topGrowthRow' => $this->topQ1RowBy($matchingRows, 'q1_revenue_yoy_percent'),
         ]);
     }
 
@@ -541,6 +549,17 @@ class TwStockQ1FinancialReportController extends Controller
     private function numericSortValue(mixed $value): ?float
     {
         return $value === null ? null : (float) $value;
+    }
+
+    /**
+     * @param Collection<int, TwStockQ1FinancialReport> $rows
+     */
+    private function topQ1RowBy(Collection $rows, string $field): ?TwStockQ1FinancialReport
+    {
+        return $rows
+            ->filter(fn (TwStockQ1FinancialReport $row): bool => $row->{$field} !== null)
+            ->sortByDesc(fn (TwStockQ1FinancialReport $row): float => (float) $row->{$field})
+            ->first();
     }
 
     /**

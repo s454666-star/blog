@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\TwStockCompanyProfile;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
@@ -13,6 +14,8 @@ class TwStockCompanyProfileService
     private const TWSE_COMPANY_PROFILE_URL = 'https://openapi.twse.com.tw/v1/opendata/t187ap03_L';
 
     private const TPEX_COMPANY_PROFILE_URL = 'https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O';
+
+    private const STOCK_CACHE_TTL_SECONDS = 43200;
 
     private const INDUSTRY_CODE_NAMES = [
         '01' => '水泥工業',
@@ -135,30 +138,36 @@ class TwStockCompanyProfileService
             return [];
         }
 
-        try {
-            $rows = TwStockCompanyProfile::query()
-                ->where('exchange', $exchange)
-                ->get();
-        } catch (Throwable) {
-            return [];
-        }
+        return Cache::remember(
+            'tw-stock:company-profiles:stored:v1:' . $exchange . ':' . $this->profileCacheVersion($exchange),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            function () use ($exchange): array {
+                try {
+                    $rows = TwStockCompanyProfile::query()
+                        ->where('exchange', $exchange)
+                        ->get();
+                } catch (Throwable) {
+                    return [];
+                }
 
-        $profiles = [];
-        foreach ($rows as $row) {
-            $profiles[(string) $row->stock_code] = [
-                'exchange' => (string) $row->exchange,
-                'stock_code' => (string) $row->stock_code,
-                'stock_name' => (string) $row->stock_name,
-                'industry' => $row->industry,
-                'industry_code' => $row->industry_code,
-                'valuation_group' => (string) $row->valuation_group,
-                'valuation_group_pe' => (float) $row->valuation_group_pe,
-                'source_date' => $row->source_date?->toDateString(),
-                'source_payload' => is_array($row->source_payload) ? $row->source_payload : null,
-            ];
-        }
+                $profiles = [];
+                foreach ($rows as $row) {
+                    $profiles[(string) $row->stock_code] = [
+                        'exchange' => (string) $row->exchange,
+                        'stock_code' => (string) $row->stock_code,
+                        'stock_name' => (string) $row->stock_name,
+                        'industry' => $row->industry,
+                        'industry_code' => $row->industry_code,
+                        'valuation_group' => (string) $row->valuation_group,
+                        'valuation_group_pe' => (float) $row->valuation_group_pe,
+                        'source_date' => $row->source_date?->toDateString(),
+                        'source_payload' => is_array($row->source_payload) ? $row->source_payload : null,
+                    ];
+                }
 
-        return $profiles;
+                return $profiles;
+            },
+        );
     }
 
     /**
@@ -176,52 +185,58 @@ class TwStockCompanyProfileService
             return [];
         }
 
-        try {
-            $rows = Http::timeout(30)->retry(2, 500)->get($url)->throw()->json();
-        } catch (Throwable) {
-            return [];
-        }
+        return Cache::remember(
+            'tw-stock:company-profiles:official:v1:' . $exchange,
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            function () use ($exchange, $url): array {
+                try {
+                    $rows = Http::timeout(30)->retry(2, 500)->get($url)->throw()->json();
+                } catch (Throwable) {
+                    return [];
+                }
 
-        if (!is_array($rows)) {
-            return [];
-        }
+                if (!is_array($rows)) {
+                    return [];
+                }
 
-        $profiles = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
+                $profiles = [];
+                foreach ($rows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
 
-            $stockCode = trim((string) ($row['公司代號'] ?? $row['SecuritiesCompanyCode'] ?? ''));
-            if (!$this->isCommonStockCode($stockCode)) {
-                continue;
-            }
+                    $stockCode = trim((string) ($row['公司代號'] ?? $row['SecuritiesCompanyCode'] ?? ''));
+                    if (!$this->isCommonStockCode($stockCode)) {
+                        continue;
+                    }
 
-            $stockName = trim((string) ($row['公司簡稱'] ?? $row['CompanyAbbreviation'] ?? $row['CompanyName'] ?? ''));
-            if ($stockName === '') {
-                continue;
-            }
+                    $stockName = trim((string) ($row['公司簡稱'] ?? $row['CompanyAbbreviation'] ?? $row['CompanyName'] ?? ''));
+                    if ($stockName === '') {
+                        continue;
+                    }
 
-            $industryRaw = $row['產業別'] ?? $row['SecuritiesIndustryCode'] ?? $row['Industry'] ?? null;
-            $industryCode = $this->normalizeIndustryCode($industryRaw);
-            $industry = $this->normalizeIndustry($industryCode ?? $industryRaw);
-            $valuation = $this->valuationService->valuationForValues($stockCode, $stockName, $industry);
-            $sourceDate = $this->parseRocDate((string) ($row['出表日期'] ?? $row['Date'] ?? $row['年月日'] ?? ''));
+                    $industryRaw = $row['產業別'] ?? $row['SecuritiesIndustryCode'] ?? $row['Industry'] ?? null;
+                    $industryCode = $this->normalizeIndustryCode($industryRaw);
+                    $industry = $this->normalizeIndustry($industryCode ?? $industryRaw);
+                    $valuation = $this->valuationService->valuationForValues($stockCode, $stockName, $industry);
+                    $sourceDate = $this->parseRocDate((string) ($row['出表日期'] ?? $row['Date'] ?? $row['年月日'] ?? ''));
 
-            $profiles[$stockCode] = [
-                'exchange' => $exchange,
-                'stock_code' => $stockCode,
-                'stock_name' => $stockName,
-                'industry' => $industry,
-                'industry_code' => $industryCode,
-                'valuation_group' => $valuation['valuation_group'],
-                'valuation_group_pe' => $valuation['valuation_group_pe'],
-                'source_date' => $sourceDate,
-                'source_payload' => $row,
-            ];
-        }
+                    $profiles[$stockCode] = [
+                        'exchange' => $exchange,
+                        'stock_code' => $stockCode,
+                        'stock_name' => $stockName,
+                        'industry' => $industry,
+                        'industry_code' => $industryCode,
+                        'valuation_group' => $valuation['valuation_group'],
+                        'valuation_group_pe' => $valuation['valuation_group_pe'],
+                        'source_date' => $sourceDate,
+                        'source_payload' => $row,
+                    ];
+                }
 
-        return $profiles;
+                return $profiles;
+            },
+        );
     }
 
     /**
@@ -343,5 +358,25 @@ class TwStockCompanyProfileService
         } catch (Throwable) {
             return false;
         }
+    }
+
+    private function profileCacheVersion(string $exchange): string
+    {
+        try {
+            $row = TwStockCompanyProfile::query()
+                ->where('exchange', $exchange)
+                ->selectRaw('COUNT(*) as row_count, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
+                ->toBase()
+                ->first();
+        } catch (Throwable) {
+            return 'missing';
+        }
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_fetched_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
     }
 }

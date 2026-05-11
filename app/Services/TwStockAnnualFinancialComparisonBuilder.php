@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\TwStockQ1FinancialReport;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 class TwStockAnnualFinancialComparisonBuilder
 {
@@ -16,6 +17,8 @@ class TwStockAnnualFinancialComparisonBuilder
      * @var list<float>
      */
     private const YEARLY_GROWTH_WEIGHTS = [0.5, 1.0, 1.5, 2.0, 2.5];
+
+    private const STOCK_CACHE_TTL_SECONDS = 43200;
 
     /**
      * @return Collection<int, array<string, mixed>>
@@ -58,36 +61,45 @@ class TwStockAnnualFinancialComparisonBuilder
      */
     private function latestRows(int $contextYear, int $startYear, string $search): Collection
     {
-        return TwStockQ1FinancialReport::query()
-            ->select([
-                'id',
-                'exchange',
-                'stock_code',
-                'stock_name',
-                'fiscal_year',
-                'quarter',
-                'q1_revenue_yoy_percent',
-                'q1_eps_yoy_percent',
-                'latest_close_price',
-                'volume_lots',
-            ])
-            ->whereBetween('fiscal_year', [$startYear, $contextYear])
-            ->whereBetween('quarter', [1, 4])
-            ->when($search !== '', function (Builder $query) use ($search): void {
-                $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
-                $query->where(function (Builder $query) use ($like): void {
-                    $query->where('stock_code', 'like', $like)
-                        ->orWhere('stock_name', 'like', $like);
-                });
-            })
-            ->orderBy('exchange')
-            ->orderBy('stock_code')
-            ->orderByDesc('fiscal_year')
-            ->orderByDesc('quarter')
-            ->orderByDesc('id')
-            ->get()
-            ->groupBy(fn (TwStockQ1FinancialReport $row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
-            ->map(fn (Collection $rows): TwStockQ1FinancialReport => $rows->first());
+        return Cache::remember(
+            'tw-stock:annual-builder:latest-rows:v1:' . sha1(serialize([
+                $contextYear,
+                $startYear,
+                $search,
+                $this->q1CacheVersion($startYear, $contextYear),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): Collection => TwStockQ1FinancialReport::query()
+                ->select([
+                    'id',
+                    'exchange',
+                    'stock_code',
+                    'stock_name',
+                    'fiscal_year',
+                    'quarter',
+                    'q1_revenue_yoy_percent',
+                    'q1_eps_yoy_percent',
+                    'latest_close_price',
+                    'volume_lots',
+                ])
+                ->whereBetween('fiscal_year', [$startYear, $contextYear])
+                ->whereBetween('quarter', [1, 4])
+                ->when($search !== '', function (Builder $query) use ($search): void {
+                    $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
+                    $query->where(function (Builder $query) use ($like): void {
+                        $query->where('stock_code', 'like', $like)
+                            ->orWhere('stock_name', 'like', $like);
+                    });
+                })
+                ->orderBy('exchange')
+                ->orderBy('stock_code')
+                ->orderByDesc('fiscal_year')
+                ->orderByDesc('quarter')
+                ->orderByDesc('id')
+                ->get()
+                ->groupBy(fn (TwStockQ1FinancialReport $row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
+                ->map(fn (Collection $rows): TwStockQ1FinancialReport => $rows->first()),
+        );
     }
 
     /**
@@ -96,31 +108,40 @@ class TwStockAnnualFinancialComparisonBuilder
      */
     private function annualMetricRows(Collection $stockCodes, int $contextYear, int $startYear): array
     {
-        return TwStockQ1FinancialReport::query()
-            ->select(['exchange', 'stock_code', 'fiscal_year'])
-            ->selectRaw('SUM(q1_eps) as eps')
-            ->selectRaw('AVG(q1_gross_margin_percent) as gross_margin')
-            ->selectRaw('AVG(q1_operating_margin_percent) as operating_margin')
-            ->selectRaw('AVG(q1_net_margin_percent) as net_margin')
-            ->selectRaw('COUNT(*) as quarters')
-            ->whereIn('stock_code', $stockCodes->all())
-            ->whereBetween('fiscal_year', [$startYear, $contextYear])
-            ->whereBetween('quarter', [1, 4])
-            ->groupBy('exchange', 'stock_code', 'fiscal_year')
-            ->get()
-            ->groupBy(fn ($row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
-            ->map(fn (Collection $rows): array => $rows
-                ->mapWithKeys(fn ($row): array => [
-                    (int) $row->fiscal_year => [
-                        'eps' => $this->nullableFloat($row->eps),
-                        'gross_margin' => $this->nullableFloat($row->gross_margin),
-                        'operating_margin' => $this->nullableFloat($row->operating_margin),
-                        'net_margin' => $this->nullableFloat($row->net_margin),
-                        'quarters' => (int) $row->quarters,
-                    ],
-                ])
-                ->all())
-            ->all();
+        return Cache::remember(
+            'tw-stock:annual-builder:annual-metrics:v1:' . sha1(serialize([
+                $stockCodes->sort()->values()->all(),
+                $contextYear,
+                $startYear,
+                $this->q1CacheVersion($startYear, $contextYear),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): array => TwStockQ1FinancialReport::query()
+                ->select(['exchange', 'stock_code', 'fiscal_year'])
+                ->selectRaw('SUM(q1_eps) as eps')
+                ->selectRaw('AVG(q1_gross_margin_percent) as gross_margin')
+                ->selectRaw('AVG(q1_operating_margin_percent) as operating_margin')
+                ->selectRaw('AVG(q1_net_margin_percent) as net_margin')
+                ->selectRaw('COUNT(*) as quarters')
+                ->whereIn('stock_code', $stockCodes->all())
+                ->whereBetween('fiscal_year', [$startYear, $contextYear])
+                ->whereBetween('quarter', [1, 4])
+                ->groupBy('exchange', 'stock_code', 'fiscal_year')
+                ->get()
+                ->groupBy(fn ($row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
+                ->map(fn (Collection $rows): array => $rows
+                    ->mapWithKeys(fn ($row): array => [
+                        (int) $row->fiscal_year => [
+                            'eps' => $this->nullableFloat($row->eps),
+                            'gross_margin' => $this->nullableFloat($row->gross_margin),
+                            'operating_margin' => $this->nullableFloat($row->operating_margin),
+                            'net_margin' => $this->nullableFloat($row->net_margin),
+                            'quarters' => (int) $row->quarters,
+                        ],
+                    ])
+                    ->all())
+                ->all(),
+        );
     }
 
     /**
@@ -129,18 +150,27 @@ class TwStockAnnualFinancialComparisonBuilder
      */
     private function monthlyRevenueRows(Collection $stockCodes, int $contextYear, int $startYear): array
     {
-        return TwStockQ1FinancialReport::query()
-            ->select(['exchange', 'stock_code', 'recent_monthly_revenues'])
-            ->whereIn('stock_code', $stockCodes->all())
-            ->whereBetween('fiscal_year', [$startYear, $contextYear])
-            ->whereNotNull('recent_monthly_revenues')
-            ->get()
-            ->groupBy(fn (TwStockQ1FinancialReport $row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
-            ->map(fn (Collection $rows): array => $rows
-                ->map(fn (TwStockQ1FinancialReport $row): array => $row->recent_monthly_revenues ?? [])
-                ->sortByDesc(fn (array $rows): int => count($rows))
-                ->first() ?? [])
-            ->all();
+        return Cache::remember(
+            'tw-stock:annual-builder:monthly-revenue:v1:' . sha1(serialize([
+                $stockCodes->sort()->values()->all(),
+                $contextYear,
+                $startYear,
+                $this->q1CacheVersion($startYear, $contextYear),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): array => TwStockQ1FinancialReport::query()
+                ->select(['exchange', 'stock_code', 'recent_monthly_revenues'])
+                ->whereIn('stock_code', $stockCodes->all())
+                ->whereBetween('fiscal_year', [$startYear, $contextYear])
+                ->whereNotNull('recent_monthly_revenues')
+                ->get()
+                ->groupBy(fn (TwStockQ1FinancialReport $row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
+                ->map(fn (Collection $rows): array => $rows
+                    ->map(fn (TwStockQ1FinancialReport $row): array => $row->recent_monthly_revenues ?? [])
+                    ->sortByDesc(fn (array $rows): int => count($rows))
+                    ->first() ?? [])
+                ->all(),
+        );
     }
 
     /**
@@ -149,19 +179,28 @@ class TwStockAnnualFinancialComparisonBuilder
      */
     private function netMarginRows(Collection $stockCodes, int $contextYear, int $startYear): array
     {
-        return TwStockQ1FinancialReport::query()
-            ->select(['exchange', 'stock_code', 'fiscal_year', 'quarter', 'q1_net_margin_percent'])
-            ->whereIn('stock_code', $stockCodes->all())
-            ->whereBetween('fiscal_year', [$startYear, $contextYear])
-            ->whereBetween('quarter', [1, 4])
-            ->whereNotNull('q1_net_margin_percent')
-            ->orderBy('exchange')
-            ->orderBy('stock_code')
-            ->orderByDesc('fiscal_year')
-            ->orderByDesc('quarter')
-            ->get()
-            ->groupBy(fn (TwStockQ1FinancialReport $row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
-            ->all();
+        return Cache::remember(
+            'tw-stock:annual-builder:net-margin:v1:' . sha1(serialize([
+                $stockCodes->sort()->values()->all(),
+                $contextYear,
+                $startYear,
+                $this->q1CacheVersion($startYear, $contextYear),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): array => TwStockQ1FinancialReport::query()
+                ->select(['exchange', 'stock_code', 'fiscal_year', 'quarter', 'q1_net_margin_percent'])
+                ->whereIn('stock_code', $stockCodes->all())
+                ->whereBetween('fiscal_year', [$startYear, $contextYear])
+                ->whereBetween('quarter', [1, 4])
+                ->whereNotNull('q1_net_margin_percent')
+                ->orderBy('exchange')
+                ->orderBy('stock_code')
+                ->orderByDesc('fiscal_year')
+                ->orderByDesc('quarter')
+                ->get()
+                ->groupBy(fn (TwStockQ1FinancialReport $row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
+                ->all(),
+        );
     }
 
     /**
@@ -404,5 +443,21 @@ class TwStockAnnualFinancialComparisonBuilder
     private function rowKey(string $exchange, string $stockCode): string
     {
         return $exchange . '|' . $stockCode;
+    }
+
+    private function q1CacheVersion(int $startYear, int $contextYear): string
+    {
+        $row = TwStockQ1FinancialReport::query()
+            ->whereBetween('fiscal_year', [$startYear, $contextYear])
+            ->selectRaw('COUNT(*) as row_count, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
+            ->toBase()
+            ->first();
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_fetched_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
     }
 }

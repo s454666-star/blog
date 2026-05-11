@@ -4,12 +4,15 @@ namespace App\Services;
 
 use App\Models\TwStockQ1FinancialReport;
 use App\Models\TwStockValuationGroup;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class TwStockQ1ValuationService
 {
     public const MARKET_REFERENCE_PE = 25.0;
+
+    private const STOCK_CACHE_TTL_SECONDS = 43200;
 
     private const GROUP_PE = [
         'IC設計' => 45.0,
@@ -297,26 +300,54 @@ class TwStockQ1ValuationService
             return $this->groupPeMap;
         }
 
-        $this->groupPeMap = self::GROUP_PE;
-
         try {
             if (!Schema::hasTable('tw_stock_valuation_groups')) {
-                return $this->groupPeMap;
+                return $this->groupPeMap = self::GROUP_PE;
             }
-
-            $rows = TwStockValuationGroup::query()
-                ->get(['group_name', 'average_pe']);
         } catch (Throwable) {
-            return $this->groupPeMap;
+            return $this->groupPeMap = self::GROUP_PE;
         }
 
-        foreach ($rows as $row) {
-            if ((float) $row->average_pe > 0) {
-                $this->groupPeMap[(string) $row->group_name] = (float) $row->average_pe;
-            }
+        return $this->groupPeMap = Cache::remember(
+            'tw-stock:valuation-groups:pe-map:v1:' . $this->valuationGroupCacheVersion(),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            function (): array {
+                $map = self::GROUP_PE;
+
+                try {
+                    $rows = TwStockValuationGroup::query()
+                        ->get(['group_name', 'average_pe']);
+                } catch (Throwable) {
+                    return $map;
+                }
+
+                foreach ($rows as $row) {
+                    if ((float) $row->average_pe > 0) {
+                        $map[(string) $row->group_name] = (float) $row->average_pe;
+                    }
+                }
+
+                return $map;
+            },
+        );
+    }
+
+    private function valuationGroupCacheVersion(): string
+    {
+        try {
+            $row = TwStockValuationGroup::query()
+                ->selectRaw('COUNT(*) as row_count, MAX(updated_at) as max_updated_at, MAX(id) as max_id')
+                ->toBase()
+                ->first();
+        } catch (Throwable) {
+            return 'missing';
         }
 
-        return $this->groupPeMap;
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
     }
 
     private function resolveGroup(string $stockCode, string $stockName, ?string $industry): string

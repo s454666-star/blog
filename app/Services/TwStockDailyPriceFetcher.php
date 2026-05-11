@@ -7,6 +7,7 @@ use App\Models\TwStockDailyPrice;
 use App\Models\TwStockQ1FinancialReport;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -18,15 +19,19 @@ class TwStockDailyPriceFetcher
 
     private const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/%s';
 
+    private const LATEST_PRICE_CACHE_TTL_SECONDS = 600;
+
+    private const HISTORICAL_PRICE_CACHE_TTL_SECONDS = 2592000;
+
     /**
      * @return list<array<string, mixed>>
      */
     public function fetchLatestRows(): array
     {
-        return [
+        return $this->withFetchedAt([
             ...$this->fetchLatestTwseRows(),
             ...$this->fetchLatestTpexRows(),
-        ];
+        ]);
     }
 
     /**
@@ -96,71 +101,82 @@ class TwStockDailyPriceFetcher
         $fromDate = CarbonImmutable::parse($from, 'Asia/Taipei')->startOfDay();
         $toDate = CarbonImmutable::parse($to, 'Asia/Taipei')->endOfDay();
 
-        try {
-            $response = $this->http()
-                ->get(sprintf(self::YAHOO_CHART_URL, $symbol), [
-                    'period1' => $fromDate->timestamp,
-                    'period2' => $toDate->addDay()->timestamp,
-                    'interval' => '1d',
-                    'events' => 'history',
-                ])
-                ->throw()
-                ->json();
-        } catch (Throwable $e) {
-            report($e);
+        $rows = Cache::remember(
+            'tw-stock:daily-prices:yahoo-historical:v1:' . sha1(serialize([
+                $symbol,
+                $fromDate->toDateString(),
+                $toDate->toDateString(),
+            ])),
+            now()->addSeconds($this->historicalPriceCacheTtl($toDate)),
+            function () use ($symbol, $fromDate, $toDate, $exchange, $stockCode, $stockName): array {
+                try {
+                    $response = $this->http()
+                        ->get(sprintf(self::YAHOO_CHART_URL, $symbol), [
+                            'period1' => $fromDate->timestamp,
+                            'period2' => $toDate->addDay()->timestamp,
+                            'interval' => '1d',
+                            'events' => 'history',
+                        ])
+                        ->throw()
+                        ->json();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return [];
-        }
+                    return [];
+                }
 
-        $result = $response['chart']['result'][0] ?? null;
-        $timestamps = $result['timestamp'] ?? null;
-        $quote = $result['indicators']['quote'][0] ?? null;
-        if (!is_array($timestamps) || !is_array($quote)) {
-            return [];
-        }
+                $result = $response['chart']['result'][0] ?? null;
+                $timestamps = $result['timestamp'] ?? null;
+                $quote = $result['indicators']['quote'][0] ?? null;
+                if (!is_array($timestamps) || !is_array($quote)) {
+                    return [];
+                }
 
-        $opens = $quote['open'] ?? [];
-        $highs = $quote['high'] ?? [];
-        $lows = $quote['low'] ?? [];
-        $closes = $quote['close'] ?? [];
-        $volumes = $quote['volume'] ?? [];
-        $rows = [];
-        foreach ($timestamps as $index => $timestamp) {
-            $tradeDate = CarbonImmutable::createFromTimestamp((int) $timestamp, 'UTC')
-                ->setTimezone('Asia/Taipei')
-                ->toDateString();
-            $close = $this->parseDecimal($closes[$index] ?? null);
-            if ($close === null) {
-                continue;
-            }
+                $opens = $quote['open'] ?? [];
+                $highs = $quote['high'] ?? [];
+                $lows = $quote['low'] ?? [];
+                $closes = $quote['close'] ?? [];
+                $volumes = $quote['volume'] ?? [];
+                $rows = [];
+                foreach ($timestamps as $index => $timestamp) {
+                    $tradeDate = CarbonImmutable::createFromTimestamp((int) $timestamp, 'UTC')
+                        ->setTimezone('Asia/Taipei')
+                        ->toDateString();
+                    $close = $this->parseDecimal($closes[$index] ?? null);
+                    if ($close === null) {
+                        continue;
+                    }
 
-            $previousClose = $rows === [] ? null : (float) $rows[count($rows) - 1]['close_price'];
-            $changeAmount = $previousClose === null ? null : $close - $previousClose;
-            $rows[] = [
-                'exchange' => $exchange,
-                'stock_code' => $stockCode,
-                'stock_name' => $stockName,
-                'trade_date' => $tradeDate,
-                'open_price' => $this->decimal($this->parseDecimal($opens[$index] ?? null)),
-                'high_price' => $this->decimal($this->parseDecimal($highs[$index] ?? null)),
-                'low_price' => $this->decimal($this->parseDecimal($lows[$index] ?? null)),
-                'close_price' => $this->decimal($close),
-                'previous_close_price' => $this->decimal($previousClose),
-                'price_change_amount' => $this->decimal($changeAmount),
-                'price_change_percent' => $previousClose !== null && $previousClose > 0.0
-                    ? $this->decimal(($changeAmount / $previousClose) * 100)
-                    : null,
-                'volume_lots' => (int) floor((float) ($volumes[$index] ?? 0) / 1000),
-                'volume_shares' => (int) ($volumes[$index] ?? 0),
-                'trade_value' => null,
-                'transaction_count' => null,
-                'source' => 'Yahoo Finance chart public endpoint',
-                'source_payload' => ['symbol' => $symbol],
-                'fetched_at' => now(),
-            ];
-        }
+                    $previousClose = $rows === [] ? null : (float) $rows[count($rows) - 1]['close_price'];
+                    $changeAmount = $previousClose === null ? null : $close - $previousClose;
+                    $rows[] = [
+                        'exchange' => $exchange,
+                        'stock_code' => $stockCode,
+                        'stock_name' => $stockName,
+                        'trade_date' => $tradeDate,
+                        'open_price' => $this->decimal($this->parseDecimal($opens[$index] ?? null)),
+                        'high_price' => $this->decimal($this->parseDecimal($highs[$index] ?? null)),
+                        'low_price' => $this->decimal($this->parseDecimal($lows[$index] ?? null)),
+                        'close_price' => $this->decimal($close),
+                        'previous_close_price' => $this->decimal($previousClose),
+                        'price_change_amount' => $this->decimal($changeAmount),
+                        'price_change_percent' => $previousClose !== null && $previousClose > 0.0
+                            ? $this->decimal(($changeAmount / $previousClose) * 100)
+                            : null,
+                        'volume_lots' => (int) floor((float) ($volumes[$index] ?? 0) / 1000),
+                        'volume_shares' => (int) ($volumes[$index] ?? 0),
+                        'trade_value' => null,
+                        'transaction_count' => null,
+                        'source' => 'Yahoo Finance chart public endpoint',
+                        'source_payload' => ['symbol' => $symbol],
+                    ];
+                }
 
-        return $rows;
+                return $rows;
+            },
+        );
+
+        return $this->withFetchedAt($rows);
     }
 
     /**
@@ -212,54 +228,60 @@ class TwStockDailyPriceFetcher
      */
     private function fetchLatestTwseRows(): array
     {
-        try {
-            $response = $this->http()->get(self::TWSE_DAILY_PRICE_URL)->throw()->json();
-        } catch (Throwable $e) {
-            report($e);
+        return Cache::remember(
+            'tw-stock:daily-prices:twse-latest-rows:v1',
+            now()->addSeconds(self::LATEST_PRICE_CACHE_TTL_SECONDS),
+            function (): array {
+                try {
+                    $response = $this->http()->get(self::TWSE_DAILY_PRICE_URL)->throw()->json();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return [];
-        }
+                    return [];
+                }
 
-        if (!is_array($response)) {
-            return [];
-        }
+                if (!is_array($response)) {
+                    return [];
+                }
 
-        $rows = [];
-        foreach ($response as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
+                $rows = [];
+                foreach ($response as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
 
-            $stockCode = trim((string) ($row['Code'] ?? ''));
-            $close = $this->parseDecimal($row['ClosingPrice'] ?? null);
-            $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
-            if (!$this->isCommonStockCode($stockCode) || $date === null || $close === null) {
-                continue;
-            }
+                    $stockCode = trim((string) ($row['Code'] ?? ''));
+                    $close = $this->parseDecimal($row['ClosingPrice'] ?? null);
+                    $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
+                    if (!$this->isCommonStockCode($stockCode) || $date === null || $close === null) {
+                        continue;
+                    }
 
-            $change = $this->parseDecimal($row['Change'] ?? null);
-            $previousClose = $change === null ? null : $close - $change;
-            $volumeShares = $this->parseInteger($row['TradeVolume'] ?? null) ?? 0;
-            $rows[] = $this->latestPayload([
-                'exchange' => 'TWSE',
-                'stock_code' => $stockCode,
-                'stock_name' => trim((string) ($row['Name'] ?? '')),
-                'trade_date' => $date,
-                'open_price' => $this->parseDecimal($row['OpeningPrice'] ?? null),
-                'high_price' => $this->parseDecimal($row['HighestPrice'] ?? null),
-                'low_price' => $this->parseDecimal($row['LowestPrice'] ?? null),
-                'close_price' => $close,
-                'previous_close_price' => $previousClose,
-                'price_change_amount' => $change,
-                'volume_shares' => $volumeShares,
-                'trade_value' => $this->parseInteger($row['TradeValue'] ?? null),
-                'transaction_count' => $this->parseInteger($row['Transaction'] ?? null),
-                'source' => 'TWSE STOCK_DAY_ALL',
-                'source_payload' => ['row' => $row],
-            ]);
-        }
+                    $change = $this->parseDecimal($row['Change'] ?? null);
+                    $previousClose = $change === null ? null : $close - $change;
+                    $volumeShares = $this->parseInteger($row['TradeVolume'] ?? null) ?? 0;
+                    $rows[] = $this->latestPayload([
+                        'exchange' => 'TWSE',
+                        'stock_code' => $stockCode,
+                        'stock_name' => trim((string) ($row['Name'] ?? '')),
+                        'trade_date' => $date,
+                        'open_price' => $this->parseDecimal($row['OpeningPrice'] ?? null),
+                        'high_price' => $this->parseDecimal($row['HighestPrice'] ?? null),
+                        'low_price' => $this->parseDecimal($row['LowestPrice'] ?? null),
+                        'close_price' => $close,
+                        'previous_close_price' => $previousClose,
+                        'price_change_amount' => $change,
+                        'volume_shares' => $volumeShares,
+                        'trade_value' => $this->parseInteger($row['TradeValue'] ?? null),
+                        'transaction_count' => $this->parseInteger($row['Transaction'] ?? null),
+                        'source' => 'TWSE STOCK_DAY_ALL',
+                        'source_payload' => ['row' => $row],
+                    ]);
+                }
 
-        return $rows;
+                return $rows;
+            },
+        );
     }
 
     /**
@@ -267,54 +289,60 @@ class TwStockDailyPriceFetcher
      */
     private function fetchLatestTpexRows(): array
     {
-        try {
-            $response = $this->http()->get(self::TPEX_DAILY_PRICE_URL)->throw()->json();
-        } catch (Throwable $e) {
-            report($e);
+        return Cache::remember(
+            'tw-stock:daily-prices:tpex-latest-rows:v1',
+            now()->addSeconds(self::LATEST_PRICE_CACHE_TTL_SECONDS),
+            function (): array {
+                try {
+                    $response = $this->http()->get(self::TPEX_DAILY_PRICE_URL)->throw()->json();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return [];
-        }
+                    return [];
+                }
 
-        if (!is_array($response)) {
-            return [];
-        }
+                if (!is_array($response)) {
+                    return [];
+                }
 
-        $rows = [];
-        foreach ($response as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
+                $rows = [];
+                foreach ($response as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
 
-            $stockCode = trim((string) ($row['SecuritiesCompanyCode'] ?? ''));
-            $close = $this->parseDecimal($row['Close'] ?? null);
-            $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
-            if (!$this->isCommonStockCode($stockCode) || $date === null || $close === null) {
-                continue;
-            }
+                    $stockCode = trim((string) ($row['SecuritiesCompanyCode'] ?? ''));
+                    $close = $this->parseDecimal($row['Close'] ?? null);
+                    $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
+                    if (!$this->isCommonStockCode($stockCode) || $date === null || $close === null) {
+                        continue;
+                    }
 
-            $change = $this->parseDecimal($row['Change'] ?? null);
-            $previousClose = $change === null ? null : $close - $change;
-            $volumeShares = $this->parseInteger($row['TradingShares'] ?? null) ?? 0;
-            $rows[] = $this->latestPayload([
-                'exchange' => 'TPEx',
-                'stock_code' => $stockCode,
-                'stock_name' => trim((string) ($row['CompanyName'] ?? '')),
-                'trade_date' => $date,
-                'open_price' => $this->parseDecimal($row['Open'] ?? null),
-                'high_price' => $this->parseDecimal($row['High'] ?? null),
-                'low_price' => $this->parseDecimal($row['Low'] ?? null),
-                'close_price' => $close,
-                'previous_close_price' => $previousClose,
-                'price_change_amount' => $change,
-                'volume_shares' => $volumeShares,
-                'trade_value' => $this->parseInteger($row['TransactionAmount'] ?? null),
-                'transaction_count' => $this->parseInteger($row['TransactionNumber'] ?? null),
-                'source' => 'TPEx tpex_mainboard_quotes',
-                'source_payload' => ['row' => $row],
-            ]);
-        }
+                    $change = $this->parseDecimal($row['Change'] ?? null);
+                    $previousClose = $change === null ? null : $close - $change;
+                    $volumeShares = $this->parseInteger($row['TradingShares'] ?? null) ?? 0;
+                    $rows[] = $this->latestPayload([
+                        'exchange' => 'TPEx',
+                        'stock_code' => $stockCode,
+                        'stock_name' => trim((string) ($row['CompanyName'] ?? '')),
+                        'trade_date' => $date,
+                        'open_price' => $this->parseDecimal($row['Open'] ?? null),
+                        'high_price' => $this->parseDecimal($row['High'] ?? null),
+                        'low_price' => $this->parseDecimal($row['Low'] ?? null),
+                        'close_price' => $close,
+                        'previous_close_price' => $previousClose,
+                        'price_change_amount' => $change,
+                        'volume_shares' => $volumeShares,
+                        'trade_value' => $this->parseInteger($row['TransactionAmount'] ?? null),
+                        'transaction_count' => $this->parseInteger($row['TransactionNumber'] ?? null),
+                        'source' => 'TPEx tpex_mainboard_quotes',
+                        'source_payload' => ['row' => $row],
+                    ]);
+                }
 
-        return $rows;
+                return $rows;
+            },
+        );
     }
 
     /**
@@ -355,28 +383,79 @@ class TwStockDailyPriceFetcher
      */
     private function databaseCandidates(): array
     {
-        $rows = [];
-        foreach ([
-            TwStockQ1FinancialReport::query()->select('exchange', 'stock_code', 'stock_name')->distinct()->get(),
-            TwStockAnnualFinancialComparison::query()->select('exchange', 'stock_code', 'stock_name')->distinct()->get(),
-            TwStockDailyPrice::query()->select('exchange', 'stock_code', 'stock_name')->distinct()->get(),
-        ] as $collection) {
-            foreach ($collection as $row) {
-                $stockCode = (string) $row->stock_code;
-                $exchange = (string) $row->exchange;
-                if (!$this->isCommonStockCode($stockCode) || !in_array($exchange, ['TWSE', 'TPEx'], true)) {
-                    continue;
+        return Cache::remember(
+            'tw-stock:daily-prices:database-candidates:v1:' . $this->databaseCandidatesCacheVersion(),
+            now()->addSeconds(self::HISTORICAL_PRICE_CACHE_TTL_SECONDS),
+            function (): array {
+                $rows = [];
+                foreach ([
+                    TwStockQ1FinancialReport::query()->select('exchange', 'stock_code', 'stock_name')->distinct()->get(),
+                    TwStockAnnualFinancialComparison::query()->select('exchange', 'stock_code', 'stock_name')->distinct()->get(),
+                    TwStockDailyPrice::query()->select('exchange', 'stock_code', 'stock_name')->distinct()->get(),
+                ] as $collection) {
+                    foreach ($collection as $row) {
+                        $stockCode = (string) $row->stock_code;
+                        $exchange = (string) $row->exchange;
+                        if (!$this->isCommonStockCode($stockCode) || !in_array($exchange, ['TWSE', 'TPEx'], true)) {
+                            continue;
+                        }
+
+                        $rows[] = [
+                            'exchange' => $exchange,
+                            'stock_code' => $stockCode,
+                            'stock_name' => (string) $row->stock_name,
+                        ];
+                    }
                 }
 
-                $rows[] = [
-                    'exchange' => $exchange,
-                    'stock_code' => $stockCode,
-                    'stock_name' => (string) $row->stock_name,
-                ];
+                return $rows;
+            },
+        );
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
+     */
+    private function withFetchedAt(array $rows): array
+    {
+        $now = now();
+
+        return array_map(function (array $row) use ($now): array {
+            $row['fetched_at'] = $now;
+
+            return $row;
+        }, $rows);
+    }
+
+    private function historicalPriceCacheTtl(CarbonImmutable $toDate): int
+    {
+        return $toDate->isBefore(CarbonImmutable::today('Asia/Taipei'))
+            ? self::HISTORICAL_PRICE_CACHE_TTL_SECONDS
+            : self::LATEST_PRICE_CACHE_TTL_SECONDS;
+    }
+
+    private function databaseCandidatesCacheVersion(): string
+    {
+        $versions = [];
+        foreach ([TwStockQ1FinancialReport::class, TwStockAnnualFinancialComparison::class, TwStockDailyPrice::class] as $modelClass) {
+            try {
+                $row = $modelClass::query()
+                    ->selectRaw('COUNT(*) as row_count, MAX(updated_at) as max_updated_at, MAX(id) as max_id')
+                    ->toBase()
+                    ->first();
+                $versions[] = implode(':', [
+                    $modelClass,
+                    (int) ($row->row_count ?? 0),
+                    (string) ($row->max_updated_at ?? ''),
+                    (string) ($row->max_id ?? ''),
+                ]);
+            } catch (Throwable) {
+                $versions[] = $modelClass . ':missing';
             }
         }
 
-        return $rows;
+        return sha1(implode('|', $versions));
     }
 
     private function isCommonStockCode(string $stockCode): bool

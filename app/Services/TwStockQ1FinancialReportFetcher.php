@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\TwStockDailyPrice;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -45,6 +46,12 @@ class TwStockQ1FinancialReportFetcher
     private const OPERATING_MARGIN_WEIGHT = 0.25;
 
     private const NET_MARGIN_WEIGHT = 0.15;
+
+    private const RECENT_FEED_CACHE_TTL_SECONDS = 1800;
+
+    private const STABLE_FEED_CACHE_TTL_SECONDS = 2592000;
+
+    private const DATABASE_CACHE_TTL_SECONDS = 43200;
 
     /**
      * @var array<string, list<array<string, mixed>>>
@@ -290,41 +297,51 @@ class TwStockQ1FinancialReportFetcher
             return null;
         }
 
-        $storedRows = TwStockDailyPrice::query()
-            ->where('exchange', $exchange)
-            ->where('stock_code', $stockCode)
-            ->orderByDesc('trade_date')
-            ->limit(21)
-            ->get();
+        return Cache::remember(
+            'tw-stock:q1-fetcher:stored-market-data:v1:' . sha1(serialize([
+                $exchange,
+                $stockCode,
+                $this->storedDailyPriceCacheVersion($exchange, $stockCode),
+            ])),
+            now()->addSeconds(self::DATABASE_CACHE_TTL_SECONDS),
+            function () use ($exchange, $stockCode): ?array {
+                $storedRows = TwStockDailyPrice::query()
+                    ->where('exchange', $exchange)
+                    ->where('stock_code', $stockCode)
+                    ->orderByDesc('trade_date')
+                    ->limit(21)
+                    ->get();
 
-        if ($storedRows->count() < 21) {
-            return null;
-        }
+                if ($storedRows->count() < 21) {
+                    return null;
+                }
 
-        $dailyRows = $storedRows->map(fn (TwStockDailyPrice $row): array => [
-            '交易日' => $row->trade_date?->format('Ymd') ?? '',
-            '收盤價' => (string) $row->close_price,
-            '成交量' => (string) $row->volume_lots,
-            '漲幅(%)' => $row->price_change_percent === null ? null : (string) $row->price_change_percent,
-        ])->all();
+                $dailyRows = $storedRows->map(fn (TwStockDailyPrice $row): array => [
+                    '交易日' => $row->trade_date?->format('Ymd') ?? '',
+                    '收盤價' => (string) $row->close_price,
+                    '成交量' => (string) $row->volume_lots,
+                    '漲幅(%)' => $row->price_change_percent === null ? null : (string) $row->price_change_percent,
+                ])->all();
 
-        $latest = $storedRows->first();
-        if (!$latest instanceof TwStockDailyPrice || $latest->trade_date === null || $latest->close_price === null) {
-            return null;
-        }
+                $latest = $storedRows->first();
+                if (!$latest instanceof TwStockDailyPrice || $latest->trade_date === null || $latest->close_price === null) {
+                    return null;
+                }
 
-        return [
-            'latest_close_price' => (float) $latest->close_price,
-            'latest_price_date' => $latest->trade_date->toDateString(),
-            'volume_lots' => (int) $latest->volume_lots,
-            'price_change_1d_percent' => $latest->price_change_percent ?? $this->periodChange($dailyRows, 1),
-            'price_change_5d_percent' => $this->periodChange($dailyRows, 5),
-            'price_change_20d_percent' => $this->periodChange($dailyRows, 20),
-            'daily_price_source' => 'tw_stock_daily_prices (/tw-stock/daily-price-rankings)',
-            'latest_daily_rows' => $dailyRows,
-            'official_quote_row' => null,
-            'official_quote_source' => null,
-        ];
+                return [
+                    'latest_close_price' => (float) $latest->close_price,
+                    'latest_price_date' => $latest->trade_date->toDateString(),
+                    'volume_lots' => (int) $latest->volume_lots,
+                    'price_change_1d_percent' => $latest->price_change_percent ?? $this->periodChange($dailyRows, 1),
+                    'price_change_5d_percent' => $this->periodChange($dailyRows, 5),
+                    'price_change_20d_percent' => $this->periodChange($dailyRows, 20),
+                    'daily_price_source' => 'tw_stock_daily_prices (/tw-stock/daily-price-rankings)',
+                    'latest_daily_rows' => $dailyRows,
+                    'official_quote_row' => null,
+                    'official_quote_source' => null,
+                ];
+            },
+        );
     }
 
     /**
@@ -423,25 +440,31 @@ class TwStockQ1FinancialReportFetcher
 
     private function officialQuoteHasDate(string $url, string $targetDate): bool
     {
-        try {
-            $rows = $this->http()->get($url)->throw()->json();
-        } catch (Throwable $e) {
-            report($e);
+        return (bool) Cache::remember(
+            'tw-stock:q1-fetcher:official-quote-has-date:v1:' . sha1($url . '|' . $targetDate),
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function () use ($url, $targetDate): bool {
+                try {
+                    $rows = $this->http()->get($url)->throw()->json();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return false;
-        }
+                    return false;
+                }
 
-        if (!is_array($rows)) {
-            return false;
-        }
+                if (!is_array($rows)) {
+                    return false;
+                }
 
-        foreach ($rows as $row) {
-            if (is_array($row) && $this->parseRocDate((string) ($row['Date'] ?? '')) === $targetDate) {
-                return true;
-            }
-        }
+                foreach ($rows as $row) {
+                    if (is_array($row) && $this->parseRocDate((string) ($row['Date'] ?? '')) === $targetDate) {
+                        return true;
+                    }
+                }
 
-        return false;
+                return false;
+            },
+        );
     }
 
     /**
@@ -491,38 +514,44 @@ class TwStockQ1FinancialReportFetcher
      */
     private function twseCandidates(int $minVolumeLots): array
     {
-        $rows = $this->http()->get(self::TWSE_DAILY_PRICE_URL)->throw()->json();
-        if (!is_array($rows)) {
-            return [];
-        }
+        return Cache::remember(
+            'tw-stock:q1-fetcher:twse-candidates:v1:' . $minVolumeLots,
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function () use ($minVolumeLots): array {
+                $rows = $this->http()->get(self::TWSE_DAILY_PRICE_URL)->throw()->json();
+                if (!is_array($rows)) {
+                    return [];
+                }
 
-        $candidates = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
+                $candidates = [];
+                foreach ($rows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
 
-            $code = trim((string) ($row['Code'] ?? ''));
-            $volumeLots = (int) floor(($this->parseInteger($row['TradeVolume'] ?? null) ?? 0) / 1000);
-            $close = $this->parseDecimal($row['ClosingPrice'] ?? null);
-            $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
+                    $code = trim((string) ($row['Code'] ?? ''));
+                    $volumeLots = (int) floor(($this->parseInteger($row['TradeVolume'] ?? null) ?? 0) / 1000);
+                    $close = $this->parseDecimal($row['ClosingPrice'] ?? null);
+                    $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
 
-            if (!$this->isCommonStockCode($code) || $volumeLots < $minVolumeLots || $close === null || $date === null) {
-                continue;
-            }
+                    if (!$this->isCommonStockCode($code) || $volumeLots < $minVolumeLots || $close === null || $date === null) {
+                        continue;
+                    }
 
-            $candidates[] = [
-                'exchange' => 'TWSE',
-                'stock_code' => $code,
-                'stock_name' => trim((string) ($row['Name'] ?? '')),
-                'latest_close_price' => $close,
-                'latest_price_date' => $date,
-                'volume_lots' => $volumeLots,
-                'source_payload' => ['source' => 'TWSE STOCK_DAY_ALL', 'row' => $row],
-            ];
-        }
+                    $candidates[] = [
+                        'exchange' => 'TWSE',
+                        'stock_code' => $code,
+                        'stock_name' => trim((string) ($row['Name'] ?? '')),
+                        'latest_close_price' => $close,
+                        'latest_price_date' => $date,
+                        'volume_lots' => $volumeLots,
+                        'source_payload' => ['source' => 'TWSE STOCK_DAY_ALL', 'row' => $row],
+                    ];
+                }
 
-        return $candidates;
+                return $candidates;
+            },
+        );
     }
 
     /**
@@ -530,38 +559,44 @@ class TwStockQ1FinancialReportFetcher
      */
     private function tpexCandidates(int $minVolumeLots): array
     {
-        $rows = $this->http()->get(self::TPEX_DAILY_PRICE_URL)->throw()->json();
-        if (!is_array($rows)) {
-            return [];
-        }
+        return Cache::remember(
+            'tw-stock:q1-fetcher:tpex-candidates:v1:' . $minVolumeLots,
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function () use ($minVolumeLots): array {
+                $rows = $this->http()->get(self::TPEX_DAILY_PRICE_URL)->throw()->json();
+                if (!is_array($rows)) {
+                    return [];
+                }
 
-        $candidates = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
+                $candidates = [];
+                foreach ($rows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
 
-            $code = trim((string) ($row['SecuritiesCompanyCode'] ?? ''));
-            $volumeLots = (int) floor(($this->parseInteger($row['TradingShares'] ?? null) ?? 0) / 1000);
-            $close = $this->parseDecimal($row['Close'] ?? null);
-            $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
+                    $code = trim((string) ($row['SecuritiesCompanyCode'] ?? ''));
+                    $volumeLots = (int) floor(($this->parseInteger($row['TradingShares'] ?? null) ?? 0) / 1000);
+                    $close = $this->parseDecimal($row['Close'] ?? null);
+                    $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
 
-            if (!$this->isCommonStockCode($code) || $volumeLots < $minVolumeLots || $close === null || $date === null) {
-                continue;
-            }
+                    if (!$this->isCommonStockCode($code) || $volumeLots < $minVolumeLots || $close === null || $date === null) {
+                        continue;
+                    }
 
-            $candidates[] = [
-                'exchange' => 'TPEx',
-                'stock_code' => $code,
-                'stock_name' => trim((string) ($row['CompanyName'] ?? '')),
-                'latest_close_price' => $close,
-                'latest_price_date' => $date,
-                'volume_lots' => $volumeLots,
-                'source_payload' => ['source' => 'TPEx tpex_mainboard_quotes', 'row' => $row],
-            ];
-        }
+                    $candidates[] = [
+                        'exchange' => 'TPEx',
+                        'stock_code' => $code,
+                        'stock_name' => trim((string) ($row['CompanyName'] ?? '')),
+                        'latest_close_price' => $close,
+                        'latest_price_date' => $date,
+                        'volume_lots' => $volumeLots,
+                        'source_payload' => ['source' => 'TPEx tpex_mainboard_quotes', 'row' => $row],
+                    ];
+                }
 
-        return $candidates;
+                return $candidates;
+            },
+        );
     }
 
     /**
@@ -624,30 +659,36 @@ class TwStockQ1FinancialReportFetcher
             return $this->nstockQuarterRowsCache[$stockCode];
         }
 
-        try {
-            $response = $this->http()
-                ->get(self::NSTOCK_EPS_URL, ['stock_id' => $stockCode])
-                ->throw()
-                ->json();
-        } catch (Throwable $e) {
-            report($e);
+        return $this->nstockQuarterRowsCache[$stockCode] = Cache::remember(
+            'tw-stock:q1-fetcher:nstock-quarter-rows:v1:' . $stockCode,
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function () use ($stockCode): array {
+                try {
+                    $response = $this->http()
+                        ->get(self::NSTOCK_EPS_URL, ['stock_id' => $stockCode])
+                        ->throw()
+                        ->json();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return $this->nstockQuarterRowsCache[$stockCode] = [];
-        }
+                    return [];
+                }
 
-        if (!is_array($response) || !is_array($response['data'] ?? null)) {
-            return $this->nstockQuarterRowsCache[$stockCode] = [];
-        }
+                if (!is_array($response) || !is_array($response['data'] ?? null)) {
+                    return [];
+                }
 
-        foreach ($response['data'] as $stockData) {
-            if (!is_array($stockData) || !is_array($stockData['季度EPS'] ?? null)) {
-                continue;
-            }
+                foreach ($response['data'] as $stockData) {
+                    if (!is_array($stockData) || !is_array($stockData['季度EPS'] ?? null)) {
+                        continue;
+                    }
 
-            return $this->nstockQuarterRowsCache[$stockCode] = array_values(array_filter($stockData['季度EPS'], 'is_array'));
-        }
+                    return array_values(array_filter($stockData['季度EPS'], 'is_array'));
+                }
 
-        return $this->nstockQuarterRowsCache[$stockCode] = [];
+                return [];
+            },
+        );
     }
 
     /**
@@ -660,14 +701,23 @@ class TwStockQ1FinancialReportFetcher
             return null;
         }
 
-        try {
-            $html = $this->http()
-                ->get(sprintf(self::CNYES_NEWS_URL, $newsId))
-                ->throw()
-                ->body();
-        } catch (Throwable $e) {
-            report($e);
+        $html = Cache::remember(
+            'tw-stock:q1-fetcher:cnyes-news-html:v1:' . $newsId,
+            now()->addSeconds(self::STABLE_FEED_CACHE_TTL_SECONDS),
+            function () use ($newsId): ?string {
+                try {
+                    return $this->http()
+                        ->get(sprintf(self::CNYES_NEWS_URL, $newsId))
+                        ->throw()
+                        ->body();
+                } catch (Throwable $e) {
+                    report($e);
 
+                    return null;
+                }
+            },
+        );
+        if ($html === null) {
             return null;
         }
 
@@ -685,37 +735,43 @@ class TwStockQ1FinancialReportFetcher
 
     private function findCnyesQuarterFinancialNewsId(string $stockCode, int $year, int $quarter): ?int
     {
-        try {
-            $response = $this->http()
-                ->get(sprintf(self::CNYES_SYMBOL_NEWS_URL, $stockCode), [
-                    'page' => 1,
-                    'limit' => 20,
-                ])
-                ->throw()
-                ->json();
-        } catch (Throwable $e) {
-            report($e);
+        return Cache::remember(
+            'tw-stock:q1-fetcher:cnyes-news-id:v1:' . $stockCode . ':' . $year . ':' . $quarter,
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function () use ($stockCode, $year, $quarter): ?int {
+                try {
+                    $response = $this->http()
+                        ->get(sprintf(self::CNYES_SYMBOL_NEWS_URL, $stockCode), [
+                            'page' => 1,
+                            'limit' => 20,
+                        ])
+                        ->throw()
+                        ->json();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return null;
-        }
+                    return null;
+                }
 
-        $rows = $response['items']['data'] ?? null;
-        if (!is_array($rows)) {
-            return null;
-        }
+                $rows = $response['items']['data'] ?? null;
+                if (!is_array($rows)) {
+                    return null;
+                }
 
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
+                foreach ($rows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
 
-            $title = (string) ($row['title'] ?? '');
-            if ($this->isQuarterFinancialAnnouncementText($title, $year, $quarter) && isset($row['newsId'])) {
-                return (int) $row['newsId'];
-            }
-        }
+                    $title = (string) ($row['title'] ?? '');
+                    if ($this->isQuarterFinancialAnnouncementText($title, $year, $quarter) && isset($row['newsId'])) {
+                        return (int) $row['newsId'];
+                    }
+                }
 
-        return null;
+                return null;
+            },
+        );
     }
 
     /**
@@ -849,36 +905,42 @@ class TwStockQ1FinancialReportFetcher
             return $this->mopsAnnouncementRowsCache[$key];
         }
 
-        try {
-            $html = $this->http()
-                ->asForm()
-                ->withHeaders(['Referer' => self::MOPS_MAJOR_ANNOUNCEMENT_REFERER])
-                ->post(self::MOPS_MAJOR_ANNOUNCEMENT_URL, [
-                    'step' => '1',
-                    'firstin' => '1',
-                    'off' => '1',
-                    'keyword4' => '',
-                    'code1' => '',
-                    'TYPEK2' => '',
-                    'checkbtn' => '',
-                    'queryName' => 'all',
-                    'inpuType' => 'date',
-                    'TYPEK' => 'all',
-                    'co_id' => '',
-                    'year' => (string) ($date->year - 1911),
-                    'month' => $date->format('m'),
-                    'b_date' => $date->format('d'),
-                    'e_date' => $date->format('d'),
-                ])
-                ->throw()
-                ->body();
-        } catch (Throwable $e) {
-            report($e);
+        return $this->mopsAnnouncementRowsCache[$key] = Cache::remember(
+            'tw-stock:q1-fetcher:mops-daily-announcements:v1:' . $date->toDateString(),
+            now()->addSeconds($this->dateCacheTtl($date)),
+            function () use ($date): array {
+                try {
+                    $html = $this->http()
+                        ->asForm()
+                        ->withHeaders(['Referer' => self::MOPS_MAJOR_ANNOUNCEMENT_REFERER])
+                        ->post(self::MOPS_MAJOR_ANNOUNCEMENT_URL, [
+                            'step' => '1',
+                            'firstin' => '1',
+                            'off' => '1',
+                            'keyword4' => '',
+                            'code1' => '',
+                            'TYPEK2' => '',
+                            'checkbtn' => '',
+                            'queryName' => 'all',
+                            'inpuType' => 'date',
+                            'TYPEK' => 'all',
+                            'co_id' => '',
+                            'year' => (string) ($date->year - 1911),
+                            'month' => $date->format('m'),
+                            'b_date' => $date->format('d'),
+                            'e_date' => $date->format('d'),
+                        ])
+                        ->throw()
+                        ->body();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return $this->mopsAnnouncementRowsCache[$key] = [];
-        }
+                    return [];
+                }
 
-        return $this->mopsAnnouncementRowsCache[$key] = $this->parseMopsAnnouncementRows($html);
+                return $this->parseMopsAnnouncementRows($html);
+            },
+        );
     }
 
     /**
@@ -905,36 +967,42 @@ class TwStockQ1FinancialReportFetcher
             return $this->mopsAnnouncementRowsCache[$key];
         }
 
-        try {
-            $html = $this->http()
-                ->asForm()
-                ->withHeaders(['Referer' => self::MOPS_MAJOR_ANNOUNCEMENT_REFERER])
-                ->post(self::MOPS_MAJOR_ANNOUNCEMENT_URL, [
-                    'step' => '1',
-                    'firstin' => '1',
-                    'off' => '1',
-                    'keyword4' => '',
-                    'code1' => '',
-                    'TYPEK2' => '',
-                    'checkbtn' => '',
-                    'queryName' => 'co_id',
-                    'inpuType' => 'co_id',
-                    'TYPEK' => 'all',
-                    'co_id' => $stockCode,
-                    'year' => (string) $rocYear,
-                    'month' => sprintf('%02d', $month),
-                    'b_date' => '',
-                    'e_date' => '',
-                ])
-                ->throw()
-                ->body();
-        } catch (Throwable $e) {
-            report($e);
+        return $this->mopsAnnouncementRowsCache[$key] = Cache::remember(
+            'tw-stock:q1-fetcher:mops-stock-announcements:v1:' . $key,
+            now()->addSeconds($this->announcementMonthCacheTtl($rocYear, $month)),
+            function () use ($stockCode, $rocYear, $month): array {
+                try {
+                    $html = $this->http()
+                        ->asForm()
+                        ->withHeaders(['Referer' => self::MOPS_MAJOR_ANNOUNCEMENT_REFERER])
+                        ->post(self::MOPS_MAJOR_ANNOUNCEMENT_URL, [
+                            'step' => '1',
+                            'firstin' => '1',
+                            'off' => '1',
+                            'keyword4' => '',
+                            'code1' => '',
+                            'TYPEK2' => '',
+                            'checkbtn' => '',
+                            'queryName' => 'co_id',
+                            'inpuType' => 'co_id',
+                            'TYPEK' => 'all',
+                            'co_id' => $stockCode,
+                            'year' => (string) $rocYear,
+                            'month' => sprintf('%02d', $month),
+                            'b_date' => '',
+                            'e_date' => '',
+                        ])
+                        ->throw()
+                        ->body();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return $this->mopsAnnouncementRowsCache[$key] = [];
-        }
+                    return [];
+                }
 
-        return $this->mopsAnnouncementRowsCache[$key] = $this->parseMopsAnnouncementRows($html);
+                return $this->parseMopsAnnouncementRows($html);
+            },
+        );
     }
 
     /**
@@ -998,31 +1066,37 @@ class TwStockQ1FinancialReportFetcher
         $dateParts = explode('-', $date);
         $rocYear = (int) $dateParts[0] - 1911;
 
-        try {
-            return $this->http()
-                ->asForm()
-                ->withHeaders(['Referer' => self::MOPS_MAJOR_ANNOUNCEMENT_REFERER])
-                ->post(self::MOPS_MAJOR_ANNOUNCEMENT_URL, [
-                    'step' => '2',
-                    'firstin' => 'true',
-                    'off' => '1',
-                    'TYPEK' => $announcement['typek'] ?? '',
-                    'co_id' => $announcement['co_id'] ?? '',
-                    'year' => (string) $rocYear,
-                    'month' => $dateParts[1],
-                    'b_date' => $dateParts[2],
-                    'e_date' => $dateParts[2],
-                    'spoke_date' => $announcement['spoke_date'] ?? '',
-                    'spoke_time' => $announcement['spoke_time'] ?? '',
-                    'seq_no' => $announcement['seq_no'] ?? '',
-                ])
-                ->throw()
-                ->body();
-        } catch (Throwable $e) {
-            report($e);
+        return Cache::remember(
+            'tw-stock:q1-fetcher:mops-announcement-detail:v1:' . sha1(serialize($announcement)),
+            now()->addSeconds(self::STABLE_FEED_CACHE_TTL_SECONDS),
+            function () use ($announcement, $rocYear, $dateParts): ?string {
+                try {
+                    return $this->http()
+                        ->asForm()
+                        ->withHeaders(['Referer' => self::MOPS_MAJOR_ANNOUNCEMENT_REFERER])
+                        ->post(self::MOPS_MAJOR_ANNOUNCEMENT_URL, [
+                            'step' => '2',
+                            'firstin' => 'true',
+                            'off' => '1',
+                            'TYPEK' => $announcement['typek'] ?? '',
+                            'co_id' => $announcement['co_id'] ?? '',
+                            'year' => (string) $rocYear,
+                            'month' => $dateParts[1],
+                            'b_date' => $dateParts[2],
+                            'e_date' => $dateParts[2],
+                            'spoke_date' => $announcement['spoke_date'] ?? '',
+                            'spoke_time' => $announcement['spoke_time'] ?? '',
+                            'seq_no' => $announcement['seq_no'] ?? '',
+                        ])
+                        ->throw()
+                        ->body();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return null;
-        }
+                    return null;
+                }
+            },
+        );
     }
 
     private function isQuarterFinancialAnnouncementText(string $text, int $year, int $quarter): bool
@@ -1436,46 +1510,52 @@ class TwStockQ1FinancialReportFetcher
      */
     private function fetchTwseMonthlyDailyRows(string $stockCode, CarbonImmutable $month): array
     {
-        try {
-            $response = $this->http()
-                ->get(self::TWSE_STOCK_DAY_MONTH_URL, [
-                    'date' => $month->format('Ymd'),
-                    'stockNo' => $stockCode,
-                    'response' => 'json',
-                ])
-                ->throw()
-                ->json();
-        } catch (Throwable $e) {
-            report($e);
+        return Cache::remember(
+            'tw-stock:q1-fetcher:twse-monthly-daily:v1:' . $stockCode . ':' . $month->format('Ym'),
+            now()->addSeconds($this->monthCacheTtl($month)),
+            function () use ($stockCode, $month): array {
+                try {
+                    $response = $this->http()
+                        ->get(self::TWSE_STOCK_DAY_MONTH_URL, [
+                            'date' => $month->format('Ymd'),
+                            'stockNo' => $stockCode,
+                            'response' => 'json',
+                        ])
+                        ->throw()
+                        ->json();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return [];
-        }
+                    return [];
+                }
 
-        if (!is_array($response) || !is_array($response['data'] ?? null)) {
-            return [];
-        }
+                if (!is_array($response) || !is_array($response['data'] ?? null)) {
+                    return [];
+                }
 
-        $rows = [];
-        foreach ($response['data'] as $row) {
-            if (!is_array($row) || count($row) < 7) {
-                continue;
-            }
+                $rows = [];
+                foreach ($response['data'] as $row) {
+                    if (!is_array($row) || count($row) < 7) {
+                        continue;
+                    }
 
-            $date = $this->parseRocDate((string) $row[0]);
-            $close = $this->parseDecimal($row[6] ?? null);
-            $shares = $this->parseInteger($row[1] ?? null);
-            if ($date === null || $close === null || $shares === null) {
-                continue;
-            }
+                    $date = $this->parseRocDate((string) $row[0]);
+                    $close = $this->parseDecimal($row[6] ?? null);
+                    $shares = $this->parseInteger($row[1] ?? null);
+                    if ($date === null || $close === null || $shares === null) {
+                        continue;
+                    }
 
-            $rows[] = [
-                '交易日' => str_replace('-', '', $date),
-                '收盤價' => (string) $close,
-                '成交量' => (string) (int) floor($shares / 1000),
-            ];
-        }
+                    $rows[] = [
+                        '交易日' => str_replace('-', '', $date),
+                        '收盤價' => (string) $close,
+                        '成交量' => (string) (int) floor($shares / 1000),
+                    ];
+                }
 
-        return $rows;
+                return $rows;
+            },
+        );
     }
 
     /**
@@ -1483,47 +1563,53 @@ class TwStockQ1FinancialReportFetcher
      */
     private function fetchTpexMonthlyDailyRows(string $stockCode, CarbonImmutable $month): array
     {
-        try {
-            $response = $this->http()
-                ->get(self::TPEX_STOCK_DAY_MONTH_URL, [
-                    'code' => $stockCode,
-                    'date' => $month->format('Y/m/d'),
-                    'response' => 'json',
-                ])
-                ->throw()
-                ->json();
-        } catch (Throwable $e) {
-            report($e);
+        return Cache::remember(
+            'tw-stock:q1-fetcher:tpex-monthly-daily:v1:' . $stockCode . ':' . $month->format('Ym'),
+            now()->addSeconds($this->monthCacheTtl($month)),
+            function () use ($stockCode, $month): array {
+                try {
+                    $response = $this->http()
+                        ->get(self::TPEX_STOCK_DAY_MONTH_URL, [
+                            'code' => $stockCode,
+                            'date' => $month->format('Y/m/d'),
+                            'response' => 'json',
+                        ])
+                        ->throw()
+                        ->json();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return [];
-        }
+                    return [];
+                }
 
-        $data = $response['tables'][0]['data'] ?? null;
-        if (!is_array($response) || !is_array($data)) {
-            return [];
-        }
+                $data = $response['tables'][0]['data'] ?? null;
+                if (!is_array($response) || !is_array($data)) {
+                    return [];
+                }
 
-        $rows = [];
-        foreach ($data as $row) {
-            if (!is_array($row) || count($row) < 7) {
-                continue;
-            }
+                $rows = [];
+                foreach ($data as $row) {
+                    if (!is_array($row) || count($row) < 7) {
+                        continue;
+                    }
 
-            $date = $this->parseRocDate((string) $row[0]);
-            $close = $this->parseDecimal($row[6] ?? null);
-            $volumeLots = $this->parseInteger($row[1] ?? null);
-            if ($date === null || $close === null || $volumeLots === null) {
-                continue;
-            }
+                    $date = $this->parseRocDate((string) $row[0]);
+                    $close = $this->parseDecimal($row[6] ?? null);
+                    $volumeLots = $this->parseInteger($row[1] ?? null);
+                    if ($date === null || $close === null || $volumeLots === null) {
+                        continue;
+                    }
 
-            $rows[] = [
-                '交易日' => str_replace('-', '', $date),
-                '收盤價' => (string) $close,
-                '成交量' => (string) $volumeLots,
-            ];
-        }
+                    $rows[] = [
+                        '交易日' => str_replace('-', '', $date),
+                        '收盤價' => (string) $close,
+                        '成交量' => (string) $volumeLots,
+                    ];
+                }
 
-        return $rows;
+                return $rows;
+            },
+        );
     }
 
     /**
@@ -1535,30 +1621,36 @@ class TwStockQ1FinancialReportFetcher
             return $this->nstockDailyRowsCache[$stockCode];
         }
 
-        try {
-            $response = $this->http()
-                ->get(self::NSTOCK_DAILY_STOCK_DATA_URL, ['stock_id' => $stockCode])
-                ->throw()
-                ->json();
-        } catch (Throwable $e) {
-            report($e);
+        return $this->nstockDailyRowsCache[$stockCode] = Cache::remember(
+            'tw-stock:q1-fetcher:nstock-daily-rows:v1:' . $stockCode,
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function () use ($stockCode): array {
+                try {
+                    $response = $this->http()
+                        ->get(self::NSTOCK_DAILY_STOCK_DATA_URL, ['stock_id' => $stockCode])
+                        ->throw()
+                        ->json();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return $this->nstockDailyRowsCache[$stockCode] = [];
-        }
+                    return [];
+                }
 
-        if (!is_array($response) || !is_array($response['data'] ?? null)) {
-            return $this->nstockDailyRowsCache[$stockCode] = [];
-        }
+                if (!is_array($response) || !is_array($response['data'] ?? null)) {
+                    return [];
+                }
 
-        foreach ($response['data'] as $stockData) {
-            if (!is_array($stockData) || !is_array($stockData['日K'] ?? null)) {
-                continue;
-            }
+                foreach ($response['data'] as $stockData) {
+                    if (!is_array($stockData) || !is_array($stockData['日K'] ?? null)) {
+                        continue;
+                    }
 
-            return $this->nstockDailyRowsCache[$stockCode] = array_values(array_filter($stockData['日K'], 'is_array'));
-        }
+                    return array_values(array_filter($stockData['日K'], 'is_array'));
+                }
 
-        return $this->nstockDailyRowsCache[$stockCode] = [];
+                return [];
+            },
+        );
     }
 
     /**
@@ -1574,51 +1666,57 @@ class TwStockQ1FinancialReportFetcher
 
         $suffix = $candidate['exchange'] === 'TPEx' ? '.TWO' : '.TW';
 
-        try {
-            $response = $this->http()
-                ->get(sprintf(self::YAHOO_CHART_URL, $candidate['stock_code'] . $suffix), [
-                    'range' => '3mo',
-                    'interval' => '1d',
-                ])
-                ->throw()
-                ->json();
-        } catch (Throwable $e) {
-            report($e);
+        return $this->yahooDailyRowsCache[$cacheKey] = Cache::remember(
+            'tw-stock:q1-fetcher:yahoo-daily-rows:v1:' . $cacheKey,
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function () use ($candidate, $suffix): array {
+                try {
+                    $response = $this->http()
+                        ->get(sprintf(self::YAHOO_CHART_URL, $candidate['stock_code'] . $suffix), [
+                            'range' => '3mo',
+                            'interval' => '1d',
+                        ])
+                        ->throw()
+                        ->json();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return $this->yahooDailyRowsCache[$cacheKey] = [];
-        }
+                    return [];
+                }
 
-        $result = $response['chart']['result'][0] ?? null;
-        $timestamps = $result['timestamp'] ?? null;
-        $quote = $result['indicators']['quote'][0] ?? null;
-        if (!is_array($timestamps) || !is_array($quote)) {
-            return $this->yahooDailyRowsCache[$cacheKey] = [];
-        }
+                $result = $response['chart']['result'][0] ?? null;
+                $timestamps = $result['timestamp'] ?? null;
+                $quote = $result['indicators']['quote'][0] ?? null;
+                if (!is_array($timestamps) || !is_array($quote)) {
+                    return [];
+                }
 
-        $closes = $quote['close'] ?? [];
-        $volumes = $quote['volume'] ?? [];
-        $rows = [];
-        foreach ($timestamps as $index => $timestamp) {
-            $close = $this->parseDecimal($closes[$index] ?? null);
-            $volumeShares = $this->parseInteger($volumes[$index] ?? null);
-            if ($close === null || $volumeShares === null) {
-                continue;
-            }
+                $closes = $quote['close'] ?? [];
+                $volumes = $quote['volume'] ?? [];
+                $rows = [];
+                foreach ($timestamps as $index => $timestamp) {
+                    $close = $this->parseDecimal($closes[$index] ?? null);
+                    $volumeShares = $this->parseInteger($volumes[$index] ?? null);
+                    if ($close === null || $volumeShares === null) {
+                        continue;
+                    }
 
-            $date = CarbonImmutable::createFromTimestamp((int) $timestamp, 'UTC')
-                ->setTimezone('Asia/Taipei')
-                ->format('Ymd');
+                    $date = CarbonImmutable::createFromTimestamp((int) $timestamp, 'UTC')
+                        ->setTimezone('Asia/Taipei')
+                        ->format('Ymd');
 
-            $rows[] = [
-                '交易日' => $date,
-                '收盤價' => (string) $close,
-                '成交量' => (string) (int) floor($volumeShares / 1000),
-            ];
-        }
+                    $rows[] = [
+                        '交易日' => $date,
+                        '收盤價' => (string) $close,
+                        '成交量' => (string) (int) floor($volumeShares / 1000),
+                    ];
+                }
 
-        usort($rows, fn (array $left, array $right): int => (string) $right['交易日'] <=> (string) $left['交易日']);
+                usort($rows, fn (array $left, array $right): int => (string) $right['交易日'] <=> (string) $left['交易日']);
 
-        return $this->yahooDailyRowsCache[$cacheKey] = $rows;
+                return $rows;
+            },
+        );
     }
 
     /**
@@ -1630,55 +1728,63 @@ class TwStockQ1FinancialReportFetcher
             return array_slice($this->nstockMonthlyRevenueRowsCache[$stockCode], 0, $months);
         }
 
-        try {
-            $response = $this->http()
-                ->get(self::NSTOCK_MONTHLY_REVENUE_URL, ['stock_id' => $stockCode])
-                ->throw()
-                ->json();
-        } catch (Throwable $e) {
-            report($e);
+        $rows = Cache::remember(
+            'tw-stock:q1-fetcher:nstock-monthly-revenue:v1:' . $stockCode,
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function () use ($stockCode): array {
+                try {
+                    $response = $this->http()
+                        ->get(self::NSTOCK_MONTHLY_REVENUE_URL, ['stock_id' => $stockCode])
+                        ->throw()
+                        ->json();
+                } catch (Throwable $e) {
+                    report($e);
 
-            return $this->nstockMonthlyRevenueRowsCache[$stockCode] = [];
-        }
-
-        if (!is_array($response) || !is_array($response['data'] ?? null)) {
-            return $this->nstockMonthlyRevenueRowsCache[$stockCode] = [];
-        }
-
-        foreach ($response['data'] as $stockData) {
-            if (!is_array($stockData) || !is_array($stockData['月營收'] ?? null)) {
-                continue;
-            }
-
-            $rows = [];
-            foreach ($stockData['月營收'] as $row) {
-                if (!is_array($row)) {
-                    continue;
+                    return [];
                 }
 
-                $yearMonth = preg_replace('/\D+/', '', (string) ($row['年月'] ?? '')) ?? '';
-                if (strlen($yearMonth) !== 6) {
-                    continue;
+                if (!is_array($response) || !is_array($response['data'] ?? null)) {
+                    return [];
                 }
 
-                $rows[] = [
-                    'year_month' => $yearMonth,
-                    'revenue_billion' => $this->decimal($this->parseDecimal($row['單月營收(億)'] ?? null), 4),
-                    'revenue_yoy_percent' => $this->decimal($this->parseDecimal($row['單月營收年成長(%)'] ?? null), 4, 100000),
-                    'revenue_mom_percent' => $this->decimal($this->parseDecimal($row['單月營收月變動(%)'] ?? null), 4, 100000),
-                    'cumulative_revenue_billion' => $this->decimal($this->parseDecimal($row['累計營收(億)'] ?? null), 4),
-                    'cumulative_yoy_percent' => $this->decimal($this->parseDecimal($row['累計營收成長(%)'] ?? null), 4, 100000),
-                ];
-            }
+                foreach ($response['data'] as $stockData) {
+                    if (!is_array($stockData) || !is_array($stockData['月營收'] ?? null)) {
+                        continue;
+                    }
 
-            usort($rows, fn (array $left, array $right): int => (string) $right['year_month'] <=> (string) $left['year_month']);
+                    $rows = [];
+                    foreach ($stockData['月營收'] as $row) {
+                        if (!is_array($row)) {
+                            continue;
+                        }
 
-            $this->nstockMonthlyRevenueRowsCache[$stockCode] = $rows;
+                        $yearMonth = preg_replace('/\D+/', '', (string) ($row['年月'] ?? '')) ?? '';
+                        if (strlen($yearMonth) !== 6) {
+                            continue;
+                        }
 
-            return array_slice($rows, 0, $months);
-        }
+                        $rows[] = [
+                            'year_month' => $yearMonth,
+                            'revenue_billion' => $this->decimal($this->parseDecimal($row['單月營收(億)'] ?? null), 4),
+                            'revenue_yoy_percent' => $this->decimal($this->parseDecimal($row['單月營收年成長(%)'] ?? null), 4, 100000),
+                            'revenue_mom_percent' => $this->decimal($this->parseDecimal($row['單月營收月變動(%)'] ?? null), 4, 100000),
+                            'cumulative_revenue_billion' => $this->decimal($this->parseDecimal($row['累計營收(億)'] ?? null), 4),
+                            'cumulative_yoy_percent' => $this->decimal($this->parseDecimal($row['累計營收成長(%)'] ?? null), 4, 100000),
+                        ];
+                    }
 
-        return $this->nstockMonthlyRevenueRowsCache[$stockCode] = [];
+                    usort($rows, fn (array $left, array $right): int => (string) $right['year_month'] <=> (string) $left['year_month']);
+
+                    return $rows;
+                }
+
+                return [];
+            },
+        );
+
+        $this->nstockMonthlyRevenueRowsCache[$stockCode] = $rows;
+
+        return array_slice($rows, 0, $months);
     }
 
     /**
@@ -1750,35 +1856,41 @@ class TwStockQ1FinancialReportFetcher
             return $this->mopsMonthlyRevenueRowsCache[$yearMonth];
         }
 
-        $year = (int) substr($yearMonth, 0, 4);
-        $month = (int) substr($yearMonth, 4, 2);
-        $rocYear = $year - 1911;
-        $rows = [];
+        return $this->mopsMonthlyRevenueRowsCache[$yearMonth] = Cache::remember(
+            'tw-stock:q1-fetcher:mops-monthly-revenue:v1:' . $yearMonth,
+            now()->addSeconds($this->yearMonthCacheTtl($yearMonth)),
+            function () use ($yearMonth): array {
+                $year = (int) substr($yearMonth, 0, 4);
+                $month = (int) substr($yearMonth, 4, 2);
+                $rocYear = $year - 1911;
+                $rows = [];
 
-        foreach (self::MOPS_MONTHLY_REVENUE_MARKETS as $market) {
-            try {
-                $response = $this->http()
-                    ->asForm()
-                    ->post(self::MOPS_MONTHLY_REVENUE_DOWNLOAD_URL, [
-                        'step' => '9',
-                        'functionName' => 'show_file2',
-                        'filePath' => sprintf('/t21/%s/', $market),
-                        'fileName' => sprintf('t21sc03_%d_%d.csv', $rocYear, $month),
-                    ])
-                    ->throw()
-                    ->body();
-            } catch (Throwable $e) {
-                report($e);
+                foreach (self::MOPS_MONTHLY_REVENUE_MARKETS as $market) {
+                    try {
+                        $response = $this->http()
+                            ->asForm()
+                            ->post(self::MOPS_MONTHLY_REVENUE_DOWNLOAD_URL, [
+                                'step' => '9',
+                                'functionName' => 'show_file2',
+                                'filePath' => sprintf('/t21/%s/', $market),
+                                'fileName' => sprintf('t21sc03_%d_%d.csv', $rocYear, $month),
+                            ])
+                            ->throw()
+                            ->body();
+                    } catch (Throwable $e) {
+                        report($e);
 
-                continue;
-            }
+                        continue;
+                    }
 
-            foreach ($this->parseMopsMonthlyRevenueCsv($response, $yearMonth) as $stockCode => $row) {
-                $rows[$stockCode] = $row;
-            }
-        }
+                    foreach ($this->parseMopsMonthlyRevenueCsv($response, $yearMonth) as $stockCode => $row) {
+                        $rows[$stockCode] = $row;
+                    }
+                }
 
-        return $this->mopsMonthlyRevenueRowsCache[$yearMonth] = $rows;
+                return $rows;
+            },
+        );
     }
 
     /**
@@ -2063,6 +2175,64 @@ class TwStockQ1FinancialReportFetcher
         }
 
         return $value === null ? null : number_format($value, $scale, '.', '');
+    }
+
+    private function storedDailyPriceCacheVersion(string $exchange, string $stockCode): string
+    {
+        try {
+            $row = TwStockDailyPrice::query()
+                ->where('exchange', $exchange)
+                ->where('stock_code', $stockCode)
+                ->selectRaw('COUNT(*) as row_count, MAX(trade_date) as max_trade_date, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
+                ->toBase()
+                ->first();
+        } catch (Throwable) {
+            return 'missing';
+        }
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_trade_date ?? ''),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_fetched_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
+    }
+
+    private function dateCacheTtl(CarbonImmutable $date): int
+    {
+        return $date->isBefore(CarbonImmutable::today('Asia/Taipei'))
+            ? self::STABLE_FEED_CACHE_TTL_SECONDS
+            : self::RECENT_FEED_CACHE_TTL_SECONDS;
+    }
+
+    private function monthCacheTtl(CarbonImmutable $month): int
+    {
+        return $month->endOfMonth()->isBefore(CarbonImmutable::today('Asia/Taipei'))
+            ? self::STABLE_FEED_CACHE_TTL_SECONDS
+            : self::RECENT_FEED_CACHE_TTL_SECONDS;
+    }
+
+    private function yearMonthCacheTtl(string $yearMonth): int
+    {
+        try {
+            $month = CarbonImmutable::createFromFormat('Ym', $yearMonth)->startOfMonth();
+        } catch (Throwable) {
+            return self::RECENT_FEED_CACHE_TTL_SECONDS;
+        }
+
+        return $this->monthCacheTtl($month);
+    }
+
+    private function announcementMonthCacheTtl(int $rocYear, int $month): int
+    {
+        try {
+            $date = CarbonImmutable::create($rocYear + 1911, $month, 1, 0, 0, 0, 'Asia/Taipei');
+        } catch (Throwable) {
+            return self::RECENT_FEED_CACHE_TTL_SECONDS;
+        }
+
+        return $this->monthCacheTtl($date);
     }
 
     private function http(): PendingRequest

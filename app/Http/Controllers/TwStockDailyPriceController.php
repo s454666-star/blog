@@ -4,13 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\TwStockDailyPrice;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class TwStockDailyPriceController extends Controller
 {
+    private const STOCK_CACHE_TTL_SECONDS = 43200;
+
     public function index(Request $request): View
     {
-        $latestDate = TwStockDailyPrice::query()->max('trade_date');
+        $latestDate = $this->latestTradeDate();
         $allowedPerPage = [50, 100, 200, 500];
         $perPage = (int) $request->query('per_page', 100);
         if (!in_array($perPage, $allowedPerPage, true)) {
@@ -49,10 +53,6 @@ class TwStockDailyPriceController extends Controller
             ->paginate($perPage)
             ->withQueryString();
 
-        $baseQuery = TwStockDailyPrice::query()
-            ->when($latestDate !== null, fn ($query) => $query->where('trade_date', $latestDate))
-            ->whereNotNull('price_change_percent');
-
         return view('tw-stock.daily-prices.index', [
             'rows' => $rows,
             'latestDate' => $latestDate,
@@ -61,14 +61,7 @@ class TwStockDailyPriceController extends Controller
             'sort' => $sort,
             'direction' => $direction,
             'keyword' => $keyword,
-            'summary' => [
-                'total' => (clone $baseQuery)->count(),
-                'up' => (clone $baseQuery)->where('price_change_percent', '>', 0)->count(),
-                'down' => (clone $baseQuery)->where('price_change_percent', '<', 0)->count(),
-                'flat' => (clone $baseQuery)->where('price_change_percent', '=', 0)->count(),
-                'maxChange' => (clone $baseQuery)->max('price_change_percent'),
-                'minChange' => (clone $baseQuery)->min('price_change_percent'),
-            ],
+            'summary' => $this->latestDateSummary($latestDate),
         ]);
     }
 
@@ -85,11 +78,7 @@ class TwStockDailyPriceController extends Controller
             ->orderByDesc('trade_date')
             ->firstOrFail();
 
-        $rows = TwStockDailyPrice::query()
-            ->where('exchange', $latest->exchange)
-            ->where('stock_code', $latest->stock_code)
-            ->orderBy('trade_date')
-            ->get();
+        $rows = $this->stockDailyRows((string) $latest->exchange, (string) $latest->stock_code);
 
         $chartRows = $rows->map(fn (TwStockDailyPrice $row): array => [
             'time' => $row->trade_date->toDateString(),
@@ -126,16 +115,122 @@ class TwStockDailyPriceController extends Controller
             return null;
         }
 
-        return TwStockDailyPrice::query()
-            ->where('trade_date', $latest->trade_date)
-            ->whereNotNull('price_change_percent')
-            ->where(function ($query) use ($latest): void {
-                $query->where('price_change_percent', '>', $latest->price_change_percent)
-                    ->orWhere(function ($query) use ($latest): void {
-                        $query->where('price_change_percent', '=', $latest->price_change_percent)
-                            ->where('volume_lots', '>', $latest->volume_lots);
-                    });
-            })
-            ->count() + 1;
+        $tradeDate = $latest->trade_date->toDateString();
+
+        return (int) Cache::remember(
+            'tw-stock:daily-prices:latest-rank:v1:' . sha1(serialize([
+                $tradeDate,
+                (float) $latest->price_change_percent,
+                (int) $latest->volume_lots,
+                $this->dailyPriceCacheVersion(tradeDate: $tradeDate),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): int => TwStockDailyPrice::query()
+                ->where('trade_date', $latest->trade_date)
+                ->whereNotNull('price_change_percent')
+                ->where(function ($query) use ($latest): void {
+                    $query->where('price_change_percent', '>', $latest->price_change_percent)
+                        ->orWhere(function ($query) use ($latest): void {
+                            $query->where('price_change_percent', '=', $latest->price_change_percent)
+                                ->where('volume_lots', '>', $latest->volume_lots);
+                        });
+                })
+                ->count() + 1,
+        );
+    }
+
+    private function latestTradeDate(): ?string
+    {
+        return Cache::remember(
+            'tw-stock:daily-prices:latest-date:v1:' . $this->dailyPriceCacheVersion(),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): ?string => TwStockDailyPrice::query()->max('trade_date'),
+        );
+    }
+
+    /**
+     * @return array{total: int, up: int, down: int, flat: int, maxChange: mixed, minChange: mixed}
+     */
+    private function latestDateSummary(?string $latestDate): array
+    {
+        if ($latestDate === null) {
+            return [
+                'total' => 0,
+                'up' => 0,
+                'down' => 0,
+                'flat' => 0,
+                'maxChange' => null,
+                'minChange' => null,
+            ];
+        }
+
+        return Cache::remember(
+            'tw-stock:daily-prices:latest-summary:v1:' . $latestDate . ':' . $this->dailyPriceCacheVersion(tradeDate: $latestDate),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            function () use ($latestDate): array {
+                $baseQuery = TwStockDailyPrice::query()
+                    ->where('trade_date', $latestDate)
+                    ->whereNotNull('price_change_percent');
+
+                return [
+                    'total' => (clone $baseQuery)->count(),
+                    'up' => (clone $baseQuery)->where('price_change_percent', '>', 0)->count(),
+                    'down' => (clone $baseQuery)->where('price_change_percent', '<', 0)->count(),
+                    'flat' => (clone $baseQuery)->where('price_change_percent', '=', 0)->count(),
+                    'maxChange' => (clone $baseQuery)->max('price_change_percent'),
+                    'minChange' => (clone $baseQuery)->min('price_change_percent'),
+                ];
+            },
+        );
+    }
+
+    /**
+     * @return EloquentCollection<int, TwStockDailyPrice>
+     */
+    private function stockDailyRows(string $exchange, string $stockCode): EloquentCollection
+    {
+        return Cache::remember(
+            'tw-stock:daily-prices:stock-rows:v1:' . sha1(serialize([
+                $exchange,
+                $stockCode,
+                $this->dailyPriceCacheVersion(exchange: $exchange, stockCode: $stockCode),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): EloquentCollection => TwStockDailyPrice::query()
+                ->where('exchange', $exchange)
+                ->where('stock_code', $stockCode)
+                ->orderBy('trade_date')
+                ->get(),
+        );
+    }
+
+    private function dailyPriceCacheVersion(?string $tradeDate = null, ?string $exchange = null, ?string $stockCode = null): string
+    {
+        $query = TwStockDailyPrice::query();
+
+        if ($tradeDate !== null) {
+            $query->where('trade_date', $tradeDate);
+        }
+
+        if ($exchange !== null) {
+            $query->where('exchange', $exchange);
+        }
+
+        if ($stockCode !== null) {
+            $query->where('stock_code', $stockCode);
+        }
+
+        $row = $query
+            ->selectRaw('COUNT(*) as row_count, MAX(trade_date) as max_trade_date, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
+            ->toBase()
+            ->first();
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_trade_date ?? ''),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_fetched_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
     }
 }

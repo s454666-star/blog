@@ -5,6 +5,7 @@ namespace App\Services;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class TwStockUpcomingDividendFetcher
@@ -20,6 +21,10 @@ class TwStockUpcomingDividendFetcher
     private const WINVEST_UPCOMING_DIVIDENDS_URL = 'https://winvest.tw/Stock/Dividend';
 
     private const FINMIND_URL = 'https://api.finmindtrade.com/api/v4/data';
+
+    private const RECENT_FEED_CACHE_TTL_SECONDS = 1800;
+
+    private const HISTORICAL_FEED_CACHE_TTL_SECONDS = 2592000;
 
     /**
      * @var array<string, array<string, mixed>|null>
@@ -130,41 +135,47 @@ class TwStockUpcomingDividendFetcher
      */
     private function fetchTwseUpcomingDividendEvents(): array
     {
-        $rows = $this->http()
-            ->get(self::TWSE_UPCOMING_DIVIDENDS_URL)
-            ->throw()
-            ->json();
+        return Cache::remember(
+            'tw-stock:upcoming-dividends:twse-events:v1',
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function (): array {
+                $rows = $this->http()
+                    ->get(self::TWSE_UPCOMING_DIVIDENDS_URL)
+                    ->throw()
+                    ->json();
 
-        if (!is_array($rows)) {
-            return [];
-        }
+                if (!is_array($rows)) {
+                    return [];
+                }
 
-        $events = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
+                $events = [];
+                foreach ($rows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
 
-            $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
-            if ($date === null) {
-                continue;
-            }
+                    $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
+                    if ($date === null) {
+                        continue;
+                    }
 
-            $events[] = [
-                'exchange' => 'TWSE',
-                'stock_code' => trim((string) ($row['Code'] ?? '')),
-                'stock_name' => trim((string) ($row['Name'] ?? '')),
-                'security_type' => $this->securityType((string) ($row['Code'] ?? '')),
-                'ex_dividend_date' => $date,
-                'ex_dividend_type' => trim((string) ($row['Exdividend'] ?? '')),
-                'cash_dividend' => $this->parseDecimal($row['CashDividend'] ?? null) ?? '0.000000',
-                'stock_dividend' => $this->parseStockDividendAmount($row['StockDividendRatio'] ?? null),
-                'source_payload' => ['source' => 'TWSE TWT48U_ALL', 'row' => $row],
-                'source_priority' => 10,
-            ];
-        }
+                    $events[] = [
+                        'exchange' => 'TWSE',
+                        'stock_code' => trim((string) ($row['Code'] ?? '')),
+                        'stock_name' => trim((string) ($row['Name'] ?? '')),
+                        'security_type' => $this->securityType((string) ($row['Code'] ?? '')),
+                        'ex_dividend_date' => $date,
+                        'ex_dividend_type' => trim((string) ($row['Exdividend'] ?? '')),
+                        'cash_dividend' => $this->parseDecimal($row['CashDividend'] ?? null) ?? '0.000000',
+                        'stock_dividend' => $this->parseStockDividendAmount($row['StockDividendRatio'] ?? null),
+                        'source_payload' => ['source' => 'TWSE TWT48U_ALL', 'row' => $row],
+                        'source_priority' => 10,
+                    ];
+                }
 
-        return $events;
+                return $events;
+            },
+        );
     }
 
     /**
@@ -172,42 +183,48 @@ class TwStockUpcomingDividendFetcher
      */
     private function fetchTpexUpcomingDividendEvents(): array
     {
-        $rows = $this->http()
-            ->get(self::TPEX_UPCOMING_DIVIDENDS_URL)
-            ->throw()
-            ->json();
+        return Cache::remember(
+            'tw-stock:upcoming-dividends:tpex-events:v1',
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function (): array {
+                $rows = $this->http()
+                    ->get(self::TPEX_UPCOMING_DIVIDENDS_URL)
+                    ->throw()
+                    ->json();
 
-        if (!is_array($rows)) {
-            return [];
-        }
+                if (!is_array($rows)) {
+                    return [];
+                }
 
-        $events = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
+                $events = [];
+                foreach ($rows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
 
-            $date = $this->parseRocDate((string) ($row['ExRrightsExDividendDate'] ?? ''));
-            if ($date === null) {
-                continue;
-            }
+                    $date = $this->parseRocDate((string) ($row['ExRrightsExDividendDate'] ?? ''));
+                    if ($date === null) {
+                        continue;
+                    }
 
-            $code = trim((string) ($row['SecuritiesCompanyCode'] ?? ''));
-            $events[] = [
-                'exchange' => 'TPEx',
-                'stock_code' => $code,
-                'stock_name' => trim((string) ($row['CompanyName'] ?? '')),
-                'security_type' => $this->securityType($code),
-                'ex_dividend_date' => $date,
-                'ex_dividend_type' => trim((string) ($row['ExRrightsExDividend'] ?? '')),
-                'cash_dividend' => $this->parseDecimal($row['CashDividend'] ?? null) ?? '0.000000',
-                'stock_dividend' => $this->parseStockDividendAmount($row['StockDividendRatio'] ?? null),
-                'source_payload' => ['source' => 'TPEx tpex_exright_prepost', 'row' => $row],
-                'source_priority' => 10,
-            ];
-        }
+                    $code = trim((string) ($row['SecuritiesCompanyCode'] ?? ''));
+                    $events[] = [
+                        'exchange' => 'TPEx',
+                        'stock_code' => $code,
+                        'stock_name' => trim((string) ($row['CompanyName'] ?? '')),
+                        'security_type' => $this->securityType($code),
+                        'ex_dividend_date' => $date,
+                        'ex_dividend_type' => trim((string) ($row['ExRrightsExDividend'] ?? '')),
+                        'cash_dividend' => $this->parseDecimal($row['CashDividend'] ?? null) ?? '0.000000',
+                        'stock_dividend' => $this->parseStockDividendAmount($row['StockDividendRatio'] ?? null),
+                        'source_payload' => ['source' => 'TPEx tpex_exright_prepost', 'row' => $row],
+                        'source_priority' => 10,
+                    ];
+                }
 
-        return $events;
+                return $events;
+            },
+        );
     }
 
     /**
@@ -216,56 +233,62 @@ class TwStockUpcomingDividendFetcher
      */
     private function fetchWinvestUpcomingDividendEvents(array $exchangeByCode): array
     {
-        $html = $this->http()
-            ->get(self::WINVEST_UPCOMING_DIVIDENDS_URL)
-            ->throw()
-            ->body();
+        return Cache::remember(
+            'tw-stock:upcoming-dividends:winvest-events:v1:' . sha1(serialize($exchangeByCode)),
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function () use ($exchangeByCode): array {
+                $html = $this->http()
+                    ->get(self::WINVEST_UPCOMING_DIVIDENDS_URL)
+                    ->throw()
+                    ->body();
 
-        $previous = libxml_use_internal_errors(true);
-        $dom = new \DOMDocument();
-        $dom->loadHTML('<?xml encoding="UTF-8">' . $html);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
+                $previous = libxml_use_internal_errors(true);
+                $dom = new \DOMDocument();
+                $dom->loadHTML('<?xml encoding="UTF-8">' . $html);
+                libxml_clear_errors();
+                libxml_use_internal_errors($previous);
 
-        $xpath = new \DOMXPath($dom);
-        $events = [];
-        foreach ($xpath->query('//tr') ?: [] as $row) {
-            $cells = $row->getElementsByTagName('td');
-            if ($cells->length < 5) {
-                continue;
-            }
+                $xpath = new \DOMXPath($dom);
+                $events = [];
+                foreach ($xpath->query('//tr') ?: [] as $row) {
+                    $cells = $row->getElementsByTagName('td');
+                    if ($cells->length < 5) {
+                        continue;
+                    }
 
-            $date = $this->parseGregorianDate($this->nodeText($cells->item(0)));
-            $stock = $this->parseWinvestStockCell($cells->item(1));
-            if ($date === null || $stock === null) {
-                continue;
-            }
+                    $date = $this->parseGregorianDate($this->nodeText($cells->item(0)));
+                    $stock = $this->parseWinvestStockCell($cells->item(1));
+                    if ($date === null || $stock === null) {
+                        continue;
+                    }
 
-            $cashDividend = $this->parseDecimal($this->nodeText($cells->item(3))) ?? '0.000000';
-            $stockDividend = $cells->length >= 7
-                ? ($this->parseDecimal($this->nodeText($cells->item(6))) ?? '0.000000')
-                : '0.000000';
+                    $cashDividend = $this->parseDecimal($this->nodeText($cells->item(3))) ?? '0.000000';
+                    $stockDividend = $cells->length >= 7
+                        ? ($this->parseDecimal($this->nodeText($cells->item(6))) ?? '0.000000')
+                        : '0.000000';
 
-            $events[] = [
-                'exchange' => $exchangeByCode[$stock['code']] ?? 'TWSE',
-                'stock_code' => $stock['code'],
-                'stock_name' => $stock['name'],
-                'security_type' => $this->securityType($stock['code']),
-                'ex_dividend_date' => $date,
-                'ex_dividend_type' => $this->dividendType($cashDividend, $stockDividend),
-                'cash_dividend' => $cashDividend,
-                'stock_dividend' => $stockDividend,
-                'latest_close_price' => $this->parseDecimal($this->nodeText($cells->item(2))),
-                'source_payload' => [
-                    'source' => 'Winvest Stock Dividend',
-                    'cash_dividend_payment_date' => $cells->length >= 6 ? $this->nodeText($cells->item(5)) : null,
-                    'row_text' => $this->nodeText($row),
-                ],
-                'source_priority' => 20,
-            ];
-        }
+                    $events[] = [
+                        'exchange' => $exchangeByCode[$stock['code']] ?? 'TWSE',
+                        'stock_code' => $stock['code'],
+                        'stock_name' => $stock['name'],
+                        'security_type' => $this->securityType($stock['code']),
+                        'ex_dividend_date' => $date,
+                        'ex_dividend_type' => $this->dividendType($cashDividend, $stockDividend),
+                        'cash_dividend' => $cashDividend,
+                        'stock_dividend' => $stockDividend,
+                        'latest_close_price' => $this->parseDecimal($this->nodeText($cells->item(2))),
+                        'source_payload' => [
+                            'source' => 'Winvest Stock Dividend',
+                            'cash_dividend_payment_date' => $cells->length >= 6 ? $this->nodeText($cells->item(5)) : null,
+                            'row_text' => $this->nodeText($row),
+                        ],
+                        'source_priority' => 20,
+                    ];
+                }
 
-        return $events;
+                return $events;
+            },
+        );
     }
 
     /**
@@ -284,35 +307,41 @@ class TwStockUpcomingDividendFetcher
      */
     private function fetchTwseLatestPrices(): array
     {
-        $rows = $this->http()
-            ->get(self::TWSE_DAILY_PRICE_URL)
-            ->throw()
-            ->json();
+        return Cache::remember(
+            'tw-stock:upcoming-dividends:twse-latest-prices:v1',
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function (): array {
+                $rows = $this->http()
+                    ->get(self::TWSE_DAILY_PRICE_URL)
+                    ->throw()
+                    ->json();
 
-        if (!is_array($rows)) {
-            return [];
-        }
+                if (!is_array($rows)) {
+                    return [];
+                }
 
-        $prices = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
+                $prices = [];
+                foreach ($rows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
 
-            $code = trim((string) ($row['Code'] ?? ''));
-            $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
-            $close = $this->parseDecimal($row['ClosingPrice'] ?? null);
-            if ($code === '' || $date === null || $close === null) {
-                continue;
-            }
+                    $code = trim((string) ($row['Code'] ?? ''));
+                    $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
+                    $close = $this->parseDecimal($row['ClosingPrice'] ?? null);
+                    if ($code === '' || $date === null || $close === null) {
+                        continue;
+                    }
 
-            $prices[$code] = [
-                'date' => $date,
-                'close' => $close,
-            ];
-        }
+                    $prices[$code] = [
+                        'date' => $date,
+                        'close' => $close,
+                    ];
+                }
 
-        return $prices;
+                return $prices;
+            },
+        );
     }
 
     /**
@@ -320,35 +349,41 @@ class TwStockUpcomingDividendFetcher
      */
     private function fetchTpexLatestPrices(): array
     {
-        $rows = $this->http()
-            ->get(self::TPEX_DAILY_PRICE_URL)
-            ->throw()
-            ->json();
+        return Cache::remember(
+            'tw-stock:upcoming-dividends:tpex-latest-prices:v1',
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function (): array {
+                $rows = $this->http()
+                    ->get(self::TPEX_DAILY_PRICE_URL)
+                    ->throw()
+                    ->json();
 
-        if (!is_array($rows)) {
-            return [];
-        }
+                if (!is_array($rows)) {
+                    return [];
+                }
 
-        $prices = [];
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
-                continue;
-            }
+                $prices = [];
+                foreach ($rows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
 
-            $code = trim((string) ($row['SecuritiesCompanyCode'] ?? ''));
-            $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
-            $close = $this->parseDecimal($row['Close'] ?? null);
-            if ($code === '' || $date === null || $close === null) {
-                continue;
-            }
+                    $code = trim((string) ($row['SecuritiesCompanyCode'] ?? ''));
+                    $date = $this->parseRocDate((string) ($row['Date'] ?? ''));
+                    $close = $this->parseDecimal($row['Close'] ?? null);
+                    if ($code === '' || $date === null || $close === null) {
+                        continue;
+                    }
 
-            $prices[$code] = [
-                'date' => $date,
-                'close' => $close,
-            ];
-        }
+                    $prices[$code] = [
+                        'date' => $date,
+                        'close' => $close,
+                    ];
+                }
 
-        return $prices;
+                return $prices;
+            },
+        );
     }
 
     /**
@@ -470,16 +505,34 @@ class TwStockUpcomingDividendFetcher
             return $this->finMindCache[$cacheKey];
         }
 
-        $response = $this->http()
-            ->get(self::FINMIND_URL, $query)
-            ->throw()
-            ->json();
+        return $this->finMindCache[$cacheKey] = Cache::remember(
+            'tw-stock:finmind:v1:' . $cacheKey,
+            now()->addSeconds($this->finMindCacheTtl($query)),
+            function () use ($query): array {
+                $response = $this->http()
+                    ->get(self::FINMIND_URL, $query)
+                    ->throw()
+                    ->json();
 
-        if (!is_array($response) || (int) ($response['status'] ?? 0) !== 200 || !is_array($response['data'] ?? null)) {
-            return $this->finMindCache[$cacheKey] = [];
-        }
+                if (!is_array($response) || (int) ($response['status'] ?? 0) !== 200 || !is_array($response['data'] ?? null)) {
+                    return [];
+                }
 
-        return $this->finMindCache[$cacheKey] = array_values(array_filter($response['data'], 'is_array'));
+                return array_values(array_filter($response['data'], 'is_array'));
+            },
+        );
+    }
+
+    /**
+     * @param array<string, string> $query
+     */
+    private function finMindCacheTtl(array $query): int
+    {
+        $endDate = isset($query['end_date']) ? CarbonImmutable::parse($query['end_date']) : null;
+
+        return $endDate !== null && $endDate->isBefore(CarbonImmutable::today())
+            ? self::HISTORICAL_FEED_CACHE_TTL_SECONDS
+            : self::RECENT_FEED_CACHE_TTL_SECONDS;
     }
 
     /**

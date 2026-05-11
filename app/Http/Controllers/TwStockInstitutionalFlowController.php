@@ -5,9 +5,13 @@ namespace App\Http\Controllers;
 use App\Models\TwStockInstitutionalFlow;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 class TwStockInstitutionalFlowController extends Controller
 {
+    private const STOCK_CACHE_TTL_SECONDS = 43200;
+
     public function index(Request $request): View
     {
         $allowedDays = [20, 30, 40, 60];
@@ -16,31 +20,7 @@ class TwStockInstitutionalFlowController extends Controller
             $days = 60;
         }
 
-        $allRows = TwStockInstitutionalFlow::query()
-            ->orderBy('trade_date')
-            ->get();
-
-        $foreignCumulative = 0;
-        $investmentTrustCumulative = 0;
-
-        $preparedRows = $allRows->map(function (TwStockInstitutionalFlow $row) use (&$foreignCumulative, &$investmentTrustCumulative): array {
-            $foreignCumulative += (int) ($row->foreign_stock_net_amount ?? 0);
-            $investmentTrustCumulative += (int) ($row->investment_trust_stock_net_amount ?? 0);
-
-            return [
-                'date' => $row->trade_date->toDateString(),
-                'foreign_stock_net_amount' => $row->foreign_stock_net_amount,
-                'investment_trust_stock_net_amount' => $row->investment_trust_stock_net_amount,
-                'foreign_stock_net_100m' => $this->amountTo100m($row->foreign_stock_net_amount),
-                'investment_trust_stock_net_100m' => $this->amountTo100m($row->investment_trust_stock_net_amount),
-                'foreign_cumulative_100m' => $this->amountTo100m($foreignCumulative),
-                'investment_trust_cumulative_100m' => $this->amountTo100m($investmentTrustCumulative),
-                'taiex_close_index' => $row->taiex_close_index,
-                'foreign_txf_open_interest_net_contracts' => $row->foreign_txf_open_interest_net_contracts,
-                'investment_trust_txf_open_interest_net_contracts' => $row->investment_trust_txf_open_interest_net_contracts,
-                'fetched_at' => $row->fetched_at?->format('Y-m-d H:i:s'),
-            ];
-        });
+        $preparedRows = $this->preparedRows();
 
         $visibleRows = $preparedRows->take(-$days)->values();
         $latest = $visibleRows->last();
@@ -65,6 +45,60 @@ class TwStockInstitutionalFlowController extends Controller
                 'foreignOpenInterest' => $preparedRows->pluck('foreign_txf_open_interest_net_contracts')->all(),
                 'investmentTrustOpenInterest' => $preparedRows->pluck('investment_trust_txf_open_interest_net_contracts')->all(),
             ],
+        ]);
+    }
+
+    /**
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function preparedRows(): Collection
+    {
+        return collect(Cache::remember(
+            'tw-stock:institutional-flows:prepared:v1:' . $this->flowCacheVersion(),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            function (): array {
+                $allRows = TwStockInstitutionalFlow::query()
+                    ->orderBy('trade_date')
+                    ->get();
+
+                $foreignCumulative = 0;
+                $investmentTrustCumulative = 0;
+
+                return $allRows->map(function (TwStockInstitutionalFlow $row) use (&$foreignCumulative, &$investmentTrustCumulative): array {
+                    $foreignCumulative += (int) ($row->foreign_stock_net_amount ?? 0);
+                    $investmentTrustCumulative += (int) ($row->investment_trust_stock_net_amount ?? 0);
+
+                    return [
+                        'date' => $row->trade_date->toDateString(),
+                        'foreign_stock_net_amount' => $row->foreign_stock_net_amount,
+                        'investment_trust_stock_net_amount' => $row->investment_trust_stock_net_amount,
+                        'foreign_stock_net_100m' => $this->amountTo100m($row->foreign_stock_net_amount),
+                        'investment_trust_stock_net_100m' => $this->amountTo100m($row->investment_trust_stock_net_amount),
+                        'foreign_cumulative_100m' => $this->amountTo100m($foreignCumulative),
+                        'investment_trust_cumulative_100m' => $this->amountTo100m($investmentTrustCumulative),
+                        'taiex_close_index' => $row->taiex_close_index,
+                        'foreign_txf_open_interest_net_contracts' => $row->foreign_txf_open_interest_net_contracts,
+                        'investment_trust_txf_open_interest_net_contracts' => $row->investment_trust_txf_open_interest_net_contracts,
+                        'fetched_at' => $row->fetched_at?->format('Y-m-d H:i:s'),
+                    ];
+                })->all();
+            },
+        ));
+    }
+
+    private function flowCacheVersion(): string
+    {
+        $row = TwStockInstitutionalFlow::query()
+            ->selectRaw('COUNT(*) as row_count, MAX(trade_date) as max_trade_date, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
+            ->toBase()
+            ->first();
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_trade_date ?? ''),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_fetched_at ?? ''),
+            (string) ($row->max_id ?? ''),
         ]);
     }
 

@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 class TwStockQ1FinancialReportController extends Controller
 {
@@ -41,6 +42,8 @@ class TwStockQ1FinancialReportController extends Controller
 
     private const ANNUAL_NET_MARGIN_THRESHOLD = 15.0;
 
+    private const STOCK_CACHE_TTL_SECONDS = 43200;
+
     public function index(Request $request): View
     {
         $allowedPerPage = [50, 250, 500];
@@ -49,7 +52,7 @@ class TwStockQ1FinancialReportController extends Controller
             $perPage = 250;
         }
 
-        $latestYear = (int) (TwStockQ1FinancialReport::query()->max('fiscal_year') ?? now()->year);
+        $latestYear = $this->latestQ1Year();
         $year = (int) $request->query('year', $latestYear);
         $search = trim((string) $request->query('q', ''));
         $priceMin = $this->priceFilterValue($request->query('price_min'));
@@ -69,16 +72,7 @@ class TwStockQ1FinancialReportController extends Controller
         }
 
         $baseQuery = $this->reportQuery($year, $search, $priceMin, $priceMax, $valuationGroups);
-        $groupTotalRows = TwStockQ1FinancialReport::query()
-            ->where('fiscal_year', $year)
-            ->where('quarter', 1)
-            ->where('volume_lots', '>=', self::DASHBOARD_MIN_VOLUME_LOTS)
-            ->whereNotNull('q1_revenue_billion')
-            ->whereNotNull('q1_eps')
-            ->whereNotNull('price_change_1d_percent')
-            ->whereNotNull('price_change_5d_percent')
-            ->whereNotNull('price_change_20d_percent')
-            ->count();
+        $groupTotalRows = $this->groupTotalRows($year);
         $matchingRows = $this->attachRecentTwoMonthHighFlags((clone $baseQuery)->get());
         if ($recentTwoMonthHighOnly) {
             $matchingRows = $matchingRows
@@ -92,13 +86,7 @@ class TwStockQ1FinancialReportController extends Controller
             $perPage,
         );
 
-        $availableYears = TwStockQ1FinancialReport::query()
-            ->select('fiscal_year')
-            ->distinct()
-            ->orderByDesc('fiscal_year')
-            ->pluck('fiscal_year')
-            ->map(fn ($value): int => (int) $value)
-            ->all();
+        $availableYears = $this->availableQ1Years();
 
         return view('tw-stock.q1-financial-reports', [
             'allowedPerPage' => $allowedPerPage,
@@ -153,16 +141,7 @@ class TwStockQ1FinancialReportController extends Controller
         $search = trim((string) $request->query('q', ''));
         $thresholds = $this->annualComparisonThresholds($request);
 
-        $baseQuery = TwStockAnnualFinancialComparison::query()
-            ->where('context_year', self::CURRENT_CONTEXT_YEAR)
-            ->when($search !== '', function (Builder $query) use ($search): void {
-                $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
-                $query->where(function (Builder $query) use ($like): void {
-                    $query->where('stock_code', 'like', $like)
-                        ->orWhere('stock_name', 'like', $like);
-                });
-            });
-        $baseRows = $baseQuery->get($this->annualComparisonListColumns());
+        $baseRows = $this->annualComparisonBaseRows(self::CURRENT_CONTEXT_YEAR, $search);
         $recentTwoMonthHighKeys = $this->recentTwoMonthHighKeys($baseRows);
         $filteredRows = $this->filterAnnualComparisonRows($baseRows, $filters, $recentTwoMonthHighKeys, $thresholds);
         $stocks = $this->hydrateAnnualComparisonPage(
@@ -234,6 +213,160 @@ class TwStockQ1FinancialReportController extends Controller
         ];
     }
 
+    private function latestQ1Year(): int
+    {
+        return (int) Cache::remember(
+            'tw-stock:q1:latest-year:v1:' . $this->q1CacheVersion(),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): int => (int) (TwStockQ1FinancialReport::query()->max('fiscal_year') ?? now()->year),
+        );
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function availableQ1Years(): array
+    {
+        return Cache::remember(
+            'tw-stock:q1:available-years:v1:' . $this->q1CacheVersion(),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): array => TwStockQ1FinancialReport::query()
+                ->select('fiscal_year')
+                ->distinct()
+                ->orderByDesc('fiscal_year')
+                ->pluck('fiscal_year')
+                ->map(fn ($value): int => (int) $value)
+                ->all(),
+        );
+    }
+
+    private function groupTotalRows(int $year): int
+    {
+        return (int) Cache::remember(
+            'tw-stock:q1:group-total:v1:' . $year . ':' . $this->q1CacheVersion($year),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): int => TwStockQ1FinancialReport::query()
+                ->where('fiscal_year', $year)
+                ->where('quarter', 1)
+                ->where('volume_lots', '>=', self::DASHBOARD_MIN_VOLUME_LOTS)
+                ->whereNotNull('q1_revenue_billion')
+                ->whereNotNull('q1_eps')
+                ->whereNotNull('price_change_1d_percent')
+                ->whereNotNull('price_change_5d_percent')
+                ->whereNotNull('price_change_20d_percent')
+                ->count(),
+        );
+    }
+
+    /**
+     * @return Collection<int, TwStockAnnualFinancialComparison>
+     */
+    private function annualComparisonBaseRows(int $contextYear, string $search): Collection
+    {
+        $key = 'tw-stock:annual-comparison:list:v1:' . sha1(serialize([
+            $contextYear,
+            $search,
+            $this->annualComparisonListColumns(),
+            $this->annualComparisonCacheVersion($contextYear),
+        ]));
+
+        return Cache::remember(
+            $key,
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            function () use ($contextYear, $search): Collection {
+                return TwStockAnnualFinancialComparison::query()
+                    ->where('context_year', $contextYear)
+                    ->when($search !== '', function (Builder $query) use ($search): void {
+                        $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
+                        $query->where(function (Builder $query) use ($like): void {
+                            $query->where('stock_code', 'like', $like)
+                                ->orWhere('stock_name', 'like', $like);
+                        });
+                    })
+                    ->get($this->annualComparisonListColumns());
+            },
+        );
+    }
+
+    private function q1CacheVersion(?int $year = null): string
+    {
+        $query = TwStockQ1FinancialReport::query();
+
+        if ($year !== null) {
+            $query
+                ->where('fiscal_year', $year)
+                ->where('quarter', 1);
+        }
+
+        $row = $query
+            ->selectRaw('COUNT(*) as row_count, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
+            ->toBase()
+            ->first();
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_fetched_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
+    }
+
+    private function annualComparisonCacheVersion(int $contextYear): string
+    {
+        $row = TwStockAnnualFinancialComparison::query()
+            ->where('context_year', $contextYear)
+            ->selectRaw('COUNT(*) as row_count, MAX(updated_at) as max_updated_at, MAX(generated_at) as max_generated_at, MAX(id) as max_id')
+            ->toBase()
+            ->first();
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_generated_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
+    }
+
+    /**
+     * @param list<int> $ids
+     */
+    private function annualComparisonIdsCacheVersion(array $ids): string
+    {
+        $row = TwStockAnnualFinancialComparison::query()
+            ->whereIn('id', $ids)
+            ->selectRaw('COUNT(*) as row_count, MAX(updated_at) as max_updated_at, MAX(generated_at) as max_generated_at, MAX(id) as max_id')
+            ->toBase()
+            ->first();
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_generated_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
+    }
+
+    /**
+     * @param list<string> $stockCodes
+     * @param list<string> $exchanges
+     */
+    private function companyProfileCacheVersion(array $stockCodes, array $exchanges): string
+    {
+        $row = TwStockCompanyProfile::query()
+            ->whereIn('stock_code', $stockCodes)
+            ->whereIn('exchange', $exchanges)
+            ->selectRaw('COUNT(*) as row_count, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
+            ->toBase()
+            ->first();
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_fetched_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
+    }
+
     private function thresholdValue(mixed $value, float $default): float
     {
         $value = trim((string) $value);
@@ -257,10 +390,17 @@ class TwStockQ1FinancialReportController extends Controller
             return $stocks;
         }
 
-        $fullRows = TwStockAnnualFinancialComparison::query()
-            ->whereIn('id', $ids)
-            ->get()
-            ->keyBy('id');
+        $fullRows = Cache::remember(
+            'tw-stock:annual-comparison:full-rows:v1:' . sha1(serialize([
+                $ids,
+                $this->annualComparisonIdsCacheVersion($ids),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): Collection => TwStockAnnualFinancialComparison::query()
+                ->whereIn('id', $ids)
+                ->get()
+                ->keyBy('id'),
+        );
 
         $stocks->setCollection($this->attachAnnualComparisonValuationMeta(
             $stocks->getCollection()
@@ -297,11 +437,19 @@ class TwStockQ1FinancialReportController extends Controller
             ->values()
             ->all();
 
-        $profiles = TwStockCompanyProfile::query()
-            ->whereIn('stock_code', $stockCodes)
-            ->whereIn('exchange', $exchanges)
-            ->get(['exchange', 'stock_code', 'valuation_group', 'valuation_group_pe'])
-            ->keyBy(fn (TwStockCompanyProfile $profile): string => $this->stockKey((string) $profile->exchange, (string) $profile->stock_code));
+        $profiles = Cache::remember(
+            'tw-stock:annual-comparison:valuation-profiles:v1:' . sha1(serialize([
+                collect($stockCodes)->sort()->values()->all(),
+                collect($exchanges)->sort()->values()->all(),
+                $this->companyProfileCacheVersion($stockCodes, $exchanges),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): Collection => TwStockCompanyProfile::query()
+                ->whereIn('stock_code', $stockCodes)
+                ->whereIn('exchange', $exchanges)
+                ->get(['exchange', 'stock_code', 'valuation_group', 'valuation_group_pe'])
+                ->keyBy(fn (TwStockCompanyProfile $profile): string => $this->stockKey((string) $profile->exchange, (string) $profile->stock_code)),
+        );
 
         return $stocks->each(function (TwStockAnnualFinancialComparison $stock) use ($profiles): void {
             $profile = $profiles->get($this->stockKey((string) $stock->exchange, (string) $stock->stock_code));
@@ -607,6 +755,13 @@ class TwStockQ1FinancialReportController extends Controller
             return [];
         }
 
+        $stockKeys = $rows
+            ->map(fn (object $row): string => $this->stockKey((string) $row->exchange, (string) $row->stock_code))
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+
         $latestDate = TwStockDailyPrice::query()
             ->whereIn('stock_code', $stockCodes)
             ->whereIn('exchange', $exchanges)
@@ -618,6 +773,28 @@ class TwStockQ1FinancialReportController extends Controller
         $startDate = Carbon::parse($latestDate)
             ->subMonths(self::RECENT_HIGH_QUERY_MONTHS)
             ->toDateString();
+
+        return Cache::remember(
+            'tw-stock:recent-two-month-high:v1:' . sha1(serialize([
+                $stockKeys,
+                $latestDate,
+                $startDate,
+                self::RECENT_HIGH_LOOKBACK_TRADING_DAYS,
+                self::RECENT_HIGH_SIGNAL_TRADING_DAYS,
+                $this->dailyPriceCacheVersion($stockCodes, $exchanges, $startDate),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): array => $this->computeRecentTwoMonthHighKeys($stockCodes, $exchanges, $startDate),
+        );
+    }
+
+    /**
+     * @param list<string> $stockCodes
+     * @param list<string> $exchanges
+     * @return array<string, true>
+     */
+    private function computeRecentTwoMonthHighKeys(array $stockCodes, array $exchanges, string $startDate): array
+    {
         $dailyRows = TwStockDailyPrice::query()
             ->select(['exchange', 'stock_code', 'high_price'])
             ->whereIn('stock_code', $stockCodes)
@@ -666,6 +843,28 @@ class TwStockQ1FinancialReportController extends Controller
         $finalizeStock();
 
         return $flags;
+    }
+
+    /**
+     * @param list<string> $stockCodes
+     * @param list<string> $exchanges
+     */
+    private function dailyPriceCacheVersion(array $stockCodes, array $exchanges, string $startDate): string
+    {
+        $row = TwStockDailyPrice::query()
+            ->whereIn('stock_code', $stockCodes)
+            ->whereIn('exchange', $exchanges)
+            ->where('trade_date', '>=', $startDate)
+            ->selectRaw('COUNT(*) as row_count, MAX(trade_date) as max_trade_date, MAX(updated_at) as max_updated_at, MAX(id) as max_id')
+            ->toBase()
+            ->first();
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_trade_date ?? ''),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
     }
 
     private function stockKey(string $exchange, string $stockCode): string
@@ -737,23 +936,27 @@ class TwStockQ1FinancialReportController extends Controller
      */
     private function availableValuationGroups(int $year): array
     {
-        return TwStockQ1FinancialReport::query()
-            ->where('fiscal_year', $year)
-            ->where('quarter', 1)
-            ->where('volume_lots', '>=', self::DASHBOARD_MIN_VOLUME_LOTS)
-            ->whereNotNull('q1_revenue_billion')
-            ->whereNotNull('q1_eps')
-            ->whereNotNull('price_change_1d_percent')
-            ->whereNotNull('price_change_5d_percent')
-            ->whereNotNull('price_change_20d_percent')
-            ->whereNotNull('valuation_group')
-            ->select('valuation_group')
-            ->distinct()
-            ->orderBy('valuation_group')
-            ->pluck('valuation_group')
-            ->map(fn ($value): string => (string) $value)
-            ->values()
-            ->all();
+        return Cache::remember(
+            'tw-stock:q1:valuation-groups:v1:' . $year . ':' . $this->q1CacheVersion($year),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): array => TwStockQ1FinancialReport::query()
+                ->where('fiscal_year', $year)
+                ->where('quarter', 1)
+                ->where('volume_lots', '>=', self::DASHBOARD_MIN_VOLUME_LOTS)
+                ->whereNotNull('q1_revenue_billion')
+                ->whereNotNull('q1_eps')
+                ->whereNotNull('price_change_1d_percent')
+                ->whereNotNull('price_change_5d_percent')
+                ->whereNotNull('price_change_20d_percent')
+                ->whereNotNull('valuation_group')
+                ->select('valuation_group')
+                ->distinct()
+                ->orderBy('valuation_group')
+                ->pluck('valuation_group')
+                ->map(fn ($value): string => (string) $value)
+                ->values()
+                ->all(),
+        );
     }
 
     /**

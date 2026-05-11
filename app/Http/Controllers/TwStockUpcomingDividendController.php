@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\TwStockUpcomingDividend;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
-use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 
 class TwStockUpcomingDividendController extends Controller
@@ -31,26 +31,30 @@ class TwStockUpcomingDividendController extends Controller
     }
 
     /**
-     * @return EloquentCollection<int, TwStockUpcomingDividend>
+     * @return Collection<int, TwStockUpcomingDividend>
      */
-    private function upcomingRows(CarbonImmutable $today, CarbonImmutable $endDate): EloquentCollection
+    private function upcomingRows(CarbonImmutable $today, CarbonImmutable $endDate): Collection
     {
         $start = $today->toDateString();
         $end = $endDate->toDateString();
 
-        return Cache::remember(
-            'tw-stock:upcoming-dividends:rows:v1:' . sha1(serialize([
+        $records = Cache::remember(
+            'tw-stock:upcoming-dividends:rows:v2:' . sha1(serialize([
                 $start,
                 $end,
                 $this->dividendCacheVersion($start, $end),
             ])),
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
-            fn (): EloquentCollection => TwStockUpcomingDividend::query()
+            fn (): array => TwStockUpcomingDividend::query()
                 ->whereBetween('ex_dividend_date', [$start, $end])
                 ->orderBy('ex_dividend_date')
                 ->orderByDesc('dividend_yield_percent')
-                ->get(),
+                ->get()
+                ->map(fn (TwStockUpcomingDividend $row): array => $row->getAttributes())
+                ->all(),
         );
+
+        return TwStockUpcomingDividend::hydrate($records);
     }
 
     private function dividendCacheVersion(string $start, string $end): string

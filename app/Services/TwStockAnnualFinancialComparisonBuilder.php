@@ -61,15 +61,15 @@ class TwStockAnnualFinancialComparisonBuilder
      */
     private function latestRows(int $contextYear, int $startYear, string $search): Collection
     {
-        return Cache::remember(
-            'tw-stock:annual-builder:latest-rows:v1:' . sha1(serialize([
+        $records = Cache::remember(
+            'tw-stock:annual-builder:latest-rows:v2:' . sha1(serialize([
                 $contextYear,
                 $startYear,
                 $search,
                 $this->q1CacheVersion($startYear, $contextYear),
             ])),
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
-            fn (): Collection => TwStockQ1FinancialReport::query()
+            fn (): array => TwStockQ1FinancialReport::query()
                 ->select([
                     'id',
                     'exchange',
@@ -97,9 +97,13 @@ class TwStockAnnualFinancialComparisonBuilder
                 ->orderByDesc('quarter')
                 ->orderByDesc('id')
                 ->get()
-                ->groupBy(fn (TwStockQ1FinancialReport $row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
-                ->map(fn (Collection $rows): TwStockQ1FinancialReport => $rows->first()),
+                ->map(fn (TwStockQ1FinancialReport $row): array => $row->getAttributes())
+                ->all(),
         );
+
+        return TwStockQ1FinancialReport::hydrate($records)
+            ->groupBy(fn (TwStockQ1FinancialReport $row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
+            ->map(fn (Collection $rows): TwStockQ1FinancialReport => $rows->first());
     }
 
     /**
@@ -179,8 +183,8 @@ class TwStockAnnualFinancialComparisonBuilder
      */
     private function netMarginRows(Collection $stockCodes, int $contextYear, int $startYear): array
     {
-        return Cache::remember(
-            'tw-stock:annual-builder:net-margin:v1:' . sha1(serialize([
+        $records = Cache::remember(
+            'tw-stock:annual-builder:net-margin:v2:' . sha1(serialize([
                 $stockCodes->sort()->values()->all(),
                 $contextYear,
                 $startYear,
@@ -198,9 +202,13 @@ class TwStockAnnualFinancialComparisonBuilder
                 ->orderByDesc('fiscal_year')
                 ->orderByDesc('quarter')
                 ->get()
-                ->groupBy(fn (TwStockQ1FinancialReport $row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
+                ->map(fn (TwStockQ1FinancialReport $row): array => $row->getAttributes())
                 ->all(),
         );
+
+        return TwStockQ1FinancialReport::hydrate($records)
+            ->groupBy(fn (TwStockQ1FinancialReport $row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
+            ->all();
     }
 
     /**

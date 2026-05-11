@@ -189,19 +189,23 @@ class TwStockDailyPriceController extends Controller
      */
     private function stockDailyRows(string $exchange, string $stockCode): EloquentCollection
     {
-        return Cache::remember(
-            'tw-stock:daily-prices:stock-rows:v1:' . sha1(serialize([
+        $records = Cache::remember(
+            'tw-stock:daily-prices:stock-rows:v2:' . sha1(serialize([
                 $exchange,
                 $stockCode,
                 $this->dailyPriceCacheVersion(exchange: $exchange, stockCode: $stockCode),
             ])),
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
-            fn (): EloquentCollection => TwStockDailyPrice::query()
+            fn (): array => TwStockDailyPrice::query()
                 ->where('exchange', $exchange)
                 ->where('stock_code', $stockCode)
                 ->orderBy('trade_date')
-                ->get(),
+                ->get()
+                ->map(fn (TwStockDailyPrice $row): array => $row->getAttributes())
+                ->all(),
         );
+
+        return TwStockDailyPrice::hydrate($records);
     }
 
     private function dailyPriceCacheVersion(?string $tradeDate = null, ?string $exchange = null, ?string $stockCode = null): string

@@ -263,17 +263,17 @@ class TwStockQ1FinancialReportController extends Controller
      */
     private function annualComparisonBaseRows(int $contextYear, string $search): Collection
     {
-        $key = 'tw-stock:annual-comparison:list:v1:' . sha1(serialize([
+        $key = 'tw-stock:annual-comparison:list:v2:' . sha1(serialize([
             $contextYear,
             $search,
             $this->annualComparisonListColumns(),
             $this->annualComparisonCacheVersion($contextYear),
         ]));
 
-        return Cache::remember(
+        $records = Cache::remember(
             $key,
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
-            function () use ($contextYear, $search): Collection {
+            function () use ($contextYear, $search): array {
                 return TwStockAnnualFinancialComparison::query()
                     ->where('context_year', $contextYear)
                     ->when($search !== '', function (Builder $query) use ($search): void {
@@ -281,11 +281,15 @@ class TwStockQ1FinancialReportController extends Controller
                         $query->where(function (Builder $query) use ($like): void {
                             $query->where('stock_code', 'like', $like)
                                 ->orWhere('stock_name', 'like', $like);
-                        });
+                            });
                     })
-                    ->get($this->annualComparisonListColumns());
+                    ->get($this->annualComparisonListColumns())
+                    ->map(fn (TwStockAnnualFinancialComparison $row): array => $row->getAttributes())
+                    ->all();
             },
         );
+
+        return TwStockAnnualFinancialComparison::hydrate($records);
     }
 
     private function q1CacheVersion(?int $year = null): string
@@ -390,17 +394,19 @@ class TwStockQ1FinancialReportController extends Controller
             return $stocks;
         }
 
-        $fullRows = Cache::remember(
-            'tw-stock:annual-comparison:full-rows:v1:' . sha1(serialize([
+        $fullRowRecords = Cache::remember(
+            'tw-stock:annual-comparison:full-rows:v2:' . sha1(serialize([
                 $ids,
                 $this->annualComparisonIdsCacheVersion($ids),
             ])),
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
-            fn (): Collection => TwStockAnnualFinancialComparison::query()
+            fn (): array => TwStockAnnualFinancialComparison::query()
                 ->whereIn('id', $ids)
                 ->get()
-                ->keyBy('id'),
+                ->map(fn (TwStockAnnualFinancialComparison $row): array => $row->getAttributes())
+                ->all(),
         );
+        $fullRows = TwStockAnnualFinancialComparison::hydrate($fullRowRecords)->keyBy('id');
 
         $stocks->setCollection($this->attachAnnualComparisonValuationMeta(
             $stocks->getCollection()
@@ -437,19 +443,22 @@ class TwStockQ1FinancialReportController extends Controller
             ->values()
             ->all();
 
-        $profiles = Cache::remember(
-            'tw-stock:annual-comparison:valuation-profiles:v1:' . sha1(serialize([
+        $profileRecords = Cache::remember(
+            'tw-stock:annual-comparison:valuation-profiles:v2:' . sha1(serialize([
                 collect($stockCodes)->sort()->values()->all(),
                 collect($exchanges)->sort()->values()->all(),
                 $this->companyProfileCacheVersion($stockCodes, $exchanges),
             ])),
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
-            fn (): Collection => TwStockCompanyProfile::query()
+            fn (): array => TwStockCompanyProfile::query()
                 ->whereIn('stock_code', $stockCodes)
                 ->whereIn('exchange', $exchanges)
                 ->get(['exchange', 'stock_code', 'valuation_group', 'valuation_group_pe'])
-                ->keyBy(fn (TwStockCompanyProfile $profile): string => $this->stockKey((string) $profile->exchange, (string) $profile->stock_code)),
+                ->map(fn (TwStockCompanyProfile $profile): array => $profile->getAttributes())
+                ->all(),
         );
+        $profiles = TwStockCompanyProfile::hydrate($profileRecords)
+            ->keyBy(fn (TwStockCompanyProfile $profile): string => $this->stockKey((string) $profile->exchange, (string) $profile->stock_code));
 
         return $stocks->each(function (TwStockAnnualFinancialComparison $stock) use ($profiles): void {
             $profile = $profiles->get($this->stockKey((string) $stock->exchange, (string) $stock->stock_code));

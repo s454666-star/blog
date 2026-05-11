@@ -250,6 +250,10 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('>即時</a>', false)
             ->assertSee('class="latest-update-badge"', false)
             ->assertSee('>新</span>', false)
+            ->assertSee('資料最新日期')
+            ->assertSee('最新資料筆數')
+            ->assertDontSee('Q1 營收最大')
+            ->assertDontSee('營收年增最高')
             ->assertSee('exchange-badge exchange-badge--tpex', false)
             ->assertSee('title="上櫃"', false)
             ->assertSee('>櫃<', false)
@@ -259,6 +263,8 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('>興<', false)
             ->assertSee('href="https://tw.stock.yahoo.com/quote/9999.TW"', false);
 
+        $this->assertMatchesRegularExpression('/<div class="label">資料最新日期<\/div>\s*<div class="value">2026-05-08<\/div>/', $response->getContent());
+        $this->assertMatchesRegularExpression('/<div class="label">最新資料筆數<\/div>\s*<div class="value">2<\/div>/', $response->getContent());
         $this->assertSame(2, substr_count($response->getContent(), 'class="latest-update-badge"'));
 
         DB::table('tw_stock_q1_financial_reports')->update([

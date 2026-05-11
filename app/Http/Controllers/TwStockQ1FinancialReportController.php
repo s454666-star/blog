@@ -88,6 +88,9 @@ class TwStockQ1FinancialReportController extends Controller
                 ->values();
         }
 
+        $latestCreatedStockKeys = $this->latestCreatedStockKeys($year);
+        $latestCreatedRowsCount = $this->latestCreatedRowsCount($matchingRows, $latestCreatedStockKeys);
+
         $rows = $this->paginateRows(
             $request,
             $this->sortRows($matchingRows, $sort, $direction, $groupTotalRows),
@@ -115,10 +118,9 @@ class TwStockQ1FinancialReportController extends Controller
             'groupTotalRows' => $groupTotalRows,
             'lastFetchedAt' => $matchingRows->max('fetched_at'),
             'latestPriceDate' => $matchingRows->max('latest_price_date'),
-            'latestCreatedStockKeys' => $this->latestCreatedStockKeys($year),
+            'latestCreatedStockKeys' => $latestCreatedStockKeys,
+            'latestCreatedRowsCount' => $latestCreatedRowsCount,
             'topScoreRow' => $this->topQ1RowBy($matchingRows, 'q1_revenue_score'),
-            'topRevenueRow' => $this->topQ1RowBy($matchingRows, 'q1_revenue_billion'),
-            'topGrowthRow' => $this->topQ1RowBy($matchingRows, 'q1_revenue_yoy_percent'),
         ]);
     }
 
@@ -377,6 +379,21 @@ class TwStockQ1FinancialReportController extends Controller
                 return $keys;
             },
         );
+    }
+
+    /**
+     * @param Collection<int, TwStockQ1FinancialReport> $rows
+     * @param array<string, true> $latestCreatedStockKeys
+     */
+    private function latestCreatedRowsCount(Collection $rows, array $latestCreatedStockKeys): int
+    {
+        if ($latestCreatedStockKeys === []) {
+            return 0;
+        }
+
+        return $rows
+            ->filter(fn (TwStockQ1FinancialReport $row): bool => isset($latestCreatedStockKeys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)]))
+            ->count();
     }
 
     private function annualComparisonCacheVersion(int $contextYear): string

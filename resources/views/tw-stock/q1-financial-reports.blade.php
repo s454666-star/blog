@@ -1183,14 +1183,14 @@
             <div class="sub">{{ $topScoreRow ? $topScoreRow->stock_code . ' ' . $topScoreRow->stock_name : '--' }}</div>
         </article>
         <article class="summary-card">
-            <div class="label">Q1 營收最大</div>
-            <div class="value">{{ $fmt($topRevenueRow?->q1_revenue_billion, 2) }} 億</div>
-            <div class="sub">{{ $topRevenueRow ? $topRevenueRow->stock_code . ' ' . $topRevenueRow->stock_name : '--' }}</div>
+            <div class="label">資料最新日期</div>
+            <div class="value">{{ $dateText($latestPriceDate) }}</div>
+            <div class="sub">更新：{{ $dateTimeText($lastFetchedAt) }}</div>
         </article>
         <article class="summary-card">
-            <div class="label">營收年增最高</div>
-            <div class="value">{{ $fmt($topGrowthRow?->q1_revenue_yoy_percent, 2) }}%</div>
-            <div class="sub">更新：{{ $dateTimeText($lastFetchedAt) }}</div>
+            <div class="label">最新資料筆數</div>
+            <div class="value">{{ number_format($latestCreatedRowsCount ?? 0) }}</div>
+            <div class="sub">標示：新</div>
         </article>
     </section>
 

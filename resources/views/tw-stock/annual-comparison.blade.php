@@ -114,10 +114,13 @@
         }
 
         .control-panel {
+            position: relative;
+            z-index: 80;
             display: grid;
             grid-template-columns: minmax(260px, 1fr) auto;
             gap: 14px;
             align-items: stretch;
+            overflow: visible;
             margin-bottom: 14px;
             border: 1px solid rgba(216, 225, 238, 0.96);
             border-radius: 8px;
@@ -167,9 +170,107 @@
         }
 
         input[type="search"]:focus,
-        select:focus {
+        select:focus,
+        .multi-select summary:focus {
             border-color: var(--blue);
             box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+        }
+
+        .group-filter {
+            min-width: 280px;
+        }
+
+        .multi-select {
+            position: relative;
+        }
+
+        .multi-select summary {
+            display: flex;
+            min-height: 40px;
+            align-items: center;
+            padding: 0 40px 0 14px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            color: var(--ink);
+            background: #fff;
+            font-size: 14px;
+            font-weight: 900;
+            cursor: pointer;
+            list-style: none;
+            outline: none;
+        }
+
+        .multi-select summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .multi-select summary::after {
+            position: absolute;
+            top: 20px;
+            right: 14px;
+            width: 7px;
+            height: 7px;
+            content: "";
+            border-right: 2px solid #64748b;
+            border-bottom: 2px solid #64748b;
+            transform: translateY(-65%) rotate(45deg);
+            transition: transform 150ms ease;
+        }
+
+        .multi-select[open] summary::after {
+            transform: translateY(-35%) rotate(225deg);
+        }
+
+        .multi-select-value {
+            overflow: hidden;
+            line-height: 1.25;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .multi-select-menu {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            z-index: 120;
+            display: grid;
+            width: min(360px, calc(100vw - 32px));
+            max-height: 320px;
+            overflow: auto;
+            padding: 8px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 18px 42px rgba(23, 32, 51, 0.18);
+        }
+
+        .multi-select-option {
+            display: flex;
+            min-height: 32px;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            border-radius: 6px;
+            color: #334155;
+            font-size: 13px;
+            font-weight: 850;
+        }
+
+        .multi-select-option:hover {
+            background: #f1f5f9;
+        }
+
+        .multi-select-option input {
+            width: 15px;
+            height: 15px;
+            accent-color: var(--blue);
+        }
+
+        .multi-select-empty {
+            padding: 8px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 850;
         }
 
         .summary {
@@ -275,6 +376,8 @@
         }
 
         .stock-list {
+            position: relative;
+            z-index: 1;
             display: grid;
             gap: 16px;
         }
@@ -425,6 +528,32 @@
             border-color: rgba(37, 99, 235, 0.28);
             filter: saturate(1.12);
             box-shadow: 0 12px 24px rgba(37, 99, 235, 0.16);
+        }
+
+        .exchange-badge {
+            display: inline-flex;
+            width: 26px;
+            height: 26px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            color: #fff;
+            box-shadow: 0 8px 14px rgba(23, 32, 51, 0.12);
+            font-size: 12px;
+            font-weight: 950;
+            line-height: 1;
+        }
+
+        .exchange-badge--twse {
+            background: #1d4ed8;
+        }
+
+        .exchange-badge--tpex {
+            background: #d97706;
+        }
+
+        .exchange-badge--emerging {
+            background: #7c3aed;
         }
 
         .stock-meta {
@@ -724,6 +853,17 @@
     $passes = fn ($value, float $threshold): bool => $value !== null && (float) $value > $threshold;
     $filterChecked = fn (string $filter): bool => in_array($filter, $filters, true);
     $sortUrl = fn (string $target): string => request()->fullUrlWithQuery(['sort' => $target, 'page' => null]);
+    $exchangeBadgeMeta = function (?string $exchange): ?array {
+        return match (strtoupper(trim((string) $exchange))) {
+            'TWSE', 'SII', '上市' => ['label' => '市', 'class' => 'twse', 'title' => '上市'],
+            'TPEX', 'OTC', '上櫃' => ['label' => '櫃', 'class' => 'tpex', 'title' => '上櫃'],
+            'EMERGING', 'ESB', '興櫃' => ['label' => '興', 'class' => 'emerging', 'title' => '興櫃'],
+            default => null,
+        };
+    };
+    $valuationGroupSummary = count($valuationGroups) === 0
+        ? '全部族群'
+        : implode('、', array_slice($valuationGroups, 0, 2)) . (count($valuationGroups) > 2 ? ' +' . (count($valuationGroups) - 2) : '');
 @endphp
 
 <div class="shell">
@@ -745,6 +885,21 @@
         <div>
             <div class="search-row">
                 <input type="search" name="q" value="{{ $search }}" placeholder="搜尋股票代號或名稱" data-auto-submit>
+                <details class="multi-select group-filter" data-multi-select>
+                    <summary>
+                        <span class="multi-select-value">{{ $valuationGroupSummary }}</span>
+                    </summary>
+                    <div class="multi-select-menu">
+                        @forelse ($availableValuationGroups as $groupOption)
+                            <label class="multi-select-option">
+                                <input type="checkbox" name="valuation_groups[]" value="{{ $groupOption }}" @checked(in_array($groupOption, $valuationGroups, true)) data-auto-submit>
+                                <span>{{ $groupOption }}</span>
+                            </label>
+                        @empty
+                            <div class="multi-select-empty">無族群資料</div>
+                        @endforelse
+                    </div>
+                </details>
                 <a class="sort-link {{ $sort === 'revenue' ? 'active' : '' }}" href="{{ $sortUrl('revenue') }}">營收加權排序</a>
                 <a class="sort-link {{ $sort === 'eps' ? 'active' : '' }}" href="{{ $sortUrl('eps') }}">EPS 加權排序</a>
                 <input type="hidden" name="sort" value="{{ $sort }}">
@@ -850,6 +1005,7 @@
                     $endYearRevenuePass = $passes($stock['end_year_revenue_yoy_percent'], $thresholds['end_year_revenue_yoy']);
                     $currentQ1RevenuePass = $passes($stock['current_q1_revenue_yoy_percent'], $thresholds['current_q1_revenue_yoy']);
                     $netMarginPass = $passes($stock['recent_net_margin_average'], $thresholds['net_margin']) || $passes($stock['last_two_year_net_margin_average'], $thresholds['net_margin']);
+                    $exchangeBadge = $exchangeBadgeMeta($stock['exchange'] ?? null);
                 @endphp
                 <article class="stock-card" style="animation-delay: {{ min($loop->index * 28, 360) }}ms">
                     <header class="stock-head">
@@ -857,7 +1013,11 @@
                             <div class="stock-title">
                                 <button class="code copyable" type="button" data-copy-value="{{ $stock['stock_code'] }}">{{ $stock['stock_code'] }}</button>
                                 <button class="name copyable" type="button" data-copy-value="{{ $stock['stock_name'] }}">{{ $stock['stock_name'] }}</button>
-                                <span class="badge">{{ $stock['exchange'] }}</span>
+                                @if ($exchangeBadge)
+                                    <span class="exchange-badge exchange-badge--{{ $exchangeBadge['class'] }}" title="{{ $exchangeBadge['title'] }}" aria-label="{{ $exchangeBadge['title'] }}">{{ $exchangeBadge['label'] }}</span>
+                                @else
+                                    <span class="badge">{{ $stock['exchange'] }}</span>
+                                @endif
                                 <span class="badge {{ $revenuePass ? 'pass' : 'fail' }}">營收 {{ $revenuePass ? 'PASS' : 'WAIT' }}</span>
                                 <span class="badge {{ $epsPass ? 'pass' : 'fail' }}">EPS {{ $epsPass ? 'PASS' : 'WAIT' }}</span>
                                 @if ($currentQ1EpsPass)
@@ -996,6 +1156,14 @@
         input.addEventListener(input.type === 'search' ? 'input' : 'change', () => {
             clearTimeout(timer);
             timer = setTimeout(() => form.submit(), input.type === 'search' ? 360 : 0);
+        });
+    });
+
+    document.addEventListener('pointerdown', (event) => {
+        document.querySelectorAll('[data-multi-select][open]').forEach((multiSelect) => {
+            if (!multiSelect.contains(event.target)) {
+                multiSelect.removeAttribute('open');
+            }
         });
     });
 

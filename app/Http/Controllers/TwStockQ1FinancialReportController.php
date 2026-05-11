@@ -45,8 +45,6 @@ class TwStockQ1FinancialReportController extends Controller
 
     private const STOCK_CACHE_TTL_SECONDS = 43200;
 
-    private const LATEST_CREATED_BATCH_MAX_GAP_MINUTES = 10;
-
     /**
      * @var array<string, string>
      */
@@ -153,6 +151,17 @@ class TwStockQ1FinancialReportController extends Controller
         $thresholds = $this->annualComparisonThresholds($request);
 
         $baseRows = $this->annualComparisonBaseRows(self::CURRENT_CONTEXT_YEAR, $search);
+        $valuationGroupByStockKey = $this->annualComparisonValuationGroupMap($baseRows);
+        $availableValuationGroups = $this->availableAnnualComparisonValuationGroups($valuationGroupByStockKey);
+        $valuationGroups = $this->selectedValuationGroups($request->query('valuation_groups', []), $availableValuationGroups);
+        $baseRows = $this->attachAnnualComparisonValuationGroups($baseRows, $valuationGroupByStockKey);
+        if ($valuationGroups !== []) {
+            $selectedValuationGroups = array_fill_keys($valuationGroups, true);
+            $baseRows = $baseRows
+                ->filter(fn (TwStockAnnualFinancialComparison $row): bool => isset($selectedValuationGroups[(string) $row->getAttribute('valuation_group')]))
+                ->values();
+        }
+
         $recentTwoMonthHighKeys = $this->recentTwoMonthHighKeys($baseRows);
         $filteredRows = $this->filterAnnualComparisonRows($baseRows, $filters, $recentTwoMonthHighKeys, $thresholds);
         $stocks = $this->hydrateAnnualComparisonPage(
@@ -168,6 +177,8 @@ class TwStockQ1FinancialReportController extends Controller
             'sort' => $sort,
             'filters' => $filters,
             'search' => $search,
+            'valuationGroups' => $valuationGroups,
+            'availableValuationGroups' => $availableValuationGroups,
             'allowedPerPage' => $allowedPerPage,
             'perPage' => $perPage,
             'summary' => $this->annualComparisonSummary($filteredRows, $recentTwoMonthHighKeys, $thresholds),
@@ -352,31 +363,14 @@ class TwStockQ1FinancialReportController extends Controller
                     return [];
                 }
 
-                $keys = [];
-                $previousCreatedAt = null;
-                $createdRows = (clone $baseQuery)
+                return (clone $baseQuery)
                     ->whereDate('created_at', $latestCreatedAt->toDateString())
                     ->orderByDesc('created_at')
-                    ->get(['exchange', 'stock_code', 'created_at']);
-
-                foreach ($createdRows as $row) {
-                    if ($row->created_at === null) {
-                        continue;
-                    }
-
-                    $createdAt = Carbon::parse($row->created_at);
-                    if (
-                        $previousCreatedAt !== null
-                        && abs($previousCreatedAt->diffInSeconds($createdAt)) > self::LATEST_CREATED_BATCH_MAX_GAP_MINUTES * 60
-                    ) {
-                        break;
-                    }
-
-                    $keys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)] = true;
-                    $previousCreatedAt = $createdAt;
-                }
-
-                return $keys;
+                    ->get(['exchange', 'stock_code'])
+                    ->mapWithKeys(fn (TwStockQ1FinancialReport $row): array => [
+                        $this->stockKey((string) $row->exchange, (string) $row->stock_code) => true,
+                    ])
+                    ->all();
             },
         );
     }
@@ -550,6 +544,94 @@ class TwStockQ1FinancialReportController extends Controller
             $stock->setAttribute('valuation_group_pe', $valuationGroupPe);
             $stock->setAttribute('expected_price', $expectedPrice);
             $stock->setAttribute('expected_price_change_percent', $this->annualExpectedPriceChangePercent($stock, $expectedPrice));
+        });
+    }
+
+    /**
+     * @param Collection<int, TwStockAnnualFinancialComparison> $rows
+     * @return array<string, string>
+     */
+    private function annualComparisonValuationGroupMap(Collection $rows): array
+    {
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $stockCodes = $rows
+            ->pluck('stock_code')
+            ->map(fn ($value): string => (string) $value)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $exchanges = $rows
+            ->pluck('exchange')
+            ->map(fn ($value): string => (string) $value)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($stockCodes === [] || $exchanges === []) {
+            return [];
+        }
+
+        $stockKeys = $rows
+            ->map(fn (TwStockAnnualFinancialComparison $row): string => $this->stockKey((string) $row->exchange, (string) $row->stock_code))
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+
+        $profileRecords = Cache::remember(
+            'tw-stock:annual-comparison:valuation-group-map:v1:' . sha1(serialize([
+                $stockKeys,
+                $this->companyProfileCacheVersion($stockCodes, $exchanges),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): array => TwStockCompanyProfile::query()
+                ->whereIn('stock_code', $stockCodes)
+                ->whereIn('exchange', $exchanges)
+                ->whereNotNull('valuation_group')
+                ->get(['exchange', 'stock_code', 'valuation_group'])
+                ->map(fn (TwStockCompanyProfile $profile): array => $profile->getAttributes())
+                ->all(),
+        );
+
+        return TwStockCompanyProfile::hydrate($profileRecords)
+            ->mapWithKeys(fn (TwStockCompanyProfile $profile): array => [
+                $this->stockKey((string) $profile->exchange, (string) $profile->stock_code) => (string) $profile->valuation_group,
+            ])
+            ->filter(fn (string $valuationGroup): bool => $valuationGroup !== '')
+            ->all();
+    }
+
+    /**
+     * @param array<string, string> $valuationGroupByStockKey
+     * @return list<string>
+     */
+    private function availableAnnualComparisonValuationGroups(array $valuationGroupByStockKey): array
+    {
+        return collect($valuationGroupByStockKey)
+            ->values()
+            ->unique()
+            ->sortBy(fn (string $valuationGroup): string => $valuationGroup, SORT_NATURAL)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param Collection<int, TwStockAnnualFinancialComparison> $rows
+     * @param array<string, string> $valuationGroupByStockKey
+     * @return Collection<int, TwStockAnnualFinancialComparison>
+     */
+    private function attachAnnualComparisonValuationGroups(Collection $rows, array $valuationGroupByStockKey): Collection
+    {
+        return $rows->each(function (TwStockAnnualFinancialComparison $row) use ($valuationGroupByStockKey): void {
+            $row->setAttribute(
+                'valuation_group',
+                $valuationGroupByStockKey[$this->stockKey((string) $row->exchange, (string) $row->stock_code)] ?? null,
+            );
         });
     }
 

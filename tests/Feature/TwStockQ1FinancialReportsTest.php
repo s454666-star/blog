@@ -264,8 +264,8 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('href="https://tw.stock.yahoo.com/quote/9999.TW"', false);
 
         $this->assertMatchesRegularExpression('/<div class="label">資料最新日期<\/div>\s*<div class="value">2026-05-08<\/div>/', $response->getContent());
-        $this->assertMatchesRegularExpression('/<div class="label">最新資料筆數<\/div>\s*<div class="value">2<\/div>/', $response->getContent());
-        $this->assertSame(2, substr_count($response->getContent(), 'class="latest-update-badge"'));
+        $this->assertMatchesRegularExpression('/<div class="label">最新資料筆數<\/div>\s*<div class="value">3<\/div>/', $response->getContent());
+        $this->assertSame(3, substr_count($response->getContent(), 'class="latest-update-badge"'));
 
         DB::table('tw_stock_q1_financial_reports')->update([
             'fetched_at' => now()->addDay(),
@@ -538,6 +538,9 @@ class TwStockQ1FinancialReportsTest extends TestCase
                 [2020 => 3.0, 2021 => 2.5, 2022 => 2.0, 2023 => 1.5, 2024 => 1.0, 2025 => 0.7, 2026 => 0.2],
                 9.5,
                 false,
+                9.17,
+                8.28,
+                'TPEx',
             ),
             $this->annualComparisonRows(
                 '2451',
@@ -589,6 +592,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
                 '富鼎',
                 $date,
                 $index === 8 ? 132.0 : 118.0 - min($index, 20),
+                'TPEx',
             );
         }
         DB::table('tw_stock_daily_prices')->insert($dailyRows);
@@ -608,9 +612,37 @@ class TwStockQ1FinancialReportsTest extends TestCase
                 'updated_at' => now(),
             ],
             [
-                'exchange' => 'TWSE',
+                'exchange' => 'TPEx',
                 'stock_code' => '8261',
                 'stock_name' => '富鼎',
+                'industry' => '半導體業',
+                'industry_code' => null,
+                'valuation_group' => 'IC設計',
+                'valuation_group_pe' => 45.0,
+                'source_date' => '2026-05-08',
+                'source_payload' => null,
+                'fetched_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '2451',
+                'stock_name' => '創見',
+                'industry' => '半導體業',
+                'industry_code' => null,
+                'valuation_group' => '記憶體/儲存',
+                'valuation_group_pe' => 38.0,
+                'source_date' => '2026-05-08',
+                'source_payload' => null,
+                'fetched_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '3034',
+                'stock_name' => '聯詠',
                 'industry' => '半導體業',
                 'industry_code' => null,
                 'valuation_group' => 'IC設計',
@@ -653,9 +685,17 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('value="200"', false)
             ->assertSee('value="500"', false)
             ->assertSee('data-copy-value="2408"', false)
+            ->assertSee('name="valuation_groups[]"', false)
+            ->assertSee('全部族群')
             ->assertSee('族群')
             ->assertSee('記憶體/儲存')
             ->assertSee('38.0x')
+            ->assertSee('exchange-badge exchange-badge--twse', false)
+            ->assertSee('exchange-badge exchange-badge--tpex', false)
+            ->assertSee('>市</span>', false)
+            ->assertSee('>櫃</span>', false)
+            ->assertDontSee('<span class="badge">TWSE</span>', false)
+            ->assertDontSee('<span class="badge">TPEx</span>', false)
             ->assertSee('預期股價')
             ->assertSee('121.60')
             ->assertSee('2020 → 2021')
@@ -668,6 +708,18 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertNotFalse($highGrowthPosition);
         $this->assertNotFalse($lowGrowthPosition);
         $this->assertLessThan($lowGrowthPosition, $highGrowthPosition);
+
+        $groupFiltered = $this->get(route('tw-stock.annual-comparison.index', [
+            'per_page' => 50,
+            'valuation_groups' => ['IC設計'],
+        ]));
+
+        $groupFiltered->assertOk()
+            ->assertSee('name="valuation_groups[]" value="IC設計" checked', false)
+            ->assertSee('data-copy-value="8261"', false)
+            ->assertSee('data-copy-value="3034"', false)
+            ->assertDontSee('data-copy-value="2408"', false)
+            ->assertDontSee('data-copy-value="2451"', false);
 
         $filtered = $this->get(route('tw-stock.annual-comparison.index', [
             'sort' => 'eps',
@@ -1414,10 +1466,10 @@ class TwStockQ1FinancialReportsTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function dailyPriceRow(string $stockCode, string $stockName, string $tradeDate, float $highPrice): array
+    private function dailyPriceRow(string $stockCode, string $stockName, string $tradeDate, float $highPrice, string $exchange = 'TWSE'): array
     {
         return [
-            'exchange' => 'TWSE',
+            'exchange' => $exchange,
             'stock_code' => $stockCode,
             'stock_name' => $stockName,
             'trade_date' => $tradeDate,
@@ -1981,6 +2033,7 @@ HTML;
         bool $fullRecentMargins,
         float $currentQ1RevenueYoyPercent = 9.17,
         float $currentQ1EpsYoyPercent = 8.28,
+        string $exchange = 'TWSE',
     ): array {
         $monthlyRevenues = [];
         foreach ($annualRevenueBillion as $year => $revenueBillion) {
@@ -2003,7 +2056,7 @@ HTML;
                 'fiscal_year' => $year,
                 'quarter' => 1,
                 'financial_period' => sprintf('%04d01', $year),
-                'exchange' => 'TWSE',
+                'exchange' => $exchange,
                 'stock_code' => $stockCode,
                 'stock_name' => $stockName,
                 'q1_eps' => $eps,
@@ -2023,7 +2076,7 @@ HTML;
                         'fiscal_year' => $year,
                         'quarter' => $quarter,
                         'financial_period' => sprintf('%04d%02d', $year, $quarter),
-                        'exchange' => 'TWSE',
+                        'exchange' => $exchange,
                         'stock_code' => $stockCode,
                         'stock_name' => $stockName,
                         'q1_eps' => 0,

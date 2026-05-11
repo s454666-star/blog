@@ -717,15 +717,18 @@
         th,
         td {
             padding: 10px 8px;
-            border-bottom: 1px solid #e7edf5;
+            border-bottom: 1px solid rgba(203, 213, 225, 0.78);
             text-align: right;
             white-space: nowrap;
         }
 
         th {
-            color: #42526a;
-            background: #f8fafc;
-            font-size: 12px;
+            border-bottom-color: rgba(37, 99, 235, 0.24);
+            color: #243b63;
+            background:
+                linear-gradient(180deg, rgba(239, 246, 255, 0.98), rgba(219, 234, 254, 0.92)),
+                linear-gradient(90deg, rgba(37, 99, 235, 0.10), rgba(15, 118, 110, 0.08));
+            font-size: 14px;
             font-weight: 950;
         }
 
@@ -738,8 +741,16 @@
             border-bottom: 0;
         }
 
+        tbody tr:nth-child(odd) td {
+            background: rgba(239, 246, 255, 0.72);
+        }
+
+        tbody tr:nth-child(even) td {
+            background: rgba(240, 253, 250, 0.70);
+        }
+
         tbody tr:hover td {
-            background: #f5f9ff;
+            background: #eaf3ff;
         }
 
         .copyable {

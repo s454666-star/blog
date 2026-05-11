@@ -625,6 +625,37 @@
             text-overflow: ellipsis;
         }
 
+        .stock-exchange {
+            display: flex;
+            margin-top: 6px;
+        }
+
+        .exchange-badge {
+            display: inline-flex;
+            width: 22px;
+            height: 22px;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            color: #ffffff;
+            font-size: 12px;
+            font-weight: 900;
+            line-height: 1;
+            box-shadow: 0 8px 14px rgba(15, 23, 42, 0.12);
+        }
+
+        .exchange-badge--twse {
+            background: #1d4ed8;
+        }
+
+        .exchange-badge--tpex {
+            background: #047857;
+        }
+
+        .exchange-badge--emerging {
+            background: #b45309;
+        }
+
         .copy-tooltip {
             position: fixed;
             z-index: 9999;
@@ -981,6 +1012,10 @@
                 overflow-wrap: anywhere;
                 text-align: right;
             }
+
+            .stock-exchange {
+                justify-content: flex-end;
+            }
         }
 
         @media (min-width: 1441px) and (max-width: 1800px) {
@@ -1013,6 +1048,7 @@
             }
 
             .stock-name,
+            .stock-exchange,
             .sub {
                 font-size: 10px;
             }
@@ -1051,6 +1087,14 @@
     $sortTooltip = fn (string $key): string => '點一下排序：' . ($sortNextDirection($key) === 'desc' ? '高到低' : '低到高');
     $sortIcon = fn (string $key): string => $sort !== $key ? '↕' : ($direction === 'asc' ? '▲' : '▼');
     $sortAria = fn (string $key): string => $sort !== $key ? 'none' : ($direction === 'asc' ? 'ascending' : 'descending');
+    $exchangeBadgeMeta = function (?string $exchange): ?array {
+        return match (strtoupper(trim((string) $exchange))) {
+            'TWSE', 'SII', '上市' => ['label' => '市', 'class' => 'twse', 'title' => '上市'],
+            'TPEX', 'OTC', '上櫃' => ['label' => '櫃', 'class' => 'tpex', 'title' => '上櫃'],
+            'EMERGING', 'ESB', '興櫃' => ['label' => '興', 'class' => 'emerging', 'title' => '興櫃'],
+            default => null,
+        };
+    };
     $valuationGroupSummary = count($valuationGroups) === 0
         ? '全部族群'
         : implode('、', array_slice($valuationGroups, 0, 2)) . (count($valuationGroups) > 2 ? ' +' . (count($valuationGroups) - 2) : '');
@@ -1209,6 +1253,7 @@
                             $valuationGroupPe = $row->valuation_group_pe;
                             $revenueMomentumPercent = $row->latestMonthlyRevenueVsQ1AveragePercent();
                             $revenuePeAdjustmentPercent = $row->revenueMomentumPeAdjustmentPercent();
+                            $exchangeBadge = $exchangeBadgeMeta($row->exchange);
                         @endphp
                         <tr class="group-{{ $group['class'] }} {{ $row->recent_two_month_high ? 'recent-high-row' : '' }}">
                             <td data-label="排名"><span class="rank {{ $row->rank <= 10 ? 'top' : '' }}">{{ $row->rank }}</span></td>
@@ -1224,6 +1269,11 @@
                                         {{ $row->stock_name }}
                                     </button>
                                 </div>
+                                @if ($exchangeBadge)
+                                    <div class="stock-exchange">
+                                        <span class="exchange-badge exchange-badge--{{ $exchangeBadge['class'] }}" title="{{ $exchangeBadge['title'] }}" aria-label="{{ $exchangeBadge['title'] }}">{{ $exchangeBadge['label'] }}</span>
+                                    </div>
+                                @endif
                             </td>
                             <td data-label="Q1整體財報評分">
                                 <div class="score-cell">

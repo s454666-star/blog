@@ -214,6 +214,42 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertDontSee('富鼎');
     }
 
+    public function test_dashboard_shows_exchange_badges_under_stock_name(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            $this->row([
+                'exchange' => 'TWSE',
+                'stock_code' => '2337',
+                'stock_name' => '旺宏',
+                'rank' => 1,
+            ]),
+            $this->row([
+                'exchange' => 'TPEx',
+                'stock_code' => '3529',
+                'stock_name' => '力旺',
+                'rank' => 2,
+            ]),
+            $this->row([
+                'exchange' => 'Emerging',
+                'stock_code' => '9999',
+                'stock_name' => '興櫃測試',
+                'rank' => 3,
+            ]),
+        ]);
+
+        $this->get(route('tw-stock.q1-financial-reports.index', ['per_page' => 50]))
+            ->assertOk()
+            ->assertSee('exchange-badge exchange-badge--twse', false)
+            ->assertSee('title="上市"', false)
+            ->assertSee('>市<', false)
+            ->assertSee('exchange-badge exchange-badge--tpex', false)
+            ->assertSee('title="上櫃"', false)
+            ->assertSee('>櫃<', false)
+            ->assertSee('exchange-badge exchange-badge--emerging', false)
+            ->assertSee('title="興櫃"', false)
+            ->assertSee('>興<', false);
+    }
+
     public function test_dashboard_filters_by_multiple_valuation_groups(): void
     {
         DB::table('tw_stock_q1_financial_reports')->insert([

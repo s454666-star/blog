@@ -141,10 +141,13 @@ class TwStockDailyPriceController extends Controller
 
     private function latestTradeDate(): ?string
     {
+        $latestDate = TwStockDailyPrice::query()->max('trade_date');
+        $latestDate = $latestDate === null ? null : (string) $latestDate;
+
         return Cache::remember(
-            'tw-stock:daily-prices:latest-date:v1:' . $this->dailyPriceCacheVersion(),
+            'tw-stock:daily-prices:latest-date:v2:' . ($latestDate ?? 'none'),
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
-            fn (): ?string => TwStockDailyPrice::query()->max('trade_date'),
+            fn (): ?string => $latestDate,
         );
     }
 

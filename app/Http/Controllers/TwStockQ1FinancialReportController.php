@@ -45,6 +45,11 @@ class TwStockQ1FinancialReportController extends Controller
 
     private const STOCK_CACHE_TTL_SECONDS = 43200;
 
+    /**
+     * @var array<string, string>
+     */
+    private array $q1CacheVersionMemo = [];
+
     public function index(Request $request): View
     {
         $allowedPerPage = [50, 250, 500];
@@ -207,10 +212,12 @@ class TwStockQ1FinancialReportController extends Controller
 
     private function latestQ1Year(): int
     {
+        $latestYear = (int) (TwStockQ1FinancialReport::query()->max('fiscal_year') ?? now()->year);
+
         return (int) Cache::remember(
-            'tw-stock:q1:latest-year:v1:' . $this->q1CacheVersion(),
+            'tw-stock:q1:latest-year:v2:' . $latestYear,
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
-            fn (): int => (int) (TwStockQ1FinancialReport::query()->max('fiscal_year') ?? now()->year),
+            fn (): int => $latestYear,
         );
     }
 
@@ -286,6 +293,11 @@ class TwStockQ1FinancialReportController extends Controller
 
     private function q1CacheVersion(?int $year = null): string
     {
+        $cacheKey = $year === null ? 'all' : 'year:' . $year;
+        if (isset($this->q1CacheVersionMemo[$cacheKey])) {
+            return $this->q1CacheVersionMemo[$cacheKey];
+        }
+
         $query = TwStockQ1FinancialReport::query();
 
         if ($year !== null) {
@@ -299,7 +311,7 @@ class TwStockQ1FinancialReportController extends Controller
             ->toBase()
             ->first();
 
-        return implode('|', [
+        return $this->q1CacheVersionMemo[$cacheKey] = implode('|', [
             (int) ($row->row_count ?? 0),
             (string) ($row->max_updated_at ?? ''),
             (string) ($row->max_fetched_at ?? ''),

@@ -59,7 +59,15 @@ class TwStockInstitutionalFlowController extends Controller
             function (): array {
                 $allRows = TwStockInstitutionalFlow::query()
                     ->orderBy('trade_date')
-                    ->get();
+                    ->get([
+                        'trade_date',
+                        'foreign_stock_net_amount',
+                        'investment_trust_stock_net_amount',
+                        'taiex_close_index',
+                        'foreign_txf_open_interest_net_contracts',
+                        'investment_trust_txf_open_interest_net_contracts',
+                        'fetched_at',
+                    ]);
 
                 $foreignCumulative = 0;
                 $investmentTrustCumulative = 0;

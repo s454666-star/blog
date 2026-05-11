@@ -13,6 +13,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class TwStockQ1FinancialReportController extends Controller
 {
@@ -159,16 +160,7 @@ class TwStockQ1FinancialReportController extends Controller
             'search' => $search,
             'allowedPerPage' => $allowedPerPage,
             'perPage' => $perPage,
-            'summary' => [
-                'total' => $filteredRows->count(),
-                'revenuePass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->passesThreshold($row->revenue_yoy_sum, $thresholds['revenue_growth']))->count(),
-                'epsPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->passesThreshold($row->eps_yoy_sum, $thresholds['eps_growth']))->count(),
-                'currentQ1EpsYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->passesThreshold($row->current_q1_eps_yoy_percent, $thresholds['current_q1_eps_yoy']))->count(),
-                'endYearRevenueYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->passesThreshold($row->end_year_revenue_yoy_percent, $thresholds['end_year_revenue_yoy']))->count(),
-                'currentQ1RevenueYoyPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->passesThreshold($row->current_q1_revenue_yoy_percent, $thresholds['current_q1_revenue_yoy']))->count(),
-                'recentTwoMonthHighPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => isset($recentTwoMonthHighKeys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)]))->count(),
-                'netMarginPass' => $filteredRows->filter(fn (TwStockAnnualFinancialComparison $row): bool => $this->annualNetMarginPass($row, $thresholds['net_margin']))->count(),
-            ],
+            'summary' => $this->annualComparisonSummary($filteredRows, $recentTwoMonthHighKeys, $thresholds),
             'recentTwoMonthHighKeys' => $recentTwoMonthHighKeys,
             'thresholds' => $thresholds,
             'years' => range(self::ANNUAL_COMPARISON_START_YEAR + 1, self::ANNUAL_COMPARISON_END_YEAR),
@@ -531,6 +523,58 @@ class TwStockQ1FinancialReportController extends Controller
             || $this->passesThreshold($row->last_two_year_net_margin_average, $threshold);
     }
 
+    /**
+     * @param Collection<int, TwStockAnnualFinancialComparison> $rows
+     * @param array<string, true> $recentTwoMonthHighKeys
+     * @param array<string, float> $thresholds
+     * @return array{total: int, revenuePass: int, epsPass: int, currentQ1EpsYoyPass: int, endYearRevenueYoyPass: int, currentQ1RevenueYoyPass: int, recentTwoMonthHighPass: int, netMarginPass: int}
+     */
+    private function annualComparisonSummary(Collection $rows, array $recentTwoMonthHighKeys, array $thresholds): array
+    {
+        $summary = [
+            'total' => $rows->count(),
+            'revenuePass' => 0,
+            'epsPass' => 0,
+            'currentQ1EpsYoyPass' => 0,
+            'endYearRevenueYoyPass' => 0,
+            'currentQ1RevenueYoyPass' => 0,
+            'recentTwoMonthHighPass' => 0,
+            'netMarginPass' => 0,
+        ];
+
+        foreach ($rows as $row) {
+            if ($this->passesThreshold($row->revenue_yoy_sum, $thresholds['revenue_growth'])) {
+                $summary['revenuePass']++;
+            }
+
+            if ($this->passesThreshold($row->eps_yoy_sum, $thresholds['eps_growth'])) {
+                $summary['epsPass']++;
+            }
+
+            if ($this->passesThreshold($row->current_q1_eps_yoy_percent, $thresholds['current_q1_eps_yoy'])) {
+                $summary['currentQ1EpsYoyPass']++;
+            }
+
+            if ($this->passesThreshold($row->end_year_revenue_yoy_percent, $thresholds['end_year_revenue_yoy'])) {
+                $summary['endYearRevenueYoyPass']++;
+            }
+
+            if ($this->passesThreshold($row->current_q1_revenue_yoy_percent, $thresholds['current_q1_revenue_yoy'])) {
+                $summary['currentQ1RevenueYoyPass']++;
+            }
+
+            if (isset($recentTwoMonthHighKeys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)])) {
+                $summary['recentTwoMonthHighPass']++;
+            }
+
+            if ($this->annualNetMarginPass($row, $thresholds['net_margin'])) {
+                $summary['netMarginPass']++;
+            }
+        }
+
+        return $summary;
+    }
+
     private function passesThreshold(mixed $value, float $threshold): bool
     {
         $numeric = $this->nullableFloat($value);
@@ -713,10 +757,22 @@ class TwStockQ1FinancialReportController extends Controller
      */
     private function topQ1RowBy(Collection $rows, string $field): ?TwStockQ1FinancialReport
     {
-        return $rows
-            ->filter(fn (TwStockQ1FinancialReport $row): bool => $row->{$field} !== null)
-            ->sortByDesc(fn (TwStockQ1FinancialReport $row): float => (float) $row->{$field})
-            ->first();
+        $topRow = null;
+        $topValue = null;
+
+        foreach ($rows as $row) {
+            if ($row->{$field} === null) {
+                continue;
+            }
+
+            $value = (float) $row->{$field};
+            if ($topValue === null || $value > $topValue) {
+                $topRow = $row;
+                $topValue = $value;
+            }
+        }
+
+        return $topRow;
     }
 
     /**
@@ -804,54 +860,26 @@ class TwStockQ1FinancialReportController extends Controller
      */
     private function computeRecentTwoMonthHighKeys(array $stockCodes, array $exchanges, string $startDate): array
     {
-        $dailyRows = TwStockDailyPrice::query()
+        $rankedRows = TwStockDailyPrice::query()
             ->select(['exchange', 'stock_code', 'high_price'])
+            ->selectRaw('ROW_NUMBER() OVER (PARTITION BY exchange, stock_code ORDER BY trade_date DESC) as trading_day_rank')
             ->whereIn('stock_code', $stockCodes)
             ->whereIn('exchange', $exchanges)
             ->where('trade_date', '>=', $startDate)
-            ->whereNotNull('high_price')
-            ->orderBy('exchange')
-            ->orderBy('stock_code')
-            ->orderByDesc('trade_date')
-            ->toBase()
-            ->cursor();
+            ->whereNotNull('high_price');
 
-        $flags = [];
-        $currentStockKey = null;
-        $tradingDays = 0;
-        $lookbackHigh = null;
-        $recentHigh = null;
-        $finalizeStock = function () use (&$flags, &$currentStockKey, &$lookbackHigh, &$recentHigh): void {
-            if ($currentStockKey !== null && $recentHigh !== null && $lookbackHigh !== null && $recentHigh >= $lookbackHigh) {
-                $flags[$currentStockKey] = true;
-            }
-        };
-
-        foreach ($dailyRows as $dailyRow) {
-            $stockKey = $this->stockKey((string) $dailyRow->exchange, (string) $dailyRow->stock_code);
-            if ($stockKey !== $currentStockKey) {
-                $finalizeStock();
-                $currentStockKey = $stockKey;
-                $tradingDays = 0;
-                $lookbackHigh = null;
-                $recentHigh = null;
-            }
-
-            if ($tradingDays >= self::RECENT_HIGH_LOOKBACK_TRADING_DAYS) {
-                continue;
-            }
-
-            $highPrice = (float) $dailyRow->high_price;
-            $lookbackHigh = $lookbackHigh === null ? $highPrice : max($lookbackHigh, $highPrice);
-            if ($tradingDays < self::RECENT_HIGH_SIGNAL_TRADING_DAYS) {
-                $recentHigh = $recentHigh === null ? $highPrice : max($recentHigh, $highPrice);
-            }
-
-            $tradingDays++;
-        }
-        $finalizeStock();
-
-        return $flags;
+        return DB::query()
+            ->fromSub($rankedRows, 'ranked_daily_prices')
+            ->select(['exchange', 'stock_code'])
+            ->where('trading_day_rank', '<=', self::RECENT_HIGH_LOOKBACK_TRADING_DAYS)
+            ->groupBy('exchange', 'stock_code')
+            ->havingRaw(
+                'MAX(CASE WHEN trading_day_rank <= ? THEN high_price END) >= MAX(high_price)',
+                [self::RECENT_HIGH_SIGNAL_TRADING_DAYS],
+            )
+            ->get()
+            ->mapWithKeys(fn ($row): array => [$this->stockKey((string) $row->exchange, (string) $row->stock_code) => true])
+            ->all();
     }
 
     /**

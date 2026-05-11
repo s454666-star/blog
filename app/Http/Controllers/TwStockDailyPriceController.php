@@ -168,17 +168,25 @@ class TwStockDailyPriceController extends Controller
             'tw-stock:daily-prices:latest-summary:v1:' . $latestDate . ':' . $this->dailyPriceCacheVersion(tradeDate: $latestDate),
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
             function () use ($latestDate): array {
-                $baseQuery = TwStockDailyPrice::query()
+                $row = TwStockDailyPrice::query()
                     ->where('trade_date', $latestDate)
-                    ->whereNotNull('price_change_percent');
+                    ->whereNotNull('price_change_percent')
+                    ->selectRaw('COUNT(*) as total')
+                    ->selectRaw('SUM(CASE WHEN price_change_percent > 0 THEN 1 ELSE 0 END) as up')
+                    ->selectRaw('SUM(CASE WHEN price_change_percent < 0 THEN 1 ELSE 0 END) as down')
+                    ->selectRaw('SUM(CASE WHEN price_change_percent = 0 THEN 1 ELSE 0 END) as flat')
+                    ->selectRaw('MAX(price_change_percent) as max_change')
+                    ->selectRaw('MIN(price_change_percent) as min_change')
+                    ->toBase()
+                    ->first();
 
                 return [
-                    'total' => (clone $baseQuery)->count(),
-                    'up' => (clone $baseQuery)->where('price_change_percent', '>', 0)->count(),
-                    'down' => (clone $baseQuery)->where('price_change_percent', '<', 0)->count(),
-                    'flat' => (clone $baseQuery)->where('price_change_percent', '=', 0)->count(),
-                    'maxChange' => (clone $baseQuery)->max('price_change_percent'),
-                    'minChange' => (clone $baseQuery)->min('price_change_percent'),
+                    'total' => (int) ($row->total ?? 0),
+                    'up' => (int) ($row->up ?? 0),
+                    'down' => (int) ($row->down ?? 0),
+                    'flat' => (int) ($row->flat ?? 0),
+                    'maxChange' => $row->max_change ?? null,
+                    'minChange' => $row->min_change ?? null,
                 ];
             },
         );

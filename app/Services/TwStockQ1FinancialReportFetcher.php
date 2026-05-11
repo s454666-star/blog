@@ -11,8 +11,6 @@ use Throwable;
 
 class TwStockQ1FinancialReportFetcher
 {
-    private const TWSE_DAILY_PRICE_URL = 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL';
-
     private const TPEX_DAILY_PRICE_URL = 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes';
 
     private const TWSE_STOCK_DAY_MONTH_URL = 'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY';
@@ -101,6 +99,7 @@ class TwStockQ1FinancialReportFetcher
     public function __construct(
         private readonly TwStockQ1ValuationService $valuationService,
         private readonly TwStockCompanyProfileService $companyProfileService,
+        private readonly TwStockTwseDailyQuoteService $twseDailyQuoteService,
     ) {
     }
 
@@ -424,7 +423,7 @@ class TwStockQ1FinancialReportFetcher
     {
         $targetDate = $this->expectedLatestTradingDate($date);
 
-        return $this->officialQuoteHasDate(self::TWSE_DAILY_PRICE_URL, $targetDate)
+        return $this->twseOfficialQuoteHasDate($targetDate)
             || $this->officialQuoteHasDate(self::TPEX_DAILY_PRICE_URL, $targetDate);
     }
 
@@ -457,6 +456,23 @@ class TwStockQ1FinancialReportFetcher
                 }
 
                 foreach ($rows as $row) {
+                    if (is_array($row) && $this->parseRocDate((string) ($row['Date'] ?? '')) === $targetDate) {
+                        return true;
+                    }
+                }
+
+                return false;
+            },
+        );
+    }
+
+    private function twseOfficialQuoteHasDate(string $targetDate): bool
+    {
+        return (bool) Cache::remember(
+            'tw-stock:q1-fetcher:twse-official-quote-has-date:v2:' . $targetDate,
+            now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
+            function () use ($targetDate): bool {
+                foreach ($this->twseDailyQuoteService->fetchRows() as $row) {
                     if (is_array($row) && $this->parseRocDate((string) ($row['Date'] ?? '')) === $targetDate) {
                         return true;
                     }
@@ -515,16 +531,11 @@ class TwStockQ1FinancialReportFetcher
     private function twseCandidates(int $minVolumeLots): array
     {
         return Cache::remember(
-            'tw-stock:q1-fetcher:twse-candidates:v1:' . $minVolumeLots,
+            'tw-stock:q1-fetcher:twse-candidates:v2:' . $minVolumeLots,
             now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
             function () use ($minVolumeLots): array {
-                $rows = $this->http()->get(self::TWSE_DAILY_PRICE_URL)->throw()->json();
-                if (!is_array($rows)) {
-                    return [];
-                }
-
                 $candidates = [];
-                foreach ($rows as $row) {
+                foreach ($this->twseDailyQuoteService->fetchRows() as $row) {
                     if (!is_array($row)) {
                         continue;
                     }

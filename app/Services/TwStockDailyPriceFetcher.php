@@ -13,8 +13,6 @@ use Throwable;
 
 class TwStockDailyPriceFetcher
 {
-    private const TWSE_DAILY_PRICE_URL = 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL';
-
     private const TPEX_DAILY_PRICE_URL = 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes';
 
     private const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/%s';
@@ -22,6 +20,11 @@ class TwStockDailyPriceFetcher
     private const LATEST_PRICE_CACHE_TTL_SECONDS = 600;
 
     private const HISTORICAL_PRICE_CACHE_TTL_SECONDS = 2592000;
+
+    public function __construct(
+        private readonly TwStockTwseDailyQuoteService $twseDailyQuoteService,
+    ) {
+    }
 
     /**
      * @return list<array<string, mixed>>
@@ -229,23 +232,11 @@ class TwStockDailyPriceFetcher
     private function fetchLatestTwseRows(): array
     {
         return Cache::remember(
-            'tw-stock:daily-prices:twse-latest-rows:v1',
+            'tw-stock:daily-prices:twse-latest-rows:v2',
             now()->addSeconds(self::LATEST_PRICE_CACHE_TTL_SECONDS),
             function (): array {
-                try {
-                    $response = $this->http()->get(self::TWSE_DAILY_PRICE_URL)->throw()->json();
-                } catch (Throwable $e) {
-                    report($e);
-
-                    return [];
-                }
-
-                if (!is_array($response)) {
-                    return [];
-                }
-
                 $rows = [];
-                foreach ($response as $row) {
+                foreach ($this->twseDailyQuoteService->fetchRows() as $row) {
                     if (!is_array($row)) {
                         continue;
                     }

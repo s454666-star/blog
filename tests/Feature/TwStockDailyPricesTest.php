@@ -61,19 +61,22 @@ class TwStockDailyPricesTest extends TestCase
     public function test_latest_command_stores_daily_prices_and_pages_link_to_detail(): void
     {
         Http::fake(fn ($request) => match (true) {
-            str_starts_with($request->url(), 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL') => Http::response([
-                [
-                    'Date' => '1150508',
-                    'Code' => '8261',
-                    'Name' => '富鼎',
-                    'TradeVolume' => '4695000',
-                    'TradeValue' => '591570000',
-                    'OpeningPrice' => '122.00',
-                    'HighestPrice' => '128.00',
-                    'LowestPrice' => '120.00',
-                    'ClosingPrice' => '126.00',
-                    'Change' => '-2.00',
-                    'Transaction' => '3210',
+            str_starts_with($request->url(), 'https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL') => Http::response([
+                'stat' => 'OK',
+                'date' => '20260508',
+                'data' => [
+                    [
+                        '8261',
+                        '富鼎',
+                        '4,695,000',
+                        '591,570,000',
+                        '122.00',
+                        '128.00',
+                        '120.00',
+                        '126.00',
+                        '-2.00',
+                        '3,210',
+                    ],
                 ],
             ]),
             str_starts_with($request->url(), 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes') => Http::response([

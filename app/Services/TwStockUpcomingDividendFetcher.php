@@ -14,8 +14,6 @@ class TwStockUpcomingDividendFetcher
 
     private const TPEX_UPCOMING_DIVIDENDS_URL = 'https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost';
 
-    private const TWSE_DAILY_PRICE_URL = 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL';
-
     private const TPEX_DAILY_PRICE_URL = 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes';
 
     private const WINVEST_UPCOMING_DIVIDENDS_URL = 'https://winvest.tw/Stock/Dividend';
@@ -40,6 +38,11 @@ class TwStockUpcomingDividendFetcher
      * @var array<string, list<array<string, mixed>>>
      */
     private array $finMindCache = [];
+
+    public function __construct(
+        private readonly TwStockTwseDailyQuoteService $twseDailyQuoteService,
+    ) {
+    }
 
     /**
      * @return list<array<string, mixed>>
@@ -308,20 +311,11 @@ class TwStockUpcomingDividendFetcher
     private function fetchTwseLatestPrices(): array
     {
         return Cache::remember(
-            'tw-stock:upcoming-dividends:twse-latest-prices:v1',
+            'tw-stock:upcoming-dividends:twse-latest-prices:v2',
             now()->addSeconds(self::RECENT_FEED_CACHE_TTL_SECONDS),
             function (): array {
-                $rows = $this->http()
-                    ->get(self::TWSE_DAILY_PRICE_URL)
-                    ->throw()
-                    ->json();
-
-                if (!is_array($rows)) {
-                    return [];
-                }
-
                 $prices = [];
-                foreach ($rows as $row) {
+                foreach ($this->twseDailyQuoteService->fetchRows() as $row) {
                     if (!is_array($row)) {
                         continue;
                     }

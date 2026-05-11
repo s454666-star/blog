@@ -403,7 +403,34 @@
         }
 
         .table-wrap {
+            position: relative;
             overflow-x: auto;
+        }
+
+        .q1-sticky-table-head {
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 120;
+            display: none;
+            overflow: hidden;
+            border-right: 1px solid var(--line);
+            border-left: 1px solid var(--line);
+            background: #f8fafc;
+            box-shadow: 0 1px 0 #d7dfeb, 0 12px 24px rgba(15, 23, 42, 0.12);
+        }
+
+        .q1-sticky-table-head.visible {
+            display: block;
+        }
+
+        .q1-sticky-table-head table {
+            min-width: 1780px;
+            background: #f8fafc;
+        }
+
+        .q1-sticky-table-head th {
+            position: static;
         }
 
         table {
@@ -867,6 +894,10 @@
                 overflow: visible;
             }
 
+            .q1-sticky-table-head {
+                display: none !important;
+            }
+
             table,
             thead,
             tbody,
@@ -1152,7 +1183,7 @@
         @if ($rows->isEmpty())
             <div class="empty">目前沒有符合條件的 Q1 財報資料。</div>
         @else
-            <div class="table-wrap">
+            <div class="table-wrap" data-sticky-table-wrap>
                 <table>
                     <thead>
                     <tr>
@@ -1421,6 +1452,96 @@
 
     window.addEventListener('scroll', hideCopyTooltip, { passive: true });
     window.addEventListener('resize', hideCopyTooltip);
+
+    const stickyTableWrap = document.querySelector('[data-sticky-table-wrap]');
+    if (stickyTableWrap) {
+        const sourceTable = stickyTableWrap.querySelector('table');
+        const sourceHead = sourceTable ? sourceTable.querySelector('thead') : null;
+        const desktopStickyQuery = window.matchMedia('(min-width: 1441px)');
+
+        if (sourceTable && sourceHead) {
+            const stickyHeader = document.createElement('div');
+            const stickyHeaderTable = document.createElement('table');
+            let stickyFrame = null;
+
+            stickyHeader.className = 'q1-sticky-table-head';
+            stickyHeader.setAttribute('aria-hidden', 'true');
+            stickyHeaderTable.setAttribute('role', 'presentation');
+            stickyHeader.appendChild(stickyHeaderTable);
+            document.body.appendChild(stickyHeader);
+
+            function rebuildStickyHeader() {
+                const clonedHead = sourceHead.cloneNode(true);
+
+                clonedHead.querySelectorAll('a[href]').forEach((link) => {
+                    link.setAttribute('tabindex', '-1');
+                });
+
+                stickyHeaderTable.replaceChildren(clonedHead);
+                syncStickyHeader();
+            }
+
+            function syncStickyHeader() {
+                stickyFrame = null;
+
+                if (!desktopStickyQuery.matches) {
+                    stickyHeader.classList.remove('visible');
+                    return;
+                }
+
+                const wrapRect = stickyTableWrap.getBoundingClientRect();
+                const headHeight = sourceHead.getBoundingClientRect().height;
+                const shouldShow = wrapRect.top <= 0 && wrapRect.bottom > headHeight;
+
+                if (!shouldShow) {
+                    stickyHeader.classList.remove('visible');
+                    return;
+                }
+
+                stickyHeader.style.left = `${wrapRect.left}px`;
+                stickyHeader.style.width = `${wrapRect.width}px`;
+                stickyHeader.style.height = `${headHeight}px`;
+                stickyHeaderTable.style.width = `${sourceTable.offsetWidth}px`;
+                stickyHeaderTable.style.transform = `translateX(${-stickyTableWrap.scrollLeft}px)`;
+                stickyHeader.classList.add('visible');
+            }
+
+            function scheduleStickyHeaderSync() {
+                if (stickyFrame !== null) {
+                    return;
+                }
+
+                stickyFrame = window.requestAnimationFrame(syncStickyHeader);
+            }
+
+            stickyHeader.addEventListener('click', (event) => {
+                const link = event.target.closest('a[href]');
+                if (!link) {
+                    return;
+                }
+
+                event.preventDefault();
+                window.location.assign(link.href);
+            });
+
+            stickyTableWrap.addEventListener('scroll', scheduleStickyHeaderSync, { passive: true });
+            window.addEventListener('scroll', scheduleStickyHeaderSync, { passive: true });
+            window.addEventListener('resize', scheduleStickyHeaderSync);
+            desktopStickyQuery.addEventListener('change', scheduleStickyHeaderSync);
+
+            if ('ResizeObserver' in window) {
+                const stickyResizeObserver = new ResizeObserver(scheduleStickyHeaderSync);
+                stickyResizeObserver.observe(stickyTableWrap);
+                stickyResizeObserver.observe(sourceTable);
+            }
+
+            if (document.fonts && document.fonts.ready) {
+                document.fonts.ready.then(scheduleStickyHeaderSync);
+            }
+
+            rebuildStickyHeader();
+        }
+    }
 </script>
 </body>
 </html>

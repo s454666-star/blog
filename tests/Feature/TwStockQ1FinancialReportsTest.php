@@ -679,6 +679,8 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertDontSee('Q1 EPS YoY WAIT')
             ->assertDontSee('2025 營收 WAIT')
             ->assertDontSee('Q1 營收 YoY WAIT')
+            ->assertSee('淨利率 PASS')
+            ->assertDontSee('淨利率 WAIT')
             ->assertSee('name="sort" value="eps"', false)
             ->assertSee('value="50"', false)
             ->assertSee('value="100" selected', false)

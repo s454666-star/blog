@@ -1032,7 +1032,9 @@
                                 @if ($recentHigh)
                                     <span class="badge hot">近 3 日新高</span>
                                 @endif
-                                <span class="badge {{ $netMarginPass ? 'pass' : 'fail' }}">淨利率 {{ $netMarginPass ? 'PASS' : 'WAIT' }}</span>
+                                @if ($netMarginPass)
+                                    <span class="badge pass">淨利率 PASS</span>
+                                @endif
                             </div>
                             <div class="meta stock-meta">
                                 <span class="meta-chip price-chip">股價 <strong>{{ $fmt($stock['latest_close_price']) }}</strong></span>

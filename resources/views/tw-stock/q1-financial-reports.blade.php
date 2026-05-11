@@ -627,20 +627,26 @@
 
         .stock-exchange {
             display: flex;
+            align-items: center;
+            gap: 6px;
             margin-top: 6px;
         }
 
-        .exchange-badge {
+        .exchange-badge,
+        .realtime-price-link {
             display: inline-flex;
-            width: 22px;
             height: 22px;
             align-items: center;
             justify-content: center;
             border-radius: 4px;
-            color: #ffffff;
             font-size: 12px;
             font-weight: 900;
             line-height: 1;
+        }
+
+        .exchange-badge {
+            width: 22px;
+            color: #ffffff;
             box-shadow: 0 8px 14px rgba(15, 23, 42, 0.12);
         }
 
@@ -654,6 +660,25 @@
 
         .exchange-badge--emerging {
             background: #b45309;
+        }
+
+        .realtime-price-link {
+            min-width: 34px;
+            padding: 0 7px;
+            border: 1px solid rgba(37, 99, 235, 0.26);
+            color: #1d4ed8;
+            background: rgba(239, 246, 255, 0.96);
+            text-decoration: none;
+            box-shadow: 0 8px 14px rgba(37, 99, 235, 0.10);
+            transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+        }
+
+        .realtime-price-link:hover,
+        .realtime-price-link:focus-visible {
+            border-color: rgba(37, 99, 235, 0.54);
+            box-shadow: 0 10px 18px rgba(37, 99, 235, 0.16);
+            outline: none;
+            transform: translateY(-1px);
         }
 
         .copy-tooltip {
@@ -1254,6 +1279,7 @@
                             $revenueMomentumPercent = $row->latestMonthlyRevenueVsQ1AveragePercent();
                             $revenuePeAdjustmentPercent = $row->revenueMomentumPeAdjustmentPercent();
                             $exchangeBadge = $exchangeBadgeMeta($row->exchange);
+                            $yahooQuoteUrl = 'https://tw.stock.yahoo.com/quote/' . $row->stock_code . '.TW';
                         @endphp
                         <tr class="group-{{ $group['class'] }} {{ $row->recent_two_month_high ? 'recent-high-row' : '' }}">
                             <td data-label="排名"><span class="rank {{ $row->rank <= 10 ? 'top' : '' }}">{{ $row->rank }}</span></td>
@@ -1272,6 +1298,7 @@
                                 @if ($exchangeBadge)
                                     <div class="stock-exchange">
                                         <span class="exchange-badge exchange-badge--{{ $exchangeBadge['class'] }}" title="{{ $exchangeBadge['title'] }}" aria-label="{{ $exchangeBadge['title'] }}">{{ $exchangeBadge['label'] }}</span>
+                                        <a class="realtime-price-link" href="{{ $yahooQuoteUrl }}" target="_blank" rel="noopener noreferrer" title="Yahoo 即時股價 {{ $row->stock_code }}" aria-label="開啟 Yahoo 即時股價 {{ $row->stock_code }}">即時</a>
                                     </div>
                                 @endif
                             </td>

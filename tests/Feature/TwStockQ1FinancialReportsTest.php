@@ -242,12 +242,17 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('exchange-badge exchange-badge--twse', false)
             ->assertSee('title="上市"', false)
             ->assertSee('>市<', false)
+            ->assertSee('class="realtime-price-link"', false)
+            ->assertSee('href="https://tw.stock.yahoo.com/quote/2337.TW"', false)
+            ->assertSee('>即時</a>', false)
             ->assertSee('exchange-badge exchange-badge--tpex', false)
             ->assertSee('title="上櫃"', false)
             ->assertSee('>櫃<', false)
+            ->assertSee('href="https://tw.stock.yahoo.com/quote/3529.TW"', false)
             ->assertSee('exchange-badge exchange-badge--emerging', false)
             ->assertSee('title="興櫃"', false)
-            ->assertSee('>興<', false);
+            ->assertSee('>興<', false)
+            ->assertSee('href="https://tw.stock.yahoo.com/quote/9999.TW"', false);
     }
 
     public function test_dashboard_filters_by_multiple_valuation_groups(): void

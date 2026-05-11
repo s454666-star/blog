@@ -628,11 +628,13 @@
         .stock-exchange {
             display: flex;
             align-items: center;
+            flex-wrap: wrap;
             gap: 6px;
             margin-top: 6px;
         }
 
         .exchange-badge,
+        .latest-update-badge,
         .realtime-price-link {
             display: inline-flex;
             height: 22px;
@@ -671,6 +673,16 @@
             text-decoration: none;
             box-shadow: 0 8px 14px rgba(37, 99, 235, 0.10);
             transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+        }
+
+        .latest-update-badge {
+            min-width: 22px;
+            padding: 0 6px;
+            border: 1px solid rgba(22, 163, 74, 0.34);
+            color: #047857;
+            background: #dcfce7;
+            box-shadow: 0 8px 14px rgba(22, 163, 74, 0.12);
+            white-space: nowrap;
         }
 
         .realtime-price-link:hover,
@@ -1095,6 +1107,7 @@
     $scoreWidth = fn ($value): float => max(0, min(100, (float) ($value ?? 0)));
     $dateText = fn ($value): string => $value ? \Illuminate\Support\Carbon::parse($value)->format('Y-m-d') : '--';
     $dateTimeText = fn ($value): string => $value ? \Illuminate\Support\Carbon::parse($value)->format('Y-m-d H:i') : '--';
+    $latestCreatedStockKeys = is_array($latestCreatedStockKeys ?? null) ? $latestCreatedStockKeys : [];
     $priceValue = fn ($value): string => $value === null ? '' : rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.');
     $defaultSortDirection = fn (string $key): string => in_array($key, ['rank', 'group', 'stock'], true) ? 'asc' : 'desc';
     $sortUrl = function (string $key) use ($sort, $direction, $defaultSortDirection): string {
@@ -1280,6 +1293,7 @@
                             $revenuePeAdjustmentPercent = $row->revenueMomentumPeAdjustmentPercent();
                             $exchangeBadge = $exchangeBadgeMeta($row->exchange);
                             $yahooQuoteUrl = 'https://tw.stock.yahoo.com/quote/' . $row->stock_code . '.TW';
+                            $showLatestUpdateBadge = isset($latestCreatedStockKeys[(string) $row->exchange . '|' . (string) $row->stock_code]);
                         @endphp
                         <tr class="group-{{ $group['class'] }} {{ $row->recent_two_month_high ? 'recent-high-row' : '' }}">
                             <td data-label="排名"><span class="rank {{ $row->rank <= 10 ? 'top' : '' }}">{{ $row->rank }}</span></td>
@@ -1299,6 +1313,9 @@
                                     <div class="stock-exchange">
                                         <span class="exchange-badge exchange-badge--{{ $exchangeBadge['class'] }}" title="{{ $exchangeBadge['title'] }}" aria-label="{{ $exchangeBadge['title'] }}">{{ $exchangeBadge['label'] }}</span>
                                         <a class="realtime-price-link" href="{{ $yahooQuoteUrl }}" target="_blank" rel="noopener noreferrer" title="Yahoo 即時股價 {{ $row->stock_code }}" aria-label="開啟 Yahoo 即時股價 {{ $row->stock_code }}">即時</a>
+                                        @if ($showLatestUpdateBadge)
+                                            <span class="latest-update-badge" title="最新新增" aria-label="最新新增">新</span>
+                                        @endif
                                     </div>
                                 @endif
                             </td>

@@ -8,6 +8,7 @@ use App\Services\TwStockQ1ValuationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
@@ -221,6 +222,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
                 'exchange' => 'TWSE',
                 'stock_code' => '2337',
                 'stock_name' => '旺宏',
+                'created_at' => now()->subMinute(),
                 'rank' => 1,
             ]),
             $this->row([
@@ -233,11 +235,12 @@ class TwStockQ1FinancialReportsTest extends TestCase
                 'exchange' => 'Emerging',
                 'stock_code' => '9999',
                 'stock_name' => '興櫃測試',
+                'created_at' => now()->subMinutes(30),
                 'rank' => 3,
             ]),
         ]);
 
-        $this->get(route('tw-stock.q1-financial-reports.index', ['per_page' => 50]))
+        $response = $this->get(route('tw-stock.q1-financial-reports.index', ['per_page' => 50]))
             ->assertOk()
             ->assertSee('exchange-badge exchange-badge--twse', false)
             ->assertSee('title="上市"', false)
@@ -245,6 +248,8 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('class="realtime-price-link"', false)
             ->assertSee('href="https://tw.stock.yahoo.com/quote/2337.TW"', false)
             ->assertSee('>即時</a>', false)
+            ->assertSee('class="latest-update-badge"', false)
+            ->assertSee('>新</span>', false)
             ->assertSee('exchange-badge exchange-badge--tpex', false)
             ->assertSee('title="上櫃"', false)
             ->assertSee('>櫃<', false)
@@ -253,6 +258,18 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('title="興櫃"', false)
             ->assertSee('>興<', false)
             ->assertSee('href="https://tw.stock.yahoo.com/quote/9999.TW"', false);
+
+        $this->assertSame(2, substr_count($response->getContent(), 'class="latest-update-badge"'));
+
+        DB::table('tw_stock_q1_financial_reports')->update([
+            'fetched_at' => now()->addDay(),
+            'updated_at' => now()->addDay(),
+        ]);
+        Cache::flush();
+
+        $this->get(route('tw-stock.q1-financial-reports.index', ['per_page' => 50]))
+            ->assertOk()
+            ->assertDontSee('class="latest-update-badge"', false);
     }
 
     public function test_dashboard_filters_by_multiple_valuation_groups(): void

@@ -45,6 +45,8 @@ class TwStockQ1FinancialReportController extends Controller
 
     private const STOCK_CACHE_TTL_SECONDS = 43200;
 
+    private const LATEST_CREATED_BATCH_MAX_GAP_MINUTES = 10;
+
     /**
      * @var array<string, string>
      */
@@ -113,6 +115,7 @@ class TwStockQ1FinancialReportController extends Controller
             'groupTotalRows' => $groupTotalRows,
             'lastFetchedAt' => $matchingRows->max('fetched_at'),
             'latestPriceDate' => $matchingRows->max('latest_price_date'),
+            'latestCreatedStockKeys' => $this->latestCreatedStockKeys($year),
             'topScoreRow' => $this->topQ1RowBy($matchingRows, 'q1_revenue_score'),
             'topRevenueRow' => $this->topQ1RowBy($matchingRows, 'q1_revenue_billion'),
             'topGrowthRow' => $this->topQ1RowBy($matchingRows, 'q1_revenue_yoy_percent'),
@@ -317,6 +320,63 @@ class TwStockQ1FinancialReportController extends Controller
             (string) ($row->max_fetched_at ?? ''),
             (string) ($row->max_id ?? ''),
         ]);
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private function latestCreatedStockKeys(int $year): array
+    {
+        return Cache::remember(
+            'tw-stock:q1:latest-created-stock-keys:v1:' . $year . ':' . $this->q1CacheVersion($year),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            function () use ($year): array {
+                $baseQuery = $this->reportQuery($year, '', null, null, []);
+                $latest = (clone $baseQuery)
+                    ->selectRaw('MAX(created_at) as max_created_at, MAX(fetched_at) as max_fetched_at')
+                    ->toBase()
+                    ->first();
+
+                if (($latest->max_created_at ?? null) === null) {
+                    return [];
+                }
+
+                $latestCreatedAt = Carbon::parse($latest->max_created_at);
+                $latestFetchedAt = ($latest->max_fetched_at ?? null) === null
+                    ? null
+                    : Carbon::parse($latest->max_fetched_at);
+
+                if ($latestFetchedAt !== null && $latestCreatedAt->toDateString() !== $latestFetchedAt->toDateString()) {
+                    return [];
+                }
+
+                $keys = [];
+                $previousCreatedAt = null;
+                $createdRows = (clone $baseQuery)
+                    ->whereDate('created_at', $latestCreatedAt->toDateString())
+                    ->orderByDesc('created_at')
+                    ->get(['exchange', 'stock_code', 'created_at']);
+
+                foreach ($createdRows as $row) {
+                    if ($row->created_at === null) {
+                        continue;
+                    }
+
+                    $createdAt = Carbon::parse($row->created_at);
+                    if (
+                        $previousCreatedAt !== null
+                        && abs($previousCreatedAt->diffInSeconds($createdAt)) > self::LATEST_CREATED_BATCH_MAX_GAP_MINUTES * 60
+                    ) {
+                        break;
+                    }
+
+                    $keys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)] = true;
+                    $previousCreatedAt = $createdAt;
+                }
+
+                return $keys;
+            },
+        );
     }
 
     private function annualComparisonCacheVersion(int $contextYear): string

@@ -154,12 +154,9 @@ class ExtractVideoFeaturesCommandTest extends TestCase
         ]);
 
         $service = Mockery::mock(VideoFeatureExtractionService::class);
-        $service->shouldReceive('buildCapturePlan')
+        $service->shouldReceive('expectedFrameCount')
             ->times(3)
-            ->with(Mockery::type('float'))
-            ->andReturn([
-                ['capture_order' => 1, 'label_second' => 10.0, 'capture_second' => 10.0],
-            ]);
+            ->andReturn(1);
         $service->shouldReceive('extractForVideo')
             ->twice()
             ->andReturnUsing(function (VideoMaster $video, bool $refresh) use ($failedVideo, $failedFeature, $missingVideo): VideoFeature {
@@ -267,12 +264,9 @@ class ExtractVideoFeaturesCommandTest extends TestCase
         ]);
 
         $service = Mockery::mock(VideoFeatureExtractionService::class);
-        $service->shouldReceive('buildCapturePlan')
+        $service->shouldReceive('expectedFrameCount')
             ->once()
-            ->with(Mockery::type('float'))
-            ->andReturn([
-                ['capture_order' => 1, 'label_second' => 10.0, 'capture_second' => 10.0],
-            ]);
+            ->andReturn(1);
         $service->shouldReceive('extractForVideo')
             ->once()
             ->with(

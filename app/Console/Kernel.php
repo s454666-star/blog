@@ -54,6 +54,13 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_daily_prices.log'));
 
+        $schedule->command('tw-stock:fetch-taiex-futures-hourly')
+            ->hourly()
+            ->name('tw-stock-fetch-taiex-futures-hourly')
+            ->withoutOverlapping(60)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_futures_hourly_prices.log'));
+
         $schedule->command('tw-stock:refresh-company-profiles')
             ->dailyAt('14:40')
             ->name('tw-stock-refresh-company-profiles')

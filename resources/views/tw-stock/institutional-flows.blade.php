@@ -452,6 +452,7 @@
                 <a href="{{ route('tw-stock.daily-prices.index') }}">每日漲幅</a>
                 <a class="active" href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
                 <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
+                <a href="{{ route('tw-stock.taiex-futures.kline') }}">台指期K線</a>
             </nav>
             <nav class="segments" aria-label="天數切換">
                 @foreach ($allowedDays as $allowedDay)

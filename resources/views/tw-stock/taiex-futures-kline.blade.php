@@ -203,6 +203,8 @@
             width: 100%;
             height: min(74vh, 820px);
             min-height: 620px;
+            cursor: crosshair;
+            user-select: none;
         }
 
         .recent-gap-list {
@@ -324,6 +326,7 @@
                 <span class="legend-item"><span class="swatch" style="background: var(--yellow)"></span>60K MA95 <strong data-legend-ma95>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></span>
+                <span class="legend-item"><span class="swatch" style="background: #e5e7eb"></span>標記 <strong data-marker-count>0</strong></span>
                 <span class="legend-item">開 <strong data-legend-open>--</strong></span>
                 <span class="legend-item">高 <strong data-legend-high>--</strong></span>
                 <span class="legend-item">低 <strong data-legend-low>--</strong></span>
@@ -394,12 +397,12 @@
     chart.priceScale('gap').applyOptions({ scaleMargins: { top: 0.73, bottom: 0.06 } });
 
     const candleSeries = chart.addCandlestickSeries({
-        upColor: '#26a69a',
-        downColor: '#ef5350',
-        borderUpColor: '#26a69a',
-        borderDownColor: '#ef5350',
-        wickUpColor: '#26a69a',
-        wickDownColor: '#ef5350'
+        upColor: '#ef5350',
+        downColor: '#26a69a',
+        borderUpColor: '#ef5350',
+        borderDownColor: '#26a69a',
+        wickUpColor: '#ef5350',
+        wickDownColor: '#26a69a'
     });
 
     const volumeSeries = chart.addHistogramSeries({
@@ -460,8 +463,8 @@
         time: Number(row.time),
         value: Number(row.volume || 0),
         color: Number(row.close) >= Number(row.open)
-            ? 'rgba(38, 166, 154, 0.28)'
-            : 'rgba(239, 83, 80, 0.28)'
+            ? 'rgba(239, 83, 80, 0.28)'
+            : 'rgba(38, 166, 154, 0.28)'
     }));
 
     const ma95Data = chartRows
@@ -503,6 +506,107 @@
             button.classList.toggle('active', active);
             seriesByToggle[key].forEach(series => series.applyOptions({ visible: active }));
         });
+    });
+
+    const markerCount = document.querySelector('[data-marker-count]');
+    const temporaryPriceLines = [];
+    let longPressTimer = null;
+    let longPressStart = null;
+    let pointerIsDown = false;
+
+    function updateMarkerCount() {
+        markerCount.textContent = temporaryPriceLines.length.toLocaleString('zh-TW');
+    }
+
+    function pointerPrice(event) {
+        const rect = chartElement.getBoundingClientRect();
+        const y = event.clientY - rect.top;
+        if (y < 0 || y > rect.height) {
+            return null;
+        }
+
+        const price = candleSeries.coordinateToPrice(y);
+        return Number.isFinite(price) ? price : null;
+    }
+
+    function createTemporaryPriceLine(price) {
+        const roundedPrice = Math.round(price);
+        const line = candleSeries.createPriceLine({
+            price: roundedPrice,
+            color: '#e5e7eb',
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: roundedPrice.toLocaleString('zh-TW'),
+        });
+
+        temporaryPriceLines.push({ line, price: roundedPrice });
+        updateMarkerCount();
+    }
+
+    function removeTemporaryPriceLine(event) {
+        if (temporaryPriceLines.length === 0) {
+            return;
+        }
+
+        const price = pointerPrice(event);
+        const removeIndex = price === null
+            ? temporaryPriceLines.length - 1
+            : temporaryPriceLines.reduce((bestIndex, item, index) => {
+                const best = temporaryPriceLines[bestIndex];
+                return Math.abs(item.price - price) < Math.abs(best.price - price) ? index : bestIndex;
+            }, 0);
+
+        const [removed] = temporaryPriceLines.splice(removeIndex, 1);
+        candleSeries.removePriceLine(removed.line);
+        updateMarkerCount();
+    }
+
+    function cancelLongPress() {
+        window.clearTimeout(longPressTimer);
+        longPressTimer = null;
+        longPressStart = null;
+        pointerIsDown = false;
+    }
+
+    chartElement.addEventListener('pointerdown', event => {
+        if (event.button !== 0) {
+            return;
+        }
+
+        const price = pointerPrice(event);
+        if (price === null) {
+            return;
+        }
+
+        pointerIsDown = true;
+        longPressStart = { x: event.clientX, y: event.clientY, price };
+        window.clearTimeout(longPressTimer);
+        longPressTimer = window.setTimeout(() => {
+            if (pointerIsDown && longPressStart !== null) {
+                createTemporaryPriceLine(longPressStart.price);
+            }
+            cancelLongPress();
+        }, 1500);
+    });
+
+    chartElement.addEventListener('pointermove', event => {
+        if (!pointerIsDown || longPressStart === null) {
+            return;
+        }
+
+        const moved = Math.hypot(event.clientX - longPressStart.x, event.clientY - longPressStart.y);
+        if (moved > 6) {
+            cancelLongPress();
+        }
+    });
+
+    chartElement.addEventListener('pointerup', cancelLongPress);
+    chartElement.addEventListener('pointerleave', cancelLongPress);
+    chartElement.addEventListener('contextmenu', event => {
+        event.preventDefault();
+        cancelLongPress();
+        removeTemporaryPriceLine(event);
     });
 
     const lastLogicalIndex = chartRows.length - 1;

@@ -70,6 +70,10 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('const ma95Data =', false)
             ->assertSee('fixRightEdge: true', false)
             ->assertSee('data-toggle-series="gap"', false)
+            ->assertSee("upColor: '#ef5350'", false)
+            ->assertSee("downColor: '#26a69a'", false)
+            ->assertSee('candleSeries.createPriceLine', false)
+            ->assertSee('data-marker-count', false)
             ->assertSee('台指期K線');
     }
 

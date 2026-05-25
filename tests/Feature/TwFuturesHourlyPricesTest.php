@@ -72,8 +72,12 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('data-toggle-series="gap"', false)
             ->assertSee("upColor: '#ef5350'", false)
             ->assertSee("downColor: '#26a69a'", false)
+            ->assertSee("timeZone: 'Asia/Taipei'", false)
+            ->assertSee('tickMarkFormatter: formatTaipeiAxisTime', false)
             ->assertSee('candleSeries.createPriceLine', false)
+            ->assertSee('toggleTemporaryPriceLine', false)
             ->assertSee('data-marker-count', false)
+            ->assertSee('長按左鍵 1.5 秒可標記或取消既有標記')
             ->assertSee('台指期K線');
     }
 

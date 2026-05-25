@@ -199,6 +199,15 @@
             gap: 7px;
         }
 
+        .chart-hint {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--line);
+            color: #cbd5e1;
+            background: rgba(15, 17, 21, 0.86);
+            font-size: 12px;
+            font-weight: 800;
+        }
+
         #futures-chart {
             width: 100%;
             height: min(74vh, 820px);
@@ -344,6 +353,7 @@
         @if (count($chartRows) === 0)
             <div class="empty">目前還沒有台指期 60K 資料。</div>
         @else
+            <div class="chart-hint">長按左鍵 1.5 秒可標記或取消既有標記，右鍵取消最近標記，重整後標記清空。</div>
             <div id="futures-chart"></div>
             <div class="recent-gap-list" aria-label="最近開盤差值">
                 @foreach ($sessionGapRows as $gapRow)
@@ -363,10 +373,65 @@
     const chartRows = @json($chartRows, JSON_UNESCAPED_UNICODE);
     const gapMarkers = @json($gapMarkers, JSON_UNESCAPED_UNICODE);
     const chartElement = document.getElementById('futures-chart');
+    const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {
+        timeZone: 'Asia/Taipei',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+
+    function timestampValue(time) {
+        if (typeof time === 'number') {
+            return time;
+        }
+
+        if (time && typeof time === 'object' && Number.isFinite(Number(time.timestamp))) {
+            return Number(time.timestamp);
+        }
+
+        return null;
+    }
+
+    function taipeiDateParts(time) {
+        const timestamp = timestampValue(time);
+        if (timestamp === null) {
+            return null;
+        }
+
+        const parts = Object.fromEntries(
+            taipeiTimePartsFormatter.formatToParts(new Date(timestamp * 1000))
+                .map(part => [part.type, part.value])
+        );
+
+        return {
+            year: parts.year,
+            month: parts.month,
+            day: parts.day,
+            hour: parts.hour,
+            minute: parts.minute
+        };
+    }
+
+    function formatTaipeiAxisTime(time) {
+        const parts = taipeiDateParts(time);
+        return parts === null ? '' : `${parts.day}日 ${parts.hour}:${parts.minute}`;
+    }
+
+    function formatTaipeiCrosshairTime(time) {
+        const parts = taipeiDateParts(time);
+        return parts === null ? '' : `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
+    }
+
     const chart = LightweightCharts.createChart(chartElement, {
         layout: { background: { color: '#0f1115' }, textColor: '#d4d4d8' },
         grid: { vertLines: { color: 'rgba(148, 163, 184, 0.13)' }, horzLines: { color: 'rgba(148, 163, 184, 0.13)' } },
         crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+        localization: {
+            timeFormatter: formatTaipeiCrosshairTime
+        },
         rightPriceScale: { borderColor: '#2c323a' },
         timeScale: {
             borderColor: '#2c323a',
@@ -377,7 +442,8 @@
             fixRightEdge: true,
             lockVisibleTimeRangeOnResize: true,
             timeVisible: true,
-            secondsVisible: false
+            secondsVisible: false,
+            tickMarkFormatter: formatTaipeiAxisTime
         },
         handleScroll: {
             mouseWheel: true,
@@ -513,12 +579,13 @@
     let longPressTimer = null;
     let longPressStart = null;
     let pointerIsDown = false;
+    const TEMPORARY_LINE_HIT_RADIUS = 8;
 
     function updateMarkerCount() {
         markerCount.textContent = temporaryPriceLines.length.toLocaleString('zh-TW');
     }
 
-    function pointerPrice(event) {
+    function pointerInfo(event) {
         const rect = chartElement.getBoundingClientRect();
         const y = event.clientY - rect.top;
         if (y < 0 || y > rect.height) {
@@ -526,7 +593,7 @@
         }
 
         const price = candleSeries.coordinateToPrice(y);
-        return Number.isFinite(price) ? price : null;
+        return Number.isFinite(price) ? { price, y } : null;
     }
 
     function createTemporaryPriceLine(price) {
@@ -544,22 +611,60 @@
         updateMarkerCount();
     }
 
+    function nearestTemporaryPriceLineIndex(price, y = null, maxDistance = null) {
+        if (temporaryPriceLines.length === 0) {
+            return -1;
+        }
+
+        const best = temporaryPriceLines.reduce((currentBest, item, index) => {
+            const itemY = y === null ? null : candleSeries.priceToCoordinate(item.price);
+            const distance = itemY === null || y === null
+                ? Math.abs(item.price - price)
+                : Math.abs(itemY - y);
+
+            return distance < currentBest.distance
+                ? { index, distance }
+                : currentBest;
+        }, { index: -1, distance: Number.POSITIVE_INFINITY });
+
+        if (maxDistance !== null && best.distance > maxDistance) {
+            return -1;
+        }
+
+        return best.index;
+    }
+
+    function removeTemporaryPriceLineAt(index) {
+        if (index < 0 || index >= temporaryPriceLines.length) {
+            return;
+        }
+
+        const [removed] = temporaryPriceLines.splice(index, 1);
+        candleSeries.removePriceLine(removed.line);
+        updateMarkerCount();
+    }
+
+    function toggleTemporaryPriceLine(price, y) {
+        const removeIndex = nearestTemporaryPriceLineIndex(price, y, TEMPORARY_LINE_HIT_RADIUS);
+        if (removeIndex >= 0) {
+            removeTemporaryPriceLineAt(removeIndex);
+            return;
+        }
+
+        createTemporaryPriceLine(price);
+    }
+
     function removeTemporaryPriceLine(event) {
         if (temporaryPriceLines.length === 0) {
             return;
         }
 
-        const price = pointerPrice(event);
-        const removeIndex = price === null
+        const info = pointerInfo(event);
+        const removeIndex = info === null
             ? temporaryPriceLines.length - 1
-            : temporaryPriceLines.reduce((bestIndex, item, index) => {
-                const best = temporaryPriceLines[bestIndex];
-                return Math.abs(item.price - price) < Math.abs(best.price - price) ? index : bestIndex;
-            }, 0);
+            : nearestTemporaryPriceLineIndex(info.price, info.y);
 
-        const [removed] = temporaryPriceLines.splice(removeIndex, 1);
-        candleSeries.removePriceLine(removed.line);
-        updateMarkerCount();
+        removeTemporaryPriceLineAt(removeIndex);
     }
 
     function cancelLongPress() {
@@ -574,17 +679,17 @@
             return;
         }
 
-        const price = pointerPrice(event);
-        if (price === null) {
+        const info = pointerInfo(event);
+        if (info === null) {
             return;
         }
 
         pointerIsDown = true;
-        longPressStart = { x: event.clientX, y: event.clientY, price };
+        longPressStart = { x: event.clientX, y: event.clientY, chartY: info.y, price: info.price };
         window.clearTimeout(longPressTimer);
         longPressTimer = window.setTimeout(() => {
             if (pointerIsDown && longPressStart !== null) {
-                createTemporaryPriceLine(longPressStart.price);
+                toggleTemporaryPriceLine(longPressStart.price, longPressStart.chartY);
             }
             cancelLongPress();
         }, 1500);

@@ -332,6 +332,7 @@
     <section class="chart-panel">
         <div class="chart-head">
             <div class="legend" data-legend>
+                <span class="legend-item"><span class="swatch" style="background: var(--blue)"></span>週期 <strong data-legend-timeframe>60分K</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--yellow)"></span>60K MA95 <strong data-legend-ma95>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></span>
@@ -342,6 +343,8 @@
                 <span class="legend-item">收 <strong data-legend-close>--</strong></span>
             </div>
             <div class="tools" aria-label="圖層切換">
+                <button type="button" class="tool-button active" data-timeframe="hourly">60分K</button>
+                <button type="button" class="tool-button" data-timeframe="daily">日線</button>
                 <button type="button" class="tool-button active" data-toggle-series="dailyMa5">日MA5</button>
                 <button type="button" class="tool-button active" data-toggle-series="ma95">MA95</button>
                 <button type="button" class="tool-button active" data-toggle-series="gap">差值</button>
@@ -371,8 +374,10 @@
 @if (count($chartRows) > 0)
 <script>
     const chartRows = @json($chartRows, JSON_UNESCAPED_UNICODE);
+    const dailyChartRows = @json($dailyChartRows, JSON_UNESCAPED_UNICODE);
     const gapMarkers = @json($gapMarkers, JSON_UNESCAPED_UNICODE);
     const chartElement = document.getElementById('futures-chart');
+    let activeTimeframe = 'hourly';
     const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
@@ -417,12 +422,24 @@
 
     function formatTaipeiAxisTime(time) {
         const parts = taipeiDateParts(time);
-        return parts === null ? '' : `${parts.day}日 ${parts.hour}:${parts.minute}`;
+        if (parts === null) {
+            return '';
+        }
+
+        return activeTimeframe === 'daily'
+            ? `${parts.month}/${parts.day}`
+            : `${parts.day}日 ${parts.hour}:${parts.minute}`;
     }
 
     function formatTaipeiCrosshairTime(time) {
         const parts = taipeiDateParts(time);
-        return parts === null ? '' : `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
+        if (parts === null) {
+            return '';
+        }
+
+        return activeTimeframe === 'daily'
+            ? `${parts.year}/${parts.month}/${parts.day}`
+            : `${parts.year}/${parts.month}/${parts.day} ${parts.hour}:${parts.minute}`;
     }
 
     const chart = LightweightCharts.createChart(chartElement, {
@@ -517,47 +534,38 @@
         priceLineVisible: false
     });
 
-    const candles = chartRows.map(row => ({
-        time: Number(row.time),
-        open: Number(row.open),
-        high: Number(row.high),
-        low: Number(row.low),
-        close: Number(row.close)
-    }));
+    function candleData(rows) {
+        return rows.map(row => ({
+            time: Number(row.time),
+            open: Number(row.open),
+            high: Number(row.high),
+            low: Number(row.low),
+            close: Number(row.close)
+        }));
+    }
 
-    const volumes = chartRows.map(row => ({
-        time: Number(row.time),
-        value: Number(row.volume || 0),
-        color: Number(row.close) >= Number(row.open)
-            ? 'rgba(239, 83, 80, 0.28)'
-            : 'rgba(38, 166, 154, 0.28)'
-    }));
+    function volumeData(rows) {
+        return rows.map(row => ({
+            time: Number(row.time),
+            value: Number(row.volume || 0),
+            color: Number(row.close) >= Number(row.open)
+                ? 'rgba(239, 83, 80, 0.28)'
+                : 'rgba(38, 166, 154, 0.28)'
+        }));
+    }
 
-    const ma95Data = chartRows
-        .filter(row => row.ma95 !== null)
-        .map(row => ({ time: Number(row.time), value: Number(row.ma95) }));
+    function lineData(rows, key) {
+        return rows
+            .filter(row => row[key] !== null)
+            .map(row => ({ time: Number(row.time), value: Number(row[key]) }));
+    }
 
-    const dailyMa5Data = chartRows
-        .filter(row => row.dailyMa5 !== null)
-        .map(row => ({ time: Number(row.time), value: Number(row.dailyMa5) }));
-
-    const gapData = chartRows
-        .filter(row => row.gap !== null)
-        .map(row => ({ time: Number(row.time), value: Number(row.gap) }));
-
-    const gapHistogramData = gapData.map(row => ({
-        ...row,
-        color: row.value >= 0 ? 'rgba(245, 158, 11, 0.24)' : 'rgba(56, 189, 248, 0.24)'
-    }));
-
-    candleSeries.setData(candles);
-    candleSeries.setMarkers(gapMarkers);
-    volumeSeries.setData(volumes);
-    ma95Series.setData(ma95Data);
-    dailyMa5Series.setData(dailyMa5Data);
-    gapSeries.setData(gapData);
-    gapHistogramSeries.setData(gapHistogramData);
-    gapZeroSeries.setData(gapData.map(row => ({ time: row.time, value: 0 })));
+    function gapHistogramData(gapRows) {
+        return gapRows.map(row => ({
+            ...row,
+            color: row.value >= 0 ? 'rgba(245, 158, 11, 0.24)' : 'rgba(56, 189, 248, 0.24)'
+        }));
+    }
 
     const seriesByToggle = {
         ma95: [ma95Series],
@@ -714,8 +722,13 @@
         removeTemporaryPriceLine(event);
     });
 
-    const lastLogicalIndex = chartRows.length - 1;
-    const DEFAULT_VISIBLE_BARS = 180;
+    let currentRows = chartRows;
+    let lastLogicalIndex = currentRows.length - 1;
+    let legendMap = new Map(currentRows.map(row => [Number(row.time), row]));
+    const DEFAULT_VISIBLE_BARS_BY_TIMEFRAME = {
+        hourly: 180,
+        daily: 90
+    };
     let isApplyingVisibleRange = false;
 
     function clampVisibleLogicalRange(range) {
@@ -756,7 +769,7 @@
             return;
         }
 
-        const visibleBars = Math.min(DEFAULT_VISIBLE_BARS, chartRows.length);
+        const visibleBars = Math.min(DEFAULT_VISIBLE_BARS_BY_TIMEFRAME[activeTimeframe] ?? 180, currentRows.length);
         chart.timeScale().setVisibleLogicalRange({
             from: Math.max(0, lastLogicalIndex - visibleBars + 1),
             to: lastLogicalIndex
@@ -771,8 +784,8 @@
     document.querySelector('[data-show-all]').addEventListener('click', showAll);
     chart.timeScale().subscribeVisibleLogicalRangeChange(clampVisibleLogicalRange);
 
-    const legendMap = new Map(chartRows.map(row => [Number(row.time), row]));
     const fields = {
+        timeframe: document.querySelector('[data-legend-timeframe]'),
         open: document.querySelector('[data-legend-open]'),
         high: document.querySelector('[data-legend-high]'),
         low: document.querySelector('[data-legend-low]'),
@@ -793,7 +806,8 @@
         })}`;
     };
 
-    function updateLegend(row = chartRows[chartRows.length - 1]) {
+    function updateLegend(row = currentRows[currentRows.length - 1]) {
+        fields.timeframe.textContent = activeTimeframe === 'daily' ? '日線' : '60分K';
         fields.open.textContent = format(row.open);
         fields.high.textContent = format(row.high);
         fields.low.textContent = format(row.low);
@@ -810,14 +824,48 @@
             return;
         }
 
-        updateLegend(legendMap.get(Number(param.time)) || chartRows[chartRows.length - 1]);
+        updateLegend(legendMap.get(Number(param.time)) || currentRows[currentRows.length - 1]);
+    });
+
+    function applyTimeframe(timeframe) {
+        activeTimeframe = timeframe;
+        currentRows = timeframe === 'daily' ? dailyChartRows : chartRows;
+        lastLogicalIndex = currentRows.length - 1;
+        legendMap = new Map(currentRows.map(row => [Number(row.time), row]));
+
+        const ma95Data = timeframe === 'hourly' ? lineData(currentRows, 'ma95') : [];
+        const gapData = timeframe === 'hourly' ? lineData(currentRows, 'gap') : [];
+
+        candleSeries.setData(candleData(currentRows));
+        candleSeries.setMarkers(timeframe === 'hourly' ? gapMarkers : []);
+        volumeSeries.setData(volumeData(currentRows));
+        ma95Series.setData(ma95Data);
+        dailyMa5Series.setData(lineData(currentRows, 'dailyMa5'));
+        gapSeries.setData(gapData);
+        gapHistogramSeries.setData(gapHistogramData(gapData));
+        gapZeroSeries.setData(gapData.map(row => ({ time: row.time, value: 0 })));
+        chart.applyOptions({
+            timeScale: {
+                tickMarkFormatter: formatTaipeiAxisTime
+            }
+        });
+
+        document.querySelectorAll('[data-timeframe]').forEach(button => {
+            button.classList.toggle('active', button.dataset.timeframe === timeframe);
+        });
+
+        updateLegend();
+        showLatest();
+    }
+
+    document.querySelectorAll('[data-timeframe]').forEach(button => {
+        button.addEventListener('click', () => applyTimeframe(button.dataset.timeframe));
     });
 
     const resize = () => chart.applyOptions({ width: chartElement.clientWidth, height: chartElement.clientHeight });
     window.addEventListener('resize', resize);
     resize();
-    updateLegend();
-    showLatest();
+    applyTimeframe('hourly');
 </script>
 @endif
 </body>

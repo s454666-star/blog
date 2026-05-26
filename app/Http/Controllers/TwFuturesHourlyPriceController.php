@@ -23,6 +23,7 @@ class TwFuturesHourlyPriceController extends Controller
         return view('tw-stock.taiex-futures-kline', [
             'latest' => $latest,
             'chartRows' => $indicatorRows['chartRows'],
+            'dailyChartRows' => $indicatorRows['dailyChartRows'],
             'gapMarkers' => $indicatorRows['gapMarkers'],
             'sessionGapRows' => $indicatorRows['sessionGapRows'],
             'stats' => [
@@ -66,6 +67,7 @@ class TwFuturesHourlyPriceController extends Controller
      * @param EloquentCollection<int, TwFuturesHourlyPrice> $rows
      * @return array{
      *     chartRows: list<array<string, mixed>>,
+     *     dailyChartRows: list<array<string, mixed>>,
      *     gapMarkers: list<array<string, mixed>>,
      *     sessionGapRows: list<array<string, mixed>>,
      *     latestGap: float|null,
@@ -174,6 +176,7 @@ class TwFuturesHourlyPriceController extends Controller
 
         return [
             'chartRows' => $chartRows,
+            'dailyChartRows' => $this->dailyChartRows($rows),
             'gapMarkers' => $gapMarkers,
             'sessionGapRows' => array_slice(array_reverse($sessionGapRows), 0, 18),
             'latestGap' => $latestGap === null ? null : round($latestGap, 2),
@@ -182,6 +185,71 @@ class TwFuturesHourlyPriceController extends Controller
             'maxGap' => $gaps === [] ? null : round(max($gaps), 2),
             'minGap' => $gaps === [] ? null : round(min($gaps), 2),
         ];
+    }
+
+    /**
+     * @param EloquentCollection<int, TwFuturesHourlyPrice> $rows
+     * @return list<array<string, mixed>>
+     */
+    private function dailyChartRows(EloquentCollection $rows): array
+    {
+        $groups = [];
+        foreach ($rows as $row) {
+            $tradeDate = $row->trade_date?->toDateString();
+            if ($tradeDate === null) {
+                continue;
+            }
+
+            if (! isset($groups[$tradeDate])) {
+                $groups[$tradeDate] = [
+                    'open' => (float) $row->open_price,
+                    'high' => (float) $row->high_price,
+                    'low' => (float) $row->low_price,
+                    'close' => (float) $row->close_price,
+                    'volume' => 0,
+                ];
+            }
+
+            $groups[$tradeDate]['high'] = max((float) $groups[$tradeDate]['high'], (float) $row->high_price);
+            $groups[$tradeDate]['low'] = min((float) $groups[$tradeDate]['low'], (float) $row->low_price);
+            $groups[$tradeDate]['close'] = (float) $row->close_price;
+            $groups[$tradeDate]['volume'] += (int) $row->volume_contracts;
+        }
+
+        ksort($groups);
+
+        $dailyRows = [];
+        $closeWindow = [];
+        $closeSum = 0.0;
+        foreach ($groups as $tradeDate => $group) {
+            $close = (float) $group['close'];
+            $closeWindow[] = $close;
+            $closeSum += $close;
+            if (count($closeWindow) > 5) {
+                $closeSum -= array_shift($closeWindow);
+            }
+
+            $dailyMa5 = count($closeWindow) === 5 ? $closeSum / 5 : null;
+            $time = CarbonImmutable::parse($tradeDate . ' 12:00:00', 'Asia/Taipei')->timestamp;
+
+            $dailyRows[] = [
+                'time' => $time,
+                'localTime' => $tradeDate,
+                'tradeDate' => $tradeDate,
+                'sessionType' => 'daily',
+                'open' => round((float) $group['open'], 4),
+                'high' => round((float) $group['high'], 4),
+                'low' => round((float) $group['low'], 4),
+                'close' => $close,
+                'volume' => (int) $group['volume'],
+                'ma95' => null,
+                'dailyMa5' => $dailyMa5 === null ? null : round($dailyMa5, 4),
+                'gap' => null,
+                'isSessionOpen' => false,
+            ];
+        }
+
+        return $dailyRows;
     }
 
     private function cacheVersion(string $symbol): string

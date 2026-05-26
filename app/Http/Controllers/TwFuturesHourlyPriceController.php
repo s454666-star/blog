@@ -176,7 +176,7 @@ class TwFuturesHourlyPriceController extends Controller
 
         return [
             'chartRows' => $chartRows,
-            'dailyChartRows' => $this->dailyChartRows($rows),
+            'dailyChartRows' => $this->dailyChartRows($chartRows),
             'gapMarkers' => $gapMarkers,
             'sessionGapRows' => array_slice(array_reverse($sessionGapRows), 0, 18),
             'latestGap' => $latestGap === null ? null : round($latestGap, 2),
@@ -188,32 +188,37 @@ class TwFuturesHourlyPriceController extends Controller
     }
 
     /**
-     * @param EloquentCollection<int, TwFuturesHourlyPrice> $rows
+     * @param list<array<string, mixed>> $rows
      * @return list<array<string, mixed>>
      */
-    private function dailyChartRows(EloquentCollection $rows): array
+    private function dailyChartRows(array $rows): array
     {
         $groups = [];
         foreach ($rows as $row) {
-            $tradeDate = $row->trade_date?->toDateString();
+            $tradeDate = $row['tradeDate'] ?? null;
             if ($tradeDate === null) {
                 continue;
             }
 
             if (! isset($groups[$tradeDate])) {
                 $groups[$tradeDate] = [
-                    'open' => (float) $row->open_price,
-                    'high' => (float) $row->high_price,
-                    'low' => (float) $row->low_price,
-                    'close' => (float) $row->close_price,
+                    'open' => (float) $row['open'],
+                    'high' => (float) $row['high'],
+                    'low' => (float) $row['low'],
+                    'close' => (float) $row['close'],
                     'volume' => 0,
+                    'ma95' => null,
                 ];
             }
 
-            $groups[$tradeDate]['high'] = max((float) $groups[$tradeDate]['high'], (float) $row->high_price);
-            $groups[$tradeDate]['low'] = min((float) $groups[$tradeDate]['low'], (float) $row->low_price);
-            $groups[$tradeDate]['close'] = (float) $row->close_price;
-            $groups[$tradeDate]['volume'] += (int) $row->volume_contracts;
+            $groups[$tradeDate]['high'] = max((float) $groups[$tradeDate]['high'], (float) $row['high']);
+            $groups[$tradeDate]['low'] = min((float) $groups[$tradeDate]['low'], (float) $row['low']);
+            $groups[$tradeDate]['close'] = (float) $row['close'];
+            $groups[$tradeDate]['volume'] += (int) $row['volume'];
+
+            if ($row['ma95'] !== null) {
+                $groups[$tradeDate]['ma95'] = (float) $row['ma95'];
+            }
         }
 
         ksort($groups);
@@ -230,6 +235,8 @@ class TwFuturesHourlyPriceController extends Controller
             }
 
             $dailyMa5 = count($closeWindow) === 5 ? $closeSum / 5 : null;
+            $ma95 = $group['ma95'] === null ? null : (float) $group['ma95'];
+            $gap = $dailyMa5 !== null && $ma95 !== null ? $dailyMa5 - $ma95 : null;
             $time = CarbonImmutable::parse($tradeDate . ' 12:00:00', 'Asia/Taipei')->timestamp;
 
             $dailyRows[] = [
@@ -242,9 +249,9 @@ class TwFuturesHourlyPriceController extends Controller
                 'low' => round((float) $group['low'], 4),
                 'close' => $close,
                 'volume' => (int) $group['volume'],
-                'ma95' => null,
+                'ma95' => $ma95 === null ? null : round($ma95, 4),
                 'dailyMa5' => $dailyMa5 === null ? null : round($dailyMa5, 4),
-                'gap' => null,
+                'gap' => $gap === null ? null : round($gap, 4),
                 'isSessionOpen' => false,
             ];
         }

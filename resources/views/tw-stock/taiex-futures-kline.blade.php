@@ -833,8 +833,8 @@
         lastLogicalIndex = currentRows.length - 1;
         legendMap = new Map(currentRows.map(row => [Number(row.time), row]));
 
-        const ma95Data = timeframe === 'hourly' ? lineData(currentRows, 'ma95') : [];
-        const gapData = timeframe === 'hourly' ? lineData(currentRows, 'gap') : [];
+        const ma95Data = lineData(currentRows, 'ma95');
+        const gapData = lineData(currentRows, 'gap');
 
         candleSeries.setData(candleData(currentRows));
         candleSeries.setMarkers(timeframe === 'hourly' ? gapMarkers : []);

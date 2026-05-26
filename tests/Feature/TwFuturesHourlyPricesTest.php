@@ -59,7 +59,9 @@ class TwFuturesHourlyPricesTest extends TestCase
     {
         $this->seedHourlyRows();
 
-        $this->get(route('tw-stock.taiex-futures.kline'))
+        $response = $this->get(route('tw-stock.taiex-futures.kline'));
+
+        $response
             ->assertOk()
             ->assertSee('台指期 60K 差值 K 線')
             ->assertSee('TAIFEX · TXF1! · 60K')
@@ -84,6 +86,15 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('data-marker-count', false)
             ->assertSee('長按左鍵 1.5 秒可標記或取消既有標記')
             ->assertSee('台指期K線');
+
+        preg_match('/const dailyChartRows = (.*);/', (string) $response->getContent(), $matches);
+        $this->assertNotEmpty($matches[1] ?? null);
+
+        $dailyRows = json_decode((string) $matches[1], true, flags: JSON_THROW_ON_ERROR);
+        $this->assertNotEmpty(array_filter(
+            $dailyRows,
+            fn (array $row): bool => $row['ma95'] !== null && $row['gap'] !== null,
+        ));
     }
 
     private function seedHourlyRows(): void

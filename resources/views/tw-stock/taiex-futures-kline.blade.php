@@ -220,8 +220,14 @@
             min-height: 620px;
             border-right: 1px solid #2c323a;
             background: #0f1115;
+            cursor: ns-resize;
+            touch-action: none;
             user-select: none;
-            pointer-events: none;
+            pointer-events: auto;
+        }
+
+        .gap-axis-layer.dragging {
+            background: #111827;
         }
 
         .gap-axis-tick {
@@ -453,6 +459,14 @@
     const markerLabelLayer = document.createElement('div');
     markerLabelLayer.className = 'marker-label-layer';
     let activeTimeframe = 'hourly';
+    let currentRows = chartRows;
+    let lastLogicalIndex = currentRows.length - 1;
+    let legendMap = new Map(currentRows.map(row => [Number(row.time), row]));
+    let gapAxisScale = 1;
+    let gapAxisDragState = null;
+    const GAP_AXIS_MIN_SCALE = 0.35;
+    const GAP_AXIS_MAX_SCALE = 4;
+    const GAP_AXIS_DRAG_SENSITIVITY = 180;
     const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
@@ -587,6 +601,7 @@
     const gapZeroSeries = chart.addLineSeries({
         priceScaleId: 'gap',
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
+        autoscaleInfoProvider: gapAutoscaleInfoProvider,
         color: 'rgba(229, 231, 235, 0.38)',
         lineWidth: 1,
         lineStyle: LightweightCharts.LineStyle.Dashed,
@@ -597,6 +612,7 @@
     const gapSeries = chart.addBaselineSeries({
         priceScaleId: 'gap',
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
+        autoscaleInfoProvider: gapAutoscaleInfoProvider,
         lineWidth: 2,
         baseValue: { type: 'price', price: 0 },
         topLineColor: '#f59e0b',
@@ -613,6 +629,7 @@
     const gapHistogramSeries = chart.addHistogramSeries({
         priceScaleId: 'gap',
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
+        autoscaleInfoProvider: gapAutoscaleInfoProvider,
         lastValueVisible: false,
         priceLineVisible: false
     });
@@ -643,6 +660,10 @@
         return rows
             .filter(row => row[key] !== null && row[key] !== undefined)
             .map(row => ({ time: Number(row.time), value: Number(row[key]) }));
+    }
+
+    function clampNumber(value, min, max) {
+        return Math.min(max, Math.max(min, value));
     }
 
     function gapHistogramData(gapRows) {
@@ -740,16 +761,51 @@
             .filter(Number.isFinite);
     }
 
-    function gapAxisTicks(values) {
+    function gapAxisVisibleRange() {
+        const values = visibleGapValues();
         if (values.length === 0) {
+            return null;
+        }
+
+        const rawMin = Math.min(0, ...values);
+        const rawMax = Math.max(0, ...values);
+        const rangePadding = Math.max((rawMax - rawMin) * 0.06, 20);
+        const minDistance = 20;
+        const rangeFactor = 1 / gapAxisScale;
+        let minValue = rawMin * rangeFactor - rangePadding;
+        let maxValue = rawMax * rangeFactor + rangePadding;
+
+        if (Math.abs(maxValue - minValue) < minDistance) {
+            minValue = -100;
+            maxValue = 100;
+        }
+
+        return { minValue, maxValue };
+    }
+
+    function gapAutoscaleInfoProvider() {
+        const priceRange = gapAxisVisibleRange();
+        if (priceRange === null) {
+            return null;
+        }
+
+        return {
+            priceRange,
+            margins: {
+                above: 4,
+                below: 4
+            }
+        };
+    }
+
+    function gapAxisTicks(priceRange) {
+        if (priceRange === null) {
             return [];
         }
 
-        const min = Math.min(0, ...values);
-        const max = Math.max(0, ...values);
-        const step = niceGapStep((max - min || 1) / 5);
-        const first = Math.ceil(min / step) * step;
-        const last = Math.floor(max / step) * step;
+        const step = niceGapStep((priceRange.maxValue - priceRange.minValue || 1) / 5);
+        const first = Math.ceil(priceRange.minValue / step) * step;
+        const last = Math.floor(priceRange.maxValue / step) * step;
         const ticks = [];
 
         for (let value = first; value <= last + step * 0.5; value += step) {
@@ -770,7 +826,7 @@
 
         const height = chartElement.clientHeight;
         const fragment = document.createDocumentFragment();
-        gapAxisTicks(visibleGapValues()).forEach(value => {
+        gapAxisTicks(gapAxisVisibleRange()).forEach(value => {
             const y = gapSeries.priceToCoordinate(value);
             if (!Number.isFinite(y) || y < 8 || y > height - 8) {
                 return;
@@ -789,6 +845,63 @@
     function renderChartOverlays() {
         renderMarkerLabels();
         renderGapAxis();
+    }
+
+    function refreshGapAxisScale() {
+        const autoscaleOptions = { autoscaleInfoProvider: gapAutoscaleInfoProvider };
+        gapZeroSeries.applyOptions(autoscaleOptions);
+        gapSeries.applyOptions(autoscaleOptions);
+        gapHistogramSeries.applyOptions(autoscaleOptions);
+        scheduleMarkerLabelRender();
+    }
+
+    function setGapAxisScale(scale) {
+        gapAxisScale = clampNumber(scale, GAP_AXIS_MIN_SCALE, GAP_AXIS_MAX_SCALE);
+        refreshGapAxisScale();
+    }
+
+    function startGapAxisDrag(event) {
+        if (!gapAxisLayer || (event.button !== undefined && event.button !== 0)) {
+            return;
+        }
+
+        event.preventDefault();
+        gapAxisDragState = {
+            pointerId: event.pointerId,
+            startY: event.clientY,
+            startScale: gapAxisScale
+        };
+        gapAxisLayer.classList.add('dragging');
+        gapAxisLayer.setPointerCapture?.(event.pointerId);
+        startMarkerLabelRenderLoop();
+    }
+
+    function updateGapAxisDrag(event) {
+        if (!gapAxisDragState || gapAxisDragState.pointerId !== event.pointerId) {
+            return;
+        }
+
+        event.preventDefault();
+        const deltaY = event.clientY - gapAxisDragState.startY;
+        const nextScale = gapAxisDragState.startScale * Math.exp(-deltaY / GAP_AXIS_DRAG_SENSITIVITY);
+        setGapAxisScale(nextScale);
+    }
+
+    function stopGapAxisDrag(event) {
+        if (!gapAxisDragState || (event.pointerId !== undefined && gapAxisDragState.pointerId !== event.pointerId)) {
+            return;
+        }
+
+        if (gapAxisLayer?.hasPointerCapture?.(gapAxisDragState.pointerId)) {
+            gapAxisLayer.releasePointerCapture(gapAxisDragState.pointerId);
+        }
+        gapAxisDragState = null;
+        gapAxisLayer?.classList.remove('dragging');
+        stopMarkerLabelRenderLoop();
+    }
+
+    function resetGapAxisScale() {
+        setGapAxisScale(1);
     }
 
     function scheduleMarkerLabelRender() {
@@ -975,9 +1088,6 @@
         removeTemporaryPriceLine(event);
     });
 
-    let currentRows = chartRows;
-    let lastLogicalIndex = currentRows.length - 1;
-    let legendMap = new Map(currentRows.map(row => [Number(row.time), row]));
     const DEFAULT_VISIBLE_BARS_BY_TIMEFRAME = {
         hourly: 180,
         daily: 90
@@ -1050,6 +1160,13 @@
     window.addEventListener('pointerup', stopMarkerLabelRenderLoop);
     window.addEventListener('pointercancel', stopMarkerLabelRenderLoop);
     window.addEventListener('mouseup', stopMarkerLabelRenderLoop);
+    if (gapAxisLayer) {
+        gapAxisLayer.addEventListener('pointerdown', startGapAxisDrag);
+        gapAxisLayer.addEventListener('pointermove', updateGapAxisDrag);
+        gapAxisLayer.addEventListener('pointerup', stopGapAxisDrag);
+        gapAxisLayer.addEventListener('pointercancel', stopGapAxisDrag);
+        gapAxisLayer.addEventListener('dblclick', resetGapAxisScale);
+    }
 
     const fields = {
         timeframe: document.querySelector('[data-legend-timeframe]'),

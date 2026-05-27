@@ -288,6 +288,23 @@
             transform: translate(-50%, -50%);
         }
 
+        .temporary-line-label {
+            position: absolute;
+            right: 58px;
+            font-size: 13px;
+            font-weight: 950;
+            line-height: 1;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+            text-shadow:
+                0 1px 2px #0f1115,
+                0 -1px 2px #0f1115,
+                1px 0 2px #0f1115,
+                -1px 0 2px #0f1115,
+                0 0 5px #0f1115;
+            transform: translateY(-50%);
+        }
+
         .recent-gap-list {
             flex-wrap: wrap;
             padding: 10px 12px 12px;
@@ -430,7 +447,7 @@
         @if (count($chartRows) === 0)
             <div class="empty">目前還沒有台指期 60K 資料。</div>
         @else
-            <div class="chart-hint">點一下可標記，再點一下或右鍵可取消，重整後標記清空。</div>
+            <div class="chart-hint">點一下可標記差值，再點一下或右鍵可取消，重整後標記清空。</div>
             <div class="chart-body">
                 <div class="gap-axis-layer" data-gap-axis aria-label="差值軸"></div>
                 <div id="futures-chart"></div>
@@ -741,6 +758,20 @@
             fragment.appendChild(label);
         });
 
+        temporaryPriceLines.forEach(item => {
+            const y = gapSeries.priceToCoordinate(item.price);
+            if (!Number.isFinite(y) || y < -18 || y > height + 18) {
+                return;
+            }
+
+            const label = document.createElement('span');
+            label.className = 'temporary-line-label';
+            label.textContent = `差值 ${formatSignedGapValue(item.price)}`;
+            label.style.color = item.color;
+            label.style.top = `${clampNumber(y, 18, height - 18)}px`;
+            fragment.appendChild(label);
+        });
+
         markerLabelLayer.replaceChildren(fragment);
     }
 
@@ -1013,23 +1044,34 @@
             return null;
         }
 
-        const price = candleSeries.coordinateToPrice(y);
-        return Number.isFinite(price) ? { price, y } : null;
+        const gap = gapSeries.coordinateToPrice(y);
+        return Number.isFinite(gap) ? { gap, y } : null;
     }
 
-    function createTemporaryPriceLine(price) {
-        const roundedPrice = Math.round(price);
-        const line = candleSeries.createPriceLine({
-            price: roundedPrice,
-            color: '#e5e7eb',
+    function formatSignedGapValue(value) {
+        const roundedValue = Math.round(value);
+        const sign = roundedValue > 0 ? '+' : roundedValue < 0 ? '-' : '';
+        return `${sign}${Math.abs(roundedValue).toLocaleString('zh-TW')}`;
+    }
+
+    function temporaryGapLineColor(gap) {
+        return gap >= 0 ? '#f59e0b' : '#38bdf8';
+    }
+
+    function createTemporaryPriceLine(gap) {
+        const roundedGap = Math.round(gap);
+        const line = gapSeries.createPriceLine({
+            price: roundedGap,
+            color: temporaryGapLineColor(roundedGap),
             lineWidth: 2,
             lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: roundedPrice.toLocaleString('zh-TW'),
+            axisLabelVisible: false,
+            title: `差值 ${formatSignedGapValue(roundedGap)}`,
         });
 
-        temporaryPriceLines.push({ line, price: roundedPrice });
+        temporaryPriceLines.push({ line, price: roundedGap, color: temporaryGapLineColor(roundedGap) });
         updateMarkerCount();
+        scheduleMarkerLabelRender();
     }
 
     function nearestTemporaryPriceLineIndex(price, y = null, maxDistance = null) {
@@ -1038,7 +1080,7 @@
         }
 
         const best = temporaryPriceLines.reduce((currentBest, item, index) => {
-            const itemY = y === null ? null : candleSeries.priceToCoordinate(item.price);
+            const itemY = y === null ? null : gapSeries.priceToCoordinate(item.price);
             const distance = itemY === null || y === null
                 ? Math.abs(item.price - price)
                 : Math.abs(itemY - y);
@@ -1061,8 +1103,9 @@
         }
 
         const [removed] = temporaryPriceLines.splice(index, 1);
-        candleSeries.removePriceLine(removed.line);
+        gapSeries.removePriceLine(removed.line);
         updateMarkerCount();
+        scheduleMarkerLabelRender();
     }
 
     function toggleTemporaryPriceLine(price, y) {
@@ -1083,7 +1126,7 @@
         const info = pointerInfo(event);
         const removeIndex = info === null
             ? temporaryPriceLines.length - 1
-            : nearestTemporaryPriceLineIndex(info.price, info.y);
+            : nearestTemporaryPriceLineIndex(info.gap, info.y);
 
         removeTemporaryPriceLineAt(removeIndex);
     }
@@ -1107,7 +1150,7 @@
             x: event.clientX,
             y: event.clientY,
             chartY: info.y,
-            price: info.price
+            gap: info.gap
         };
     });
 
@@ -1129,7 +1172,7 @@
 
         const clickStart = markerClickStart;
         cancelMarkerClick();
-        toggleTemporaryPriceLine(clickStart.price, clickStart.chartY);
+        toggleTemporaryPriceLine(clickStart.gap, clickStart.chartY);
     });
     chartElement.addEventListener('pointerleave', cancelMarkerClick);
     chartElement.addEventListener('pointercancel', cancelMarkerClick);

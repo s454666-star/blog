@@ -430,7 +430,7 @@
         @if (count($chartRows) === 0)
             <div class="empty">目前還沒有台指期 60K 資料。</div>
         @else
-            <div class="chart-hint">長按左鍵 1.5 秒可標記或取消既有標記，右鍵取消最近標記，重整後標記清空。</div>
+            <div class="chart-hint">點一下可標記，再點一下或右鍵可取消，重整後標記清空。</div>
             <div class="chart-body">
                 <div class="gap-axis-layer" data-gap-axis aria-label="差值軸"></div>
                 <div id="futures-chart"></div>
@@ -998,10 +998,9 @@
 
     const markerCount = document.querySelector('[data-marker-count]');
     const temporaryPriceLines = [];
-    let longPressTimer = null;
-    let longPressStart = null;
-    let pointerIsDown = false;
+    let markerClickStart = null;
     const TEMPORARY_LINE_HIT_RADIUS = 8;
+    const TEMPORARY_LINE_CLICK_MOVE_LIMIT = 6;
 
     function updateMarkerCount() {
         markerCount.textContent = temporaryPriceLines.length.toLocaleString('zh-TW');
@@ -1089,11 +1088,8 @@
         removeTemporaryPriceLineAt(removeIndex);
     }
 
-    function cancelLongPress() {
-        window.clearTimeout(longPressTimer);
-        longPressTimer = null;
-        longPressStart = null;
-        pointerIsDown = false;
+    function cancelMarkerClick() {
+        markerClickStart = null;
     }
 
     chartElement.addEventListener('pointerdown', event => {
@@ -1106,33 +1102,40 @@
             return;
         }
 
-        pointerIsDown = true;
-        longPressStart = { x: event.clientX, y: event.clientY, chartY: info.y, price: info.price };
-        window.clearTimeout(longPressTimer);
-        longPressTimer = window.setTimeout(() => {
-            if (pointerIsDown && longPressStart !== null) {
-                toggleTemporaryPriceLine(longPressStart.price, longPressStart.chartY);
-            }
-            cancelLongPress();
-        }, 1500);
+        markerClickStart = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            chartY: info.y,
+            price: info.price
+        };
     });
 
     chartElement.addEventListener('pointermove', event => {
-        if (!pointerIsDown || longPressStart === null) {
+        if (markerClickStart === null || markerClickStart.pointerId !== event.pointerId) {
             return;
         }
 
-        const moved = Math.hypot(event.clientX - longPressStart.x, event.clientY - longPressStart.y);
-        if (moved > 6) {
-            cancelLongPress();
+        const moved = Math.hypot(event.clientX - markerClickStart.x, event.clientY - markerClickStart.y);
+        if (moved > TEMPORARY_LINE_CLICK_MOVE_LIMIT) {
+            cancelMarkerClick();
         }
     });
 
-    chartElement.addEventListener('pointerup', cancelLongPress);
-    chartElement.addEventListener('pointerleave', cancelLongPress);
+    chartElement.addEventListener('pointerup', event => {
+        if (markerClickStart === null || markerClickStart.pointerId !== event.pointerId) {
+            return;
+        }
+
+        const clickStart = markerClickStart;
+        cancelMarkerClick();
+        toggleTemporaryPriceLine(clickStart.price, clickStart.chartY);
+    });
+    chartElement.addEventListener('pointerleave', cancelMarkerClick);
+    chartElement.addEventListener('pointercancel', cancelMarkerClick);
     chartElement.addEventListener('contextmenu', event => {
         event.preventDefault();
-        cancelLongPress();
+        cancelMarkerClick();
         removeTemporaryPriceLine(event);
     });
 

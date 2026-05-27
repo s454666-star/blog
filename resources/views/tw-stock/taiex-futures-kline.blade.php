@@ -547,18 +547,17 @@
         lastValueVisible: false
     });
 
-    const positiveGapSeries = chart.addLineSeries({
+    const gapSeries = chart.addBaselineSeries({
         priceScaleId: 'gap',
-        color: '#f59e0b',
         lineWidth: 2,
-        priceLineVisible: false,
-        lastValueVisible: false
-    });
-
-    const negativeGapSeries = chart.addLineSeries({
-        priceScaleId: 'gap',
-        color: '#38bdf8',
-        lineWidth: 2,
+        baseValue: { type: 'price', price: 0 },
+        topLineColor: '#f59e0b',
+        bottomLineColor: '#38bdf8',
+        topFillColor1: 'rgba(245, 158, 11, 0)',
+        topFillColor2: 'rgba(245, 158, 11, 0)',
+        bottomFillColor1: 'rgba(56, 189, 248, 0)',
+        bottomFillColor2: 'rgba(56, 189, 248, 0)',
+        baseLineVisible: false,
         priceLineVisible: false,
         lastValueVisible: false
     });
@@ -594,12 +593,6 @@
         return rows
             .filter(row => row[key] !== null && row[key] !== undefined)
             .map(row => ({ time: Number(row.time), value: Number(row[key]) }));
-    }
-
-    function signedGapLineData(rows, positive) {
-        return rows
-            .filter(row => row.gap !== null && row.gap !== undefined && (positive ? Number(row.gap) >= 0 : Number(row.gap) < 0))
-            .map(row => ({ time: Number(row.time), value: Number(row.gap) }));
     }
 
     function gapHistogramData(gapRows) {
@@ -706,7 +699,7 @@
     const seriesByToggle = {
         ma95: [ma95Series],
         dailyMa5: [dailyMa5Series],
-        gap: [positiveGapSeries, negativeGapSeries, gapHistogramSeries, gapZeroSeries]
+        gap: [gapSeries, gapHistogramSeries, gapZeroSeries]
     };
 
     document.querySelectorAll('[data-toggle-series]').forEach(button => {
@@ -991,8 +984,7 @@
         volumeSeries.setData(volumeData(currentRows));
         ma95Series.setData(ma95Data);
         dailyMa5Series.setData(lineData(currentRows, 'dailyMa5'));
-        positiveGapSeries.setData(signedGapLineData(currentRows, true));
-        negativeGapSeries.setData(signedGapLineData(currentRows, false));
+        gapSeries.setData(gapData);
         gapHistogramSeries.setData(gapHistogramData(gapData));
         gapZeroSeries.setData(gapZeroData(currentRows));
         chart.applyOptions({

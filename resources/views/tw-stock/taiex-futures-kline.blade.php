@@ -111,7 +111,7 @@
 
         .summary {
             display: grid;
-            grid-template-columns: minmax(220px, 1.25fr) repeat(7, minmax(112px, 0.6fr));
+            grid-template-columns: minmax(220px, 1.25fr) repeat(6, minmax(112px, 0.6fr));
             gap: 8px;
             margin-bottom: 10px;
         }
@@ -332,12 +332,8 @@
             <div class="value">{{ $latest ? $fmt($latest->close_price, 0) : '--' }}</div>
         </div>
         <div class="summary-cell">
-            <div class="label">日盤差值</div>
-            <div class="value {{ $tone($stats['latestDayGap']) }}">{{ $signed($stats['latestDayGap'], 0) }}</div>
-        </div>
-        <div class="summary-cell">
-            <div class="label">夜盤差值</div>
-            <div class="value {{ $tone($stats['latestNightGap']) }}">{{ $signed($stats['latestNightGap'], 0) }}</div>
+            <div class="label">差值</div>
+            <div class="value {{ $tone($stats['latestGap']) }}">{{ $signed($stats['latestGap'], 0) }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">日 MA5</div>
@@ -363,8 +359,7 @@
                 <span class="legend-item"><span class="swatch" style="background: var(--blue)"></span>週期 <strong data-legend-timeframe>60分K</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--yellow)"></span>60K MA95 <strong data-legend-ma95>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></span>
-                <span class="legend-item"><span class="swatch" style="background: var(--orange)"></span>日盤差值 <strong data-legend-day-gap>--</strong></span>
-                <span class="legend-item"><span class="swatch" style="background: #38bdf8"></span>夜盤差值 <strong data-legend-night-gap>--</strong></span>
+                <span class="legend-item"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: #e5e7eb"></span>標記 <strong data-marker-count>0</strong></span>
                 <span class="legend-item">開 <strong data-legend-open>--</strong></span>
                 <span class="legend-item">高 <strong data-legend-high>--</strong></span>
@@ -376,8 +371,7 @@
                 <button type="button" class="tool-button" data-timeframe="daily">日線</button>
                 <button type="button" class="tool-button active" data-toggle-series="dailyMa5">日MA5</button>
                 <button type="button" class="tool-button active" data-toggle-series="ma95">MA95</button>
-                <button type="button" class="tool-button active" data-toggle-series="dayGap">日盤差值</button>
-                <button type="button" class="tool-button active" data-toggle-series="nightGap">夜盤差值</button>
+                <button type="button" class="tool-button active" data-toggle-series="gap">差值</button>
                 <button type="button" class="tool-button" data-show-all>全部</button>
                 <button type="button" class="tool-button active" data-show-latest>最新</button>
             </div>
@@ -391,7 +385,7 @@
             <div class="recent-gap-list" aria-label="最近開收盤差值">
                 @foreach ($sessionGapRows as $gapRow)
                     <div class="gap-chip">
-                        <span class="time">{{ $gapRow['localTime'] }} · {{ $gapRow['label'] }} · {{ $gapRow['gapLabel'] }}</span>
+                        <span class="time">{{ $gapRow['localTime'] }} · {{ $gapRow['label'] }} · {{ $gapRow['eventLabel'] }}</span>
                         <span class="{{ $gapRow['gap'] >= 0 ? 'positive' : 'negative' }}">{{ $gapRow['gapText'] }}</span>
                         <span class="muted">MA {{ number_format($gapRow['dailyMa5'], 0) }} / {{ number_format($gapRow['ma95'], 0) }}</span>
                     </div>
@@ -553,7 +547,7 @@
         lastValueVisible: false
     });
 
-    const dayGapSeries = chart.addLineSeries({
+    const positiveGapSeries = chart.addLineSeries({
         priceScaleId: 'gap',
         color: '#f59e0b',
         lineWidth: 2,
@@ -561,14 +555,7 @@
         lastValueVisible: false
     });
 
-    const dayGapHistogramSeries = chart.addHistogramSeries({
-        priceScaleId: 'gap',
-        priceFormat: { type: 'price', precision: 0, minMove: 1 },
-        lastValueVisible: false,
-        priceLineVisible: false
-    });
-
-    const nightGapSeries = chart.addLineSeries({
+    const negativeGapSeries = chart.addLineSeries({
         priceScaleId: 'gap',
         color: '#38bdf8',
         lineWidth: 2,
@@ -576,7 +563,7 @@
         lastValueVisible: false
     });
 
-    const nightGapHistogramSeries = chart.addHistogramSeries({
+    const gapHistogramSeries = chart.addHistogramSeries({
         priceScaleId: 'gap',
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
         lastValueVisible: false,
@@ -609,16 +596,22 @@
             .map(row => ({ time: Number(row.time), value: Number(row[key]) }));
     }
 
-    function gapHistogramData(gapRows, color) {
+    function signedGapLineData(rows, positive) {
+        return rows
+            .filter(row => row.gap !== null && row.gap !== undefined && (positive ? Number(row.gap) >= 0 : Number(row.gap) < 0))
+            .map(row => ({ time: Number(row.time), value: Number(row.gap) }));
+    }
+
+    function gapHistogramData(gapRows) {
         return gapRows.map(row => ({
             ...row,
-            color
+            color: row.value >= 0 ? 'rgba(245, 158, 11, 0.22)' : 'rgba(56, 189, 248, 0.22)'
         }));
     }
 
     function gapZeroData(rows) {
         return rows
-            .filter(row => row.dayGap != null || row.nightGap != null)
+            .filter(row => row.gap != null)
             .map(row => ({ time: Number(row.time), value: 0 }));
     }
 
@@ -662,7 +655,12 @@
                 return;
             }
 
-            const yOffset = marker.position === 'aboveBar' ? -48 : 48;
+            const labelViewportMargin = 36;
+            if (anchorY < -labelViewportMargin || anchorY > height + labelViewportMargin) {
+                return;
+            }
+
+            const yOffset = marker.position === 'aboveBar' ? -28 : 28;
             const y = Math.max(18, Math.min(height - 18, anchorY + yOffset));
             const label = document.createElement('span');
             label.className = 'marker-label';
@@ -676,11 +674,39 @@
         markerLabelLayer.replaceChildren(fragment);
     }
 
+    function scheduleMarkerLabelRender() {
+        requestAnimationFrame(() => {
+            requestAnimationFrame(renderMarkerLabels);
+        });
+    }
+
+    let markerLabelRenderLoop = null;
+    function startMarkerLabelRenderLoop() {
+        if (markerLabelRenderLoop !== null) {
+            return;
+        }
+
+        const tick = () => {
+            renderMarkerLabels();
+            markerLabelRenderLoop = requestAnimationFrame(tick);
+        };
+        markerLabelRenderLoop = requestAnimationFrame(tick);
+    }
+
+    function stopMarkerLabelRenderLoop() {
+        if (markerLabelRenderLoop === null) {
+            return;
+        }
+
+        cancelAnimationFrame(markerLabelRenderLoop);
+        markerLabelRenderLoop = null;
+        scheduleMarkerLabelRender();
+    }
+
     const seriesByToggle = {
         ma95: [ma95Series],
         dailyMa5: [dailyMa5Series],
-        dayGap: [dayGapSeries, dayGapHistogramSeries],
-        nightGap: [nightGapSeries, nightGapHistogramSeries]
+        gap: [positiveGapSeries, negativeGapSeries, gapHistogramSeries, gapZeroSeries]
     };
 
     document.querySelectorAll('[data-toggle-series]').forEach(button => {
@@ -884,20 +910,29 @@
             from: Math.max(0, lastLogicalIndex - visibleBars + 1),
             to: lastLogicalIndex
         });
-        requestAnimationFrame(renderMarkerLabels);
+        scheduleMarkerLabelRender();
     }
 
     function showAll() {
         chart.timeScale().setVisibleLogicalRange({ from: 0, to: lastLogicalIndex });
-        requestAnimationFrame(renderMarkerLabels);
+        scheduleMarkerLabelRender();
     }
 
     document.querySelector('[data-show-latest]').addEventListener('click', showLatest);
     document.querySelector('[data-show-all]').addEventListener('click', showAll);
     chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
         clampVisibleLogicalRange(range);
-        requestAnimationFrame(renderMarkerLabels);
+        scheduleMarkerLabelRender();
     });
+    chartElement.addEventListener('wheel', scheduleMarkerLabelRender, { passive: true });
+    chartElement.addEventListener('pointerdown', startMarkerLabelRenderLoop);
+    chartElement.addEventListener('pointermove', scheduleMarkerLabelRender);
+    chartElement.addEventListener('pointerup', scheduleMarkerLabelRender);
+    chartElement.addEventListener('mousedown', startMarkerLabelRenderLoop);
+    chartElement.addEventListener('mousemove', scheduleMarkerLabelRender);
+    window.addEventListener('pointerup', stopMarkerLabelRenderLoop);
+    window.addEventListener('pointercancel', stopMarkerLabelRenderLoop);
+    window.addEventListener('mouseup', stopMarkerLabelRenderLoop);
 
     const fields = {
         timeframe: document.querySelector('[data-legend-timeframe]'),
@@ -907,8 +942,7 @@
         close: document.querySelector('[data-legend-close]'),
         ma95: document.querySelector('[data-legend-ma95]'),
         dailyMa5: document.querySelector('[data-legend-daily-ma5]'),
-        dayGap: document.querySelector('[data-legend-day-gap]'),
-        nightGap: document.querySelector('[data-legend-night-gap]')
+        gap: document.querySelector('[data-legend-gap]')
     };
 
     const format = (value, decimals = 0, signed = false) => {
@@ -930,10 +964,8 @@
         fields.close.textContent = format(row.close);
         fields.ma95.textContent = format(row.ma95);
         fields.dailyMa5.textContent = format(row.dailyMa5);
-        fields.dayGap.textContent = format(row.dayGap, 0, true);
-        fields.dayGap.className = Number(row.dayGap || 0) >= 0 ? 'positive' : 'negative';
-        fields.nightGap.textContent = format(row.nightGap, 0, true);
-        fields.nightGap.className = Number(row.nightGap || 0) >= 0 ? 'positive' : 'negative';
+        fields.gap.textContent = format(row.gap, 0, true);
+        fields.gap.className = Number(row.gap || 0) >= 0 ? 'positive' : 'negative';
     }
 
     chart.subscribeCrosshairMove(param => {
@@ -952,18 +984,16 @@
         legendMap = new Map(currentRows.map(row => [Number(row.time), row]));
 
         const ma95Data = lineData(currentRows, 'ma95');
-        const dayGapData = lineData(currentRows, 'dayGap');
-        const nightGapData = lineData(currentRows, 'nightGap');
+        const gapData = lineData(currentRows, 'gap');
 
         candleSeries.setData(candleData(currentRows));
         candleSeries.setMarkers(chartMarkerData(activeGapMarkers()));
         volumeSeries.setData(volumeData(currentRows));
         ma95Series.setData(ma95Data);
         dailyMa5Series.setData(lineData(currentRows, 'dailyMa5'));
-        dayGapSeries.setData(dayGapData);
-        dayGapHistogramSeries.setData(gapHistogramData(dayGapData, 'rgba(245, 158, 11, 0.22)'));
-        nightGapSeries.setData(nightGapData);
-        nightGapHistogramSeries.setData(gapHistogramData(nightGapData, 'rgba(56, 189, 248, 0.22)'));
+        positiveGapSeries.setData(signedGapLineData(currentRows, true));
+        negativeGapSeries.setData(signedGapLineData(currentRows, false));
+        gapHistogramSeries.setData(gapHistogramData(gapData));
         gapZeroSeries.setData(gapZeroData(currentRows));
         chart.applyOptions({
             timeScale: {
@@ -977,7 +1007,7 @@
 
         updateLegend();
         showLatest();
-        requestAnimationFrame(renderMarkerLabels);
+        scheduleMarkerLabelRender();
     }
 
     document.querySelectorAll('[data-timeframe]').forEach(button => {
@@ -986,7 +1016,7 @@
 
     const resize = () => {
         chart.applyOptions({ width: chartElement.clientWidth, height: chartElement.clientHeight });
-        requestAnimationFrame(renderMarkerLabels);
+        scheduleMarkerLabelRender();
     };
     window.addEventListener('resize', resize);
     resize();

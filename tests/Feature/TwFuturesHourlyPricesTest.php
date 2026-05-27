@@ -69,8 +69,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('TAIFEX · TXF1! · 60K')
             ->assertSee('60K MA95')
             ->assertSee('日 MA5')
-            ->assertSee('日盤差值')
-            ->assertSee('夜盤差值')
+            ->assertSee('差值')
             ->assertSee('const dailyChartRows =', false)
             ->assertSee('data-timeframe="hourly"', false)
             ->assertSee('data-timeframe="daily"', false)
@@ -80,8 +79,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('const dailyGapMarkers =', false)
             ->assertSee('const ma95Data =', false)
             ->assertSee('fixRightEdge: true', false)
-            ->assertSee('data-toggle-series="dayGap"', false)
-            ->assertSee('data-toggle-series="nightGap"', false)
+            ->assertSee('data-toggle-series="gap"', false)
             ->assertSee("upColor: '#ef5350'", false)
             ->assertSee("downColor: '#26a69a'", false)
             ->assertSee("timeZone: 'Asia/Taipei'", false)
@@ -92,9 +90,12 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('marker-label-layer', false)
             ->assertSee('chartMarkerData', false)
             ->assertSee('renderMarkerLabels', false)
+            ->assertSee('scheduleMarkerLabelRender', false)
+            ->assertSee('startMarkerLabelRenderLoop', false)
+            ->assertSee('signedGapLineData', false)
             ->assertSee('長按左鍵 1.5 秒可標記或取消既有標記')
-            ->assertSee('日收')
-            ->assertSee('夜收')
+            ->assertSee('開盤差值')
+            ->assertSee('收盤差值')
             ->assertSee('"shape":"circle"', false)
             ->assertSee('台指期K線');
 
@@ -104,7 +105,7 @@ class TwFuturesHourlyPricesTest extends TestCase
         $dailyRows = json_decode((string) $matches[1], true, flags: JSON_THROW_ON_ERROR);
         $this->assertNotEmpty(array_filter(
             $dailyRows,
-            fn (array $row): bool => $row['ma95'] !== null && ($row['dayGap'] !== null || $row['nightGap'] !== null),
+            fn (array $row): bool => $row['ma95'] !== null && $row['gap'] !== null,
         ));
 
         preg_match('/const dailyGapMarkers = (.*);/', (string) $response->getContent(), $markerMatches);

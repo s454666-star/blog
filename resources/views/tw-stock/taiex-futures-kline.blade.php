@@ -468,6 +468,7 @@
     const GAP_AXIS_MAX_SCALE = 4;
     const GAP_AXIS_DRAG_SENSITIVITY = 180;
     const GAP_AXIS_TICK_MIN_GAP = 24;
+    const GAP_AXIS_MIN_VISIBLE_MAX = 2000;
     const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
@@ -775,6 +776,7 @@
         const rangeFactor = 1 / gapAxisScale;
         let minValue = rawMin * rangeFactor - rangePadding;
         let maxValue = rawMax * rangeFactor + rangePadding;
+        maxValue = Math.max(maxValue, GAP_AXIS_MIN_VISIBLE_MAX);
 
         if (Math.abs(maxValue - minValue) < minDistance) {
             minValue = -100;

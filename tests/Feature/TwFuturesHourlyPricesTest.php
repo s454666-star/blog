@@ -102,6 +102,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('const gapSeries = chart.addBaselineSeries', false)
             ->assertSee("priceScaleId: 'gap'", false)
             ->assertSee("chart.priceScale('gap').applyOptions", false)
+            ->assertSee('scaleMargins: { top: 0.14, bottom: 0.06 }', false)
             ->assertSee("topLineColor: '#f59e0b'", false)
             ->assertSee("bottomLineColor: '#38bdf8'", false)
             ->assertSee('長按左鍵 1.5 秒可標記或取消既有標記')

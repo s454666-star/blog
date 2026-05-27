@@ -636,7 +636,7 @@
         priceLineVisible: false
     });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } });
-    chart.priceScale('gap').applyOptions({ scaleMargins: { top: 0.73, bottom: 0.06 } });
+    chart.priceScale('gap').applyOptions({ scaleMargins: { top: 0.14, bottom: 0.06 } });
 
     function candleData(rows) {
         return rows.map(row => ({

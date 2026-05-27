@@ -426,11 +426,15 @@ class TwFuturesHourlyPriceFetcher
 
     private function tradeDate(CarbonImmutable $startedAt): string
     {
-        if ((int) $startedAt->format('H') >= 15) {
-            return $startedAt->addDay()->toDateString();
+        $candidate = (int) $startedAt->format('H') >= 15
+            ? $startedAt->addDay()
+            : $startedAt;
+
+        while ($candidate->isWeekend()) {
+            $candidate = $candidate->addDay();
         }
 
-        return $startedAt->toDateString();
+        return $candidate->toDateString();
     }
 
     private function sessionType(CarbonImmutable $startedAt): string

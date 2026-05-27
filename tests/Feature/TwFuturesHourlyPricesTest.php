@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Services\TwFuturesHourlyPriceFetcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use ReflectionMethod;
 use Tests\TestCase;
 
 class TwFuturesHourlyPricesTest extends TestCase
@@ -95,6 +97,30 @@ class TwFuturesHourlyPricesTest extends TestCase
             $dailyRows,
             fn (array $row): bool => $row['ma95'] !== null && $row['gap'] !== null,
         ));
+    }
+
+    public function test_futures_night_session_trade_date_skips_weekends(): void
+    {
+        $fetcher = app(TwFuturesHourlyPriceFetcher::class);
+        $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'tradeDate');
+        $method->setAccessible(true);
+
+        $this->assertSame(
+            '2026-05-25',
+            $method->invoke($fetcher, CarbonImmutable::parse('2026-05-22 15:00:00', 'Asia/Taipei')),
+        );
+        $this->assertSame(
+            '2026-05-25',
+            $method->invoke($fetcher, CarbonImmutable::parse('2026-05-23 04:00:00', 'Asia/Taipei')),
+        );
+        $this->assertSame(
+            '2026-05-26',
+            $method->invoke($fetcher, CarbonImmutable::parse('2026-05-25 15:00:00', 'Asia/Taipei')),
+        );
+        $this->assertSame(
+            '2026-05-26',
+            $method->invoke($fetcher, CarbonImmutable::parse('2026-05-26 04:00:00', 'Asia/Taipei')),
+        );
     }
 
     private function seedHourlyRows(): void

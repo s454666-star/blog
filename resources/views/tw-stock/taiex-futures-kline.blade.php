@@ -209,11 +209,35 @@
         }
 
         #futures-chart {
+            position: relative;
             width: 100%;
             height: min(74vh, 820px);
             min-height: 620px;
             cursor: crosshair;
             user-select: none;
+        }
+
+        .marker-label-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        .marker-label {
+            position: absolute;
+            font-size: 16px;
+            font-weight: 950;
+            line-height: 1;
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+            text-shadow:
+                0 1px 2px #0f1115,
+                0 -1px 2px #0f1115,
+                1px 0 2px #0f1115,
+                -1px 0 2px #0f1115,
+                0 0 5px #0f1115;
+            transform: translate(-50%, -50%);
         }
 
         .recent-gap-list {
@@ -384,6 +408,8 @@
     const gapMarkers = @json($gapMarkers, JSON_UNESCAPED_UNICODE);
     const dailyGapMarkers = @json($dailyGapMarkers, JSON_UNESCAPED_UNICODE);
     const chartElement = document.getElementById('futures-chart');
+    const markerLabelLayer = document.createElement('div');
+    markerLabelLayer.className = 'marker-label-layer';
     let activeTimeframe = 'hourly';
     const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {
         timeZone: 'Asia/Taipei',
@@ -481,6 +507,7 @@
             pinch: true
         }
     });
+    chartElement.appendChild(markerLabelLayer);
 
     chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.34 } });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } });
@@ -593,6 +620,60 @@
         return rows
             .filter(row => row.dayGap != null || row.nightGap != null)
             .map(row => ({ time: Number(row.time), value: 0 }));
+    }
+
+    function chartMarkerData(markers) {
+        return markers.map(marker => {
+            const { text, ...chartMarker } = marker;
+            return chartMarker;
+        });
+    }
+
+    function activeGapMarkers() {
+        return activeTimeframe === 'daily' ? dailyGapMarkers : gapMarkers;
+    }
+
+    function renderMarkerLabels() {
+        const width = chartElement.clientWidth;
+        const height = chartElement.clientHeight;
+        const fragment = document.createDocumentFragment();
+
+        activeGapMarkers().forEach(marker => {
+            if (!marker.text) {
+                return;
+            }
+
+            const time = Number(marker.time);
+            const x = chart.timeScale().timeToCoordinate(time);
+            if (x === null || x < -80 || x > width + 80) {
+                return;
+            }
+
+            const row = legendMap.get(time);
+            if (!row) {
+                return;
+            }
+
+            const anchorPrice = marker.position === 'aboveBar'
+                ? Number(row.high)
+                : Number(row.low);
+            const anchorY = candleSeries.priceToCoordinate(anchorPrice);
+            if (!Number.isFinite(anchorY)) {
+                return;
+            }
+
+            const yOffset = marker.position === 'aboveBar' ? -48 : 48;
+            const y = Math.max(18, Math.min(height - 18, anchorY + yOffset));
+            const label = document.createElement('span');
+            label.className = 'marker-label';
+            label.textContent = marker.text;
+            label.style.color = marker.color;
+            label.style.left = `${x}px`;
+            label.style.top = `${y}px`;
+            fragment.appendChild(label);
+        });
+
+        markerLabelLayer.replaceChildren(fragment);
     }
 
     const seriesByToggle = {
@@ -803,15 +884,20 @@
             from: Math.max(0, lastLogicalIndex - visibleBars + 1),
             to: lastLogicalIndex
         });
+        requestAnimationFrame(renderMarkerLabels);
     }
 
     function showAll() {
         chart.timeScale().setVisibleLogicalRange({ from: 0, to: lastLogicalIndex });
+        requestAnimationFrame(renderMarkerLabels);
     }
 
     document.querySelector('[data-show-latest]').addEventListener('click', showLatest);
     document.querySelector('[data-show-all]').addEventListener('click', showAll);
-    chart.timeScale().subscribeVisibleLogicalRangeChange(clampVisibleLogicalRange);
+    chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+        clampVisibleLogicalRange(range);
+        requestAnimationFrame(renderMarkerLabels);
+    });
 
     const fields = {
         timeframe: document.querySelector('[data-legend-timeframe]'),
@@ -870,7 +956,7 @@
         const nightGapData = lineData(currentRows, 'nightGap');
 
         candleSeries.setData(candleData(currentRows));
-        candleSeries.setMarkers(timeframe === 'hourly' ? gapMarkers : dailyGapMarkers);
+        candleSeries.setMarkers(chartMarkerData(activeGapMarkers()));
         volumeSeries.setData(volumeData(currentRows));
         ma95Series.setData(ma95Data);
         dailyMa5Series.setData(lineData(currentRows, 'dailyMa5'));
@@ -891,13 +977,17 @@
 
         updateLegend();
         showLatest();
+        requestAnimationFrame(renderMarkerLabels);
     }
 
     document.querySelectorAll('[data-timeframe]').forEach(button => {
         button.addEventListener('click', () => applyTimeframe(button.dataset.timeframe));
     });
 
-    const resize = () => chart.applyOptions({ width: chartElement.clientWidth, height: chartElement.clientHeight });
+    const resize = () => {
+        chart.applyOptions({ width: chartElement.clientWidth, height: chartElement.clientHeight });
+        requestAnimationFrame(renderMarkerLabels);
+    };
     window.addEventListener('resize', resize);
     resize();
     applyTimeframe('hourly');

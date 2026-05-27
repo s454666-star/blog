@@ -208,6 +208,48 @@
             font-weight: 800;
         }
 
+        .chart-body {
+            display: grid;
+            grid-template-columns: 58px minmax(0, 1fr);
+            width: 100%;
+        }
+
+        .gap-axis-layer {
+            position: relative;
+            height: min(74vh, 820px);
+            min-height: 620px;
+            border-right: 1px solid #2c323a;
+            background: #0f1115;
+            user-select: none;
+            pointer-events: none;
+        }
+
+        .gap-axis-tick {
+            position: absolute;
+            right: 9px;
+            color: #9fb2c7;
+            font-size: 11px;
+            font-weight: 850;
+            line-height: 1;
+            white-space: nowrap;
+            transform: translateY(-50%);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .gap-axis-tick::after {
+            content: "";
+            position: absolute;
+            top: 50%;
+            right: -9px;
+            width: 5px;
+            border-top: 1px solid rgba(203, 213, 225, 0.45);
+            transform: translateY(-50%);
+        }
+
+        .gap-axis-tick.zero {
+            color: #e5e7eb;
+        }
+
         #futures-chart {
             position: relative;
             width: 100%;
@@ -294,6 +336,8 @@
             .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .summary-cell:first-child { grid-column: 1 / -1; }
             h1 { font-size: 19px; }
+            .chart-body { grid-template-columns: 50px minmax(0, 1fr); }
+            .gap-axis-layer,
             #futures-chart { height: 620px; min-height: 620px; }
         }
 @include('tw-stock.partials.shared-shell-width')
@@ -381,7 +425,10 @@
             <div class="empty">目前還沒有台指期 60K 資料。</div>
         @else
             <div class="chart-hint">長按左鍵 1.5 秒可標記或取消既有標記，右鍵取消最近標記，重整後標記清空。</div>
-            <div id="futures-chart"></div>
+            <div class="chart-body">
+                <div class="gap-axis-layer" data-gap-axis aria-label="差值軸"></div>
+                <div id="futures-chart"></div>
+            </div>
             <div class="recent-gap-list" aria-label="最近開收盤差值">
                 @foreach ($sessionGapRows as $gapRow)
                     <div class="gap-chip">
@@ -402,6 +449,7 @@
     const gapMarkers = @json($gapMarkers, JSON_UNESCAPED_UNICODE);
     const dailyGapMarkers = @json($dailyGapMarkers, JSON_UNESCAPED_UNICODE);
     const chartElement = document.getElementById('futures-chart');
+    const gapAxisLayer = document.querySelector('[data-gap-axis]');
     const markerLabelLayer = document.createElement('div');
     markerLabelLayer.className = 'marker-label-layer';
     let activeTimeframe = 'hourly';
@@ -476,11 +524,6 @@
         localization: {
             timeFormatter: formatTaipeiCrosshairTime
         },
-        leftPriceScale: {
-            visible: true,
-            borderColor: '#2c323a',
-            textColor: '#94a3b8'
-        },
         rightPriceScale: { borderColor: '#2c323a' },
         timeScale: {
             borderColor: '#2c323a',
@@ -509,8 +552,6 @@
     chartElement.appendChild(markerLabelLayer);
 
     chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.34 } });
-    chart.priceScale('left').applyOptions({ scaleMargins: { top: 0.73, bottom: 0.06 } });
-    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } });
 
     const candleSeries = chart.addCandlestickSeries({
         upColor: '#ef5350',
@@ -544,7 +585,7 @@
     });
 
     const gapZeroSeries = chart.addLineSeries({
-        priceScaleId: 'left',
+        priceScaleId: 'gap',
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
         color: 'rgba(229, 231, 235, 0.38)',
         lineWidth: 1,
@@ -554,7 +595,7 @@
     });
 
     const gapSeries = chart.addBaselineSeries({
-        priceScaleId: 'left',
+        priceScaleId: 'gap',
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
         lineWidth: 2,
         baseValue: { type: 'price', price: 0 },
@@ -570,11 +611,13 @@
     });
 
     const gapHistogramSeries = chart.addHistogramSeries({
-        priceScaleId: 'left',
+        priceScaleId: 'gap',
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
         lastValueVisible: false,
         priceLineVisible: false
     });
+    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } });
+    chart.priceScale('gap').applyOptions({ scaleMargins: { top: 0.73, bottom: 0.06 } });
 
     function candleData(rows) {
         return rows.map(row => ({
@@ -638,7 +681,8 @@
 
             const time = Number(marker.time);
             const x = chart.timeScale().timeToCoordinate(time);
-            if (x === null || x < -80 || x > width + 80) {
+            const labelEdgePadding = 34;
+            if (x === null || x < labelEdgePadding || x > width + labelEdgePadding) {
                 return;
             }
 
@@ -666,7 +710,7 @@
             label.className = 'marker-label';
             label.textContent = marker.text;
             label.style.color = marker.color;
-            label.style.left = `${x}px`;
+            label.style.left = `${Math.min(width - labelEdgePadding, x)}px`;
             label.style.top = `${y}px`;
             fragment.appendChild(label);
         });
@@ -674,9 +718,82 @@
         markerLabelLayer.replaceChildren(fragment);
     }
 
+    function niceGapStep(rawStep) {
+        if (!Number.isFinite(rawStep) || rawStep <= 0) {
+            return 100;
+        }
+
+        const power = 10 ** Math.floor(Math.log10(rawStep));
+        const fraction = rawStep / power;
+        const multiplier = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+        return multiplier * power;
+    }
+
+    function visibleGapValues() {
+        const range = chart.timeScale().getVisibleLogicalRange();
+        const from = range ? Math.max(0, Math.floor(range.from)) : 0;
+        const to = range ? Math.min(lastLogicalIndex, Math.ceil(range.to)) : lastLogicalIndex;
+
+        return currentRows
+            .slice(from, to + 1)
+            .map(row => Number(row.gap))
+            .filter(Number.isFinite);
+    }
+
+    function gapAxisTicks(values) {
+        if (values.length === 0) {
+            return [];
+        }
+
+        const min = Math.min(0, ...values);
+        const max = Math.max(0, ...values);
+        const step = niceGapStep((max - min || 1) / 5);
+        const first = Math.ceil(min / step) * step;
+        const last = Math.floor(max / step) * step;
+        const ticks = [];
+
+        for (let value = first; value <= last + step * 0.5; value += step) {
+            ticks.push(Math.round(value));
+        }
+
+        if (!ticks.includes(0)) {
+            ticks.push(0);
+        }
+
+        return ticks.sort((a, b) => b - a);
+    }
+
+    function renderGapAxis() {
+        if (!gapAxisLayer || typeof gapSeries.priceToCoordinate !== 'function') {
+            return;
+        }
+
+        const height = chartElement.clientHeight;
+        const fragment = document.createDocumentFragment();
+        gapAxisTicks(visibleGapValues()).forEach(value => {
+            const y = gapSeries.priceToCoordinate(value);
+            if (!Number.isFinite(y) || y < 8 || y > height - 8) {
+                return;
+            }
+
+            const tick = document.createElement('span');
+            tick.className = value === 0 ? 'gap-axis-tick zero' : 'gap-axis-tick';
+            tick.textContent = value.toLocaleString('zh-TW');
+            tick.style.top = `${y}px`;
+            fragment.appendChild(tick);
+        });
+
+        gapAxisLayer.replaceChildren(fragment);
+    }
+
+    function renderChartOverlays() {
+        renderMarkerLabels();
+        renderGapAxis();
+    }
+
     function scheduleMarkerLabelRender() {
         requestAnimationFrame(() => {
-            requestAnimationFrame(renderMarkerLabels);
+            requestAnimationFrame(renderChartOverlays);
         });
     }
 
@@ -687,7 +804,7 @@
         }
 
         const tick = () => {
-            renderMarkerLabels();
+            renderChartOverlays();
             markerLabelRenderLoop = requestAnimationFrame(tick);
         };
         markerLabelRenderLoop = requestAnimationFrame(tick);

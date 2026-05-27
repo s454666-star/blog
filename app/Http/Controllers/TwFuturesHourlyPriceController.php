@@ -25,6 +25,7 @@ class TwFuturesHourlyPriceController extends Controller
             'chartRows' => $indicatorRows['chartRows'],
             'dailyChartRows' => $indicatorRows['dailyChartRows'],
             'gapMarkers' => $indicatorRows['gapMarkers'],
+            'dailyGapMarkers' => $indicatorRows['dailyGapMarkers'],
             'sessionGapRows' => $indicatorRows['sessionGapRows'],
             'stats' => [
                 'firstDateTime' => $rows->first()?->started_at?->timezone('Asia/Taipei')->format('Y-m-d H:i'),
@@ -69,6 +70,7 @@ class TwFuturesHourlyPriceController extends Controller
      *     chartRows: list<array<string, mixed>>,
      *     dailyChartRows: list<array<string, mixed>>,
      *     gapMarkers: list<array<string, mixed>>,
+     *     dailyGapMarkers: list<array<string, mixed>>,
      *     sessionGapRows: list<array<string, mixed>>,
      *     latestGap: float|null,
      *     latestDailyMa5: float|null,
@@ -203,10 +205,13 @@ class TwFuturesHourlyPriceController extends Controller
             ];
         }
 
+        $dailyChartRows = $this->dailyChartRows($chartRows);
+
         return [
             'chartRows' => $chartRows,
-            'dailyChartRows' => $this->dailyChartRows($chartRows),
+            'dailyChartRows' => $dailyChartRows,
             'gapMarkers' => $gapMarkers,
+            'dailyGapMarkers' => $this->dailyGapMarkers($dailyChartRows),
             'sessionGapRows' => array_slice(array_reverse($sessionGapRows), 0, 18),
             'latestGap' => $latestGap === null ? null : round($latestGap, 2),
             'latestDailyMa5' => $latestDailyMa5 === null ? null : round($latestDailyMa5, 2),
@@ -286,6 +291,32 @@ class TwFuturesHourlyPriceController extends Controller
         }
 
         return $dailyRows;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $dailyRows
+     * @return list<array<string, mixed>>
+     */
+    private function dailyGapMarkers(array $dailyRows): array
+    {
+        $markers = [];
+        foreach ($dailyRows as $row) {
+            $gap = $row['gap'] ?? null;
+            if ($gap === null) {
+                continue;
+            }
+
+            $gap = (float) $gap;
+            $markers[] = [
+                'time' => (int) $row['time'],
+                'position' => $gap >= 0 ? 'aboveBar' : 'belowBar',
+                'color' => $gap >= 0 ? '#f59e0b' : '#38bdf8',
+                'shape' => 'circle',
+                'text' => '日線 ' . ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
+            ];
+        }
+
+        return $markers;
     }
 
     private function isSessionCloseConfirmed(CarbonImmutable $startedAt, string $sessionType): bool

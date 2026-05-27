@@ -76,6 +76,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('60分K')
             ->assertSee('日線')
             ->assertSee('const gapMarkers =', false)
+            ->assertSee('const dailyGapMarkers =', false)
             ->assertSee('const ma95Data =', false)
             ->assertSee('fixRightEdge: true', false)
             ->assertSee('data-toggle-series="gap"', false)
@@ -89,6 +90,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('長按左鍵 1.5 秒可標記或取消既有標記')
             ->assertSee('日收')
             ->assertSee('夜收')
+            ->assertSee('日線 ', false)
             ->assertSee('"shape":"circle"', false)
             ->assertSee('台指期K線');
 
@@ -100,6 +102,13 @@ class TwFuturesHourlyPricesTest extends TestCase
             $dailyRows,
             fn (array $row): bool => $row['ma95'] !== null && $row['gap'] !== null,
         ));
+
+        preg_match('/const dailyGapMarkers = (.*);/', (string) $response->getContent(), $markerMatches);
+        $this->assertNotEmpty($markerMatches[1] ?? null);
+
+        $dailyGapMarkers = json_decode((string) $markerMatches[1], true, flags: JSON_THROW_ON_ERROR);
+        $this->assertNotEmpty($dailyGapMarkers);
+        $this->assertStringStartsWith('日線 ', $dailyGapMarkers[0]['text']);
     }
 
     public function test_futures_night_session_trade_date_skips_weekends(): void

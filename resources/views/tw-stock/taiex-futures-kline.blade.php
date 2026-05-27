@@ -376,6 +376,7 @@
     const chartRows = @json($chartRows, JSON_UNESCAPED_UNICODE);
     const dailyChartRows = @json($dailyChartRows, JSON_UNESCAPED_UNICODE);
     const gapMarkers = @json($gapMarkers, JSON_UNESCAPED_UNICODE);
+    const dailyGapMarkers = @json($dailyGapMarkers, JSON_UNESCAPED_UNICODE);
     const chartElement = document.getElementById('futures-chart');
     let activeTimeframe = 'hourly';
     const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {
@@ -837,7 +838,7 @@
         const gapData = lineData(currentRows, 'gap');
 
         candleSeries.setData(candleData(currentRows));
-        candleSeries.setMarkers(timeframe === 'hourly' ? gapMarkers : []);
+        candleSeries.setMarkers(timeframe === 'hourly' ? gapMarkers : dailyGapMarkers);
         volumeSeries.setData(volumeData(currentRows));
         ma95Series.setData(ma95Data);
         dailyMa5Series.setData(lineData(currentRows, 'dailyMa5'));

@@ -32,6 +32,8 @@ class TwFuturesHourlyPriceController extends Controller
                 'lastDateTime' => $latest?->started_at?->timezone('Asia/Taipei')->format('Y-m-d H:i'),
                 'rowCount' => $rows->count(),
                 'latestGap' => $indicatorRows['latestGap'],
+                'latestDayGap' => $indicatorRows['latestDayGap'],
+                'latestNightGap' => $indicatorRows['latestNightGap'],
                 'latestDailyMa5' => $indicatorRows['latestDailyMa5'],
                 'latestMa95' => $indicatorRows['latestMa95'],
                 'maxGap' => $indicatorRows['maxGap'],
@@ -73,6 +75,8 @@ class TwFuturesHourlyPriceController extends Controller
      *     dailyGapMarkers: list<array<string, mixed>>,
      *     sessionGapRows: list<array<string, mixed>>,
      *     latestGap: float|null,
+     *     latestDayGap: float|null,
+     *     latestNightGap: float|null,
      *     latestDailyMa5: float|null,
      *     latestMa95: float|null,
      *     maxGap: float|null,
@@ -120,6 +124,8 @@ class TwFuturesHourlyPriceController extends Controller
         $sessionGapRows = [];
         $gaps = [];
         $latestGap = null;
+        $latestDayGap = null;
+        $latestNightGap = null;
         $latestDailyMa5 = null;
         $latestMa95 = null;
 
@@ -147,9 +153,16 @@ class TwFuturesHourlyPriceController extends Controller
                 && in_array($sessionType, ['day', 'night'], true)
                 && ($sessionCloseTimes[$tradeDate][$sessionType] ?? null) === $time
                 && $this->isSessionCloseConfirmed($startedAt, $sessionType);
+            $dayGap = $gap !== null && $sessionType === 'day' ? $gap : null;
+            $nightGap = $gap !== null && $sessionType === 'night' ? $gap : null;
 
             if ($gap !== null) {
                 $latestGap = $gap;
+                if ($sessionType === 'day') {
+                    $latestDayGap = $gap;
+                } elseif ($sessionType === 'night') {
+                    $latestNightGap = $gap;
+                }
                 $latestDailyMa5 = $dailyMa5;
                 $latestMa95 = $ma95;
                 $gaps[] = $gap;
@@ -168,11 +181,14 @@ class TwFuturesHourlyPriceController extends Controller
                     ];
                 }
 
+                $gapLabel = $sessionType === 'day' ? '日盤差值' : '夜盤差值';
+                $gapColor = $sessionType === 'day' ? '#f59e0b' : '#38bdf8';
                 foreach ($sessionEvents as $event) {
                     $sessionGapRows[] = [
                         'time' => $time,
                         'localTime' => $localTime,
                         'label' => $event['label'],
+                        'gapLabel' => $gapLabel,
                         'gap' => round($gap, 2),
                         'gapText' => ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
                         'dailyMa5' => round($dailyMa5, 2),
@@ -181,9 +197,9 @@ class TwFuturesHourlyPriceController extends Controller
                     $gapMarkers[] = [
                         'time' => $time,
                         'position' => $gap >= 0 ? 'aboveBar' : 'belowBar',
-                        'color' => $gap >= 0 ? '#f59e0b' : '#38bdf8',
+                        'color' => $gapColor,
                         'shape' => $event['shape'],
-                        'text' => $event['label'] . ' ' . ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
+                        'text' => $event['label'] . ' ' . $gapLabel . ' ' . ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
                     ];
                 }
             }
@@ -201,6 +217,8 @@ class TwFuturesHourlyPriceController extends Controller
                 'ma95' => $ma95 === null ? null : round($ma95, 4),
                 'dailyMa5' => $dailyMa5 === null ? null : round($dailyMa5, 4),
                 'gap' => $gap === null ? null : round($gap, 4),
+                'dayGap' => $dayGap === null ? null : round($dayGap, 4),
+                'nightGap' => $nightGap === null ? null : round($nightGap, 4),
                 'isSessionOpen' => $isSessionOpen,
             ];
         }
@@ -214,6 +232,8 @@ class TwFuturesHourlyPriceController extends Controller
             'dailyGapMarkers' => $this->dailyGapMarkers($dailyChartRows),
             'sessionGapRows' => array_slice(array_reverse($sessionGapRows), 0, 18),
             'latestGap' => $latestGap === null ? null : round($latestGap, 2),
+            'latestDayGap' => $latestDayGap === null ? null : round($latestDayGap, 2),
+            'latestNightGap' => $latestNightGap === null ? null : round($latestNightGap, 2),
             'latestDailyMa5' => $latestDailyMa5 === null ? null : round($latestDailyMa5, 2),
             'latestMa95' => $latestMa95 === null ? null : round($latestMa95, 2),
             'maxGap' => $gaps === [] ? null : round(max($gaps), 2),
@@ -242,6 +262,9 @@ class TwFuturesHourlyPriceController extends Controller
                     'close' => (float) $row['close'],
                     'volume' => 0,
                     'ma95' => null,
+                    'gap' => null,
+                    'dayGap' => null,
+                    'nightGap' => null,
                 ];
             }
 
@@ -252,6 +275,15 @@ class TwFuturesHourlyPriceController extends Controller
 
             if ($row['ma95'] !== null) {
                 $groups[$tradeDate]['ma95'] = (float) $row['ma95'];
+            }
+            if ($row['gap'] !== null) {
+                $groups[$tradeDate]['gap'] = (float) $row['gap'];
+            }
+            if ($row['dayGap'] !== null) {
+                $groups[$tradeDate]['dayGap'] = (float) $row['dayGap'];
+            }
+            if ($row['nightGap'] !== null) {
+                $groups[$tradeDate]['nightGap'] = (float) $row['nightGap'];
             }
         }
 
@@ -270,7 +302,9 @@ class TwFuturesHourlyPriceController extends Controller
 
             $dailyMa5 = count($closeWindow) === 5 ? $closeSum / 5 : null;
             $ma95 = $group['ma95'] === null ? null : (float) $group['ma95'];
-            $gap = $dailyMa5 !== null && $ma95 !== null ? $dailyMa5 - $ma95 : null;
+            $gap = $group['gap'] === null ? null : (float) $group['gap'];
+            $dayGap = $group['dayGap'] === null ? null : (float) $group['dayGap'];
+            $nightGap = $group['nightGap'] === null ? null : (float) $group['nightGap'];
             $time = CarbonImmutable::parse($tradeDate . ' 12:00:00', 'Asia/Taipei')->timestamp;
 
             $dailyRows[] = [
@@ -286,6 +320,8 @@ class TwFuturesHourlyPriceController extends Controller
                 'ma95' => $ma95 === null ? null : round($ma95, 4),
                 'dailyMa5' => $dailyMa5 === null ? null : round($dailyMa5, 4),
                 'gap' => $gap === null ? null : round($gap, 4),
+                'dayGap' => $dayGap === null ? null : round($dayGap, 4),
+                'nightGap' => $nightGap === null ? null : round($nightGap, 4),
                 'isSessionOpen' => false,
             ];
         }
@@ -301,19 +337,24 @@ class TwFuturesHourlyPriceController extends Controller
     {
         $markers = [];
         foreach ($dailyRows as $row) {
-            $gap = $row['gap'] ?? null;
-            if ($gap === null) {
-                continue;
-            }
+            foreach ([
+                ['key' => 'dayGap', 'label' => '日盤差值', 'color' => '#f59e0b', 'position' => 'aboveBar'],
+                ['key' => 'nightGap', 'label' => '夜盤差值', 'color' => '#38bdf8', 'position' => 'belowBar'],
+            ] as $definition) {
+                $gap = $row[$definition['key']] ?? null;
+                if ($gap === null) {
+                    continue;
+                }
 
-            $gap = (float) $gap;
-            $markers[] = [
-                'time' => (int) $row['time'],
-                'position' => $gap >= 0 ? 'aboveBar' : 'belowBar',
-                'color' => $gap >= 0 ? '#f59e0b' : '#38bdf8',
-                'shape' => 'circle',
-                'text' => '日線 ' . ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
-            ];
+                $gap = (float) $gap;
+                $markers[] = [
+                    'time' => (int) $row['time'],
+                    'position' => $definition['position'],
+                    'color' => $definition['color'],
+                    'shape' => 'circle',
+                    'text' => $definition['label'] . ' ' . ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
+                ];
+            }
         }
 
         return $markers;

@@ -234,7 +234,7 @@
             position: absolute;
             right: 9px;
             color: #9fb2c7;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 850;
             line-height: 1;
             white-space: nowrap;
@@ -467,8 +467,11 @@
     const GAP_AXIS_MIN_SCALE = 0.35;
     const GAP_AXIS_MAX_SCALE = 4;
     const GAP_AXIS_DRAG_SENSITIVITY = 180;
-    const GAP_AXIS_TICK_MIN_GAP = 24;
+    const GAP_AXIS_TICK_MIN_GAP = 8;
+    const GAP_AXIS_TICK_MAX_GAP = 24;
+    const GAP_AXIS_DEFAULT_TICK_STEP = 50;
     const GAP_AXIS_MIN_VISIBLE_MAX = 2000;
+    const GAP_AXIS_ZERO_RATIO = 0.78;
     const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
@@ -748,7 +751,12 @@
 
         const power = 10 ** Math.floor(Math.log10(rawStep));
         const fraction = rawStep / power;
-        const multiplier = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+        const multiplier = fraction <= 1 ? 1
+            : fraction <= 1.5 ? 1.5
+            : fraction <= 2 ? 2
+            : fraction <= 2.5 ? 2.5
+            : fraction <= 5 ? 5
+            : 10;
         return multiplier * power;
     }
 
@@ -772,21 +780,20 @@
         const rawMin = Math.min(0, ...values);
         const rawMax = Math.max(0, ...values);
         const rangePadding = Math.max((rawMax - rawMin) * 0.06, 20);
-        const minDistance = 20;
-        const rangeFactor = 1 / gapAxisScale;
-        let minValue = rawMin * rangeFactor - rangePadding;
-        let maxValue = rawMax * rangeFactor + rangePadding;
-        maxValue = Math.max(maxValue, GAP_AXIS_MIN_VISIBLE_MAX);
+        const negativeRatio = (1 - GAP_AXIS_ZERO_RATIO) / GAP_AXIS_ZERO_RATIO;
+        const baseMaxValue = Math.max(
+            GAP_AXIS_MIN_VISIBLE_MAX,
+            rawMax + rangePadding,
+            Math.abs(rawMin - rangePadding) / negativeRatio
+        );
+        const maxValue = Math.max(GAP_AXIS_MIN_VISIBLE_MAX, baseMaxValue / gapAxisScale);
+        const minValue = -maxValue * negativeRatio;
+        const step = gapAxisTickStep({ minValue, maxValue });
+        const roundedMaxValue = Math.ceil(maxValue / step) * step;
 
-        if (Math.abs(maxValue - minValue) < minDistance) {
-            minValue = -100;
-            maxValue = 100;
-        }
-
-        const step = niceGapStep((maxValue - minValue || 1) / 5);
         return {
-            minValue: Math.floor(minValue / step) * step,
-            maxValue: Math.ceil(maxValue / step) * step
+            minValue: -roundedMaxValue * negativeRatio,
+            maxValue: roundedMaxValue
         };
     }
 
@@ -810,9 +817,9 @@
             return [];
         }
 
-        const step = niceGapStep((priceRange.maxValue - priceRange.minValue || 1) / 5);
-        const first = Math.floor(priceRange.minValue / step) * step;
-        const last = Math.ceil(priceRange.maxValue / step) * step;
+        const step = gapAxisTickStep(priceRange);
+        const first = Math.ceil(priceRange.minValue / step) * step;
+        const last = Math.floor(priceRange.maxValue / step) * step;
         const ticks = [];
 
         for (let value = first; value <= last + step * 0.5; value += step) {
@@ -826,6 +833,32 @@
         return ticks.sort((a, b) => b - a);
     }
 
+    function gapAxisTickStep(priceRange) {
+        const range = priceRange.maxValue - priceRange.minValue || 1;
+        const targetTickCount = gapAxisTargetTickCount();
+        const dynamicStep = niceGapStep(range / targetTickCount);
+
+        if (gapAxisScale >= 1) {
+            return Math.min(dynamicStep, GAP_AXIS_DEFAULT_TICK_STEP);
+        }
+
+        return dynamicStep;
+    }
+
+    function gapAxisTargetTickCount() {
+        const defaultRange = GAP_AXIS_MIN_VISIBLE_MAX / GAP_AXIS_ZERO_RATIO;
+        const defaultTickCount = Math.ceil(defaultRange / GAP_AXIS_DEFAULT_TICK_STEP);
+        return clampNumber(Math.round(defaultTickCount * gapAxisScale), 8, 120);
+    }
+
+    function gapAxisTickMinGap() {
+        return clampNumber(
+            GAP_AXIS_TICK_MIN_GAP / Math.sqrt(gapAxisScale),
+            5,
+            GAP_AXIS_TICK_MAX_GAP
+        );
+    }
+
     function renderGapAxis() {
         if (!gapAxisLayer || typeof gapSeries.priceToCoordinate !== 'function') {
             return;
@@ -834,6 +867,7 @@
         const height = chartElement.clientHeight;
         const fragment = document.createDocumentFragment();
         const renderedTickYs = [];
+        const tickMinGap = gapAxisTickMinGap();
         gapAxisTicks(gapAxisVisibleRange()).forEach(value => {
             const rawY = gapSeries.priceToCoordinate(value);
             if (!Number.isFinite(rawY)) {
@@ -841,7 +875,7 @@
             }
 
             const y = clampNumber(rawY, 12, height - 12);
-            if (renderedTickYs.some(renderedY => Math.abs(renderedY - y) < GAP_AXIS_TICK_MIN_GAP)) {
+            if (renderedTickYs.some(renderedY => Math.abs(renderedY - y) < tickMinGap)) {
                 return;
             }
             renderedTickYs.push(y);

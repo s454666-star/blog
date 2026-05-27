@@ -97,7 +97,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('GAP_AXIS_DRAG_SENSITIVITY', false)
             ->assertSee('GAP_AXIS_TICK_MIN_GAP', false)
             ->assertSee('GAP_AXIS_TICK_MAX_GAP = 24', false)
-            ->assertSee('GAP_AXIS_DEFAULT_TICK_STEP = 50', false)
+            ->assertSee('GAP_AXIS_DEFAULT_TICK_STEP = 200', false)
             ->assertSee('GAP_AXIS_MIN_VISIBLE_MAX = 2000', false)
             ->assertSee('GAP_AXIS_ZERO_RATIO = 0.78', false)
             ->assertSee('gapAxisTargetTickCount', false)

@@ -469,7 +469,7 @@
     const GAP_AXIS_DRAG_SENSITIVITY = 180;
     const GAP_AXIS_TICK_MIN_GAP = 8;
     const GAP_AXIS_TICK_MAX_GAP = 24;
-    const GAP_AXIS_DEFAULT_TICK_STEP = 50;
+    const GAP_AXIS_DEFAULT_TICK_STEP = 200;
     const GAP_AXIS_MIN_VISIBLE_MAX = 2000;
     const GAP_AXIS_ZERO_RATIO = 0.78;
     const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {

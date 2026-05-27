@@ -92,8 +92,6 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('長按左鍵 1.5 秒可標記或取消既有標記')
             ->assertSee('日收')
             ->assertSee('夜收')
-            ->assertSee('日收 日盤差值', false)
-            ->assertSee('夜收 夜盤差值', false)
             ->assertSee('"shape":"circle"', false)
             ->assertSee('台指期K線');
 
@@ -113,12 +111,17 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertNotEmpty($dailyGapMarkers);
         $this->assertNotEmpty(array_filter(
             $dailyGapMarkers,
-            fn (array $marker): bool => str_starts_with((string) $marker['text'], '日盤差值 '),
+            fn (array $marker): bool => (bool) preg_match('/^[+-][0-9,]+$/', (string) $marker['text']),
         ));
-        $this->assertNotEmpty(array_filter(
-            $dailyGapMarkers,
-            fn (array $marker): bool => str_starts_with((string) $marker['text'], '夜盤差值 '),
-        ));
+
+        preg_match('/const gapMarkers = (.*);/', (string) $response->getContent(), $hourlyMarkerMatches);
+        $this->assertNotEmpty($hourlyMarkerMatches[1] ?? null);
+
+        $hourlyGapMarkers = json_decode((string) $hourlyMarkerMatches[1], true, flags: JSON_THROW_ON_ERROR);
+        $this->assertNotEmpty($hourlyGapMarkers);
+        foreach ([...$dailyGapMarkers, ...$hourlyGapMarkers] as $marker) {
+            $this->assertMatchesRegularExpression('/^[+-][0-9,]+$/', (string) $marker['text']);
+        }
     }
 
     public function test_futures_night_session_trade_date_skips_weekends(): void

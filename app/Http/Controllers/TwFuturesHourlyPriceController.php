@@ -199,7 +199,7 @@ class TwFuturesHourlyPriceController extends Controller
                         'position' => $gap >= 0 ? 'aboveBar' : 'belowBar',
                         'color' => $gapColor,
                         'shape' => $event['shape'],
-                        'text' => $event['label'] . ' ' . $gapLabel . ' ' . ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
+                        'text' => $this->signedGapText($gap),
                     ];
                 }
             }
@@ -352,12 +352,17 @@ class TwFuturesHourlyPriceController extends Controller
                     'position' => $definition['position'],
                     'color' => $definition['color'],
                     'shape' => 'circle',
-                    'text' => $definition['label'] . ' ' . ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
+                    'text' => $this->signedGapText($gap),
                 ];
             }
         }
 
         return $markers;
+    }
+
+    private function signedGapText(float $gap): string
+    {
+        return ($gap >= 0 ? '+' : '') . number_format($gap, 0);
     }
 
     private function isSessionCloseConfirmed(CarbonImmutable $startedAt, string $sessionType): bool

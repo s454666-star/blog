@@ -476,6 +476,11 @@
         localization: {
             timeFormatter: formatTaipeiCrosshairTime
         },
+        leftPriceScale: {
+            visible: true,
+            borderColor: '#2c323a',
+            textColor: '#94a3b8'
+        },
         rightPriceScale: { borderColor: '#2c323a' },
         timeScale: {
             borderColor: '#2c323a',
@@ -504,8 +509,8 @@
     chartElement.appendChild(markerLabelLayer);
 
     chart.priceScale('right').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.34 } });
+    chart.priceScale('left').applyOptions({ scaleMargins: { top: 0.73, bottom: 0.06 } });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } });
-    chart.priceScale('gap').applyOptions({ scaleMargins: { top: 0.73, bottom: 0.06 } });
 
     const candleSeries = chart.addCandlestickSeries({
         upColor: '#ef5350',
@@ -539,7 +544,8 @@
     });
 
     const gapZeroSeries = chart.addLineSeries({
-        priceScaleId: 'gap',
+        priceScaleId: 'left',
+        priceFormat: { type: 'price', precision: 0, minMove: 1 },
         color: 'rgba(229, 231, 235, 0.38)',
         lineWidth: 1,
         lineStyle: LightweightCharts.LineStyle.Dashed,
@@ -548,7 +554,8 @@
     });
 
     const gapSeries = chart.addBaselineSeries({
-        priceScaleId: 'gap',
+        priceScaleId: 'left',
+        priceFormat: { type: 'price', precision: 0, minMove: 1 },
         lineWidth: 2,
         baseValue: { type: 'price', price: 0 },
         topLineColor: '#f59e0b',
@@ -563,7 +570,7 @@
     });
 
     const gapHistogramSeries = chart.addHistogramSeries({
-        priceScaleId: 'gap',
+        priceScaleId: 'left',
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
         lastValueVisible: false,
         priceLineVisible: false

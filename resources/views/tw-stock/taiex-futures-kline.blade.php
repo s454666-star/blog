@@ -467,6 +467,7 @@
     const GAP_AXIS_MIN_SCALE = 0.35;
     const GAP_AXIS_MAX_SCALE = 4;
     const GAP_AXIS_DRAG_SENSITIVITY = 180;
+    const GAP_AXIS_TICK_MIN_GAP = 24;
     const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
@@ -780,7 +781,11 @@
             maxValue = 100;
         }
 
-        return { minValue, maxValue };
+        const step = niceGapStep((maxValue - minValue || 1) / 5);
+        return {
+            minValue: Math.floor(minValue / step) * step,
+            maxValue: Math.ceil(maxValue / step) * step
+        };
     }
 
     function gapAutoscaleInfoProvider() {
@@ -804,8 +809,8 @@
         }
 
         const step = niceGapStep((priceRange.maxValue - priceRange.minValue || 1) / 5);
-        const first = Math.ceil(priceRange.minValue / step) * step;
-        const last = Math.floor(priceRange.maxValue / step) * step;
+        const first = Math.floor(priceRange.minValue / step) * step;
+        const last = Math.ceil(priceRange.maxValue / step) * step;
         const ticks = [];
 
         for (let value = first; value <= last + step * 0.5; value += step) {
@@ -826,11 +831,18 @@
 
         const height = chartElement.clientHeight;
         const fragment = document.createDocumentFragment();
+        const renderedTickYs = [];
         gapAxisTicks(gapAxisVisibleRange()).forEach(value => {
-            const y = gapSeries.priceToCoordinate(value);
-            if (!Number.isFinite(y) || y < 8 || y > height - 8) {
+            const rawY = gapSeries.priceToCoordinate(value);
+            if (!Number.isFinite(rawY)) {
                 return;
             }
+
+            const y = clampNumber(rawY, 12, height - 12);
+            if (renderedTickYs.some(renderedY => Math.abs(renderedY - y) < GAP_AXIS_TICK_MIN_GAP)) {
+                return;
+            }
+            renderedTickYs.push(y);
 
             const tick = document.createElement('span');
             tick.className = value === 0 ? 'gap-axis-tick zero' : 'gap-axis-tick';

@@ -95,6 +95,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('startGapAxisDrag', false)
             ->assertSee('gapAutoscaleInfoProvider', false)
             ->assertSee('GAP_AXIS_DRAG_SENSITIVITY', false)
+            ->assertSee('GAP_AXIS_TICK_MIN_GAP', false)
             ->assertSee('scheduleMarkerLabelRender', false)
             ->assertSee('startMarkerLabelRenderLoop', false)
             ->assertSee('const gapSeries = chart.addBaselineSeries', false)

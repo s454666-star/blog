@@ -358,7 +358,7 @@
         @else
             <div class="chart-hint">長按左鍵 1.5 秒可標記或取消既有標記，右鍵取消最近標記，重整後標記清空。</div>
             <div id="futures-chart"></div>
-            <div class="recent-gap-list" aria-label="最近開盤差值">
+            <div class="recent-gap-list" aria-label="最近開收盤差值">
                 @foreach ($sessionGapRows as $gapRow)
                     <div class="gap-chip">
                         <span class="time">{{ $gapRow['localTime'] }} · {{ $gapRow['label'] }}</span>

@@ -87,6 +87,9 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('toggleTemporaryPriceLine', false)
             ->assertSee('data-marker-count', false)
             ->assertSee('長按左鍵 1.5 秒可標記或取消既有標記')
+            ->assertSee('日收')
+            ->assertSee('夜收')
+            ->assertSee('"shape":"circle"', false)
             ->assertSee('台指期K線');
 
         preg_match('/const dailyChartRows = (.*);/', (string) $response->getContent(), $matches);

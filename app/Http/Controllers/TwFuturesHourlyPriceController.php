@@ -100,6 +100,17 @@ class TwFuturesHourlyPriceController extends Controller
             $previousDailyCloses[$tradeDate] = $previous;
         }
 
+        $sessionCloseTimes = [];
+        foreach ($rows as $row) {
+            $tradeDate = $row->trade_date?->toDateString();
+            $sessionType = (string) $row->session_type;
+            if ($tradeDate === null || ! in_array($sessionType, ['day', 'night'], true)) {
+                continue;
+            }
+
+            $sessionCloseTimes[$tradeDate][$sessionType] = (int) $row->started_at_unix;
+        }
+
         $ma95Window = [];
         $ma95Sum = 0.0;
         $chartRows = [];
@@ -128,7 +139,12 @@ class TwFuturesHourlyPriceController extends Controller
             $startedAt = CarbonImmutable::parse($row->started_at, 'Asia/Taipei');
             $time = (int) $row->started_at_unix;
             $localTime = $startedAt->format('Y-m-d H:i');
+            $sessionType = (string) $row->session_type;
             $isSessionOpen = in_array($startedAt->format('H:i'), ['08:45', '15:00'], true);
+            $isSessionClose = $tradeDate !== null
+                && in_array($sessionType, ['day', 'night'], true)
+                && ($sessionCloseTimes[$tradeDate][$sessionType] ?? null) === $time
+                && $this->isSessionCloseConfirmed($startedAt, $sessionType);
 
             if ($gap !== null) {
                 $latestGap = $gap;
@@ -136,12 +152,25 @@ class TwFuturesHourlyPriceController extends Controller
                 $latestMa95 = $ma95;
                 $gaps[] = $gap;
 
+                $sessionEvents = [];
                 if ($isSessionOpen) {
-                    $label = $row->session_type === 'day' ? '日開' : '夜開';
+                    $sessionEvents[] = [
+                        'label' => $sessionType === 'day' ? '日開' : '夜開',
+                        'shape' => $gap >= 0 ? 'arrowDown' : 'arrowUp',
+                    ];
+                }
+                if ($isSessionClose) {
+                    $sessionEvents[] = [
+                        'label' => $sessionType === 'day' ? '日收' : '夜收',
+                        'shape' => 'circle',
+                    ];
+                }
+
+                foreach ($sessionEvents as $event) {
                     $sessionGapRows[] = [
                         'time' => $time,
                         'localTime' => $localTime,
-                        'label' => $label,
+                        'label' => $event['label'],
                         'gap' => round($gap, 2),
                         'gapText' => ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
                         'dailyMa5' => round($dailyMa5, 2),
@@ -151,8 +180,8 @@ class TwFuturesHourlyPriceController extends Controller
                         'time' => $time,
                         'position' => $gap >= 0 ? 'aboveBar' : 'belowBar',
                         'color' => $gap >= 0 ? '#f59e0b' : '#38bdf8',
-                        'shape' => $gap >= 0 ? 'arrowDown' : 'arrowUp',
-                        'text' => $label . ' ' . ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
+                        'shape' => $event['shape'],
+                        'text' => $event['label'] . ' ' . ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
                     ];
                 }
             }
@@ -257,6 +286,20 @@ class TwFuturesHourlyPriceController extends Controller
         }
 
         return $dailyRows;
+    }
+
+    private function isSessionCloseConfirmed(CarbonImmutable $startedAt, string $sessionType): bool
+    {
+        if ($sessionType === 'day') {
+            $confirmedAt = $startedAt->setTime(13, 45);
+        } else {
+            $confirmedDate = (int) $startedAt->format('H') >= 15
+                ? $startedAt->addDay()
+                : $startedAt;
+            $confirmedAt = $confirmedDate->setTime(5, 0);
+        }
+
+        return CarbonImmutable::now('Asia/Taipei')->greaterThanOrEqualTo($confirmedAt);
     }
 
     private function cacheVersion(string $symbol): string

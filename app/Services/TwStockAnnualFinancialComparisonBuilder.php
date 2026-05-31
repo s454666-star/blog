@@ -6,6 +6,7 @@ use App\Models\TwStockQ1FinancialReport;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class TwStockAnnualFinancialComparisonBuilder
 {
@@ -38,6 +39,7 @@ class TwStockAnnualFinancialComparisonBuilder
             ->map(fn (TwStockQ1FinancialReport $row): string => (string) $row->stock_code)
             ->unique()
             ->values();
+        $latestDailyPrices = $this->latestDailyPriceRows($latestRows);
         $annualMetrics = $this->annualMetricRows($stockCodes, $contextYear, $startYear);
         $monthlyRevenueRows = $this->monthlyRevenueRows($stockCodes, $contextYear, $startYear);
         $netMarginRows = $this->netMarginRows($stockCodes, $contextYear, $startYear);
@@ -48,6 +50,7 @@ class TwStockAnnualFinancialComparisonBuilder
                 $monthlyRevenueRows[$key] ?? [],
                 $annualMetrics[$key] ?? [],
                 $netMarginRows[$key] ?? collect(),
+                $latestDailyPrices[$key] ?? null,
                 $contextYear,
                 $startYear,
                 $endYear,
@@ -104,6 +107,67 @@ class TwStockAnnualFinancialComparisonBuilder
         return TwStockQ1FinancialReport::hydrate($records)
             ->groupBy(fn (TwStockQ1FinancialReport $row): string => $this->rowKey((string) $row->exchange, (string) $row->stock_code))
             ->map(fn (Collection $rows): TwStockQ1FinancialReport => $rows->first());
+    }
+
+    /**
+     * @param Collection<string, TwStockQ1FinancialReport> $latestRows
+     * @return array<string, array<string, mixed>>
+     */
+    private function latestDailyPriceRows(Collection $latestRows): array
+    {
+        $stockCodes = $latestRows
+            ->map(fn (TwStockQ1FinancialReport $row): string => (string) $row->stock_code)
+            ->unique()
+            ->values();
+        $exchanges = $latestRows
+            ->map(fn (TwStockQ1FinancialReport $row): string => (string) $row->exchange)
+            ->unique()
+            ->values();
+        $stockKeys = $latestRows
+            ->keys()
+            ->sort()
+            ->values()
+            ->all();
+
+        if ($stockCodes->isEmpty() || $exchanges->isEmpty()) {
+            return [];
+        }
+
+        $records = Cache::remember(
+            'tw-stock:annual-builder:latest-daily-prices:v1:' . sha1(serialize([
+                $stockKeys,
+                $this->dailyPriceCacheVersion($stockCodes, $exchanges),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            function () use ($stockCodes, $exchanges): array {
+                $latestDates = DB::table('tw_stock_daily_prices')
+                    ->select(['exchange', 'stock_code'])
+                    ->selectRaw('MAX(trade_date) as max_trade_date')
+                    ->whereIn('stock_code', $stockCodes->all())
+                    ->whereIn('exchange', $exchanges->all())
+                    ->groupBy('exchange', 'stock_code');
+
+                return DB::table('tw_stock_daily_prices as prices')
+                    ->joinSub($latestDates, 'latest_prices', function ($join): void {
+                        $join->on('prices.exchange', '=', 'latest_prices.exchange')
+                            ->on('prices.stock_code', '=', 'latest_prices.stock_code')
+                            ->on('prices.trade_date', '=', 'latest_prices.max_trade_date');
+                    })
+                    ->get([
+                        'prices.exchange',
+                        'prices.stock_code',
+                        'prices.trade_date',
+                        'prices.close_price',
+                        'prices.volume_lots',
+                    ])
+                    ->map(fn (object $row): array => (array) $row)
+                    ->all();
+            },
+        );
+
+        return collect($records)
+            ->keyBy(fn (array $row): string => $this->rowKey((string) $row['exchange'], (string) $row['stock_code']))
+            ->all();
     }
 
     /**
@@ -222,6 +286,7 @@ class TwStockAnnualFinancialComparisonBuilder
         array $monthlyRows,
         array $annualMetrics,
         Collection $netMarginRows,
+        ?array $latestDailyPrice,
         int $contextYear,
         int $startYear,
         int $endYear,
@@ -283,10 +348,32 @@ class TwStockAnnualFinancialComparisonBuilder
             'current_q1_eps_yoy_percent' => $this->nullableFloat($latest->q1_eps_yoy_percent),
             'current_q1_revenue_yoy_percent' => $this->nullableFloat($latest->q1_revenue_yoy_percent),
             'end_year_revenue_yoy_percent' => $endYearRevenueYoy,
-            'latest_close_price' => $latest->latest_close_price,
-            'volume_lots' => $latest->volume_lots,
+            'latest_close_price' => $this->nullableFloat($latestDailyPrice['close_price'] ?? $latest->latest_close_price),
+            'volume_lots' => $latestDailyPrice !== null && isset($latestDailyPrice['volume_lots'])
+                ? (int) $latestDailyPrice['volume_lots']
+                : $latest->volume_lots,
             'generated_at' => now(),
         ];
+    }
+
+    /**
+     * @param Collection<int, string> $stockCodes
+     * @param Collection<int, string> $exchanges
+     */
+    private function dailyPriceCacheVersion(Collection $stockCodes, Collection $exchanges): string
+    {
+        $row = DB::table('tw_stock_daily_prices')
+            ->whereIn('stock_code', $stockCodes->all())
+            ->whereIn('exchange', $exchanges->all())
+            ->selectRaw('COUNT(*) as row_count, MAX(trade_date) as max_trade_date, MAX(updated_at) as max_updated_at, MAX(id) as max_id')
+            ->first();
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_trade_date ?? ''),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
     }
 
     /**

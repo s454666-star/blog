@@ -777,6 +777,35 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertDontSee('data-copy-value="3034"', false);
     }
 
+    public function test_annual_comparison_refresh_uses_latest_daily_price_snapshot(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert($this->annualComparisonRows(
+            '2408',
+            '南亞科',
+            [2020 => 100, 2021 => 125, 2022 => 150, 2023 => 180, 2024 => 225, 2025 => 280, 2026 => 90],
+            [2020 => 1.0, 2021 => 1.3, 2022 => 1.6, 2023 => 2.0, 2024 => 2.4, 2025 => 3.0, 2026 => 0.8],
+            22.5,
+            true,
+        ));
+        DB::table('tw_stock_daily_prices')->insert([
+            $this->dailyPriceRow('2408', '南亞科', '2026-05-28', 320.0),
+            array_merge($this->dailyPriceRow('2408', '南亞科', '2026-05-29', 348.0), [
+                'volume_lots' => 4567,
+            ]),
+        ]);
+
+        $this->artisan('tw-stock:refresh-annual-financial-comparisons', [
+            '--context-year' => 2026,
+            '--start-year' => 2020,
+            '--end-year' => 2025,
+        ])->assertExitCode(0);
+
+        $row = DB::table('tw_stock_annual_financial_comparisons')->where('stock_code', '2408')->first();
+
+        $this->assertEqualsWithDelta(347.0, (float) $row->latest_close_price, 0.0001);
+        $this->assertSame(4567, (int) $row->volume_lots);
+    }
+
     public function test_monthly_revenue_fetcher_fills_short_nstock_history_from_mops_csv(): void
     {
         Http::fake(function ($request) {

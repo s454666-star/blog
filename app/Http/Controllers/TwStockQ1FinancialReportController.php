@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\TwStockAnnualFinancialComparison;
 use App\Models\TwStockCompanyProfile;
 use App\Models\TwStockDailyPrice;
+use App\Models\TwStockDailyTurnoverRate;
 use App\Models\TwStockQ1FinancialReport;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
@@ -42,6 +43,8 @@ class TwStockQ1FinancialReportController extends Controller
     private const ANNUAL_CURRENT_Q1_REVENUE_YOY_THRESHOLD = 7.0;
 
     private const ANNUAL_NET_MARGIN_THRESHOLD = 15.0;
+
+    private const ANNUAL_WEEKLY_TURNOVER_THRESHOLD = 5.0;
 
     private const STOCK_CACHE_TTL_SECONDS = 43200;
 
@@ -143,6 +146,7 @@ class TwStockQ1FinancialReportController extends Controller
             'current_q1_revenue_yoy',
             'recent_two_month_high',
             'net_margin',
+            'weekly_turnover',
         ])
             ->filter(fn (string $filter): bool => $request->boolean($filter))
             ->values()
@@ -151,6 +155,7 @@ class TwStockQ1FinancialReportController extends Controller
         $thresholds = $this->annualComparisonThresholds($request);
 
         $baseRows = $this->annualComparisonBaseRows(self::CURRENT_CONTEXT_YEAR, $search);
+        $weeklyTurnoverDates = $this->annualComparisonWeeklyTurnoverDates();
         $valuationGroupByStockKey = $this->annualComparisonValuationGroupMap($baseRows);
         $availableValuationGroups = $this->availableAnnualComparisonValuationGroups($valuationGroupByStockKey);
         $valuationGroups = $this->selectedValuationGroups($request->query('valuation_groups', []), $availableValuationGroups);
@@ -161,6 +166,7 @@ class TwStockQ1FinancialReportController extends Controller
                 ->filter(fn (TwStockAnnualFinancialComparison $row): bool => isset($selectedValuationGroups[(string) $row->getAttribute('valuation_group')]))
                 ->values();
         }
+        $baseRows = $this->attachAnnualComparisonWeeklyTurnover($baseRows, $weeklyTurnoverDates);
 
         $recentTwoMonthHighKeys = $this->recentTwoMonthHighKeys($baseRows);
         $filteredRows = $this->filterAnnualComparisonRows($baseRows, $filters, $recentTwoMonthHighKeys, $thresholds);
@@ -170,6 +176,7 @@ class TwStockQ1FinancialReportController extends Controller
                 $this->sortAnnualComparisonRows($filteredRows, $sort),
                 $perPage,
             ),
+            $weeklyTurnoverDates,
         );
 
         return view('tw-stock.annual-comparison', [
@@ -184,6 +191,7 @@ class TwStockQ1FinancialReportController extends Controller
             'summary' => $this->annualComparisonSummary($filteredRows, $recentTwoMonthHighKeys, $thresholds),
             'recentTwoMonthHighKeys' => $recentTwoMonthHighKeys,
             'thresholds' => $thresholds,
+            'weeklyTurnoverDates' => $weeklyTurnoverDates,
             'years' => range(self::ANNUAL_COMPARISON_START_YEAR + 1, self::ANNUAL_COMPARISON_END_YEAR),
         ]);
     }
@@ -223,6 +231,7 @@ class TwStockQ1FinancialReportController extends Controller
             'end_year_revenue_yoy' => $this->thresholdValue($request->query('end_year_revenue_yoy_threshold'), self::ANNUAL_END_YEAR_REVENUE_YOY_THRESHOLD),
             'current_q1_revenue_yoy' => $this->thresholdValue($request->query('current_q1_revenue_yoy_threshold'), self::ANNUAL_CURRENT_Q1_REVENUE_YOY_THRESHOLD),
             'net_margin' => $this->thresholdValue($request->query('net_margin_threshold'), self::ANNUAL_NET_MARGIN_THRESHOLD),
+            'weekly_turnover' => $this->thresholdValue($request->query('weekly_turnover_threshold'), self::ANNUAL_WEEKLY_TURNOVER_THRESHOLD),
         ];
     }
 
@@ -455,9 +464,10 @@ class TwStockQ1FinancialReportController extends Controller
 
     /**
      * @param LengthAwarePaginator<int, TwStockAnnualFinancialComparison> $stocks
+     * @param list<string> $weeklyTurnoverDates
      * @return LengthAwarePaginator<int, TwStockAnnualFinancialComparison>
      */
-    private function hydrateAnnualComparisonPage(LengthAwarePaginator $stocks): LengthAwarePaginator
+    private function hydrateAnnualComparisonPage(LengthAwarePaginator $stocks, array $weeklyTurnoverDates): LengthAwarePaginator
     {
         $ids = $stocks->getCollection()
             ->pluck('id')
@@ -483,11 +493,16 @@ class TwStockQ1FinancialReportController extends Controller
         );
         $fullRows = TwStockAnnualFinancialComparison::hydrate($fullRowRecords)->keyBy('id');
 
-        $stocks->setCollection($this->attachAnnualComparisonValuationMeta(
+        $pageRows = $this->attachAnnualComparisonWeeklyTurnover(
             $stocks->getCollection()
                 ->map(fn (TwStockAnnualFinancialComparison $stock): ?TwStockAnnualFinancialComparison => $fullRows->get($stock->id))
                 ->filter()
                 ->values(),
+            $weeklyTurnoverDates,
+        );
+
+        $stocks->setCollection($this->attachAnnualComparisonValuationMeta(
+            $pageRows,
         ));
 
         return $stocks;
@@ -635,6 +650,152 @@ class TwStockQ1FinancialReportController extends Controller
         });
     }
 
+    /**
+     * @return list<string>
+     */
+    private function annualComparisonWeeklyTurnoverDates(): array
+    {
+        return Cache::remember(
+            'tw-stock:annual-comparison:weekly-turnover-dates:v1:' . $this->dailyTurnoverGlobalCacheVersion(),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): array => collect(TwStockDailyTurnoverRate::query()
+                ->select('trade_date')
+                ->distinct()
+                ->orderByDesc('trade_date')
+                ->limit(5)
+                ->pluck('trade_date'))
+                ->map(fn ($date): string => Carbon::parse($date)->toDateString())
+                ->reverse()
+                ->values()
+                ->all(),
+        );
+    }
+
+    private function dailyTurnoverGlobalCacheVersion(): string
+    {
+        $row = TwStockDailyTurnoverRate::query()
+            ->selectRaw('COUNT(*) as row_count, MAX(trade_date) as max_trade_date, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
+            ->toBase()
+            ->first();
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_trade_date ?? ''),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_fetched_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
+    }
+
+    /**
+     * @param Collection<int, TwStockAnnualFinancialComparison> $rows
+     * @param list<string> $dates
+     * @return Collection<int, TwStockAnnualFinancialComparison>
+     */
+    private function attachAnnualComparisonWeeklyTurnover(Collection $rows, array $dates): Collection
+    {
+        if ($rows->isEmpty() || $dates === []) {
+            return $rows->each(function (TwStockAnnualFinancialComparison $row): void {
+                $row->setAttribute('weekly_turnover_rates', []);
+                $row->setAttribute('weekly_turnover_total_percent', null);
+                $row->setAttribute('weekly_turnover_trading_days', 0);
+            });
+        }
+
+        $stockCodes = $rows
+            ->pluck('stock_code')
+            ->map(fn ($value): string => (string) $value)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $exchanges = $rows
+            ->pluck('exchange')
+            ->map(fn ($value): string => (string) $value)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $stockKeys = $rows
+            ->map(fn (TwStockAnnualFinancialComparison $row): string => $this->stockKey((string) $row->exchange, (string) $row->stock_code))
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+
+        $turnoverRecords = Cache::remember(
+            'tw-stock:annual-comparison:weekly-turnover:v1:' . sha1(serialize([
+                $dates,
+                $stockKeys,
+                $this->dailyTurnoverCacheVersion($dates, $stockCodes, $exchanges),
+            ])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): array => TwStockDailyTurnoverRate::query()
+                ->whereIn('trade_date', $dates)
+                ->whereIn('stock_code', $stockCodes)
+                ->whereIn('exchange', $exchanges)
+                ->get(['exchange', 'stock_code', 'trade_date', 'turnover_rate_percent', 'trading_shares', 'issued_shares'])
+                ->map(fn (TwStockDailyTurnoverRate $row): array => $row->getAttributes())
+                ->all(),
+        );
+
+        $turnoverByStock = TwStockDailyTurnoverRate::hydrate($turnoverRecords)
+            ->groupBy(fn (TwStockDailyTurnoverRate $row): string => $this->stockKey((string) $row->exchange, (string) $row->stock_code));
+
+        return $rows->each(function (TwStockAnnualFinancialComparison $row) use ($dates, $turnoverByStock): void {
+            $stockTurnoverRows = $turnoverByStock
+                ->get($this->stockKey((string) $row->exchange, (string) $row->stock_code), collect())
+                ->keyBy(fn (TwStockDailyTurnoverRate $turnover): string => Carbon::parse($turnover->trade_date)->toDateString());
+
+            $history = [];
+            $total = 0.0;
+            $tradingDays = 0;
+            foreach ($dates as $date) {
+                $turnover = $stockTurnoverRows->get($date);
+                $rate = $this->nullableFloat($turnover?->turnover_rate_percent);
+                if ($rate !== null) {
+                    $total += $rate;
+                    $tradingDays++;
+                }
+
+                $history[] = [
+                    'date' => $date,
+                    'turnover_rate_percent' => $rate,
+                    'trading_shares' => $turnover?->trading_shares,
+                    'issued_shares' => $turnover?->issued_shares,
+                ];
+            }
+
+            $row->setAttribute('weekly_turnover_rates', $history);
+            $row->setAttribute('weekly_turnover_total_percent', $tradingDays > 0 ? round($total, 4) : null);
+            $row->setAttribute('weekly_turnover_trading_days', $tradingDays);
+        });
+    }
+
+    /**
+     * @param list<string> $dates
+     * @param list<string> $stockCodes
+     * @param list<string> $exchanges
+     */
+    private function dailyTurnoverCacheVersion(array $dates, array $stockCodes, array $exchanges): string
+    {
+        $row = TwStockDailyTurnoverRate::query()
+            ->whereIn('trade_date', $dates)
+            ->whereIn('stock_code', $stockCodes)
+            ->whereIn('exchange', $exchanges)
+            ->selectRaw('COUNT(*) as row_count, MAX(trade_date) as max_trade_date, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
+            ->toBase()
+            ->first();
+
+        return implode('|', [
+            (int) ($row->row_count ?? 0),
+            (string) ($row->max_trade_date ?? ''),
+            (string) ($row->max_updated_at ?? ''),
+            (string) ($row->max_fetched_at ?? ''),
+            (string) ($row->max_id ?? ''),
+        ]);
+    }
+
     private function annualExpectedPrice(TwStockAnnualFinancialComparison $stock, ?float $valuationGroupPe): ?float
     {
         $currentEps = $this->nullableFloat($stock->current_eps);
@@ -675,6 +836,7 @@ class TwStockQ1FinancialReportController extends Controller
                         'current_q1_revenue_yoy' => $this->passesThreshold($row->current_q1_revenue_yoy_percent, $thresholds['current_q1_revenue_yoy']),
                         'recent_two_month_high' => isset($recentTwoMonthHighKeys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)]),
                         'net_margin' => $this->annualNetMarginPass($row, $thresholds['net_margin']),
+                        'weekly_turnover' => $this->passesThreshold($row->getAttribute('weekly_turnover_total_percent'), $thresholds['weekly_turnover']),
                         default => true,
                     };
 
@@ -698,7 +860,7 @@ class TwStockQ1FinancialReportController extends Controller
      * @param Collection<int, TwStockAnnualFinancialComparison> $rows
      * @param array<string, true> $recentTwoMonthHighKeys
      * @param array<string, float> $thresholds
-     * @return array{total: int, revenuePass: int, epsPass: int, currentQ1EpsYoyPass: int, endYearRevenueYoyPass: int, currentQ1RevenueYoyPass: int, recentTwoMonthHighPass: int, netMarginPass: int}
+     * @return array{total: int, revenuePass: int, epsPass: int, currentQ1EpsYoyPass: int, endYearRevenueYoyPass: int, currentQ1RevenueYoyPass: int, recentTwoMonthHighPass: int, netMarginPass: int, weeklyTurnoverPass: int}
      */
     private function annualComparisonSummary(Collection $rows, array $recentTwoMonthHighKeys, array $thresholds): array
     {
@@ -711,6 +873,7 @@ class TwStockQ1FinancialReportController extends Controller
             'currentQ1RevenueYoyPass' => 0,
             'recentTwoMonthHighPass' => 0,
             'netMarginPass' => 0,
+            'weeklyTurnoverPass' => 0,
         ];
 
         foreach ($rows as $row) {
@@ -740,6 +903,10 @@ class TwStockQ1FinancialReportController extends Controller
 
             if ($this->annualNetMarginPass($row, $thresholds['net_margin'])) {
                 $summary['netMarginPass']++;
+            }
+
+            if ($this->passesThreshold($row->getAttribute('weekly_turnover_total_percent'), $thresholds['weekly_turnover'])) {
+                $summary['weeklyTurnoverPass']++;
             }
         }
 

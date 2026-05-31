@@ -39,6 +39,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
         DB::purge('sqlite');
         DB::reconnect('sqlite');
         DB::setDefaultConnection('sqlite');
+        Cache::flush();
 
         Carbon::setTestNow('2026-05-08 17:00:00');
         CarbonImmutable::setTestNow('2026-05-08 17:00:00');
@@ -52,6 +53,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
         Schema::dropIfExists('tw_stock_annual_financial_comparisons');
         Schema::dropIfExists('tw_stock_company_profiles');
         Schema::dropIfExists('tw_stock_q1_financial_reports');
+        Schema::dropIfExists('tw_stock_daily_turnover_rates');
         Schema::dropIfExists('tw_stock_daily_prices');
 
         Carbon::setTestNow();
@@ -654,6 +656,11 @@ class TwStockQ1FinancialReportsTest extends TestCase
                 'updated_at' => now(),
             ],
         ]);
+        DB::table('tw_stock_daily_turnover_rates')->insert($this->weeklyTurnoverRows([
+            '2408' => ['exchange' => 'TWSE', 'name' => '南亞科', 'rates' => [2.5, 2.8, 2.1, 2.4, 2.7]],
+            '8261' => ['exchange' => 'TPEx', 'name' => '富鼎', 'rates' => [0.7, 0.8, 0.6, 0.9, 0.7]],
+            '3034' => ['exchange' => 'TWSE', 'name' => '聯詠', 'rates' => [1.2, 1.4, 1.3, 1.1, 1.2]],
+        ]));
 
         $response = $this->get(route('tw-stock.annual-comparison.index'));
 
@@ -673,6 +680,12 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('name="current_q1_revenue_yoy_threshold" value="7"', false)
             ->assertSee('淨利率近 8 季或近 2 年平均 &gt;', false)
             ->assertSee('name="net_margin_threshold" value="15"', false)
+            ->assertSee('一周周轉率合計 &gt;', false)
+            ->assertSee('name="weekly_turnover_threshold" value="5"', false)
+            ->assertSee('周轉率條件')
+            ->assertSee('一周周轉')
+            ->assertSee('5/25')
+            ->assertSee('12.50%')
             ->assertSee('近 3 日創兩月新高')
             ->assertSee('近 3 日新高')
             ->assertDontSee('每年 EPS YoY 均為正')
@@ -744,6 +757,19 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('name="current_q1_revenue_yoy" value="1" checked', false)
             ->assertSee('name="current_q1_revenue_yoy_threshold" value="9"', false)
             ->assertSee('name="recent_two_month_high" value="1" checked', false)
+            ->assertSee('data-copy-value="2408"', false)
+            ->assertDontSee('data-copy-value="8261"', false)
+            ->assertDontSee('data-copy-value="2451"', false)
+            ->assertDontSee('data-copy-value="3034"', false);
+
+        $turnoverFiltered = $this->get(route('tw-stock.annual-comparison.index', [
+            'weekly_turnover' => 1,
+            'weekly_turnover_threshold' => 10,
+        ]));
+
+        $turnoverFiltered->assertOk()
+            ->assertSee('name="weekly_turnover" value="1" checked', false)
+            ->assertSee('name="weekly_turnover_threshold" value="10"', false)
             ->assertSee('data-copy-value="2408"', false)
             ->assertDontSee('data-copy-value="8261"', false)
             ->assertDontSee('data-copy-value="2451"', false)
@@ -2226,6 +2252,23 @@ HTML;
             $table->unique(['exchange', 'stock_code']);
         });
 
+        Schema::create('tw_stock_daily_turnover_rates', function (Blueprint $table): void {
+            $table->id();
+            $table->string('exchange', 12);
+            $table->string('stock_code', 12);
+            $table->string('stock_name');
+            $table->date('trade_date');
+            $table->unsignedInteger('rank')->nullable();
+            $table->unsignedBigInteger('trading_shares')->default(0);
+            $table->unsignedBigInteger('issued_shares')->nullable();
+            $table->decimal('turnover_rate_percent', 10, 4)->nullable();
+            $table->string('source')->nullable();
+            $table->json('source_payload')->nullable();
+            $table->timestamp('fetched_at')->nullable();
+            $table->timestamps();
+            $table->unique(['exchange', 'stock_code', 'trade_date']);
+        });
+
         Schema::create('tw_stock_annual_financial_comparisons', function (Blueprint $table): void {
             $table->id();
             $table->unsignedSmallInteger('context_year');
@@ -2254,5 +2297,38 @@ HTML;
             $table->timestamp('generated_at')->nullable();
             $table->timestamps();
         });
+    }
+
+    /**
+     * @param array<string, array{exchange: string, name: string, rates: list<float>}> $stocks
+     * @return list<array<string, mixed>>
+     */
+    private function weeklyTurnoverRows(array $stocks): array
+    {
+        $dates = ['2026-05-25', '2026-05-26', '2026-05-27', '2026-05-28', '2026-05-29'];
+        $now = now();
+        $rows = [];
+        foreach ($stocks as $stockCode => $stock) {
+            foreach ($dates as $index => $date) {
+                $rate = $stock['rates'][$index];
+                $rows[] = [
+                    'exchange' => $stock['exchange'],
+                    'stock_code' => $stockCode,
+                    'stock_name' => $stock['name'],
+                    'trade_date' => $date,
+                    'rank' => null,
+                    'trading_shares' => (int) round($rate * 10000),
+                    'issued_shares' => 1000000,
+                    'turnover_rate_percent' => $rate,
+                    'source' => 'test',
+                    'source_payload' => null,
+                    'fetched_at' => $now,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+        }
+
+        return $rows;
     }
 }

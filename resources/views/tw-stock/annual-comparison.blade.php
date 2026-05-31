@@ -275,9 +275,9 @@
 
         .summary {
             display: grid;
-            grid-template-columns: repeat(8, minmax(88px, 1fr));
+            grid-template-columns: repeat(9, minmax(88px, 1fr));
             gap: 8px;
-            min-width: 720px;
+            min-width: 810px;
         }
 
         .stat {
@@ -648,6 +648,58 @@
             color: #64748b;
         }
 
+        .turnover-chip {
+            color: #0f766e;
+            border-color: rgba(15, 118, 110, 0.24);
+            background: linear-gradient(135deg, rgba(240, 253, 250, 0.98), rgba(239, 246, 255, 0.88));
+        }
+
+        .turnover-chip strong {
+            color: #0f766e;
+        }
+
+        .turnover-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .turnover-pill {
+            display: grid;
+            min-width: 74px;
+            min-height: 42px;
+            align-content: center;
+            gap: 2px;
+            border: 1px solid rgba(15, 118, 110, 0.22);
+            border-radius: 8px;
+            padding: 5px 8px;
+            background: rgba(240, 253, 250, 0.92);
+            box-shadow: 0 8px 16px rgba(23, 32, 51, 0.05);
+        }
+
+        .turnover-pill small {
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 900;
+            line-height: 1;
+        }
+
+        .turnover-pill strong {
+            color: #0f766e;
+            font-size: 13px;
+            font-weight: 950;
+            line-height: 1.1;
+        }
+
+        .turnover-pill.empty {
+            border-color: rgba(148, 163, 184, 0.30);
+            background: #f8fafc;
+        }
+
+        .turnover-pill.empty strong {
+            color: #94a3b8;
+        }
+
         .metrics {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
@@ -864,6 +916,7 @@
     $passes = fn ($value, float $threshold): bool => $value !== null && (float) $value > $threshold;
     $filterChecked = fn (string $filter): bool => in_array($filter, $filters, true);
     $sortUrl = fn (string $target): string => request()->fullUrlWithQuery(['sort' => $target, 'page' => null]);
+    $shortDate = fn (string $date): string => \Illuminate\Support\Carbon::parse($date)->format('n/j');
     $exchangeBadgeMeta = function (?string $exchange): ?array {
         return match (strtoupper(trim((string) $exchange))) {
             'TWSE', 'SII', '上市' => ['label' => '市', 'class' => 'twse', 'title' => '上市'],
@@ -875,13 +928,16 @@
     $valuationGroupSummary = count($valuationGroups) === 0
         ? '全部族群'
         : implode('、', array_slice($valuationGroups, 0, 2)) . (count($valuationGroups) > 2 ? ' +' . (count($valuationGroups) - 2) : '');
+    $turnoverDateLabel = count($weeklyTurnoverDates) > 0
+        ? $shortDate($weeklyTurnoverDates[0]) . '~' . $shortDate($weeklyTurnoverDates[count($weeklyTurnoverDates) - 1])
+        : '尚無周轉率資料';
 @endphp
 
 <div class="shell">
     <header class="topbar">
         <div>
             <h1>台股年度營收 EPS 比較</h1>
-            <div class="meta">2020-2025 年度比較，每檔股票 5 列；2026 Q1 與 1-4 月營收列為即時摘要。</div>
+            <div class="meta">2020-2025 年度比較，每檔股票 5 列；2026 Q1、1-4 月營收與 {{ $turnoverDateLabel }} 周轉率列為即時摘要。</div>
         </div>
         <nav class="nav" aria-label="台股頁面">
             <a href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
@@ -962,6 +1018,12 @@
                     <input class="threshold-input" type="number" name="net_margin_threshold" value="{{ $thresholdText($thresholds['net_margin']) }}" step="0.01" data-auto-submit aria-label="淨利率門檻">
                     <span class="threshold-unit">%</span>
                 </label>
+                <label class="check threshold-check">
+                    <input type="checkbox" name="weekly_turnover" value="1" {{ $filterChecked('weekly_turnover') ? 'checked' : '' }} data-auto-submit>
+                    <span>一周周轉率合計 &gt;</span>
+                    <input class="threshold-input" type="number" name="weekly_turnover_threshold" value="{{ $thresholdText($thresholds['weekly_turnover']) }}" step="0.01" data-auto-submit aria-label="一周周轉率門檻">
+                    <span class="threshold-unit">%</span>
+                </label>
             </div>
         </div>
         <section class="summary" aria-label="篩選摘要">
@@ -997,6 +1059,10 @@
                 <div class="label">淨利率條件</div>
                 <div class="value">{{ number_format($summary['netMarginPass']) }}</div>
             </div>
+            <div class="stat">
+                <div class="label">周轉率條件</div>
+                <div class="value">{{ number_format($summary['weeklyTurnoverPass']) }}</div>
+            </div>
         </section>
     </form>
 
@@ -1011,12 +1077,15 @@
                     $valuationGroupPe = $stock['valuation_group_pe'] ?? null;
                     $expectedPrice = $stock['expected_price'] ?? null;
                     $expectedPriceChangePercent = $stock['expected_price_change_percent'] ?? null;
+                    $weeklyTurnoverTotal = $stock['weekly_turnover_total_percent'] ?? null;
+                    $weeklyTurnoverDays = $stock['weekly_turnover_trading_days'] ?? 0;
                     $revenuePass = $passes($stock['revenue_yoy_sum'], $thresholds['revenue_growth']);
                     $epsPass = $passes($stock['eps_yoy_sum'], $thresholds['eps_growth']);
                     $currentQ1EpsPass = $passes($stock['current_q1_eps_yoy_percent'], $thresholds['current_q1_eps_yoy']);
                     $endYearRevenuePass = $passes($stock['end_year_revenue_yoy_percent'], $thresholds['end_year_revenue_yoy']);
                     $currentQ1RevenuePass = $passes($stock['current_q1_revenue_yoy_percent'], $thresholds['current_q1_revenue_yoy']);
                     $netMarginPass = $passes($stock['recent_net_margin_average'], $thresholds['net_margin']) || $passes($stock['last_two_year_net_margin_average'], $thresholds['net_margin']);
+                    $weeklyTurnoverPass = $passes($weeklyTurnoverTotal, $thresholds['weekly_turnover']);
                     $exchangeBadge = $exchangeBadgeMeta($stock['exchange'] ?? null);
                 @endphp
                 <article class="stock-card" style="animation-delay: {{ min($loop->index * 28, 360) }}ms">
@@ -1047,10 +1116,14 @@
                                 @if ($netMarginPass)
                                     <span class="badge pass">淨利率 PASS</span>
                                 @endif
+                                @if ($weeklyTurnoverPass)
+                                    <span class="badge pass">周轉率 PASS</span>
+                                @endif
                             </div>
                             <div class="meta stock-meta">
                                 <span class="meta-chip price-chip">股價 <strong>{{ $fmt($stock['latest_close_price']) }}</strong></span>
                                 <span class="meta-chip volume-chip">成交量 <strong>{{ $stock['volume_lots'] === null ? '--' : number_format((int) $stock['volume_lots']) }}</strong> 張</span>
+                                <span class="meta-chip turnover-chip">一周周轉 <strong>{{ $pct($weeklyTurnoverTotal) }}</strong><em>{{ (int) $weeklyTurnoverDays }}日</em></span>
                                 @if ($valuationGroup)
                                     <span class="meta-chip group-chip">
                                         族群 <strong>{{ $valuationGroup }}</strong>
@@ -1066,6 +1139,19 @@
                                     @endif
                                 </span>
                             </div>
+                            @if (!empty($stock['weekly_turnover_rates']))
+                                <div class="turnover-strip" aria-label="一周每日周轉率">
+                                    @foreach ($stock['weekly_turnover_rates'] as $turnover)
+                                        @php
+                                            $dailyTurnover = $turnover['turnover_rate_percent'] ?? null;
+                                        @endphp
+                                        <span class="turnover-pill {{ $dailyTurnover === null ? 'empty' : '' }}">
+                                            <small>{{ $shortDate($turnover['date']) }}</small>
+                                            <strong>{{ $pct($dailyTurnover) }}</strong>
+                                        </span>
+                                    @endforeach
+                                </div>
+                            @endif
                         </div>
                         <div class="metrics">
                             <div class="metric">
@@ -1106,6 +1192,11 @@
                             <div class="metric">
                                 <div class="label">2026 Q1 營收 YoY</div>
                                 <div class="value {{ $tone($stock['current_q1_revenue_yoy_percent']) }}">{{ $pct($stock['current_q1_revenue_yoy_percent']) }}</div>
+                                <div class="bar"></div>
+                            </div>
+                            <div class="metric">
+                                <div class="label">一周周轉率合計</div>
+                                <div class="value {{ $weeklyTurnoverTotal === null ? 'muted' : 'pos' }}">{{ $pct($weeklyTurnoverTotal) }}</div>
                                 <div class="bar"></div>
                             </div>
                         </div>

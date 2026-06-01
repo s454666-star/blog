@@ -54,7 +54,7 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_daily_prices.log'));
 
-        $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=1 --market-data-only --min-volume-lots=1000 --sleep-ms=80 --skip-non-trading-day')
+        $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=1 --market-data-only --min-volume-lots=1000 --sleep-ms=80 --skip-non-trading-day --keep-missing-market-data')
             ->dailyAt('15:10')
             ->name('tw-stock-refresh-q1-market-data')
             ->withoutOverlapping(180)
@@ -74,6 +74,34 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping(120)
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_daily_turnover_rates.log'));
+
+        $schedule->command('tw-stock:fetch-daily-prices --latest')
+            ->dailyAt('16:05')
+            ->name('tw-stock-fetch-daily-prices-late')
+            ->withoutOverlapping(120)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_daily_prices.log'));
+
+        $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=1 --market-data-only --min-volume-lots=1000 --sleep-ms=80 --skip-non-trading-day --keep-missing-market-data')
+            ->dailyAt('16:15')
+            ->name('tw-stock-refresh-q1-market-data-late')
+            ->withoutOverlapping(180)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_q1_market_data.log'));
+
+        $schedule->command('tw-stock:refresh-annual-financial-comparisons --context-year=2026 --start-year=2020 --end-year=2025')
+            ->dailyAt('16:35')
+            ->name('tw-stock-refresh-annual-financial-comparisons-late')
+            ->withoutOverlapping(180)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_annual_financial_comparisons.log'));
+
+        $schedule->command('tw-stock:fetch-upcoming-dividends --prices-only')
+            ->dailyAt('16:50')
+            ->name('tw-stock-refresh-upcoming-dividend-prices')
+            ->withoutOverlapping(120)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_upcoming_dividends.log'));
 
         $schedule->command('tw-stock:fetch-taiex-futures-hourly')
             ->hourly()

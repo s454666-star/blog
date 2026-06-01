@@ -24,6 +24,7 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
         {--skip-market-data-refresh : 只用官方即時報價候選資料，不逐檔刷新日 K 漲跌幅}
         {--skip-announcement-fallbacks : 只用 nStock 季財報資料，不查重大訊息公告 fallback}
         {--keep-missing : 不刪除本次未抓到的同年季既有資料}
+        {--keep-missing-market-data : market-data-only 遇到資料尚未更新或低量時保留既有資料列}
         {--monthly-revenue-only : 只刷新已存在資料列的月營收 JSON}
         {--market-data-only : 只刷新已存在資料列的最新股價、成交量、1/5/20 日漲幅}
         {--shard-count=1 : 將股票候選切成幾份並行處理}
@@ -85,7 +86,16 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
         }
 
         if ((bool) $this->option('market-data-only')) {
-            $result = $this->refreshMarketDataRows($fetcher, $years, $quarters, $minVolumeLots, $sleepMs, $shardCount, $shardIndex);
+            $result = $this->refreshMarketDataRows(
+                $fetcher,
+                $years,
+                $quarters,
+                $minVolumeLots,
+                $sleepMs,
+                $shardCount,
+                $shardIndex,
+                (bool) $this->option('keep-missing-market-data'),
+            );
             $reranked = $shardCount === 1
                 ? $this->rerankStoredRows($years, $quarters, $minVolumeLots, $valuationService)
                 : 0;
@@ -336,6 +346,7 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
         int $sleepMs,
         int $shardCount = 1,
         int $shardIndex = 0,
+        bool $keepMissingMarketData = false,
     ): array {
         $updated = 0;
         $deleted = 0;
@@ -353,7 +364,7 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
         $expectedLatestTradingDate = $fetcher->expectedLatestTradingDate();
         $this->constrainYearQuarterPairs(TwStockQ1FinancialReport::query(), $pairs)
             ->orderBy('id')
-            ->chunkById(100, function ($rows) use ($fetcher, $minVolumeLots, $sleepMs, $shardCount, $shardIndex, $expectedLatestTradingDate, &$updated, &$deleted): void {
+            ->chunkById(100, function ($rows) use ($fetcher, $minVolumeLots, $sleepMs, $shardCount, $shardIndex, $expectedLatestTradingDate, $keepMissingMarketData, &$updated, &$deleted): void {
                 foreach ($rows as $row) {
                     $stockCode = (string) $row->stock_code;
                     if (!$this->stockCodeBelongsToShard($stockCode, $shardCount, $shardIndex)) {
@@ -373,6 +384,10 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
                         && (int) ($marketData['volume_lots'] ?? 0) >= $minVolumeLots;
 
                     if (!$hasRequiredMarketData) {
+                        if ($keepMissingMarketData) {
+                            continue;
+                        }
+
                         $row->delete();
                         $deleted++;
 

@@ -1063,6 +1063,36 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertSame('tw_stock_daily_prices (/tw-stock/daily-price-rankings)', $sourcePayload['daily_price_source']);
     }
 
+    public function test_market_data_only_can_keep_rows_when_latest_market_data_is_not_eligible(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert($this->row([
+            'stock_code' => '3054',
+            'stock_name' => '立萬利',
+            'latest_close_price' => 75.5,
+            'latest_price_date' => '2026-05-07',
+            'volume_lots' => 1457,
+            'rank' => 1,
+        ]));
+
+        $this->seedDailyPriceRows('3054', '立萬利', 75.5, 2.30, 70, 62, 900);
+        Http::fake(fn () => Http::response([], 404));
+
+        $this->artisan('tw-stock:fetch-q1-financial-reports', [
+            '--year' => 2026,
+            '--quarter' => 1,
+            '--market-data-only' => true,
+            '--keep-missing-market-data' => true,
+            '--min-volume-lots' => 1000,
+            '--sleep-ms' => 0,
+        ])->assertExitCode(0);
+
+        $row = DB::table('tw_stock_q1_financial_reports')->where('stock_code', '3054')->first();
+
+        $this->assertNotNull($row);
+        $this->assertSame('2026-05-07', substr((string) $row->latest_price_date, 0, 10));
+        $this->assertEqualsWithDelta(75.5, (float) $row->latest_close_price, 0.0001);
+    }
+
     public function test_market_data_only_uses_latest_official_quote_when_daily_history_is_stale(): void
     {
         DB::table('tw_stock_q1_financial_reports')->insert([

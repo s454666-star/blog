@@ -46,6 +46,7 @@ class TwStockUpcomingDividendsTest extends TestCase
     protected function tearDown(): void
     {
         Schema::dropIfExists('tw_stock_upcoming_dividends');
+        Schema::dropIfExists('tw_stock_daily_prices');
 
         Carbon::setTestNow();
         CarbonImmutable::setTestNow();
@@ -154,6 +155,50 @@ class TwStockUpcomingDividendsTest extends TestCase
             ->assertSee('2026-04-30 ~ 2026-05-30')
             ->assertDontSee('昨天除息')
             ->assertDontSee('太遠除息');
+    }
+
+    public function test_prices_only_refreshes_existing_rows_from_daily_prices(): void
+    {
+        DB::table('tw_stock_upcoming_dividends')->insert([
+            $this->row([
+                'stock_code' => '3413',
+                'stock_name' => '京鼎',
+                'cash_dividend' => 10,
+                'latest_close_price' => 400,
+                'latest_price_date' => '2026-04-29',
+                'dividend_yield_percent' => 2.5,
+            ]),
+            $this->row([
+                'exchange' => 'TPEx',
+                'stock_code' => '8074',
+                'stock_name' => '鉅橡',
+                'ex_dividend_date' => '2026-05-06',
+                'cash_dividend' => 1.1,
+                'latest_close_price' => 20,
+                'latest_price_date' => '2026-04-29',
+                'dividend_yield_percent' => 5.5,
+            ]),
+        ]);
+        DB::table('tw_stock_daily_prices')->insert([
+            $this->dailyPriceRow('TWSE', '3413', '京鼎', '2026-05-01', 500),
+            $this->dailyPriceRow('TPEx', '8074', '鉅橡', '2026-05-01', 55),
+        ]);
+
+        $this->artisan('tw-stock:fetch-upcoming-dividends', [
+            '--as-of' => '2026-04-30',
+            '--days' => 30,
+            '--prices-only' => true,
+        ])->assertExitCode(0);
+
+        $twse = DB::table('tw_stock_upcoming_dividends')->where('stock_code', '3413')->first();
+        $tpex = DB::table('tw_stock_upcoming_dividends')->where('stock_code', '8074')->first();
+
+        $this->assertSame('2026-05-01', substr((string) $twse->latest_price_date, 0, 10));
+        $this->assertEqualsWithDelta(500.0, (float) $twse->latest_close_price, 0.0001);
+        $this->assertEqualsWithDelta(2.0, (float) $twse->dividend_yield_percent, 0.0001);
+        $this->assertSame('2026-05-01', substr((string) $tpex->latest_price_date, 0, 10));
+        $this->assertEqualsWithDelta(55.0, (float) $tpex->latest_close_price, 0.0001);
+        $this->assertEqualsWithDelta(2.0, (float) $tpex->dividend_yield_percent, 0.0001);
     }
 
     private function fakeDividendResponse(string $url): mixed
@@ -398,6 +443,17 @@ HTML;
 
     private function createTable(): void
     {
+        Schema::create('tw_stock_daily_prices', function (Blueprint $table): void {
+            $table->id();
+            $table->string('exchange', 12);
+            $table->string('stock_code', 12);
+            $table->string('stock_name');
+            $table->date('trade_date');
+            $table->decimal('close_price', 12, 4);
+            $table->timestamps();
+            $table->unique(['exchange', 'stock_code', 'trade_date']);
+        });
+
         Schema::create('tw_stock_upcoming_dividends', function (Blueprint $table): void {
             $table->id();
             $table->string('exchange', 12);
@@ -429,5 +485,21 @@ HTML;
             $table->index('ex_dividend_date', 'idx_tw_stock_upcoming_dividends_ex_date');
             $table->index('stock_code', 'idx_tw_stock_upcoming_dividends_code');
         });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function dailyPriceRow(string $exchange, string $stockCode, string $stockName, string $tradeDate, float $closePrice): array
+    {
+        return [
+            'exchange' => $exchange,
+            'stock_code' => $stockCode,
+            'stock_name' => $stockName,
+            'trade_date' => $tradeDate,
+            'close_price' => $closePrice,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
     }
 }

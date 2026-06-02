@@ -848,6 +848,10 @@
                                                 {{ $video->match_confidence !== null ? number_format((float) $video->match_confidence, 3) : '-' }}
                                             </div>
                                         </div>
+                                        <div class="meta-box">
+                                            <div class="meta-label">影片修改日期</div>
+                                            <div class="meta-value">{{ $video->file_modified_human }}</div>
+                                        </div>
                                     </div>
 
                                     <p class="work-path">最後掃描：{{ optional($video->last_scanned_at)->format('Y-m-d H:i:s') ?? '-' }}</p>

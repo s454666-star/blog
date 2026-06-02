@@ -181,5 +181,8 @@ class FaceIdentityControllerTest extends TestCase
             strpos($html, 'file-newer.mp4'),
             'Videos inside a group should be ordered by modified time descending.'
         );
+
+        $this->assertStringContainsString('影片修改日期', $html);
+        $this->assertStringContainsString('2026-04-20 09:00:00', $html);
     }
 }

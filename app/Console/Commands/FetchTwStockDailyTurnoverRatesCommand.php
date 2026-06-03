@@ -13,6 +13,7 @@ class FetchTwStockDailyTurnoverRatesCommand extends Command
         {--date= : 指定單日 YYYY-MM-DD，預設今天}
         {--from= : 區間開始日期 YYYY-MM-DD}
         {--to= : 區間結束日期 YYYY-MM-DD}
+        {--recent-days= : 從今天往前抓 N 個日曆日，含今天}
         {--skip-non-trading-day : 沒有資料時視為非交易日並成功結束}
         {--sleep-ms=200 : 多日抓取時每次請求後節流毫秒數}';
 
@@ -80,10 +81,17 @@ class FetchTwStockDailyTurnoverRatesCommand extends Command
                 $to = CarbonImmutable::parse($toOption !== '' ? $toOption : $fromOption, $timezone)->startOfDay();
             } else {
                 $dateOption = trim((string) $this->option('date'));
-                $from = $dateOption === ''
-                    ? CarbonImmutable::now($timezone)->startOfDay()
-                    : CarbonImmutable::parse($dateOption, $timezone)->startOfDay();
-                $to = $from;
+                $recentDaysOption = trim((string) $this->option('recent-days'));
+                if ($dateOption === '' && $recentDaysOption !== '') {
+                    $recentDays = max(1, (int) $recentDaysOption);
+                    $to = CarbonImmutable::now($timezone)->startOfDay();
+                    $from = $to->subDays($recentDays - 1);
+                } else {
+                    $from = $dateOption === ''
+                        ? CarbonImmutable::now($timezone)->startOfDay()
+                        : CarbonImmutable::parse($dateOption, $timezone)->startOfDay();
+                    $to = $from;
+                }
             }
         } catch (Throwable) {
             return [];

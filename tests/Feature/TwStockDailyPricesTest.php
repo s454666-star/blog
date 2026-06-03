@@ -222,10 +222,10 @@ class TwStockDailyPricesTest extends TestCase
             ]),
             str_starts_with($request->url(), 'https://www.tpex.org.tw/web/stock/aftertrading/daily_turnover/trn_result.php') => Http::response([
                 'stat' => 'ok',
-                'date' => '20260525',
                 'tables' => [
                     [
                         'title' => '上櫃股票個股週轉率排行',
+                        'date' => '115/05/25',
                         'fields' => ['排行', '股票代號', '股票名稱', '總成交股數', '發行股數', '週轉率(%)'],
                         'data' => [
                             ['1', '8261', '富鼎', '50,000', '2,000,000', '2.50'],
@@ -254,6 +254,77 @@ class TwStockDailyPricesTest extends TestCase
         $this->assertSame('TPEx', $tpex->exchange);
         $this->assertSame(1, (int) $tpex->rank);
         $this->assertEqualsWithDelta(2.5, (float) $tpex->turnover_rate_percent, 0.0001);
+    }
+
+    public function test_daily_turnover_command_can_backfill_recent_days(): void
+    {
+        Http::fake(function ($request) {
+            if (str_starts_with($request->url(), 'https://openapi.twse.com.tw/v1/opendata/t187ap03_L')) {
+                return Http::response([
+                    [
+                        '公司代號' => '2408',
+                        '公司簡稱' => '南亞科',
+                        '已發行普通股數或TDR原股發行股數' => '1,000,000',
+                    ],
+                ]);
+            }
+
+            $query = [];
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            if (str_starts_with($request->url(), 'https://www.twse.com.tw/exchangeReport/MI_INDEX')) {
+                $date = CarbonImmutable::createFromFormat('Ymd', (string) ($query['date'] ?? '20260509'));
+                $titleDate = sprintf('%d年%02d月%02d日', $date->year - 1911, $date->month, $date->day);
+
+                return Http::response([
+                    'stat' => 'OK',
+                    'tables' => [
+                        [
+                            'title' => $titleDate . ' 每日收盤行情(全部(不含權證、牛熊證、可展延牛熊證))',
+                            'fields' => ['證券代號', '證券名稱', '成交股數'],
+                            'data' => [
+                                ['2408', '南亞科', '25,000'],
+                            ],
+                        ],
+                    ],
+                ]);
+            }
+
+            if (str_starts_with($request->url(), 'https://www.tpex.org.tw/web/stock/aftertrading/daily_turnover/trn_result.php')) {
+                return Http::response([
+                    'stat' => 'ok',
+                    'tables' => [
+                        [
+                            'title' => '上櫃股票個股週轉率排行',
+                            'date' => (string) ($query['d'] ?? '115/05/09'),
+                            'fields' => ['排行', '股票代號', '股票名稱', '總成交股數', '發行股數', '週轉率(%)'],
+                            'data' => [
+                                ['1', '8261', '富鼎', '50,000', '2,000,000', '2.50'],
+                            ],
+                        ],
+                    ],
+                ]);
+            }
+
+            return Http::response([], 404);
+        });
+
+        $this->artisan('tw-stock:fetch-daily-turnover-rates', [
+            '--recent-days' => 3,
+            '--sleep-ms' => 0,
+        ])->assertExitCode(0);
+
+        $dates = DB::table('tw_stock_daily_turnover_rates')
+            ->select('trade_date')
+            ->distinct()
+            ->orderBy('trade_date')
+            ->pluck('trade_date')
+            ->map(fn ($date): string => substr((string) $date, 0, 10))
+            ->all();
+
+        $this->assertSame(['2026-05-07', '2026-05-08', '2026-05-09'], $dates);
+        $this->assertSame(6, DB::table('tw_stock_daily_turnover_rates')->count());
+        $this->assertSame(3, DB::table('tw_stock_daily_turnover_rates')->where('exchange', 'TPEx')->count());
     }
 
     public function test_daily_price_index_uses_shared_tw_stock_pagination(): void

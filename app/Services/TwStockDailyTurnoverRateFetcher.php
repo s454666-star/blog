@@ -210,12 +210,16 @@ class TwStockDailyTurnoverRateFetcher
             return [];
         }
 
-        if (!is_array($payload) || ($payload['date'] ?? null) !== $date->format('Ymd')) {
+        if (!is_array($payload)) {
             return [];
         }
 
         $table = $payload['tables'][0] ?? null;
         if (!is_array($table)) {
+            return [];
+        }
+
+        if (!$this->tpexPayloadMatchesDate($payload, $table, $date)) {
             return [];
         }
 
@@ -266,6 +270,22 @@ class TwStockDailyTurnoverRateFetcher
         }
 
         return $rows;
+    }
+
+    private function tpexPayloadMatchesDate(array $payload, array $table, CarbonImmutable $date): bool
+    {
+        $expectedDates = [
+            $date->format('Ymd'),
+            $this->rocSlashDate($date),
+        ];
+
+        foreach ([$payload['date'] ?? null, $table['date'] ?? null] as $value) {
+            if (in_array(trim((string) $value), $expectedDates, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

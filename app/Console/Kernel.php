@@ -75,6 +75,13 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_daily_turnover_rates.log'));
 
+        $schedule->command('tw-stock:fetch-daily-turnover-rates --recent-days=10 --skip-non-trading-day --sleep-ms=80')
+            ->dailyAt('17:10')
+            ->name('tw-stock-fetch-daily-turnover-rates-late')
+            ->withoutOverlapping(180)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_daily_turnover_rates.log'));
+
         $schedule->command('tw-stock:fetch-daily-prices --latest')
             ->dailyAt('16:05')
             ->name('tw-stock-fetch-daily-prices-late')

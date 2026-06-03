@@ -680,13 +680,13 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('name="current_q1_revenue_yoy_threshold" value="7"', false)
             ->assertSee('淨利率近 8 季或近 2 年平均 &gt;', false)
             ->assertSee('name="net_margin_threshold" value="15"', false)
-            ->assertSee('一周平均周轉率 &gt;', false)
+            ->assertSee('一周周轉率合計 &gt;', false)
             ->assertSee('name="weekly_turnover_threshold" value="5"', false)
-            ->assertSee('平均周轉率條件')
-            ->assertSee('一周平均周轉')
+            ->assertSee('周轉率條件')
+            ->assertSee('一周周轉')
             ->assertSee('5/25')
-            ->assertSee('2.50%')
-            ->assertDontSee('一周每日周轉率')
+            ->assertSee('12.50%')
+            ->assertSee('一周每日周轉率')
             ->assertSee('近 3 日創兩月新高')
             ->assertSee('近 3 日新高')
             ->assertDontSee('每年 EPS YoY 均為正')
@@ -765,12 +765,12 @@ class TwStockQ1FinancialReportsTest extends TestCase
 
         $turnoverFiltered = $this->get(route('tw-stock.annual-comparison.index', [
             'weekly_turnover' => 1,
-            'weekly_turnover_threshold' => 2,
+            'weekly_turnover_threshold' => 10,
         ]));
 
         $turnoverFiltered->assertOk()
             ->assertSee('name="weekly_turnover" value="1" checked', false)
-            ->assertSee('name="weekly_turnover_threshold" value="2"', false)
+            ->assertSee('name="weekly_turnover_threshold" value="10"', false)
             ->assertSee('data-copy-value="2408"', false)
             ->assertDontSee('data-copy-value="8261"', false)
             ->assertDontSee('data-copy-value="2451"', false)

@@ -697,7 +697,7 @@ class TwStockQ1FinancialReportController extends Controller
         if ($rows->isEmpty() || $dates === []) {
             return $rows->each(function (TwStockAnnualFinancialComparison $row): void {
                 $row->setAttribute('weekly_turnover_rates', []);
-                $row->setAttribute('weekly_turnover_average_percent', null);
+                $row->setAttribute('weekly_turnover_total_percent', null);
                 $row->setAttribute('weekly_turnover_trading_days', 0);
             });
         }
@@ -767,7 +767,7 @@ class TwStockQ1FinancialReportController extends Controller
             }
 
             $row->setAttribute('weekly_turnover_rates', $history);
-            $row->setAttribute('weekly_turnover_average_percent', $tradingDays > 0 ? round($total / $tradingDays, 4) : null);
+            $row->setAttribute('weekly_turnover_total_percent', $tradingDays > 0 ? round($total, 4) : null);
             $row->setAttribute('weekly_turnover_trading_days', $tradingDays);
         });
     }
@@ -836,7 +836,7 @@ class TwStockQ1FinancialReportController extends Controller
                         'current_q1_revenue_yoy' => $this->passesThreshold($row->current_q1_revenue_yoy_percent, $thresholds['current_q1_revenue_yoy']),
                         'recent_two_month_high' => isset($recentTwoMonthHighKeys[$this->stockKey((string) $row->exchange, (string) $row->stock_code)]),
                         'net_margin' => $this->annualNetMarginPass($row, $thresholds['net_margin']),
-                        'weekly_turnover' => $this->passesThreshold($row->getAttribute('weekly_turnover_average_percent'), $thresholds['weekly_turnover']),
+                        'weekly_turnover' => $this->passesThreshold($row->getAttribute('weekly_turnover_total_percent'), $thresholds['weekly_turnover']),
                         default => true,
                     };
 
@@ -905,7 +905,7 @@ class TwStockQ1FinancialReportController extends Controller
                 $summary['netMarginPass']++;
             }
 
-            if ($this->passesThreshold($row->getAttribute('weekly_turnover_average_percent'), $thresholds['weekly_turnover'])) {
+            if ($this->passesThreshold($row->getAttribute('weekly_turnover_total_percent'), $thresholds['weekly_turnover'])) {
                 $summary['weeklyTurnoverPass']++;
             }
         }

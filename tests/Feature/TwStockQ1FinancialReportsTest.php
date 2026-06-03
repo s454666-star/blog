@@ -1063,18 +1063,49 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertSame('tw_stock_daily_prices (/tw-stock/daily-price-rankings)', $sourcePayload['daily_price_source']);
     }
 
-    public function test_market_data_only_can_keep_rows_when_latest_market_data_is_not_eligible(): void
+    public function test_market_data_only_can_keep_rows_when_latest_market_data_is_still_stale(): void
     {
         DB::table('tw_stock_q1_financial_reports')->insert($this->row([
             'stock_code' => '3054',
-            'stock_name' => '立萬利',
+            'stock_name' => 'TestCo',
             'latest_close_price' => 75.5,
             'latest_price_date' => '2026-05-07',
             'volume_lots' => 1457,
             'rank' => 1,
         ]));
 
-        $this->seedDailyPriceRows('3054', '立萬利', 75.5, 2.30, 70, 62, 900);
+        $payloads = [];
+        foreach ($this->dailyRows(75.5, 2.30, 70, 62, 900) as $index => $dailyRow) {
+            $tradeDate = CarbonImmutable::createFromFormat('Ymd', (string) $dailyRow['交易日'])
+                ->subDay()
+                ->toDateString();
+            $close = (float) $dailyRow['收盤價'];
+            $nextRow = $index < 20 ? $this->dailyRows(75.5, 2.30, 70, 62, 900)[$index + 1] : null;
+            $previousClose = is_array($nextRow) ? (float) $nextRow['收盤價'] : null;
+            $payloads[] = [
+                'exchange' => 'TWSE',
+                'stock_code' => '3054',
+                'stock_name' => 'TestCo',
+                'trade_date' => $tradeDate,
+                'open_price' => $close,
+                'high_price' => $close,
+                'low_price' => $close,
+                'close_price' => $close,
+                'previous_close_price' => $previousClose,
+                'price_change_amount' => $previousClose === null ? null : $close - $previousClose,
+                'price_change_percent' => $index === 0
+                    ? 2.30
+                    : ($previousClose !== null && $previousClose > 0 ? (($close - $previousClose) / $previousClose) * 100 : null),
+                'volume_lots' => 900,
+                'volume_shares' => 900000,
+                'source' => 'test daily prices',
+                'source_payload' => json_encode(['test' => true], JSON_THROW_ON_ERROR),
+                'fetched_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        }
+        DB::table('tw_stock_daily_prices')->insert($payloads);
         Http::fake(fn () => Http::response([], 404));
 
         $this->artisan('tw-stock:fetch-q1-financial-reports', [
@@ -1091,6 +1122,32 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertNotNull($row);
         $this->assertSame('2026-05-07', substr((string) $row->latest_price_date, 0, 10));
         $this->assertEqualsWithDelta(75.5, (float) $row->latest_close_price, 0.0001);
+    }
+
+    public function test_market_data_only_does_not_keep_rows_when_today_price_exists_but_volume_is_too_low(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert($this->row([
+            'stock_code' => '3054',
+            'stock_name' => 'TestCo',
+            'latest_close_price' => 75.5,
+            'latest_price_date' => '2026-05-07',
+            'volume_lots' => 1457,
+            'rank' => 1,
+        ]));
+
+        $this->seedDailyPriceRows('3054', 'TestCo', 70.4, 2.30, 68, 62, 900);
+        Http::fake(fn () => Http::response([], 404));
+
+        $this->artisan('tw-stock:fetch-q1-financial-reports', [
+            '--year' => 2026,
+            '--quarter' => 1,
+            '--market-data-only' => true,
+            '--keep-missing-market-data' => true,
+            '--min-volume-lots' => 1000,
+            '--sleep-ms' => 0,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseMissing('tw_stock_q1_financial_reports', ['stock_code' => '3054']);
     }
 
     public function test_market_data_only_uses_latest_official_quote_when_daily_history_is_stale(): void

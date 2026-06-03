@@ -376,15 +376,18 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
                     }
 
                     $marketData = $fetcher->fetchMarketData($this->marketDataCandidate($row));
+                    $latestPriceDate = (string) ($marketData['latest_price_date'] ?? '');
+                    $hasCurrentTradingDate = $latestPriceDate !== ''
+                        && $latestPriceDate === $expectedLatestTradingDate;
                     $hasRequiredMarketData = ($marketData['latest_price_date'] ?? null) !== null
-                        && (string) ($marketData['latest_price_date'] ?? '') === $expectedLatestTradingDate
+                        && $hasCurrentTradingDate
                         && ($marketData['price_change_1d_percent'] ?? null) !== null
                         && ($marketData['price_change_5d_percent'] ?? null) !== null
                         && ($marketData['price_change_20d_percent'] ?? null) !== null
                         && (int) ($marketData['volume_lots'] ?? 0) >= $minVolumeLots;
 
                     if (!$hasRequiredMarketData) {
-                        if ($keepMissingMarketData) {
+                        if ($keepMissingMarketData && !$hasCurrentTradingDate) {
                             continue;
                         }
 

@@ -567,7 +567,7 @@
             barSpacing: 8,
             minBarSpacing: 2,
             fixLeftEdge: true,
-            fixRightEdge: true,
+            fixRightEdge: false,
             lockVisibleTimeRangeOnResize: true,
             timeVisible: true,
             secondsVisible: false,
@@ -1186,7 +1186,30 @@
         hourly: 180,
         daily: 90
     };
+    const MAX_FUTURE_EMPTY_TRADING_DAYS = 2;
     let isApplyingVisibleRange = false;
+
+    function futureEmptyLogicalBars() {
+        if (activeTimeframe === 'daily') {
+            return MAX_FUTURE_EMPTY_TRADING_DAYS;
+        }
+
+        const barsByTradeDate = new Map();
+        currentRows.forEach(row => {
+            if (!row.tradeDate) {
+                return;
+            }
+
+            barsByTradeDate.set(row.tradeDate, (barsByTradeDate.get(row.tradeDate) || 0) + 1);
+        });
+
+        const observedBarsPerDay = Math.max(1, ...barsByTradeDate.values());
+        return observedBarsPerDay * MAX_FUTURE_EMPTY_TRADING_DAYS;
+    }
+
+    function maxRightLogicalIndex() {
+        return lastLogicalIndex + futureEmptyLogicalBars();
+    }
 
     function clampVisibleLogicalRange(range) {
         if (isApplyingVisibleRange || range === null || lastLogicalIndex < 0) {
@@ -1200,14 +1223,15 @@
 
         let nextFrom = range.from;
         let nextTo = range.to;
-        if (nextTo > lastLogicalIndex) {
-            nextTo = lastLogicalIndex;
+        const maxRight = maxRightLogicalIndex();
+        if (nextTo > maxRight) {
+            nextTo = maxRight;
             nextFrom = nextTo - span;
         }
 
         if (nextFrom < 0) {
             nextFrom = 0;
-            nextTo = Math.min(lastLogicalIndex, nextFrom + span);
+            nextTo = Math.min(maxRight, nextFrom + span);
         }
 
         if (Math.abs(nextFrom - range.from) <= 0.001 && Math.abs(nextTo - range.to) <= 0.001) {

@@ -61,12 +61,14 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_q1_market_data.log'));
 
-        $schedule->command('tw-stock:refresh-annual-financial-comparisons --context-year=2026 --start-year=2020 --end-year=2025')
-            ->dailyAt('15:25')
-            ->name('tw-stock-refresh-annual-financial-comparisons')
-            ->withoutOverlapping(180)
-            ->runInBackground()
-            ->appendOutputTo(storage_path('logs/tw_stock_annual_financial_comparisons.log'));
+        if ($this->shouldScheduleTwStockAnnualFinancialComparisons()) {
+            $schedule->command('tw-stock:refresh-annual-financial-comparisons --context-year=2026 --start-year=2020 --end-year=2025')
+                ->dailyAt('15:25')
+                ->name('tw-stock-refresh-annual-financial-comparisons')
+                ->withoutOverlapping(180)
+                ->runInBackground()
+                ->appendOutputTo(storage_path('logs/tw_stock_annual_financial_comparisons.log'));
+        }
 
         $schedule->command('tw-stock:fetch-daily-turnover-rates --skip-non-trading-day')
             ->dailyAt('15:30')
@@ -96,12 +98,14 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_q1_market_data.log'));
 
-        $schedule->command('tw-stock:refresh-annual-financial-comparisons --context-year=2026 --start-year=2020 --end-year=2025')
-            ->dailyAt('16:35')
-            ->name('tw-stock-refresh-annual-financial-comparisons-late')
-            ->withoutOverlapping(180)
-            ->runInBackground()
-            ->appendOutputTo(storage_path('logs/tw_stock_annual_financial_comparisons.log'));
+        if ($this->shouldScheduleTwStockAnnualFinancialComparisons()) {
+            $schedule->command('tw-stock:refresh-annual-financial-comparisons --context-year=2026 --start-year=2020 --end-year=2025')
+                ->dailyAt('16:35')
+                ->name('tw-stock-refresh-annual-financial-comparisons-late')
+                ->withoutOverlapping(180)
+                ->runInBackground()
+                ->appendOutputTo(storage_path('logs/tw_stock_annual_financial_comparisons.log'));
+        }
 
         $schedule->command('tw-stock:fetch-upcoming-dividends --prices-only')
             ->dailyAt('16:50')
@@ -201,6 +205,21 @@ class Kernel extends ConsoleKernel
         $batchPath = base_path('scripts\\' . $batchFileName);
 
         return sprintf('wscript.exe "%s" "%s"', $hiddenRunnerPath, $batchPath);
+    }
+
+    private function shouldScheduleTwStockAnnualFinancialComparisons(?string $osFamily = null): bool
+    {
+        $configured = config('tw_stock.annual_financial_comparisons_schedule_enabled');
+
+        if ($configured !== null) {
+            if (is_bool($configured)) {
+                return $configured;
+            }
+
+            return filter_var($configured, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? false;
+        }
+
+        return ($osFamily ?? PHP_OS_FAMILY) === 'Windows';
     }
 
     protected function commands(): void

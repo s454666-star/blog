@@ -115,7 +115,7 @@ class Kernel extends ConsoleKernel
             ->appendOutputTo(storage_path('logs/tw_stock_upcoming_dividends.log'));
 
         $schedule->command('tw-stock:fetch-taiex-futures-hourly')
-            ->hourly()
+            ->hourlyAt(10)
             ->name('tw-stock-fetch-taiex-futures-hourly')
             ->withoutOverlapping(60)
             ->runInBackground()

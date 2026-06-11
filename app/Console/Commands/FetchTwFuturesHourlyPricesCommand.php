@@ -12,11 +12,13 @@ class FetchTwFuturesHourlyPricesCommand extends Command
     protected $signature = 'tw-stock:fetch-taiex-futures-hourly
         {--from= : 開始日期，預設最近 21 天}
         {--to= : 結束日期，預設今天}
-        {--bars=1200 : 從資料源要求的 60K 根數}
+        {--interval=60 : TradingView K 線週期，支援 5 或 60}
+        {--bars=0 : 從資料源要求的根數，0 代表依週期自動}
+        {--delay-seconds=0 : 抓取前延遲秒數，讓資料源更新當下 K 棒}
         {--symbol=TXF1! : DB 內部商品代碼}
         {--tradingview-symbol=TAIFEX:TXF1! : TradingView 商品代碼}';
 
-    protected $description = '抓取台指期貨近月連續 60K 價格並入庫。';
+    protected $description = '抓取台指期貨近月連續 K 線價格並入庫。';
 
     public function handle(TwFuturesHourlyPriceFetcher $fetcher): int
     {
@@ -43,9 +45,23 @@ class FetchTwFuturesHourlyPricesCommand extends Command
             return self::FAILURE;
         }
 
-        $bars = max(1, (int) $this->option('bars'));
+        $interval = trim((string) $this->option('interval'));
+        if (! in_array($interval, ['5', '60'], true)) {
+            $this->error('interval 只支援 5 或 60。');
+
+            return self::FAILURE;
+        }
+
+        $barsOption = (int) $this->option('bars');
+        $bars = $barsOption > 0 ? $barsOption : ($interval === '5' ? 6000 : 1200);
+        $delaySeconds = max(0, min(300, (int) $this->option('delay-seconds')));
         $symbol = (string) $this->option('symbol');
         $tradingViewSymbol = (string) $this->option('tradingview-symbol');
+
+        if ($delaySeconds > 0) {
+            $this->line(sprintf('等待 %d 秒後抓取 %sK。', $delaySeconds, $interval));
+            sleep($delaySeconds);
+        }
 
         $rows = $fetcher->fetchRows(
             from: $fromDate->toDateString(),
@@ -53,11 +69,13 @@ class FetchTwFuturesHourlyPricesCommand extends Command
             symbol: $symbol,
             tradingViewSymbol: $tradingViewSymbol,
             bars: $bars,
+            interval: $interval,
         );
         $stored = $fetcher->upsertRows($rows);
 
         $this->info(sprintf(
-            '台指期 60K 完成：stored_rows=%d from=%s to=%s symbol=%s bars=%d',
+            '台指期 %sK 完成：stored_rows=%d from=%s to=%s symbol=%s bars=%d',
+            $interval,
             $stored,
             $fromDate->toDateString(),
             $toDate->toDateString(),

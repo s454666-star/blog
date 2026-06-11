@@ -25,6 +25,8 @@ class TwFuturesHourlyPriceFetcher
 
     private const DEFAULT_INTERVAL = '60';
 
+    private const SUPPORTED_INTERVALS = ['5', '60'];
+
     private const SOCKET_TIMEOUT_SECONDS = 30;
 
     /**
@@ -36,7 +38,9 @@ class TwFuturesHourlyPriceFetcher
         string $symbol = self::DEFAULT_SYMBOL,
         string $tradingViewSymbol = self::DEFAULT_TRADINGVIEW_SYMBOL,
         int $bars = 2200,
+        string $interval = self::DEFAULT_INTERVAL,
     ): array {
+        $interval = $this->normalizeInterval($interval);
         $fromDate = $from !== null && $from !== ''
             ? CarbonImmutable::parse($from, 'Asia/Taipei')->startOfDay()
             : null;
@@ -44,7 +48,7 @@ class TwFuturesHourlyPriceFetcher
             ? CarbonImmutable::parse($to, 'Asia/Taipei')->endOfDay()
             : null;
 
-        $payload = $this->fetchTradingViewTimescale($tradingViewSymbol, self::DEFAULT_INTERVAL, $bars);
+        $payload = $this->fetchTradingViewTimescale($tradingViewSymbol, $interval, $bars);
         $series = $payload['p'][1]['s1']['s'] ?? null;
         if (!is_array($series)) {
             return [];
@@ -76,7 +80,7 @@ class TwFuturesHourlyPriceFetcher
                 'exchange' => self::DEFAULT_EXCHANGE,
                 'symbol' => $symbol,
                 'symbol_name' => self::DEFAULT_SYMBOL_NAME,
-                'interval' => self::DEFAULT_INTERVAL,
+                'interval' => $interval,
                 'started_at' => $startedAt->format('Y-m-d H:i:s'),
                 'started_at_unix' => $startedAtUnix,
                 'trade_date' => $this->tradeDate($startedAt),
@@ -89,7 +93,7 @@ class TwFuturesHourlyPriceFetcher
                 'source' => self::SOURCE_NAME,
                 'source_payload' => [
                     'tradingview_symbol' => $tradingViewSymbol,
-                    'interval' => self::DEFAULT_INTERVAL,
+                    'interval' => $interval,
                     'series_index' => (int) ($item['i'] ?? $index),
                 ],
                 'fetched_at' => now(),
@@ -145,7 +149,7 @@ class TwFuturesHourlyPriceFetcher
      */
     private function fetchTradingViewTimescale(string $tradingViewSymbol, string $interval, int $bars): array
     {
-        $cacheKey = 'tw-futures:hourly:tradingview:v1:' . sha1(serialize([
+        $cacheKey = 'tw-futures:prices:tradingview:v2:' . sha1(serialize([
             $tradingViewSymbol,
             $interval,
             $bars,
@@ -153,7 +157,7 @@ class TwFuturesHourlyPriceFetcher
 
         return Cache::remember(
             $cacheKey,
-            now()->addMinutes(8),
+            $interval === '5' ? now()->addSeconds(30) : now()->addMinutes(8),
             fn (): array => $this->fetchTradingViewTimescaleUncached($tradingViewSymbol, $interval, $bars),
         );
     }
@@ -224,7 +228,17 @@ class TwFuturesHourlyPriceFetcher
             fclose($socket);
         }
 
-        throw new RuntimeException('等待 TradingView 60K 資料逾時。');
+        throw new RuntimeException(sprintf('等待 TradingView %sK 資料逾時。', $interval));
+    }
+
+    private function normalizeInterval(string $interval): string
+    {
+        $interval = trim($interval);
+        if (! in_array($interval, self::SUPPORTED_INTERVALS, true)) {
+            throw new RuntimeException(sprintf('不支援的 TradingView K 線週期：%s。', $interval));
+        }
+
+        return $interval;
     }
 
     /**

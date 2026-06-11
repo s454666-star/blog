@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>台指期 60K 差值 K 線</title>
+    <title>台指期 5K 差值 K 線</title>
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         :root {
@@ -376,8 +376,8 @@
 <main class="shell">
     <section class="topbar">
         <div class="title-row">
-            <h1>台指期 60K 差值 K 線</h1>
-            <span class="symbol">TAIFEX · TXF1! · 60K</span>
+            <h1>台指期 5K 差值 K 線</h1>
+            <span class="symbol">TAIFEX · TXF1! · 5K / 60K</span>
         </div>
         <nav class="nav-actions" aria-label="台股頁面">
             <a href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
@@ -392,7 +392,7 @@
     <section class="summary" aria-label="台指期摘要">
         <div class="summary-cell">
             <div class="label">資料範圍</div>
-            <div class="value small">{{ $stats['firstDateTime'] ?? '--' }} 到 {{ $stats['lastDateTime'] ?? '--' }}<br>{{ number_format((int) $stats['rowCount']) }} 根 60K</div>
+            <div class="value small">{{ $stats['firstDateTime'] ?? '--' }} 到 {{ $stats['lastDateTime'] ?? '--' }}<br>{{ number_format((int) $stats['rowCount']) }} 根 5K</div>
         </div>
         <div class="summary-cell">
             <div class="label">最新收盤</div>
@@ -407,8 +407,8 @@
             <div class="value">{{ $fmt($stats['latestDailyMa5'], 0) }}</div>
         </div>
         <div class="summary-cell">
-            <div class="label">60K MA95</div>
-            <div class="value">{{ $fmt($stats['latestMa95'], 0) }}</div>
+            <div class="label">5K MA1140</div>
+            <div class="value">{{ $fmt($stats['latestMovingAverage'], 0) }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">最大差值</div>
@@ -423,8 +423,8 @@
     <section class="chart-panel">
         <div class="chart-head">
             <div class="legend" data-legend>
-                <span class="legend-item"><span class="swatch" style="background: var(--blue)"></span>週期 <strong data-legend-timeframe>60分K</strong></span>
-                <span class="legend-item"><span class="swatch" style="background: var(--yellow)"></span>60K MA95 <strong data-legend-ma95>--</strong></span>
+                <span class="legend-item"><span class="swatch" style="background: var(--blue)"></span>週期 <strong data-legend-timeframe>5分K</strong></span>
+                <span class="legend-item"><span class="swatch" style="background: var(--yellow)"></span><span data-legend-ma-label>5K MA1140</span> <strong data-legend-ma>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: #e5e7eb"></span>標記 <strong data-marker-count>0</strong></span>
@@ -434,10 +434,11 @@
                 <span class="legend-item">收 <strong data-legend-close>--</strong></span>
             </div>
             <div class="tools" aria-label="圖層切換">
-                <button type="button" class="tool-button active" data-timeframe="hourly">60分K</button>
+                <button type="button" class="tool-button active" data-timeframe="five-minute">5分K</button>
+                <button type="button" class="tool-button" data-timeframe="hourly">60分K</button>
                 <button type="button" class="tool-button" data-timeframe="daily">日線</button>
                 <button type="button" class="tool-button active" data-toggle-series="dailyMa5">日MA5</button>
-                <button type="button" class="tool-button active" data-toggle-series="ma95">MA95</button>
+                <button type="button" class="tool-button active" data-toggle-series="movingAverage">均線</button>
                 <button type="button" class="tool-button active" data-toggle-series="gap">差值</button>
                 <button type="button" class="tool-button" data-show-all>全部</button>
                 <button type="button" class="tool-button active" data-show-latest>最新</button>
@@ -445,7 +446,7 @@
         </div>
 
         @if (count($chartRows) === 0)
-            <div class="empty">目前還沒有台指期 60K 資料。</div>
+            <div class="empty">目前還沒有台指期 5K 資料。</div>
         @else
             <div class="chart-hint">點一下可標記差值，再點一下或右鍵可取消，重整後標記清空。</div>
             <div class="chart-body">
@@ -457,7 +458,7 @@
                     <div class="gap-chip">
                         <span class="time">{{ $gapRow['localTime'] }} · {{ $gapRow['label'] }} · {{ $gapRow['eventLabel'] }}</span>
                         <span class="{{ $gapRow['gap'] >= 0 ? 'positive' : 'negative' }}">{{ $gapRow['gapText'] }}</span>
-                        <span class="muted">MA {{ number_format($gapRow['dailyMa5'], 0) }} / {{ number_format($gapRow['ma95'], 0) }}</span>
+                        <span class="muted">MA {{ number_format($gapRow['dailyMa5'], 0) }} / {{ number_format($gapRow['movingAverage'], 0) }}</span>
                     </div>
                 @endforeach
             </div>
@@ -471,11 +472,13 @@
     const dailyChartRows = @json($dailyChartRows, JSON_UNESCAPED_UNICODE);
     const gapMarkers = @json($gapMarkers, JSON_UNESCAPED_UNICODE);
     const dailyGapMarkers = @json($dailyGapMarkers, JSON_UNESCAPED_UNICODE);
+    const hourlyChartRows = @json($hourlyChartRows, JSON_UNESCAPED_UNICODE);
+    const hourlyGapMarkers = @json($hourlyGapMarkers, JSON_UNESCAPED_UNICODE);
     const chartElement = document.getElementById('futures-chart');
     const gapAxisLayer = document.querySelector('[data-gap-axis]');
     const markerLabelLayer = document.createElement('div');
     markerLabelLayer.className = 'marker-label-layer';
-    let activeTimeframe = 'hourly';
+    let activeTimeframe = 'five-minute';
     let currentRows = chartRows;
     let lastLogicalIndex = currentRows.length - 1;
     let legendMap = new Map(currentRows.map(row => [Number(row.time), row]));
@@ -498,6 +501,29 @@
         minute: '2-digit',
         hour12: false
     });
+    const timeframeDatasets = {
+        'five-minute': {
+            rows: chartRows,
+            markers: gapMarkers,
+            label: '5分K',
+            movingAverageLabel: '5K MA1140',
+            defaultVisibleBars: 240
+        },
+        hourly: {
+            rows: hourlyChartRows,
+            markers: hourlyGapMarkers,
+            label: '60分K',
+            movingAverageLabel: '60K MA95',
+            defaultVisibleBars: 180
+        },
+        daily: {
+            rows: dailyChartRows,
+            markers: dailyGapMarkers,
+            label: '日線',
+            movingAverageLabel: '5K MA1140',
+            defaultVisibleBars: 90
+        }
+    };
 
     function timestampValue(time) {
         if (typeof time === 'number') {
@@ -606,7 +632,7 @@
         priceLineVisible: false
     });
 
-    const ma95Series = chart.addLineSeries({
+    const movingAverageSeries = chart.addLineSeries({
         color: '#facc15',
         lineWidth: 2,
         priceLineVisible: false,
@@ -709,7 +735,7 @@
     }
 
     function activeGapMarkers() {
-        return activeTimeframe === 'daily' ? dailyGapMarkers : gapMarkers;
+        return timeframeDatasets[activeTimeframe]?.markers ?? gapMarkers;
     }
 
     function renderMarkerLabels() {
@@ -1013,7 +1039,7 @@
     }
 
     const seriesByToggle = {
-        ma95: [ma95Series],
+        movingAverage: [movingAverageSeries],
         dailyMa5: [dailyMa5Series],
         gap: [gapSeries, gapHistogramSeries, gapZeroSeries]
     };
@@ -1182,10 +1208,6 @@
         removeTemporaryPriceLine(event);
     });
 
-    const DEFAULT_VISIBLE_BARS_BY_TIMEFRAME = {
-        hourly: 180,
-        daily: 90
-    };
     const MAX_FUTURE_EMPTY_TRADING_DAYS = 2;
     let isApplyingVisibleRange = false;
 
@@ -1250,7 +1272,7 @@
             return;
         }
 
-        const visibleBars = Math.min(DEFAULT_VISIBLE_BARS_BY_TIMEFRAME[activeTimeframe] ?? 180, currentRows.length);
+        const visibleBars = Math.min(timeframeDatasets[activeTimeframe]?.defaultVisibleBars ?? 180, currentRows.length);
         chart.timeScale().setVisibleLogicalRange({
             from: Math.max(0, lastLogicalIndex - visibleBars + 1),
             to: lastLogicalIndex
@@ -1259,6 +1281,10 @@
     }
 
     function showAll() {
+        if (lastLogicalIndex < 0) {
+            return;
+        }
+
         chart.timeScale().setVisibleLogicalRange({ from: 0, to: lastLogicalIndex });
         scheduleMarkerLabelRender();
     }
@@ -1292,7 +1318,8 @@
         high: document.querySelector('[data-legend-high]'),
         low: document.querySelector('[data-legend-low]'),
         close: document.querySelector('[data-legend-close]'),
-        ma95: document.querySelector('[data-legend-ma95]'),
+        movingAverageLabel: document.querySelector('[data-legend-ma-label]'),
+        movingAverage: document.querySelector('[data-legend-ma]'),
         dailyMa5: document.querySelector('[data-legend-daily-ma5]'),
         gap: document.querySelector('[data-legend-gap]')
     };
@@ -1308,16 +1335,18 @@
         })}`;
     };
 
-    function updateLegend(row = currentRows[currentRows.length - 1]) {
-        fields.timeframe.textContent = activeTimeframe === 'daily' ? '日線' : '60分K';
-        fields.open.textContent = format(row.open);
-        fields.high.textContent = format(row.high);
-        fields.low.textContent = format(row.low);
-        fields.close.textContent = format(row.close);
-        fields.ma95.textContent = format(row.ma95);
-        fields.dailyMa5.textContent = format(row.dailyMa5);
-        fields.gap.textContent = format(row.gap, 0, true);
-        fields.gap.className = Number(row.gap || 0) >= 0 ? 'positive' : 'negative';
+    function updateLegend(row = currentRows[currentRows.length - 1] ?? {}) {
+        const dataset = timeframeDatasets[activeTimeframe] ?? timeframeDatasets['five-minute'];
+        fields.timeframe.textContent = dataset.label;
+        fields.movingAverageLabel.textContent = dataset.movingAverageLabel;
+        fields.open.textContent = format(row?.open);
+        fields.high.textContent = format(row?.high);
+        fields.low.textContent = format(row?.low);
+        fields.close.textContent = format(row?.close);
+        fields.movingAverage.textContent = format(row?.movingAverage);
+        fields.dailyMa5.textContent = format(row?.dailyMa5);
+        fields.gap.textContent = format(row?.gap, 0, true);
+        fields.gap.className = Number(row?.gap || 0) >= 0 ? 'positive' : 'negative';
     }
 
     chart.subscribeCrosshairMove(param => {
@@ -1330,18 +1359,19 @@
     });
 
     function applyTimeframe(timeframe) {
-        activeTimeframe = timeframe;
-        currentRows = timeframe === 'daily' ? dailyChartRows : chartRows;
+        const dataset = timeframeDatasets[timeframe] ?? timeframeDatasets['five-minute'];
+        activeTimeframe = timeframeDatasets[timeframe] ? timeframe : 'five-minute';
+        currentRows = dataset.rows;
         lastLogicalIndex = currentRows.length - 1;
         legendMap = new Map(currentRows.map(row => [Number(row.time), row]));
 
-        const ma95Data = lineData(currentRows, 'ma95');
+        const movingAverageData = lineData(currentRows, 'movingAverage');
         const gapData = lineData(currentRows, 'gap');
 
         candleSeries.setData(candleData(currentRows));
         candleSeries.setMarkers(chartMarkerData(activeGapMarkers()));
         volumeSeries.setData(volumeData(currentRows));
-        ma95Series.setData(ma95Data);
+        movingAverageSeries.setData(movingAverageData);
         dailyMa5Series.setData(lineData(currentRows, 'dailyMa5'));
         gapSeries.setData(gapData);
         gapHistogramSeries.setData(gapHistogramData(gapData));
@@ -1371,7 +1401,7 @@
     };
     window.addEventListener('resize', resize);
     resize();
-    applyTimeframe('hourly');
+    applyTimeframe('five-minute');
 </script>
 @endif
 </body>

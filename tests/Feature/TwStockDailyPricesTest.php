@@ -47,6 +47,7 @@ class TwStockDailyPricesTest extends TestCase
 
     protected function tearDown(): void
     {
+        Schema::dropIfExists('tw_stock_company_profiles');
         Schema::dropIfExists('tw_stock_annual_financial_comparisons');
         Schema::dropIfExists('tw_stock_q1_financial_reports');
         Schema::dropIfExists('tw_stock_daily_turnover_rates');
@@ -327,6 +328,84 @@ class TwStockDailyPricesTest extends TestCase
         $this->assertSame(3, DB::table('tw_stock_daily_turnover_rates')->where('exchange', 'TPEx')->count());
     }
 
+    public function test_daily_turnover_command_falls_back_to_daily_prices_when_twse_source_fails(): void
+    {
+        DB::table('tw_stock_daily_prices')->insert([
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '2408',
+                'stock_name' => '南亞科',
+                'trade_date' => '2026-05-25',
+                'open_price' => 40,
+                'high_price' => 41,
+                'low_price' => 39.5,
+                'close_price' => 40.5,
+                'previous_close_price' => 40,
+                'price_change_amount' => 0.5,
+                'price_change_percent' => 1.25,
+                'volume_lots' => 25,
+                'volume_shares' => 25000,
+                'trade_value' => 1000000,
+                'transaction_count' => 120,
+                'source' => 'TWSE STOCK_DAY_ALL',
+                'source_payload' => json_encode(['fallback' => false], JSON_THROW_ON_ERROR),
+                'fetched_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+        DB::table('tw_stock_company_profiles')->insert([
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '2408',
+                'stock_name' => '南亞科',
+                'industry' => '半導體業',
+                'industry_code' => '24',
+                'valuation_group' => '半導體',
+                'valuation_group_pe' => 20,
+                'source_date' => '2026-05-25',
+                'source_payload' => json_encode([
+                    '公司代號' => '2408',
+                    '已發行普通股數或TDR原股發行股數' => '1,000,000',
+                ], JSON_THROW_ON_ERROR),
+                'fetched_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        Http::fake(fn ($request) => match (true) {
+            str_starts_with($request->url(), 'https://openapi.twse.com.tw/v1/opendata/t187ap03_L') => Http::response([], 451),
+            str_starts_with($request->url(), 'https://www.twse.com.tw/exchangeReport/MI_INDEX') => Http::response([], 451),
+            str_starts_with($request->url(), 'https://www.tpex.org.tw/web/stock/aftertrading/daily_turnover/trn_result.php') => Http::response([
+                'stat' => 'ok',
+                'tables' => [
+                    [
+                        'title' => '上櫃股票個股週轉率排行',
+                        'date' => '115/05/25',
+                        'fields' => ['排行', '股票代號', '股票名稱', '總成交股數', '發行股數', '週轉率(%)'],
+                        'data' => [],
+                    ],
+                ],
+            ]),
+            default => Http::response([], 404),
+        });
+
+        $this->artisan('tw-stock:fetch-daily-turnover-rates', [
+            '--date' => '2026-05-25',
+            '--sleep-ms' => 0,
+        ])->assertExitCode(0);
+
+        $twse = DB::table('tw_stock_daily_turnover_rates')->where('stock_code', '2408')->first();
+        $this->assertNotNull($twse);
+        $this->assertSame('TWSE', $twse->exchange);
+        $this->assertSame('2026-05-25', substr((string) $twse->trade_date, 0, 10));
+        $this->assertSame(25000, (int) $twse->trading_shares);
+        $this->assertSame(1000000, (int) $twse->issued_shares);
+        $this->assertEqualsWithDelta(2.5, (float) $twse->turnover_rate_percent, 0.0001);
+        $this->assertSame('tw_stock_daily_prices + t187ap03_L', $twse->source);
+    }
+
     public function test_daily_price_index_uses_shared_tw_stock_pagination(): void
     {
         $now = now();
@@ -405,6 +484,21 @@ class TwStockDailyPricesTest extends TestCase
             $table->string('exchange', 12);
             $table->string('stock_code', 12);
             $table->string('stock_name');
+        });
+
+        Schema::create('tw_stock_company_profiles', function (Blueprint $table): void {
+            $table->id();
+            $table->string('exchange', 12);
+            $table->string('stock_code', 12);
+            $table->string('stock_name');
+            $table->string('industry')->nullable();
+            $table->string('industry_code', 8)->nullable();
+            $table->string('valuation_group', 32);
+            $table->decimal('valuation_group_pe', 8, 4);
+            $table->date('source_date')->nullable();
+            $table->json('source_payload')->nullable();
+            $table->timestamp('fetched_at')->nullable();
+            $table->timestamps();
         });
 
         Schema::create('tw_stock_daily_turnover_rates', function (Blueprint $table): void {

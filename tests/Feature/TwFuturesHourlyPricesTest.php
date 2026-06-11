@@ -65,24 +65,30 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertSee('台指期 60K 差值 K 線')
-            ->assertSee('TAIFEX · TXF1! · 60K')
+            ->assertSee('台指期 5K 差值 K 線')
+            ->assertSee('TAIFEX · TXF1! · 5K / 60K')
+            ->assertSee('5K MA1140')
             ->assertSee('60K MA95')
             ->assertSee('日 MA5')
             ->assertSee('差值')
             ->assertSee('const dailyChartRows =', false)
+            ->assertSee('const hourlyChartRows =', false)
             ->assertSee('data-timeframe="hourly"', false)
+            ->assertSee('data-timeframe="five-minute"', false)
             ->assertSee('data-timeframe="daily"', false)
+            ->assertSee('5分K')
             ->assertSee('60分K')
             ->assertSee('日線')
             ->assertSee('const gapMarkers =', false)
             ->assertSee('const dailyGapMarkers =', false)
-            ->assertSee('const ma95Data =', false)
+            ->assertSee('const hourlyGapMarkers =', false)
+            ->assertSee('const movingAverageData =', false)
             ->assertSee('fixRightEdge: false', false)
             ->assertSee('MAX_FUTURE_EMPTY_TRADING_DAYS = 2', false)
             ->assertSee('futureEmptyLogicalBars', false)
             ->assertSee('maxRightLogicalIndex', false)
             ->assertSee('data-toggle-series="gap"', false)
+            ->assertSee('data-toggle-series="movingAverage"', false)
             ->assertSee("upColor: '#ef5350'", false)
             ->assertSee("downColor: '#26a69a'", false)
             ->assertSee("timeZone: 'Asia/Taipei'", false)
@@ -136,7 +142,16 @@ class TwFuturesHourlyPricesTest extends TestCase
         $dailyRows = json_decode((string) $matches[1], true, flags: JSON_THROW_ON_ERROR);
         $this->assertNotEmpty(array_filter(
             $dailyRows,
-            fn (array $row): bool => $row['ma95'] !== null && $row['gap'] !== null,
+            fn (array $row): bool => $row['movingAverage'] !== null && $row['gap'] !== null,
+        ));
+
+        preg_match('/const hourlyChartRows = (.*);/', (string) $response->getContent(), $hourlyMatches);
+        $this->assertNotEmpty($hourlyMatches[1] ?? null);
+
+        $hourlyRows = json_decode((string) $hourlyMatches[1], true, flags: JSON_THROW_ON_ERROR);
+        $this->assertNotEmpty(array_filter(
+            $hourlyRows,
+            fn (array $row): bool => $row['movingAverage'] !== null && $row['gap'] !== null,
         ));
 
         preg_match('/const dailyGapMarkers = (.*);/', (string) $response->getContent(), $markerMatches);
@@ -187,6 +202,59 @@ class TwFuturesHourlyPricesTest extends TestCase
     {
         $now = now();
         $rows = [];
+        $this->appendFiveMinuteRows($rows, $now);
+        $this->appendHourlyRows($rows, $now);
+
+        DB::table('tw_futures_hourly_prices')->insert($rows);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     */
+    private function appendFiveMinuteRows(array &$rows, Carbon $now): void
+    {
+        $cursor = 0;
+
+        foreach (range(0, 6) as $dayOffset) {
+            $date = CarbonImmutable::parse('2026-01-01', 'Asia/Taipei')->addDays($dayOffset);
+
+            for ($minutes = 0; $minutes < 300; $minutes += 5) {
+                $startedAt = $date->setTime(8, 45)->addMinutes($minutes);
+                $close = 24000 + $cursor * 2;
+                $rows[] = $this->priceRow(
+                    interval: '5',
+                    startedAt: $startedAt,
+                    tradeDate: $date->toDateString(),
+                    sessionType: 'day',
+                    close: $close,
+                    cursor: $cursor,
+                    now: $now,
+                );
+                $cursor++;
+            }
+
+            for ($minutes = 0; $minutes < 840; $minutes += 5) {
+                $startedAt = $date->setTime(15, 0)->addMinutes($minutes);
+                $close = 24000 + $cursor * 2;
+                $rows[] = $this->priceRow(
+                    interval: '5',
+                    startedAt: $startedAt,
+                    tradeDate: $date->addDay()->toDateString(),
+                    sessionType: 'night',
+                    close: $close,
+                    cursor: $cursor,
+                    now: $now,
+                );
+                $cursor++;
+            }
+        }
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     */
+    private function appendHourlyRows(array &$rows, Carbon $now): void
+    {
         $dayTimes = ['08:45', '09:45', '10:45', '11:45', '12:45', '13:45'];
         $nightTimes = ['15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00'];
         $cursor = 0;
@@ -196,31 +264,52 @@ class TwFuturesHourlyPricesTest extends TestCase
             foreach ([...$dayTimes, ...$nightTimes] as $time) {
                 $startedAt = CarbonImmutable::parse($date->toDateString() . ' ' . $time, 'Asia/Taipei');
                 $close = 24000 + $cursor * 8;
-                $rows[] = [
-                    'exchange' => 'TAIFEX',
-                    'symbol' => 'TXF1!',
-                    'symbol_name' => '台指期近月連續',
-                    'interval' => '60',
-                    'started_at' => $startedAt->format('Y-m-d H:i:s'),
-                    'started_at_unix' => $startedAt->timestamp,
-                    'trade_date' => $time >= '15:00' ? $date->addDay()->toDateString() : $date->toDateString(),
-                    'session_type' => $time >= '15:00' ? 'night' : 'day',
-                    'open_price' => $close - 10,
-                    'high_price' => $close + 18,
-                    'low_price' => $close - 24,
-                    'close_price' => $close,
-                    'volume_contracts' => 1000 + $cursor,
-                    'source' => 'test',
-                    'source_payload' => json_encode(['index' => $cursor], JSON_THROW_ON_ERROR),
-                    'fetched_at' => $now,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
+                $rows[] = $this->priceRow(
+                    interval: '60',
+                    startedAt: $startedAt,
+                    tradeDate: $time >= '15:00' ? $date->addDay()->toDateString() : $date->toDateString(),
+                    sessionType: $time >= '15:00' ? 'night' : 'day',
+                    close: $close,
+                    cursor: $cursor,
+                    now: $now,
+                );
                 $cursor++;
             }
         }
+    }
 
-        DB::table('tw_futures_hourly_prices')->insert($rows);
+    /**
+     * @return array<string, mixed>
+     */
+    private function priceRow(
+        string $interval,
+        CarbonImmutable $startedAt,
+        string $tradeDate,
+        string $sessionType,
+        int $close,
+        int $cursor,
+        Carbon $now,
+    ): array {
+        return [
+            'exchange' => 'TAIFEX',
+            'symbol' => 'TXF1!',
+            'symbol_name' => '台指期近月連續',
+            'interval' => $interval,
+            'started_at' => $startedAt->format('Y-m-d H:i:s'),
+            'started_at_unix' => $startedAt->timestamp,
+            'trade_date' => $tradeDate,
+            'session_type' => $sessionType,
+            'open_price' => $close - 10,
+            'high_price' => $close + 18,
+            'low_price' => $close - 24,
+            'close_price' => $close,
+            'volume_contracts' => 1000 + $cursor,
+            'source' => 'test',
+            'source_payload' => json_encode(['interval' => $interval, 'index' => $cursor], JSON_THROW_ON_ERROR),
+            'fetched_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
     }
 
     private function createTables(): void

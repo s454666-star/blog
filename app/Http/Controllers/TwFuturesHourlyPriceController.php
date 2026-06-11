@@ -14,10 +14,18 @@ class TwFuturesHourlyPriceController extends Controller
 
     private const SYMBOL = 'TXF1!';
 
+    private const PRIMARY_INTERVAL = '5';
+
+    private const FIVE_MINUTE_MA_WINDOW = 1140;
+
+    private const HOURLY_MA_WINDOW = 95;
+
     public function index(): View
     {
-        $rows = $this->hourlyRows(self::SYMBOL);
-        $indicatorRows = $this->indicatorRows($rows);
+        $rows = $this->priceRows(self::SYMBOL, self::PRIMARY_INTERVAL);
+        $hourlyRows = $this->priceRows(self::SYMBOL, '60');
+        $indicatorRows = $this->indicatorRows($rows, self::FIVE_MINUTE_MA_WINDOW);
+        $hourlyIndicatorRows = $this->indicatorRows($hourlyRows, self::HOURLY_MA_WINDOW);
         $latest = $rows->last();
 
         return view('tw-stock.taiex-futures-kline', [
@@ -26,6 +34,8 @@ class TwFuturesHourlyPriceController extends Controller
             'dailyChartRows' => $indicatorRows['dailyChartRows'],
             'gapMarkers' => $indicatorRows['gapMarkers'],
             'dailyGapMarkers' => $indicatorRows['dailyGapMarkers'],
+            'hourlyChartRows' => $hourlyIndicatorRows['chartRows'],
+            'hourlyGapMarkers' => $hourlyIndicatorRows['gapMarkers'],
             'sessionGapRows' => $indicatorRows['sessionGapRows'],
             'stats' => [
                 'firstDateTime' => $rows->first()?->started_at?->timezone('Asia/Taipei')->format('Y-m-d H:i'),
@@ -33,7 +43,7 @@ class TwFuturesHourlyPriceController extends Controller
                 'rowCount' => $rows->count(),
                 'latestGap' => $indicatorRows['latestGap'],
                 'latestDailyMa5' => $indicatorRows['latestDailyMa5'],
-                'latestMa95' => $indicatorRows['latestMa95'],
+                'latestMovingAverage' => $indicatorRows['latestMovingAverage'],
                 'maxGap' => $indicatorRows['maxGap'],
                 'minGap' => $indicatorRows['minGap'],
                 'sessionGapCount' => count($indicatorRows['sessionGapRows']),
@@ -44,17 +54,18 @@ class TwFuturesHourlyPriceController extends Controller
     /**
      * @return EloquentCollection<int, TwFuturesHourlyPrice>
      */
-    private function hourlyRows(string $symbol): EloquentCollection
+    private function priceRows(string $symbol, string $interval): EloquentCollection
     {
         $records = Cache::remember(
-            'tw-futures:hourly-prices:rows:v1:' . sha1(serialize([
+            'tw-futures:prices:rows:v2:' . sha1(serialize([
                 $symbol,
-                $this->cacheVersion($symbol),
+                $interval,
+                $this->cacheVersion($symbol, $interval),
             ])),
             now()->addSeconds(self::CACHE_TTL_SECONDS),
             fn (): array => TwFuturesHourlyPrice::query()
                 ->where('symbol', $symbol)
-                ->where('interval', '60')
+                ->where('interval', $interval)
                 ->orderBy('started_at')
                 ->get()
                 ->map(fn (TwFuturesHourlyPrice $row): array => $row->getAttributes())
@@ -74,12 +85,12 @@ class TwFuturesHourlyPriceController extends Controller
      *     sessionGapRows: list<array<string, mixed>>,
      *     latestGap: float|null,
      *     latestDailyMa5: float|null,
-     *     latestMa95: float|null,
+     *     latestMovingAverage: float|null,
      *     maxGap: float|null,
      *     minGap: float|null
      * }
      */
-    private function indicatorRows(EloquentCollection $rows): array
+    private function indicatorRows(EloquentCollection $rows, int $movingAverageWindowSize): array
     {
         $dailyCloseByDate = [];
         foreach ($rows as $row) {
@@ -113,31 +124,33 @@ class TwFuturesHourlyPriceController extends Controller
             $sessionCloseTimes[$tradeDate][$sessionType] = (int) $row->started_at_unix;
         }
 
-        $ma95Window = [];
-        $ma95Sum = 0.0;
+        $movingAverageWindow = [];
+        $movingAverageSum = 0.0;
         $chartRows = [];
         $gapMarkers = [];
         $sessionGapRows = [];
         $gaps = [];
         $latestGap = null;
         $latestDailyMa5 = null;
-        $latestMa95 = null;
+        $latestMovingAverage = null;
 
         foreach ($rows as $row) {
             $close = (float) $row->close_price;
-            $ma95Window[] = $close;
-            $ma95Sum += $close;
-            if (count($ma95Window) > 95) {
-                $ma95Sum -= array_shift($ma95Window);
+            $movingAverageWindow[] = $close;
+            $movingAverageSum += $close;
+            if (count($movingAverageWindow) > $movingAverageWindowSize) {
+                $movingAverageSum -= array_shift($movingAverageWindow);
             }
 
-            $ma95 = count($ma95Window) === 95 ? $ma95Sum / 95 : null;
+            $movingAverage = count($movingAverageWindow) === $movingAverageWindowSize
+                ? $movingAverageSum / $movingAverageWindowSize
+                : null;
             $tradeDate = $row->trade_date?->toDateString();
             $previous = $tradeDate !== null ? ($previousDailyCloses[$tradeDate] ?? []) : [];
             $dailyMa5 = count($previous) === 4
                 ? (array_sum($previous) + $close) / 5
                 : null;
-            $gap = $dailyMa5 !== null && $ma95 !== null ? $dailyMa5 - $ma95 : null;
+            $gap = $dailyMa5 !== null && $movingAverage !== null ? $dailyMa5 - $movingAverage : null;
             $startedAt = CarbonImmutable::parse($row->started_at, 'Asia/Taipei');
             $time = (int) $row->started_at_unix;
             $localTime = $startedAt->format('Y-m-d H:i');
@@ -151,7 +164,7 @@ class TwFuturesHourlyPriceController extends Controller
             if ($gap !== null) {
                 $latestGap = $gap;
                 $latestDailyMa5 = $dailyMa5;
-                $latestMa95 = $ma95;
+                $latestMovingAverage = $movingAverage;
                 $gaps[] = $gap;
 
                 $sessionEvents = [];
@@ -180,7 +193,7 @@ class TwFuturesHourlyPriceController extends Controller
                         'gap' => round($gap, 2),
                         'gapText' => ($gap >= 0 ? '+' : '') . number_format($gap, 0) . '點',
                         'dailyMa5' => round($dailyMa5, 2),
-                        'ma95' => round($ma95, 2),
+                        'movingAverage' => round($movingAverage, 2),
                     ];
                     $gapMarkers[] = [
                         'time' => $time,
@@ -202,7 +215,7 @@ class TwFuturesHourlyPriceController extends Controller
                 'low' => (float) $row->low_price,
                 'close' => $close,
                 'volume' => (int) $row->volume_contracts,
-                'ma95' => $ma95 === null ? null : round($ma95, 4),
+                'movingAverage' => $movingAverage === null ? null : round($movingAverage, 4),
                 'dailyMa5' => $dailyMa5 === null ? null : round($dailyMa5, 4),
                 'gap' => $gap === null ? null : round($gap, 4),
                 'isSessionOpen' => $isSessionOpen,
@@ -219,7 +232,7 @@ class TwFuturesHourlyPriceController extends Controller
             'sessionGapRows' => array_slice(array_reverse($sessionGapRows), 0, 18),
             'latestGap' => $latestGap === null ? null : round($latestGap, 2),
             'latestDailyMa5' => $latestDailyMa5 === null ? null : round($latestDailyMa5, 2),
-            'latestMa95' => $latestMa95 === null ? null : round($latestMa95, 2),
+            'latestMovingAverage' => $latestMovingAverage === null ? null : round($latestMovingAverage, 2),
             'maxGap' => $gaps === [] ? null : round(max($gaps), 2),
             'minGap' => $gaps === [] ? null : round(min($gaps), 2),
         ];
@@ -245,7 +258,7 @@ class TwFuturesHourlyPriceController extends Controller
                     'low' => (float) $row['low'],
                     'close' => (float) $row['close'],
                     'volume' => 0,
-                    'ma95' => null,
+                    'movingAverage' => null,
                     'gap' => null,
                 ];
             }
@@ -255,8 +268,8 @@ class TwFuturesHourlyPriceController extends Controller
             $groups[$tradeDate]['close'] = (float) $row['close'];
             $groups[$tradeDate]['volume'] += (int) $row['volume'];
 
-            if ($row['ma95'] !== null) {
-                $groups[$tradeDate]['ma95'] = (float) $row['ma95'];
+            if ($row['movingAverage'] !== null) {
+                $groups[$tradeDate]['movingAverage'] = (float) $row['movingAverage'];
             }
             if ($row['gap'] !== null) {
                 $groups[$tradeDate]['gap'] = (float) $row['gap'];
@@ -277,7 +290,7 @@ class TwFuturesHourlyPriceController extends Controller
             }
 
             $dailyMa5 = count($closeWindow) === 5 ? $closeSum / 5 : null;
-            $ma95 = $group['ma95'] === null ? null : (float) $group['ma95'];
+            $movingAverage = $group['movingAverage'] === null ? null : (float) $group['movingAverage'];
             $gap = $group['gap'] === null ? null : (float) $group['gap'];
             $time = CarbonImmutable::parse($tradeDate . ' 12:00:00', 'Asia/Taipei')->timestamp;
 
@@ -291,7 +304,7 @@ class TwFuturesHourlyPriceController extends Controller
                 'low' => round((float) $group['low'], 4),
                 'close' => $close,
                 'volume' => (int) $group['volume'],
-                'ma95' => $ma95 === null ? null : round($ma95, 4),
+                'movingAverage' => $movingAverage === null ? null : round($movingAverage, 4),
                 'dailyMa5' => $dailyMa5 === null ? null : round($dailyMa5, 4),
                 'gap' => $gap === null ? null : round($gap, 4),
                 'isSessionOpen' => false,
@@ -351,11 +364,11 @@ class TwFuturesHourlyPriceController extends Controller
         return CarbonImmutable::now('Asia/Taipei')->greaterThanOrEqualTo($confirmedAt);
     }
 
-    private function cacheVersion(string $symbol): string
+    private function cacheVersion(string $symbol, string $interval): string
     {
         $row = TwFuturesHourlyPrice::query()
             ->where('symbol', $symbol)
-            ->where('interval', '60')
+            ->where('interval', $interval)
             ->selectRaw('COUNT(*) as row_count, MAX(started_at) as max_started_at, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
             ->toBase()
             ->first();

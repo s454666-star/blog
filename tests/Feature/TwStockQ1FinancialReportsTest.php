@@ -806,6 +806,50 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertSame(4567, (int) $row->volume_lots);
     }
 
+    public function test_annual_comparison_price_sync_updates_existing_rows_from_latest_daily_prices(): void
+    {
+        DB::table('tw_stock_annual_financial_comparisons')->insert([
+            'context_year' => 2026,
+            'comparison_start_year' => 2020,
+            'comparison_end_year' => 2025,
+            'exchange' => 'TWSE',
+            'stock_code' => '2408',
+            'stock_name' => '南亞科',
+            'revenue_yoy_sum' => 10,
+            'eps_yoy_sum' => 12,
+            'recent_net_margin_average' => 20,
+            'last_two_year_net_margin_average' => 19,
+            'revenue_filter_pass' => 1,
+            'eps_filter_pass' => 1,
+            'net_margin_filter_pass' => 1,
+            'current_revenue_billion' => 100,
+            'current_revenue_months' => 5,
+            'current_eps' => 3.2,
+            'latest_close_price' => 111,
+            'volume_lots' => 123,
+            'comparisons' => json_encode([], JSON_THROW_ON_ERROR),
+            'generated_at' => now()->subDay(),
+            'created_at' => now()->subDay(),
+            'updated_at' => now()->subDay(),
+        ]);
+        DB::table('tw_stock_daily_prices')->insert([
+            $this->dailyPriceRow('2408', '南亞科', '2026-05-28', 320.0),
+            array_merge($this->dailyPriceRow('2408', '南亞科', '2026-05-29', 348.0), [
+                'volume_lots' => 4567,
+            ]),
+        ]);
+
+        $this->artisan('tw-stock:sync-annual-financial-comparison-prices', [
+            '--context-year' => 2026,
+        ])->assertExitCode(0);
+
+        $row = DB::table('tw_stock_annual_financial_comparisons')->where('stock_code', '2408')->first();
+
+        $this->assertEqualsWithDelta(347.0, (float) $row->latest_close_price, 0.0001);
+        $this->assertSame(4567, (int) $row->volume_lots);
+        $this->assertSame('2026-05-08 17:00:00', substr((string) $row->generated_at, 0, 19));
+    }
+
     public function test_monthly_revenue_fetcher_fills_short_nstock_history_from_mops_csv(): void
     {
         Http::fake(function ($request) {

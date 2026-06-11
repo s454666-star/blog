@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\TwStockCompanyProfile;
 use App\Models\TwStockDailyTurnoverRate;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -92,16 +93,16 @@ class TwStockDailyTurnoverRateFetcher
         } catch (Throwable $e) {
             report($e);
 
-            return [];
+            return $this->fetchTwseRowsFromDailyPrices($date, $issuedSharesByCode);
         }
 
         if (!is_array($payload)) {
-            return [];
+            return $this->fetchTwseRowsFromDailyPrices($date, $issuedSharesByCode);
         }
 
         $table = $this->twseDailyTradingTable($payload, $date);
         if ($table === null) {
-            return [];
+            return $this->fetchTwseRowsFromDailyPrices($date, $issuedSharesByCode);
         }
 
         $fields = $table['fields'];
@@ -142,6 +143,55 @@ class TwStockDailyTurnoverRateFetcher
                     'date' => $date->format('Ymd'),
                     'fields' => $fields,
                     'row' => $row,
+                ],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param array<string, int> $issuedSharesByCode
+     * @return list<array<string, mixed>>
+     */
+    private function fetchTwseRowsFromDailyPrices(CarbonImmutable $date, array $issuedSharesByCode): array
+    {
+        $dailyRows = \App\Models\TwStockDailyPrice::query()
+            ->where('exchange', 'TWSE')
+            ->whereDate('trade_date', $date->toDateString())
+            ->orderBy('stock_code')
+            ->get(['stock_code', 'stock_name', 'volume_shares']);
+
+        if ($dailyRows->isEmpty()) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($dailyRows as $dailyRow) {
+            $stockCode = trim((string) $dailyRow->stock_code);
+            if (!$this->isCommonStockCode($stockCode)) {
+                continue;
+            }
+
+            $tradingShares = (int) $dailyRow->volume_shares;
+            $issuedShares = $issuedSharesByCode[$stockCode] ?? null;
+
+            $rows[] = [
+                'exchange' => 'TWSE',
+                'stock_code' => $stockCode,
+                'stock_name' => trim((string) $dailyRow->stock_name),
+                'trade_date' => $date->toDateString(),
+                'rank' => null,
+                'trading_shares' => $tradingShares,
+                'issued_shares' => $issuedShares,
+                'turnover_rate_percent' => $issuedShares !== null && $issuedShares > 0
+                    ? round(($tradingShares / $issuedShares) * 100, 4)
+                    : null,
+                'source' => 'tw_stock_daily_prices + t187ap03_L',
+                'source_payload' => [
+                    'date' => $date->format('Ymd'),
+                    'fallback' => 'tw_stock_daily_prices',
+                    'volume_shares' => $tradingShares,
                 ],
             ];
         }
@@ -305,11 +355,11 @@ class TwStockDailyTurnoverRateFetcher
                 } catch (Throwable $e) {
                     report($e);
 
-                    return [];
+                    return $this->fetchStoredTwseIssuedSharesMap();
                 }
 
                 if (!is_array($payload)) {
-                    return [];
+                    return $this->fetchStoredTwseIssuedSharesMap();
                 }
 
                 $shares = [];
@@ -325,9 +375,41 @@ class TwStockDailyTurnoverRateFetcher
                     }
                 }
 
-                return $shares;
+                return $shares !== [] ? $shares : $this->fetchStoredTwseIssuedSharesMap();
             },
         );
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function fetchStoredTwseIssuedSharesMap(): array
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('tw_stock_company_profiles')) {
+            return [];
+        }
+
+        try {
+            $rows = TwStockCompanyProfile::query()
+                ->where('exchange', 'TWSE')
+                ->get(['stock_code', 'source_payload']);
+        } catch (Throwable) {
+            return [];
+        }
+
+        $shares = [];
+        foreach ($rows as $row) {
+            $stockCode = trim((string) $row->stock_code);
+            $payload = is_array($row->source_payload)
+                ? $row->source_payload
+                : (is_string($row->source_payload) ? json_decode($row->source_payload, true) : null);
+            $issuedShares = $this->parseInteger($payload['已發行普通股數或TDR原股發行股數'] ?? null);
+            if ($this->isCommonStockCode($stockCode) && $issuedShares !== null && $issuedShares > 0) {
+                $shares[$stockCode] = $issuedShares;
+            }
+        }
+
+        return $shares;
     }
 
     /**

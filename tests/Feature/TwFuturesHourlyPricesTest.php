@@ -136,6 +136,16 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('"shape":"circle"', false)
             ->assertSee('台指期K線');
 
+        preg_match('/const chartRows = (.*);/', (string) $response->getContent(), $chartMatches);
+        $this->assertNotEmpty($chartMatches[1] ?? null);
+
+        $chartRows = json_decode((string) $chartMatches[1], true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame('2026-01-01 09:00', $chartRows[0]['localTime']);
+        $this->assertSame(
+            CarbonImmutable::parse('2026-01-01 09:00:00', 'Asia/Taipei')->timestamp,
+            $chartRows[0]['time'],
+        );
+
         preg_match('/const dailyChartRows = (.*);/', (string) $response->getContent(), $matches);
         $this->assertNotEmpty($matches[1] ?? null);
 

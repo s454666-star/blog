@@ -38,8 +38,8 @@ class TwFuturesHourlyPriceController extends Controller
             'hourlyGapMarkers' => $hourlyIndicatorRows['gapMarkers'],
             'sessionGapRows' => $indicatorRows['sessionGapRows'],
             'stats' => [
-                'firstDateTime' => $rows->first()?->started_at?->timezone('Asia/Taipei')->format('Y-m-d H:i'),
-                'lastDateTime' => $latest?->started_at?->timezone('Asia/Taipei')->format('Y-m-d H:i'),
+                'firstDateTime' => $this->displayDateTime($rows->first()),
+                'lastDateTime' => $this->displayDateTime($latest),
                 'rowCount' => $rows->count(),
                 'latestGap' => $indicatorRows['latestGap'],
                 'latestDailyMa5' => $indicatorRows['latestDailyMa5'],
@@ -152,13 +152,14 @@ class TwFuturesHourlyPriceController extends Controller
                 : null;
             $gap = $dailyMa5 !== null && $movingAverage !== null ? $dailyMa5 - $movingAverage : null;
             $startedAt = CarbonImmutable::parse($row->started_at, 'Asia/Taipei');
-            $time = (int) $row->started_at_unix;
-            $localTime = $startedAt->format('Y-m-d H:i');
+            $startedAtUnix = (int) $row->started_at_unix;
+            $time = $this->displayTimestamp($row);
+            $localTime = $this->displayDateTime($row) ?? $startedAt->format('Y-m-d H:i');
             $sessionType = (string) $row->session_type;
             $isSessionOpen = in_array($startedAt->format('H:i'), ['08:45', '15:00'], true);
             $isSessionClose = $tradeDate !== null
                 && in_array($sessionType, ['day', 'night'], true)
-                && ($sessionCloseTimes[$tradeDate][$sessionType] ?? null) === $time
+                && ($sessionCloseTimes[$tradeDate][$sessionType] ?? null) === $startedAtUnix
                 && $this->isSessionCloseConfirmed($startedAt, $sessionType);
 
             if ($gap !== null) {
@@ -362,6 +363,31 @@ class TwFuturesHourlyPriceController extends Controller
         }
 
         return CarbonImmutable::now('Asia/Taipei')->greaterThanOrEqualTo($confirmedAt);
+    }
+
+    private function displayDateTime(?TwFuturesHourlyPrice $row): ?string
+    {
+        if ($row === null || $row->started_at === null) {
+            return null;
+        }
+
+        return $this->displayedAt($row)->format('Y-m-d H:i');
+    }
+
+    private function displayTimestamp(TwFuturesHourlyPrice $row): int
+    {
+        return (int) $row->started_at_unix + ($this->intervalMinutes((string) $row->interval) * 60);
+    }
+
+    private function displayedAt(TwFuturesHourlyPrice $row): CarbonImmutable
+    {
+        return CarbonImmutable::parse($row->started_at, 'Asia/Taipei')
+            ->addMinutes($this->intervalMinutes((string) $row->interval));
+    }
+
+    private function intervalMinutes(string $interval): int
+    {
+        return max(0, (int) $interval);
     }
 
     private function cacheVersion(string $symbol, string $interval): string

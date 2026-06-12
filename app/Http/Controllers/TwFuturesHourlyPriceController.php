@@ -14,9 +14,9 @@ class TwFuturesHourlyPriceController extends Controller
 
     private const SYMBOL = 'TXF1!';
 
-    private const PRIMARY_INTERVAL = '5';
+    private const PRIMARY_INTERVAL = '30';
 
-    private const FIVE_MINUTE_MA_WINDOW = 1140;
+    private const THIRTY_MINUTE_MA_WINDOW = 190;
 
     private const HOURLY_MA_WINDOW = 95;
 
@@ -24,7 +24,7 @@ class TwFuturesHourlyPriceController extends Controller
     {
         $rows = $this->priceRows(self::SYMBOL, self::PRIMARY_INTERVAL);
         $hourlyRows = $this->priceRows(self::SYMBOL, '60');
-        $indicatorRows = $this->indicatorRows($rows, self::FIVE_MINUTE_MA_WINDOW);
+        $indicatorRows = $this->indicatorRows($rows, self::THIRTY_MINUTE_MA_WINDOW);
         $hourlyIndicatorRows = $this->indicatorRows($hourlyRows, self::HOURLY_MA_WINDOW);
         $latest = $rows->last();
 

@@ -12,7 +12,7 @@ class FetchTwFuturesHourlyPricesCommand extends Command
     protected $signature = 'tw-stock:fetch-taiex-futures-hourly
         {--from= : 開始日期，預設最近 21 天}
         {--to= : 結束日期，預設今天}
-        {--interval=60 : TradingView K 線週期，支援 5 或 60}
+        {--interval=60 : TradingView K 線週期，支援 5、30 或 60}
         {--bars=0 : 從資料源要求的根數，0 代表依週期自動}
         {--delay-seconds=0 : 抓取前延遲秒數，讓資料源更新當下 K 棒}
         {--symbol=TXF1! : DB 內部商品代碼}
@@ -46,14 +46,18 @@ class FetchTwFuturesHourlyPricesCommand extends Command
         }
 
         $interval = trim((string) $this->option('interval'));
-        if (! in_array($interval, ['5', '60'], true)) {
-            $this->error('interval 只支援 5 或 60。');
+        if (! in_array($interval, ['5', '30', '60'], true)) {
+            $this->error('interval 只支援 5、30 或 60。');
 
             return self::FAILURE;
         }
 
         $barsOption = (int) $this->option('bars');
-        $bars = $barsOption > 0 ? $barsOption : ($interval === '5' ? 6000 : 1200);
+        $bars = $barsOption > 0 ? $barsOption : match ($interval) {
+            '5' => 6000,
+            '30' => 2400,
+            default => 1200,
+        };
         $delaySeconds = max(0, min(300, (int) $this->option('delay-seconds')));
         $symbol = (string) $this->option('symbol');
         $tradingViewSymbol = (string) $this->option('tradingview-symbol');

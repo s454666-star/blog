@@ -25,7 +25,7 @@ class TwFuturesHourlyPriceFetcher
 
     private const DEFAULT_INTERVAL = '60';
 
-    private const SUPPORTED_INTERVALS = ['5', '60'];
+    private const SUPPORTED_INTERVALS = ['5', '30', '60'];
 
     private const SOCKET_TIMEOUT_SECONDS = 30;
 
@@ -157,7 +157,7 @@ class TwFuturesHourlyPriceFetcher
 
         return Cache::remember(
             $cacheKey,
-            $interval === '5' ? now()->addSeconds(30) : now()->addMinutes(8),
+            $interval === '60' ? now()->addMinutes(8) : now()->addSeconds(30),
             fn (): array => $this->fetchTradingViewTimescaleUncached($tradingViewSymbol, $interval, $bars),
         );
     }

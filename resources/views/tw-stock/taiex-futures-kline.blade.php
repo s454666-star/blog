@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>台指期 5K 差值 K 線</title>
+    <title>台指期 30K 差值 K 線</title>
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         :root {
@@ -376,8 +376,8 @@
 <main class="shell">
     <section class="topbar">
         <div class="title-row">
-            <h1>台指期 5K 差值 K 線</h1>
-            <span class="symbol">TAIFEX · TXF1! · 5K / 60K</span>
+            <h1>台指期 30K 差值 K 線</h1>
+            <span class="symbol">TAIFEX · TXF1! · 30K / 60K</span>
         </div>
         <nav class="nav-actions" aria-label="台股頁面">
             <a href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
@@ -392,7 +392,7 @@
     <section class="summary" aria-label="台指期摘要">
         <div class="summary-cell">
             <div class="label">資料範圍</div>
-            <div class="value small">{{ $stats['firstDateTime'] ?? '--' }} 到 {{ $stats['lastDateTime'] ?? '--' }}<br>{{ number_format((int) $stats['rowCount']) }} 根 5K</div>
+            <div class="value small">{{ $stats['firstDateTime'] ?? '--' }} 到 {{ $stats['lastDateTime'] ?? '--' }}<br>{{ number_format((int) $stats['rowCount']) }} 根 30K</div>
         </div>
         <div class="summary-cell">
             <div class="label">最新收盤</div>
@@ -407,7 +407,7 @@
             <div class="value">{{ $fmt($stats['latestDailyMa5'], 0) }}</div>
         </div>
         <div class="summary-cell">
-            <div class="label">5K MA1140</div>
+            <div class="label">30K MA190</div>
             <div class="value">{{ $fmt($stats['latestMovingAverage'], 0) }}</div>
         </div>
         <div class="summary-cell">
@@ -423,8 +423,8 @@
     <section class="chart-panel">
         <div class="chart-head">
             <div class="legend" data-legend>
-                <span class="legend-item"><span class="swatch" style="background: var(--blue)"></span>週期 <strong data-legend-timeframe>5分K</strong></span>
-                <span class="legend-item"><span class="swatch" style="background: var(--yellow)"></span><span data-legend-ma-label>5K MA1140</span> <strong data-legend-ma>--</strong></span>
+                <span class="legend-item"><span class="swatch" style="background: var(--blue)"></span>週期 <strong data-legend-timeframe>30分K</strong></span>
+                <span class="legend-item"><span class="swatch" style="background: var(--yellow)"></span><span data-legend-ma-label>30K MA190</span> <strong data-legend-ma>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: #e5e7eb"></span>標記 <strong data-marker-count>0</strong></span>
@@ -434,7 +434,7 @@
                 <span class="legend-item">收 <strong data-legend-close>--</strong></span>
             </div>
             <div class="tools" aria-label="圖層切換">
-                <button type="button" class="tool-button active" data-timeframe="five-minute">5分K</button>
+                <button type="button" class="tool-button active" data-timeframe="thirty-minute">30分K</button>
                 <button type="button" class="tool-button" data-timeframe="hourly">60分K</button>
                 <button type="button" class="tool-button" data-timeframe="daily">日線</button>
                 <button type="button" class="tool-button active" data-toggle-series="dailyMa5">日MA5</button>
@@ -446,7 +446,7 @@
         </div>
 
         @if (count($chartRows) === 0)
-            <div class="empty">目前還沒有台指期 5K 資料。</div>
+            <div class="empty">目前還沒有台指期 30K 資料。</div>
         @else
             <div class="chart-hint">點一下可標記差值，再點一下或右鍵可取消，重整後標記清空。</div>
             <div class="chart-body">
@@ -478,7 +478,7 @@
     const gapAxisLayer = document.querySelector('[data-gap-axis]');
     const markerLabelLayer = document.createElement('div');
     markerLabelLayer.className = 'marker-label-layer';
-    let activeTimeframe = 'five-minute';
+    let activeTimeframe = 'thirty-minute';
     let currentRows = chartRows;
     let lastLogicalIndex = currentRows.length - 1;
     let legendMap = new Map(currentRows.map(row => [Number(row.time), row]));
@@ -502,12 +502,12 @@
         hour12: false
     });
     const timeframeDatasets = {
-        'five-minute': {
+        'thirty-minute': {
             rows: chartRows,
             markers: gapMarkers,
-            label: '5分K',
-            movingAverageLabel: '5K MA1140',
-            defaultVisibleBars: 240
+            label: '30分K',
+            movingAverageLabel: '30K MA190',
+            defaultVisibleBars: 190
         },
         hourly: {
             rows: hourlyChartRows,
@@ -520,7 +520,7 @@
             rows: dailyChartRows,
             markers: dailyGapMarkers,
             label: '日線',
-            movingAverageLabel: '5K MA1140',
+            movingAverageLabel: '30K MA190',
             defaultVisibleBars: 90
         }
     };
@@ -1336,7 +1336,7 @@
     };
 
     function updateLegend(row = currentRows[currentRows.length - 1] ?? {}) {
-        const dataset = timeframeDatasets[activeTimeframe] ?? timeframeDatasets['five-minute'];
+        const dataset = timeframeDatasets[activeTimeframe] ?? timeframeDatasets['thirty-minute'];
         fields.timeframe.textContent = dataset.label;
         fields.movingAverageLabel.textContent = dataset.movingAverageLabel;
         fields.open.textContent = format(row?.open);
@@ -1359,8 +1359,8 @@
     });
 
     function applyTimeframe(timeframe) {
-        const dataset = timeframeDatasets[timeframe] ?? timeframeDatasets['five-minute'];
-        activeTimeframe = timeframeDatasets[timeframe] ? timeframe : 'five-minute';
+        const dataset = timeframeDatasets[timeframe] ?? timeframeDatasets['thirty-minute'];
+        activeTimeframe = timeframeDatasets[timeframe] ? timeframe : 'thirty-minute';
         currentRows = dataset.rows;
         lastLogicalIndex = currentRows.length - 1;
         legendMap = new Map(currentRows.map(row => [Number(row.time), row]));
@@ -1401,7 +1401,7 @@
     };
     window.addEventListener('resize', resize);
     resize();
-    applyTimeframe('five-minute');
+    applyTimeframe('thirty-minute');
 </script>
 @endif
 </body>

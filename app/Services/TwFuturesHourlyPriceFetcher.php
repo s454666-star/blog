@@ -25,7 +25,7 @@ class TwFuturesHourlyPriceFetcher
 
     private const DEFAULT_INTERVAL = '60';
 
-    private const SUPPORTED_INTERVALS = ['5', '30', '60'];
+    private const SUPPORTED_INTERVALS = ['5', '15', '30', '60'];
 
     private const SOCKET_TIMEOUT_SECONDS = 30;
 

@@ -114,12 +114,12 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_upcoming_dividends.log'));
 
-        $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=30 --bars=2400 --delay-seconds=75')
-            ->everyThirtyMinutes()
-            ->name('tw-stock-fetch-taiex-futures-30-minute')
-            ->withoutOverlapping(20)
+        $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=15 --bars=4800 --delay-seconds=75')
+            ->everyFifteenMinutes()
+            ->name('tw-stock-fetch-taiex-futures-15-minute')
+            ->withoutOverlapping(15)
             ->runInBackground()
-            ->appendOutputTo(storage_path('logs/tw_futures_30min_prices.log'));
+            ->appendOutputTo(storage_path('logs/tw_futures_15min_prices.log'));
 
         $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=60')
             ->hourlyAt(10)

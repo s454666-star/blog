@@ -65,18 +65,18 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertSee('台指期 30K 差值 K 線')
-            ->assertSee('TAIFEX · TXF1! · 30K / 60K')
-            ->assertSee('30K MA190')
+            ->assertSee('台指期 15K 差值 K 線')
+            ->assertSee('TAIFEX · TXF1! · 15K / 60K')
+            ->assertSee('15K MA380')
             ->assertSee('60K MA95')
             ->assertSee('日 MA5')
             ->assertSee('差值')
             ->assertSee('const dailyChartRows =', false)
             ->assertSee('const hourlyChartRows =', false)
             ->assertSee('data-timeframe="hourly"', false)
-            ->assertSee('data-timeframe="thirty-minute"', false)
+            ->assertSee('data-timeframe="fifteen-minute"', false)
             ->assertSee('data-timeframe="daily"', false)
-            ->assertSee('30分K')
+            ->assertSee('15分K')
             ->assertSee('60分K')
             ->assertSee('日線')
             ->assertSee('const gapMarkers =', false)
@@ -202,7 +202,7 @@ class TwFuturesHourlyPricesTest extends TestCase
     {
         $now = now();
         $rows = [];
-        $this->appendThirtyMinuteRows($rows, $now);
+        $this->appendFifteenMinuteRows($rows, $now);
         $this->appendHourlyRows($rows, $now);
 
         DB::table('tw_futures_hourly_prices')->insert($rows);
@@ -211,18 +211,18 @@ class TwFuturesHourlyPricesTest extends TestCase
     /**
      * @param list<array<string, mixed>> $rows
      */
-    private function appendThirtyMinuteRows(array &$rows, Carbon $now): void
+    private function appendFifteenMinuteRows(array &$rows, Carbon $now): void
     {
         $cursor = 0;
 
         foreach (range(0, 6) as $dayOffset) {
             $date = CarbonImmutable::parse('2026-01-01', 'Asia/Taipei')->addDays($dayOffset);
 
-            for ($minutes = 0; $minutes < 330; $minutes += 30) {
+            for ($minutes = 0; $minutes < 330; $minutes += 15) {
                 $startedAt = $date->setTime(8, 45)->addMinutes($minutes);
                 $close = 24000 + $cursor * 2;
                 $rows[] = $this->priceRow(
-                    interval: '30',
+                    interval: '15',
                     startedAt: $startedAt,
                     tradeDate: $date->toDateString(),
                     sessionType: 'day',
@@ -233,11 +233,11 @@ class TwFuturesHourlyPricesTest extends TestCase
                 $cursor++;
             }
 
-            for ($minutes = 0; $minutes < 870; $minutes += 30) {
+            for ($minutes = 0; $minutes < 870; $minutes += 15) {
                 $startedAt = $date->setTime(15, 0)->addMinutes($minutes);
                 $close = 24000 + $cursor * 2;
                 $rows[] = $this->priceRow(
-                    interval: '30',
+                    interval: '15',
                     startedAt: $startedAt,
                     tradeDate: $date->addDay()->toDateString(),
                     sessionType: 'night',

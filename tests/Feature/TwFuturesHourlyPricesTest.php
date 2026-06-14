@@ -136,7 +136,14 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('"shape":"circle"', false)
             ->assertSee('台指期K線');
 
-        preg_match('/const chartRows = (.*);/', (string) $response->getContent(), $chartMatches);
+        $content = (string) $response->getContent();
+        $summaryGapPosition = strpos($content, '<div class="label">差值</div>');
+        $latestClosePosition = strpos($content, '<div class="label">最新收盤</div>');
+        $this->assertNotFalse($summaryGapPosition);
+        $this->assertNotFalse($latestClosePosition);
+        $this->assertLessThan($latestClosePosition, $summaryGapPosition);
+
+        preg_match('/const chartRows = (.*);/', $content, $chartMatches);
         $this->assertNotEmpty($chartMatches[1] ?? null);
 
         $chartRows = json_decode((string) $chartMatches[1], true, flags: JSON_THROW_ON_ERROR);
@@ -146,7 +153,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             $chartRows[0]['time'],
         );
 
-        preg_match('/const dailyChartRows = (.*);/', (string) $response->getContent(), $matches);
+        preg_match('/const dailyChartRows = (.*);/', $content, $matches);
         $this->assertNotEmpty($matches[1] ?? null);
 
         $dailyRows = json_decode((string) $matches[1], true, flags: JSON_THROW_ON_ERROR);
@@ -155,7 +162,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             fn (array $row): bool => $row['movingAverage'] !== null && $row['gap'] !== null,
         ));
 
-        preg_match('/const hourlyChartRows = (.*);/', (string) $response->getContent(), $hourlyMatches);
+        preg_match('/const hourlyChartRows = (.*);/', $content, $hourlyMatches);
         $this->assertNotEmpty($hourlyMatches[1] ?? null);
 
         $hourlyRows = json_decode((string) $hourlyMatches[1], true, flags: JSON_THROW_ON_ERROR);
@@ -164,7 +171,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             fn (array $row): bool => $row['movingAverage'] !== null && $row['gap'] !== null,
         ));
 
-        preg_match('/const dailyGapMarkers = (.*);/', (string) $response->getContent(), $markerMatches);
+        preg_match('/const dailyGapMarkers = (.*);/', $content, $markerMatches);
         $this->assertNotEmpty($markerMatches[1] ?? null);
 
         $dailyGapMarkers = json_decode((string) $markerMatches[1], true, flags: JSON_THROW_ON_ERROR);
@@ -174,7 +181,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             fn (array $marker): bool => (bool) preg_match('/^[+-][0-9,]+$/', (string) $marker['text']),
         ));
 
-        preg_match('/const gapMarkers = (.*);/', (string) $response->getContent(), $hourlyMarkerMatches);
+        preg_match('/const gapMarkers = (.*);/', $content, $hourlyMarkerMatches);
         $this->assertNotEmpty($hourlyMarkerMatches[1] ?? null);
 
         $hourlyGapMarkers = json_decode((string) $hourlyMarkerMatches[1], true, flags: JSON_THROW_ON_ERROR);

@@ -395,12 +395,12 @@
             <div class="value small">{{ $stats['firstDateTime'] ?? '--' }} 到 {{ $stats['lastDateTime'] ?? '--' }}<br>{{ number_format((int) $stats['rowCount']) }} 根 15K</div>
         </div>
         <div class="summary-cell">
-            <div class="label">最新收盤</div>
-            <div class="value">{{ $latest ? $fmt($latest->close_price, 0) : '--' }}</div>
-        </div>
-        <div class="summary-cell">
             <div class="label">差值</div>
             <div class="value {{ $tone($stats['latestGap']) }}">{{ $signed($stats['latestGap'], 0) }}</div>
+        </div>
+        <div class="summary-cell">
+            <div class="label">最新收盤</div>
+            <div class="value">{{ $latest ? $fmt($latest->close_price, 0) : '--' }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">日 MA5</div>

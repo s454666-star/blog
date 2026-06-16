@@ -180,13 +180,6 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->withoutOverlapping();
 
-        $schedule->command('image:ingest-telegram-downloads')
-            ->everyFiveMinutes()
-            ->name('image-ingest-telegram-downloads')
-            ->withoutOverlapping(15)
-            ->runInBackground()
-            ->appendOutputTo(storage_path('logs/telegram_image_ingest.log'));
-
         $schedule->command('video:delete-exact-duplicates', [
             'C:\Users\User\Downloads\Video',
             '--recursive' => '1',

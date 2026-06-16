@@ -2,6 +2,9 @@ param(
     [string] $ProjectDir = 'C:\www\blog',
     [string] $RedisHome = 'C:\Users\User\Tools\redis\Redis-8.6.2-Windows-x64-msys2',
     [string] $CloudflaredServiceName = 'Cloudflared',
+    [string] $CloudflaredExe = 'C:\Program Files (x86)\cloudflared\cloudflared.exe',
+    [string] $UserCloudflaredConfig = 'C:\Users\User\.cloudflared\config.yml',
+    [string] $UserCloudflaredLog = 'C:\Users\User\.cloudflared\cloudflared-user-mystar.log',
     [string] $AwsPuttySession = 'aws',
     [string] $AwsProjectDir = '/var/www/html/blog',
     [int] $RedisPort = 6379,
@@ -54,6 +57,50 @@ function Get-RedisProcesses {
         }
 }
 
+function Get-MainCloudflaredUserProcesses {
+    $configPattern = "*$($UserCloudflaredConfig)*"
+
+    Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $commandLine = if ($_.CommandLine) { $_.CommandLine } else { '' }
+            $commandLine -like $configPattern
+        }
+}
+
+function Start-UserCloudflaredTunnel {
+    if (-not (Test-Path -LiteralPath $CloudflaredExe)) {
+        throw "cloudflared.exe not found at $CloudflaredExe"
+    }
+
+    if (-not (Test-Path -LiteralPath $UserCloudflaredConfig)) {
+        throw "Cloudflared user config not found at $UserCloudflaredConfig"
+    }
+
+    if (Get-MainCloudflaredUserProcesses) {
+        return
+    }
+
+    Write-WatchdogLog "starting user-mode Cloudflared tunnel from $UserCloudflaredConfig"
+    Start-Process -FilePath $CloudflaredExe `
+        -ArgumentList @('tunnel', '--config', $UserCloudflaredConfig, '--logfile', $UserCloudflaredLog, '--loglevel', 'info', 'run') `
+        -WindowStyle Hidden
+    Start-Sleep -Seconds ($RestartWaitSeconds * 2)
+}
+
+function Restart-UserCloudflaredTunnel {
+    $processes = @(Get-MainCloudflaredUserProcesses)
+    foreach ($process in $processes) {
+        try {
+            Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+        } catch {
+            Write-WatchdogLog "failed to stop user-mode cloudflared pid=$($process.ProcessId): $($_.Exception.Message)"
+        }
+    }
+
+    Start-Sleep -Seconds 2
+    Start-UserCloudflaredTunnel
+}
+
 function Start-LocalRedis {
     if (Test-Path -LiteralPath $redisStartScript) {
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File $redisStartScript | Out-Null
@@ -103,20 +150,48 @@ function Restart-LocalRedis {
 }
 
 function Ensure-CloudflaredService {
-    $service = Get-Service -Name $CloudflaredServiceName -ErrorAction Stop
+    $service = Get-Service -Name $CloudflaredServiceName -ErrorAction SilentlyContinue
     if ($service.Status -eq 'Running') {
         return
     }
 
+    if (Get-MainCloudflaredUserProcesses) {
+        return
+    }
+
+    if ($null -eq $service) {
+        Write-WatchdogLog "$CloudflaredServiceName service is not available, using user-mode tunnel"
+        Start-UserCloudflaredTunnel
+        return
+    }
+
     Write-WatchdogLog "$CloudflaredServiceName service was $($service.Status), starting"
-    Start-Service -Name $CloudflaredServiceName
-    Start-Sleep -Seconds $RestartWaitSeconds
+    try {
+        Start-Service -Name $CloudflaredServiceName -ErrorAction Stop
+        Start-Sleep -Seconds $RestartWaitSeconds
+    } catch {
+        Write-WatchdogLog "could not start $CloudflaredServiceName service: $($_.Exception.Message); using user-mode tunnel"
+        Start-UserCloudflaredTunnel
+    }
 }
 
 function Restart-CloudflaredService {
-    Write-WatchdogLog "restarting $CloudflaredServiceName service"
-    Restart-Service -Name $CloudflaredServiceName -Force
-    Start-Sleep -Seconds ($RestartWaitSeconds * 2)
+    $service = Get-Service -Name $CloudflaredServiceName -ErrorAction SilentlyContinue
+
+    if ($service.Status -eq 'Running') {
+        Write-WatchdogLog "restarting $CloudflaredServiceName service"
+        try {
+            Restart-Service -Name $CloudflaredServiceName -Force -ErrorAction Stop
+            Start-Sleep -Seconds ($RestartWaitSeconds * 2)
+            return
+        } catch {
+            Write-WatchdogLog "could not restart $CloudflaredServiceName service: $($_.Exception.Message); restarting user-mode tunnel"
+        }
+    } else {
+        Write-WatchdogLog "$CloudflaredServiceName service is not running, restarting user-mode tunnel"
+    }
+
+    Restart-UserCloudflaredTunnel
 }
 
 function Test-AwsRedisPing {

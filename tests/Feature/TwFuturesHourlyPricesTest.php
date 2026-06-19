@@ -71,6 +71,8 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('60K MA95')
             ->assertSee('日 MA5')
             ->assertSee('差值')
+            ->assertSee('乖離')
+            ->assertSee('乖離率')
             ->assertSee('const dailyChartRows =', false)
             ->assertSee('const hourlyChartRows =', false)
             ->assertSee('data-timeframe="hourly"', false)
@@ -104,6 +106,8 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('cancelMarkerClick', false)
             ->assertSee('TEMPORARY_LINE_CLICK_MOVE_LIMIT = 6', false)
             ->assertSee('data-marker-count', false)
+            ->assertSee('data-legend-bias', false)
+            ->assertSee('data-legend-bias-rate', false)
             ->assertSee('marker-label-layer', false)
             ->assertSee('chartMarkerData', false)
             ->assertSee('renderMarkerLabels', false)
@@ -139,9 +143,17 @@ class TwFuturesHourlyPricesTest extends TestCase
         $content = (string) $response->getContent();
         $summaryGapPosition = strpos($content, '<div class="label">差值</div>');
         $latestClosePosition = strpos($content, '<div class="label">最新收盤</div>');
+        $movingAveragePosition = strpos($content, '<div class="label">15K MA380</div>');
+        $biasPosition = strpos($content, '<div class="label">乖離</div>');
+        $biasRatePosition = strpos($content, '<div class="label">乖離率</div>');
         $this->assertNotFalse($summaryGapPosition);
         $this->assertNotFalse($latestClosePosition);
+        $this->assertNotFalse($movingAveragePosition);
+        $this->assertNotFalse($biasPosition);
+        $this->assertNotFalse($biasRatePosition);
         $this->assertLessThan($latestClosePosition, $summaryGapPosition);
+        $this->assertGreaterThan($movingAveragePosition, $biasPosition);
+        $this->assertGreaterThan($biasPosition, $biasRatePosition);
 
         preg_match('/const chartRows = (.*);/', $content, $chartMatches);
         $this->assertNotEmpty($chartMatches[1] ?? null);
@@ -153,6 +165,16 @@ class TwFuturesHourlyPricesTest extends TestCase
             $chartRows[0]['time'],
         );
 
+        $biasRows = array_values(array_filter(
+            $chartRows,
+            fn (array $row): bool => $row['movingAverage'] !== null && $row['bias'] !== null && $row['biasRate'] !== null,
+        ));
+        $this->assertNotEmpty($biasRows);
+        $biasRow = $biasRows[array_key_last($biasRows)];
+        $expectedBias = (float) $biasRow['close'] - (float) $biasRow['movingAverage'];
+        $this->assertEqualsWithDelta($expectedBias, (float) $biasRow['bias'], 0.0001);
+        $this->assertEqualsWithDelta($expectedBias / (float) $biasRow['close'], (float) $biasRow['biasRate'], 0.000001);
+
         preg_match('/const dailyChartRows = (.*);/', $content, $matches);
         $this->assertNotEmpty($matches[1] ?? null);
 
@@ -160,6 +182,10 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertNotEmpty(array_filter(
             $dailyRows,
             fn (array $row): bool => $row['movingAverage'] !== null && $row['gap'] !== null,
+        ));
+        $this->assertNotEmpty(array_filter(
+            $dailyRows,
+            fn (array $row): bool => $row['bias'] !== null && $row['biasRate'] !== null,
         ));
 
         preg_match('/const hourlyChartRows = (.*);/', $content, $hourlyMatches);
@@ -169,6 +195,10 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertNotEmpty(array_filter(
             $hourlyRows,
             fn (array $row): bool => $row['movingAverage'] !== null && $row['gap'] !== null,
+        ));
+        $this->assertNotEmpty(array_filter(
+            $hourlyRows,
+            fn (array $row): bool => $row['bias'] !== null && $row['biasRate'] !== null,
         ));
 
         preg_match('/const dailyGapMarkers = (.*);/', $content, $markerMatches);

@@ -44,6 +44,8 @@ class TwFuturesHourlyPriceController extends Controller
                 'latestGap' => $indicatorRows['latestGap'],
                 'latestDailyMa5' => $indicatorRows['latestDailyMa5'],
                 'latestMovingAverage' => $indicatorRows['latestMovingAverage'],
+                'latestBias' => $indicatorRows['latestBias'],
+                'latestBiasRate' => $indicatorRows['latestBiasRate'],
                 'maxGap' => $indicatorRows['maxGap'],
                 'minGap' => $indicatorRows['minGap'],
                 'sessionGapCount' => count($indicatorRows['sessionGapRows']),
@@ -86,6 +88,8 @@ class TwFuturesHourlyPriceController extends Controller
      *     latestGap: float|null,
      *     latestDailyMa5: float|null,
      *     latestMovingAverage: float|null,
+     *     latestBias: float|null,
+     *     latestBiasRate: float|null,
      *     maxGap: float|null,
      *     minGap: float|null
      * }
@@ -133,6 +137,8 @@ class TwFuturesHourlyPriceController extends Controller
         $latestGap = null;
         $latestDailyMa5 = null;
         $latestMovingAverage = null;
+        $latestBias = null;
+        $latestBiasRate = null;
 
         foreach ($rows as $row) {
             $close = (float) $row->close_price;
@@ -151,6 +157,8 @@ class TwFuturesHourlyPriceController extends Controller
                 ? (array_sum($previous) + $close) / 5
                 : null;
             $gap = $dailyMa5 !== null && $movingAverage !== null ? $dailyMa5 - $movingAverage : null;
+            $bias = $movingAverage !== null ? $close - $movingAverage : null;
+            $biasRate = $bias !== null && $close !== 0.0 ? $bias / $close : null;
             $startedAt = CarbonImmutable::parse($row->started_at, 'Asia/Taipei');
             $startedAtUnix = (int) $row->started_at_unix;
             $time = $this->displayTimestamp($row);
@@ -161,6 +169,12 @@ class TwFuturesHourlyPriceController extends Controller
                 && in_array($sessionType, ['day', 'night'], true)
                 && ($sessionCloseTimes[$tradeDate][$sessionType] ?? null) === $startedAtUnix
                 && $this->isSessionCloseConfirmed($startedAt, $sessionType);
+
+            if ($bias !== null) {
+                $latestMovingAverage = $movingAverage;
+                $latestBias = $bias;
+                $latestBiasRate = $biasRate;
+            }
 
             if ($gap !== null) {
                 $latestGap = $gap;
@@ -219,6 +233,8 @@ class TwFuturesHourlyPriceController extends Controller
                 'movingAverage' => $movingAverage === null ? null : round($movingAverage, 4),
                 'dailyMa5' => $dailyMa5 === null ? null : round($dailyMa5, 4),
                 'gap' => $gap === null ? null : round($gap, 4),
+                'bias' => $bias === null ? null : round($bias, 4),
+                'biasRate' => $biasRate === null ? null : round($biasRate, 8),
                 'isSessionOpen' => $isSessionOpen,
             ];
         }
@@ -234,6 +250,8 @@ class TwFuturesHourlyPriceController extends Controller
             'latestGap' => $latestGap === null ? null : round($latestGap, 2),
             'latestDailyMa5' => $latestDailyMa5 === null ? null : round($latestDailyMa5, 2),
             'latestMovingAverage' => $latestMovingAverage === null ? null : round($latestMovingAverage, 2),
+            'latestBias' => $latestBias === null ? null : round($latestBias, 2),
+            'latestBiasRate' => $latestBiasRate === null ? null : round($latestBiasRate, 6),
             'maxGap' => $gaps === [] ? null : round(max($gaps), 2),
             'minGap' => $gaps === [] ? null : round(min($gaps), 2),
         ];
@@ -261,6 +279,8 @@ class TwFuturesHourlyPriceController extends Controller
                     'volume' => 0,
                     'movingAverage' => null,
                     'gap' => null,
+                    'bias' => null,
+                    'biasRate' => null,
                 ];
             }
 
@@ -274,6 +294,12 @@ class TwFuturesHourlyPriceController extends Controller
             }
             if ($row['gap'] !== null) {
                 $groups[$tradeDate]['gap'] = (float) $row['gap'];
+            }
+            if ($row['bias'] !== null) {
+                $groups[$tradeDate]['bias'] = (float) $row['bias'];
+            }
+            if ($row['biasRate'] !== null) {
+                $groups[$tradeDate]['biasRate'] = (float) $row['biasRate'];
             }
         }
 
@@ -293,6 +319,8 @@ class TwFuturesHourlyPriceController extends Controller
             $dailyMa5 = count($closeWindow) === 5 ? $closeSum / 5 : null;
             $movingAverage = $group['movingAverage'] === null ? null : (float) $group['movingAverage'];
             $gap = $group['gap'] === null ? null : (float) $group['gap'];
+            $bias = $group['bias'] === null ? null : (float) $group['bias'];
+            $biasRate = $group['biasRate'] === null ? null : (float) $group['biasRate'];
             $time = CarbonImmutable::parse($tradeDate . ' 12:00:00', 'Asia/Taipei')->timestamp;
 
             $dailyRows[] = [
@@ -308,6 +336,8 @@ class TwFuturesHourlyPriceController extends Controller
                 'movingAverage' => $movingAverage === null ? null : round($movingAverage, 4),
                 'dailyMa5' => $dailyMa5 === null ? null : round($dailyMa5, 4),
                 'gap' => $gap === null ? null : round($gap, 4),
+                'bias' => $bias === null ? null : round($bias, 4),
+                'biasRate' => $biasRate === null ? null : round($biasRate, 8),
                 'isSessionOpen' => false,
             ];
         }

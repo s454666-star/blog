@@ -10,7 +10,7 @@ use Throwable;
 class FetchTwFuturesHourlyPricesCommand extends Command
 {
     protected $signature = 'tw-stock:fetch-taiex-futures-hourly
-        {--from= : 開始日期，預設最近 21 天}
+        {--from= : 開始日期，預設最近 31 天}
         {--to= : 結束日期，預設今天}
         {--interval=60 : TradingView K 線週期，支援 5、15、30 或 60}
         {--bars=0 : 從資料源要求的根數，0 代表依週期自動}
@@ -25,7 +25,7 @@ class FetchTwFuturesHourlyPricesCommand extends Command
         $timezone = (string) config('app.timezone', 'Asia/Taipei');
         $from = $this->option('from') !== null && $this->option('from') !== ''
             ? (string) $this->option('from')
-            : CarbonImmutable::now($timezone)->subDays(21)->toDateString();
+            : CarbonImmutable::now($timezone)->subDays(31)->toDateString();
         $to = $this->option('to') !== null && $this->option('to') !== ''
             ? (string) $this->option('to')
             : CarbonImmutable::now($timezone)->toDateString();

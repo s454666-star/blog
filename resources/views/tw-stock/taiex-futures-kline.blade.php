@@ -111,7 +111,7 @@
 
         .summary {
             display: grid;
-            grid-template-columns: minmax(220px, 1.25fr) repeat(6, minmax(112px, 0.6fr));
+            grid-template-columns: minmax(220px, 1.25fr) repeat(8, minmax(112px, 0.6fr));
             gap: 8px;
             margin-bottom: 10px;
         }
@@ -370,6 +370,7 @@
 @php
     $fmt = fn ($value, int $decimals = 2): string => $value === null ? '--' : number_format((float) $value, $decimals);
     $signed = fn ($value, int $decimals = 2): string => $value === null ? '--' : (((float) $value >= 0 ? '+' : '') . number_format((float) $value, $decimals));
+    $signedPercent = fn ($value, int $decimals = 2): string => $value === null ? '--' : (((float) $value >= 0 ? '+' : '') . number_format((float) $value * 100, $decimals) . '%');
     $tone = fn ($value): string => $value === null ? 'muted' : ((float) $value >= 0 ? 'positive' : 'negative');
 @endphp
 
@@ -411,6 +412,14 @@
             <div class="value">{{ $fmt($stats['latestMovingAverage'], 0) }}</div>
         </div>
         <div class="summary-cell">
+            <div class="label">乖離</div>
+            <div class="value {{ $tone($stats['latestBias']) }}">{{ $signed($stats['latestBias'], 0) }}</div>
+        </div>
+        <div class="summary-cell">
+            <div class="label">乖離率</div>
+            <div class="value {{ $tone($stats['latestBiasRate']) }}">{{ $signedPercent($stats['latestBiasRate'], 2) }}</div>
+        </div>
+        <div class="summary-cell">
             <div class="label">最大差值</div>
             <div class="value positive">{{ $signed($stats['maxGap'], 0) }}</div>
         </div>
@@ -427,6 +436,8 @@
                 <span class="legend-item"><span class="swatch" style="background: var(--yellow)"></span><span data-legend-ma-label>15K MA380</span> <strong data-legend-ma>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></span>
+                <span class="legend-item">乖離 <strong data-legend-bias>--</strong></span>
+                <span class="legend-item">乖離率 <strong data-legend-bias-rate>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: #e5e7eb"></span>標記 <strong data-marker-count>0</strong></span>
                 <span class="legend-item">開 <strong data-legend-open>--</strong></span>
                 <span class="legend-item">高 <strong data-legend-high>--</strong></span>
@@ -1321,7 +1332,9 @@
         movingAverageLabel: document.querySelector('[data-legend-ma-label]'),
         movingAverage: document.querySelector('[data-legend-ma]'),
         dailyMa5: document.querySelector('[data-legend-daily-ma5]'),
-        gap: document.querySelector('[data-legend-gap]')
+        gap: document.querySelector('[data-legend-gap]'),
+        bias: document.querySelector('[data-legend-bias]'),
+        biasRate: document.querySelector('[data-legend-bias-rate]')
     };
 
     const format = (value, decimals = 0, signed = false) => {
@@ -1333,6 +1346,17 @@
             maximumFractionDigits: decimals,
             minimumFractionDigits: decimals
         })}`;
+    };
+
+    const formatPercent = (value, decimals = 2, signed = false) => {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+            return '--';
+        }
+        const number = Number(value) * 100;
+        return `${signed && number >= 0 ? '+' : ''}${number.toLocaleString('zh-TW', {
+            maximumFractionDigits: decimals,
+            minimumFractionDigits: decimals
+        })}%`;
     };
 
     function updateLegend(row = currentRows[currentRows.length - 1] ?? {}) {
@@ -1347,6 +1371,13 @@
         fields.dailyMa5.textContent = format(row?.dailyMa5);
         fields.gap.textContent = format(row?.gap, 0, true);
         fields.gap.className = Number(row?.gap || 0) >= 0 ? 'positive' : 'negative';
+        fields.bias.textContent = format(row?.bias, 0, true);
+        fields.biasRate.textContent = formatPercent(row?.biasRate, 2, true);
+        const biasValue = row?.bias;
+        const biasNumber = biasValue === null || biasValue === undefined ? NaN : Number(biasValue);
+        const biasTone = Number.isFinite(biasNumber) ? (biasNumber >= 0 ? 'positive' : 'negative') : 'muted';
+        fields.bias.className = biasTone;
+        fields.biasRate.className = biasTone;
     }
 
     chart.subscribeCrosshairMove(param => {

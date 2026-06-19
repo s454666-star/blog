@@ -19,6 +19,7 @@
             --pink: #f472b6;
             --blue: #60a5fa;
             --orange: #f59e0b;
+            --violet: #a78bfa;
         }
 
         * { box-sizing: border-box; }
@@ -436,7 +437,7 @@
                 <span class="legend-item"><span class="swatch" style="background: var(--yellow)"></span><span data-legend-ma-label>15K MA380</span> <strong data-legend-ma>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></span>
-                <span class="legend-item">乖離 <strong data-legend-bias>--</strong></span>
+                <span class="legend-item"><span class="swatch" style="background: var(--violet)"></span>乖離 <strong data-legend-bias>--</strong></span>
                 <span class="legend-item">乖離率 <strong data-legend-bias-rate>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: #e5e7eb"></span>標記 <strong data-marker-count>0</strong></span>
                 <span class="legend-item">開 <strong data-legend-open>--</strong></span>
@@ -451,6 +452,7 @@
                 <button type="button" class="tool-button active" data-toggle-series="dailyMa5">日MA5</button>
                 <button type="button" class="tool-button active" data-toggle-series="movingAverage">均線</button>
                 <button type="button" class="tool-button active" data-toggle-series="gap">差值</button>
+                <button type="button" class="tool-button active" data-toggle-series="bias">乖離</button>
                 <button type="button" class="tool-button" data-show-all>全部</button>
                 <button type="button" class="tool-button active" data-show-latest>最新</button>
             </div>
@@ -685,6 +687,16 @@
         lastValueVisible: false
     });
 
+    const biasSeries = chart.addLineSeries({
+        priceScaleId: 'gap',
+        priceFormat: { type: 'price', precision: 0, minMove: 1 },
+        autoscaleInfoProvider: gapAutoscaleInfoProvider,
+        color: '#a78bfa',
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false
+    });
+
     const gapHistogramSeries = chart.addHistogramSeries({
         priceScaleId: 'gap',
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
@@ -734,7 +746,7 @@
 
     function gapZeroData(rows) {
         return rows
-            .filter(row => row.gap != null)
+            .filter(row => row.gap != null || row.bias != null)
             .map(row => ({ time: Number(row.time), value: 0 }));
     }
 
@@ -835,7 +847,7 @@
 
         return currentRows
             .slice(from, to + 1)
-            .map(row => Number(row.gap))
+            .flatMap(row => [Number(row.gap), Number(row.bias)])
             .filter(Number.isFinite);
     }
 
@@ -967,6 +979,7 @@
         const autoscaleOptions = { autoscaleInfoProvider: gapAutoscaleInfoProvider };
         gapZeroSeries.applyOptions(autoscaleOptions);
         gapSeries.applyOptions(autoscaleOptions);
+        biasSeries.applyOptions(autoscaleOptions);
         gapHistogramSeries.applyOptions(autoscaleOptions);
         scheduleMarkerLabelRender();
     }
@@ -1052,7 +1065,8 @@
     const seriesByToggle = {
         movingAverage: [movingAverageSeries],
         dailyMa5: [dailyMa5Series],
-        gap: [gapSeries, gapHistogramSeries, gapZeroSeries]
+        gap: [gapSeries, gapHistogramSeries, gapZeroSeries],
+        bias: [biasSeries]
     };
 
     document.querySelectorAll('[data-toggle-series]').forEach(button => {
@@ -1405,6 +1419,7 @@
         movingAverageSeries.setData(movingAverageData);
         dailyMa5Series.setData(lineData(currentRows, 'dailyMa5'));
         gapSeries.setData(gapData);
+        biasSeries.setData(lineData(currentRows, 'bias'));
         gapHistogramSeries.setData(gapHistogramData(gapData));
         gapZeroSeries.setData(gapZeroData(currentRows));
         chart.applyOptions({

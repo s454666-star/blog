@@ -121,7 +121,8 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('GAP_AXIS_TICK_MAX_GAP = 24', false)
             ->assertSee('GAP_AXIS_DEFAULT_TICK_STEP = 200', false)
             ->assertSee('GAP_AXIS_MIN_VISIBLE_MAX = 2000', false)
-            ->assertSee('GAP_AXIS_ZERO_RATIO = 0.78', false)
+            ->assertSee('GAP_AXIS_MIN_NEGATIVE_VISIBLE = 1200', false)
+            ->assertSee('GAP_AXIS_ZERO_RATIO = 0.68', false)
             ->assertSee('gapAxisTargetTickCount', false)
             ->assertSee('Math.min(dynamicStep, GAP_AXIS_DEFAULT_TICK_STEP)', false)
             ->assertSee('roundedMaxValue', false)
@@ -157,9 +158,10 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertNotFalse($movingAveragePosition);
         $this->assertNotFalse($biasPosition);
         $this->assertNotFalse($biasRatePosition);
-        $this->assertLessThan($latestClosePosition, $summaryGapPosition);
-        $this->assertGreaterThan($movingAveragePosition, $biasPosition);
+        $this->assertLessThan($biasPosition, $summaryGapPosition);
         $this->assertGreaterThan($biasPosition, $biasRatePosition);
+        $this->assertGreaterThan($biasRatePosition, $latestClosePosition);
+        $this->assertGreaterThan($latestClosePosition, $movingAveragePosition);
 
         preg_match('/const chartRows = (.*);/', $content, $chartMatches);
         $this->assertNotEmpty($chartMatches[1] ?? null);

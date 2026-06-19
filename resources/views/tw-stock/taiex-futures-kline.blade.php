@@ -401,6 +401,14 @@
             <div class="value {{ $tone($stats['latestGap']) }}">{{ $signed($stats['latestGap'], 0) }}</div>
         </div>
         <div class="summary-cell">
+            <div class="label">乖離</div>
+            <div class="value {{ $tone($stats['latestBias']) }}">{{ $signed($stats['latestBias'], 0) }}</div>
+        </div>
+        <div class="summary-cell">
+            <div class="label">乖離率</div>
+            <div class="value {{ $tone($stats['latestBiasRate']) }}">{{ $signedPercent($stats['latestBiasRate'], 2) }}</div>
+        </div>
+        <div class="summary-cell">
             <div class="label">最新收盤</div>
             <div class="value">{{ $latest ? $fmt($latest->close_price, 0) : '--' }}</div>
         </div>
@@ -411,14 +419,6 @@
         <div class="summary-cell">
             <div class="label">15K MA380</div>
             <div class="value">{{ $fmt($stats['latestMovingAverage'], 0) }}</div>
-        </div>
-        <div class="summary-cell">
-            <div class="label">乖離</div>
-            <div class="value {{ $tone($stats['latestBias']) }}">{{ $signed($stats['latestBias'], 0) }}</div>
-        </div>
-        <div class="summary-cell">
-            <div class="label">乖離率</div>
-            <div class="value {{ $tone($stats['latestBiasRate']) }}">{{ $signedPercent($stats['latestBiasRate'], 2) }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">最大差值</div>
@@ -504,7 +504,8 @@
     const GAP_AXIS_TICK_MAX_GAP = 24;
     const GAP_AXIS_DEFAULT_TICK_STEP = 200;
     const GAP_AXIS_MIN_VISIBLE_MAX = 2000;
-    const GAP_AXIS_ZERO_RATIO = 0.78;
+    const GAP_AXIS_MIN_NEGATIVE_VISIBLE = 1200;
+    const GAP_AXIS_ZERO_RATIO = 0.68;
     const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
@@ -863,6 +864,7 @@
         const negativeRatio = (1 - GAP_AXIS_ZERO_RATIO) / GAP_AXIS_ZERO_RATIO;
         const baseMaxValue = Math.max(
             GAP_AXIS_MIN_VISIBLE_MAX,
+            GAP_AXIS_MIN_NEGATIVE_VISIBLE / negativeRatio,
             rawMax + rangePadding,
             Math.abs(rawMin - rangePadding) / negativeRatio
         );

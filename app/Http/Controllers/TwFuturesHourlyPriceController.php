@@ -5,13 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\TwFuturesHourlyPrice;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
-use Illuminate\Database\Eloquent\Collection as EloquentCollection;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Collection;
 
 class TwFuturesHourlyPriceController extends Controller
 {
-    private const CACHE_TTL_SECONDS = 300;
-
     private const SYMBOL = 'TXF1!';
 
     private const PRIMARY_INTERVAL = '15';
@@ -54,31 +51,32 @@ class TwFuturesHourlyPriceController extends Controller
     }
 
     /**
-     * @return EloquentCollection<int, TwFuturesHourlyPrice>
+     * @return Collection<int, object>
      */
-    private function priceRows(string $symbol, string $interval): EloquentCollection
+    private function priceRows(string $symbol, string $interval): Collection
     {
-        $records = Cache::remember(
-            'tw-futures:prices:rows:v2:' . sha1(serialize([
-                $symbol,
-                $interval,
-                $this->cacheVersion($symbol, $interval),
-            ])),
-            now()->addSeconds(self::CACHE_TTL_SECONDS),
-            fn (): array => TwFuturesHourlyPrice::query()
-                ->where('symbol', $symbol)
-                ->where('interval', $interval)
-                ->orderBy('started_at')
-                ->get()
-                ->map(fn (TwFuturesHourlyPrice $row): array => $row->getAttributes())
-                ->all(),
-        );
-
-        return TwFuturesHourlyPrice::hydrate($records);
+        return TwFuturesHourlyPrice::query()
+            ->where('symbol', $symbol)
+            ->where('interval', $interval)
+            ->select([
+                'interval',
+                'started_at',
+                'started_at_unix',
+                'trade_date',
+                'session_type',
+                'open_price',
+                'high_price',
+                'low_price',
+                'close_price',
+                'volume_contracts',
+            ])
+            ->orderBy('started_at')
+            ->toBase()
+            ->get();
     }
 
     /**
-     * @param EloquentCollection<int, TwFuturesHourlyPrice> $rows
+     * @param Collection<int, object> $rows
      * @return array{
      *     chartRows: list<array<string, mixed>>,
      *     dailyChartRows: list<array<string, mixed>>,
@@ -94,11 +92,11 @@ class TwFuturesHourlyPriceController extends Controller
      *     minGap: float|null
      * }
      */
-    private function indicatorRows(EloquentCollection $rows, int $movingAverageWindowSize): array
+    private function indicatorRows(Collection $rows, int $movingAverageWindowSize): array
     {
         $dailyCloseByDate = [];
         foreach ($rows as $row) {
-            $tradeDate = $row->trade_date?->toDateString();
+            $tradeDate = $this->tradeDateString($row);
             if ($tradeDate === null) {
                 continue;
             }
@@ -119,7 +117,7 @@ class TwFuturesHourlyPriceController extends Controller
 
         $sessionCloseTimes = [];
         foreach ($rows as $row) {
-            $tradeDate = $row->trade_date?->toDateString();
+            $tradeDate = $this->tradeDateString($row);
             $sessionType = (string) $row->session_type;
             if ($tradeDate === null || ! in_array($sessionType, ['day', 'night'], true)) {
                 continue;
@@ -151,7 +149,7 @@ class TwFuturesHourlyPriceController extends Controller
             $movingAverage = count($movingAverageWindow) === $movingAverageWindowSize
                 ? $movingAverageSum / $movingAverageWindowSize
                 : null;
-            $tradeDate = $row->trade_date?->toDateString();
+            $tradeDate = $this->tradeDateString($row);
             $previous = $tradeDate !== null ? ($previousDailyCloses[$tradeDate] ?? []) : [];
             $dailyMa5 = count($previous) === 4
                 ? (array_sum($previous) + $close) / 5
@@ -395,7 +393,7 @@ class TwFuturesHourlyPriceController extends Controller
         return CarbonImmutable::now('Asia/Taipei')->greaterThanOrEqualTo($confirmedAt);
     }
 
-    private function displayDateTime(?TwFuturesHourlyPrice $row): ?string
+    private function displayDateTime(?object $row): ?string
     {
         if ($row === null || $row->started_at === null) {
             return null;
@@ -404,15 +402,29 @@ class TwFuturesHourlyPriceController extends Controller
         return $this->displayedAt($row)->format('Y-m-d H:i');
     }
 
-    private function displayTimestamp(TwFuturesHourlyPrice $row): int
+    private function displayTimestamp(object $row): int
     {
         return (int) $row->started_at_unix + ($this->intervalMinutes((string) $row->interval) * 60);
     }
 
-    private function displayedAt(TwFuturesHourlyPrice $row): CarbonImmutable
+    private function displayedAt(object $row): CarbonImmutable
     {
         return CarbonImmutable::parse($row->started_at, 'Asia/Taipei')
             ->addMinutes($this->intervalMinutes((string) $row->interval));
+    }
+
+    private function tradeDateString(object $row): ?string
+    {
+        $tradeDate = $row->trade_date ?? null;
+        if ($tradeDate === null || $tradeDate === '') {
+            return null;
+        }
+
+        if ($tradeDate instanceof \DateTimeInterface) {
+            return CarbonImmutable::instance($tradeDate)->toDateString();
+        }
+
+        return CarbonImmutable::parse((string) $tradeDate, 'Asia/Taipei')->toDateString();
     }
 
     private function intervalMinutes(string $interval): int
@@ -420,21 +432,4 @@ class TwFuturesHourlyPriceController extends Controller
         return max(0, (int) $interval);
     }
 
-    private function cacheVersion(string $symbol, string $interval): string
-    {
-        $row = TwFuturesHourlyPrice::query()
-            ->where('symbol', $symbol)
-            ->where('interval', $interval)
-            ->selectRaw('COUNT(*) as row_count, MAX(started_at) as max_started_at, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
-            ->toBase()
-            ->first();
-
-        return implode('|', [
-            (int) ($row->row_count ?? 0),
-            (string) ($row->max_started_at ?? ''),
-            (string) ($row->max_updated_at ?? ''),
-            (string) ($row->max_fetched_at ?? ''),
-            (string) ($row->max_id ?? ''),
-        ]);
-    }
 }

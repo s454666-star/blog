@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Models\TwFuturesHourlyPrice;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Throwable;
 
 class TwFuturesHourlyPriceFetcher
 {
@@ -14,6 +16,10 @@ class TwFuturesHourlyPriceFetcher
     private const TRADINGVIEW_SOCKET_PORT = 443;
 
     private const SOURCE_NAME = 'TradingView chart websocket';
+
+    private const SOURCE_QUOTE_NAME = 'TAIFEX official quote snapshot';
+
+    private const TAIFEX_QUOTE_LIST_URL = 'https://mis.taifex.com.tw/futures/api/getQuoteList';
 
     private const DEFAULT_EXCHANGE = 'TAIFEX';
 
@@ -106,7 +112,13 @@ class TwFuturesHourlyPriceFetcher
             ];
         }
 
-        return $rows;
+        return $this->appendCurrentSessionOpeningQuoteRow(
+            $rows,
+            $fromDate,
+            $toDate,
+            $symbol,
+            $interval,
+        );
     }
 
     /**
@@ -402,37 +414,259 @@ class TwFuturesHourlyPriceFetcher
         return (int) floor((float) $values[0]);
     }
 
+    /**
+     * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
+     */
+    private function appendCurrentSessionOpeningQuoteRow(
+        array $rows,
+        ?CarbonImmutable $fromDate,
+        ?CarbonImmutable $toDate,
+        string $symbol,
+        string $interval,
+    ): array {
+        if ($symbol !== self::DEFAULT_SYMBOL) {
+            return $rows;
+        }
+
+        $now = CarbonImmutable::now('Asia/Taipei');
+        $window = $this->currentSessionWindow($now);
+        if ($window === null) {
+            return $rows;
+        }
+
+        $expectedStartedAt = $this->expectedCurrentBarStartedAt($interval, $now);
+        if ($expectedStartedAt === null || $expectedStartedAt->timestamp !== $window['start']->timestamp) {
+            return $rows;
+        }
+
+        if ($fromDate !== null && $window['start']->lessThan($fromDate)) {
+            return $rows;
+        }
+
+        if ($toDate !== null && $window['start']->greaterThan($toDate)) {
+            return $rows;
+        }
+
+        foreach ($rows as $row) {
+            if ((int) ($row['started_at_unix'] ?? 0) === $window['start']->timestamp) {
+                return $rows;
+            }
+        }
+
+        $quote = $this->fetchTaifexFrontMonthQuote($window['marketType']);
+        if ($quote === null) {
+            return $rows;
+        }
+
+        $quoteRow = $this->taifexQuoteToPriceRow($quote, $window['start'], $symbol, $interval);
+        if ($quoteRow === null) {
+            return $rows;
+        }
+
+        $rows[] = $quoteRow;
+        usort(
+            $rows,
+            fn (array $first, array $second): int => ((int) $first['started_at_unix']) <=> ((int) $second['started_at_unix']),
+        );
+
+        return $rows;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchTaifexFrontMonthQuote(string $marketType): ?array
+    {
+        try {
+            $response = Http::timeout(10)
+                ->retry(1, 250)
+                ->acceptJson()
+                ->asJson()
+                ->withHeaders([
+                    'Origin' => 'https://mis.taifex.com.tw',
+                    'Referer' => $marketType === '1'
+                        ? 'https://mis.taifex.com.tw/futures/AfterHoursSession/EquityIndices/FuturesDomestic'
+                        : 'https://mis.taifex.com.tw/futures/RegularSession/EquityIndices/FuturesDomestic',
+                ])
+                ->post(self::TAIFEX_QUOTE_LIST_URL, [
+                    'MarketType' => $marketType,
+                    'SymbolType' => 'F',
+                    'KindID' => '1',
+                    'CID' => '',
+                    'ExpireMonth' => '',
+                    'RowSize' => '全部',
+                    'PageNo' => '',
+                    'SortColumn' => '',
+                    'AscDesc' => 'A',
+                ]);
+        } catch (Throwable) {
+            return null;
+        }
+
+        if (! $response->successful()) {
+            return null;
+        }
+
+        $payload = $response->json();
+        if (! is_array($payload) || (string) ($payload['RtCode'] ?? '') !== '0') {
+            return null;
+        }
+
+        $quotes = $payload['RtData']['QuoteList'] ?? null;
+        if (! is_array($quotes)) {
+            return null;
+        }
+
+        foreach ($quotes as $quote) {
+            if (! is_array($quote)) {
+                continue;
+            }
+
+            $symbolId = (string) ($quote['SymbolID'] ?? '');
+            if (
+                preg_match('/^TXF[A-L]\d-M$/', $symbolId) === 1
+                && $this->floatValue($quote['CLastPrice'] ?? null) !== null
+            ) {
+                return $quote;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $quote
+     * @return array<string, mixed>|null
+     */
+    private function taifexQuoteToPriceRow(
+        array $quote,
+        CarbonImmutable $startedAt,
+        string $symbol,
+        string $interval,
+    ): ?array {
+        $quoteAt = $this->taifexQuoteTimestamp($quote);
+        $intervalMinutes = (int) $interval;
+        if (
+            $quoteAt === null
+            || $quoteAt->lessThan($startedAt)
+            || $quoteAt->greaterThanOrEqualTo($startedAt->addMinutes($intervalMinutes))
+        ) {
+            return null;
+        }
+
+        $open = $this->floatValue($quote['COpenPrice'] ?? null);
+        $high = $this->floatValue($quote['CHighPrice'] ?? null);
+        $low = $this->floatValue($quote['CLowPrice'] ?? null);
+        $close = $this->floatValue($quote['CLastPrice'] ?? null);
+        if ($open === null || $high === null || $low === null || $close === null) {
+            return null;
+        }
+
+        return [
+            'exchange' => self::DEFAULT_EXCHANGE,
+            'symbol' => $symbol,
+            'symbol_name' => self::DEFAULT_SYMBOL_NAME,
+            'interval' => $interval,
+            'started_at' => $startedAt->format('Y-m-d H:i:s'),
+            'started_at_unix' => $startedAt->timestamp,
+            'trade_date' => $this->tradeDate($startedAt),
+            'session_type' => $this->sessionType($startedAt),
+            'open_price' => $this->decimal($open),
+            'high_price' => $this->decimal($high),
+            'low_price' => $this->decimal($low),
+            'close_price' => $this->decimal($close),
+            'volume_contracts' => (int) round((float) ($quote['CTotalVolume'] ?? 0)),
+            'source' => self::SOURCE_QUOTE_NAME,
+            'source_payload' => [
+                'endpoint' => self::TAIFEX_QUOTE_LIST_URL,
+                'symbol_id' => (string) ($quote['SymbolID'] ?? ''),
+                'quote_date' => (string) ($quote['CDate'] ?? ''),
+                'quote_time' => (string) ($quote['CTime'] ?? ''),
+                'interval' => $interval,
+                'snapshot_type' => 'session_opening_bar',
+            ],
+            'fetched_at' => now(),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $quote
+     */
+    private function taifexQuoteTimestamp(array $quote): ?CarbonImmutable
+    {
+        $date = preg_replace('/\D/', '', (string) ($quote['CDate'] ?? ''));
+        $time = preg_replace('/\D/', '', (string) ($quote['CTime'] ?? ''));
+        if ($date === null || $time === null || strlen($date) !== 8 || strlen($time) < 4) {
+            return null;
+        }
+
+        $time = str_pad(substr($time, 0, 6), 6, '0', STR_PAD_RIGHT);
+
+        try {
+            return CarbonImmutable::createFromFormat('Ymd His', $date . ' ' . $time, 'Asia/Taipei') ?: null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
     private function expectedCurrentBarStartedAtUnix(string $interval): ?int
+    {
+        return $this->expectedCurrentBarStartedAt($interval)?->timestamp;
+    }
+
+    private function expectedCurrentBarStartedAt(string $interval, ?CarbonImmutable $now = null): ?CarbonImmutable
     {
         $intervalMinutes = (int) $interval;
         if ($intervalMinutes <= 0) {
             return null;
         }
 
-        $now = CarbonImmutable::now('Asia/Taipei');
-        $time = $now->format('H:i');
-        $sessionStart = null;
-        $sessionEnd = null;
-
-        if ($time >= '08:45' && $time < '13:45') {
-            $sessionStart = $now->setTime(8, 45);
-            $sessionEnd = $now->setTime(13, 45);
-        } elseif ($time >= '15:00') {
-            $sessionStart = $now->setTime(15, 0);
-            $sessionEnd = $now->addDay()->setTime(5, 0);
-        } elseif ($time < '05:00') {
-            $sessionStart = $now->subDay()->setTime(15, 0);
-            $sessionEnd = $now->setTime(5, 0);
-        }
-
-        if ($sessionStart === null || $sessionEnd === null || $now->lessThan($sessionStart) || $now->greaterThanOrEqualTo($sessionEnd)) {
+        $now ??= CarbonImmutable::now('Asia/Taipei');
+        $window = $this->currentSessionWindow($now);
+        if ($window === null) {
             return null;
         }
 
-        $elapsedSeconds = $now->timestamp - $sessionStart->timestamp;
+        $elapsedSeconds = $now->timestamp - $window['start']->timestamp;
         $intervalSeconds = $intervalMinutes * 60;
 
-        return $sessionStart->timestamp + (intdiv($elapsedSeconds, $intervalSeconds) * $intervalSeconds);
+        return $window['start']->addSeconds(intdiv($elapsedSeconds, $intervalSeconds) * $intervalSeconds);
+    }
+
+    /**
+     * @return array{start: CarbonImmutable, end: CarbonImmutable, marketType: string}|null
+     */
+    private function currentSessionWindow(?CarbonImmutable $now = null): ?array
+    {
+        $now ??= CarbonImmutable::now('Asia/Taipei');
+        $time = $now->format('H:i');
+
+        if ($time >= '08:45' && $time < '13:45') {
+            return [
+                'start' => $now->setTime(8, 45),
+                'end' => $now->setTime(13, 45),
+                'marketType' => '0',
+            ];
+        }
+
+        if ($time >= '15:00') {
+            return [
+                'start' => $now->setTime(15, 0),
+                'end' => $now->addDay()->setTime(5, 0),
+                'marketType' => '1',
+            ];
+        }
+
+        if ($time < '05:00') {
+            return [
+                'start' => $now->subDay()->setTime(15, 0),
+                'end' => $now->setTime(5, 0),
+                'marketType' => '1',
+            ];
+        }
+
+        return null;
     }
 
     private function normalizeInterval(string $interval): string

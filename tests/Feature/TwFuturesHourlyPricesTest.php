@@ -292,6 +292,31 @@ class TwFuturesHourlyPricesTest extends TestCase
         );
     }
 
+    public function test_futures_expected_current_bar_tracks_open_sessions(): void
+    {
+        $fetcher = app(TwFuturesHourlyPriceFetcher::class);
+        $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'expectedCurrentBarStartedAtUnix');
+        $method->setAccessible(true);
+
+        Carbon::setTestNow('2026-06-23 15:03:00');
+        CarbonImmutable::setTestNow('2026-06-23 15:03:00');
+        $this->assertSame(
+            CarbonImmutable::parse('2026-06-23 15:00:00', 'Asia/Taipei')->timestamp,
+            $method->invoke($fetcher, '15'),
+        );
+
+        Carbon::setTestNow('2026-06-23 13:50:00');
+        CarbonImmutable::setTestNow('2026-06-23 13:50:00');
+        $this->assertNull($method->invoke($fetcher, '15'));
+
+        Carbon::setTestNow('2026-06-24 04:05:00');
+        CarbonImmutable::setTestNow('2026-06-24 04:05:00');
+        $this->assertSame(
+            CarbonImmutable::parse('2026-06-24 04:00:00', 'Asia/Taipei')->timestamp,
+            $method->invoke($fetcher, '60'),
+        );
+    }
+
     private function seedHourlyRows(): void
     {
         $now = now();

@@ -33,6 +33,8 @@ class TwFuturesHourlyPriceFetcher
 
     private const MAX_MORE_DATA_REQUESTS = 80;
 
+    private const FRESH_BAR_WAIT_SECONDS = 12;
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -202,6 +204,7 @@ class TwFuturesHourlyPriceFetcher
             $lastRequestedStartUnix = null;
             $moreDataRequests = 0;
             $waitingForMoreData = false;
+            $waitingForFreshBar = false;
             $buffer = '';
             $deadline = microtime(true) + self::SOCKET_TIMEOUT_SECONDS;
             while (microtime(true) < $deadline) {
@@ -243,6 +246,15 @@ class TwFuturesHourlyPriceFetcher
                             $waitingForMoreData = false;
 
                             if ($this->timescaleCoversFrom($latestTimescale, $fromDate)) {
+                                if ($this->timescaleNeedsFreshBarWait($latestTimescale, $interval)) {
+                                    if (! $waitingForFreshBar) {
+                                        $waitingForFreshBar = true;
+                                        $deadline = min($deadline, microtime(true) + self::FRESH_BAR_WAIT_SECONDS);
+                                    }
+
+                                    continue;
+                                }
+
                                 return $latestTimescale;
                             }
 
@@ -266,7 +278,7 @@ class TwFuturesHourlyPriceFetcher
                             $deadline = microtime(true) + self::SOCKET_TIMEOUT_SECONDS;
                         }
 
-                        if ($method === 'series_completed' && $latestTimescale !== null && ! $waitingForMoreData) {
+                        if ($method === 'series_completed' && $latestTimescale !== null && ! $waitingForMoreData && ! $waitingForFreshBar) {
                             return $latestTimescale;
                         }
                     }
@@ -337,6 +349,24 @@ class TwFuturesHourlyPriceFetcher
     /**
      * @param array<string, mixed> $message
      */
+    private function timescaleNeedsFreshBarWait(array $message, string $interval): bool
+    {
+        $expectedStartedAtUnix = $this->expectedCurrentBarStartedAtUnix($interval);
+        if ($expectedStartedAtUnix === null) {
+            return false;
+        }
+
+        $latestUnix = $this->timescaleLatestUnix($message);
+        if ($latestUnix === null) {
+            return false;
+        }
+
+        return $latestUnix < $expectedStartedAtUnix;
+    }
+
+    /**
+     * @param array<string, mixed> $message
+     */
     private function timescaleEarliestUnix(array $message): ?int
     {
         $series = $message['p'][1]['s1']['s'] ?? null;
@@ -351,6 +381,58 @@ class TwFuturesHourlyPriceFetcher
         }
 
         return (int) floor((float) $values[0]);
+    }
+
+    /**
+     * @param array<string, mixed> $message
+     */
+    private function timescaleLatestUnix(array $message): ?int
+    {
+        $series = $message['p'][1]['s1']['s'] ?? null;
+        if (! is_array($series) || $series === []) {
+            return null;
+        }
+
+        $last = $series[array_key_last($series)] ?? null;
+        $values = is_array($last) ? ($last['v'] ?? null) : null;
+        if (! is_array($values) || ! isset($values[0]) || ! is_numeric($values[0])) {
+            return null;
+        }
+
+        return (int) floor((float) $values[0]);
+    }
+
+    private function expectedCurrentBarStartedAtUnix(string $interval): ?int
+    {
+        $intervalMinutes = (int) $interval;
+        if ($intervalMinutes <= 0) {
+            return null;
+        }
+
+        $now = CarbonImmutable::now('Asia/Taipei');
+        $time = $now->format('H:i');
+        $sessionStart = null;
+        $sessionEnd = null;
+
+        if ($time >= '08:45' && $time < '13:45') {
+            $sessionStart = $now->setTime(8, 45);
+            $sessionEnd = $now->setTime(13, 45);
+        } elseif ($time >= '15:00') {
+            $sessionStart = $now->setTime(15, 0);
+            $sessionEnd = $now->addDay()->setTime(5, 0);
+        } elseif ($time < '05:00') {
+            $sessionStart = $now->subDay()->setTime(15, 0);
+            $sessionEnd = $now->setTime(5, 0);
+        }
+
+        if ($sessionStart === null || $sessionEnd === null || $now->lessThan($sessionStart) || $now->greaterThanOrEqualTo($sessionEnd)) {
+            return null;
+        }
+
+        $elapsedSeconds = $now->timestamp - $sessionStart->timestamp;
+        $intervalSeconds = $intervalMinutes * 60;
+
+        return $sessionStart->timestamp + (intdiv($elapsedSeconds, $intervalSeconds) * $intervalSeconds);
     }
 
     private function normalizeInterval(string $interval): string

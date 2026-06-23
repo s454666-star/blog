@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Console\Commands\BackfillTwFuturesContinuousPricesCommand;
 use App\Services\TwFuturesHourlyPriceFetcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
@@ -250,6 +251,44 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertSame(
             '2026-05-26',
             $method->invoke($fetcher, CarbonImmutable::parse('2026-05-26 04:00:00', 'Asia/Taipei')),
+        );
+    }
+
+    public function test_futures_continuous_contract_rolls_on_expiration_date(): void
+    {
+        $command = new BackfillTwFuturesContinuousPricesCommand();
+
+        $frontContractMonthForDate = new ReflectionMethod(BackfillTwFuturesContinuousPricesCommand::class, 'frontContractMonthForDate');
+        $frontContractMonthForDate->setAccessible(true);
+        $thirdWednesday = new ReflectionMethod(BackfillTwFuturesContinuousPricesCommand::class, 'thirdWednesday');
+        $thirdWednesday->setAccessible(true);
+        $contractCode = new ReflectionMethod(BackfillTwFuturesContinuousPricesCommand::class, 'contractCode');
+        $contractCode->setAccessible(true);
+
+        $this->assertSame(
+            '2026-05-01',
+            $frontContractMonthForDate->invoke($command, CarbonImmutable::parse('2026-05-19 23:45:00', 'Asia/Taipei'))->toDateString(),
+        );
+        $this->assertSame(
+            '2026-06-01',
+            $frontContractMonthForDate->invoke($command, CarbonImmutable::parse('2026-05-20 00:00:00', 'Asia/Taipei'))->toDateString(),
+        );
+        $this->assertSame(
+            '2026-07-01',
+            $frontContractMonthForDate->invoke($command, CarbonImmutable::parse('2026-06-17 08:45:00', 'Asia/Taipei'))->toDateString(),
+        );
+
+        $this->assertSame(
+            '2026-06-17',
+            $thirdWednesday->invoke($command, CarbonImmutable::parse('2026-06-01', 'Asia/Taipei'))->toDateString(),
+        );
+        $this->assertSame(
+            'TXFN2026',
+            $contractCode->invoke($command, CarbonImmutable::parse('2026-07-01', 'Asia/Taipei')),
+        );
+        $this->assertSame(
+            'TXFF2025',
+            $contractCode->invoke($command, CarbonImmutable::parse('2025-01-01', 'Asia/Taipei')),
         );
     }
 

@@ -29,6 +29,10 @@ class TwFuturesHourlyPriceFetcher
 
     private const SOCKET_TIMEOUT_SECONDS = 30;
 
+    private const MORE_DATA_CHUNK_SIZE = 1000;
+
+    private const MAX_MORE_DATA_REQUESTS = 80;
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -48,7 +52,7 @@ class TwFuturesHourlyPriceFetcher
             ? CarbonImmutable::parse($to, 'Asia/Taipei')->endOfDay()
             : null;
 
-        $payload = $this->fetchTradingViewTimescale($tradingViewSymbol, $interval, $bars);
+        $payload = $this->fetchTradingViewTimescale($tradingViewSymbol, $interval, $bars, $fromDate);
         $series = $payload['p'][1]['s1']['s'] ?? null;
         if (!is_array($series)) {
             return [];
@@ -147,25 +151,36 @@ class TwFuturesHourlyPriceFetcher
     /**
      * @return array<string, mixed>
      */
-    private function fetchTradingViewTimescale(string $tradingViewSymbol, string $interval, int $bars): array
+    private function fetchTradingViewTimescale(
+        string $tradingViewSymbol,
+        string $interval,
+        int $bars,
+        ?CarbonImmutable $fromDate,
+    ): array
     {
         $cacheKey = 'tw-futures:prices:tradingview:v2:' . sha1(serialize([
             $tradingViewSymbol,
             $interval,
             $bars,
+            $fromDate?->toDateString(),
         ]));
 
         return Cache::remember(
             $cacheKey,
             $interval === '60' ? now()->addMinutes(8) : now()->addSeconds(30),
-            fn (): array => $this->fetchTradingViewTimescaleUncached($tradingViewSymbol, $interval, $bars),
+            fn (): array => $this->fetchTradingViewTimescaleUncached($tradingViewSymbol, $interval, $bars, $fromDate),
         );
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function fetchTradingViewTimescaleUncached(string $tradingViewSymbol, string $interval, int $bars): array
+    private function fetchTradingViewTimescaleUncached(
+        string $tradingViewSymbol,
+        string $interval,
+        int $bars,
+        ?CarbonImmutable $fromDate,
+    ): array
     {
         $socket = $this->openTradingViewSocket();
 
@@ -182,6 +197,11 @@ class TwFuturesHourlyPriceFetcher
             $this->sendTradingViewMessage($socket, 'resolve_symbol', [$chartSession, 'symbol_1', $symbolPayload]);
             $this->sendTradingViewMessage($socket, 'create_series', [$chartSession, 's1', 's1', 'symbol_1', $interval, max(1, $bars)]);
 
+            $latestTimescale = null;
+            $seriesByUnix = [];
+            $lastRequestedStartUnix = null;
+            $moreDataRequests = 0;
+            $waitingForMoreData = false;
             $buffer = '';
             $deadline = microtime(true) + self::SOCKET_TIMEOUT_SECONDS;
             while (microtime(true) < $deadline) {
@@ -219,7 +239,35 @@ class TwFuturesHourlyPriceFetcher
                         }
 
                         if ($method === 'timescale_update') {
-                            return $message;
+                            $latestTimescale = $this->mergeTimescaleSeries($latestTimescale ?? $message, $message, $seriesByUnix);
+                            $waitingForMoreData = false;
+
+                            if ($this->timescaleCoversFrom($latestTimescale, $fromDate)) {
+                                return $latestTimescale;
+                            }
+
+                            $earliestUnix = $this->timescaleEarliestUnix($latestTimescale);
+                            if (
+                                $earliestUnix === null
+                                || $moreDataRequests >= self::MAX_MORE_DATA_REQUESTS
+                                || $earliestUnix === $lastRequestedStartUnix
+                            ) {
+                                return $latestTimescale;
+                            }
+
+                            $lastRequestedStartUnix = $earliestUnix;
+                            $moreDataRequests++;
+                            $waitingForMoreData = true;
+                            $this->sendTradingViewMessage($socket, 'request_more_data', [
+                                $chartSession,
+                                's1',
+                                self::MORE_DATA_CHUNK_SIZE,
+                            ]);
+                            $deadline = microtime(true) + self::SOCKET_TIMEOUT_SECONDS;
+                        }
+
+                        if ($method === 'series_completed' && $latestTimescale !== null && ! $waitingForMoreData) {
+                            return $latestTimescale;
                         }
                     }
                 }
@@ -228,7 +276,81 @@ class TwFuturesHourlyPriceFetcher
             fclose($socket);
         }
 
+        if ($latestTimescale !== null) {
+            return $latestTimescale;
+        }
+
         throw new RuntimeException(sprintf('等待 TradingView %sK 資料逾時。', $interval));
+    }
+
+    /**
+     * @param array<string, mixed> $baseMessage
+     * @param array<string, mixed> $message
+     * @param array<int, array<string, mixed>> $seriesByUnix
+     * @return array<string, mixed>
+     */
+    private function mergeTimescaleSeries(array $baseMessage, array $message, array &$seriesByUnix): array
+    {
+        $series = $message['p'][1]['s1']['s'] ?? null;
+        if (! is_array($series)) {
+            return $baseMessage;
+        }
+
+        foreach ($series as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $values = $item['v'] ?? null;
+            if (! is_array($values) || ! isset($values[0]) || ! is_numeric($values[0])) {
+                continue;
+            }
+
+            $seriesByUnix[(int) floor((float) $values[0])] = $item;
+        }
+
+        ksort($seriesByUnix, SORT_NUMERIC);
+        $baseMessage['p'][1]['s1']['s'] = array_values($seriesByUnix);
+
+        return $baseMessage;
+    }
+
+    /**
+     * @param array<string, mixed> $message
+     */
+    private function timescaleCoversFrom(array $message, ?CarbonImmutable $fromDate): bool
+    {
+        if ($fromDate === null) {
+            return true;
+        }
+
+        $earliestUnix = $this->timescaleEarliestUnix($message);
+        if ($earliestUnix === null) {
+            return false;
+        }
+
+        return CarbonImmutable::createFromTimestamp($earliestUnix, 'UTC')
+            ->setTimezone('Asia/Taipei')
+            ->lessThanOrEqualTo($fromDate);
+    }
+
+    /**
+     * @param array<string, mixed> $message
+     */
+    private function timescaleEarliestUnix(array $message): ?int
+    {
+        $series = $message['p'][1]['s1']['s'] ?? null;
+        if (! is_array($series) || $series === []) {
+            return null;
+        }
+
+        $first = $series[0] ?? null;
+        $values = is_array($first) ? ($first['v'] ?? null) : null;
+        if (! is_array($values) || ! isset($values[0]) || ! is_numeric($values[0])) {
+            return null;
+        }
+
+        return (int) floor((float) $values[0]);
     }
 
     private function normalizeInterval(string $interval): string

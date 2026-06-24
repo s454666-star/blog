@@ -121,6 +121,8 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_futures_15min_prices.log'));
 
+        $this->scheduleTaiexFuturesOpeningRetries($schedule);
+
         $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=60')
             ->hourlyAt(10)
             ->name('tw-stock-fetch-taiex-futures-hourly')
@@ -205,6 +207,21 @@ class Kernel extends ConsoleKernel
         $batchPath = base_path('scripts\\' . $batchFileName);
 
         return sprintf('wscript.exe "%s" "%s"', $hiddenRunnerPath, $batchPath);
+    }
+
+    private function scheduleTaiexFuturesOpeningRetries(Schedule $schedule): void
+    {
+        foreach ([
+            ['cron' => '47,52,57 8 * * 1-5', 'name' => 'day-open'],
+            ['cron' => '2,7,12 15 * * 1-5', 'name' => 'night-open'],
+        ] as $window) {
+            $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=15 --bars=4800')
+                ->cron($window['cron'])
+                ->name('tw-stock-fetch-taiex-futures-15-minute-' . $window['name'] . '-retry')
+                ->withoutOverlapping(10)
+                ->runInBackground()
+                ->appendOutputTo(storage_path('logs/tw_futures_15min_prices.log'));
+        }
     }
 
     private function shouldScheduleTwStockAnnualFinancialComparisons(?string $osFamily = null): bool

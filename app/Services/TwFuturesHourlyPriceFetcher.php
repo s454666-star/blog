@@ -525,7 +525,7 @@ class TwFuturesHourlyPriceFetcher
 
             $symbolId = (string) ($quote['SymbolID'] ?? '');
             if (
-                preg_match('/^TXF[A-L]\d-M$/', $symbolId) === 1
+                preg_match('/^TXF[A-Z]\d-[FM]$/', $symbolId) === 1
                 && $this->floatValue($quote['CLastPrice'] ?? null) !== null
             ) {
                 return $quote;

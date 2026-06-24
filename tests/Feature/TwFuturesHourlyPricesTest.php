@@ -347,7 +347,7 @@ class TwFuturesHourlyPricesTest extends TestCase
         );
     }
 
-    public function test_futures_opening_bar_can_be_filled_from_taifex_snapshot(): void
+    public function test_futures_night_opening_bar_can_be_filled_from_taifex_snapshot(): void
     {
         Carbon::setTestNow('2026-06-23 15:03:00');
         CarbonImmutable::setTestNow('2026-06-23 15:03:00');
@@ -412,6 +412,73 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertSame(4359, $row['volume_contracts']);
         $this->assertSame('TAIFEX official quote snapshot', $row['source']);
         $this->assertSame('TXFG6-M', $row['source_payload']['symbol_id']);
+    }
+
+    public function test_futures_day_opening_bar_can_be_filled_from_taifex_snapshot(): void
+    {
+        Carbon::setTestNow('2026-06-24 08:55:00');
+        CarbonImmutable::setTestNow('2026-06-24 08:55:00');
+        Http::fake([
+            'https://mis.taifex.com.tw/futures/api/getQuoteList' => Http::response([
+                'RtCode' => '0',
+                'RtMsg' => '',
+                'RtData' => [
+                    'QuoteList' => [
+                        [
+                            'SymbolID' => 'TXF-S',
+                            'CLastPrice' => '',
+                        ],
+                        [
+                            'SymbolID' => 'TXFG6-F',
+                            'CDate' => '20260624',
+                            'CTime' => '085516',
+                            'COpenPrice' => '46858.00',
+                            'CHighPrice' => '47067.00',
+                            'CLowPrice' => '46606.00',
+                            'CLastPrice' => '46657.00',
+                            'CTotalVolume' => '7114',
+                        ],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $fetcher = app(TwFuturesHourlyPriceFetcher::class);
+        $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'appendCurrentSessionOpeningQuoteRow');
+        $method->setAccessible(true);
+        $rows = [
+            $this->priceRow(
+                interval: '15',
+                startedAt: CarbonImmutable::parse('2026-06-24 04:45:00', 'Asia/Taipei'),
+                tradeDate: '2026-06-24',
+                sessionType: 'night',
+                close: 46207,
+                cursor: 1,
+                now: now(),
+            ),
+        ];
+
+        $result = $method->invoke(
+            $fetcher,
+            $rows,
+            CarbonImmutable::parse('2026-06-24', 'Asia/Taipei')->startOfDay(),
+            CarbonImmutable::parse('2026-06-24', 'Asia/Taipei')->endOfDay(),
+            'TXF1!',
+            '15',
+        );
+
+        $this->assertCount(2, $result);
+        $row = $result[array_key_last($result)];
+        $this->assertSame('2026-06-24 08:45:00', $row['started_at']);
+        $this->assertSame('2026-06-24', $row['trade_date']);
+        $this->assertSame('day', $row['session_type']);
+        $this->assertSame('46858.0000', $row['open_price']);
+        $this->assertSame('47067.0000', $row['high_price']);
+        $this->assertSame('46606.0000', $row['low_price']);
+        $this->assertSame('46657.0000', $row['close_price']);
+        $this->assertSame(7114, $row['volume_contracts']);
+        $this->assertSame('TAIFEX official quote snapshot', $row['source']);
+        $this->assertSame('TXFG6-F', $row['source_payload']['symbol_id']);
     }
 
     private function seedHourlyRows(): void

@@ -369,7 +369,7 @@
     <header class="topbar">
         <div class="title-block">
             <h1>玉山庫存即時看板</h1>
-            <div class="subtitle">正式 API · 載入抓玉山庫存一次 · 開盤每秒更新持股報價</div>
+            <div class="subtitle">正式 API · 玉山成本固定基準 · 開盤每秒用雙來源確認價重算損益</div>
         </div>
         <div class="status-bar">
             <span class="pill" data-market-status>{{ $initialMarket['label'] }}</span>
@@ -385,7 +385,7 @@
             <div class="sub" data-summary="todayPnlRate">--</div>
         </div>
         <div class="summary-card">
-            <div class="label">累積損益</div>
+            <div class="label">即時累積損益</div>
             <div class="value" data-summary="unrealizedPnl">--</div>
             <div class="sub" data-summary="unrealizedPnlRate">--</div>
         </div>
@@ -432,12 +432,12 @@
                 <th><button class="sort-button" type="button" data-sort-key="currentPrice">即時價<br>玉山價 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="dayChangeRate">漲跌幅 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="todayPnl">今日損益 <span class="sort-icon" data-sort-icon></span></button></th>
-                <th><button class="sort-button" type="button" data-sort-key="unrealizedPnl">總損益 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="unrealizedPnl">即時總損益<br>玉山差 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="unrealizedPnlRate">總報酬率 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="quantity">股數 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="averagePrice">均價 <span class="sort-icon" data-sort-icon></span></button></th>
-                <th><button class="sort-button" type="button" data-sort-key="costBasis">總成本 <span class="sort-icon" data-sort-icon></span></button></th>
-                <th><button class="sort-button" type="button" data-sort-key="marketValue">市值 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="costBasis">投資成本 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="marketValue">即時市值<br>玉山差 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="marketWeight">庫存占比 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="breakevenPrice">損益平衡價 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="fiveDayReturn">近5日漲幅 <span class="sort-icon" data-sort-icon></span></button></th>
@@ -510,6 +510,24 @@ function formatWeight(value) {
     return `${Number(value).toFixed(2)}%`;
 }
 
+function baselineDiffLine(baseline, current) {
+    if (!Number.isFinite(Number(baseline))) {
+        return '<span class="muted">玉山 --</span>';
+    }
+
+    const diff = number(current) - number(baseline);
+    return `<span class="muted">玉山 ${formatMoney(baseline)} · 差 ${formatMoney(diff)}</span>`;
+}
+
+function baselineMarketLine(baseline, current) {
+    if (!Number.isFinite(Number(baseline))) {
+        return '<span class="muted">玉山 --</span>';
+    }
+
+    const diff = number(current) - number(baseline);
+    return `<span class="muted">玉山 ${formatInteger(baseline)} · 差 ${formatMoney(diff)}</span>`;
+}
+
 function toneClass(value) {
     const numeric = Number(value);
     if (numeric > 0) return 'positive';
@@ -533,12 +551,17 @@ function updateSummary(payload) {
 }
 
 function updateSummaryCards(summary, sourceText) {
+    const esunTodayPnl = finiteNumber(summary.esunTodayPnl ?? state.lastPayload?.summary?.todayPnl ?? summary.todayPnl);
+    const esunUnrealizedPnl = finiteNumber(summary.esunUnrealizedPnl ?? state.lastPayload?.summary?.unrealizedPnl ?? summary.unrealizedPnl);
+    const esunMarketValue = finiteNumber(summary.esunMarketValue ?? state.lastPayload?.summary?.marketValue ?? summary.marketValue);
+    const costBasis = finiteNumber(summary.costBasis ?? state.lastPayload?.summary?.costBasis);
+
     const today = document.querySelector('[data-summary="todayPnl"]');
     today.textContent = formatMoney(summary.todayPnl);
     setTone(today, summary.todayPnl);
 
     const todayRate = document.querySelector('[data-summary="todayPnlRate"]');
-    todayRate.textContent = formatPercent(summary.todayPnlRate);
+    todayRate.textContent = summaryDeltaText(formatPercent(summary.todayPnlRate), '玉山', esunTodayPnl, number(summary.todayPnl) - number(esunTodayPnl));
     todayRate.className = `sub ${toneClass(summary.todayPnlRate)}`;
 
     const unrealized = document.querySelector('[data-summary="unrealizedPnl"]');
@@ -546,16 +569,33 @@ function updateSummaryCards(summary, sourceText) {
     setTone(unrealized, summary.unrealizedPnl);
 
     const unrealizedRate = document.querySelector('[data-summary="unrealizedPnlRate"]');
-    unrealizedRate.textContent = formatPercent(summary.unrealizedPnlRate);
+    unrealizedRate.textContent = summaryDeltaText(formatPercent(summary.unrealizedPnlRate), '玉山', esunUnrealizedPnl, number(summary.unrealizedPnl) - number(esunUnrealizedPnl));
     unrealizedRate.className = `sub ${toneClass(summary.unrealizedPnlRate)}`;
 
     document.querySelector('[data-summary="marketValue"]').textContent = formatInteger(summary.marketValue);
-    document.querySelector('[data-summary="costBasis"]').textContent = `成本 ${formatInteger(summary.costBasis)}`;
+    document.querySelector('[data-summary="costBasis"]').textContent = `玉山投資成本 ${formatInteger(costBasis)} · 玉山市值 ${formatInteger(esunMarketValue)} · 差 ${formatMoney(number(summary.marketValue) - number(esunMarketValue))}`;
     document.querySelector('[data-summary="stockCount"]').textContent = formatInteger(summary.stockCount);
     document.querySelector('[data-summary="lotCount"]').textContent = `明細 ${formatInteger(summary.lotCount)} 筆`;
     document.querySelector('[data-summary="shareCount"]').textContent = formatInteger(summary.shareCount);
     document.querySelector('[data-summary="sourceAge"]').textContent = summary.marketOpen ? 'LIVE' : 'ONCE';
     document.querySelector('[data-summary="servedAt"]').textContent = sourceText;
+}
+
+function finiteNumber(value) {
+    if (value === null || value === undefined || value === '') {
+        return null;
+    }
+
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+}
+
+function summaryDeltaText(prefix, label, baseline, diff) {
+    if (baseline === null) {
+        return prefix;
+    }
+
+    return `${prefix} · ${label} ${formatMoney(baseline)} · 差 ${formatMoney(diff)}`;
 }
 
 function stockCell(row) {
@@ -595,12 +635,18 @@ function renderPositions() {
                 <span class="muted">玉山 ${formatPercent(row.dayChangeRate)}</span>
             </td>
             <td class="${toneClass(row.todayPnl)}"><strong>${formatMoney(row.todayPnl)}</strong></td>
-            <td class="${toneClass(row.unrealizedPnl)}"><strong>${formatMoney(row.unrealizedPnl)}</strong></td>
+            <td class="${toneClass(row.unrealizedPnl)}">
+                <strong>${formatMoney(row.unrealizedPnl)}</strong><br>
+                ${baselineDiffLine(row.esunUnrealizedPnl, row.unrealizedPnl)}
+            </td>
             <td class="${toneClass(row.unrealizedPnlRate)}">${formatPercent(row.unrealizedPnlRate)}</td>
             <td>${formatInteger(row.quantity)}</td>
             <td>${formatPrice(row.averagePrice)}</td>
             <td>${formatInteger(row.costBasis)}</td>
-            <td>${formatInteger(row.marketValue)}</td>
+            <td>
+                ${formatInteger(row.marketValue)}<br>
+                ${baselineMarketLine(row.esunMarketValue, row.marketValue)}
+            </td>
             <td>${formatWeight(row.marketWeight)}</td>
             <td>${formatPrice(row.breakevenPrice)}</td>
             <td class="${toneClass(row.fiveDayReturn)}">${formatPercent(row.fiveDayReturn)}</td>
@@ -792,15 +838,23 @@ function applyQuoteToRow(row, quote) {
         : row.previousClose;
     const quantity = number(row.quantity);
     const costBasis = number(row.costBasis);
+    const esunMarketValue = Number.isFinite(Number(row.esunMarketValue)) ? Number(row.esunMarketValue) : number(row.marketValue);
+    const esunUnrealizedPnl = Number.isFinite(Number(row.esunUnrealizedPnl)) ? Number(row.esunUnrealizedPnl) : number(row.unrealizedPnl);
+    const esunCurrentPrice = Number.isFinite(Number(row.esunCurrentPrice)) ? Number(row.esunCurrentPrice) : number(row.currentPrice);
+    const pnlBasePrice = Number.isFinite(Number(row.realtimePnlBasePrice)) ? Number(row.realtimePnlBasePrice) : esunCurrentPrice;
     const dayChange = previousClose === null || previousClose === undefined ? null : price - number(previousClose);
     const todayPnl = previousClose === null || previousClose === undefined
         ? row.todayPnl
         : dayChange * quantity;
     const marketValue = price * quantity;
-    const unrealizedPnl = marketValue - costBasis;
+    const unrealizedPnl = esunUnrealizedPnl + (price - pnlBasePrice) * quantity;
 
     return {
         ...row,
+        esunCurrentPrice,
+        esunMarketValue,
+        esunUnrealizedPnl,
+        realtimePnlBasePrice: pnlBasePrice,
         realtimePrice: price,
         realtimePreviousClose: previousClose,
         realtimeDayChange: dayChange,
@@ -845,6 +899,9 @@ function buildSummaryFromRows() {
         todayPnlRate: previousMarketValue > 0 ? todayPnl / previousMarketValue * 100 : null,
         unrealizedPnl,
         unrealizedPnlRate: costBasis > 0 ? unrealizedPnl / costBasis * 100 : null,
+        esunTodayPnl: state.lastPayload?.summary?.todayPnl ?? null,
+        esunUnrealizedPnl: state.lastPayload?.summary?.unrealizedPnl ?? null,
+        esunMarketValue: state.lastPayload?.summary?.marketValue ?? null,
         marketOpen: Boolean((state.lastPayload?.market || {}).isOpen),
     };
 }

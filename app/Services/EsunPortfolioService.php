@@ -193,12 +193,17 @@ class EsunPortfolioService
     {
         $stockNo = (string) $this->value($row, 'stk_no', 'stkNo');
         $quantity = $this->number($this->value($row, 'cost_qty', 'costQty', 'qty_b', 'qtyB'));
-        $currentPrice = $this->number($this->value($row, 'price_now', 'priceNow', 'price_mkt', 'priceMkt'));
-        $marketValue = $this->number($this->value($row, 'value_now', 'valueNow', 'value_mkt', 'valueMkt'));
+        $currentPrice = $this->number($this->value($row, 'price_mkt', 'priceMkt', 'price_now', 'priceNow'));
+        $marketValue = $this->number($this->value($row, 'value_mkt', 'valueMkt', 'value_now', 'valueNow'));
         $unrealizedPnl = $this->number($this->value($row, 'make_a_sum', 'makeASum'));
-        $costBasis = $marketValue - $unrealizedPnl;
+        $apiReturnRate = $this->numberOrNull($this->value($row, 'make_a_per', 'makeAPer'));
+        $signedCostBasis = $this->number($this->value($row, 'cost_sum', 'costSum'));
+        $costBasis = abs($signedCostBasis);
+        if ($costBasis <= 0) {
+            $costBasis = abs($this->number($this->value($row, 'price_qty_sum', 'priceQtySum')));
+        }
         if ($costBasis <= 0 && $quantity > 0) {
-            $costBasis = $this->number($this->value($row, 'price_evn', 'priceEvn')) * $quantity;
+            $costBasis = abs($this->number($this->value($row, 'price_evn', 'priceEvn')) * $quantity);
         }
 
         $previousClose = $history['previousClose'] ?? null;
@@ -224,6 +229,7 @@ class EsunPortfolioService
             'priceAmount' => $this->number($this->value($row, 'price_qty_sum', 'priceQtySum')),
             'marketValue' => $marketValue,
             'costBasis' => $costBasis,
+            'signedCostBasis' => $signedCostBasis,
             'unrealizedPnl' => $unrealizedPnl,
             'unrealizedPnlRate' => $costBasis > 0 ? $unrealizedPnl / $costBasis * 100 : null,
             'fiveDayReturn' => $history['fiveDayReturn'] ?? null,
@@ -236,7 +242,7 @@ class EsunPortfolioService
             'raw' => [
                 'qtyBuy' => $this->number($this->value($row, 'qty_b', 'qtyB')),
                 'qtySell' => $this->number($this->value($row, 'qty_s', 'qtyS')),
-                'apiReturnRate' => $this->number($this->value($row, 'make_a_per', 'makeAPer')),
+                'apiReturnRate' => $apiReturnRate,
             ],
         ];
     }
@@ -398,7 +404,7 @@ class EsunPortfolioService
         }
 
         try {
-            return CarbonImmutable::parse($value)->diffInSeconds($now, true);
+            return (int) round(CarbonImmutable::parse($value)->diffInSeconds($now, true));
         } catch (\Throwable) {
             return null;
         }

@@ -46,7 +46,7 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('即時價')
             ->assertSee('玉山價')
             ->assertSee('data-sort-key="unrealizedPnl"', false)
-            ->assertSee('開盤每秒更新持股報價')
+            ->assertSee('玉山成本固定基準')
             ->assertDontSee('庫存批次明細');
     }
 

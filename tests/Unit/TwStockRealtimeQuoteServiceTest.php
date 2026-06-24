@@ -48,6 +48,47 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         $this->assertEqualsWithDelta(2.5, $payload['quotes']['2303']['dayChangeRate'], 0.0001);
     }
 
+    public function test_it_ignores_zero_twse_bid_and_uses_next_provider(): void
+    {
+        config()->set('esun.quote_providers', 'twse,cnyes');
+
+        Http::fake([
+            'https://mis.twse.com.tw/stock/api/getStockInfo.jsp*' => Http::response([
+                'msgArray' => [
+                    [
+                        'c' => '5285',
+                        'n' => '界霖',
+                        'z' => '-',
+                        'y' => '100.0000',
+                        'a' => '-',
+                        'b' => '0_',
+                        'd' => '20260624',
+                        't' => '12:01:12',
+                    ],
+                ],
+            ]),
+            'https://ws.api.cnyes.com/ws/api/v1/quote/quotes/*' => Http::response([
+                'statusCode' => 200,
+                'data' => [
+                    [
+                        '200010' => '5285',
+                        '200009' => '界霖',
+                        '6' => 110.0,
+                        '11' => 10.0,
+                        '56' => 10.0,
+                        '200007' => 1782273344,
+                    ],
+                ],
+            ]),
+        ]);
+
+        $payload = app(TwStockRealtimeQuoteService::class)->quotes(['5285']);
+
+        $this->assertSame('CNYES', $payload['source']['label']);
+        $this->assertSame(110.0, $payload['quotes']['5285']['price']);
+        $this->assertSame('cnyes', $payload['quotes']['5285']['source']);
+    }
+
     public function test_it_falls_back_to_yahoo_when_twse_has_no_quote(): void
     {
         config()->set('esun.quote_fallback_providers', 'yahoo_chart');

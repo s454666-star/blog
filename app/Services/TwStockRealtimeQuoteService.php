@@ -148,7 +148,7 @@ class TwStockRealtimeQuoteService
      */
     private function twseRowToQuote(array $row): ?array
     {
-        $last = $this->numberOrNull($row['z'] ?? null);
+        $last = $this->priceOrNull($row['z'] ?? null);
         $previousClose = $this->numberOrNull($row['y'] ?? null);
         $bestBid = $this->firstPrice($row['b'] ?? null);
         $bestAsk = $this->firstPrice($row['a'] ?? null);
@@ -164,9 +164,6 @@ class TwStockRealtimeQuoteService
         } elseif ($price === null && $bestAsk !== null) {
             $price = $bestAsk;
             $priceType = 'ask';
-        } elseif ($price === null && $previousClose !== null) {
-            $price = $previousClose;
-            $priceType = 'previous';
         }
 
         if ($price === null) {
@@ -231,7 +228,7 @@ class TwStockRealtimeQuoteService
             }
 
             $code = $this->normalizeCode((string) ($row['200010'] ?? ''));
-            $price = $this->numberOrNull($row['6'] ?? null);
+            $price = $this->priceOrNull($row['6'] ?? null);
             if ($code === '' || $price === null) {
                 continue;
             }
@@ -300,7 +297,7 @@ class TwStockRealtimeQuoteService
                 continue;
             }
 
-            $price = $this->numberOrNull($this->rawField($row, 'price'));
+            $price = $this->priceOrNull($this->rawField($row, 'price'));
             if ($price === null) {
                 continue;
             }
@@ -384,7 +381,7 @@ class TwStockRealtimeQuoteService
                 continue;
             }
 
-            $price = $this->numberOrNull($data[2] ?? null);
+            $price = $this->priceOrNull($data[2] ?? null);
             if ($price === null) {
                 continue;
             }
@@ -460,7 +457,7 @@ class TwStockRealtimeQuoteService
             return null;
         }
 
-        $price = $this->numberOrNull($meta['regularMarketPrice'] ?? null);
+        $price = $this->priceOrNull($meta['regularMarketPrice'] ?? null);
         if ($price === null) {
             return null;
         }
@@ -570,7 +567,7 @@ class TwStockRealtimeQuoteService
     {
         $first = explode('_', (string) $value)[0] ?? null;
 
-        return $this->numberOrNull($first);
+        return $this->priceOrNull($first);
     }
 
     /**
@@ -602,6 +599,13 @@ class TwStockRealtimeQuoteService
         $numeric = (float) str_replace(',', '', (string) $value);
 
         return is_finite($numeric) ? $numeric : null;
+    }
+
+    private function priceOrNull(mixed $value): ?float
+    {
+        $number = $this->numberOrNull($value);
+
+        return $number !== null && $number > 0 ? $number : null;
     }
 
     /**

@@ -429,7 +429,7 @@
             <thead>
             <tr>
                 <th><button class="sort-button" type="button" data-sort-key="stock">庫存股 <span class="sort-icon" data-sort-icon></span></button></th>
-                <th><button class="sort-button" type="button" data-sort-key="currentPrice">股價 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="currentPrice">參考價<br>玉山價 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="dayChangeRate">漲跌幅 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="todayPnl">今日損益 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="unrealizedPnl">總損益 <span class="sort-icon" data-sort-icon></span></button></th>
@@ -586,8 +586,14 @@ function renderPositions() {
     els.positions.innerHTML = rows.map(row => `
         <tr>
             <td>${stockCell(row)}</td>
-            <td class="${toneClass(row.dayChangeRate)}"><strong>${formatPrice(row.currentPrice)}</strong></td>
-            <td class="${toneClass(row.dayChangeRate)}">${formatPercent(row.dayChangeRate)}</td>
+            <td class="${toneClass(row.realtimeDayChangeRate ?? row.dayChangeRate)}">
+                <strong>${formatPrice(row.realtimePrice ?? row.currentPrice)}</strong><br>
+                <span class="muted">玉山 ${formatPrice(row.currentPrice)}</span>
+            </td>
+            <td class="${toneClass(row.realtimeDayChangeRate ?? row.dayChangeRate)}">
+                ${formatPercent(row.realtimeDayChangeRate ?? row.dayChangeRate)}<br>
+                <span class="muted">玉山 ${formatPercent(row.dayChangeRate)}</span>
+            </td>
             <td class="${toneClass(row.todayPnl)}"><strong>${formatMoney(row.todayPnl)}</strong></td>
             <td class="${toneClass(row.unrealizedPnl)}"><strong>${formatMoney(row.unrealizedPnl)}</strong></td>
             <td class="${toneClass(row.unrealizedPnlRate)}">${formatPercent(row.unrealizedPnlRate)}</td>
@@ -647,6 +653,11 @@ function sortRows(rows) {
 function sortValue(row, key) {
     if (key === 'stock') {
         return `${row.stockNo || ''} ${row.stockName || ''}`;
+    }
+
+    if (key === 'currentPrice') {
+        const price = Number(row.realtimePrice ?? row.currentPrice);
+        return Number.isFinite(price) ? price : null;
     }
 
     const numeric = Number(row[key]);
@@ -767,8 +778,7 @@ function applyQuotes(payload) {
         return;
     }
 
-    recalculateWeights();
-    updateSummaryCards(buildSummaryFromRows(), quoteSourceText(payload));
+    updateSummaryCards(esunSummary(), quoteSourceText(payload));
     updateSortIndicators();
     renderPositions();
     updateQuoteStatus(payload);
@@ -776,26 +786,17 @@ function applyQuotes(payload) {
 
 function applyQuoteToRow(row, quote) {
     const price = number(quote.price);
-    const quantity = number(row.quantity);
-    const costBasis = number(row.costBasis);
     const previousClose = Number.isFinite(Number(quote.previousClose))
         ? Number(quote.previousClose)
         : row.previousClose;
-    const marketValue = price * quantity;
     const dayChange = previousClose === null || previousClose === undefined ? null : price - number(previousClose);
-    const todayPnl = previousClose === null || previousClose === undefined ? null : dayChange * quantity;
-    const unrealizedPnl = marketValue - costBasis;
 
     return {
         ...row,
-        currentPrice: price,
-        previousClose,
-        dayChange,
-        dayChangeRate: number(previousClose) > 0 ? dayChange / number(previousClose) * 100 : null,
-        todayPnl,
-        marketValue,
-        unrealizedPnl,
-        unrealizedPnlRate: costBasis > 0 ? unrealizedPnl / costBasis * 100 : null,
+        realtimePrice: price,
+        realtimePreviousClose: previousClose,
+        realtimeDayChange: dayChange,
+        realtimeDayChangeRate: number(previousClose) > 0 ? dayChange / number(previousClose) * 100 : null,
         quoteSource: quote.sourceLabel || quote.source || '',
         quoteType: quote.priceType || 'last',
         quoteAt: quote.quotedAt || null,
@@ -804,33 +805,9 @@ function applyQuoteToRow(row, quote) {
     };
 }
 
-function recalculateWeights() {
-    const totalMarketValue = state.rows.reduce((sum, row) => sum + number(row.marketValue), 0);
-    state.rows = state.rows.map(row => ({
-        ...row,
-        marketWeight: totalMarketValue > 0 ? number(row.marketValue) / totalMarketValue * 100 : null,
-    }));
-}
-
-function buildSummaryFromRows() {
-    const previousMarketValue = state.rows.reduce((sum, row) => {
-        return sum + (Number.isFinite(Number(row.previousClose)) ? number(row.previousClose) * number(row.quantity) : 0);
-    }, 0);
-    const marketValue = state.rows.reduce((sum, row) => sum + number(row.marketValue), 0);
-    const costBasis = state.rows.reduce((sum, row) => sum + number(row.costBasis), 0);
-    const todayPnl = state.rows.reduce((sum, row) => sum + number(row.todayPnl), 0);
-    const unrealizedPnl = state.rows.reduce((sum, row) => sum + number(row.unrealizedPnl), 0);
-
+function esunSummary() {
     return {
-        stockCount: state.rows.length,
-        lotCount: state.rows.reduce((sum, row) => sum + number(row.lotCount), 0),
-        shareCount: state.rows.reduce((sum, row) => sum + number(row.quantity), 0),
-        marketValue,
-        costBasis,
-        todayPnl,
-        todayPnlRate: previousMarketValue > 0 ? todayPnl / previousMarketValue * 100 : null,
-        unrealizedPnl,
-        unrealizedPnlRate: costBasis > 0 ? unrealizedPnl / costBasis * 100 : null,
+        ...(state.lastPayload?.summary || {}),
         marketOpen: Boolean((state.lastPayload?.market || {}).isOpen),
     };
 }
@@ -852,7 +829,7 @@ function updateQuoteStatus(payload) {
 
 function quoteSourceText(payload) {
     const source = payload.source || {};
-    return `報價 ${source.label || '--'} · 快取 ${payload.cacheSeconds || 1}s`;
+    return `玉山庫存 · 參考報價 ${source.label || '--'} · 快取 ${payload.cacheSeconds || 1}s`;
 }
 
 function formatDate(value) {

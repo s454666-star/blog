@@ -400,9 +400,9 @@
             <div class="sub" data-summary="lotCount">明細 --</div>
         </div>
         <div class="summary-card">
-            <div class="label">總股數</div>
-            <div class="value neutral" data-summary="shareCount">--</div>
-            <div class="sub">依玉山庫存回傳股數</div>
+            <div class="label">投入總成本</div>
+            <div class="value neutral" data-summary="investedCost">--</div>
+            <div class="sub">依玉山庫存成本</div>
         </div>
         <div class="summary-card">
             <div class="label">資料來源</div>
@@ -576,7 +576,7 @@ function updateSummaryCards(summary, sourceText) {
     document.querySelector('[data-summary="costBasis"]').textContent = `玉山投資成本 ${formatInteger(costBasis)} · 玉山市值 ${formatInteger(esunMarketValue)} · 差 ${formatMoney(number(summary.marketValue) - number(esunMarketValue))}`;
     document.querySelector('[data-summary="stockCount"]').textContent = formatInteger(summary.stockCount);
     document.querySelector('[data-summary="lotCount"]').textContent = `明細 ${formatInteger(summary.lotCount)} 筆`;
-    document.querySelector('[data-summary="shareCount"]').textContent = formatInteger(summary.shareCount);
+    document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
     document.querySelector('[data-summary="sourceAge"]').textContent = summary.marketOpen ? 'LIVE' : 'ONCE';
     document.querySelector('[data-summary="servedAt"]').textContent = sourceText;
 }

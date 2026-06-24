@@ -42,6 +42,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('今日損益')
             ->assertSee('累積損益')
             ->assertSee('股票市值')
+            ->assertSee('投入總成本')
+            ->assertDontSee('總股數')
             ->assertSee('庫存占比')
             ->assertSee('即時價')
             ->assertSee('玉山價')

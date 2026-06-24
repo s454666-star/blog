@@ -7,7 +7,7 @@ use App\Services\TwStockRealtimeQuoteService;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Symfony\Component\HttpFoundation\Cookie;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class EsunPortfolioController extends Controller
@@ -16,7 +16,7 @@ class EsunPortfolioController extends Controller
 
     public function index(Request $request, EsunPortfolioService $service): Response
     {
-        $shouldRefreshCookie = $this->authorizePortfolio($request);
+        $this->authorizePortfolio($request);
 
         $response = response()->view('tw-stock.esun-portfolio', [
             'apiUrl' => route('tw-stock.esun-portfolio.data'),
@@ -25,11 +25,7 @@ class EsunPortfolioController extends Controller
             'initialMarket' => $service->marketStatus(),
         ]);
 
-        if ($shouldRefreshCookie) {
-            $response->withCookie($this->accessCookie($request));
-        }
-
-        return $response;
+        return $this->clearRememberedAccess($response);
     }
 
     public function quotes(
@@ -37,7 +33,7 @@ class EsunPortfolioController extends Controller
         EsunPortfolioService $service,
         TwStockRealtimeQuoteService $quotes,
     ): JsonResponse {
-        $shouldRefreshCookie = $this->authorizePortfolio($request);
+        $this->authorizePortfolio($request);
         $codes = preg_split('/[\s,]+/', (string) $request->query('codes', ''), -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
         $response = response()->json([
@@ -45,26 +41,19 @@ class EsunPortfolioController extends Controller
             'market' => $service->marketStatus(),
         ]);
 
-        if ($shouldRefreshCookie) {
-            $response->withCookie($this->accessCookie($request));
-        }
-
-        return $response;
+        return $this->clearRememberedAccess($response);
     }
 
     public function data(Request $request, EsunPortfolioService $service): JsonResponse
     {
-        $shouldRefreshCookie = $this->authorizePortfolio($request);
+        $this->authorizePortfolio($request);
 
         $response = response()->json($service->snapshot($request->boolean('force')));
-        if ($shouldRefreshCookie) {
-            $response->withCookie($this->accessCookie($request));
-        }
 
-        return $response;
+        return $this->clearRememberedAccess($response);
     }
 
-    private function authorizePortfolio(Request $request): bool
+    private function authorizePortfolio(Request $request): void
     {
         $expected = (string) config('esun.dashboard_token', '');
         if ($expected === '') {
@@ -72,37 +61,18 @@ class EsunPortfolioController extends Controller
         }
 
         $provided = (string) ($request->bearerToken() ?: $request->query('token', ''));
-        if ($provided !== '' && hash_equals($expected, $provided)) {
-            return true;
-        }
-
-        $cookie = (string) $request->cookie(self::ACCESS_COOKIE, '');
-        abort_unless($cookie !== '' && hash_equals($this->accessCookieValue(), $cookie), 403);
-
-        return false;
+        abort_unless($provided !== '' && hash_equals($expected, $provided), 403);
     }
 
-    private function accessCookie(Request $request): Cookie
+    /**
+     * @template T of SymfonyResponse
+     * @param T $response
+     * @return T
+     */
+    private function clearRememberedAccess(SymfonyResponse $response): SymfonyResponse
     {
-        return cookie(
-            self::ACCESS_COOKIE,
-            $this->accessCookieValue(),
-            60 * 24 * 30,
-            null,
-            null,
-            $request->isSecure(),
-            true,
-            false,
-            'Strict',
-        );
-    }
+        $response->headers->clearCookie(self::ACCESS_COOKIE);
 
-    private function accessCookieValue(): string
-    {
-        return hash_hmac(
-            'sha256',
-            (string) config('esun.dashboard_token', ''),
-            (string) config('app.key', ''),
-        );
+        return $response;
     }
 }

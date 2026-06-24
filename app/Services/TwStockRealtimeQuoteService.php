@@ -24,7 +24,7 @@ class TwStockRealtimeQuoteService
             return $this->emptyPayload($ttl);
         }
 
-        $cacheKey = 'tw-stock:realtime-quotes:v1:' . sha1(implode(',', $codes));
+        $cacheKey = 'tw-stock:realtime-quotes:v2:' . sha1(implode(',', $codes));
 
         return Cache::remember(
             $cacheKey,
@@ -39,6 +39,7 @@ class TwStockRealtimeQuoteService
     private function fetchQuotes(array $codes, int $ttl): array
     {
         $quotes = [];
+        $candidates = [];
         $providers = [];
         $errors = [];
 
@@ -59,8 +60,24 @@ class TwStockRealtimeQuoteService
                 };
 
                 foreach ($providerQuotes as $code => $quote) {
-                    if (!isset($quotes[$code]) && $this->numberOrNull($quote['price'] ?? null) !== null) {
-                        $quotes[$code] = $quote;
+                    $code = (string) $code;
+                    $price = $this->priceOrNull($quote['price'] ?? null);
+                    if (!in_array($code, $missing, true) || $price === null) {
+                        continue;
+                    }
+
+                    $quote['price'] = $price;
+                    $quote['source'] = (string) ($quote['source'] ?? $provider);
+                    $quote['sourceLabel'] = (string) ($quote['sourceLabel'] ?? $this->providerLabel($provider));
+                    $candidates[$code][] = $quote;
+                }
+
+                foreach ($missing as $code) {
+                    if (!isset($quotes[$code])) {
+                        $confirmed = $this->confirmedQuote($candidates[$code] ?? []);
+                        if ($confirmed !== null) {
+                            $quotes[$code] = $confirmed;
+                        }
                     }
                 }
 
@@ -73,6 +90,12 @@ class TwStockRealtimeQuoteService
         }
 
         $missing = array_values(array_diff($codes, array_keys($quotes)));
+        $unconfirmed = [];
+        foreach ($missing as $code) {
+            if (($candidates[$code] ?? []) !== []) {
+                $unconfirmed[$code] = $this->summarizeCandidates($candidates[$code]);
+            }
+        }
 
         return [
             'servedAt' => $this->now()->toIso8601String(),
@@ -80,14 +103,18 @@ class TwStockRealtimeQuoteService
             'source' => [
                 'status' => $quotes === [] ? 'unavailable' : ($missing === [] ? 'live' : 'partial'),
                 'providers' => $providers,
-                'label' => $providers === [] ? '無可用報價源' : implode(' + ', array_map($this->providerLabel(...), $providers)),
+                'label' => $quotes === []
+                    ? ($providers === [] ? '無可用報價源' : '未達雙來源一致')
+                    : $this->confirmedSourceLabel($quotes),
                 'message' => $missing === []
-                    ? '庫存報價更新成功。'
-                    : '部分庫存報價暫時缺漏，已保留上一筆價格。',
+                    ? '庫存報價已通過雙來源一致性驗證。'
+                    : '部分庫存報價尚未有兩個來源同價，已保留上一筆確認價格。',
                 'errors' => $errors,
+                'confirmationRequired' => $this->confirmationRequired(),
             ],
             'quotes' => $quotes,
             'missing' => $missing,
+            'unconfirmed' => $unconfirmed,
         ];
     }
 
@@ -551,6 +578,136 @@ class TwStockRealtimeQuoteService
             'yahoo_chart' => 'Yahoo Finance chart',
             default => strtoupper($provider),
         };
+    }
+
+    /**
+     * @param list<array<string, mixed>> $candidates
+     * @return array<string, mixed>|null
+     */
+    private function confirmedQuote(array $candidates): ?array
+    {
+        $required = $this->confirmationRequired();
+        $decimals = max(0, (int) config('esun.quote_confirmation_decimals', 2));
+        $groups = [];
+
+        foreach ($candidates as $candidate) {
+            $price = $this->priceOrNull($candidate['price'] ?? null);
+            if ($price === null) {
+                continue;
+            }
+
+            $key = number_format(round($price, $decimals), $decimals, '.', '');
+            $source = (string) ($candidate['source'] ?? '');
+            $alreadyCounted = collect($groups[$key] ?? [])
+                ->contains(fn (array $item): bool => (string) ($item['source'] ?? '') === $source);
+
+            if (!$alreadyCounted) {
+                $candidate['price'] = (float) $key;
+                $groups[$key][] = $candidate;
+            }
+        }
+
+        foreach ($groups as $priceKey => $matches) {
+            if (count($matches) < $required) {
+                continue;
+            }
+
+            $base = $this->latestCandidate($matches);
+            $labels = collect($matches)
+                ->map(fn (array $quote): string => (string) ($quote['sourceLabel'] ?? $quote['source'] ?? ''))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            if ($required <= 1) {
+                return [
+                    ...$base,
+                    'confirmedBy' => $labels,
+                    'confirmationCount' => count($matches),
+                    'candidatePrices' => $this->summarizeCandidates($matches),
+                ];
+            }
+
+            return [
+                ...$base,
+                'price' => (float) $priceKey,
+                'priceType' => 'confirmed',
+                'source' => 'confirmed',
+                'sourceLabel' => implode(' + ', $labels),
+                'confirmedBy' => $labels,
+                'confirmationCount' => count($matches),
+                'candidatePrices' => $this->summarizeCandidates($matches),
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $quotes
+     */
+    private function confirmedSourceLabel(array $quotes): string
+    {
+        $labels = collect($quotes)
+            ->flatMap(fn (array $quote): array => $quote['confirmedBy'] ?? [$quote['sourceLabel'] ?? $quote['source'] ?? ''])
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($this->confirmationRequired() <= 1) {
+            return $labels === [] ? '可用報價源' : implode(' + ', $labels);
+        }
+
+        return $labels === [] ? '雙來源確認報價' : '雙來源確認：' . implode(' + ', $labels);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $candidates
+     * @return list<array<string, mixed>>
+     */
+    private function summarizeCandidates(array $candidates): array
+    {
+        return collect($candidates)
+            ->map(fn (array $quote): array => [
+                'source' => (string) ($quote['source'] ?? ''),
+                'sourceLabel' => (string) ($quote['sourceLabel'] ?? $quote['source'] ?? ''),
+                'price' => $this->priceOrNull($quote['price'] ?? null),
+                'quotedAt' => $quote['quotedAt'] ?? null,
+            ])
+            ->filter(fn (array $quote): bool => $quote['price'] !== null)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param list<array<string, mixed>> $candidates
+     * @return array<string, mixed>
+     */
+    private function latestCandidate(array $candidates): array
+    {
+        return collect($candidates)
+            ->sortByDesc(fn (array $quote): int => $this->timestampScore($quote['quotedAt'] ?? null))
+            ->first() ?? $candidates[0];
+    }
+
+    private function timestampScore(mixed $value): int
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return 0;
+        }
+
+        try {
+            return CarbonImmutable::parse($value)->getTimestamp();
+        } catch (Throwable) {
+            return 0;
+        }
+    }
+
+    private function confirmationRequired(): int
+    {
+        return max(1, (int) config('esun.quote_confirmation_required', 2));
     }
 
     private function timeout(): int

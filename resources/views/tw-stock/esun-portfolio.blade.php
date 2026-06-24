@@ -429,7 +429,7 @@
             <thead>
             <tr>
                 <th><button class="sort-button" type="button" data-sort-key="stock">庫存股 <span class="sort-icon" data-sort-icon></span></button></th>
-                <th><button class="sort-button" type="button" data-sort-key="currentPrice">參考價<br>玉山價 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="currentPrice">即時價<br>玉山價 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="dayChangeRate">漲跌幅 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="todayPnl">今日損益 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="unrealizedPnl">總損益 <span class="sort-icon" data-sort-icon></span></button></th>
@@ -778,7 +778,8 @@ function applyQuotes(payload) {
         return;
     }
 
-    updateSummaryCards(esunSummary(), quoteSourceText(payload));
+    recalculateWeights();
+    updateSummaryCards(buildSummaryFromRows(), quoteSourceText(payload));
     updateSortIndicators();
     renderPositions();
     updateQuoteStatus(payload);
@@ -789,7 +790,14 @@ function applyQuoteToRow(row, quote) {
     const previousClose = Number.isFinite(Number(quote.previousClose))
         ? Number(quote.previousClose)
         : row.previousClose;
+    const quantity = number(row.quantity);
+    const costBasis = number(row.costBasis);
     const dayChange = previousClose === null || previousClose === undefined ? null : price - number(previousClose);
+    const todayPnl = previousClose === null || previousClose === undefined
+        ? row.todayPnl
+        : dayChange * quantity;
+    const marketValue = price * quantity;
+    const unrealizedPnl = marketValue - costBasis;
 
     return {
         ...row,
@@ -797,17 +805,46 @@ function applyQuoteToRow(row, quote) {
         realtimePreviousClose: previousClose,
         realtimeDayChange: dayChange,
         realtimeDayChangeRate: number(previousClose) > 0 ? dayChange / number(previousClose) * 100 : null,
+        todayPnl,
+        marketValue,
+        unrealizedPnl,
+        unrealizedPnlRate: costBasis > 0 ? unrealizedPnl / costBasis * 100 : null,
         quoteSource: quote.sourceLabel || quote.source || '',
         quoteType: quote.priceType || 'last',
         quoteAt: quote.quotedAt || null,
         bestBid: quote.bestBid ?? null,
         bestAsk: quote.bestAsk ?? null,
+        quoteConfirmationCount: quote.confirmationCount ?? null,
+        quoteConfirmedBy: quote.confirmedBy || [],
     };
 }
 
-function esunSummary() {
+function recalculateWeights() {
+    const totalMarketValue = state.rows.reduce((sum, row) => sum + number(row.marketValue), 0);
+    state.rows = state.rows.map(row => ({
+        ...row,
+        marketWeight: totalMarketValue > 0 ? number(row.marketValue) / totalMarketValue * 100 : null,
+    }));
+}
+
+function buildSummaryFromRows() {
+    const marketValue = state.rows.reduce((sum, row) => sum + number(row.marketValue), 0);
+    const costBasis = state.rows.reduce((sum, row) => sum + number(row.costBasis), 0);
+    const todayPnl = state.rows.reduce((sum, row) => sum + number(row.todayPnl), 0);
+    const unrealizedPnl = state.rows.reduce((sum, row) => sum + number(row.unrealizedPnl), 0);
+    const previousMarketValue = state.rows.reduce((sum, row) => {
+        const previousClose = row.realtimePreviousClose ?? row.previousClose;
+        return Number.isFinite(Number(previousClose)) ? sum + number(previousClose) * number(row.quantity) : sum;
+    }, 0);
+
     return {
         ...(state.lastPayload?.summary || {}),
+        marketValue,
+        costBasis,
+        todayPnl,
+        todayPnlRate: previousMarketValue > 0 ? todayPnl / previousMarketValue * 100 : null,
+        unrealizedPnl,
+        unrealizedPnlRate: costBasis > 0 ? unrealizedPnl / costBasis * 100 : null,
         marketOpen: Boolean((state.lastPayload?.market || {}).isOpen),
     };
 }
@@ -829,7 +866,7 @@ function updateQuoteStatus(payload) {
 
 function quoteSourceText(payload) {
     const source = payload.source || {};
-    return `玉山庫存 · 參考報價 ${source.label || '--'} · 快取 ${payload.cacheSeconds || 1}s`;
+    return `即時損益 · ${source.label || '--'} · 快取 ${payload.cacheSeconds || 1}s`;
 }
 
 function formatDate(value) {

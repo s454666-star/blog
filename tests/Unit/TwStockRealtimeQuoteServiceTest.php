@@ -17,6 +17,8 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         config()->set('esun.quote_providers', 'twse');
         config()->set('esun.quote_fallback_providers', '');
         config()->set('esun.quote_cache_seconds', 1);
+        config()->set('esun.quote_confirmation_required', 1);
+        config()->set('esun.quote_confirmation_decimals', 2);
     }
 
     public function test_it_parses_twse_mis_quotes_with_mid_price_fallback(): void
@@ -121,6 +123,107 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         $this->assertSame('Yahoo Finance chart', $payload['source']['label']);
         $this->assertSame(192.0, $payload['quotes']['3362']['price']);
         $this->assertSame('yahoo_chart', $payload['quotes']['3362']['source']);
+    }
+
+    public function test_it_requires_two_matching_prices_before_confirming_quote(): void
+    {
+        config()->set('esun.quote_providers', 'cnyes,yahoo_tw,tradingview');
+        config()->set('esun.quote_confirmation_required', 2);
+
+        Http::fake([
+            'https://ws.api.cnyes.com/ws/api/v1/quote/quotes/*' => Http::response([
+                'statusCode' => 200,
+                'data' => [
+                    [
+                        '200010' => '5285',
+                        '200009' => '界霖',
+                        '6' => 110.0,
+                        '11' => 10.0,
+                        '56' => 10.0,
+                        '200007' => 1782273344,
+                    ],
+                ],
+            ]),
+            'https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.stockList*' => Http::response([
+                [
+                    'systexId' => '5285',
+                    'symbol' => '5285.TW',
+                    'symbolName' => '界霖',
+                    'price' => ['raw' => '109.0'],
+                    'regularMarketPreviousClose' => ['raw' => '100.0'],
+                    'change' => ['raw' => '9.0'],
+                    'changePercent' => '9.00%',
+                    'regularMarketTime' => '2026-06-24T03:55:45Z',
+                ],
+            ]),
+            'https://scanner.tradingview.com/taiwan/scan' => Http::response([
+                'totalCount' => 1,
+                'data' => [
+                    [
+                        's' => 'TWSE:5285',
+                        'd' => ['5285', 'Jarllytec', 110.0, 10.0, 10.0, 10000, 'delayed_streaming_900'],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $payload = app(TwStockRealtimeQuoteService::class)->quotes(['5285']);
+
+        $this->assertSame('live', $payload['source']['status']);
+        $this->assertSame(110.0, $payload['quotes']['5285']['price']);
+        $this->assertSame('confirmed', $payload['quotes']['5285']['source']);
+        $this->assertSame(2, $payload['quotes']['5285']['confirmationCount']);
+        $this->assertSame([], $payload['missing']);
+    }
+
+    public function test_it_keeps_quote_missing_when_no_two_sources_match(): void
+    {
+        config()->set('esun.quote_providers', 'cnyes,yahoo_tw,tradingview');
+        config()->set('esun.quote_confirmation_required', 2);
+
+        Http::fake([
+            'https://ws.api.cnyes.com/ws/api/v1/quote/quotes/*' => Http::response([
+                'statusCode' => 200,
+                'data' => [
+                    [
+                        '200010' => '5285',
+                        '200009' => '界霖',
+                        '6' => 110.0,
+                        '11' => 10.0,
+                        '56' => 10.0,
+                        '200007' => 1782273344,
+                    ],
+                ],
+            ]),
+            'https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.stockList*' => Http::response([
+                [
+                    'systexId' => '5285',
+                    'symbol' => '5285.TW',
+                    'symbolName' => '界霖',
+                    'price' => ['raw' => '109.0'],
+                    'regularMarketPreviousClose' => ['raw' => '100.0'],
+                    'change' => ['raw' => '9.0'],
+                    'changePercent' => '9.00%',
+                    'regularMarketTime' => '2026-06-24T03:55:45Z',
+                ],
+            ]),
+            'https://scanner.tradingview.com/taiwan/scan' => Http::response([
+                'totalCount' => 1,
+                'data' => [
+                    [
+                        's' => 'TWSE:5285',
+                        'd' => ['5285', 'Jarllytec', 108.0, 8.0, 8.0, 10000, 'delayed_streaming_900'],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $payload = app(TwStockRealtimeQuoteService::class)->quotes(['5285']);
+
+        $this->assertSame('unavailable', $payload['source']['status']);
+        $this->assertArrayNotHasKey('5285', $payload['quotes']);
+        $this->assertSame(['5285'], $payload['missing']);
+        $this->assertCount(3, $payload['unconfirmed']['5285']);
     }
 
     public function test_it_parses_cnyes_batch_quotes(): void

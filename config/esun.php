@@ -18,6 +18,7 @@ return [
     'cache_seconds_open' => (int) env('ESUN_PORTFOLIO_CACHE_SECONDS_OPEN', 5),
     'cache_seconds_closed' => (int) env('ESUN_PORTFOLIO_CACHE_SECONDS_CLOSED', 600),
     'poll_seconds_open' => (int) env('ESUN_PORTFOLIO_POLL_SECONDS_OPEN', 2),
+    'minimum_query_seconds' => (int) env('ESUN_PORTFOLIO_MINIMUM_QUERY_SECONDS', 60),
 
     'timezone' => env('ESUN_PORTFOLIO_TIMEZONE', 'Asia/Taipei'),
     'market_open_start' => env('ESUN_PORTFOLIO_OPEN_START', '09:00'),

@@ -3,32 +3,46 @@
 namespace App\Http\Controllers;
 
 use App\Services\EsunPortfolioService;
-use Illuminate\Contracts\View\View;
+use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class EsunPortfolioController extends Controller
 {
-    public function index(Request $request, EsunPortfolioService $service): View
-    {
-        $this->authorizePortfolio($request);
+    private const ACCESS_COOKIE = 'esun_portfolio_access';
 
-        return view('tw-stock.esun-portfolio', [
+    public function index(Request $request, EsunPortfolioService $service): Response
+    {
+        $shouldRefreshCookie = $this->authorizePortfolio($request);
+
+        $response = response()->view('tw-stock.esun-portfolio', [
             'apiUrl' => route('tw-stock.esun-portfolio.data'),
             'token' => (string) $request->query('token', ''),
             'initialMarket' => $service->marketStatus(),
         ]);
+
+        if ($shouldRefreshCookie) {
+            $response->withCookie($this->accessCookie($request));
+        }
+
+        return $response;
     }
 
     public function data(Request $request, EsunPortfolioService $service): JsonResponse
     {
-        $this->authorizePortfolio($request);
+        $shouldRefreshCookie = $this->authorizePortfolio($request);
 
-        return response()->json($service->snapshot($request->boolean('force')));
+        $response = response()->json($service->snapshot($request->boolean('force')));
+        if ($shouldRefreshCookie) {
+            $response->withCookie($this->accessCookie($request));
+        }
+
+        return $response;
     }
 
-    private function authorizePortfolio(Request $request): void
+    private function authorizePortfolio(Request $request): bool
     {
         $expected = (string) config('esun.dashboard_token', '');
         if ($expected === '') {
@@ -36,6 +50,37 @@ class EsunPortfolioController extends Controller
         }
 
         $provided = (string) ($request->bearerToken() ?: $request->query('token', ''));
-        abort_unless(hash_equals($expected, $provided), 403);
+        if ($provided !== '' && hash_equals($expected, $provided)) {
+            return true;
+        }
+
+        $cookie = (string) $request->cookie(self::ACCESS_COOKIE, '');
+        abort_unless($cookie !== '' && hash_equals($this->accessCookieValue(), $cookie), 403);
+
+        return false;
+    }
+
+    private function accessCookie(Request $request): Cookie
+    {
+        return cookie(
+            self::ACCESS_COOKIE,
+            $this->accessCookieValue(),
+            60 * 24 * 30,
+            null,
+            null,
+            $request->isSecure(),
+            true,
+            false,
+            'Strict',
+        );
+    }
+
+    private function accessCookieValue(): string
+    {
+        return hash_hmac(
+            'sha256',
+            (string) config('esun.dashboard_token', ''),
+            (string) config('app.key', ''),
+        );
     }
 }

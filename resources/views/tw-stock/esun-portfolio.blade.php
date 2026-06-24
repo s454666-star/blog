@@ -202,7 +202,7 @@
 
         table {
             width: 100%;
-            min-width: 1280px;
+            min-width: 1540px;
             border-collapse: collapse;
         }
 
@@ -224,6 +224,39 @@
             background: #333333;
             font-size: 13px;
             font-weight: 900;
+        }
+
+        .sort-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+            width: 100%;
+            min-height: 26px;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 900;
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        th:first-child .sort-button {
+            justify-content: flex-start;
+            text-align: left;
+        }
+
+        .sort-icon {
+            min-width: 14px;
+            color: var(--muted-2);
+            font-size: 11px;
+        }
+
+        th.sorted .sort-icon {
+            color: var(--amber);
         }
 
         td:first-child,
@@ -280,19 +313,6 @@
             color: var(--muted);
             font-size: 12px;
             font-weight: 800;
-        }
-
-        .section-title {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            margin: 20px 0 10px;
-        }
-
-        .section-title h2 {
-            margin: 0;
-            font-size: 20px;
         }
 
         .empty,
@@ -394,7 +414,7 @@
     <section class="toolbar">
         <div class="tabs">
             <span class="tab active">即時損益</span>
-            <span class="tab">庫存明細</span>
+            <span class="tab active">全欄排序</span>
         </div>
         <div class="controls">
             <input type="search" placeholder="搜尋代號或名稱" data-filter>
@@ -408,51 +428,25 @@
         <table>
             <thead>
             <tr>
-                <th>庫存股</th>
-                <th>股價<br>漲跌幅</th>
-                <th>今日<br>即時損益</th>
-                <th>總損益<br>報酬率</th>
-                <th>股數</th>
-                <th>均價<br>總成本</th>
-                <th>市值<br>占比</th>
-                <th>損益<br>平衡價</th>
-                <th>近5日<br>漲幅</th>
-                <th>近20日<br>漲幅</th>
-                <th>今年以來<br>漲幅</th>
-                <th>明細</th>
+                <th><button class="sort-button" type="button" data-sort-key="stock">庫存股 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="currentPrice">股價 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="dayChangeRate">漲跌幅 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="todayPnl">今日損益 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="unrealizedPnl">總損益 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="unrealizedPnlRate">總報酬率 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="quantity">股數 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="averagePrice">均價 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="costBasis">總成本 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="marketValue">市值 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="marketWeight">庫存占比 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="breakevenPrice">損益平衡價 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="fiveDayReturn">近5日漲幅 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="twentyDayReturn">近20日漲幅 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="yearToDateReturn">今年以來漲幅 <span class="sort-icon" data-sort-icon></span></button></th>
             </tr>
             </thead>
             <tbody data-positions>
-            <tr><td colspan="12" class="empty">讀取中</td></tr>
-            </tbody>
-        </table>
-    </section>
-
-    <div class="section-title">
-        <h2>庫存批次明細</h2>
-        <span class="mini" data-lot-count>--</span>
-    </div>
-
-    <section class="table-wrap">
-        <table>
-            <thead>
-            <tr>
-                <th>庫存股</th>
-                <th>成交日</th>
-                <th>買賣</th>
-                <th>股數</th>
-                <th>成交價</th>
-                <th>損益平衡價</th>
-                <th>手續費</th>
-                <th>稅</th>
-                <th>淨收付</th>
-                <th>市值</th>
-                <th>未實現損益</th>
-                <th>報酬率</th>
-            </tr>
-            </thead>
-            <tbody data-lots>
-            <tr><td colspan="12" class="empty">讀取中</td></tr>
+            <tr><td colspan="15" class="empty">讀取中</td></tr>
             </tbody>
         </table>
     </section>
@@ -463,9 +457,12 @@ const apiUrl = @json($apiUrl);
 const dashboardToken = @json($token);
 const state = {
     rows: [],
-    lots: [],
     timer: null,
     lastPayload: null,
+    sort: {
+        key: 'unrealizedPnl',
+        direction: 'desc',
+    },
 };
 
 const els = {
@@ -473,11 +470,10 @@ const els = {
     refreshStatus: document.querySelector('[data-refresh-status]'),
     lastUpdated: document.querySelector('[data-last-updated]'),
     positions: document.querySelector('[data-positions]'),
-    lots: document.querySelector('[data-lots]'),
     error: document.querySelector('[data-error]'),
     filter: document.querySelector('[data-filter]'),
-    lotCount: document.querySelector('[data-lot-count]'),
     forceRefresh: document.querySelector('[data-force-refresh]'),
+    sortButtons: document.querySelectorAll('[data-sort-key]'),
 };
 
 function number(value) {
@@ -505,6 +501,11 @@ function formatPercent(value) {
     const numeric = Number(value);
     const prefix = numeric > 0 ? '+' : '';
     return `${prefix}${numeric.toFixed(2)}%`;
+}
+
+function formatWeight(value) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return '--';
+    return `${Number(value).toFixed(2)}%`;
 }
 
 function toneClass(value) {
@@ -542,8 +543,9 @@ function updateSummary(payload) {
     document.querySelector('[data-summary="stockCount"]').textContent = formatInteger(summary.stockCount);
     document.querySelector('[data-summary="lotCount"]').textContent = `明細 ${formatInteger(summary.lotCount)} 筆`;
     document.querySelector('[data-summary="shareCount"]').textContent = formatInteger(summary.shareCount);
+    const source = payload.source || {};
     document.querySelector('[data-summary="sourceAge"]').textContent = payload.market?.isOpen ? 'LIVE' : 'ONCE';
-    document.querySelector('[data-summary="servedAt"]').textContent = `後端快取 ${payload.cacheSeconds || 0}s`;
+    document.querySelector('[data-summary="servedAt"]').textContent = `快取 ${payload.cacheSeconds || 0}s · 資料 ${formatAge(source.ageSeconds)}`;
 }
 
 function stockCell(row) {
@@ -560,69 +562,34 @@ function stockCell(row) {
 
 function renderPositions() {
     const keyword = (els.filter.value || '').trim().toLowerCase();
-    const rows = state.rows.filter(row => {
+    const rows = sortRows(state.rows.filter(row => {
         if (!keyword) return true;
         return String(row.stockNo).toLowerCase().includes(keyword)
             || String(row.stockName).toLowerCase().includes(keyword);
-    });
+    }));
 
     if (!rows.length) {
-        els.positions.innerHTML = '<tr><td colspan="12" class="empty">沒有符合條件的庫存</td></tr>';
+        els.positions.innerHTML = '<tr><td colspan="15" class="empty">沒有符合條件的庫存</td></tr>';
         return;
     }
 
     els.positions.innerHTML = rows.map(row => `
         <tr>
             <td>${stockCell(row)}</td>
-            <td class="${toneClass(row.dayChangeRate)}">
-                <strong>${formatPrice(row.currentPrice)}</strong><br>${formatPercent(row.dayChangeRate)}
-            </td>
-            <td class="${toneClass(row.todayPnl)}">
-                <strong>${formatMoney(row.todayPnl)}</strong><br>${formatPercent(row.dayChangeRate)}
-            </td>
-            <td class="${toneClass(row.unrealizedPnl)}">
-                <strong>${formatMoney(row.unrealizedPnl)}</strong><br>${formatPercent(row.unrealizedPnlRate)}
-            </td>
+            <td class="${toneClass(row.dayChangeRate)}"><strong>${formatPrice(row.currentPrice)}</strong></td>
+            <td class="${toneClass(row.dayChangeRate)}">${formatPercent(row.dayChangeRate)}</td>
+            <td class="${toneClass(row.todayPnl)}"><strong>${formatMoney(row.todayPnl)}</strong></td>
+            <td class="${toneClass(row.unrealizedPnl)}"><strong>${formatMoney(row.unrealizedPnl)}</strong></td>
+            <td class="${toneClass(row.unrealizedPnlRate)}">${formatPercent(row.unrealizedPnlRate)}</td>
             <td>${formatInteger(row.quantity)}</td>
-            <td>${formatPrice(row.averagePrice)}<br><span class="muted">${formatInteger(row.costBasis)}</span></td>
-            <td>${formatInteger(row.marketValue)}<br><span class="muted">${formatPercent(row.marketWeight)}</span></td>
+            <td>${formatPrice(row.averagePrice)}</td>
+            <td>${formatInteger(row.costBasis)}</td>
+            <td>${formatInteger(row.marketValue)}</td>
+            <td>${formatWeight(row.marketWeight)}</td>
             <td>${formatPrice(row.breakevenPrice)}</td>
             <td class="${toneClass(row.fiveDayReturn)}">${formatPercent(row.fiveDayReturn)}</td>
             <td class="${toneClass(row.twentyDayReturn)}">${formatPercent(row.twentyDayReturn)}</td>
             <td class="${toneClass(row.yearToDateReturn)}">${formatPercent(row.yearToDateReturn)}</td>
-            <td>${formatInteger(row.lotCount)} 筆</td>
-        </tr>
-    `).join('');
-}
-
-function renderLots() {
-    const keyword = (els.filter.value || '').trim().toLowerCase();
-    const lots = state.lots.filter(lot => {
-        if (!keyword) return true;
-        return String(lot.stockNo).toLowerCase().includes(keyword)
-            || String(lot.stockName).toLowerCase().includes(keyword);
-    });
-    els.lotCount.textContent = `${formatInteger(lots.length)} 筆`;
-
-    if (!lots.length) {
-        els.lots.innerHTML = '<tr><td colspan="12" class="empty">沒有符合條件的明細</td></tr>';
-        return;
-    }
-
-    els.lots.innerHTML = lots.map(lot => `
-        <tr>
-            <td>${stockCell(lot)}</td>
-            <td>${formatDate(lot.date)}<br><span class="muted">${formatTime(lot.time)}</span></td>
-            <td>${lot.side === 'S' ? '賣' : '買'}</td>
-            <td>${formatInteger(lot.quantity)}</td>
-            <td>${formatPrice(lot.price)}</td>
-            <td>${formatPrice(lot.breakevenPrice)}</td>
-            <td>${formatInteger(lot.fee)}</td>
-            <td>${formatInteger(lot.tax)}</td>
-            <td>${formatMoney(lot.payAmount)}</td>
-            <td>${formatInteger(lot.marketValue)}</td>
-            <td class="${toneClass(lot.unrealizedPnl)}">${formatMoney(lot.unrealizedPnl)}</td>
-            <td class="${toneClass(lot.unrealizedPnlRate)}">${formatPercent(lot.unrealizedPnlRate)}</td>
         </tr>
     `).join('');
 }
@@ -630,18 +597,76 @@ function renderLots() {
 function applyPayload(payload) {
     state.lastPayload = payload;
     state.rows = payload.rows || [];
-    state.lots = state.rows.flatMap(row => row.lots || []);
     updateSummary(payload);
+    updateSortIndicators();
     renderPositions();
-    renderLots();
 
     const market = payload.market || {};
+    const source = payload.source || {};
     els.marketStatus.textContent = market.label || '--';
     els.marketStatus.classList.toggle('live', Boolean(market.isOpen));
-    els.refreshStatus.textContent = market.isOpen ? `開盤輪詢 ${market.pollSeconds || 2}s` : '非開盤已暫停輪詢';
+    els.refreshStatus.textContent = source.status === 'stale'
+        ? '顯示最近成功資料'
+        : (market.isOpen ? `開盤輪詢 ${market.pollSeconds || 2}s` : '非開盤已暫停輪詢');
     els.refreshStatus.classList.toggle('live', Boolean(market.isOpen));
+    els.refreshStatus.classList.toggle('error', source.status === 'stale');
     els.lastUpdated.textContent = `更新 ${formatDateTime(payload.queriedAt || payload.servedAt)}`;
     schedulePolling(market);
+}
+
+function sortRows(rows) {
+    const direction = state.sort.direction === 'asc' ? 1 : -1;
+    const key = state.sort.key;
+
+    return [...rows].sort((a, b) => {
+        const av = sortValue(a, key);
+        const bv = sortValue(b, key);
+        if (av === null && bv === null) return stockFallback(a, b);
+        if (av === null) return 1;
+        if (bv === null) return -1;
+        if (typeof av === 'string' || typeof bv === 'string') {
+            const compared = String(av).localeCompare(String(bv), 'zh-Hant', { numeric: true });
+            return compared === 0 ? stockFallback(a, b) : compared * direction;
+        }
+        const compared = av === bv ? 0 : av > bv ? 1 : -1;
+        return compared === 0 ? stockFallback(a, b) : compared * direction;
+    });
+}
+
+function sortValue(row, key) {
+    if (key === 'stock') {
+        return `${row.stockNo || ''} ${row.stockName || ''}`;
+    }
+
+    const numeric = Number(row[key]);
+    return Number.isFinite(numeric) ? numeric : null;
+}
+
+function stockFallback(a, b) {
+    return String(a.stockNo || '').localeCompare(String(b.stockNo || ''), 'zh-Hant', { numeric: true });
+}
+
+function setSort(key) {
+    if (state.sort.key === key) {
+        state.sort.direction = state.sort.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        state.sort.key = key;
+        state.sort.direction = key === 'stock' ? 'asc' : 'desc';
+    }
+
+    updateSortIndicators();
+    renderPositions();
+}
+
+function updateSortIndicators() {
+    els.sortButtons.forEach(button => {
+        const active = button.dataset.sortKey === state.sort.key;
+        const th = button.closest('th');
+        const icon = button.querySelector('[data-sort-icon]');
+        th.classList.toggle('sorted', active);
+        th.setAttribute('aria-sort', active ? (state.sort.direction === 'asc' ? 'ascending' : 'descending') : 'none');
+        icon.textContent = active ? (state.sort.direction === 'asc' ? '▲' : '▼') : '↕';
+    });
 }
 
 function schedulePolling(market) {
@@ -657,7 +682,9 @@ function schedulePolling(market) {
 
 async function fetchData(force) {
     const url = new URL(apiUrl, window.location.origin);
-    url.searchParams.set('token', dashboardToken);
+    if (dashboardToken) {
+        url.searchParams.set('token', dashboardToken);
+    }
     if (force) url.searchParams.set('force', '1');
 
     els.refreshStatus.textContent = force ? '強制刷新中' : '更新中';
@@ -708,6 +735,15 @@ function formatDateTime(value) {
     });
 }
 
+function formatAge(value) {
+    const seconds = Number(value);
+    if (!Number.isFinite(seconds)) return '--';
+    if (seconds < 60) return `${Math.round(seconds)} 秒前`;
+    const minutes = Math.floor(seconds / 60);
+    const rest = Math.round(seconds % 60);
+    return rest > 0 ? `${minutes} 分 ${rest} 秒前` : `${minutes} 分前`;
+}
+
 function escapeHtml(value) {
     return String(value)
         .replaceAll('&', '&amp;')
@@ -719,10 +755,13 @@ function escapeHtml(value) {
 
 els.filter.addEventListener('input', () => {
     renderPositions();
-    renderLots();
 });
 els.forceRefresh.addEventListener('click', () => fetchData(true));
+els.sortButtons.forEach(button => {
+    button.addEventListener('click', () => setSort(button.dataset.sortKey));
+});
 
+updateSortIndicators();
 fetchData(false);
 </script>
 </body>

@@ -33,13 +33,38 @@ class EsunPortfolioControllerTest extends TestCase
 
         $this->get(route('tw-stock.esun-portfolio.index', ['token' => 'test-token']))
             ->assertOk()
+            ->assertCookie('esun_portfolio_access')
             ->assertSee('玉山庫存即時看板')
             ->assertSee('apiUrl', false)
             ->assertSee('dashboardToken', false)
             ->assertSee('今日損益')
             ->assertSee('累積損益')
             ->assertSee('股票市值')
-            ->assertSee('開盤每 2 秒刷新畫面');
+            ->assertSee('庫存占比')
+            ->assertSee('data-sort-key="unrealizedPnl"', false)
+            ->assertSee('開盤每 2 秒刷新畫面')
+            ->assertDontSee('庫存批次明細');
+    }
+
+    public function test_dashboard_allows_return_visit_with_access_cookie(): void
+    {
+        $this->withoutMiddleware(\Illuminate\Cookie\Middleware\EncryptCookies::class);
+
+        $service = Mockery::mock(EsunPortfolioService::class);
+        $service->shouldReceive('marketStatus')->once()->andReturn([
+            'isOpen' => true,
+            'label' => '台股交易時段',
+            'pollSeconds' => 2,
+        ]);
+        $this->app->instance(EsunPortfolioService::class, $service);
+
+        $cookieValue = hash_hmac('sha256', 'test-token', (string) config('app.key'));
+
+        $this
+            ->withCookie('esun_portfolio_access', $cookieValue)
+            ->get(route('tw-stock.esun-portfolio.index'))
+            ->assertOk()
+            ->assertSee('玉山庫存即時看板');
     }
 
     public function test_data_endpoint_returns_service_snapshot(): void

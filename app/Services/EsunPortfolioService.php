@@ -15,16 +15,50 @@ class EsunPortfolioService
     {
         $now = CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei'));
         $market = $this->marketStatus($now);
-        $ttl = max(1, (int) config($market['isOpen'] ? 'esun.cache_seconds_open' : 'esun.cache_seconds_closed', 5));
+        $ttl = $this->cacheTtl($market);
         $cacheKey = 'esun:portfolio:inventories:v1';
+        $fallbackKey = 'esun:portfolio:inventories:last-success:v1';
+        $lastQueryKey = 'esun:portfolio:last-query-at:v1';
 
-        if ($force) {
-            Cache::forget($cacheKey);
+        $cached = Cache::get($cacheKey);
+        $queryAge = $this->secondsSince(Cache::get($lastQueryKey), $now);
+        $minQuerySeconds = $this->minimumQuerySeconds();
+
+        if (is_array($cached) && (!$force || ($queryAge !== null && $queryAge < $minQuerySeconds))) {
+            $meta = $force ? [
+                'status' => 'throttled',
+                'message' => '玉山庫存 API 有查詢頻率限制，先顯示最近一次成功資料。',
+            ] : [
+                'status' => 'cached',
+                'message' => '顯示後端快取資料。',
+            ];
+
+            return $this->buildSnapshot($cached, $market, $now, $ttl, $meta);
         }
 
-        $raw = Cache::remember($cacheKey, now()->addSeconds($ttl), fn (): array => $this->queryInventories());
+        try {
+            Cache::put($lastQueryKey, $now->toIso8601String(), now()->addDay());
+            $raw = $this->queryInventories();
+            Cache::put($cacheKey, $raw, now()->addSeconds($ttl));
+            Cache::put($fallbackKey, $raw, now()->addHours(8));
 
-        return $this->buildSnapshot($raw, $market, $now, $ttl);
+            return $this->buildSnapshot($raw, $market, $now, $ttl, [
+                'status' => 'live',
+                'message' => '玉山 API 查詢成功。',
+            ]);
+        } catch (RuntimeException $exception) {
+            $fallback = Cache::get($fallbackKey);
+            if (is_array($fallback)) {
+                return $this->buildSnapshot($fallback, $market, $now, $ttl, [
+                    'status' => 'stale',
+                    'message' => $this->isRateLimited($exception)
+                        ? '玉山庫存 API 暫時達到查詢頻率限制，顯示最近一次成功資料。'
+                        : '玉山庫存 API 暫時查詢失敗，顯示最近一次成功資料。',
+                ]);
+            }
+
+            throw $exception;
+        }
     }
 
     public function marketStatus(?CarbonImmutable $now = null): array
@@ -99,7 +133,7 @@ class EsunPortfolioService
         ];
     }
 
-    private function buildSnapshot(array $raw, array $market, CarbonImmutable $now, int $ttl): array
+    private function buildSnapshot(array $raw, array $market, CarbonImmutable $now, int $ttl, array $source = []): array
     {
         $inventories = collect($raw['inventories'] ?? []);
         $stockCodes = $inventories
@@ -134,6 +168,12 @@ class EsunPortfolioService
             'servedAt' => $now->toIso8601String(),
             'cacheSeconds' => $ttl,
             'market' => $market,
+            'source' => [
+                'status' => $source['status'] ?? 'cached',
+                'message' => $source['message'] ?? '',
+                'ageSeconds' => $this->secondsSince($raw['queriedAt'] ?? null, $now),
+                'minQuerySeconds' => $this->minimumQuerySeconds(),
+            ],
             'summary' => [
                 'stockCount' => count($rows),
                 'lotCount' => array_sum(array_column($rows, 'lotCount')),
@@ -337,5 +377,36 @@ class EsunPortfolioService
         }
 
         return null;
+    }
+
+    private function cacheTtl(array $market): int
+    {
+        $configured = (int) config($market['isOpen'] ? 'esun.cache_seconds_open' : 'esun.cache_seconds_closed', 60);
+
+        return max($this->minimumQuerySeconds(), $configured);
+    }
+
+    private function minimumQuerySeconds(): int
+    {
+        return max(60, (int) config('esun.minimum_query_seconds', 60));
+    }
+
+    private function secondsSince(mixed $value, CarbonImmutable $now): ?int
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse($value)->diffInSeconds($now, true);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function isRateLimited(RuntimeException $exception): bool
+    {
+        return str_contains($exception->getMessage(), 'AGR0003')
+            || str_contains($exception->getMessage(), 'Transaction Rate Limit');
     }
 }

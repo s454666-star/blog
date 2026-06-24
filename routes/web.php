@@ -189,6 +189,7 @@ Route::get('/tw-stock/institutional-flows', [TwStockInstitutionalFlowController:
 Route::get('/tw-stock', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.index');
 Route::get('/tw-stock/esun-portfolio', [EsunPortfolioController::class, 'index'])->name('tw-stock.esun-portfolio.index');
 Route::get('/tw-stock/esun-portfolio/data', [EsunPortfolioController::class, 'data'])->name('tw-stock.esun-portfolio.data');
+Route::get('/tw-stock/esun-portfolio/quotes', [EsunPortfolioController::class, 'quotes'])->name('tw-stock.esun-portfolio.quotes');
 Route::get('/videos/duplicates', [VideoDuplicateController::class, 'index'])->name('videos.duplicates.index');
 Route::post('/videos/duplicates/open', [VideoDuplicateController::class, 'open'])->name('videos.duplicates.open');
 Route::post('/videos/duplicates/mark-unique', [VideoDuplicateController::class, 'markUnique'])->name('videos.duplicates.markUnique');

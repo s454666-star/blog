@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\EsunPortfolioService;
+use App\Services\TwStockRealtimeQuoteService;
 use Mockery;
 use Tests\TestCase;
 
@@ -36,13 +37,14 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertCookie('esun_portfolio_access')
             ->assertSee('玉山庫存即時看板')
             ->assertSee('apiUrl', false)
+            ->assertSee('quoteUrl', false)
             ->assertSee('dashboardToken', false)
             ->assertSee('今日損益')
             ->assertSee('累積損益')
             ->assertSee('股票市值')
             ->assertSee('庫存占比')
             ->assertSee('data-sort-key="unrealizedPnl"', false)
-            ->assertSee('開盤每 2 秒刷新畫面')
+            ->assertSee('開盤每秒更新持股報價')
             ->assertDontSee('庫存批次明細');
     }
 
@@ -101,5 +103,46 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertJsonPath('summary.stockCount', 1)
             ->assertJsonPath('market.pollSeconds', 2)
             ->assertJsonPath('rows.0.stockNo', '2303');
+    }
+
+    public function test_quotes_endpoint_returns_requested_holdings_quotes(): void
+    {
+        $portfolio = Mockery::mock(EsunPortfolioService::class);
+        $portfolio->shouldReceive('marketStatus')->once()->andReturn([
+            'isOpen' => true,
+            'label' => '台股交易時段',
+            'pollSeconds' => 1,
+        ]);
+        $this->app->instance(EsunPortfolioService::class, $portfolio);
+
+        $quotes = Mockery::mock(TwStockRealtimeQuoteService::class);
+        $quotes->shouldReceive('quotes')->once()->with(['2303', '5285'])->andReturn([
+            'servedAt' => '2026-06-24T11:45:00+08:00',
+            'cacheSeconds' => 1,
+            'source' => [
+                'status' => 'live',
+                'providers' => ['twse'],
+                'label' => 'TWSE MIS',
+            ],
+            'quotes' => [
+                '2303' => [
+                    'price' => 175.0,
+                    'previousClose' => 170.0,
+                    'source' => 'twse',
+                ],
+            ],
+            'missing' => [],
+        ]);
+        $this->app->instance(TwStockRealtimeQuoteService::class, $quotes);
+
+        $this->getJson(route('tw-stock.esun-portfolio.quotes', [
+            'token' => 'test-token',
+            'codes' => '2303,5285',
+        ]))
+            ->assertOk()
+            ->assertJsonPath('cacheSeconds', 1)
+            ->assertJsonPath('source.label', 'TWSE MIS')
+            ->assertJsonPath('market.pollSeconds', 1)
+            ->assertJsonPath('quotes.2303.price', 175);
     }
 }

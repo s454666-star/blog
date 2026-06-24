@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\EsunPortfolioService;
+use App\Services\TwStockRealtimeQuoteService;
 use Illuminate\Http\Response;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,8 +20,29 @@ class EsunPortfolioController extends Controller
 
         $response = response()->view('tw-stock.esun-portfolio', [
             'apiUrl' => route('tw-stock.esun-portfolio.data'),
+            'quoteUrl' => route('tw-stock.esun-portfolio.quotes'),
             'token' => (string) $request->query('token', ''),
             'initialMarket' => $service->marketStatus(),
+        ]);
+
+        if ($shouldRefreshCookie) {
+            $response->withCookie($this->accessCookie($request));
+        }
+
+        return $response;
+    }
+
+    public function quotes(
+        Request $request,
+        EsunPortfolioService $service,
+        TwStockRealtimeQuoteService $quotes,
+    ): JsonResponse {
+        $shouldRefreshCookie = $this->authorizePortfolio($request);
+        $codes = preg_split('/[\s,]+/', (string) $request->query('codes', ''), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        $response = response()->json([
+            ...$quotes->quotes($codes),
+            'market' => $service->marketStatus(),
         ]);
 
         if ($shouldRefreshCookie) {

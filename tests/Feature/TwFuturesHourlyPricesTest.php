@@ -74,6 +74,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('日 MA5')
             ->assertSee('差值')
             ->assertSee('乖離')
+            ->assertSee('乖離-差值')
             ->assertSee('乖離率')
             ->assertSee('const dailyChartRows =', false)
             ->assertSee('const hourlyChartRows =', false)
@@ -93,6 +94,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('maxRightLogicalIndex', false)
             ->assertSee('data-toggle-series="gap"', false)
             ->assertSee('data-toggle-series="bias"', false)
+            ->assertSee('data-toggle-series="biasGapDiff"', false)
             ->assertSee('data-toggle-series="movingAverage"', false)
             ->assertSee("upColor: '#ef5350'", false)
             ->assertSee("downColor: '#26a69a'", false)
@@ -110,6 +112,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('TEMPORARY_LINE_CLICK_MOVE_LIMIT = 6', false)
             ->assertSee('data-marker-count', false)
             ->assertSee('data-legend-bias', false)
+            ->assertSee('data-legend-bias-gap-diff', false)
             ->assertSee('data-legend-bias-rate', false)
             ->assertSee('marker-label-layer', false)
             ->assertSee('chartMarkerData', false)
@@ -132,10 +135,14 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('startMarkerLabelRenderLoop', false)
             ->assertSee('const gapSeries = chart.addBaselineSeries', false)
             ->assertSee('const biasSeries = chart.addLineSeries', false)
+            ->assertSee('const biasGapDiffSeries = chart.addLineSeries', false)
             ->assertSee("color: '#a78bfa'", false)
+            ->assertSee("color: '#84cc16'", false)
             ->assertSee("biasSeries.setData(lineData(currentRows, 'bias'))", false)
+            ->assertSee("biasGapDiffSeries.setData(lineData(currentRows, 'biasGapDiff'))", false)
             ->assertSee('bias: [biasSeries]', false)
-            ->assertSee('.flatMap(row => [Number(row.gap), Number(row.bias)])', false)
+            ->assertSee('biasGapDiff: [biasGapDiffSeries]', false)
+            ->assertSee('.flatMap(row => [Number(row.gap), Number(row.bias), Number(row.biasGapDiff)])', false)
             ->assertSee("priceScaleId: 'gap'", false)
             ->assertSee("chart.priceScale('gap').applyOptions", false)
             ->assertSee('scaleMargins: { top: 0.14, bottom: 0.06 }', false)
@@ -185,6 +192,20 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertEqualsWithDelta($expectedBias, (float) $biasRow['bias'], 0.0001);
         $this->assertEqualsWithDelta($expectedBias / (float) $biasRow['close'], (float) $biasRow['biasRate'], 0.000001);
 
+        $biasGapDiffRows = array_values(array_filter(
+            $chartRows,
+            fn (array $row): bool => $row['gap'] !== null && $row['bias'] !== null && $row['biasGapDiff'] !== null,
+        ));
+        $this->assertNotEmpty($biasGapDiffRows);
+        $biasGapDiffRow = $biasGapDiffRows[array_key_last($biasGapDiffRows)];
+        $expectedBiasGapDiff = (float) $biasGapDiffRow['bias'] - (float) $biasGapDiffRow['gap'];
+        $this->assertEqualsWithDelta($expectedBiasGapDiff, (float) $biasGapDiffRow['biasGapDiff'], 0.0001);
+        $this->assertEqualsWithDelta(
+            (float) $biasGapDiffRow['close'] - (float) $biasGapDiffRow['dailyMa5'],
+            (float) $biasGapDiffRow['biasGapDiff'],
+            0.0001,
+        );
+
         preg_match('/const dailyChartRows = (.*);/', $content, $matches);
         $this->assertNotEmpty($matches[1] ?? null);
 
@@ -196,6 +217,10 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertNotEmpty(array_filter(
             $dailyRows,
             fn (array $row): bool => $row['bias'] !== null && $row['biasRate'] !== null,
+        ));
+        $this->assertNotEmpty(array_filter(
+            $dailyRows,
+            fn (array $row): bool => $row['biasGapDiff'] !== null,
         ));
 
         preg_match('/const hourlyChartRows = (.*);/', $content, $hourlyMatches);
@@ -209,6 +234,10 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertNotEmpty(array_filter(
             $hourlyRows,
             fn (array $row): bool => $row['bias'] !== null && $row['biasRate'] !== null,
+        ));
+        $this->assertNotEmpty(array_filter(
+            $hourlyRows,
+            fn (array $row): bool => $row['biasGapDiff'] !== null,
         ));
 
         preg_match('/const dailyGapMarkers = (.*);/', $content, $markerMatches);

@@ -157,6 +157,7 @@ class TwFuturesHourlyPriceController extends Controller
             $gap = $dailyMa5 !== null && $movingAverage !== null ? $dailyMa5 - $movingAverage : null;
             $bias = $movingAverage !== null ? $close - $movingAverage : null;
             $biasRate = $bias !== null && $close !== 0.0 ? $bias / $close : null;
+            $biasGapDiff = $bias !== null && $gap !== null ? $bias - $gap : null;
             $startedAt = CarbonImmutable::parse($row->started_at, 'Asia/Taipei');
             $startedAtUnix = (int) $row->started_at_unix;
             $time = $this->displayTimestamp($row);
@@ -233,6 +234,7 @@ class TwFuturesHourlyPriceController extends Controller
                 'gap' => $gap === null ? null : round($gap, 4),
                 'bias' => $bias === null ? null : round($bias, 4),
                 'biasRate' => $biasRate === null ? null : round($biasRate, 8),
+                'biasGapDiff' => $biasGapDiff === null ? null : round($biasGapDiff, 4),
                 'isSessionOpen' => $isSessionOpen,
             ];
         }
@@ -319,6 +321,7 @@ class TwFuturesHourlyPriceController extends Controller
             $gap = $group['gap'] === null ? null : (float) $group['gap'];
             $bias = $group['bias'] === null ? null : (float) $group['bias'];
             $biasRate = $group['biasRate'] === null ? null : (float) $group['biasRate'];
+            $biasGapDiff = $bias !== null && $gap !== null ? $bias - $gap : null;
             $time = CarbonImmutable::parse($tradeDate . ' 12:00:00', 'Asia/Taipei')->timestamp;
 
             $dailyRows[] = [
@@ -336,6 +339,7 @@ class TwFuturesHourlyPriceController extends Controller
                 'gap' => $gap === null ? null : round($gap, 4),
                 'bias' => $bias === null ? null : round($bias, 4),
                 'biasRate' => $biasRate === null ? null : round($biasRate, 8),
+                'biasGapDiff' => $biasGapDiff === null ? null : round($biasGapDiff, 4),
                 'isSessionOpen' => false,
             ];
         }

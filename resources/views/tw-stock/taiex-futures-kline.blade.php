@@ -20,6 +20,7 @@
             --blue: #60a5fa;
             --orange: #f59e0b;
             --violet: #a78bfa;
+            --lime: #84cc16;
         }
 
         * { box-sizing: border-box; }
@@ -438,6 +439,7 @@
                 <span class="legend-item"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: var(--violet)"></span>乖離 <strong data-legend-bias>--</strong></span>
+                <span class="legend-item"><span class="swatch" style="background: var(--lime)"></span>乖離-差值 <strong data-legend-bias-gap-diff>--</strong></span>
                 <span class="legend-item">乖離率 <strong data-legend-bias-rate>--</strong></span>
                 <span class="legend-item"><span class="swatch" style="background: #e5e7eb"></span>標記 <strong data-marker-count>0</strong></span>
                 <span class="legend-item">開 <strong data-legend-open>--</strong></span>
@@ -453,6 +455,7 @@
                 <button type="button" class="tool-button active" data-toggle-series="movingAverage">均線</button>
                 <button type="button" class="tool-button active" data-toggle-series="gap">差值</button>
                 <button type="button" class="tool-button active" data-toggle-series="bias">乖離</button>
+                <button type="button" class="tool-button active" data-toggle-series="biasGapDiff">乖離-差值</button>
                 <button type="button" class="tool-button" data-show-all>全部</button>
                 <button type="button" class="tool-button active" data-show-latest>最新</button>
             </div>
@@ -698,6 +701,16 @@
         lastValueVisible: false
     });
 
+    const biasGapDiffSeries = chart.addLineSeries({
+        priceScaleId: 'gap',
+        priceFormat: { type: 'price', precision: 0, minMove: 1 },
+        autoscaleInfoProvider: gapAutoscaleInfoProvider,
+        color: '#84cc16',
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false
+    });
+
     const gapHistogramSeries = chart.addHistogramSeries({
         priceScaleId: 'gap',
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
@@ -747,7 +760,7 @@
 
     function gapZeroData(rows) {
         return rows
-            .filter(row => row.gap != null || row.bias != null)
+            .filter(row => row.gap != null || row.bias != null || row.biasGapDiff != null)
             .map(row => ({ time: Number(row.time), value: 0 }));
     }
 
@@ -848,7 +861,7 @@
 
         return currentRows
             .slice(from, to + 1)
-            .flatMap(row => [Number(row.gap), Number(row.bias)])
+            .flatMap(row => [Number(row.gap), Number(row.bias), Number(row.biasGapDiff)])
             .filter(Number.isFinite);
     }
 
@@ -982,6 +995,7 @@
         gapZeroSeries.applyOptions(autoscaleOptions);
         gapSeries.applyOptions(autoscaleOptions);
         biasSeries.applyOptions(autoscaleOptions);
+        biasGapDiffSeries.applyOptions(autoscaleOptions);
         gapHistogramSeries.applyOptions(autoscaleOptions);
         scheduleMarkerLabelRender();
     }
@@ -1068,7 +1082,8 @@
         movingAverage: [movingAverageSeries],
         dailyMa5: [dailyMa5Series],
         gap: [gapSeries, gapHistogramSeries, gapZeroSeries],
-        bias: [biasSeries]
+        bias: [biasSeries],
+        biasGapDiff: [biasGapDiffSeries]
     };
 
     document.querySelectorAll('[data-toggle-series]').forEach(button => {
@@ -1350,6 +1365,7 @@
         dailyMa5: document.querySelector('[data-legend-daily-ma5]'),
         gap: document.querySelector('[data-legend-gap]'),
         bias: document.querySelector('[data-legend-bias]'),
+        biasGapDiff: document.querySelector('[data-legend-bias-gap-diff]'),
         biasRate: document.querySelector('[data-legend-bias-rate]')
     };
 
@@ -1388,12 +1404,18 @@
         fields.gap.textContent = format(row?.gap, 0, true);
         fields.gap.className = Number(row?.gap || 0) >= 0 ? 'positive' : 'negative';
         fields.bias.textContent = format(row?.bias, 0, true);
+        fields.biasGapDiff.textContent = format(row?.biasGapDiff, 0, true);
         fields.biasRate.textContent = formatPercent(row?.biasRate, 2, true);
         const biasValue = row?.bias;
         const biasNumber = biasValue === null || biasValue === undefined ? NaN : Number(biasValue);
         const biasTone = Number.isFinite(biasNumber) ? (biasNumber >= 0 ? 'positive' : 'negative') : 'muted';
         fields.bias.className = biasTone;
         fields.biasRate.className = biasTone;
+        const biasGapDiffValue = row?.biasGapDiff;
+        const biasGapDiffNumber = biasGapDiffValue === null || biasGapDiffValue === undefined ? NaN : Number(biasGapDiffValue);
+        fields.biasGapDiff.className = Number.isFinite(biasGapDiffNumber)
+            ? (biasGapDiffNumber >= 0 ? 'positive' : 'negative')
+            : 'muted';
     }
 
     chart.subscribeCrosshairMove(param => {
@@ -1422,6 +1444,7 @@
         dailyMa5Series.setData(lineData(currentRows, 'dailyMa5'));
         gapSeries.setData(gapData);
         biasSeries.setData(lineData(currentRows, 'bias'));
+        biasGapDiffSeries.setData(lineData(currentRows, 'biasGapDiff'));
         gapHistogramSeries.setData(gapHistogramData(gapData));
         gapZeroSeries.setData(gapZeroData(currentRows));
         chart.applyOptions({

@@ -7,6 +7,7 @@ use App\Http\Controllers\CommandRunnerController;
     use App\Http\Controllers\DialogueReadController;
     use App\Http\Controllers\DialogueTokenStatsController;
 use App\Http\Controllers\EncryptionController;
+use App\Http\Controllers\EsunPortfolioController;
 use App\Http\Controllers\ExternalVideoDuplicateController;
 use App\Http\Controllers\ExtractController;
 use App\Http\Controllers\FaceIdentityController;
@@ -186,6 +187,8 @@ Route::get('/tw-stock/taiex-futures-kline', [TwFuturesHourlyPriceController::cla
 Route::get('/tw-stock/upcoming-dividends', [TwStockUpcomingDividendController::class, 'index'])->name('tw-stock.upcoming-dividends.index');
 Route::get('/tw-stock/institutional-flows', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.institutional-flows.index');
 Route::get('/tw-stock', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.index');
+Route::get('/tw-stock/esun-portfolio', [EsunPortfolioController::class, 'index'])->name('tw-stock.esun-portfolio.index');
+Route::get('/tw-stock/esun-portfolio/data', [EsunPortfolioController::class, 'data'])->name('tw-stock.esun-portfolio.data');
 Route::get('/videos/duplicates', [VideoDuplicateController::class, 'index'])->name('videos.duplicates.index');
 Route::post('/videos/duplicates/open', [VideoDuplicateController::class, 'open'])->name('videos.duplicates.open');
 Route::post('/videos/duplicates/mark-unique', [VideoDuplicateController::class, 'markUnique'])->name('videos.duplicates.markUnique');

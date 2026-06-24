@@ -15,6 +15,9 @@ yarn-error.log
 /.idea
 /.vscode
 storage/certs/
+/storage/app/esun/
+/storage/app/esun-venv/
 *.pem
 /python/__pycache__/
+__pycache__/
 /AGENTS.md

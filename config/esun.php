@@ -21,7 +21,9 @@ return [
     'minimum_query_seconds' => (int) env('ESUN_PORTFOLIO_MINIMUM_QUERY_SECONDS', 60),
     'quote_cache_seconds' => (int) env('ESUN_PORTFOLIO_QUOTE_CACHE_SECONDS', 1),
     'quote_timeout_seconds' => (int) env('ESUN_PORTFOLIO_QUOTE_TIMEOUT_SECONDS', 4),
-    'quote_providers' => env('ESUN_PORTFOLIO_QUOTE_PROVIDERS', 'twse,yahoo'),
+    'quote_providers' => env('ESUN_PORTFOLIO_QUOTE_PROVIDERS', 'twse,cnyes,yahoo_tw'),
+    'quote_fallback_providers' => env('ESUN_PORTFOLIO_QUOTE_FALLBACK_PROVIDERS', 'tradingview,yahoo_chart'),
+    'quote_rotation_seconds' => (int) env('ESUN_PORTFOLIO_QUOTE_ROTATION_SECONDS', 1),
 
     'timezone' => env('ESUN_PORTFOLIO_TIMEZONE', 'Asia/Taipei'),
     'market_open_start' => env('ESUN_PORTFOLIO_OPEN_START', '09:00'),

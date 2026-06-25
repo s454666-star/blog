@@ -43,6 +43,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('股票市值')
             ->assertSee('今年總損益')
             ->assertSee('今年報酬率')
+            ->assertSee('當日已實現')
+            ->assertDontSee('沖銷 --')
             ->assertDontSee('年化報酬率')
             ->assertDontSee('年度報酬率')
             ->assertSee('投入總成本')

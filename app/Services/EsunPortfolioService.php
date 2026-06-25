@@ -18,9 +18,9 @@ class EsunPortfolioService
         $now = CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei'));
         $market = $this->marketStatus($now);
         $ttl = $this->cacheTtl($market);
-        $cacheKey = 'esun:portfolio:inventories:v4';
-        $fallbackKey = 'esun:portfolio:inventories:last-success:v4';
-        $lastQueryKey = 'esun:portfolio:last-query-at:v4';
+        $cacheKey = 'esun:portfolio:inventories:v5';
+        $fallbackKey = 'esun:portfolio:inventories:last-success:v5';
+        $lastQueryKey = 'esun:portfolio:last-query-at:v5';
 
         $cached = Cache::get($cacheKey);
         $queryAge = $this->secondsSince(Cache::get($lastQueryKey), $now);
@@ -97,17 +97,20 @@ class EsunPortfolioService
             throw new RuntimeException('E.SUN query returned an unexpected payload.');
         }
 
+        $transactions = $this->yearTransactions($now);
+
         return [
             'queriedAt' => $payload['queried_at'] ?? now()->toIso8601String(),
             'inventories' => $payload['inventories'],
             'balance' => is_array($payload['balance'] ?? null) ? $payload['balance'] : [],
             'settlements' => is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [],
-            'transactions' => $this->yearTransactions($now),
+            'transactions' => $transactions['history'],
+            'todayTransactions' => $transactions['today'],
         ];
     }
 
     /**
-     * @return array<int, array<string, mixed>>
+     * @return array{history: array<int, array<string, mixed>>, today: array<int, array<string, mixed>>}
      */
     private function yearTransactions(CarbonImmutable $now): array
     {
@@ -138,13 +141,24 @@ class EsunPortfolioService
             }
         }
 
-        return array_values(array_merge($transactions, $this->queryTransactions($today, $today)));
+        $historyToday = $this->queryTransactions($today, $today);
+
+        $todayTransactions = array_values(array_filter(
+            $this->queryTransactions($today, $today, '0d'),
+            fn (mixed $transaction): bool => is_array($transaction)
+                && $this->transactionSettlesOn($transaction, $today),
+        ));
+
+        return [
+            'history' => array_values(array_merge($transactions, $historyToday)),
+            'today' => $todayTransactions,
+        ];
     }
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function queryTransactions(CarbonImmutable $start, CarbonImmutable $end): array
+    private function queryTransactions(CarbonImmutable $start, CarbonImmutable $end, ?string $range = null): array
     {
         if ($end->lessThan($start)) {
             return [];
@@ -154,6 +168,7 @@ class EsunPortfolioService
             ...$this->esunProcessEnvironment(),
             'ESUN_TRANSACTIONS_START' => $start->toDateString(),
             'ESUN_TRANSACTIONS_END' => $end->toDateString(),
+            'ESUN_TRANSACTIONS_RANGE' => $range ?? '',
         ]);
         if (!isset($payload['transactions']) || !is_array($payload['transactions'])) {
             throw new RuntimeException('E.SUN transactions query returned an unexpected payload.');
@@ -287,6 +302,8 @@ class EsunPortfolioService
                 'todayPnlRate' => $previousMarketValue > 0 ? $totalTodayPnl / $previousMarketValue * 100 : null,
                 'unrealizedPnl' => $totalUnrealizedPnl,
                 'unrealizedPnlRate' => $totalCostBasis > 0 ? $totalUnrealizedPnl / $totalCostBasis * 100 : null,
+                'realizedHistoryPnl' => $yearProfitSummary['realizedHistoryPnl'],
+                'realizedTodayPnl' => $yearProfitSummary['realizedTodayPnl'],
                 'realizedYearPnl' => $yearProfitSummary['realizedYearPnl'],
                 'dayTradeYearPnl' => $yearProfitSummary['dayTradeYearPnl'],
                 'adjustedRealizedYearPnl' => $yearProfitSummary['adjustedRealizedYearPnl'],
@@ -553,12 +570,8 @@ class EsunPortfolioService
         }
 
         try {
-            $dateText = trim((string) $rawDate);
-            $date = preg_match('/^\d{8}$/', $dateText) === 1
-                ? CarbonImmutable::createFromFormat('Ymd', $dateText, $today->timezone)
-                : CarbonImmutable::parse($dateText, $today->timezone);
-
-            if (!$date instanceof CarbonImmutable) {
+            $date = $this->parseEsunDate($rawDate, $today);
+            if ($date === null) {
                 return true;
             }
 
@@ -568,8 +581,38 @@ class EsunPortfolioService
         }
     }
 
+    private function transactionSettlesOn(array $transaction, CarbonImmutable $date): bool
+    {
+        $rawDate = $this->value($transaction, 'c_date', 'cDate', 'settlement_date', 'settlementDate');
+        if ($rawDate === null || trim((string) $rawDate) === '') {
+            return false;
+        }
+
+        try {
+            return $this->parseEsunDate($rawDate, $date)?->isSameDay($date) ?? false;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function parseEsunDate(mixed $rawDate, CarbonImmutable $reference): ?CarbonImmutable
+    {
+        $dateText = trim((string) $rawDate);
+        if ($dateText === '') {
+            return null;
+        }
+
+        $date = preg_match('/^\d{8}$/', $dateText) === 1
+            ? CarbonImmutable::createFromFormat('Ymd', $dateText, $reference->timezone)
+            : CarbonImmutable::parse($dateText, $reference->timezone);
+
+        return $date instanceof CarbonImmutable ? $date : null;
+    }
+
     /**
      * @return array{
+     *     realizedHistoryPnl: float,
+     *     realizedTodayPnl: float,
      *     realizedYearPnl: float,
      *     dayTradeYearPnl: float,
      *     adjustedRealizedYearPnl: float,
@@ -578,17 +621,20 @@ class EsunPortfolioService
      */
     private function yearProfitSummary(array $raw): array
     {
-        $transactions = is_array($raw['transactions'] ?? null) ? $raw['transactions'] : [];
-        $realizedYearPnl = 0.0;
+        $historyTransactions = is_array($raw['transactions'] ?? null) ? $raw['transactions'] : [];
+        $todayTransactions = is_array($raw['todayTransactions'] ?? null) ? $raw['todayTransactions'] : [];
+        $allTransactions = array_merge($historyTransactions, $todayTransactions);
+        $realizedHistoryPnl = $this->sumTransactionProfit($historyTransactions);
+        $realizedTodayPnl = $this->sumTransactionProfit($todayTransactions);
+        $realizedYearPnl = $realizedHistoryPnl + $realizedTodayPnl;
         $dayTradeYearPnl = 0.0;
 
-        foreach ($transactions as $transaction) {
+        foreach ($allTransactions as $transaction) {
             if (!is_array($transaction)) {
                 continue;
             }
 
             $make = $this->number($this->value($transaction, 'make', 'profit_loss', 'profitLoss'));
-            $realizedYearPnl += $make;
 
             if (in_array((string) $this->value($transaction, 'trade'), ['A', '9'], true)) {
                 $dayTradeYearPnl += $make;
@@ -598,11 +644,31 @@ class EsunPortfolioService
         $adjustedRealizedYearPnl = $realizedYearPnl - $dayTradeYearPnl;
 
         return [
+            'realizedHistoryPnl' => $realizedHistoryPnl,
+            'realizedTodayPnl' => $realizedTodayPnl,
             'realizedYearPnl' => $realizedYearPnl,
             'dayTradeYearPnl' => $dayTradeYearPnl,
             'adjustedRealizedYearPnl' => $adjustedRealizedYearPnl,
             'yearTotalPnl' => $realizedYearPnl,
         ];
+    }
+
+    /**
+     * @param array<int, mixed> $transactions
+     */
+    private function sumTransactionProfit(array $transactions): float
+    {
+        $total = 0.0;
+
+        foreach ($transactions as $transaction) {
+            if (!is_array($transaction)) {
+                continue;
+            }
+
+            $total += $this->number($this->value($transaction, 'make', 'profit_loss', 'profitLoss'));
+        }
+
+        return $total;
     }
 
     private function annualizedReturnRate(?float $returnRate, int $elapsedDays): ?float

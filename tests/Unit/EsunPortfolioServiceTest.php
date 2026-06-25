@@ -214,9 +214,43 @@ class EsunPortfolioServiceTest extends TestCase
         ]);
 
         $this->assertSame(78000.0, $summary['realizedYearPnl']);
+        $this->assertSame(78000.0, $summary['realizedHistoryPnl']);
+        $this->assertSame(0.0, $summary['realizedTodayPnl']);
         $this->assertSame(-10000.0, $summary['dayTradeYearPnl']);
         $this->assertSame(88000.0, $summary['adjustedRealizedYearPnl']);
         $this->assertSame(78000.0, $summary['yearTotalPnl']);
+    }
+
+    public function test_it_adds_today_realized_profit_to_year_total_profit(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'yearProfitSummary');
+
+        $summary = $method->invoke($service, [
+            'transactions' => [
+                ['make' => '1208882', 'trade' => '0'],
+            ],
+            'todayTransactions' => [
+                ['make' => '5000', 'trade' => '0'],
+                ['make' => '-2000', 'trade' => '0'],
+            ],
+        ]);
+
+        $this->assertSame(1208882.0, $summary['realizedHistoryPnl']);
+        $this->assertSame(3000.0, $summary['realizedTodayPnl']);
+        $this->assertSame(1211882.0, $summary['realizedYearPnl']);
+        $this->assertSame(1211882.0, $summary['yearTotalPnl']);
+    }
+
+    public function test_it_counts_today_realized_profit_only_when_settlement_date_is_today(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'transactionSettlesOn');
+        $today = CarbonImmutable::parse('2026-06-25 10:00:00', 'Asia/Taipei');
+
+        $this->assertTrue($method->invoke($service, ['c_date' => '20260625'], $today));
+        $this->assertFalse($method->invoke($service, ['c_date' => '20260629'], $today));
+        $this->assertFalse($method->invoke($service, ['t_date' => '20260625'], $today));
     }
 
     public function test_it_calculates_year_return_rate_from_current_capital_minus_profit(): void
@@ -232,15 +266,19 @@ class EsunPortfolioServiceTest extends TestCase
             'transactions' => [
                 ['make' => '200000', 'trade' => '0'],
             ],
+            'todayTransactions' => [
+                ['make' => '10000', 'trade' => '0'],
+            ],
         ], [
             'isOpen' => false,
             'label' => '非交易時段',
         ], CarbonImmutable::parse('2026-06-25 10:00:00', 'Asia/Taipei'), 60);
 
-        $this->assertSame(200000.0, $snapshot['summary']['yearTotalPnl']);
-        $this->assertSame(800000.0, $snapshot['summary']['yearReturnBase']);
-        $this->assertSame(25.0, $snapshot['summary']['yearTotalPnlRate']);
+        $this->assertSame(10000.0, $snapshot['summary']['realizedTodayPnl']);
+        $this->assertSame(210000.0, $snapshot['summary']['yearTotalPnl']);
+        $this->assertSame(790000.0, $snapshot['summary']['yearReturnBase']);
+        $this->assertEqualsWithDelta(210000 / 790000 * 100, $snapshot['summary']['yearTotalPnlRate'], 0.000001);
         $this->assertSame(176, $snapshot['summary']['yearElapsedDays']);
-        $this->assertEqualsWithDelta(25.0 * 365 / 176, $snapshot['summary']['annualizedReturnRate'], 0.000001);
+        $this->assertEqualsWithDelta((210000 / 790000 * 100) * 365 / 176, $snapshot['summary']['annualizedReturnRate'], 0.000001);
     }
 }

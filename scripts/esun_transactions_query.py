@@ -59,9 +59,14 @@ def main() -> int:
     try:
         sdk = SDK(config)
         sdk.login()
-        transactions = sdk.get_transactions_by_date(
-            os.environ["ESUN_TRANSACTIONS_START"],
-            os.environ["ESUN_TRANSACTIONS_END"],
+        query_range = os.environ.get("ESUN_TRANSACTIONS_RANGE", "").strip()
+        transactions = (
+            sdk.get_transactions(query_range)
+            if query_range
+            else sdk.get_transactions_by_date(
+                os.environ["ESUN_TRANSACTIONS_START"],
+                os.environ["ESUN_TRANSACTIONS_END"],
+            )
         )
     except Exception as exc:
         print(json.dumps({
@@ -74,6 +79,7 @@ def main() -> int:
         "queried_at": datetime.now(timezone.utc).isoformat(),
         "start": os.environ["ESUN_TRANSACTIONS_START"],
         "end": os.environ["ESUN_TRANSACTIONS_END"],
+        "range": os.environ.get("ESUN_TRANSACTIONS_RANGE", "").strip() or None,
         "transactions": transactions,
     }, ensure_ascii=True))
     return 0

@@ -896,7 +896,7 @@
             <div class="label">今年總損益</div>
             <div class="value" data-summary="yearTotalPnl">--</div>
             <div class="return-rate-line" data-summary="yearTotalPnlRate">今年報酬率 --</div>
-            <div class="sub" data-summary="yearTotalPnlBreakdown">玉山已實現 -- · 沖銷 --</div>
+            <div class="sub" data-summary="yearTotalPnlBreakdown">玉山已實現 -- · 當日已實現 --</div>
         </div>
         <div class="summary-card capital-card">
             <div class="label">投入總成本</div>
@@ -1071,7 +1071,12 @@ function updateSummaryCards(summary, sourceText) {
     const yearTotalPnl = finiteNumber(summary.yearTotalPnl ?? state.lastPayload?.summary?.yearTotalPnl);
     const yearTotalPnlRate = finiteNumber(summary.yearTotalPnlRate ?? state.lastPayload?.summary?.yearTotalPnlRate);
     const realizedYearPnl = finiteNumber(summary.realizedYearPnl ?? state.lastPayload?.summary?.realizedYearPnl);
-    const dayTradeYearPnl = finiteNumber(summary.dayTradeYearPnl ?? state.lastPayload?.summary?.dayTradeYearPnl);
+    const realizedTodayPnl = finiteNumber(summary.realizedTodayPnl ?? state.lastPayload?.summary?.realizedTodayPnl);
+    const realizedHistoryPnl = finiteNumber(
+        summary.realizedHistoryPnl
+        ?? state.lastPayload?.summary?.realizedHistoryPnl
+        ?? (realizedYearPnl !== null && realizedTodayPnl !== null ? realizedYearPnl - realizedTodayPnl : null)
+    );
 
     const today = document.querySelector('[data-summary="todayPnl"]');
     today.textContent = formatMoney(summary.todayPnl);
@@ -1098,8 +1103,8 @@ function updateSummaryCards(summary, sourceText) {
     yearRate.textContent = `今年報酬率 ${formatPercent(yearTotalPnlRate)}`;
     yearRate.className = `return-rate-line ${toneClass(yearTotalPnlRate)}`;
     document.querySelector('[data-summary="yearTotalPnlBreakdown"]').textContent =
-        `玉山已實現 ${realizedYearPnl === null ? '--' : formatMoney(realizedYearPnl)} · ` +
-        `沖銷 ${dayTradeYearPnl === null ? '--' : formatMoney(dayTradeYearPnl)}`;
+        `玉山已實現 ${realizedHistoryPnl === null ? '--' : formatMoney(realizedHistoryPnl)} · ` +
+        `當日已實現 ${realizedTodayPnl === null ? '--' : formatMoney(realizedTodayPnl)}`;
     document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
     renderInvestmentLevel(investmentLevelRate, bankBalance);
     document.querySelector('[data-summary="sourceAge"]').textContent = summary.marketOpen ? 'LIVE' : 'ONCE';
@@ -1626,7 +1631,7 @@ function buildSummaryFromRows() {
     const esunTodayPnl = state.rows.reduce((sum, row) => sum + number(row.esunTodayPnl), 0);
     const unrealizedPnl = state.rows.reduce((sum, row) => sum + number(row.unrealizedPnl), 0);
     const realizedYearPnl = finiteNumber(state.lastPayload?.summary?.realizedYearPnl);
-    const yearTotalPnl = realizedYearPnl;
+    const yearTotalPnl = finiteNumber(state.lastPayload?.summary?.yearTotalPnl ?? realizedYearPnl);
     const yearReturnBase = yearTotalPnl !== null && totalCapital !== null ? totalCapital - yearTotalPnl : null;
     const yearTotalPnlRate = yearReturnBase !== null && yearReturnBase > 0 ? yearTotalPnl / yearReturnBase * 100 : null;
     const yearElapsedDays = Number(state.lastPayload?.summary?.yearElapsedDays) || 1;

@@ -880,7 +880,17 @@ function applyQuotes(payload) {
     state.rows = state.rows.map(row => {
         const quote = quotes[row.stockNo];
         if (!quote || !Number.isFinite(Number(quote.price))) {
-            return row;
+            const quoteContext = quoteContextFromUnconfirmed(payload, row.stockNo);
+            if (!quoteContext) {
+                return row;
+            }
+
+            const nextRow = applyPreviousCloseToRow(row, quoteContext);
+            if (nextRow !== row) {
+                changed = true;
+            }
+
+            return nextRow;
         }
 
         changed = true;
@@ -901,9 +911,13 @@ function applyQuotes(payload) {
 
 function applyQuoteToRow(row, quote) {
     const price = number(quote.price);
-    const previousClose = Number.isFinite(Number(quote.previousClose))
+    const quotePreviousClose = Number.isFinite(Number(quote.previousClose))
         ? Number(quote.previousClose)
-        : row.previousClose;
+        : null;
+    const rowPreviousClose = Number.isFinite(Number(row.previousClose))
+        ? Number(row.previousClose)
+        : null;
+    const previousClose = quotePreviousClose ?? rowPreviousClose;
     const quantity = number(row.quantity);
     const costBasis = number(row.costBasis);
     const esunMarketValue = Number.isFinite(Number(row.esunMarketValue)) ? Number(row.esunMarketValue) : number(row.marketValue);
@@ -911,6 +925,7 @@ function applyQuoteToRow(row, quote) {
     const esunCurrentPrice = Number.isFinite(Number(row.esunCurrentPrice)) ? Number(row.esunCurrentPrice) : number(row.currentPrice);
     const pnlBasePrice = Number.isFinite(Number(row.realtimePnlBasePrice)) ? Number(row.realtimePnlBasePrice) : esunCurrentPrice;
     const dayChange = previousClose === null || previousClose === undefined ? null : price - number(previousClose);
+    const esunDayChange = previousClose === null || previousClose === undefined ? row.dayChange : esunCurrentPrice - number(previousClose);
     const todayPnl = previousClose === null || previousClose === undefined
         ? row.todayPnl
         : dayChange * quantity;
@@ -923,6 +938,9 @@ function applyQuoteToRow(row, quote) {
         esunMarketValue,
         esunUnrealizedPnl,
         realtimePnlBasePrice: pnlBasePrice,
+        previousClose,
+        dayChange: esunDayChange,
+        dayChangeRate: number(previousClose) > 0 ? esunDayChange / number(previousClose) * 100 : row.dayChangeRate,
         realtimePrice: price,
         realtimePreviousClose: previousClose,
         realtimeDayChange: dayChange,
@@ -938,6 +956,44 @@ function applyQuoteToRow(row, quote) {
         bestAsk: quote.bestAsk ?? null,
         quoteConfirmationCount: quote.confirmationCount ?? null,
         quoteConfirmedBy: quote.confirmedBy || [],
+    };
+}
+
+function quoteContextFromUnconfirmed(payload, stockNo) {
+    const candidates = payload.unconfirmed?.[stockNo];
+    if (!Array.isArray(candidates)) {
+        return null;
+    }
+
+    return candidates.find(candidate => Number.isFinite(Number(candidate.previousClose))) || null;
+}
+
+function applyPreviousCloseToRow(row, quote) {
+    const previousClose = Number.isFinite(Number(quote.previousClose))
+        ? Number(quote.previousClose)
+        : null;
+    if (previousClose === null) {
+        return row;
+    }
+
+    const currentPreviousClose = Number.isFinite(Number(row.previousClose))
+        ? Number(row.previousClose)
+        : null;
+    if (currentPreviousClose === previousClose && Number.isFinite(Number(row.dayChangeRate))) {
+        return row;
+    }
+
+    const esunCurrentPrice = Number.isFinite(Number(row.esunCurrentPrice))
+        ? Number(row.esunCurrentPrice)
+        : number(row.currentPrice);
+    const esunDayChange = esunCurrentPrice - previousClose;
+
+    return {
+        ...row,
+        previousClose,
+        dayChange: esunDayChange,
+        dayChangeRate: previousClose > 0 ? esunDayChange / previousClose * 100 : row.dayChangeRate,
+        realtimePreviousClose: row.realtimePreviousClose ?? previousClose,
     };
 }
 

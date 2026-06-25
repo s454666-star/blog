@@ -224,6 +224,8 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         $this->assertArrayNotHasKey('5285', $payload['quotes']);
         $this->assertSame(['5285'], $payload['missing']);
         $this->assertCount(3, $payload['unconfirmed']['5285']);
+        $this->assertSame(100.0, $payload['unconfirmed']['5285'][0]['previousClose']);
+        $this->assertSame(10.0, $payload['unconfirmed']['5285'][0]['dayChangeRate']);
     }
 
     public function test_it_parses_cnyes_batch_quotes(): void

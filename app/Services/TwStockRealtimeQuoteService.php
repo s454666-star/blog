@@ -674,6 +674,9 @@ class TwStockRealtimeQuoteService
                 'source' => (string) ($quote['source'] ?? ''),
                 'sourceLabel' => (string) ($quote['sourceLabel'] ?? $quote['source'] ?? ''),
                 'price' => $this->priceOrNull($quote['price'] ?? null),
+                'previousClose' => $this->numberOrNull($quote['previousClose'] ?? null),
+                'dayChange' => $this->numberOrNull($quote['dayChange'] ?? null),
+                'dayChangeRate' => $this->numberOrNull($quote['dayChangeRate'] ?? null),
                 'quotedAt' => $quote['quotedAt'] ?? null,
             ])
             ->filter(fn (array $quote): bool => $quote['price'] !== null)

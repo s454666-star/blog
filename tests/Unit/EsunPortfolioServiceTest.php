@@ -210,5 +210,7 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(200000.0, $snapshot['summary']['yearTotalPnl']);
         $this->assertSame(800000.0, $snapshot['summary']['yearReturnBase']);
         $this->assertSame(25.0, $snapshot['summary']['yearTotalPnlRate']);
+        $this->assertSame(176, $snapshot['summary']['yearElapsedDays']);
+        $this->assertEqualsWithDelta((pow(1.25, 365 / 176) - 1) * 100, $snapshot['summary']['annualizedReturnRate'], 0.000001);
     }
 }

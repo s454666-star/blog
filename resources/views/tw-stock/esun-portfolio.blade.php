@@ -771,7 +771,7 @@
         <div class="summary-card">
             <div class="label">今年總損益</div>
             <div class="value" data-summary="yearTotalPnl">--</div>
-            <div class="return-rate-line" data-summary="yearTotalPnlRate">年度報酬率 --</div>
+            <div class="return-rate-line" data-summary="annualizedReturnRate">年化報酬率 --</div>
             <div class="sub" data-summary="yearTotalPnlBreakdown">已實現 -- · 庫存 --</div>
         </div>
         <div class="summary-card capital-card">
@@ -906,6 +906,20 @@ function formatInvestmentLevel(value) {
     return fraction === 0 ? `${cheng}成` : `${cheng}成${fraction}`;
 }
 
+function annualizeReturnRate(returnRate, elapsedDays) {
+    if (returnRate === null || returnRate === undefined || !Number.isFinite(Number(returnRate))) {
+        return null;
+    }
+
+    const days = Math.max(1, Number(elapsedDays) || 1);
+    const multiplier = 1 + Number(returnRate) / 100;
+    if (multiplier <= 0) {
+        return null;
+    }
+
+    return (Math.pow(multiplier, 365 / days) - 1) * 100;
+}
+
 function baselineDiffLine(baseline, current) {
     if (!Number.isFinite(Number(baseline))) {
         return '<span class="muted">玉山 --</span>';
@@ -954,7 +968,7 @@ function updateSummaryCards(summary, sourceText) {
     const bankBalance = finiteNumber(summary.bankBalance ?? state.lastPayload?.summary?.bankBalance);
     const investmentLevelRate = finiteNumber(summary.investmentLevelRate ?? state.lastPayload?.summary?.investmentLevelRate);
     const yearTotalPnl = finiteNumber(summary.yearTotalPnl ?? state.lastPayload?.summary?.yearTotalPnl);
-    const yearTotalPnlRate = finiteNumber(summary.yearTotalPnlRate ?? state.lastPayload?.summary?.yearTotalPnlRate);
+    const annualizedReturnRate = finiteNumber(summary.annualizedReturnRate ?? state.lastPayload?.summary?.annualizedReturnRate);
     const adjustedRealizedYearPnl = finiteNumber(summary.adjustedRealizedYearPnl ?? state.lastPayload?.summary?.adjustedRealizedYearPnl);
     const dayTradeYearPnl = finiteNumber(summary.dayTradeYearPnl ?? state.lastPayload?.summary?.dayTradeYearPnl);
 
@@ -979,9 +993,9 @@ function updateSummaryCards(summary, sourceText) {
     const year = document.querySelector('[data-summary="yearTotalPnl"]');
     year.textContent = yearTotalPnl === null ? '--' : formatMoney(yearTotalPnl);
     setTone(year, yearTotalPnl);
-    const yearRate = document.querySelector('[data-summary="yearTotalPnlRate"]');
-    yearRate.textContent = `年度報酬率 ${formatPercent(yearTotalPnlRate)}`;
-    yearRate.className = `return-rate-line ${toneClass(yearTotalPnlRate)}`;
+    const yearRate = document.querySelector('[data-summary="annualizedReturnRate"]');
+    yearRate.textContent = `年化報酬率 ${formatPercent(annualizedReturnRate)}`;
+    yearRate.className = `return-rate-line ${toneClass(annualizedReturnRate)}`;
     document.querySelector('[data-summary="yearTotalPnlBreakdown"]').textContent =
         `已實現 ${adjustedRealizedYearPnl === null ? '--' : formatMoney(adjustedRealizedYearPnl)} · ` +
         `庫存 ${formatMoney(summary.unrealizedPnl)} · ` +
@@ -1518,6 +1532,8 @@ function buildSummaryFromRows() {
     const adjustedRealizedYearPnl = finiteNumber(state.lastPayload?.summary?.adjustedRealizedYearPnl);
     const yearTotalPnl = adjustedRealizedYearPnl === null ? null : adjustedRealizedYearPnl + unrealizedPnl;
     const yearReturnBase = yearTotalPnl !== null && totalCapital !== null ? totalCapital - yearTotalPnl : null;
+    const yearTotalPnlRate = yearReturnBase !== null && yearReturnBase > 0 ? yearTotalPnl / yearReturnBase * 100 : null;
+    const yearElapsedDays = Number(state.lastPayload?.summary?.yearElapsedDays) || 1;
     const previousMarketValue = state.rows.reduce((sum, row) => {
         const previousClose = row.realtimePreviousClose ?? row.previousClose;
         return Number.isFinite(Number(previousClose)) ? sum + number(previousClose) * number(row.quantity) : sum;
@@ -1535,7 +1551,9 @@ function buildSummaryFromRows() {
         unrealizedPnlRate: costBasis > 0 ? unrealizedPnl / costBasis * 100 : null,
         yearTotalPnl,
         yearReturnBase,
-        yearTotalPnlRate: yearReturnBase !== null && yearReturnBase > 0 ? yearTotalPnl / yearReturnBase * 100 : null,
+        yearTotalPnlRate,
+        yearElapsedDays,
+        annualizedReturnRate: annualizeReturnRate(yearTotalPnlRate, yearElapsedDays),
         esunTodayPnl,
         esunUnrealizedPnl: state.lastPayload?.summary?.unrealizedPnl ?? null,
         esunMarketValue: state.lastPayload?.summary?.marketValue ?? null,

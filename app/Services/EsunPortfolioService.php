@@ -166,6 +166,10 @@ class EsunPortfolioService
         $yearProfitSummary = $this->yearProfitSummary($raw, $totalUnrealizedPnl);
         $totalCapital = $balanceSummary['bankBalance'] === null ? null : $totalCostBasis + $balanceSummary['bankBalance'];
         $yearReturnBase = $totalCapital === null ? null : $totalCapital - $yearProfitSummary['yearTotalPnl'];
+        $yearTotalPnlRate = $yearReturnBase !== null && $yearReturnBase > 0
+            ? $yearProfitSummary['yearTotalPnl'] / $yearReturnBase * 100
+            : null;
+        $yearElapsedDays = max(1, (int) $now->dayOfYear);
         $previousMarketValue = array_sum(array_map(
             fn (array $row): float => $row['previousClose'] === null ? 0.0 : $row['previousClose'] * $row['quantity'],
             $rows,
@@ -209,9 +213,9 @@ class EsunPortfolioService
                 'adjustedRealizedYearPnl' => $yearProfitSummary['adjustedRealizedYearPnl'],
                 'yearTotalPnl' => $yearProfitSummary['yearTotalPnl'],
                 'yearReturnBase' => $yearReturnBase,
-                'yearTotalPnlRate' => $yearReturnBase !== null && $yearReturnBase > 0
-                    ? $yearProfitSummary['yearTotalPnl'] / $yearReturnBase * 100
-                    : null,
+                'yearTotalPnlRate' => $yearTotalPnlRate,
+                'yearElapsedDays' => $yearElapsedDays,
+                'annualizedReturnRate' => $this->annualizedReturnRate($yearTotalPnlRate, $yearElapsedDays),
             ],
             'rows' => $rows,
         ];
@@ -519,6 +523,20 @@ class EsunPortfolioService
             'adjustedRealizedYearPnl' => $adjustedRealizedYearPnl,
             'yearTotalPnl' => $adjustedRealizedYearPnl + $unrealizedPnl,
         ];
+    }
+
+    private function annualizedReturnRate(?float $returnRate, int $elapsedDays): ?float
+    {
+        if ($returnRate === null || $elapsedDays <= 0) {
+            return null;
+        }
+
+        $multiplier = 1 + ($returnRate / 100);
+        if ($multiplier <= 0) {
+            return null;
+        }
+
+        return (pow($multiplier, 365 / $elapsedDays) - 1) * 100;
     }
 
     /**

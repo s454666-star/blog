@@ -13,9 +13,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\Response;
 
 class FaceIdentityController extends Controller
 {
+    private const HERD_X_ACCEL_PREFIX = '/41c270e4-5535-4daa-b23e-c269744c2f45';
+
     public function index(Request $request): View
     {
         $q = trim((string) $request->query('q', ''));
@@ -202,13 +205,26 @@ class FaceIdentityController extends Controller
         ]);
     }
 
-    public function video(FaceIdentityVideo $video): BinaryFileResponse
+    public function video(FaceIdentityVideo $video): BinaryFileResponse|Response
     {
         $absolutePath = trim((string) $video->absolute_path);
         abort_if($absolutePath === '', 404);
         abort_unless(is_file($absolutePath), 404);
 
         $mimeType = @mime_content_type($absolutePath) ?: 'video/mp4';
+
+        if ($this->shouldUseHerdXAccel()) {
+            $xAccelPath = $this->buildHerdXAccelPath($absolutePath);
+
+            if ($xAccelPath !== null) {
+                return response('', 200, [
+                    'Content-Type' => $mimeType,
+                    'Cache-Control' => 'public, max-age=86400',
+                    'Accept-Ranges' => 'bytes',
+                    'X-Accel-Redirect' => $xAccelPath,
+                ]);
+            }
+        }
 
         return response()->file($absolutePath, [
             'Content-Type' => $mimeType,
@@ -322,5 +338,27 @@ class FaceIdentityController extends Controller
         }
 
         return json_encode($sum, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    private function shouldUseHerdXAccel(): bool
+    {
+        $serverSoftware = strtolower((string) request()->server('SERVER_SOFTWARE', ''));
+
+        return config('app.env') === 'local' && str_contains($serverSoftware, 'nginx');
+    }
+
+    private function buildHerdXAccelPath(string $absolutePath): ?string
+    {
+        $normalizedPath = str_replace('\\', '/', $absolutePath);
+
+        if (!preg_match('/^[A-Za-z]:\//', $normalizedPath)) {
+            return null;
+        }
+
+        $drive = strtoupper(substr($normalizedPath, 0, 2));
+        $path = ltrim(substr($normalizedPath, 2), '/');
+        $encodedPath = implode('/', array_map('rawurlencode', explode('/', $path)));
+
+        return self::HERD_X_ACCEL_PREFIX . '/' . $drive . '/' . $encodedPath;
     }
 }

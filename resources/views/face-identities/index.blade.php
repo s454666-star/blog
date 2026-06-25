@@ -802,7 +802,7 @@
                                         <video
                                             controls
                                             playsinline
-                                            preload="metadata"
+                                            preload="none"
                                             poster="{{ $video->preview_image_url ?: '' }}">
                                             <source src="{{ $video->stream_url }}">
                                         </video>

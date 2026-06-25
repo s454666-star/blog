@@ -184,5 +184,63 @@ class FaceIdentityControllerTest extends TestCase
 
         $this->assertStringContainsString('影片修改日期', $html);
         $this->assertStringContainsString('2026-04-20 09:00:00', $html);
+        $this->assertStringContainsString('preload="none"', $html);
+        $this->assertStringNotContainsString('preload="metadata"', $html);
+    }
+
+    public function test_video_stream_uses_nginx_x_accel_redirect_under_local_herd(): void
+    {
+        if (DIRECTORY_SEPARATOR !== '\\') {
+            $this->markTestSkipped('Herd X-Accel redirect paths are Windows-specific.');
+        }
+
+        config()->set('app.env', 'local');
+
+        $videoDir = storage_path('app/testing face identity');
+        if (!is_dir($videoDir)) {
+            mkdir($videoDir, 0777, true);
+        }
+
+        $videoPath = $videoDir . DIRECTORY_SEPARATOR . 'sample video.mp4';
+        file_put_contents($videoPath, 'fake mp4 content');
+
+        try {
+            $personId = DB::table('face_identity_people')->insertGetId([
+                'feature_model' => 'facenet_pytorch_vggface2_mtcnn_v1',
+                'video_count' => 1,
+                'sample_count' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $videoId = DB::table('face_identity_videos')->insertGetId([
+                'person_id' => $personId,
+                'relative_path' => 'testing/sample video.mp4',
+                'absolute_path' => $videoPath,
+                'file_name' => 'sample video.mp4',
+                'path_sha1' => sha1($videoPath),
+                'file_modified_at' => '2026-06-25 18:30:00',
+                'last_scanned_at' => '2026-06-25 18:30:00',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $response = $this
+                ->withServerVariables(['SERVER_SOFTWARE' => 'nginx/1.25.2'])
+                ->get(route('face-identities.video', $videoId));
+
+            $normalizedPath = str_replace('\\', '/', $videoPath);
+            $drive = strtoupper(substr($normalizedPath, 0, 2));
+            $path = ltrim(substr($normalizedPath, 2), '/');
+            $encodedPath = implode('/', array_map('rawurlencode', explode('/', $path)));
+            $expectedRedirect = '/41c270e4-5535-4daa-b23e-c269744c2f45/' . $drive . '/' . $encodedPath;
+
+            $response->assertOk();
+            $response->assertHeader('X-Accel-Redirect', $expectedRedirect);
+            $response->assertHeader('Accept-Ranges', 'bytes');
+            $this->assertSame('', $response->getContent());
+        } finally {
+            @unlink($videoPath);
+        }
     }
 }

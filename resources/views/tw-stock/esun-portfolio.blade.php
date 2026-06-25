@@ -52,30 +52,37 @@
             z-index: -2;
             pointer-events: none;
             background-image:
-                radial-gradient(circle, rgba(255, 255, 255, 0.72) 0 1px, transparent 1.8px),
-                radial-gradient(circle, rgba(125, 211, 252, 0.48) 0 1px, transparent 2px),
-                radial-gradient(circle, rgba(253, 230, 138, 0.42) 0 1px, transparent 2px);
-            background-position: 0 0, 72px 48px, 24px 110px;
-            background-size: 150px 150px, 230px 230px, 310px 310px;
-            opacity: 0.48;
+                radial-gradient(circle, rgba(255, 255, 255, 0.95) 0 1px, transparent 1.8px),
+                radial-gradient(circle, rgba(125, 211, 252, 0.62) 0 1px, transparent 2px),
+                radial-gradient(circle, rgba(253, 230, 138, 0.52) 0 1.2px, transparent 2.3px),
+                radial-gradient(circle, rgba(255, 255, 255, 0.34) 0 1px, transparent 2px);
+            background-position: 0 0, 72px 48px, 24px 110px, 126px 86px;
+            background-size: 150px 150px, 230px 230px, 310px 310px, 420px 420px;
+            opacity: 0.58;
             mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.52) 72%, transparent);
-            animation: starDrift 42s linear infinite;
+            will-change: opacity, filter, background-position;
+            animation:
+                starDrift 58s linear infinite,
+                starTwinkle 5.6s ease-in-out infinite;
         }
 
         body::after {
             content: "";
             position: fixed;
-            inset: -18% -18% 0;
+            inset: -28% -24% 0;
             z-index: -1;
             pointer-events: none;
             background-image:
-                linear-gradient(118deg, transparent 0 46%, rgba(255, 255, 255, 0.7) 48%, rgba(56, 189, 248, 0.24) 50%, transparent 53%),
-                linear-gradient(118deg, transparent 0 60%, rgba(253, 230, 138, 0.42) 61%, rgba(20, 184, 166, 0.18) 62%, transparent 64%);
-            background-size: 640px 320px, 880px 420px;
-            background-position: -420px -140px, -760px 160px;
-            opacity: 0.26;
-            filter: blur(0.2px);
-            animation: meteorSweep 18s linear infinite;
+                linear-gradient(118deg, transparent 0 46%, rgba(255, 255, 255, 0.92) 48%, rgba(56, 189, 248, 0.36) 49.5%, transparent 53%),
+                linear-gradient(118deg, transparent 0 58%, rgba(253, 230, 138, 0.72) 60%, rgba(20, 184, 166, 0.28) 61.5%, transparent 65%),
+                linear-gradient(118deg, transparent 0 68%, rgba(255, 255, 255, 0.5) 69.5%, rgba(56, 189, 248, 0.18) 71%, transparent 74%);
+            background-size: 520px 260px, 760px 380px, 1080px 520px;
+            background-position: -520px -220px, -900px 60px, -1160px 360px;
+            opacity: 0.42;
+            filter: blur(0.15px);
+            mix-blend-mode: screen;
+            will-change: background-position, opacity;
+            animation: meteorSweep 9.5s linear infinite;
         }
 
         .shell {
@@ -721,19 +728,45 @@
 
         @keyframes starDrift {
             from {
-                background-position: 0 0, 72px 48px, 24px 110px;
+                background-position: 0 0, 72px 48px, 24px 110px, 126px 86px;
             }
             to {
-                background-position: 150px 150px, 302px 278px, 334px 420px;
+                background-position: 150px 150px, 302px 278px, 334px 420px, 546px 506px;
+            }
+        }
+
+        @keyframes starTwinkle {
+            0%,
+            100% {
+                opacity: 0.5;
+                filter: brightness(0.9) saturate(1);
+            }
+            28% {
+                opacity: 0.74;
+                filter: brightness(1.35) saturate(1.25);
+            }
+            58% {
+                opacity: 0.42;
+                filter: brightness(0.72) saturate(0.92);
+            }
+            78% {
+                opacity: 0.68;
+                filter: brightness(1.18) saturate(1.18);
             }
         }
 
         @keyframes meteorSweep {
-            from {
-                background-position: -420px -140px, -760px 160px;
+            0% {
+                background-position: -520px -220px, -900px 60px, -1160px 360px;
+                opacity: 0;
             }
-            to {
-                background-position: 860px 500px, 1000px 760px;
+            8%,
+            72% {
+                opacity: 0.42;
+            }
+            100% {
+                background-position: 980px 560px, 720px 900px, 620px 1120px;
+                opacity: 0;
             }
         }
 
@@ -745,6 +778,16 @@
                 animation-iteration-count: 1 !important;
                 scroll-behavior: auto !important;
                 transition-duration: 1ms !important;
+            }
+
+            body::before {
+                animation-duration: 120s, 14s !important;
+                animation-iteration-count: infinite !important;
+            }
+
+            body::after {
+                animation-duration: 22s !important;
+                animation-iteration-count: infinite !important;
             }
         }
 
@@ -811,7 +854,7 @@
         <div class="summary-card">
             <div class="label">今年總損益</div>
             <div class="value" data-summary="yearTotalPnl">--</div>
-            <div class="return-rate-line" data-summary="annualizedReturnRate">年化報酬率 --</div>
+            <div class="return-rate-line" data-summary="yearTotalPnlRate">今年報酬率 --</div>
             <div class="sub" data-summary="yearTotalPnlBreakdown">已實現 -- · 已扣沖銷 --</div>
         </div>
         <div class="summary-card capital-card">
@@ -1003,7 +1046,7 @@ function updateSummaryCards(summary, sourceText) {
     const bankBalance = finiteNumber(summary.bankBalance ?? state.lastPayload?.summary?.bankBalance);
     const investmentLevelRate = finiteNumber(summary.investmentLevelRate ?? state.lastPayload?.summary?.investmentLevelRate);
     const yearTotalPnl = finiteNumber(summary.yearTotalPnl ?? state.lastPayload?.summary?.yearTotalPnl);
-    const annualizedReturnRate = finiteNumber(summary.annualizedReturnRate ?? state.lastPayload?.summary?.annualizedReturnRate);
+    const yearTotalPnlRate = finiteNumber(summary.yearTotalPnlRate ?? state.lastPayload?.summary?.yearTotalPnlRate);
     const adjustedRealizedYearPnl = finiteNumber(summary.adjustedRealizedYearPnl ?? state.lastPayload?.summary?.adjustedRealizedYearPnl);
     const dayTradeYearPnl = finiteNumber(summary.dayTradeYearPnl ?? state.lastPayload?.summary?.dayTradeYearPnl);
 
@@ -1028,9 +1071,9 @@ function updateSummaryCards(summary, sourceText) {
     const year = document.querySelector('[data-summary="yearTotalPnl"]');
     year.textContent = yearTotalPnl === null ? '--' : formatMoney(yearTotalPnl);
     setTone(year, yearTotalPnl);
-    const yearRate = document.querySelector('[data-summary="annualizedReturnRate"]');
-    yearRate.textContent = `年化報酬率 ${formatPercent(annualizedReturnRate)}`;
-    yearRate.className = `return-rate-line ${toneClass(annualizedReturnRate)}`;
+    const yearRate = document.querySelector('[data-summary="yearTotalPnlRate"]');
+    yearRate.textContent = `今年報酬率 ${formatPercent(yearTotalPnlRate)}`;
+    yearRate.className = `return-rate-line ${toneClass(yearTotalPnlRate)}`;
     document.querySelector('[data-summary="yearTotalPnlBreakdown"]').textContent =
         `已實現 ${adjustedRealizedYearPnl === null ? '--' : formatMoney(adjustedRealizedYearPnl)} · ` +
         `已扣沖銷 ${dayTradeYearPnl === null ? '--' : formatMoney(dayTradeYearPnl)}`;

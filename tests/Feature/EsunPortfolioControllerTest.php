@@ -46,6 +46,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('庫存占比')
             ->assertSee('即時價')
             ->assertSee('玉山價')
+            ->assertSee('更新玉山API')
+            ->assertSee('更新即時報價')
             ->assertSee('data-sort-key="unrealizedPnl"', false)
             ->assertSee('玉山成本固定基準')
             ->assertDontSee('庫存批次明細');
@@ -97,6 +99,24 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertJsonPath('summary.stockCount', 1)
             ->assertJsonPath('market.pollSeconds', 2)
             ->assertJsonPath('rows.0.stockNo', '2303');
+    }
+
+    public function test_data_endpoint_can_force_esun_refresh(): void
+    {
+        $service = Mockery::mock(EsunPortfolioService::class);
+        $service->shouldReceive('snapshot')->once()->with(true)->andReturn([
+            'summary' => [],
+            'market' => [],
+            'rows' => [],
+        ]);
+        $this->app->instance(EsunPortfolioService::class, $service);
+
+        $this->getJson(route('tw-stock.esun-portfolio.data', [
+            'token' => 'test-token',
+            'force' => 1,
+        ]))
+            ->assertOk()
+            ->assertJsonPath('rows', []);
     }
 
     public function test_quotes_endpoint_returns_requested_holdings_quotes(): void

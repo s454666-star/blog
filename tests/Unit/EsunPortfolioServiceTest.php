@@ -36,9 +36,13 @@ class EsunPortfolioServiceTest extends TestCase
 
         $this->assertSame(110.0, $row['currentPrice']);
         $this->assertSame(110000.0, $row['marketValue']);
+        $this->assertSame(110.0, $row['esunCurrentPrice']);
+        $this->assertSame(110000.0, $row['esunMarketValue']);
         $this->assertSame(43057.0, $row['costBasis']);
         $this->assertSame(-43057.0, $row['signedCostBasis']);
         $this->assertSame(3466.0, $row['unrealizedPnl']);
+        $this->assertSame(3466.0, $row['esunUnrealizedPnl']);
+        $this->assertSame(110.0, $row['realtimePnlBasePrice']);
         $this->assertEqualsWithDelta(8.05, $row['unrealizedPnlRate'], 0.01);
         $this->assertSame('3', $row['tradeType']);
         $this->assertSame('融資', $row['tradeTypeLabel']);

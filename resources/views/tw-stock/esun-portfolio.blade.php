@@ -188,6 +188,17 @@
             border-color: #737373;
         }
 
+        .button.primary {
+            border-color: #14532d;
+            background: #052e16;
+            color: #22c55e;
+        }
+
+        .button:disabled {
+            cursor: wait;
+            opacity: 0.62;
+        }
+
         input {
             width: 210px;
             outline: none;
@@ -452,7 +463,8 @@
         </div>
         <div class="controls">
             <input type="search" placeholder="搜尋代號或名稱" data-filter>
-            <button class="button" type="button" data-force-refresh>刷新庫存</button>
+            <button class="button primary" type="button" data-esun-refresh>更新玉山API</button>
+            <button class="button" type="button" data-quote-refresh>更新即時報價</button>
         </div>
     </section>
 
@@ -492,6 +504,7 @@ const quoteUrl = @json($quoteUrl);
 const dashboardToken = @json($token);
 const state = {
     rows: [],
+    dataLoading: false,
     quoteTimer: null,
     quoteLoading: false,
     lastPayload: null,
@@ -509,7 +522,8 @@ const els = {
     positions: document.querySelector('[data-positions]'),
     error: document.querySelector('[data-error]'),
     filter: document.querySelector('[data-filter]'),
-    forceRefresh: document.querySelector('[data-force-refresh]'),
+    esunRefresh: document.querySelector('[data-esun-refresh]'),
+    quoteRefresh: document.querySelector('[data-quote-refresh]'),
     sortButtons: document.querySelectorAll('[data-sort-key]'),
 };
 
@@ -817,6 +831,12 @@ function scheduleQuotePolling(market) {
 }
 
 async function fetchData(force) {
+    if (state.dataLoading) {
+        return;
+    }
+
+    state.dataLoading = true;
+    els.esunRefresh.disabled = true;
     const url = new URL(apiUrl, window.location.origin);
     if (dashboardToken) {
         url.searchParams.set('token', dashboardToken);
@@ -841,15 +861,23 @@ async function fetchData(force) {
         els.refreshStatus.classList.add('error');
         els.error.style.display = 'block';
         els.error.textContent = `讀取玉山庫存失敗：${error.message}`;
+    } finally {
+        state.dataLoading = false;
+        els.esunRefresh.disabled = false;
     }
 }
 
-async function fetchQuotes() {
+async function fetchQuotes(manual = false) {
     if (state.quoteLoading || !state.rows.length) {
         return;
     }
 
     state.quoteLoading = true;
+    els.quoteRefresh.disabled = true;
+    if (manual) {
+        els.refreshStatus.textContent = '更新即時報價中';
+        els.refreshStatus.classList.remove('error');
+    }
     const url = new URL(quoteUrl, window.location.origin);
     if (dashboardToken) {
         url.searchParams.set('token', dashboardToken);
@@ -870,6 +898,7 @@ async function fetchQuotes() {
         els.refreshStatus.classList.add('error');
     } finally {
         state.quoteLoading = false;
+        els.quoteRefresh.disabled = false;
     }
 }
 
@@ -979,20 +1008,39 @@ function applyPreviousCloseToRow(row, quote) {
     const currentPreviousClose = Number.isFinite(Number(row.previousClose))
         ? Number(row.previousClose)
         : null;
-    if (currentPreviousClose === previousClose && Number.isFinite(Number(row.dayChangeRate))) {
+    const needsFallbackUpdate = !Number.isFinite(Number(row.esunMarketValue))
+        || !Number.isFinite(Number(row.esunUnrealizedPnl))
+        || !Number.isFinite(Number(row.todayPnl));
+    if (currentPreviousClose === previousClose && Number.isFinite(Number(row.dayChangeRate)) && !needsFallbackUpdate) {
         return row;
     }
 
     const esunCurrentPrice = Number.isFinite(Number(row.esunCurrentPrice))
         ? Number(row.esunCurrentPrice)
         : number(row.currentPrice);
+    const esunMarketValue = Number.isFinite(Number(row.esunMarketValue))
+        ? Number(row.esunMarketValue)
+        : number(row.marketValue);
+    const esunUnrealizedPnl = Number.isFinite(Number(row.esunUnrealizedPnl))
+        ? Number(row.esunUnrealizedPnl)
+        : number(row.unrealizedPnl);
+    const pnlBasePrice = Number.isFinite(Number(row.realtimePnlBasePrice))
+        ? Number(row.realtimePnlBasePrice)
+        : esunCurrentPrice;
+    const quantity = number(row.quantity);
     const esunDayChange = esunCurrentPrice - previousClose;
+    const hasRealtimePrice = Number.isFinite(Number(row.realtimePrice));
 
     return {
         ...row,
+        esunCurrentPrice,
+        esunMarketValue,
+        esunUnrealizedPnl,
+        realtimePnlBasePrice: pnlBasePrice,
         previousClose,
         dayChange: esunDayChange,
         dayChangeRate: previousClose > 0 ? esunDayChange / previousClose * 100 : row.dayChangeRate,
+        todayPnl: hasRealtimePrice ? row.todayPnl : esunDayChange * quantity,
         realtimePreviousClose: row.realtimePreviousClose ?? previousClose,
     };
 }
@@ -1169,7 +1217,8 @@ function fallbackCopyText(value) {
 els.filter.addEventListener('input', () => {
     renderPositions();
 });
-els.forceRefresh.addEventListener('click', () => fetchData(true));
+els.esunRefresh.addEventListener('click', () => fetchData(true));
+els.quoteRefresh.addEventListener('click', () => fetchQuotes(true));
 els.sortButtons.forEach(button => {
     button.addEventListener('click', () => setSort(button.dataset.sortKey));
 });

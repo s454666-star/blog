@@ -141,4 +141,19 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame('櫃', $row['exchangeShortLabel']);
         $this->assertSame('tpex', $row['exchangeClass']);
     }
+
+    public function test_it_calculates_investment_level_from_bank_balance(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'balanceSummary');
+
+        $summary = $method->invoke($service, [
+            'balance' => [
+                'available_balance' => '500000',
+            ],
+        ], 500000.0);
+
+        $this->assertSame(500000.0, $summary['bankBalance']);
+        $this->assertSame(50.0, $summary['investmentLevelRate']);
+    }
 }

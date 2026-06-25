@@ -131,6 +131,7 @@ class EsunPortfolioService
         return [
             'queriedAt' => $payload['queried_at'] ?? now()->toIso8601String(),
             'inventories' => $payload['inventories'],
+            'balance' => is_array($payload['balance'] ?? null) ? $payload['balance'] : [],
         ];
     }
 
@@ -159,6 +160,7 @@ class EsunPortfolioService
         $totalCostBasis = array_sum(array_column($rows, 'costBasis'));
         $totalUnrealizedPnl = array_sum(array_column($rows, 'unrealizedPnl'));
         $totalTodayPnl = array_sum(array_column($rows, 'todayPnl'));
+        $balanceSummary = $this->balanceSummary($raw, $totalCostBasis);
         $previousMarketValue = array_sum(array_map(
             fn (array $row): float => $row['previousClose'] === null ? 0.0 : $row['previousClose'] * $row['quantity'],
             $rows,
@@ -187,6 +189,8 @@ class EsunPortfolioService
                 'shareCount' => array_sum(array_column($rows, 'quantity')),
                 'marketValue' => $totalMarketValue,
                 'costBasis' => $totalCostBasis,
+                'bankBalance' => $balanceSummary['bankBalance'],
+                'investmentLevelRate' => $balanceSummary['investmentLevelRate'],
                 'todayPnl' => $totalTodayPnl,
                 'esunTodayPnl' => $totalTodayPnl,
                 'todayPnlRate' => $previousMarketValue > 0 ? $totalTodayPnl / $previousMarketValue * 100 : null,
@@ -391,6 +395,23 @@ class EsunPortfolioService
     private function inferExchange(string $stockCode): ?string
     {
         return preg_match('/^00[0-9A-Z]+$/i', $stockCode) === 1 ? 'TWSE' : null;
+    }
+
+    /**
+     * @return array{bankBalance: float|null, investmentLevelRate: float|null}
+     */
+    private function balanceSummary(array $raw, float $totalCostBasis): array
+    {
+        $balance = is_array($raw['balance'] ?? null) ? $raw['balance'] : [];
+        $bankBalance = $this->numberOrNull($this->value($balance, 'available_balance', 'availableBalance'));
+        $totalCapital = $bankBalance === null ? null : $totalCostBasis + $bankBalance;
+
+        return [
+            'bankBalance' => $bankBalance,
+            'investmentLevelRate' => $totalCapital !== null && $totalCapital > 0
+                ? $totalCostBasis / $totalCapital * 100
+                : null,
+        ];
     }
 
     /**

@@ -716,7 +716,7 @@
         <div class="summary-card">
             <div class="label">投入總成本</div>
             <div class="value neutral" data-summary="investedCost">--</div>
-            <div class="sub">依玉山庫存成本</div>
+            <div class="sub" data-summary="investmentLevel">投資水位:--</div>
         </div>
         <div class="summary-card">
             <div class="label">資料來源</div>
@@ -827,6 +827,15 @@ function formatWeight(value) {
     return `${Number(value).toFixed(2)}%`;
 }
 
+function formatInvestmentLevel(value) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return '--';
+    const roundedPercent = Math.round(Number(value));
+    const cheng = Math.trunc(roundedPercent / 10);
+    const fraction = Math.abs(roundedPercent % 10);
+
+    return fraction === 0 ? `${cheng}成` : `${cheng}成${fraction}`;
+}
+
 function baselineDiffLine(baseline, current) {
     if (!Number.isFinite(Number(baseline))) {
         return '<span class="muted">玉山 --</span>';
@@ -872,6 +881,8 @@ function updateSummaryCards(summary, sourceText) {
     const esunUnrealizedPnl = finiteNumber(summary.esunUnrealizedPnl ?? state.lastPayload?.summary?.unrealizedPnl ?? summary.unrealizedPnl);
     const esunMarketValue = finiteNumber(summary.esunMarketValue ?? state.lastPayload?.summary?.marketValue ?? summary.marketValue);
     const costBasis = finiteNumber(summary.costBasis ?? state.lastPayload?.summary?.costBasis);
+    const bankBalance = finiteNumber(summary.bankBalance ?? state.lastPayload?.summary?.bankBalance);
+    const investmentLevelRate = finiteNumber(summary.investmentLevelRate ?? state.lastPayload?.summary?.investmentLevelRate);
 
     const today = document.querySelector('[data-summary="todayPnl"]');
     today.textContent = formatMoney(summary.todayPnl);
@@ -894,6 +905,7 @@ function updateSummaryCards(summary, sourceText) {
     document.querySelector('[data-summary="stockCount"]').textContent = formatInteger(summary.stockCount);
     document.querySelector('[data-summary="lotCount"]').textContent = `明細 ${formatInteger(summary.lotCount)} 筆`;
     document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
+    document.querySelector('[data-summary="investmentLevel"]').textContent = `投資水位:${formatInvestmentLevel(investmentLevelRate)} · 銀行餘額 ${bankBalance === null ? '--' : formatInteger(bankBalance)}`;
     document.querySelector('[data-summary="sourceAge"]').textContent = summary.marketOpen ? 'LIVE' : 'ONCE';
     document.querySelector('[data-summary="servedAt"]').textContent = sourceText;
 }
@@ -1407,6 +1419,8 @@ function recalculateWeights() {
 function buildSummaryFromRows() {
     const marketValue = state.rows.reduce((sum, row) => sum + number(row.marketValue), 0);
     const costBasis = state.rows.reduce((sum, row) => sum + number(row.costBasis), 0);
+    const bankBalance = finiteNumber(state.lastPayload?.summary?.bankBalance);
+    const totalCapital = bankBalance === null ? null : costBasis + bankBalance;
     const todayPnl = state.rows.reduce((sum, row) => sum + number(row.todayPnl), 0);
     const esunTodayPnl = state.rows.reduce((sum, row) => sum + number(row.esunTodayPnl), 0);
     const unrealizedPnl = state.rows.reduce((sum, row) => sum + number(row.unrealizedPnl), 0);
@@ -1419,6 +1433,8 @@ function buildSummaryFromRows() {
         ...(state.lastPayload?.summary || {}),
         marketValue,
         costBasis,
+        bankBalance,
+        investmentLevelRate: totalCapital !== null && totalCapital > 0 ? costBasis / totalCapital * 100 : null,
         todayPnl,
         todayPnlRate: previousMarketValue > 0 ? todayPnl / previousMarketValue * 100 : null,
         unrealizedPnl,

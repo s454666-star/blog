@@ -106,4 +106,39 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame('0', $row['tradeType']);
         $this->assertSame('現股', $row['tradeTypeLabel']);
     }
+
+    public function test_it_includes_exchange_badge_metadata(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'formatInventoryRow');
+
+        $row = $method->invoke($service, [
+            'cost_qty' => '1000',
+            'cost_sum' => '-200000',
+            'make_a_per' => '0',
+            'make_a_sum' => '0',
+            'price_avg' => '200.00',
+            'price_evn' => '200.00',
+            'price_mkt' => '200.00',
+            'price_qty_sum' => '200000',
+            'qty_b' => '1000',
+            'qty_s' => '0',
+            'stk_dats' => [],
+            'stk_na' => '測試櫃',
+            'stk_no' => '9999',
+            's_type' => 'H',
+            'trade' => '3',
+            'value_mkt' => '200000',
+        ], ['previousClose' => null], [
+            'exchange' => 'TPEx',
+            'label' => '上櫃',
+            'shortLabel' => '櫃',
+            'class' => 'tpex',
+        ]);
+
+        $this->assertSame('TPEx', $row['exchange']);
+        $this->assertSame('上櫃', $row['exchangeLabel']);
+        $this->assertSame('櫃', $row['exchangeShortLabel']);
+        $this->assertSame('tpex', $row['exchangeClass']);
+    }
 }

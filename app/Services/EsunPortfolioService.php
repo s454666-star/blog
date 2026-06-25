@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\TwStockCompanyProfile;
 use App\Models\TwStockDailyPrice;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -139,11 +140,17 @@ class EsunPortfolioService
         $stockCodes = $inventories
             ->map(fn (array $row): string => (string) $this->value($row, 'stk_no', 'stkNo'))
             ->filter()
+            ->unique()
             ->values();
         $history = $this->historicalPrices($stockCodes);
+        $exchanges = $this->exchangeMetadata($stockCodes);
 
         $rows = $inventories
-            ->map(fn (array $row): array => $this->formatInventoryRow($row, $history[(string) $this->value($row, 'stk_no', 'stkNo')] ?? []))
+            ->map(function (array $row) use ($history, $exchanges): array {
+                $stockNo = (string) $this->value($row, 'stk_no', 'stkNo');
+
+                return $this->formatInventoryRow($row, $history[$stockNo] ?? [], $exchanges[$stockNo] ?? []);
+            })
             ->sortBy('stockNo')
             ->values()
             ->all();
@@ -190,7 +197,7 @@ class EsunPortfolioService
         ];
     }
 
-    private function formatInventoryRow(array $row, array $history): array
+    private function formatInventoryRow(array $row, array $history, array $exchange = []): array
     {
         $stockNo = (string) $this->value($row, 'stk_no', 'stkNo');
         $quantity = $this->number($this->value($row, 'cost_qty', 'costQty', 'qty_b', 'qtyB'));
@@ -245,6 +252,10 @@ class EsunPortfolioService
             'yearToDateReturn' => $history['yearToDateReturn'] ?? null,
             'tradeType' => $tradeType,
             'tradeTypeLabel' => $this->tradeTypeLabel($tradeType),
+            'exchange' => $exchange['exchange'] ?? null,
+            'exchangeLabel' => $exchange['label'] ?? null,
+            'exchangeShortLabel' => $exchange['shortLabel'] ?? null,
+            'exchangeClass' => $exchange['class'] ?? null,
             'positionType' => (string) $this->value($row, 's_type', 'sType'),
             'lotCount' => count($lots),
             'lots' => $lots,
@@ -291,6 +302,95 @@ class EsunPortfolioService
             'A' => '沖賣',
             default => $tradeType !== '' ? $tradeType : '--',
         };
+    }
+
+    /**
+     * @param Collection<int, string> $stockCodes
+     * @return array<string, array{exchange: string, label: string, shortLabel: string, class: string}>
+     */
+    private function exchangeMetadata(Collection $stockCodes): array
+    {
+        if ($stockCodes->isEmpty()) {
+            return [];
+        }
+
+        $codes = $stockCodes->unique()->values();
+        $metadata = TwStockCompanyProfile::query()
+            ->whereIn('stock_code', $codes->all())
+            ->get(['stock_code', 'exchange'])
+            ->mapWithKeys(function (TwStockCompanyProfile $profile): array {
+                $meta = $this->exchangeMeta((string) $profile->exchange);
+
+                return $meta === null ? [] : [(string) $profile->stock_code => $meta];
+            })
+            ->all();
+
+        $missingCodes = $codes->reject(fn (string $code): bool => isset($metadata[$code]))->values();
+        if ($missingCodes->isNotEmpty()) {
+            TwStockDailyPrice::query()
+                ->whereIn('stock_code', $missingCodes->all())
+                ->orderBy('stock_code')
+                ->orderByDesc('trade_date')
+                ->get(['stock_code', 'exchange'])
+                ->unique('stock_code')
+                ->each(function (TwStockDailyPrice $price) use (&$metadata): void {
+                    $meta = $this->exchangeMeta((string) $price->exchange);
+                    if ($meta !== null) {
+                        $metadata[(string) $price->stock_code] = $meta;
+                    }
+                });
+        }
+
+        foreach ($codes as $code) {
+            if (isset($metadata[$code])) {
+                continue;
+            }
+
+            $inferred = $this->inferExchange($code);
+            if ($inferred === null) {
+                continue;
+            }
+
+            $meta = $this->exchangeMeta($inferred);
+            if ($meta !== null) {
+                $metadata[$code] = $meta;
+            }
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @return array{exchange: string, label: string, shortLabel: string, class: string}|null
+     */
+    private function exchangeMeta(?string $exchange): ?array
+    {
+        return match (strtoupper(trim((string) $exchange))) {
+            'TWSE', 'SII', 'TSE', 'TAI', '上市' => [
+                'exchange' => 'TWSE',
+                'label' => '上市',
+                'shortLabel' => '市',
+                'class' => 'twse',
+            ],
+            'TPEX', 'OTC', 'TWO', '上櫃' => [
+                'exchange' => 'TPEx',
+                'label' => '上櫃',
+                'shortLabel' => '櫃',
+                'class' => 'tpex',
+            ],
+            'EMERGING', 'ESB', '興櫃' => [
+                'exchange' => 'Emerging',
+                'label' => '興櫃',
+                'shortLabel' => '興',
+                'class' => 'emerging',
+            ],
+            default => null,
+        };
+    }
+
+    private function inferExchange(string $stockCode): ?string
+    {
+        return preg_match('/^00[0-9A-Z]+$/i', $stockCode) === 1 ? 'TWSE' : null;
     }
 
     /**

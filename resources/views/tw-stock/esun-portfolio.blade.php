@@ -482,6 +482,7 @@
             tbody td strong,
             tbody td .muted,
             .badge,
+            .exchange-badge,
             .stock-name,
             .stock-code
         ) {
@@ -493,6 +494,13 @@
             grid-template-columns: auto 1fr;
             gap: 8px 10px;
             align-items: center;
+        }
+
+        .badge-stack {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
         }
 
         .badge {
@@ -522,6 +530,37 @@
         .badge.day-trade {
             color: #22c55e;
             background: linear-gradient(135deg, rgba(34, 197, 94, 0.24), rgba(34, 197, 94, 0.08));
+        }
+
+        .exchange-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            border: 1px solid currentColor;
+            color: #cbd5e1;
+            background: rgba(15, 23, 42, 0.48);
+            font-size: 12px;
+            font-weight: 900;
+            line-height: 1;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 16px rgba(0, 0, 0, 0.18);
+        }
+
+        .exchange-badge--twse {
+            color: #60a5fa;
+            background: rgba(37, 99, 235, 0.14);
+        }
+
+        .exchange-badge--tpex {
+            color: #34d399;
+            background: rgba(5, 150, 105, 0.14);
+        }
+
+        .exchange-badge--emerging {
+            color: #fbbf24;
+            background: rgba(180, 83, 9, 0.16);
         }
 
         .stock-name {
@@ -882,13 +921,58 @@ function stockCell(row) {
 
     return `
         <div class="stock-cell">
-            <span class="badge ${badgeClass}">${badgeLabelHtml(tradeLabel)}</span>
+            <span class="badge-stack">
+                <span class="badge ${badgeClass}">${badgeLabelHtml(tradeLabel)}</span>
+                ${exchangeBadgeHtml(row)}
+            </span>
             <div>
                 <div class="stock-name">${escapeHtml(row.stockName || '')}</div>
                 <div class="stock-code">${escapeHtml(row.stockNo || '')}</div>
             </div>
         </div>
     `;
+}
+
+function exchangeBadgeHtml(row) {
+    const meta = exchangeBadgeMeta(row);
+    if (!meta) {
+        return '';
+    }
+
+    return `<span class="exchange-badge exchange-badge--${escapeHtml(meta.className)}" title="${escapeHtml(meta.title)}" aria-label="${escapeHtml(meta.title)}" data-copy-text="${escapeHtml(meta.title)}">${escapeHtml(meta.label)}</span>`;
+}
+
+function exchangeBadgeMeta(row) {
+    const backendLabel = String(row.exchangeShortLabel || '').trim();
+    const backendClass = String(row.exchangeClass || '').trim();
+    const backendTitle = String(row.exchangeLabel || '').trim();
+    if (backendLabel !== '' && backendClass !== '' && backendTitle !== '') {
+        return {
+            label: backendLabel,
+            className: backendClass,
+            title: backendTitle,
+        };
+    }
+
+    switch (String(row.exchange || '').trim().toUpperCase()) {
+        case 'TWSE':
+        case 'SII':
+        case 'TSE':
+        case 'TAI':
+        case '上市':
+            return { label: '市', className: 'twse', title: '上市' };
+        case 'TPEX':
+        case 'OTC':
+        case 'TWO':
+        case '上櫃':
+            return { label: '櫃', className: 'tpex', title: '上櫃' };
+        case 'EMERGING':
+        case 'ESB':
+        case '興櫃':
+            return { label: '興', className: 'emerging', title: '興櫃' };
+        default:
+            return null;
+    }
 }
 
 function tradeTypeLabel(tradeType) {
@@ -1428,6 +1512,7 @@ function setupSilentCopy() {
             '.stock-name',
             '.stock-code',
             '.badge',
+            '.exchange-badge',
             'strong',
             '.muted',
             '.value',

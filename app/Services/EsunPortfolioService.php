@@ -17,9 +17,9 @@ class EsunPortfolioService
         $now = CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei'));
         $market = $this->marketStatus($now);
         $ttl = $this->cacheTtl($market);
-        $cacheKey = 'esun:portfolio:inventories:v3';
-        $fallbackKey = 'esun:portfolio:inventories:last-success:v3';
-        $lastQueryKey = 'esun:portfolio:last-query-at:v3';
+        $cacheKey = 'esun:portfolio:inventories:v4';
+        $fallbackKey = 'esun:portfolio:inventories:last-success:v4';
+        $lastQueryKey = 'esun:portfolio:last-query-at:v4';
 
         $cached = Cache::get($cacheKey);
         $queryAge = $this->secondsSince(Cache::get($lastQueryKey), $now);
@@ -39,7 +39,7 @@ class EsunPortfolioService
 
         try {
             Cache::put($lastQueryKey, $now->toIso8601String(), now()->addDay());
-            $raw = $this->queryInventories();
+            $raw = $this->queryInventories($now);
             Cache::put($cacheKey, $raw, now()->addSeconds($ttl));
             Cache::put($fallbackKey, $raw, now()->addHours(8));
 
@@ -84,13 +84,89 @@ class EsunPortfolioService
         ];
     }
 
-    private function queryInventories(): array
+    private function queryInventories(?CarbonImmutable $now = null): array
     {
         if (!config('esun.portfolio_enabled')) {
             throw new RuntimeException('E.SUN portfolio query is disabled.');
         }
 
-        $required = [
+        $now ??= CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei'));
+        $payload = $this->runEsunScript((string) config('esun.query_script'), $this->esunProcessEnvironment());
+        if (!isset($payload['inventories']) || !is_array($payload['inventories'])) {
+            throw new RuntimeException('E.SUN query returned an unexpected payload.');
+        }
+
+        return [
+            'queriedAt' => $payload['queried_at'] ?? now()->toIso8601String(),
+            'inventories' => $payload['inventories'],
+            'balance' => is_array($payload['balance'] ?? null) ? $payload['balance'] : [],
+            'settlements' => is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [],
+            'transactions' => $this->yearTransactions($now),
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function yearTransactions(CarbonImmutable $now): array
+    {
+        $today = $now->startOfDay();
+        $yearStart = $today->startOfYear();
+        $historyEnd = $today->subDay();
+        $transactions = [];
+
+        if ($historyEnd->greaterThanOrEqualTo($yearStart)) {
+            $cacheKey = sprintf(
+                'esun:portfolio:year-transactions:%s:%s:v1',
+                $yearStart->format('Ymd'),
+                $historyEnd->format('Ymd'),
+            );
+
+            try {
+                $history = Cache::remember(
+                    $cacheKey,
+                    now()->addDays(max(1, (int) config('esun.year_transaction_cache_days', 10))),
+                    fn (): array => $this->queryTransactions($yearStart, $historyEnd),
+                );
+            } catch (\Throwable) {
+                $history = $this->queryTransactions($yearStart, $historyEnd);
+            }
+
+            if (is_array($history)) {
+                $transactions = array_merge($transactions, $history);
+            }
+        }
+
+        return array_values(array_merge($transactions, $this->queryTransactions($today, $today)));
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function queryTransactions(CarbonImmutable $start, CarbonImmutable $end): array
+    {
+        if ($end->lessThan($start)) {
+            return [];
+        }
+
+        $payload = $this->runEsunScript((string) config('esun.transaction_script'), [
+            ...$this->esunProcessEnvironment(),
+            'ESUN_TRANSACTIONS_START' => $start->toDateString(),
+            'ESUN_TRANSACTIONS_END' => $end->toDateString(),
+        ]);
+        if (!isset($payload['transactions']) || !is_array($payload['transactions'])) {
+            throw new RuntimeException('E.SUN transactions query returned an unexpected payload.');
+        }
+
+        return $payload['transactions'];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function esunProcessEnvironment(): array
+    {
+        $env = [
             'ESUN_API_ENTRY' => config('esun.entry'),
             'ESUN_ACCOUNT' => config('esun.account'),
             'ESUN_API_KEY' => config('esun.api_key'),
@@ -100,13 +176,21 @@ class EsunPortfolioService
             'ESUN_CERT_PASSWORD' => config('esun.cert_password'),
         ];
 
-        foreach ($required as $name => $value) {
+        foreach ($env as $name => $value) {
             if (!is_string($value) || trim($value) === '') {
                 throw new RuntimeException($name . ' is not configured.');
             }
         }
 
-        $script = (string) config('esun.query_script');
+        return $env;
+    }
+
+    /**
+     * @param array<string, mixed> $env
+     * @return array<string, mixed>
+     */
+    private function runEsunScript(string $script, array $env, int $timeout = 35): array
+    {
         if (!is_file($script)) {
             throw new RuntimeException('E.SUN query script is missing.');
         }
@@ -114,8 +198,8 @@ class EsunPortfolioService
         $process = new Process([
             (string) config('esun.python_bin', 'python'),
             $script,
-        ], base_path(), $required);
-        $process->setTimeout(35);
+        ], base_path(), $env);
+        $process->setTimeout($timeout);
         $process->run();
 
         if (!$process->isSuccessful()) {
@@ -124,17 +208,11 @@ class EsunPortfolioService
         }
 
         $payload = $this->decodeProcessJson($process->getOutput());
-        if (!is_array($payload) || !isset($payload['inventories']) || !is_array($payload['inventories'])) {
+        if (!is_array($payload)) {
             throw new RuntimeException('E.SUN query returned an unexpected payload.');
         }
 
-        return [
-            'queriedAt' => $payload['queried_at'] ?? now()->toIso8601String(),
-            'inventories' => $payload['inventories'],
-            'balance' => is_array($payload['balance'] ?? null) ? $payload['balance'] : [],
-            'settlements' => is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [],
-            'transactions' => is_array($payload['transactions'] ?? null) ? $payload['transactions'] : [],
-        ];
+        return $payload;
     }
 
     private function buildSnapshot(array $raw, array $market, CarbonImmutable $now, int $ttl, array $source = []): array

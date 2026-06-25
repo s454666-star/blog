@@ -6,6 +6,7 @@ return [
 
     'python_bin' => env('ESUN_PYTHON_BIN', 'python'),
     'query_script' => base_path('scripts/esun_portfolio_query.py'),
+    'transaction_script' => base_path('scripts/esun_transactions_query.py'),
 
     'entry' => env('ESUN_API_ENTRY', 'https://esuntradingapi.esunsec.com.tw/api/v1'),
     'account' => env('ESUN_ACCOUNT', ''),
@@ -19,6 +20,7 @@ return [
     'cache_seconds_closed' => (int) env('ESUN_PORTFOLIO_CACHE_SECONDS_CLOSED', 600),
     'poll_seconds_open' => (int) env('ESUN_PORTFOLIO_POLL_SECONDS_OPEN', 1),
     'minimum_query_seconds' => (int) env('ESUN_PORTFOLIO_MINIMUM_QUERY_SECONDS', 60),
+    'year_transaction_cache_days' => (int) env('ESUN_PORTFOLIO_YEAR_TRANSACTION_CACHE_DAYS', 10),
     'quote_cache_seconds' => (int) env('ESUN_PORTFOLIO_QUOTE_CACHE_SECONDS', 1),
     'quote_timeout_seconds' => (int) env('ESUN_PORTFOLIO_QUOTE_TIMEOUT_SECONDS', 4),
     'quote_providers' => env('ESUN_PORTFOLIO_QUOTE_PROVIDERS', 'cnyes,yahoo_tw'),

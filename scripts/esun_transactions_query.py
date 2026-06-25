@@ -20,6 +20,8 @@ REQUIRED_ENV = [
     "ESUN_API_SECRET",
     "ESUN_ACCOUNT_PASSWORD",
     "ESUN_CERT_PASSWORD",
+    "ESUN_TRANSACTIONS_START",
+    "ESUN_TRANSACTIONS_END",
 ]
 
 
@@ -57,9 +59,10 @@ def main() -> int:
     try:
         sdk = SDK(config)
         sdk.login()
-        inventories = sdk.get_inventories()
-        balance = sdk.get_balance()
-        settlements = sdk.get_settlements()
+        transactions = sdk.get_transactions_by_date(
+            os.environ["ESUN_TRANSACTIONS_START"],
+            os.environ["ESUN_TRANSACTIONS_END"],
+        )
     except Exception as exc:
         print(json.dumps({
             "error": f"{type(exc).__name__}: {exc}",
@@ -69,9 +72,9 @@ def main() -> int:
 
     print(json.dumps({
         "queried_at": datetime.now(timezone.utc).isoformat(),
-        "inventories": inventories,
-        "balance": balance,
-        "settlements": settlements,
+        "start": os.environ["ESUN_TRANSACTIONS_START"],
+        "end": os.environ["ESUN_TRANSACTIONS_END"],
+        "transactions": transactions,
     }, ensure_ascii=True))
     return 0
 

@@ -48,8 +48,12 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('玉山價')
             ->assertSee('更新玉山API')
             ->assertSee('更新即時報價')
+            ->assertSee('button secondary', false)
             ->assertSee('data-sort-key="unrealizedPnl"', false)
             ->assertSee('玉山成本固定基準')
+            ->assertDontSee('fancy-cursor.css', false)
+            ->assertDontSee('data-fancy-cursor=', false)
+            ->assertDontSee('cursor: copy', false)
             ->assertDontSee('庫存批次明細');
     }
 

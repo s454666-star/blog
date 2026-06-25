@@ -77,7 +77,8 @@ class InjectFancyCursor
 
     private function usesNativeCursor(Request $request): bool
     {
-        return strtolower($request->getHost()) === 'stock.mystar.monster';
+        return strtolower($request->getHost()) === 'stock.mystar.monster'
+            || $request->routeIs('tw-stock.esun-portfolio.index');
     }
 
     private function assetUrl(string $path): string

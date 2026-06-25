@@ -52,6 +52,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('庫存占比')
             ->assertSee('即時價')
             ->assertSee('玉山價')
+            ->assertSee('近60日漲幅')
+            ->assertDontSee('今年以來漲幅')
             ->assertSee('更新玉山API')
             ->assertSee('更新即時報價')
             ->assertSee('button secondary', false)

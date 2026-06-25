@@ -949,7 +949,7 @@
                 <th><button class="sort-button" type="button" data-sort-key="breakevenPrice">損益平衡價 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="fiveDayReturn">近5日漲幅 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="twentyDayReturn">近20日漲幅 <span class="sort-icon" data-sort-icon></span></button></th>
-                <th><button class="sort-button" type="button" data-sort-key="yearToDateReturn">今年以來漲幅 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="sixtyDayReturn">近60日漲幅 <span class="sort-icon" data-sort-icon></span></button></th>
             </tr>
             </thead>
             <tbody data-positions>
@@ -1281,7 +1281,7 @@ function renderPositions() {
             <td>${formatPrice(row.breakevenPrice)}</td>
             <td class="${toneClass(row.fiveDayReturn)}">${formatPercent(row.fiveDayReturn)}</td>
             <td class="${toneClass(row.twentyDayReturn)}">${formatPercent(row.twentyDayReturn)}</td>
-            <td class="${toneClass(row.yearToDateReturn)}">${formatPercent(row.yearToDateReturn)}</td>
+            <td class="${toneClass(row.sixtyDayReturn)}">${formatPercent(row.sixtyDayReturn)}</td>
         </tr>
     `).join('');
 }

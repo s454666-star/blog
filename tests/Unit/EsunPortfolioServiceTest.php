@@ -143,6 +143,36 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame('tpex', $row['exchangeClass']);
     }
 
+    public function test_it_calculates_sixty_day_return_from_historical_prices(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'historicalPriceSummary');
+
+        $prices = collect(range(0, 64))
+            ->map(fn (int $index): array => [
+                'tradeDate' => CarbonImmutable::parse('2026-06-24', 'Asia/Taipei')->subDays($index)->toDateString(),
+                'closePrice' => match ($index) {
+                    0 => 200.0,
+                    4 => 180.0,
+                    19 => 125.0,
+                    59 => 80.0,
+                    default => 100.0,
+                },
+            ])
+            ->push([
+                'tradeDate' => '2025-12-31',
+                'closePrice' => 50.0,
+            ]);
+
+        $summary = $method->invoke($service, $prices, '2026-06-25', '2026-01-01');
+
+        $this->assertSame(200.0, $summary['previousClose']);
+        $this->assertEqualsWithDelta((200 - 180) / 180 * 100, $summary['fiveDayReturn'], 0.000001);
+        $this->assertEqualsWithDelta((200 - 125) / 125 * 100, $summary['twentyDayReturn'], 0.000001);
+        $this->assertEqualsWithDelta(150.0, $summary['sixtyDayReturn'], 0.000001);
+        $this->assertEqualsWithDelta(300.0, $summary['yearToDateReturn'], 0.000001);
+    }
+
     public function test_it_calculates_investment_level_from_bank_balance(): void
     {
         $service = new EsunPortfolioService();

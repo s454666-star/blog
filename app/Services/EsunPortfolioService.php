@@ -7,6 +7,7 @@ use App\Models\TwStockDailyPrice;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 
@@ -351,6 +352,7 @@ class EsunPortfolioService
             'unrealizedPnlRate' => $costBasis > 0 ? $unrealizedPnl / $costBasis * 100 : null,
             'fiveDayReturn' => $history['fiveDayReturn'] ?? null,
             'twentyDayReturn' => $history['twentyDayReturn'] ?? null,
+            'sixtyDayReturn' => $history['sixtyDayReturn'] ?? null,
             'yearToDateReturn' => $history['yearToDateReturn'] ?? null,
             'tradeType' => $tradeType,
             'tradeTypeLabel' => $this->tradeTypeLabel($tradeType),
@@ -628,30 +630,166 @@ class EsunPortfolioService
             ->orderByDesc('trade_date')
             ->get(['stock_code', 'trade_date', 'close_price']);
 
-        $today = CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei'))->toDateString();
-        $startOfYear = CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei'))->startOfYear()->toDateString();
+        $now = CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei'));
+        $today = $now->toDateString();
+        $startOfYear = $now->startOfYear()->toDateString();
 
-        return $rows
+        $history = $rows
             ->groupBy('stock_code')
-            ->map(function (Collection $prices) use ($today, $startOfYear): array {
-                $prices = $prices->values();
-                $previous = $prices->first(fn (TwStockDailyPrice $row): bool => $row->trade_date->toDateString() < $today);
-                $closeList = $prices->filter(fn (TwStockDailyPrice $row): bool => $row->trade_date->toDateString() < $today)->values();
-                $base5 = $closeList->get(4);
-                $base20 = $closeList->get(19);
-                $yearBase = $prices
-                    ->filter(fn (TwStockDailyPrice $row): bool => $row->trade_date->toDateString() < $startOfYear)
-                    ->first();
-                $previousClose = $previous?->close_price;
+            ->map(fn (Collection $prices): array => $this->historicalPriceSummary($prices->values(), $today, $startOfYear))
+            ->all();
+
+        foreach ($stockCodes->unique()->values() as $stockCode) {
+            $stockCode = (string) $stockCode;
+            if ($this->hasCompleteHistoricalReturns($history[$stockCode] ?? [])) {
+                continue;
+            }
+
+            $fallback = $this->yahooHistoricalPriceSummary($stockCode, $today, $startOfYear);
+            if ($fallback === null) {
+                continue;
+            }
+
+            $history[$stockCode] = $this->mergeHistoricalSummary($history[$stockCode] ?? [], $fallback);
+        }
+
+        return $history;
+    }
+
+    /**
+     * @param Collection<int, TwStockDailyPrice|array{tradeDate?: string, closePrice?: mixed}> $prices
+     * @return array{previousClose: float|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}
+     */
+    private function historicalPriceSummary(Collection $prices, string $today, string $startOfYear): array
+    {
+        $normalized = $prices
+            ->map(function (TwStockDailyPrice|array $row): array {
+                if ($row instanceof TwStockDailyPrice) {
+                    return [
+                        'tradeDate' => $row->trade_date?->toDateString(),
+                        'closePrice' => $row->close_price,
+                    ];
+                }
 
                 return [
-                    'previousClose' => $previousClose === null ? null : (float) $previousClose,
-                    'fiveDayReturn' => $this->returnRate($previousClose, $base5?->close_price),
-                    'twentyDayReturn' => $this->returnRate($previousClose, $base20?->close_price),
-                    'yearToDateReturn' => $this->returnRate($previousClose, $yearBase?->close_price),
+                    'tradeDate' => $row['tradeDate'] ?? null,
+                    'closePrice' => $row['closePrice'] ?? null,
                 ];
             })
-            ->all();
+            ->filter(fn (array $row): bool => is_string($row['tradeDate']) && $this->numberOrNull($row['closePrice']) !== null)
+            ->sortByDesc('tradeDate')
+            ->values();
+
+        $closeList = $normalized->filter(fn (array $row): bool => $row['tradeDate'] < $today)->values();
+        $previous = $closeList->first();
+        $base5 = $closeList->get(4);
+        $base20 = $closeList->get(19);
+        $base60 = $closeList->get(59);
+        $yearBase = $normalized
+            ->filter(fn (array $row): bool => $row['tradeDate'] < $startOfYear)
+            ->first();
+        $previousClose = $previous['closePrice'] ?? null;
+
+        return [
+            'previousClose' => $this->numberOrNull($previousClose),
+            'fiveDayReturn' => $this->returnRate($previousClose, $base5['closePrice'] ?? null),
+            'twentyDayReturn' => $this->returnRate($previousClose, $base20['closePrice'] ?? null),
+            'sixtyDayReturn' => $this->returnRate($previousClose, $base60['closePrice'] ?? null),
+            'yearToDateReturn' => $this->returnRate($previousClose, $yearBase['closePrice'] ?? null),
+        ];
+    }
+
+    /**
+     * @return array{previousClose: float|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}|null
+     */
+    private function yahooHistoricalPriceSummary(string $stockCode, string $today, string $startOfYear): ?array
+    {
+        return Cache::remember(
+            'esun:portfolio:yahoo-history:' . $stockCode . ':' . $today . ':v1',
+            now()->addDays(10),
+            function () use ($stockCode, $today, $startOfYear): ?array {
+                foreach (['TW', 'TWO'] as $suffix) {
+                    $summary = $this->fetchYahooHistoricalPriceSummary($stockCode, $suffix, $today, $startOfYear);
+                    if ($summary !== null && $this->hasCompleteHistoricalReturns($summary)) {
+                        return $summary;
+                    }
+                }
+
+                return null;
+            },
+        );
+    }
+
+    /**
+     * @return array{previousClose: float|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}|null
+     */
+    private function fetchYahooHistoricalPriceSummary(string $stockCode, string $suffix, string $today, string $startOfYear): ?array
+    {
+        try {
+            $payload = Http::withHeaders([
+                'Accept' => 'application/json,text/plain,*/*',
+                'User-Agent' => 'Mozilla/5.0',
+            ])
+                ->timeout(6)
+                ->retry(1, 150)
+                ->get('https://query1.finance.yahoo.com/v8/finance/chart/' . rawurlencode($stockCode . '.' . $suffix), [
+                    'interval' => '1d',
+                    'range' => '1y',
+                ])
+                ->throw()
+                ->json();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $result = $payload['chart']['result'][0] ?? null;
+        $timestamps = is_array($result) ? ($result['timestamp'] ?? null) : null;
+        $closes = is_array($result) ? ($result['indicators']['quote'][0]['close'] ?? null) : null;
+        if (!is_array($timestamps) || !is_array($closes)) {
+            return null;
+        }
+
+        $timezone = (string) config('esun.timezone', 'Asia/Taipei');
+        $prices = collect($timestamps)
+            ->map(function (mixed $timestamp, int $index) use ($closes, $timezone): ?array {
+                $close = $this->numberOrNull($closes[$index] ?? null);
+                if ($close === null || !is_numeric($timestamp)) {
+                    return null;
+                }
+
+                return [
+                    'tradeDate' => CarbonImmutable::createFromTimestampUTC((int) $timestamp)
+                        ->setTimezone($timezone)
+                        ->toDateString(),
+                    'closePrice' => $close,
+                ];
+            })
+            ->filter()
+            ->values();
+
+        if ($prices->isEmpty()) {
+            return null;
+        }
+
+        return $this->historicalPriceSummary($prices, $today, $startOfYear);
+    }
+
+    private function hasCompleteHistoricalReturns(array $summary): bool
+    {
+        return ($summary['fiveDayReturn'] ?? null) !== null
+            && ($summary['twentyDayReturn'] ?? null) !== null
+            && ($summary['sixtyDayReturn'] ?? null) !== null;
+    }
+
+    private function mergeHistoricalSummary(array $base, array $fallback): array
+    {
+        foreach (['previousClose', 'fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $key) {
+            if (($base[$key] ?? null) === null && ($fallback[$key] ?? null) !== null) {
+                $base[$key] = $fallback[$key];
+            }
+        }
+
+        return $base;
     }
 
     private function returnRate(mixed $current, mixed $base): ?float

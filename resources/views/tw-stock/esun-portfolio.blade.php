@@ -262,7 +262,7 @@
             box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
         }
 
-        .tabs,
+        .refresh-actions,
         .controls {
             display: flex;
             flex-wrap: wrap;
@@ -270,7 +270,6 @@
             gap: 8px;
         }
 
-        .tab,
         .button,
         input {
             min-height: 36px;
@@ -282,12 +281,6 @@
             font: inherit;
             font-size: 13px;
             font-weight: 800;
-        }
-
-        .tab.active {
-            border-color: rgba(245, 158, 11, 0.42);
-            background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(56, 189, 248, 0.09));
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
         }
 
         .button {
@@ -485,7 +478,6 @@
             .label,
             .value,
             .sub,
-            .tab,
             tbody td,
             tbody td strong,
             tbody td .muted,
@@ -634,6 +626,7 @@
             }
 
             .status-bar,
+            .refresh-actions,
             .controls {
                 justify-content: flex-start;
             }
@@ -694,14 +687,12 @@
     </section>
 
     <section class="toolbar">
-        <div class="tabs">
-            <span class="tab active">即時損益</span>
-            <span class="tab active">全欄排序</span>
+        <div class="refresh-actions">
+            <button class="button primary" type="button" data-esun-refresh>更新玉山API</button>
+            <button class="button secondary" type="button" data-quote-refresh>更新即時報價</button>
         </div>
         <div class="controls">
             <input type="search" placeholder="搜尋代號或名稱" data-filter>
-            <button class="button primary" type="button" data-esun-refresh>更新玉山API</button>
-            <button class="button secondary" type="button" data-quote-refresh>更新即時報價</button>
         </div>
     </section>
 
@@ -1398,7 +1389,6 @@ function setupSilentCopy() {
             '.sub',
             '.label',
             '.pill',
-            '.tab',
             'td',
             'h1',
             '.subtitle',

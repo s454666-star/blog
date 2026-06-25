@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\EsunPortfolioService;
+use Carbon\CarbonImmutable;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -150,10 +151,20 @@ class EsunPortfolioServiceTest extends TestCase
         $summary = $method->invoke($service, [
             'balance' => [
                 'available_balance' => '500000',
+                'exchange_balance' => '10000',
             ],
-        ], 500000.0);
+            'settlements' => [
+                ['c_date' => '20260624', 'price' => '-90000'],
+                ['c_date' => '20260625', 'price' => '70000'],
+                ['c_date' => '20260626', 'price' => '-50000'],
+                ['c_date' => '20260629', 'price' => '30000'],
+            ],
+        ], 500000.0, CarbonImmutable::parse('2026-06-25 10:00:00', 'Asia/Taipei'));
 
-        $this->assertSame(500000.0, $summary['bankBalance']);
-        $this->assertSame(50.0, $summary['investmentLevelRate']);
+        $this->assertSame(500000.0, $summary['availableBalance']);
+        $this->assertSame(10000.0, $summary['dayTradeOffsetAmount']);
+        $this->assertSame(80000.0, $summary['pendingSettlementAmount']);
+        $this->assertSame(410000.0, $summary['bankBalance']);
+        $this->assertEqualsWithDelta(54.945054945, $summary['investmentLevelRate'], 0.000001);
     }
 }

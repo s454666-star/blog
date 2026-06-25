@@ -17,9 +17,9 @@ class EsunPortfolioService
         $now = CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei'));
         $market = $this->marketStatus($now);
         $ttl = $this->cacheTtl($market);
-        $cacheKey = 'esun:portfolio:inventories:v1';
-        $fallbackKey = 'esun:portfolio:inventories:last-success:v1';
-        $lastQueryKey = 'esun:portfolio:last-query-at:v1';
+        $cacheKey = 'esun:portfolio:inventories:v2';
+        $fallbackKey = 'esun:portfolio:inventories:last-success:v2';
+        $lastQueryKey = 'esun:portfolio:last-query-at:v2';
 
         $cached = Cache::get($cacheKey);
         $queryAge = $this->secondsSince(Cache::get($lastQueryKey), $now);
@@ -132,6 +132,7 @@ class EsunPortfolioService
             'queriedAt' => $payload['queried_at'] ?? now()->toIso8601String(),
             'inventories' => $payload['inventories'],
             'balance' => is_array($payload['balance'] ?? null) ? $payload['balance'] : [],
+            'settlements' => is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [],
         ];
     }
 
@@ -189,6 +190,9 @@ class EsunPortfolioService
                 'shareCount' => array_sum(array_column($rows, 'quantity')),
                 'marketValue' => $totalMarketValue,
                 'costBasis' => $totalCostBasis,
+                'availableBalance' => $balanceSummary['availableBalance'],
+                'dayTradeOffsetAmount' => $balanceSummary['dayTradeOffsetAmount'],
+                'pendingSettlementAmount' => $balanceSummary['pendingSettlementAmount'],
                 'bankBalance' => $balanceSummary['bankBalance'],
                 'investmentLevelRate' => $balanceSummary['investmentLevelRate'],
                 'todayPnl' => $totalTodayPnl,
@@ -398,20 +402,74 @@ class EsunPortfolioService
     }
 
     /**
-     * @return array{bankBalance: float|null, investmentLevelRate: float|null}
+     * @return array{
+     *     availableBalance: float|null,
+     *     dayTradeOffsetAmount: float,
+     *     pendingSettlementAmount: float,
+     *     bankBalance: float|null,
+     *     investmentLevelRate: float|null
+     * }
      */
-    private function balanceSummary(array $raw, float $totalCostBasis): array
+    private function balanceSummary(array $raw, float $totalCostBasis, ?CarbonImmutable $now = null): array
     {
         $balance = is_array($raw['balance'] ?? null) ? $raw['balance'] : [];
-        $bankBalance = $this->numberOrNull($this->value($balance, 'available_balance', 'availableBalance'));
+        $availableBalance = $this->numberOrNull($this->value($balance, 'available_balance', 'availableBalance'));
+        $dayTradeOffsetAmount = abs($this->number($this->value($balance, 'exchange_balance', 'exchangeBalance')));
+        $pendingSettlementAmount = $this->pendingSettlementAmount($raw, $now);
+        $bankBalance = $availableBalance === null
+            ? null
+            : $availableBalance - $dayTradeOffsetAmount - $pendingSettlementAmount;
         $totalCapital = $bankBalance === null ? null : $totalCostBasis + $bankBalance;
 
         return [
+            'availableBalance' => $availableBalance,
+            'dayTradeOffsetAmount' => $dayTradeOffsetAmount,
+            'pendingSettlementAmount' => $pendingSettlementAmount,
             'bankBalance' => $bankBalance,
             'investmentLevelRate' => $totalCapital !== null && $totalCapital > 0
                 ? $totalCostBasis / $totalCapital * 100
                 : null,
         ];
+    }
+
+    private function pendingSettlementAmount(array $raw, ?CarbonImmutable $now = null): float
+    {
+        $settlements = is_array($raw['settlements'] ?? null) ? $raw['settlements'] : [];
+        $today = ($now ?? CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei')))->startOfDay();
+
+        return collect($settlements)
+            ->filter(fn (mixed $settlement): bool => is_array($settlement))
+            ->filter(fn (array $settlement): bool => $this->isFutureSettlement($settlement, $today))
+            ->sum(fn (array $settlement): float => abs($this->number($this->value(
+                $settlement,
+                'price',
+                'amount',
+                'settlement_amount',
+                'settlementAmount',
+            ))));
+    }
+
+    private function isFutureSettlement(array $settlement, CarbonImmutable $today): bool
+    {
+        $rawDate = $this->value($settlement, 'c_date', 'cDate', 'settlement_date', 'settlementDate');
+        if ($rawDate === null || trim((string) $rawDate) === '') {
+            return true;
+        }
+
+        try {
+            $dateText = trim((string) $rawDate);
+            $date = preg_match('/^\d{8}$/', $dateText) === 1
+                ? CarbonImmutable::createFromFormat('Ymd', $dateText, $today->timezone)
+                : CarbonImmutable::parse($dateText, $today->timezone);
+
+            if (!$date instanceof CarbonImmutable) {
+                return true;
+            }
+
+            return $date->startOfDay()->greaterThan($today);
+        } catch (\Throwable) {
+            return true;
+        }
     }
 
     /**

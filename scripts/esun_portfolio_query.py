@@ -59,6 +59,7 @@ def main() -> int:
         sdk.login()
         inventories = sdk.get_inventories()
         balance = sdk.get_balance()
+        settlements = sdk.get_settlements()
     except Exception as exc:
         print(json.dumps({
             "error": f"{type(exc).__name__}: {exc}",
@@ -70,6 +71,7 @@ def main() -> int:
         "queried_at": datetime.now(timezone.utc).isoformat(),
         "inventories": inventories,
         "balance": balance,
+        "settlements": settlements,
     }, ensure_ascii=True))
     return 0
 

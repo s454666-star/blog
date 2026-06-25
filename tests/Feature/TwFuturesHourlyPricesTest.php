@@ -78,6 +78,10 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('乖離率')
             ->assertSee('const dailyChartRows =', false)
             ->assertSee('const hourlyChartRows =', false)
+            ->assertSee('const dataUrl =', false)
+            ->assertSee('let futuresDataRevision =', false)
+            ->assertSee('data-summary-field="latestClose"', false)
+            ->assertSee('data-session-gap-list', false)
             ->assertSee('data-timeframe="hourly"', false)
             ->assertSee('data-timeframe="fifteen-minute"', false)
             ->assertSee('data-timeframe="daily"', false)
@@ -148,6 +152,17 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('scaleMargins: { top: 0.14, bottom: 0.06 }', false)
             ->assertSee("topLineColor: '#f59e0b'", false)
             ->assertSee("bottomLineColor: '#38bdf8'", false)
+            ->assertSee('FUTURES_REFRESH_INTERVAL_MS = 60000', false)
+            ->assertSee('FUTURES_REFRESH_VISIBLE_GRACE_MS = 10000', false)
+            ->assertSee('refreshFuturesData', false)
+            ->assertSee('applyFuturesPayload', false)
+            ->assertSee('setArrayContents(chartRows, payload.chartRows)', false)
+            ->assertSee("url.searchParams.set('revision', futuresDataRevision)", false)
+            ->assertSee('payload.unchanged', false)
+            ->assertSee("cache: 'no-store'", false)
+            ->assertSee("document.addEventListener('visibilitychange'", false)
+            ->assertSee("window.addEventListener('focus'", false)
+            ->assertSee("window.addEventListener('pageshow'", false)
             ->assertSee('點一下可標記差值，再點一下或右鍵可取消，重整後標記清空。')
             ->assertDontSee('點一下可標記，再點一下或右鍵可取消，重整後標記清空。')
             ->assertDontSee('長按左鍵 1.5 秒可標記或取消既有標記')
@@ -258,6 +273,78 @@ class TwFuturesHourlyPricesTest extends TestCase
         foreach ([...$dailyGapMarkers, ...$hourlyGapMarkers] as $marker) {
             $this->assertMatchesRegularExpression('/^[+-][0-9,]+$/', (string) $marker['text']);
         }
+    }
+
+    public function test_taiex_futures_kline_data_endpoint_returns_chart_payload(): void
+    {
+        $this->seedHourlyRows();
+
+        $response = $this->getJson(route('tw-stock.taiex-futures.kline.data'));
+
+        $response
+            ->assertOk()
+            ->assertJsonStructure([
+                'dataRevision',
+                'chartRows' => [
+                    [
+                        'time',
+                        'localTime',
+                        'tradeDate',
+                        'sessionType',
+                        'open',
+                        'high',
+                        'low',
+                        'close',
+                        'volume',
+                        'movingAverage',
+                        'dailyMa5',
+                        'gap',
+                        'bias',
+                        'biasRate',
+                        'biasGapDiff',
+                    ],
+                ],
+                'dailyChartRows',
+                'gapMarkers',
+                'dailyGapMarkers',
+                'hourlyChartRows',
+                'hourlyGapMarkers',
+                'sessionGapRows',
+                'stats' => [
+                    'firstDateTime',
+                    'lastDateTime',
+                    'rowCount',
+                    'latestClose',
+                    'latestGap',
+                    'latestDailyMa5',
+                    'latestMovingAverage',
+                    'latestBias',
+                    'latestBiasRate',
+                    'maxGap',
+                    'minGap',
+                    'sessionGapCount',
+                ],
+            ]);
+
+        $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+        $this->assertSame(560, $response->json('stats.rowCount'));
+        $this->assertIsNumeric($response->json('stats.latestClose'));
+        $this->assertNotEmpty($response->json('dailyChartRows'));
+        $this->assertNotEmpty($response->json('hourlyChartRows'));
+
+        $revision = (string) $response->json('dataRevision');
+        $unchangedResponse = $this->getJson(route('tw-stock.taiex-futures.kline.data', [
+            'revision' => $revision,
+        ]));
+
+        $unchangedResponse
+            ->assertOk()
+            ->assertJson([
+                'unchanged' => true,
+                'dataRevision' => $revision,
+            ]);
+        $this->assertArrayNotHasKey('chartRows', $unchangedResponse->json());
+        $this->assertStringContainsString('no-store', (string) $unchangedResponse->headers->get('Cache-Control'));
     }
 
     public function test_futures_night_session_trade_date_skips_weekends(): void

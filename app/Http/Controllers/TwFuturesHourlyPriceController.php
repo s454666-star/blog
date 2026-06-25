@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\TwFuturesHourlyPrice;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
 class TwFuturesHourlyPriceController extends Controller
@@ -19,13 +21,40 @@ class TwFuturesHourlyPriceController extends Controller
 
     public function index(): View
     {
+        $dataRevision = $this->currentDataRevision();
+
+        return view('tw-stock.taiex-futures-kline', [
+            ...$this->chartPayload($dataRevision),
+            'dataUrl' => route('tw-stock.taiex-futures.kline.data'),
+        ]);
+    }
+
+    public function data(Request $request): JsonResponse
+    {
+        $dataRevision = $this->currentDataRevision();
+        if ($request->query('revision') === $dataRevision) {
+            return $this->noStoreJson([
+                'unchanged' => true,
+                'dataRevision' => $dataRevision,
+            ]);
+        }
+
+        return $this->noStoreJson($this->chartPayload($dataRevision));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function chartPayload(?string $dataRevision = null): array
+    {
         $rows = $this->priceRows(self::SYMBOL, self::PRIMARY_INTERVAL);
         $hourlyRows = $this->priceRows(self::SYMBOL, '60');
         $indicatorRows = $this->indicatorRows($rows, self::FIFTEEN_MINUTE_MA_WINDOW);
         $hourlyIndicatorRows = $this->indicatorRows($hourlyRows, self::HOURLY_MA_WINDOW);
         $latest = $rows->last();
 
-        return view('tw-stock.taiex-futures-kline', [
+        return [
+            'dataRevision' => $dataRevision ?? $this->currentDataRevision(),
             'latest' => $latest,
             'chartRows' => $indicatorRows['chartRows'],
             'dailyChartRows' => $indicatorRows['dailyChartRows'],
@@ -38,6 +67,7 @@ class TwFuturesHourlyPriceController extends Controller
                 'firstDateTime' => $this->displayDateTime($rows->first()),
                 'lastDateTime' => $this->displayDateTime($latest),
                 'rowCount' => $rows->count(),
+                'latestClose' => $latest === null ? null : round((float) $latest->close_price, 2),
                 'latestGap' => $indicatorRows['latestGap'],
                 'latestDailyMa5' => $indicatorRows['latestDailyMa5'],
                 'latestMovingAverage' => $indicatorRows['latestMovingAverage'],
@@ -47,7 +77,41 @@ class TwFuturesHourlyPriceController extends Controller
                 'minGap' => $indicatorRows['minGap'],
                 'sessionGapCount' => count($indicatorRows['sessionGapRows']),
             ],
-        ]);
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function noStoreJson(array $payload): JsonResponse
+    {
+        return response()
+            ->json($payload)
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    }
+
+    private function currentDataRevision(): string
+    {
+        $rows = TwFuturesHourlyPrice::query()
+            ->where('symbol', self::SYMBOL)
+            ->whereIn('interval', [self::PRIMARY_INTERVAL, '60'])
+            ->select('interval')
+            ->selectRaw('COUNT(*) as row_count, MAX(started_at_unix) as latest_started_at_unix, MAX(updated_at) as last_updated_at')
+            ->groupBy('interval')
+            ->orderBy('interval')
+            ->toBase()
+            ->get();
+
+        $fingerprint = $rows
+            ->map(fn (object $row): string => implode('|', [
+                (string) $row->interval,
+                (string) $row->row_count,
+                (string) $row->latest_started_at_unix,
+                (string) $row->last_updated_at,
+            ]))
+            ->implode(';');
+
+        return sha1($fingerprint);
     }
 
     /**

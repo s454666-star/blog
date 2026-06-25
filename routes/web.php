@@ -184,6 +184,7 @@ Route::get('/tw-stock/daily-price-rankings/{stockCode}', [TwStockDailyPriceContr
     ->where('stockCode', '[A-Za-z0-9]+')
     ->name('tw-stock.daily-prices.show');
 Route::get('/tw-stock/taiex-futures-kline', [TwFuturesHourlyPriceController::class, 'index'])->name('tw-stock.taiex-futures.kline');
+Route::get('/tw-stock/taiex-futures-kline/data', [TwFuturesHourlyPriceController::class, 'data'])->name('tw-stock.taiex-futures.kline.data');
 Route::get('/tw-stock/upcoming-dividends', [TwStockUpcomingDividendController::class, 'index'])->name('tw-stock.upcoming-dividends.index');
 Route::get('/tw-stock/institutional-flows', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.institutional-flows.index');
 Route::get('/tw-stock', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.index');

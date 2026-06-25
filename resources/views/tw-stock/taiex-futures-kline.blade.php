@@ -395,39 +395,39 @@
     <section class="summary" aria-label="台指期摘要">
         <div class="summary-cell">
             <div class="label">資料範圍</div>
-            <div class="value small">{{ $stats['firstDateTime'] ?? '--' }} 到 {{ $stats['lastDateTime'] ?? '--' }}<br>{{ number_format((int) $stats['rowCount']) }} 根 15K</div>
+            <div class="value small" data-summary-field="range">{{ $stats['firstDateTime'] ?? '--' }} 到 {{ $stats['lastDateTime'] ?? '--' }}<br>{{ number_format((int) $stats['rowCount']) }} 根 15K</div>
         </div>
         <div class="summary-cell">
             <div class="label">差值</div>
-            <div class="value {{ $tone($stats['latestGap']) }}">{{ $signed($stats['latestGap'], 0) }}</div>
+            <div class="value {{ $tone($stats['latestGap']) }}" data-summary-field="latestGap">{{ $signed($stats['latestGap'], 0) }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">乖離</div>
-            <div class="value {{ $tone($stats['latestBias']) }}">{{ $signed($stats['latestBias'], 0) }}</div>
+            <div class="value {{ $tone($stats['latestBias']) }}" data-summary-field="latestBias">{{ $signed($stats['latestBias'], 0) }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">乖離率</div>
-            <div class="value {{ $tone($stats['latestBiasRate']) }}">{{ $signedPercent($stats['latestBiasRate'], 2) }}</div>
+            <div class="value {{ $tone($stats['latestBiasRate']) }}" data-summary-field="latestBiasRate">{{ $signedPercent($stats['latestBiasRate'], 2) }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">最新收盤</div>
-            <div class="value">{{ $latest ? $fmt($latest->close_price, 0) : '--' }}</div>
+            <div class="value" data-summary-field="latestClose">{{ $latest ? $fmt($latest->close_price, 0) : '--' }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">日 MA5</div>
-            <div class="value">{{ $fmt($stats['latestDailyMa5'], 0) }}</div>
+            <div class="value" data-summary-field="latestDailyMa5">{{ $fmt($stats['latestDailyMa5'], 0) }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">15K MA380</div>
-            <div class="value">{{ $fmt($stats['latestMovingAverage'], 0) }}</div>
+            <div class="value" data-summary-field="latestMovingAverage">{{ $fmt($stats['latestMovingAverage'], 0) }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">最大差值</div>
-            <div class="value positive">{{ $signed($stats['maxGap'], 0) }}</div>
+            <div class="value positive" data-summary-field="maxGap">{{ $signed($stats['maxGap'], 0) }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">最小差值</div>
-            <div class="value negative">{{ $signed($stats['minGap'], 0) }}</div>
+            <div class="value negative" data-summary-field="minGap">{{ $signed($stats['minGap'], 0) }}</div>
         </div>
     </section>
 
@@ -469,7 +469,7 @@
                 <div class="gap-axis-layer" data-gap-axis aria-label="差值軸"></div>
                 <div id="futures-chart"></div>
             </div>
-            <div class="recent-gap-list" aria-label="最近開收盤差值">
+            <div class="recent-gap-list" aria-label="最近開收盤差值" data-session-gap-list>
                 @foreach ($sessionGapRows as $gapRow)
                     <div class="gap-chip">
                         <span class="time">{{ $gapRow['localTime'] }} · {{ $gapRow['label'] }} · {{ $gapRow['eventLabel'] }}</span>
@@ -484,6 +484,7 @@
 
 @if (count($chartRows) > 0)
 <script>
+    const dataUrl = @json($dataUrl);
     const chartRows = @json($chartRows, JSON_UNESCAPED_UNICODE);
     const dailyChartRows = @json($dailyChartRows, JSON_UNESCAPED_UNICODE);
     const gapMarkers = @json($gapMarkers, JSON_UNESCAPED_UNICODE);
@@ -500,6 +501,12 @@
     let legendMap = new Map(currentRows.map(row => [Number(row.time), row]));
     let gapAxisScale = 1;
     let gapAxisDragState = null;
+    let futuresRefreshTimer = null;
+    let futuresRefreshInFlight = false;
+    let lastFuturesRefreshStartedAt = Date.now();
+    let futuresDataRevision = @json($dataRevision);
+    const FUTURES_REFRESH_INTERVAL_MS = 60000;
+    const FUTURES_REFRESH_VISIBLE_GRACE_MS = 10000;
     const GAP_AXIS_MIN_SCALE = 0.35;
     const GAP_AXIS_MAX_SCALE = 4;
     const GAP_AXIS_DRAG_SENSITIVITY = 180;
@@ -1391,6 +1398,177 @@
         })}%`;
     };
 
+    const summaryFields = {
+        range: document.querySelector('[data-summary-field="range"]'),
+        latestGap: document.querySelector('[data-summary-field="latestGap"]'),
+        latestBias: document.querySelector('[data-summary-field="latestBias"]'),
+        latestBiasRate: document.querySelector('[data-summary-field="latestBiasRate"]'),
+        latestClose: document.querySelector('[data-summary-field="latestClose"]'),
+        latestDailyMa5: document.querySelector('[data-summary-field="latestDailyMa5"]'),
+        latestMovingAverage: document.querySelector('[data-summary-field="latestMovingAverage"]'),
+        maxGap: document.querySelector('[data-summary-field="maxGap"]'),
+        minGap: document.querySelector('[data-summary-field="minGap"]')
+    };
+    const sessionGapList = document.querySelector('[data-session-gap-list]');
+
+    function setArrayContents(target, values) {
+        target.splice(0, target.length, ...(Array.isArray(values) ? values : []));
+    }
+
+    function toneClass(value) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+            return 'muted';
+        }
+
+        return Number(value) >= 0 ? 'positive' : 'negative';
+    }
+
+    function setTone(element, tone) {
+        if (!element) {
+            return;
+        }
+
+        element.classList.remove('positive', 'negative', 'muted');
+        element.classList.add(tone);
+    }
+
+    function updateRangeSummary(stats) {
+        if (!summaryFields.range) {
+            return;
+        }
+
+        const lineBreak = document.createElement('br');
+        summaryFields.range.replaceChildren(
+            document.createTextNode(`${stats.firstDateTime ?? '--'} 到 ${stats.lastDateTime ?? '--'}`),
+            lineBreak,
+            document.createTextNode(`${format(stats.rowCount, 0)} 根 15K`)
+        );
+    }
+
+    function updateValueSummary(field, value, options = {}) {
+        const element = summaryFields[field];
+        if (!element) {
+            return;
+        }
+
+        element.textContent = options.percent
+            ? formatPercent(value, options.decimals ?? 2, options.signed ?? false)
+            : format(value, options.decimals ?? 0, options.signed ?? false);
+
+        if (options.tone === 'value') {
+            setTone(element, toneClass(value));
+        } else if (options.tone) {
+            setTone(element, value === null || value === undefined ? 'muted' : options.tone);
+        }
+    }
+
+    function updateSummary(stats = {}) {
+        updateRangeSummary(stats);
+        updateValueSummary('latestGap', stats.latestGap, { signed: true, tone: 'value' });
+        updateValueSummary('latestBias', stats.latestBias, { signed: true, tone: 'value' });
+        updateValueSummary('latestBiasRate', stats.latestBiasRate, { percent: true, signed: true, tone: 'value' });
+        updateValueSummary('latestClose', stats.latestClose);
+        updateValueSummary('latestDailyMa5', stats.latestDailyMa5);
+        updateValueSummary('latestMovingAverage', stats.latestMovingAverage);
+        updateValueSummary('maxGap', stats.maxGap, { signed: true, tone: 'positive' });
+        updateValueSummary('minGap', stats.minGap, { signed: true, tone: 'negative' });
+    }
+
+    function updateSessionGapList(rows = []) {
+        if (!sessionGapList) {
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        (Array.isArray(rows) ? rows : []).forEach(row => {
+            const chip = document.createElement('div');
+            chip.className = 'gap-chip';
+
+            const time = document.createElement('span');
+            time.className = 'time';
+            time.textContent = `${row.localTime ?? '--'} · ${row.label ?? '--'} · ${row.eventLabel ?? '--'}`;
+
+            const gap = document.createElement('span');
+            gap.className = toneClass(row.gap);
+            gap.textContent = row.gapText ?? `${format(row.gap, 0, true)}點`;
+
+            const movingAverage = document.createElement('span');
+            movingAverage.className = 'muted';
+            movingAverage.textContent = `MA ${format(row.dailyMa5, 0)} / ${format(row.movingAverage, 0)}`;
+
+            chip.append(time, gap, movingAverage);
+            fragment.appendChild(chip);
+        });
+
+        sessionGapList.replaceChildren(fragment);
+    }
+
+    function applyFuturesPayload(payload) {
+        if (!payload || !Array.isArray(payload.chartRows)) {
+            return;
+        }
+
+        futuresDataRevision = payload.dataRevision ?? futuresDataRevision;
+        setArrayContents(chartRows, payload.chartRows);
+        setArrayContents(dailyChartRows, payload.dailyChartRows);
+        setArrayContents(gapMarkers, payload.gapMarkers);
+        setArrayContents(dailyGapMarkers, payload.dailyGapMarkers);
+        setArrayContents(hourlyChartRows, payload.hourlyChartRows);
+        setArrayContents(hourlyGapMarkers, payload.hourlyGapMarkers);
+        updateSummary(payload.stats || {});
+        updateSessionGapList(payload.sessionGapRows || []);
+        applyTimeframe(activeTimeframe);
+    }
+
+    async function refreshFuturesData(force = false) {
+        if (document.visibilityState === 'hidden' || futuresRefreshInFlight) {
+            return;
+        }
+
+        const now = Date.now();
+        if (!force && now - lastFuturesRefreshStartedAt < FUTURES_REFRESH_VISIBLE_GRACE_MS) {
+            return;
+        }
+
+        futuresRefreshInFlight = true;
+        lastFuturesRefreshStartedAt = now;
+
+        try {
+            const url = new URL(dataUrl, window.location.origin);
+            url.searchParams.set('_', String(now));
+            if (futuresDataRevision) {
+                url.searchParams.set('revision', futuresDataRevision);
+            }
+            const response = await fetch(url.toString(), {
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store'
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const payload = await response.json();
+            if (payload.unchanged) {
+                futuresDataRevision = payload.dataRevision ?? futuresDataRevision;
+                return;
+            }
+
+            applyFuturesPayload(payload);
+        } catch (error) {
+            console.warn('更新台指期 K 線資料失敗', error);
+        } finally {
+            futuresRefreshInFlight = false;
+        }
+    }
+
+    function scheduleFuturesRefreshTimer() {
+        if (futuresRefreshTimer !== null) {
+            clearInterval(futuresRefreshTimer);
+        }
+
+        futuresRefreshTimer = setInterval(() => refreshFuturesData(true), FUTURES_REFRESH_INTERVAL_MS);
+    }
+
     function updateLegend(row = currentRows[currentRows.length - 1] ?? {}) {
         const dataset = timeframeDatasets[activeTimeframe] ?? timeframeDatasets['fifteen-minute'];
         fields.timeframe.textContent = dataset.label;
@@ -1473,6 +1651,14 @@
     window.addEventListener('resize', resize);
     resize();
     applyTimeframe('fifteen-minute');
+    scheduleFuturesRefreshTimer();
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            refreshFuturesData();
+        }
+    });
+    window.addEventListener('focus', () => refreshFuturesData());
+    window.addEventListener('pageshow', event => refreshFuturesData(Boolean(event.persisted)));
 </script>
 @endif
 </body>

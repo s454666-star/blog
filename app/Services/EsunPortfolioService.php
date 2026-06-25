@@ -163,7 +163,7 @@ class EsunPortfolioService
         $totalUnrealizedPnl = array_sum(array_column($rows, 'unrealizedPnl'));
         $totalTodayPnl = array_sum(array_column($rows, 'todayPnl'));
         $balanceSummary = $this->balanceSummary($raw, $totalCostBasis);
-        $yearProfitSummary = $this->yearProfitSummary($raw, $totalUnrealizedPnl);
+        $yearProfitSummary = $this->yearProfitSummary($raw);
         $totalCapital = $balanceSummary['bankBalance'] === null ? null : $totalCostBasis + $balanceSummary['bankBalance'];
         $yearReturnBase = $totalCapital === null ? null : $totalCapital - $yearProfitSummary['yearTotalPnl'];
         $yearTotalPnlRate = $yearReturnBase !== null && $yearReturnBase > 0
@@ -496,7 +496,7 @@ class EsunPortfolioService
      *     yearTotalPnl: float
      * }
      */
-    private function yearProfitSummary(array $raw, float $unrealizedPnl): array
+    private function yearProfitSummary(array $raw): array
     {
         $transactions = is_array($raw['transactions'] ?? null) ? $raw['transactions'] : [];
         $realizedYearPnl = 0.0;
@@ -521,7 +521,7 @@ class EsunPortfolioService
             'realizedYearPnl' => $realizedYearPnl,
             'dayTradeYearPnl' => $dayTradeYearPnl,
             'adjustedRealizedYearPnl' => $adjustedRealizedYearPnl,
-            'yearTotalPnl' => $adjustedRealizedYearPnl + $unrealizedPnl,
+            'yearTotalPnl' => $adjustedRealizedYearPnl,
         ];
     }
 
@@ -531,12 +531,7 @@ class EsunPortfolioService
             return null;
         }
 
-        $multiplier = 1 + ($returnRate / 100);
-        if ($multiplier <= 0) {
-            return null;
-        }
-
-        return (pow($multiplier, 365 / $elapsedDays) - 1) * 100;
+        return $returnRate * 365 / $elapsedDays;
     }
 
     /**

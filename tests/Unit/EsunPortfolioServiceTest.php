@@ -181,12 +181,12 @@ class EsunPortfolioServiceTest extends TestCase
                 ['make' => '-12000', 'trade' => '0'],
                 ['make' => '0', 'trade' => '3'],
             ],
-        ], -20000.0);
+        ]);
 
         $this->assertSame(78000.0, $summary['realizedYearPnl']);
         $this->assertSame(-10000.0, $summary['dayTradeYearPnl']);
         $this->assertSame(88000.0, $summary['adjustedRealizedYearPnl']);
-        $this->assertSame(68000.0, $summary['yearTotalPnl']);
+        $this->assertSame(88000.0, $summary['yearTotalPnl']);
     }
 
     public function test_it_calculates_year_return_rate_from_current_capital_minus_profit(): void
@@ -211,6 +211,6 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(800000.0, $snapshot['summary']['yearReturnBase']);
         $this->assertSame(25.0, $snapshot['summary']['yearTotalPnlRate']);
         $this->assertSame(176, $snapshot['summary']['yearElapsedDays']);
-        $this->assertEqualsWithDelta((pow(1.25, 365 / 176) - 1) * 100, $snapshot['summary']['annualizedReturnRate'], 0.000001);
+        $this->assertEqualsWithDelta(25.0 * 365 / 176, $snapshot['summary']['annualizedReturnRate'], 0.000001);
     }
 }

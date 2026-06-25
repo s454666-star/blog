@@ -36,29 +36,51 @@
             min-height: 100vh;
             color: var(--text);
             background:
-                linear-gradient(180deg, rgba(56, 189, 248, 0.08), transparent 260px),
-                linear-gradient(135deg, rgba(20, 184, 166, 0.1), transparent 42%),
-                linear-gradient(180deg, #101317, #0c0f13 58%, #11151b);
+                radial-gradient(circle at 18% 12%, rgba(56, 189, 248, 0.2), transparent 28%),
+                radial-gradient(circle at 80% 0%, rgba(245, 158, 11, 0.13), transparent 22%),
+                linear-gradient(145deg, #071827 0%, #10152b 42%, #152033 100%);
             font-family: "Noto Sans TC", "Segoe UI", Arial, sans-serif;
             letter-spacing: 0;
             overflow-x: hidden;
+            isolation: isolate;
         }
 
         body::before {
             content: "";
             position: fixed;
             inset: 0;
+            z-index: -2;
+            pointer-events: none;
+            background-image:
+                radial-gradient(circle, rgba(255, 255, 255, 0.72) 0 1px, transparent 1.8px),
+                radial-gradient(circle, rgba(125, 211, 252, 0.48) 0 1px, transparent 2px),
+                radial-gradient(circle, rgba(253, 230, 138, 0.42) 0 1px, transparent 2px);
+            background-position: 0 0, 72px 48px, 24px 110px;
+            background-size: 150px 150px, 230px 230px, 310px 310px;
+            opacity: 0.48;
+            mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.52) 72%, transparent);
+            animation: starDrift 42s linear infinite;
+        }
+
+        body::after {
+            content: "";
+            position: fixed;
+            inset: -18% -18% 0;
             z-index: -1;
             pointer-events: none;
             background-image:
-                linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
-            background-size: 44px 44px;
-            mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.72), transparent 76%);
+                linear-gradient(118deg, transparent 0 46%, rgba(255, 255, 255, 0.7) 48%, rgba(56, 189, 248, 0.24) 50%, transparent 53%),
+                linear-gradient(118deg, transparent 0 60%, rgba(253, 230, 138, 0.42) 61%, rgba(20, 184, 166, 0.18) 62%, transparent 64%);
+            background-size: 640px 320px, 880px 420px;
+            background-position: -420px -140px, -760px 160px;
+            opacity: 0.26;
+            filter: blur(0.2px);
+            animation: meteorSweep 18s linear infinite;
         }
 
         .shell {
             position: relative;
+            z-index: 1;
             width: min(1680px, calc(100vw - 28px));
             margin: 0 auto;
             padding: 18px 0 42px;
@@ -697,6 +719,24 @@
             }
         }
 
+        @keyframes starDrift {
+            from {
+                background-position: 0 0, 72px 48px, 24px 110px;
+            }
+            to {
+                background-position: 150px 150px, 302px 278px, 334px 420px;
+            }
+        }
+
+        @keyframes meteorSweep {
+            from {
+                background-position: -420px -140px, -760px 160px;
+            }
+            to {
+                background-position: 860px 500px, 1000px 760px;
+            }
+        }
+
         @media (prefers-reduced-motion: reduce) {
             *,
             *::before,
@@ -772,7 +812,7 @@
             <div class="label">今年總損益</div>
             <div class="value" data-summary="yearTotalPnl">--</div>
             <div class="return-rate-line" data-summary="annualizedReturnRate">年化報酬率 --</div>
-            <div class="sub" data-summary="yearTotalPnlBreakdown">已實現 -- · 庫存 --</div>
+            <div class="sub" data-summary="yearTotalPnlBreakdown">已實現 -- · 已扣沖銷 --</div>
         </div>
         <div class="summary-card capital-card">
             <div class="label">投入總成本</div>
@@ -912,12 +952,7 @@ function annualizeReturnRate(returnRate, elapsedDays) {
     }
 
     const days = Math.max(1, Number(elapsedDays) || 1);
-    const multiplier = 1 + Number(returnRate) / 100;
-    if (multiplier <= 0) {
-        return null;
-    }
-
-    return (Math.pow(multiplier, 365 / days) - 1) * 100;
+    return Number(returnRate) * 365 / days;
 }
 
 function baselineDiffLine(baseline, current) {
@@ -998,8 +1033,7 @@ function updateSummaryCards(summary, sourceText) {
     yearRate.className = `return-rate-line ${toneClass(annualizedReturnRate)}`;
     document.querySelector('[data-summary="yearTotalPnlBreakdown"]').textContent =
         `已實現 ${adjustedRealizedYearPnl === null ? '--' : formatMoney(adjustedRealizedYearPnl)} · ` +
-        `庫存 ${formatMoney(summary.unrealizedPnl)} · ` +
-        `扣沖銷 ${dayTradeYearPnl === null ? '--' : formatMoney(dayTradeYearPnl)}`;
+        `已扣沖銷 ${dayTradeYearPnl === null ? '--' : formatMoney(dayTradeYearPnl)}`;
     document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
     renderInvestmentLevel(investmentLevelRate, bankBalance);
     document.querySelector('[data-summary="sourceAge"]').textContent = summary.marketOpen ? 'LIVE' : 'ONCE';
@@ -1530,7 +1564,7 @@ function buildSummaryFromRows() {
     const esunTodayPnl = state.rows.reduce((sum, row) => sum + number(row.esunTodayPnl), 0);
     const unrealizedPnl = state.rows.reduce((sum, row) => sum + number(row.unrealizedPnl), 0);
     const adjustedRealizedYearPnl = finiteNumber(state.lastPayload?.summary?.adjustedRealizedYearPnl);
-    const yearTotalPnl = adjustedRealizedYearPnl === null ? null : adjustedRealizedYearPnl + unrealizedPnl;
+    const yearTotalPnl = adjustedRealizedYearPnl;
     const yearReturnBase = yearTotalPnl !== null && totalCapital !== null ? totalCapital - yearTotalPnl : null;
     const yearTotalPnlRate = yearReturnBase !== null && yearReturnBase > 0 ? yearTotalPnl / yearReturnBase * 100 : null;
     const yearElapsedDays = Number(state.lastPayload?.summary?.yearElapsedDays) || 1;

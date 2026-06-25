@@ -48,6 +48,36 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame('融資', $row['tradeTypeLabel']);
     }
 
+    public function test_it_sets_esun_today_pnl_from_esun_price_and_previous_close(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'formatInventoryRow');
+
+        $row = $method->invoke($service, [
+            'cost_qty' => '1000',
+            'cost_sum' => '-100000',
+            'make_a_per' => '10.00',
+            'make_a_sum' => '10000',
+            'price_avg' => '100.00',
+            'price_evn' => '100.00',
+            'price_mkt' => '110.00',
+            'price_qty_sum' => '100000',
+            'qty_b' => '1000',
+            'qty_s' => '0',
+            'stk_dats' => [],
+            'stk_na' => '測試股',
+            'stk_no' => '9999',
+            's_type' => 'H',
+            'trade' => '0',
+            'value_mkt' => '110000',
+        ], ['previousClose' => 100.0]);
+
+        $this->assertSame(10000.0, $row['todayPnl']);
+        $this->assertSame(10000.0, $row['esunTodayPnl']);
+        $this->assertSame(10.0, $row['dayChange']);
+        $this->assertEqualsWithDelta(10.0, $row['dayChangeRate'], 0.0001);
+    }
+
     public function test_it_maps_cash_inventory_from_trade_type_even_when_position_type_is_h(): void
     {
         $service = new EsunPortfolioService();

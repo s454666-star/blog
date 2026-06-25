@@ -644,7 +644,7 @@
     <header class="topbar">
         <div class="title-block">
             <h1>玉山庫存即時看板</h1>
-            <div class="subtitle">正式 API · 玉山成本固定基準 · 開盤每秒用雙來源確認價重算損益</div>
+            <div class="subtitle">正式 API · 玉山每分鐘校準 · 開盤每秒用雙來源確認價重算損益</div>
         </div>
         <div class="status-bar">
             <span class="pill" data-market-status>{{ $initialMarket['label'] }}</span>
@@ -734,6 +734,7 @@ const state = {
     rows: [],
     dataLoading: false,
     quoteTimer: null,
+    esunTimer: null,
     quoteLoading: false,
     lastPayload: null,
     sort: {
@@ -979,12 +980,13 @@ function applyPayload(payload) {
     els.marketStatus.classList.toggle('live', Boolean(market.isOpen));
     els.refreshStatus.textContent = source.status === 'stale'
         ? '顯示最近成功資料'
-        : (market.isOpen ? '每秒更新報價' : '非開盤已暫停輪詢');
+        : (market.isOpen ? '每秒報價 · 整分鐘校準玉山' : '非開盤已暫停輪詢');
     els.refreshStatus.classList.toggle('live', Boolean(market.isOpen));
     els.refreshStatus.classList.toggle('error', source.status === 'stale');
     els.lastUpdated.textContent = `更新 ${formatDateTime(payload.queriedAt || payload.servedAt)}`;
     fetchQuotes();
     scheduleQuotePolling(market);
+    scheduleEsunPolling(market);
 }
 
 function sortRows(rows) {
@@ -1058,7 +1060,34 @@ function scheduleQuotePolling(market) {
     }
 }
 
-async function fetchData(force) {
+function millisecondsUntilNextMinute(date = new Date()) {
+    const elapsed = date.getSeconds() * 1000 + date.getMilliseconds();
+
+    // Small offset keeps the browser from firing a hair before the minute flips.
+    return Math.max(250, 60000 - elapsed + 250);
+}
+
+function scheduleEsunPolling(market) {
+    if (state.esunTimer) {
+        clearTimeout(state.esunTimer);
+        state.esunTimer = null;
+    }
+
+    if (!market?.isOpen) {
+        return;
+    }
+
+    state.esunTimer = setTimeout(async () => {
+        state.esunTimer = null;
+        await fetchData(true, { background: true });
+
+        if (!state.esunTimer) {
+            scheduleEsunPolling(state.lastPayload?.market || market);
+        }
+    }, millisecondsUntilNextMinute());
+}
+
+async function fetchData(force, options = {}) {
     if (state.dataLoading) {
         return;
     }
@@ -1071,8 +1100,10 @@ async function fetchData(force) {
     }
     if (force) url.searchParams.set('force', '1');
 
-    els.refreshStatus.textContent = force ? '讀取玉山庫存中' : '更新中';
-    els.refreshStatus.classList.remove('error');
+    if (!options.background) {
+        els.refreshStatus.textContent = force ? '讀取玉山庫存中' : '更新中';
+        els.refreshStatus.classList.remove('error');
+    }
     els.error.style.display = 'none';
 
     try {
@@ -1085,8 +1116,10 @@ async function fetchData(force) {
         }
         applyPayload(await response.json());
     } catch (error) {
-        els.refreshStatus.textContent = '更新失敗';
-        els.refreshStatus.classList.add('error');
+        if (!options.background) {
+            els.refreshStatus.textContent = '更新失敗';
+            els.refreshStatus.classList.add('error');
+        }
         els.error.style.display = 'block';
         els.error.textContent = `讀取玉山庫存失敗：${error.message}`;
     } finally {
@@ -1186,6 +1219,9 @@ function applyQuoteToRow(row, quote) {
     const todayPnl = previousClose === null || previousClose === undefined
         ? row.todayPnl
         : dayChange * quantity;
+    const esunTodayPnl = previousClose === null || previousClose === undefined
+        ? row.esunTodayPnl
+        : esunDayChange * quantity;
     const marketValue = price * quantity;
     const unrealizedPnl = esunUnrealizedPnl + (price - pnlBasePrice) * quantity;
 
@@ -1198,6 +1234,7 @@ function applyQuoteToRow(row, quote) {
         previousClose,
         dayChange: esunDayChange,
         dayChangeRate: number(previousClose) > 0 ? esunDayChange / number(previousClose) * 100 : row.dayChangeRate,
+        esunTodayPnl,
         realtimePrice: price,
         realtimePreviousClose: previousClose,
         realtimeDayChange: dayChange,
@@ -1238,6 +1275,7 @@ function applyPreviousCloseToRow(row, quote) {
         : null;
     const needsFallbackUpdate = !Number.isFinite(Number(row.esunMarketValue))
         || !Number.isFinite(Number(row.esunUnrealizedPnl))
+        || !Number.isFinite(Number(row.esunTodayPnl))
         || !Number.isFinite(Number(row.todayPnl));
     if (currentPreviousClose === previousClose && Number.isFinite(Number(row.dayChangeRate)) && !needsFallbackUpdate) {
         return row;
@@ -1268,6 +1306,7 @@ function applyPreviousCloseToRow(row, quote) {
         previousClose,
         dayChange: esunDayChange,
         dayChangeRate: previousClose > 0 ? esunDayChange / previousClose * 100 : row.dayChangeRate,
+        esunTodayPnl: esunDayChange * quantity,
         todayPnl: hasRealtimePrice ? row.todayPnl : esunDayChange * quantity,
         realtimePreviousClose: row.realtimePreviousClose ?? previousClose,
     };
@@ -1285,6 +1324,7 @@ function buildSummaryFromRows() {
     const marketValue = state.rows.reduce((sum, row) => sum + number(row.marketValue), 0);
     const costBasis = state.rows.reduce((sum, row) => sum + number(row.costBasis), 0);
     const todayPnl = state.rows.reduce((sum, row) => sum + number(row.todayPnl), 0);
+    const esunTodayPnl = state.rows.reduce((sum, row) => sum + number(row.esunTodayPnl), 0);
     const unrealizedPnl = state.rows.reduce((sum, row) => sum + number(row.unrealizedPnl), 0);
     const previousMarketValue = state.rows.reduce((sum, row) => {
         const previousClose = row.realtimePreviousClose ?? row.previousClose;
@@ -1299,7 +1339,7 @@ function buildSummaryFromRows() {
         todayPnlRate: previousMarketValue > 0 ? todayPnl / previousMarketValue * 100 : null,
         unrealizedPnl,
         unrealizedPnlRate: costBasis > 0 ? unrealizedPnl / costBasis * 100 : null,
-        esunTodayPnl: state.lastPayload?.summary?.todayPnl ?? null,
+        esunTodayPnl,
         esunUnrealizedPnl: state.lastPayload?.summary?.unrealizedPnl ?? null,
         esunMarketValue: state.lastPayload?.summary?.marketValue ?? null,
         marketOpen: Boolean((state.lastPayload?.market || {}).isOpen),
@@ -1319,6 +1359,11 @@ function updateQuoteStatus(payload) {
     els.refreshStatus.classList.toggle('live', ok && Boolean(market.isOpen));
     els.refreshStatus.classList.toggle('error', !ok && Boolean(market.isOpen));
     els.lastUpdated.textContent = `報價 ${formatDateTime(payload.servedAt)}`;
+
+    if (market.isOpen === false) {
+        scheduleQuotePolling(market);
+        scheduleEsunPolling(market);
+    }
 }
 
 function quoteSourceText(payload) {

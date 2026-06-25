@@ -936,15 +936,15 @@
             <thead>
             <tr>
                 <th><button class="sort-button" type="button" data-sort-key="stock">庫存股 <span class="sort-icon" data-sort-icon></span></button></th>
-                <th><button class="sort-button" type="button" data-sort-key="currentPrice">即時價<br>玉山價 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="currentPrice">即時價 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="dayChangeRate">漲跌幅 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="todayPnl">今日損益 <span class="sort-icon" data-sort-icon></span></button></th>
-                <th><button class="sort-button" type="button" data-sort-key="unrealizedPnl">即時總損益<br>玉山差 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="unrealizedPnl">即時總損益 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="unrealizedPnlRate">總報酬率 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="quantity">股數 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="averagePrice">均價 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="costBasis">投資成本 <span class="sort-icon" data-sort-icon></span></button></th>
-                <th><button class="sort-button" type="button" data-sort-key="marketValue">即時市值<br>玉山差 <span class="sort-icon" data-sort-icon></span></button></th>
+                <th><button class="sort-button" type="button" data-sort-key="marketValue">即時市值 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="marketWeight">庫存占比 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="breakevenPrice">損益平衡價 <span class="sort-icon" data-sort-icon></span></button></th>
                 <th><button class="sort-button" type="button" data-sort-key="fiveDayReturn">近5日漲幅 <span class="sort-icon" data-sort-icon></span></button></th>
@@ -1037,24 +1037,6 @@ function annualizeReturnRate(returnRate, elapsedDays) {
 
     const days = Math.max(1, Number(elapsedDays) || 1);
     return Number(returnRate) * 365 / days;
-}
-
-function baselineDiffLine(baseline, current) {
-    if (!Number.isFinite(Number(baseline))) {
-        return '<span class="muted">玉山 --</span>';
-    }
-
-    const diff = number(current) - number(baseline);
-    return `<span class="muted">玉山 ${formatMoney(baseline)} · 差 ${formatMoney(diff)}</span>`;
-}
-
-function baselineMarketLine(baseline, current) {
-    if (!Number.isFinite(Number(baseline))) {
-        return '<span class="muted">玉山 --</span>';
-    }
-
-    const diff = number(current) - number(baseline);
-    return `<span class="muted">玉山 ${formatInteger(baseline)} · 差 ${formatMoney(diff)}</span>`;
 }
 
 function toneClass(value) {
@@ -1257,25 +1239,21 @@ function renderPositions() {
         <tr>
             <td>${stockCell(row)}</td>
             <td class="${toneClass(row.realtimeDayChangeRate ?? row.dayChangeRate)}">
-                <strong>${formatPrice(row.realtimePrice ?? row.currentPrice)}</strong><br>
-                <span class="muted">玉山 ${formatPrice(row.currentPrice)}</span>
+                <strong>${formatPrice(row.realtimePrice ?? row.currentPrice)}</strong>
             </td>
             <td class="${toneClass(row.realtimeDayChangeRate ?? row.dayChangeRate)}">
-                ${formatPercent(row.realtimeDayChangeRate ?? row.dayChangeRate)}<br>
-                <span class="muted">玉山 ${formatPercent(row.dayChangeRate)}</span>
+                ${formatPercent(row.realtimeDayChangeRate ?? row.dayChangeRate)}
             </td>
             <td class="${toneClass(row.todayPnl)}"><strong>${formatMoney(row.todayPnl)}</strong></td>
             <td class="${toneClass(row.unrealizedPnl)}">
-                <strong>${formatMoney(row.unrealizedPnl)}</strong><br>
-                ${baselineDiffLine(row.esunUnrealizedPnl, row.unrealizedPnl)}
+                <strong>${formatMoney(row.unrealizedPnl)}</strong>
             </td>
             <td class="${toneClass(row.unrealizedPnlRate)}">${formatPercent(row.unrealizedPnlRate)}</td>
             <td>${formatInteger(row.quantity)}</td>
             <td>${formatPrice(row.averagePrice)}</td>
             <td>${formatInteger(row.costBasis)}</td>
             <td>
-                ${formatInteger(row.marketValue)}<br>
-                ${baselineMarketLine(row.esunMarketValue, row.marketValue)}
+                ${formatInteger(row.marketValue)}
             </td>
             <td>${formatWeight(row.marketWeight)}</td>
             <td>${formatPrice(row.breakevenPrice)}</td>

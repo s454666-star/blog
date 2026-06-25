@@ -580,6 +580,32 @@
             box-shadow: inset 3px 0 0 rgba(56, 189, 248, 0.68), 1px 0 0 #0b0d10, 10px 0 18px rgba(0, 0, 0, 0.16);
         }
 
+        tbody tr.stop-loss-row-warning td {
+            background: linear-gradient(90deg, rgba(255, 132, 150, 0.18), rgba(255, 132, 150, 0.08));
+        }
+
+        tbody tr.stop-loss-row-warning td:first-child {
+            background: linear-gradient(90deg, rgba(255, 132, 150, 0.22), rgba(255, 132, 150, 0.12));
+            box-shadow: inset 4px 0 0 #ff9aa8, 1px 0 0 #0b0d10, 10px 0 18px rgba(0, 0, 0, 0.16);
+        }
+
+        tbody tr.stop-loss-row-danger td {
+            background: linear-gradient(90deg, rgba(255, 32, 88, 0.3), rgba(255, 32, 88, 0.14));
+        }
+
+        tbody tr.stop-loss-row-danger td:first-child {
+            background: linear-gradient(90deg, rgba(255, 32, 88, 0.34), rgba(255, 32, 88, 0.18));
+            box-shadow: inset 4px 0 0 #ff345f, 1px 0 0 #0b0d10, 10px 0 18px rgba(0, 0, 0, 0.16);
+        }
+
+        tbody tr.stop-loss-row-warning:hover td {
+            background: linear-gradient(90deg, rgba(255, 132, 150, 0.24), rgba(255, 132, 150, 0.13));
+        }
+
+        tbody tr.stop-loss-row-danger:hover td {
+            background: linear-gradient(90deg, rgba(255, 32, 88, 0.38), rgba(255, 32, 88, 0.2));
+        }
+
         [data-dashboard] :where(
             h1,
             .subtitle,
@@ -1046,6 +1072,13 @@ function toneClass(value) {
     return 'neutral';
 }
 
+function stopLossRowClass(value) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric <= -10) return 'stop-loss-row-danger';
+    if (Number.isFinite(numeric) && numeric <= -5) return 'stop-loss-row-warning';
+    return '';
+}
+
 function setTone(element, value) {
     element.classList.remove('positive', 'negative', 'neutral');
     element.classList.add(toneClass(value));
@@ -1241,7 +1274,7 @@ function renderPositions() {
     }
 
     els.positions.innerHTML = rows.map(row => `
-        <tr>
+        <tr class="${stopLossRowClass(row.unrealizedPnlRate)}">
             <td>${stockCell(row)}</td>
             <td class="${toneClass(row.realtimeDayChangeRate ?? row.dayChangeRate)}">
                 <strong>${formatPrice(row.realtimePrice ?? row.currentPrice)}</strong>

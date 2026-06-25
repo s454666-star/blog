@@ -242,6 +242,56 @@
             font-variant-numeric: tabular-nums;
         }
 
+        .capital-card {
+            background:
+                radial-gradient(circle at 86% 12%, rgba(245, 158, 11, 0.12), transparent 36%),
+                radial-gradient(circle at 10% 92%, rgba(20, 184, 166, 0.12), transparent 34%),
+                linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.018)),
+                var(--panel);
+        }
+
+        .investment-metrics {
+            display: grid;
+            gap: 7px;
+            margin-top: 12px;
+        }
+
+        .investment-line {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            min-height: 34px;
+            padding: 7px 9px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.045);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        .investment-label {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+
+        .investment-value {
+            color: var(--amber);
+            font-size: 20px;
+            line-height: 1.05;
+            font-weight: 950;
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+            text-shadow: 0 0 18px rgba(245, 158, 11, 0.18);
+        }
+
+        .investment-line.bank .investment-value {
+            color: var(--cyan);
+            font-size: 18px;
+            text-shadow: 0 0 18px rgba(56, 189, 248, 0.18);
+        }
+
         .positive { color: var(--red); text-shadow: 0 0 18px rgba(255, 59, 92, 0.16); }
         .negative { color: var(--green); text-shadow: 0 0 18px rgba(34, 197, 94, 0.14); }
         .neutral { color: var(--text); }
@@ -713,10 +763,19 @@
             <div class="value neutral" data-summary="stockCount">--</div>
             <div class="sub" data-summary="lotCount">明細 --</div>
         </div>
-        <div class="summary-card">
+        <div class="summary-card capital-card">
             <div class="label">投入總成本</div>
             <div class="value neutral" data-summary="investedCost">--</div>
-            <div class="sub" data-summary="investmentLevel">投資水位:--</div>
+            <div class="investment-metrics" data-summary="investmentLevel">
+                <div class="investment-line">
+                    <span class="investment-label">投資水位</span>
+                    <span class="investment-value">--</span>
+                </div>
+                <div class="investment-line bank">
+                    <span class="investment-label">銀行餘額</span>
+                    <span class="investment-value">--</span>
+                </div>
+            </div>
         </div>
         <div class="summary-card">
             <div class="label">資料來源</div>
@@ -905,9 +964,18 @@ function updateSummaryCards(summary, sourceText) {
     document.querySelector('[data-summary="stockCount"]').textContent = formatInteger(summary.stockCount);
     document.querySelector('[data-summary="lotCount"]').textContent = `明細 ${formatInteger(summary.lotCount)} 筆`;
     document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
-    document.querySelector('[data-summary="investmentLevel"]').textContent = `投資水位:${formatInvestmentLevel(investmentLevelRate)} · 銀行餘額 ${bankBalance === null ? '--' : formatInteger(bankBalance)}`;
+    renderInvestmentLevel(investmentLevelRate, bankBalance);
     document.querySelector('[data-summary="sourceAge"]').textContent = summary.marketOpen ? 'LIVE' : 'ONCE';
     document.querySelector('[data-summary="servedAt"]').textContent = sourceText;
+}
+
+function renderInvestmentLevel(investmentLevelRate, bankBalance) {
+    const target = document.querySelector('[data-summary="investmentLevel"]');
+    const levelValue = target.querySelector('.investment-line:not(.bank) .investment-value');
+    const bankValue = target.querySelector('.investment-line.bank .investment-value');
+
+    levelValue.textContent = formatInvestmentLevel(investmentLevelRate);
+    bankValue.textContent = bankBalance === null ? '--' : formatInteger(bankBalance);
 }
 
 function finiteNumber(value) {

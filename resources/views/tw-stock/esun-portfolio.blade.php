@@ -282,6 +282,25 @@
             background: #292929;
         }
 
+        [data-dashboard] :where(
+            h1,
+            .subtitle,
+            .pill,
+            .summary-card,
+            .label,
+            .value,
+            .sub,
+            .tab,
+            tbody td,
+            tbody td strong,
+            tbody td .muted,
+            .badge,
+            .stock-name,
+            .stock-code
+        ) {
+            cursor: copy;
+        }
+
         .stock-cell {
             display: grid;
             grid-template-columns: auto 1fr;
@@ -483,6 +502,7 @@ const state = {
 };
 
 const els = {
+    dashboard: document.querySelector('[data-dashboard]'),
     marketStatus: document.querySelector('[data-market-status]'),
     refreshStatus: document.querySelector('[data-refresh-status]'),
     lastUpdated: document.querySelector('[data-last-updated]'),
@@ -1019,6 +1039,77 @@ function escapeHtml(value) {
         .replaceAll("'", '&#039;');
 }
 
+function setupSilentCopy() {
+    els.dashboard.addEventListener('click', event => {
+        if (event.defaultPrevented || event.button !== 0) return;
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        if (target.closest('button, input, textarea, select, a')) return;
+
+        const copyTarget = target.closest([
+            '[data-copy-text]',
+            '.stock-name',
+            '.stock-code',
+            '.badge',
+            'strong',
+            '.muted',
+            '.value',
+            '.sub',
+            '.label',
+            '.pill',
+            '.tab',
+            'td',
+            'h1',
+            '.subtitle',
+            '.summary-card',
+        ].join(', '));
+        if (!copyTarget || !els.dashboard.contains(copyTarget)) return;
+
+        const text = copyTarget.getAttribute('data-copy-text')
+            || copyTarget.innerText
+            || copyTarget.textContent
+            || '';
+        const normalized = normalizeCopyText(text);
+        if (normalized === '') return;
+
+        copyText(normalized);
+    });
+}
+
+function normalizeCopyText(value) {
+    return String(value)
+        .replace(/\u00a0/g, ' ')
+        .split(/\n+/)
+        .map(line => line.replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .join(' ');
+}
+
+function copyText(value) {
+    if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(value).catch(() => fallbackCopyText(value));
+        return;
+    }
+
+    fallbackCopyText(value);
+}
+
+function fallbackCopyText(value) {
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+        document.execCommand('copy');
+    } finally {
+        textarea.remove();
+    }
+}
+
 els.filter.addEventListener('input', () => {
     renderPositions();
 });
@@ -1027,6 +1118,7 @@ els.sortButtons.forEach(button => {
     button.addEventListener('click', () => setSort(button.dataset.sortKey));
 });
 
+setupSilentCopy();
 updateSortIndicators();
 fetchData(true);
 </script>

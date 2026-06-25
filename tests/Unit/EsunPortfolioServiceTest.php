@@ -168,7 +168,7 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertEqualsWithDelta(54.945054945, $summary['investmentLevelRate'], 0.000001);
     }
 
-    public function test_it_calculates_year_profit_without_day_trade_offset_profit(): void
+    public function test_it_calculates_year_profit_from_esun_realized_profit(): void
     {
         $service = new EsunPortfolioService();
         $method = new ReflectionMethod($service, 'yearProfitSummary');
@@ -186,7 +186,7 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(78000.0, $summary['realizedYearPnl']);
         $this->assertSame(-10000.0, $summary['dayTradeYearPnl']);
         $this->assertSame(88000.0, $summary['adjustedRealizedYearPnl']);
-        $this->assertSame(88000.0, $summary['yearTotalPnl']);
+        $this->assertSame(78000.0, $summary['yearTotalPnl']);
     }
 
     public function test_it_calculates_year_return_rate_from_current_capital_minus_profit(): void

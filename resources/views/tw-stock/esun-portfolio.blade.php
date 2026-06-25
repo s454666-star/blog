@@ -66,31 +66,52 @@
                 starTwinkle 5.6s ease-in-out infinite;
         }
 
-        body::after {
-            content: "";
-            position: fixed;
-            inset: -28% -24% 0;
-            z-index: -1;
-            pointer-events: none;
-            background-image:
-                linear-gradient(118deg, transparent 0 46%, rgba(255, 255, 255, 0.92) 48%, rgba(56, 189, 248, 0.36) 49.5%, transparent 53%),
-                linear-gradient(118deg, transparent 0 58%, rgba(253, 230, 138, 0.72) 60%, rgba(20, 184, 166, 0.28) 61.5%, transparent 65%),
-                linear-gradient(118deg, transparent 0 68%, rgba(255, 255, 255, 0.5) 69.5%, rgba(56, 189, 248, 0.18) 71%, transparent 74%);
-            background-size: 520px 260px, 760px 380px, 1080px 520px;
-            background-position: -520px -220px, -900px 60px, -1160px 360px;
-            opacity: 0.42;
-            filter: blur(0.15px);
-            mix-blend-mode: screen;
-            will-change: background-position, opacity;
-            animation: meteorSweep 9.5s linear infinite;
-        }
-
         .shell {
             position: relative;
             z-index: 1;
             width: min(1680px, calc(100vw - 28px));
             margin: 0 auto;
             padding: 18px 0 42px;
+        }
+
+        .meteor-field {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .meteor {
+            position: absolute;
+            top: -14vh;
+            left: var(--x);
+            width: var(--size, 3px);
+            height: var(--size, 3px);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.98);
+            box-shadow:
+                0 0 9px rgba(255, 255, 255, 0.95),
+                0 0 18px rgba(125, 211, 252, 0.72),
+                0 0 30px rgba(20, 184, 166, 0.28);
+            opacity: 0;
+            transform: translate3d(0, 0, 0) rotate(132deg);
+            animation: meteorFall var(--duration, 12s) linear infinite;
+            animation-delay: var(--delay, 0s);
+            will-change: opacity, transform;
+        }
+
+        .meteor::after {
+            content: "";
+            position: absolute;
+            top: 50%;
+            right: 1px;
+            width: var(--tail, 150px);
+            height: 1px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(255, 255, 255, 0.9), rgba(125, 211, 252, 0.36), transparent);
+            transform: translateY(-50%);
+            filter: blur(0.2px);
         }
 
         .topbar {
@@ -755,18 +776,24 @@
             }
         }
 
-        @keyframes meteorSweep {
+        @keyframes meteorFall {
             0% {
-                background-position: -520px -220px, -900px 60px, -1160px 360px;
+                opacity: 0;
+                transform: translate3d(0, -18vh, 0) rotate(132deg) scale(0.82);
+            }
+            5% {
                 opacity: 0;
             }
-            8%,
-            72% {
-                opacity: 0.42;
+            12% {
+                opacity: 0.96;
             }
+            28% {
+                opacity: 0.9;
+            }
+            44%,
             100% {
-                background-position: 980px 560px, 720px 900px, 620px 1120px;
                 opacity: 0;
+                transform: translate3d(var(--dx, 38vw), 124vh, 0) rotate(132deg) scale(1.04);
             }
         }
 
@@ -786,7 +813,11 @@
             }
 
             body::after {
-                animation-duration: 22s !important;
+                animation: none !important;
+            }
+
+            .meteor {
+                animation-duration: 24s !important;
                 animation-iteration-count: infinite !important;
             }
         }
@@ -819,9 +850,19 @@
             input { width: 100%; }
             .button { flex: 1 1 150px; }
         }
-    </style>
+</style>
 </head>
 <body>
+<div class="meteor-field" aria-hidden="true">
+    <span class="meteor" style="--x: 8%; --dx: 34vw; --tail: 130px; --duration: 13s; --delay: -1s; --size: 2px;"></span>
+    <span class="meteor" style="--x: 19%; --dx: 38vw; --tail: 170px; --duration: 15s; --delay: -9s; --size: 3px;"></span>
+    <span class="meteor" style="--x: 32%; --dx: 30vw; --tail: 120px; --duration: 11s; --delay: -5s; --size: 2px;"></span>
+    <span class="meteor" style="--x: 46%; --dx: 42vw; --tail: 190px; --duration: 17s; --delay: -13s; --size: 3px;"></span>
+    <span class="meteor" style="--x: 57%; --dx: 29vw; --tail: 110px; --duration: 12s; --delay: -7s; --size: 2px;"></span>
+    <span class="meteor" style="--x: 70%; --dx: 35vw; --tail: 150px; --duration: 14s; --delay: -3s; --size: 2px;"></span>
+    <span class="meteor" style="--x: 83%; --dx: 26vw; --tail: 125px; --duration: 16s; --delay: -11s; --size: 2px;"></span>
+    <span class="meteor" style="--x: 92%; --dx: 18vw; --tail: 160px; --duration: 18s; --delay: -15s; --size: 3px;"></span>
+</div>
 <div class="shell" data-dashboard>
     <header class="topbar">
         <div class="title-block">
@@ -855,7 +896,7 @@
             <div class="label">今年總損益</div>
             <div class="value" data-summary="yearTotalPnl">--</div>
             <div class="return-rate-line" data-summary="yearTotalPnlRate">今年報酬率 --</div>
-            <div class="sub" data-summary="yearTotalPnlBreakdown">已實現 -- · 已扣沖銷 --</div>
+            <div class="sub" data-summary="yearTotalPnlBreakdown">玉山已實現 -- · 沖銷 --</div>
         </div>
         <div class="summary-card capital-card">
             <div class="label">投入總成本</div>
@@ -1047,7 +1088,7 @@ function updateSummaryCards(summary, sourceText) {
     const investmentLevelRate = finiteNumber(summary.investmentLevelRate ?? state.lastPayload?.summary?.investmentLevelRate);
     const yearTotalPnl = finiteNumber(summary.yearTotalPnl ?? state.lastPayload?.summary?.yearTotalPnl);
     const yearTotalPnlRate = finiteNumber(summary.yearTotalPnlRate ?? state.lastPayload?.summary?.yearTotalPnlRate);
-    const adjustedRealizedYearPnl = finiteNumber(summary.adjustedRealizedYearPnl ?? state.lastPayload?.summary?.adjustedRealizedYearPnl);
+    const realizedYearPnl = finiteNumber(summary.realizedYearPnl ?? state.lastPayload?.summary?.realizedYearPnl);
     const dayTradeYearPnl = finiteNumber(summary.dayTradeYearPnl ?? state.lastPayload?.summary?.dayTradeYearPnl);
 
     const today = document.querySelector('[data-summary="todayPnl"]');
@@ -1075,8 +1116,8 @@ function updateSummaryCards(summary, sourceText) {
     yearRate.textContent = `今年報酬率 ${formatPercent(yearTotalPnlRate)}`;
     yearRate.className = `return-rate-line ${toneClass(yearTotalPnlRate)}`;
     document.querySelector('[data-summary="yearTotalPnlBreakdown"]').textContent =
-        `已實現 ${adjustedRealizedYearPnl === null ? '--' : formatMoney(adjustedRealizedYearPnl)} · ` +
-        `已扣沖銷 ${dayTradeYearPnl === null ? '--' : formatMoney(dayTradeYearPnl)}`;
+        `玉山已實現 ${realizedYearPnl === null ? '--' : formatMoney(realizedYearPnl)} · ` +
+        `沖銷 ${dayTradeYearPnl === null ? '--' : formatMoney(dayTradeYearPnl)}`;
     document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
     renderInvestmentLevel(investmentLevelRate, bankBalance);
     document.querySelector('[data-summary="sourceAge"]').textContent = summary.marketOpen ? 'LIVE' : 'ONCE';
@@ -1606,8 +1647,8 @@ function buildSummaryFromRows() {
     const todayPnl = state.rows.reduce((sum, row) => sum + number(row.todayPnl), 0);
     const esunTodayPnl = state.rows.reduce((sum, row) => sum + number(row.esunTodayPnl), 0);
     const unrealizedPnl = state.rows.reduce((sum, row) => sum + number(row.unrealizedPnl), 0);
-    const adjustedRealizedYearPnl = finiteNumber(state.lastPayload?.summary?.adjustedRealizedYearPnl);
-    const yearTotalPnl = adjustedRealizedYearPnl;
+    const realizedYearPnl = finiteNumber(state.lastPayload?.summary?.realizedYearPnl);
+    const yearTotalPnl = realizedYearPnl;
     const yearReturnBase = yearTotalPnl !== null && totalCapital !== null ? totalCapital - yearTotalPnl : null;
     const yearTotalPnlRate = yearReturnBase !== null && yearReturnBase > 0 ? yearTotalPnl / yearReturnBase * 100 : null;
     const yearElapsedDays = Number(state.lastPayload?.summary?.yearElapsedDays) || 1;

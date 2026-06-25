@@ -599,7 +599,7 @@ class EsunPortfolioService
             'realizedYearPnl' => $realizedYearPnl,
             'dayTradeYearPnl' => $dayTradeYearPnl,
             'adjustedRealizedYearPnl' => $adjustedRealizedYearPnl,
-            'yearTotalPnl' => $adjustedRealizedYearPnl,
+            'yearTotalPnl' => $realizedYearPnl,
         ];
     }
 

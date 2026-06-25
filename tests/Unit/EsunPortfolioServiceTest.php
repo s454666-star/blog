@@ -167,4 +167,48 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(410000.0, $summary['bankBalance']);
         $this->assertEqualsWithDelta(54.945054945, $summary['investmentLevelRate'], 0.000001);
     }
+
+    public function test_it_calculates_year_profit_without_day_trade_offset_profit(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'yearProfitSummary');
+
+        $summary = $method->invoke($service, [
+            'transactions' => [
+                ['make' => '100000', 'trade' => '3'],
+                ['make' => '-15000', 'trade' => 'A'],
+                ['make' => '5000', 'trade' => '9'],
+                ['make' => '-12000', 'trade' => '0'],
+                ['make' => '0', 'trade' => '3'],
+            ],
+        ], -20000.0);
+
+        $this->assertSame(78000.0, $summary['realizedYearPnl']);
+        $this->assertSame(-10000.0, $summary['dayTradeYearPnl']);
+        $this->assertSame(88000.0, $summary['adjustedRealizedYearPnl']);
+        $this->assertSame(68000.0, $summary['yearTotalPnl']);
+    }
+
+    public function test_it_calculates_year_return_rate_from_current_capital_minus_profit(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'buildSnapshot');
+
+        $snapshot = $method->invoke($service, [
+            'queriedAt' => '2026-06-25T10:00:00+08:00',
+            'inventories' => [],
+            'balance' => ['available_balance' => '1000000'],
+            'settlements' => [],
+            'transactions' => [
+                ['make' => '200000', 'trade' => '0'],
+            ],
+        ], [
+            'isOpen' => false,
+            'label' => '非交易時段',
+        ], CarbonImmutable::parse('2026-06-25 10:00:00', 'Asia/Taipei'), 60);
+
+        $this->assertSame(200000.0, $snapshot['summary']['yearTotalPnl']);
+        $this->assertSame(800000.0, $snapshot['summary']['yearReturnBase']);
+        $this->assertSame(25.0, $snapshot['summary']['yearTotalPnlRate']);
+    }
 }

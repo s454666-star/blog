@@ -17,9 +17,9 @@ class EsunPortfolioService
         $now = CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei'));
         $market = $this->marketStatus($now);
         $ttl = $this->cacheTtl($market);
-        $cacheKey = 'esun:portfolio:inventories:v2';
-        $fallbackKey = 'esun:portfolio:inventories:last-success:v2';
-        $lastQueryKey = 'esun:portfolio:last-query-at:v2';
+        $cacheKey = 'esun:portfolio:inventories:v3';
+        $fallbackKey = 'esun:portfolio:inventories:last-success:v3';
+        $lastQueryKey = 'esun:portfolio:last-query-at:v3';
 
         $cached = Cache::get($cacheKey);
         $queryAge = $this->secondsSince(Cache::get($lastQueryKey), $now);
@@ -133,6 +133,7 @@ class EsunPortfolioService
             'inventories' => $payload['inventories'],
             'balance' => is_array($payload['balance'] ?? null) ? $payload['balance'] : [],
             'settlements' => is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [],
+            'transactions' => is_array($payload['transactions'] ?? null) ? $payload['transactions'] : [],
         ];
     }
 
@@ -162,6 +163,9 @@ class EsunPortfolioService
         $totalUnrealizedPnl = array_sum(array_column($rows, 'unrealizedPnl'));
         $totalTodayPnl = array_sum(array_column($rows, 'todayPnl'));
         $balanceSummary = $this->balanceSummary($raw, $totalCostBasis);
+        $yearProfitSummary = $this->yearProfitSummary($raw, $totalUnrealizedPnl);
+        $totalCapital = $balanceSummary['bankBalance'] === null ? null : $totalCostBasis + $balanceSummary['bankBalance'];
+        $yearReturnBase = $totalCapital === null ? null : $totalCapital - $yearProfitSummary['yearTotalPnl'];
         $previousMarketValue = array_sum(array_map(
             fn (array $row): float => $row['previousClose'] === null ? 0.0 : $row['previousClose'] * $row['quantity'],
             $rows,
@@ -200,6 +204,14 @@ class EsunPortfolioService
                 'todayPnlRate' => $previousMarketValue > 0 ? $totalTodayPnl / $previousMarketValue * 100 : null,
                 'unrealizedPnl' => $totalUnrealizedPnl,
                 'unrealizedPnlRate' => $totalCostBasis > 0 ? $totalUnrealizedPnl / $totalCostBasis * 100 : null,
+                'realizedYearPnl' => $yearProfitSummary['realizedYearPnl'],
+                'dayTradeYearPnl' => $yearProfitSummary['dayTradeYearPnl'],
+                'adjustedRealizedYearPnl' => $yearProfitSummary['adjustedRealizedYearPnl'],
+                'yearTotalPnl' => $yearProfitSummary['yearTotalPnl'],
+                'yearReturnBase' => $yearReturnBase,
+                'yearTotalPnlRate' => $yearReturnBase !== null && $yearReturnBase > 0
+                    ? $yearProfitSummary['yearTotalPnl'] / $yearReturnBase * 100
+                    : null,
             ],
             'rows' => $rows,
         ];
@@ -470,6 +482,43 @@ class EsunPortfolioService
         } catch (\Throwable) {
             return true;
         }
+    }
+
+    /**
+     * @return array{
+     *     realizedYearPnl: float,
+     *     dayTradeYearPnl: float,
+     *     adjustedRealizedYearPnl: float,
+     *     yearTotalPnl: float
+     * }
+     */
+    private function yearProfitSummary(array $raw, float $unrealizedPnl): array
+    {
+        $transactions = is_array($raw['transactions'] ?? null) ? $raw['transactions'] : [];
+        $realizedYearPnl = 0.0;
+        $dayTradeYearPnl = 0.0;
+
+        foreach ($transactions as $transaction) {
+            if (!is_array($transaction)) {
+                continue;
+            }
+
+            $make = $this->number($this->value($transaction, 'make', 'profit_loss', 'profitLoss'));
+            $realizedYearPnl += $make;
+
+            if (in_array((string) $this->value($transaction, 'trade'), ['A', '9'], true)) {
+                $dayTradeYearPnl += $make;
+            }
+        }
+
+        $adjustedRealizedYearPnl = $realizedYearPnl - $dayTradeYearPnl;
+
+        return [
+            'realizedYearPnl' => $realizedYearPnl,
+            'dayTradeYearPnl' => $dayTradeYearPnl,
+            'adjustedRealizedYearPnl' => $adjustedRealizedYearPnl,
+            'yearTotalPnl' => $adjustedRealizedYearPnl + $unrealizedPnl,
+        ];
     }
 
     /**

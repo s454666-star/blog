@@ -242,6 +242,16 @@
             font-variant-numeric: tabular-nums;
         }
 
+        .return-rate-line {
+            margin-top: 8px;
+            color: var(--amber);
+            font-size: 17px;
+            font-weight: 900;
+            line-height: 1.25;
+            font-variant-numeric: tabular-nums;
+            text-shadow: 0 0 16px rgba(245, 158, 11, 0.16);
+        }
+
         .capital-card {
             background:
                 radial-gradient(circle at 86% 12%, rgba(245, 158, 11, 0.12), transparent 36%),
@@ -759,9 +769,10 @@
             <div class="sub" data-summary="costBasis">成本 --</div>
         </div>
         <div class="summary-card">
-            <div class="label">庫存檔數</div>
-            <div class="value neutral" data-summary="stockCount">--</div>
-            <div class="sub" data-summary="lotCount">明細 --</div>
+            <div class="label">今年總損益</div>
+            <div class="value" data-summary="yearTotalPnl">--</div>
+            <div class="return-rate-line" data-summary="yearTotalPnlRate">年度報酬率 --</div>
+            <div class="sub" data-summary="yearTotalPnlBreakdown">已實現 -- · 庫存 --</div>
         </div>
         <div class="summary-card capital-card">
             <div class="label">投入總成本</div>
@@ -942,6 +953,10 @@ function updateSummaryCards(summary, sourceText) {
     const costBasis = finiteNumber(summary.costBasis ?? state.lastPayload?.summary?.costBasis);
     const bankBalance = finiteNumber(summary.bankBalance ?? state.lastPayload?.summary?.bankBalance);
     const investmentLevelRate = finiteNumber(summary.investmentLevelRate ?? state.lastPayload?.summary?.investmentLevelRate);
+    const yearTotalPnl = finiteNumber(summary.yearTotalPnl ?? state.lastPayload?.summary?.yearTotalPnl);
+    const yearTotalPnlRate = finiteNumber(summary.yearTotalPnlRate ?? state.lastPayload?.summary?.yearTotalPnlRate);
+    const adjustedRealizedYearPnl = finiteNumber(summary.adjustedRealizedYearPnl ?? state.lastPayload?.summary?.adjustedRealizedYearPnl);
+    const dayTradeYearPnl = finiteNumber(summary.dayTradeYearPnl ?? state.lastPayload?.summary?.dayTradeYearPnl);
 
     const today = document.querySelector('[data-summary="todayPnl"]');
     today.textContent = formatMoney(summary.todayPnl);
@@ -961,8 +976,16 @@ function updateSummaryCards(summary, sourceText) {
 
     document.querySelector('[data-summary="marketValue"]').textContent = formatInteger(summary.marketValue);
     document.querySelector('[data-summary="costBasis"]').textContent = `玉山投資成本 ${formatInteger(costBasis)} · 玉山市值 ${formatInteger(esunMarketValue)} · 差 ${formatMoney(number(summary.marketValue) - number(esunMarketValue))}`;
-    document.querySelector('[data-summary="stockCount"]').textContent = formatInteger(summary.stockCount);
-    document.querySelector('[data-summary="lotCount"]').textContent = `明細 ${formatInteger(summary.lotCount)} 筆`;
+    const year = document.querySelector('[data-summary="yearTotalPnl"]');
+    year.textContent = yearTotalPnl === null ? '--' : formatMoney(yearTotalPnl);
+    setTone(year, yearTotalPnl);
+    const yearRate = document.querySelector('[data-summary="yearTotalPnlRate"]');
+    yearRate.textContent = `年度報酬率 ${formatPercent(yearTotalPnlRate)}`;
+    yearRate.className = `return-rate-line ${toneClass(yearTotalPnlRate)}`;
+    document.querySelector('[data-summary="yearTotalPnlBreakdown"]').textContent =
+        `已實現 ${adjustedRealizedYearPnl === null ? '--' : formatMoney(adjustedRealizedYearPnl)} · ` +
+        `庫存 ${formatMoney(summary.unrealizedPnl)} · ` +
+        `扣沖銷 ${dayTradeYearPnl === null ? '--' : formatMoney(dayTradeYearPnl)}`;
     document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
     renderInvestmentLevel(investmentLevelRate, bankBalance);
     document.querySelector('[data-summary="sourceAge"]').textContent = summary.marketOpen ? 'LIVE' : 'ONCE';
@@ -1492,6 +1515,9 @@ function buildSummaryFromRows() {
     const todayPnl = state.rows.reduce((sum, row) => sum + number(row.todayPnl), 0);
     const esunTodayPnl = state.rows.reduce((sum, row) => sum + number(row.esunTodayPnl), 0);
     const unrealizedPnl = state.rows.reduce((sum, row) => sum + number(row.unrealizedPnl), 0);
+    const adjustedRealizedYearPnl = finiteNumber(state.lastPayload?.summary?.adjustedRealizedYearPnl);
+    const yearTotalPnl = adjustedRealizedYearPnl === null ? null : adjustedRealizedYearPnl + unrealizedPnl;
+    const yearReturnBase = yearTotalPnl !== null && totalCapital !== null ? totalCapital - yearTotalPnl : null;
     const previousMarketValue = state.rows.reduce((sum, row) => {
         const previousClose = row.realtimePreviousClose ?? row.previousClose;
         return Number.isFinite(Number(previousClose)) ? sum + number(previousClose) * number(row.quantity) : sum;
@@ -1507,6 +1533,9 @@ function buildSummaryFromRows() {
         todayPnlRate: previousMarketValue > 0 ? todayPnl / previousMarketValue * 100 : null,
         unrealizedPnl,
         unrealizedPnlRate: costBasis > 0 ? unrealizedPnl / costBasis * 100 : null,
+        yearTotalPnl,
+        yearReturnBase,
+        yearTotalPnlRate: yearReturnBase !== null && yearReturnBase > 0 ? yearTotalPnl / yearReturnBase * 100 : null,
         esunTodayPnl,
         esunUnrealizedPnl: state.lastPayload?.summary?.unrealizedPnl ?? null,
         esunMarketValue: state.lastPayload?.summary?.marketValue ?? null,

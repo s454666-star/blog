@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import traceback
+from zoneinfo import ZoneInfo
 
 import esun_trade.sdk as sdk_module
 from esun_trade.sdk import SDK
@@ -60,6 +61,11 @@ def main() -> int:
         inventories = sdk.get_inventories()
         balance = sdk.get_balance()
         settlements = sdk.get_settlements()
+        today = datetime.now(ZoneInfo("Asia/Taipei")).date()
+        transactions = sdk.get_transactions_by_date(
+            today.replace(month=1, day=1).isoformat(),
+            today.isoformat(),
+        )
     except Exception as exc:
         print(json.dumps({
             "error": f"{type(exc).__name__}: {exc}",
@@ -72,6 +78,7 @@ def main() -> int:
         "inventories": inventories,
         "balance": balance,
         "settlements": settlements,
+        "transactions": transactions,
     }, ensure_ascii=True))
     return 0
 

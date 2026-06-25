@@ -302,6 +302,21 @@
             font-weight: 900;
         }
 
+        .badge.cash {
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.14);
+        }
+
+        .badge.short {
+            color: #ff3b5c;
+            background: rgba(255, 59, 92, 0.14);
+        }
+
+        .badge.day-trade {
+            color: #22c55e;
+            background: rgba(34, 197, 94, 0.14);
+        }
+
         .stock-name {
             font-size: 17px;
             font-weight: 900;
@@ -599,15 +614,48 @@ function summaryDeltaText(prefix, label, baseline, diff) {
 }
 
 function stockCell(row) {
+    const tradeLabel = row.tradeTypeLabel || tradeTypeLabel(row.tradeType);
+    const badgeClass = tradeBadgeClass(row.tradeType);
+
     return `
         <div class="stock-cell">
-            <span class="badge">融<br>資</span>
+            <span class="badge ${badgeClass}">${badgeLabelHtml(tradeLabel)}</span>
             <div>
                 <div class="stock-name">${escapeHtml(row.stockName || '')}</div>
                 <div class="stock-code">${escapeHtml(row.stockNo || '')}</div>
             </div>
         </div>
     `;
+}
+
+function tradeTypeLabel(tradeType) {
+    switch (String(tradeType || '')) {
+        case '0': return '現股';
+        case '3': return '融資';
+        case '4': return '融券';
+        case '9': return '當沖';
+        case 'A': return '沖賣';
+        default: return tradeType ? String(tradeType) : '--';
+    }
+}
+
+function tradeBadgeClass(tradeType) {
+    switch (String(tradeType || '')) {
+        case '0': return 'cash';
+        case '4': return 'short';
+        case '9':
+        case 'A':
+            return 'day-trade';
+        default:
+            return '';
+    }
+}
+
+function badgeLabelHtml(label) {
+    const value = String(label || '--');
+    return value.length === 2
+        ? `${escapeHtml(value[0])}<br>${escapeHtml(value[1])}`
+        : escapeHtml(value);
 }
 
 function renderPositions() {

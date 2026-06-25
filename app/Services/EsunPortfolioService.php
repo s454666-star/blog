@@ -215,6 +215,8 @@ class EsunPortfolioService
             ->values()
             ->all();
 
+        $tradeType = (string) $this->value($row, 'trade');
+
         return [
             'stockNo' => $stockNo,
             'stockName' => (string) $this->value($row, 'stk_na', 'stkNa'),
@@ -235,7 +237,8 @@ class EsunPortfolioService
             'fiveDayReturn' => $history['fiveDayReturn'] ?? null,
             'twentyDayReturn' => $history['twentyDayReturn'] ?? null,
             'yearToDateReturn' => $history['yearToDateReturn'] ?? null,
-            'tradeType' => (string) $this->value($row, 'trade'),
+            'tradeType' => $tradeType,
+            'tradeTypeLabel' => $this->tradeTypeLabel($tradeType),
             'positionType' => (string) $this->value($row, 's_type', 'sType'),
             'lotCount' => count($lots),
             'lots' => $lots,
@@ -270,6 +273,18 @@ class EsunPortfolioService
             'costBasis' => $marketValue - $unrealizedPnl,
             'orderNo' => (string) $this->value($lot, 'ord_no', 'ordNo'),
         ];
+    }
+
+    private function tradeTypeLabel(string $tradeType): string
+    {
+        return match ($tradeType) {
+            '0' => '現股',
+            '3' => '融資',
+            '4' => '融券',
+            '9' => '當沖',
+            'A' => '沖賣',
+            default => $tradeType !== '' ? $tradeType : '--',
+        };
     }
 
     /**

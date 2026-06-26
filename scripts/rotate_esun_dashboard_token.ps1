@@ -5,7 +5,10 @@ param(
     [string]$AwsProjectPath = '/var/www/html/blog',
     [string]$LocalBaseUrl = 'https://blog.test',
     [string]$AwsBaseUrl = 'https://mystar.monster',
-    [string]$Token = ''
+    [string]$Token = '',
+    [string]$LineTargetId = '',
+    [switch]$SkipLineNotification,
+    [switch]$LineNotificationOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -89,6 +92,30 @@ function Set-DotEnvValue {
     return $Content.TrimEnd("`r", "`n") + "`r`n" + $replacement + "`r`n"
 }
 
+function Get-DotEnvValue {
+    param(
+        [string]$Content,
+        [string]$Key
+    )
+
+    $pattern = '(?m)^{0}=(.*)$' -f [regex]::Escape($Key)
+    $match = [regex]::Match($Content, $pattern)
+    if (-not $match.Success) {
+        return ''
+    }
+
+    $value = $match.Groups[1].Value.Trim()
+    if ($value.Length -ge 2) {
+        $first = $value.Substring(0, 1)
+        $last = $value.Substring($value.Length - 1, 1)
+        if (($first -eq '"' -and $last -eq '"') -or ($first -eq "'" -and $last -eq "'")) {
+            return $value.Substring(1, $value.Length - 2)
+        }
+    }
+
+    return $value
+}
+
 function Update-SettingsFile {
     param(
         [string]$Path,
@@ -166,8 +193,117 @@ print("aws_token_updated")
     }
 }
 
+function Get-LineAccessToken {
+    param([string]$EnvContent)
+
+    $channelId = Get-DotEnvValue -Content $EnvContent -Key 'LINE_CHANNEL_ID'
+    $channelSecret = Get-DotEnvValue -Content $EnvContent -Key 'LINE_CHANNEL_SECRET'
+
+    if (-not [string]::IsNullOrWhiteSpace($channelId) -and -not [string]::IsNullOrWhiteSpace($channelSecret)) {
+        $response = Invoke-RestMethod `
+            -Method Post `
+            -Uri 'https://api.line.me/oauth2/v3/token' `
+            -ContentType 'application/x-www-form-urlencoded' `
+            -Body @{
+                grant_type = 'client_credentials'
+                client_id = $channelId
+                client_secret = $channelSecret
+            }
+
+        if ([string]::IsNullOrWhiteSpace([string]$response.access_token)) {
+            throw 'LINE stateless token response did not include access_token.'
+        }
+
+        return [string]$response.access_token
+    }
+
+    $token = Get-DotEnvValue -Content $EnvContent -Key 'LINE_CHANNEL_ACCESS_TOKEN'
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        throw 'LINE credentials are missing from local .env.'
+    }
+
+    return $token
+}
+
+function Invoke-LineDashboardNotification {
+    param(
+        [string]$EnvContent,
+        [string]$Message,
+        [string]$TargetId = ''
+    )
+
+    $lineToken = Get-LineAccessToken -EnvContent $EnvContent
+    if ([string]::IsNullOrWhiteSpace($TargetId)) {
+        $TargetId = Get-DotEnvValue -Content $EnvContent -Key 'LINE_DASHBOARD_NOTIFY_TARGET_ID'
+    }
+
+    if ([string]::IsNullOrWhiteSpace($TargetId)) {
+        Write-Log 'Skipped LINE dashboard notification because LINE_DASHBOARD_NOTIFY_TARGET_ID is not configured.'
+        return
+    }
+
+    $payload = @{
+        to = $TargetId
+        messages = @(
+            @{
+                type = 'text'
+                text = $Message
+            }
+        )
+        notificationDisabled = $false
+    } | ConvertTo-Json -Compress -Depth 5
+
+    $headers = @{
+        Authorization = 'Bearer {0}' -f $lineToken
+        'X-Line-Retry-Key' = [guid]::NewGuid().ToString()
+    }
+    $body = [System.Text.Encoding]::UTF8.GetBytes($payload)
+
+    $response = Invoke-WebRequest `
+        -UseBasicParsing `
+        -Method Post `
+        -Uri 'https://api.line.me/v2/bot/message/push' `
+        -Headers $headers `
+        -ContentType 'application/json; charset=utf-8' `
+        -Body $body
+
+    if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 300) {
+        throw ('LINE push failed with HTTP {0}.' -f $response.StatusCode)
+    }
+
+    $requestId = [string]$response.Headers['x-line-request-id']
+    if (-not [string]::IsNullOrWhiteSpace($requestId)) {
+        Write-Log ('Sent LINE dashboard notification. request_id={0}' -f $requestId)
+    } else {
+        Write-Log 'Sent LINE dashboard notification.'
+    }
+}
+
 if (-not (Test-Path -LiteralPath $localEnvPath)) {
     throw "Local .env not found: $localEnvPath"
+}
+
+$initialLocalEnv = Read-Text -Path $localEnvPath
+
+if ($LineNotificationOnly) {
+    $existingToken = Get-DotEnvValue -Content $initialLocalEnv -Key $tokenKey
+    if ([string]::IsNullOrWhiteSpace($existingToken) -and (Test-Path -LiteralPath $dashboardUrlPath)) {
+        $dashboardText = Read-Text -Path $dashboardUrlPath
+        $dashboardMatch = [regex]::Match($dashboardText, 'https://mystar\.monster/tw-stock/esun-portfolio\?token=([a-f0-9]{64})')
+        if ($dashboardMatch.Success) {
+            $existingToken = $dashboardMatch.Groups[1].Value
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($existingToken)) {
+        throw 'Could not find the current E.SUN dashboard token.'
+    }
+
+    $notifyAwsUrl = '{0}/tw-stock/esun-portfolio?token={1}' -f $AwsBaseUrl.TrimEnd('/'), $existingToken
+    Write-Log 'Sending E.SUN dashboard LINE notification without rotating token.'
+    Invoke-LineDashboardNotification -EnvContent $initialLocalEnv -Message ("E.SUN dashboard URL test`n{0}" -f $notifyAwsUrl) -TargetId $LineTargetId
+    Write-Log 'Finished E.SUN dashboard LINE notification test.'
+    exit 0
 }
 
 if ([string]::IsNullOrWhiteSpace($Token)) {
@@ -201,5 +337,9 @@ Write-Log 'Refreshed local Laravel config cache.'
 
 Invoke-AwsTokenUpdate -NewToken $Token -Session $AwsSession -ProjectPath $AwsProjectPath
 Write-Log 'Updated AWS token and refreshed AWS config cache.'
+
+if (-not $SkipLineNotification) {
+    Invoke-LineDashboardNotification -EnvContent $localEnv -Message ("E.SUN dashboard URL updated`n{0}" -f $awsUrl) -TargetId $LineTargetId
+}
 
 Write-Log 'Finished E.SUN dashboard token rotation.'

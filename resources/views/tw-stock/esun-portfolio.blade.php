@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>玉山庫存即時看板</title>
+    <title>{{ $pageTitle ?? '玉山庫存即時看板' }}</title>
     <style>
         :root {
             --bg: #101317;
@@ -892,8 +892,8 @@
 <div class="shell" data-dashboard>
     <header class="topbar">
         <div class="title-block">
-            <h1>玉山庫存即時看板</h1>
-            <div class="subtitle">正式 API · 玉山每60秒校準 · 開盤每秒用雙來源確認價重算損益</div>
+            <h1>{{ $pageTitle ?? '玉山庫存即時看板' }}</h1>
+            <div class="subtitle">正式 API · {{ $brokerName ?? '玉山' }}每60秒校準 · 開盤每秒用雙來源確認價重算損益</div>
         </div>
         <div class="status-bar">
             <span class="pill" data-market-status>{{ $initialMarket['label'] }}</span>
@@ -922,7 +922,7 @@
             <div class="label">今年總損益</div>
             <div class="value" data-summary="yearTotalPnl">--</div>
             <div class="return-rate-line" data-summary="yearTotalPnlRate">今年報酬率 --</div>
-            <div class="sub" data-summary="yearTotalPnlBreakdown">玉山已實現 -- · 當日已實現 --</div>
+            <div class="sub" data-summary="yearTotalPnlBreakdown">{{ $brokerName ?? '玉山' }}已實現 -- · 當日已實現 --</div>
         </div>
         <div class="summary-card capital-card">
             <div class="label">投入總成本</div>
@@ -947,7 +947,7 @@
 
     <section class="toolbar">
         <div class="refresh-actions">
-            <button class="button primary" type="button" data-esun-refresh>更新玉山API</button>
+            <button class="button primary" type="button" data-esun-refresh>更新{{ $brokerName ?? '玉山' }}API</button>
             <button class="button secondary" type="button" data-quote-refresh>更新即時報價</button>
         </div>
         <div class="controls">
@@ -989,6 +989,8 @@
 const apiUrl = @json($apiUrl);
 const quoteUrl = @json($quoteUrl);
 const dashboardToken = @json($token);
+const brokerName = @json($brokerName ?? '玉山');
+const brokerApiLabel = `${brokerName}API`;
 const state = {
     rows: [],
     dataLoading: false,
@@ -1090,7 +1092,7 @@ function updateSummary(payload) {
 
     updateSummaryCards(
         { ...summary, marketOpen: Boolean(payload.market?.isOpen) },
-        `庫存 ${payload.cacheSeconds || 0}s · 玉山 ${formatAge(source.ageSeconds)}`,
+        `庫存 ${payload.cacheSeconds || 0}s · ${brokerName} ${formatAge(source.ageSeconds)}`,
     );
 }
 
@@ -1116,7 +1118,7 @@ function updateSummaryCards(summary, sourceText) {
     setTone(today, summary.todayPnl);
 
     const todayRate = document.querySelector('[data-summary="todayPnlRate"]');
-    todayRate.textContent = summaryDeltaText(formatPercent(summary.todayPnlRate), '玉山', esunTodayPnl, number(summary.todayPnl) - number(esunTodayPnl));
+    todayRate.textContent = summaryDeltaText(formatPercent(summary.todayPnlRate), brokerName, esunTodayPnl, number(summary.todayPnl) - number(esunTodayPnl));
     todayRate.className = `sub ${toneClass(summary.todayPnlRate)}`;
 
     const unrealized = document.querySelector('[data-summary="unrealizedPnl"]');
@@ -1124,11 +1126,11 @@ function updateSummaryCards(summary, sourceText) {
     setTone(unrealized, summary.unrealizedPnl);
 
     const unrealizedRate = document.querySelector('[data-summary="unrealizedPnlRate"]');
-    unrealizedRate.textContent = summaryDeltaText(formatPercent(summary.unrealizedPnlRate), '玉山', esunUnrealizedPnl, number(summary.unrealizedPnl) - number(esunUnrealizedPnl));
+    unrealizedRate.textContent = summaryDeltaText(formatPercent(summary.unrealizedPnlRate), brokerName, esunUnrealizedPnl, number(summary.unrealizedPnl) - number(esunUnrealizedPnl));
     unrealizedRate.className = `sub ${toneClass(summary.unrealizedPnlRate)}`;
 
     document.querySelector('[data-summary="marketValue"]').textContent = formatInteger(summary.marketValue);
-    document.querySelector('[data-summary="costBasis"]').textContent = `玉山投資成本 ${formatInteger(costBasis)} · 玉山市值 ${formatInteger(esunMarketValue)} · 差 ${formatMoney(number(summary.marketValue) - number(esunMarketValue))}`;
+    document.querySelector('[data-summary="costBasis"]').textContent = `${brokerName}投資成本 ${formatInteger(costBasis)} · ${brokerName}市值 ${formatInteger(esunMarketValue)} · 差 ${formatMoney(number(summary.marketValue) - number(esunMarketValue))}`;
     const year = document.querySelector('[data-summary="yearTotalPnl"]');
     year.textContent = yearTotalPnl === null ? '--' : formatMoney(yearTotalPnl);
     setTone(year, yearTotalPnl);
@@ -1136,7 +1138,7 @@ function updateSummaryCards(summary, sourceText) {
     yearRate.textContent = `今年報酬率 ${formatPercent(yearTotalPnlRate)}`;
     yearRate.className = `return-rate-line ${toneClass(yearTotalPnlRate)}`;
     document.querySelector('[data-summary="yearTotalPnlBreakdown"]').textContent =
-        `玉山已實現 ${realizedHistoryPnl === null ? '--' : formatMoney(realizedHistoryPnl)} · ` +
+        `${brokerName}已實現 ${realizedHistoryPnl === null ? '--' : formatMoney(realizedHistoryPnl)} · ` +
         `當日已實現 ${realizedTodayPnl === null ? '--' : formatMoney(realizedTodayPnl)}`;
     document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
     renderInvestmentLevel(investmentLevelRate, bankBalance);
@@ -1310,18 +1312,46 @@ function applyPayload(payload) {
     renderPositions();
 
     const market = payload.market || {};
-    const source = payload.source || {};
     els.marketStatus.textContent = market.label || '--';
     els.marketStatus.classList.toggle('live', Boolean(market.isOpen));
-    els.refreshStatus.textContent = source.status === 'stale'
-        ? '顯示最近成功資料'
-        : (market.isOpen ? '每秒報價 · 每60秒校準玉山' : '非開盤已暫停輪詢');
-    els.refreshStatus.classList.toggle('live', Boolean(market.isOpen));
-    els.refreshStatus.classList.toggle('error', source.status === 'stale');
+    updateInventoryStatus(payload);
     els.lastUpdated.textContent = `更新 ${formatDateTime(payload.queriedAt || payload.servedAt)}`;
     fetchQuotes();
     scheduleQuotePolling(market);
     scheduleEsunPolling(market);
+}
+
+function updateInventoryStatus(payload) {
+    const market = payload.market || {};
+    const source = payload.source || {};
+    const fresh = isInventoryFresh(payload);
+    const retryMs = millisecondsUntilNextEsunRefresh(payload);
+    const retrySeconds = Math.max(1, Math.ceil(retryMs / 1000));
+
+    if (!fresh && market.isOpen) {
+        els.refreshStatus.textContent = `庫存待校準 · ${retrySeconds}秒後重試`;
+    } else if (source.status === 'live') {
+        els.refreshStatus.textContent = market.isOpen ? `${brokerName}庫存已校準 · 每秒報價` : `${brokerName}庫存已校準`;
+    } else if (fresh) {
+        els.refreshStatus.textContent = market.isOpen ? `每秒報價 · 每60秒校準${brokerName}` : '非開盤已暫停輪詢';
+    } else {
+        els.refreshStatus.textContent = '顯示最近成功資料';
+    }
+
+    els.refreshStatus.classList.toggle('live', Boolean(market.isOpen) && fresh);
+    els.refreshStatus.classList.toggle('error', !fresh);
+}
+
+function isInventoryFresh(payload = state.lastPayload) {
+    const source = payload?.source || {};
+    if (typeof source.inventoryFresh === 'boolean') {
+        return source.inventoryFresh;
+    }
+
+    const ageSeconds = finiteNumber(source.snapshotAgeSeconds ?? source.ageSeconds);
+    const minSeconds = Math.max(60, Number(source.minQuerySeconds) || 60);
+
+    return ageSeconds !== null && ageSeconds <= minSeconds;
 }
 
 function sortRows(rows) {
@@ -1399,6 +1429,11 @@ function millisecondsUntilNextEsunRefresh(payload = state.lastPayload) {
     const minSeconds = Math.max(60, Number(payload?.source?.minQuerySeconds) || 60);
     const status = String(payload?.source?.status || '');
     if (['stale', 'throttled'].includes(status)) {
+        const lastQueryAge = finiteNumber(payload?.source?.lastQueryAgeSeconds);
+        if (lastQueryAge !== null) {
+            return Math.max(250, ((minSeconds - lastQueryAge) * 1000) + 500);
+        }
+
         return (minSeconds * 1000) + 500;
     }
 
@@ -1449,7 +1484,7 @@ async function fetchData(force, options = {}) {
     if (force) url.searchParams.set('force', '1');
 
     if (!options.background) {
-        els.refreshStatus.textContent = force ? '讀取玉山庫存中' : '更新中';
+        els.refreshStatus.textContent = force ? `讀取${brokerName}庫存中` : '更新中';
         els.refreshStatus.classList.remove('error');
     }
     els.error.style.display = 'none';
@@ -1469,7 +1504,7 @@ async function fetchData(force, options = {}) {
             els.refreshStatus.classList.add('error');
         }
         els.error.style.display = 'block';
-        els.error.textContent = `讀取玉山庫存失敗：${error.message}`;
+        els.error.textContent = `讀取${brokerName}庫存失敗：${error.message}`;
     } finally {
         state.dataLoading = false;
         els.esunRefresh.disabled = false;
@@ -1580,7 +1615,8 @@ function quoteCanRepriceRow(row, quote) {
 function canUseCandidateQuote(row, quote) {
     const source = state.lastPayload?.source || {};
     const ageSeconds = Number(source.ageSeconds);
-    const staleEsun = ['stale', 'throttled'].includes(source.status)
+    const staleEsun = !isInventoryFresh(state.lastPayload)
+        || ['stale', 'throttled'].includes(source.status)
         || (source.status === 'cached' && Number.isFinite(ageSeconds) && ageSeconds >= Number(source.minQuerySeconds || 60));
 
     return staleEsun && quoteCanRepriceRow(row, quote);
@@ -1922,6 +1958,13 @@ els.filter.addEventListener('input', () => {
 });
 els.esunRefresh.addEventListener('click', () => fetchData(true));
 els.quoteRefresh.addEventListener('click', () => fetchQuotes(true));
+window.addEventListener('focus', () => fetchData(true, { background: true }));
+window.addEventListener('pageshow', () => fetchData(true, { background: true }));
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        fetchData(true, { background: true });
+    }
+});
 els.sortButtons.forEach(button => {
     button.addEventListener('click', () => setSort(button.dataset.sortKey));
 });

@@ -8,6 +8,7 @@
     use App\Http\Controllers\DeliveryAddressController;
     use App\Http\Controllers\FileScreenshotController;
     use App\Http\Controllers\FolderVideoController;
+    use App\Http\Controllers\LineWebhookController;
     use App\Http\Controllers\MemberController;
     use App\Http\Controllers\OrderController;
     use App\Http\Controllers\ProductCategoryController;
@@ -112,6 +113,8 @@
     Route::get('/token-scan/headers', [TokenScanController::class, 'headers']);
     Route::get('/token-scan/items/{peerId}', [TokenScanController::class, 'items']);
     Route::post('/telegram/webhook/mystar-secure', [TelegramWebhookController::class, 'handle'])
+        ->withoutMiddleware('throttle:api');
+    Route::post('/line/webhook', [LineWebhookController::class, 'handle'])
         ->withoutMiddleware('throttle:api');
     Route::get('/telegram/run-all-pages', [TelegramBotPaginationController::class, 'runAllPagesByBot']);
     Route::get('/folder-videos', [FolderVideoController::class, 'index'])->name('folder-videos.index');

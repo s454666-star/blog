@@ -28,6 +28,16 @@ def fail(message: str, exit_code: int = 1) -> int:
     return exit_code
 
 
+def optional_call(label: str, callback):
+    try:
+        return callback(), None
+    except Exception as exc:
+        return None, {
+            "label": label,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
 def main() -> int:
     missing = [name for name in REQUIRED_ENV if not os.environ.get(name)]
     if missing:
@@ -58,8 +68,6 @@ def main() -> int:
         sdk = SDK(config)
         sdk.login()
         inventories = sdk.get_inventories()
-        balance = sdk.get_balance()
-        settlements = sdk.get_settlements()
     except Exception as exc:
         print(json.dumps({
             "error": f"{type(exc).__name__}: {exc}",
@@ -67,11 +75,43 @@ def main() -> int:
         }, ensure_ascii=True), file=sys.stderr)
         return 1
 
+    warnings = []
+    balance, warning = optional_call("balance", sdk.get_balance)
+    if warning:
+        warnings.append(warning)
+
+    settlements, warning = optional_call("settlements", sdk.get_settlements)
+    if warning:
+        warnings.append(warning)
+
+    today = os.environ.get("ESUN_TODAY_DATE", "").strip()
+    today_transactions_history = []
+    today_transactions = []
+    if today:
+        today_transactions_history, warning = optional_call(
+            "today_transactions_by_date",
+            lambda: sdk.get_transactions_by_date(today, today),
+        )
+        if warning:
+            warnings.append(warning)
+            today_transactions_history = []
+
+        today_transactions, warning = optional_call(
+            "today_transactions_range",
+            lambda: sdk.get_transactions("0d"),
+        )
+        if warning:
+            warnings.append(warning)
+            today_transactions = []
+
     print(json.dumps({
         "queried_at": datetime.now(timezone.utc).isoformat(),
         "inventories": inventories,
-        "balance": balance,
-        "settlements": settlements,
+        "balance": balance if isinstance(balance, dict) else {},
+        "settlements": settlements if isinstance(settlements, list) else [],
+        "today_transactions_history": today_transactions_history if isinstance(today_transactions_history, list) else [],
+        "today_transactions": today_transactions if isinstance(today_transactions, list) else [],
+        "warnings": warnings,
     }, ensure_ascii=True))
     return 0
 

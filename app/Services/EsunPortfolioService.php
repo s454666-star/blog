@@ -68,9 +68,7 @@ class EsunPortfolioService
             if (is_array($raw)) {
                 return $this->buildSnapshot($raw, $market, $now, $ttl, [
                     'status' => 'stale',
-                    'message' => $this->isRateLimited($exception)
-                        ? '玉山庫存 API 暫時達到查詢頻率限制，顯示最近一次成功資料。'
-                        : '玉山庫存 API 暫時查詢失敗，顯示最近一次成功資料。',
+                    'message' => $this->staleSnapshotMessage($exception),
                     'lastQueryAgeSeconds' => 0,
                 ]);
             }
@@ -155,27 +153,39 @@ class EsunPortfolioService
         }
 
         $now ??= CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei'));
-        $payload = $this->runEsunScript((string) config('esun.query_script'), $this->esunProcessEnvironment());
+        $today = $now->startOfDay();
+        $payload = $this->runEsunScript((string) config('esun.query_script'), [
+            ...$this->esunProcessEnvironment(),
+            'ESUN_TODAY_DATE' => $today->toDateString(),
+        ], 60);
         if (!isset($payload['inventories']) || !is_array($payload['inventories'])) {
             throw new RuntimeException('E.SUN query returned an unexpected payload.');
         }
 
-        $transactions = $this->yearTransactions($now);
+        $todayHistory = is_array($payload['today_transactions_history'] ?? null)
+            ? $payload['today_transactions_history']
+            : [];
+        $todayTransactions = array_values(array_filter(
+            is_array($payload['today_transactions'] ?? null) ? $payload['today_transactions'] : [],
+            fn (mixed $transaction): bool => is_array($transaction)
+                && $this->transactionSettlesOn($transaction, $today),
+        ));
 
         return [
             'queriedAt' => $payload['queried_at'] ?? now()->toIso8601String(),
             'inventories' => $payload['inventories'],
             'balance' => is_array($payload['balance'] ?? null) ? $payload['balance'] : [],
             'settlements' => is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [],
-            'transactions' => $transactions['history'],
-            'todayTransactions' => $transactions['today'],
+            'transactions' => array_values(array_merge($this->historicalYearTransactions($now), $todayHistory)),
+            'todayTransactions' => $todayTransactions,
+            'warnings' => is_array($payload['warnings'] ?? null) ? $payload['warnings'] : [],
         ];
     }
 
     /**
-     * @return array{history: array<int, array<string, mixed>>, today: array<int, array<string, mixed>>}
+     * @return array<int, array<string, mixed>>
      */
-    private function yearTransactions(CarbonImmutable $now): array
+    private function historicalYearTransactions(CarbonImmutable $now): array
     {
         $today = $now->startOfDay();
         $yearStart = $today->startOfYear();
@@ -204,18 +214,7 @@ class EsunPortfolioService
             }
         }
 
-        $historyToday = $this->queryTransactions($today, $today);
-
-        $todayTransactions = array_values(array_filter(
-            $this->queryTransactions($today, $today, '0d'),
-            fn (mixed $transaction): bool => is_array($transaction)
-                && $this->transactionSettlesOn($transaction, $today),
-        ));
-
-        return [
-            'history' => array_values(array_merge($transactions, $historyToday)),
-            'today' => $todayTransactions,
-        ];
+        return array_values($transactions);
     }
 
     /**
@@ -1025,6 +1024,18 @@ class EsunPortfolioService
     private function isRateLimited(RuntimeException $exception): bool
     {
         return str_contains($exception->getMessage(), 'AGR0003')
+            || str_contains($exception->getMessage(), 'AGR0004')
             || str_contains($exception->getMessage(), 'Transaction Rate Limit');
+    }
+
+    private function staleSnapshotMessage(RuntimeException $exception): string
+    {
+        if (str_contains($exception->getMessage(), 'AGR0004')) {
+            return '玉山庫存 API 今日登入次數已達上限，顯示最近一次成功資料。';
+        }
+
+        return $this->isRateLimited($exception)
+            ? '玉山庫存 API 暫時達到查詢頻率限制，顯示最近一次成功資料。'
+            : '玉山庫存 API 暫時查詢失敗，顯示最近一次成功資料。';
     }
 }

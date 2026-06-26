@@ -462,7 +462,7 @@
             <div class="legend" data-legend>
                 <span class="legend-item" data-series-control="candles"><label class="legend-toggle"><input type="checkbox" checked disabled data-toggle-series="candles" aria-label="K 線固定顯示"><span class="swatch" style="background: var(--blue)"></span>週期 <strong data-legend-timeframe>15分K</strong></label></span>
                 <span class="legend-item" data-series-control="movingAverage"><label class="legend-toggle"><input type="checkbox" checked data-toggle-series="movingAverage" aria-label="顯示均線"><span class="swatch" style="background: var(--yellow)"></span><span data-legend-ma-label>15K MA380</span> <strong data-legend-ma>--</strong></label></span>
-                <span class="legend-item" data-series-control="dailyMa5"><label class="legend-toggle"><input type="checkbox" data-toggle-series="dailyMa5" aria-label="顯示日 MA5"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></label></span>
+                <span class="legend-item" data-series-control="dailyMa5"><label class="legend-toggle"><input type="checkbox" checked data-toggle-series="dailyMa5" aria-label="顯示日 MA5"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></label></span>
                 <span class="legend-item" data-series-control="gap"><label class="legend-toggle"><input type="checkbox" checked data-toggle-series="gap" aria-label="顯示差值"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></label></span>
                 <span class="legend-item" data-series-control="bias"><label class="legend-toggle"><input type="checkbox" data-toggle-series="bias" aria-label="顯示乖離"><span class="swatch" style="background: var(--violet)"></span>乖離 <strong data-legend-bias>--</strong></label></span>
                 <span class="legend-item" data-series-control="biasGapDiff"><label class="legend-toggle"><input type="checkbox" data-toggle-series="biasGapDiff" aria-label="顯示乖離-差值"><span class="swatch" style="background: var(--lime)"></span>乖離-差值 <strong data-legend-bias-gap-diff>--</strong></label></span>
@@ -572,7 +572,7 @@
     const seriesVisibility = {
         candles: true,
         movingAverage: true,
-        dailyMa5: false,
+        dailyMa5: true,
         gap: true,
         bias: false,
         biasGapDiff: false,

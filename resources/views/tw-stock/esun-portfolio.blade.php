@@ -1523,6 +1523,11 @@ function applyQuotes(payload) {
                 return row;
             }
 
+            if (canUseCandidateQuote(row, quoteContext)) {
+                changed = true;
+                return applyCandidateQuoteToRow(row, quoteContext);
+            }
+
             const nextRow = applyPreviousCloseToRow(row, quoteContext);
             if (nextRow !== row) {
                 changed = true;
@@ -1570,6 +1575,25 @@ function quoteCanRepriceRow(row, quote) {
     }
 
     return quoteTime + 2000 >= esunTime;
+}
+
+function canUseCandidateQuote(row, quote) {
+    const source = state.lastPayload?.source || {};
+    const ageSeconds = Number(source.ageSeconds);
+    const staleEsun = ['stale', 'throttled'].includes(source.status)
+        || (source.status === 'cached' && Number.isFinite(ageSeconds) && ageSeconds >= Number(source.minQuerySeconds || 60));
+
+    return staleEsun && quoteCanRepriceRow(row, quote);
+}
+
+function applyCandidateQuoteToRow(row, quote) {
+    return applyQuoteToRow(row, {
+        ...quote,
+        priceType: 'candidate',
+        source: quote.source || 'candidate',
+        sourceLabel: `${quote.sourceLabel || quote.source || '候選報價'} 候選`,
+        confirmationCount: quote.confirmationCount ?? 1,
+    });
 }
 
 function applyStaleQuoteToRow(row, quote) {
@@ -1644,7 +1668,14 @@ function quoteContextFromUnconfirmed(payload, stockNo) {
         return null;
     }
 
-    return candidates.find(candidate => Number.isFinite(Number(candidate.previousClose))) || null;
+    return candidates
+        .filter(candidate => Number.isFinite(Number(candidate.price)) && Number.isFinite(Number(candidate.previousClose)))
+        .sort((a, b) => timestampScore(b.quotedAt) - timestampScore(a.quotedAt))[0] || null;
+}
+
+function timestampScore(value) {
+    const score = Date.parse(value || '');
+    return Number.isFinite(score) ? score : 0;
 }
 
 function applyPreviousCloseToRow(row, quote) {

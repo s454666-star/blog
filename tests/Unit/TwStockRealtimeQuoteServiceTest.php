@@ -19,6 +19,7 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         config()->set('esun.quote_cache_seconds', 1);
         config()->set('esun.quote_confirmation_required', 1);
         config()->set('esun.quote_confirmation_decimals', 2);
+        config()->set('esun.quote_confirmation_tick_tolerance', 1);
     }
 
     public function test_it_parses_twse_mis_quotes_with_mid_price_fallback(): void
@@ -174,6 +175,53 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         $this->assertSame('confirmed', $payload['quotes']['5285']['source']);
         $this->assertSame(2, $payload['quotes']['5285']['confirmationCount']);
         $this->assertSame([], $payload['missing']);
+    }
+
+    public function test_it_confirms_quotes_when_two_sources_are_within_one_tick(): void
+    {
+        config()->set('esun.quote_providers', 'cnyes,yahoo_tw');
+        config()->set('esun.quote_confirmation_required', 2);
+
+        Http::fake([
+            'https://ws.api.cnyes.com/ws/api/v1/quote/quotes/*' => Http::response([
+                'statusCode' => 200,
+                'data' => [
+                    [
+                        '200010' => '2303',
+                        '200009' => '聯電',
+                        '6' => 163.0,
+                        '11' => -15.5,
+                        '56' => -8.68,
+                        '22' => 163.0,
+                        '25' => 163.5,
+                        '800001' => 430187,
+                        '200007' => 1782443375,
+                    ],
+                ],
+            ]),
+            'https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.stockList*' => Http::response([
+                [
+                    'systexId' => '2303',
+                    'symbol' => '2303.TW',
+                    'symbolName' => '聯電',
+                    'price' => ['raw' => '162.5'],
+                    'regularMarketPreviousClose' => ['raw' => '178.5'],
+                    'change' => ['raw' => '-16.0'],
+                    'changePercent' => '-8.96%',
+                    'regularMarketTime' => '2026-06-26T03:09:36Z',
+                ],
+            ]),
+        ]);
+
+        $payload = app(TwStockRealtimeQuoteService::class)->quotes(['2303']);
+
+        $this->assertSame('live', $payload['source']['status']);
+        $this->assertStringStartsWith('近似雙來源確認：', $payload['source']['label']);
+        $this->assertSame([], $payload['missing']);
+        $this->assertSame('nearby-confirmed', $payload['quotes']['2303']['source']);
+        $this->assertSame('nearby-confirmed', $payload['quotes']['2303']['priceType']);
+        $this->assertSame(2, $payload['quotes']['2303']['confirmationCount']);
+        $this->assertSame(0.5, $payload['quotes']['2303']['confirmationRange']);
     }
 
     public function test_it_keeps_quote_missing_when_no_two_sources_match(): void

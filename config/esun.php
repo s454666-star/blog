@@ -28,6 +28,7 @@ return [
     'quote_rotation_seconds' => (int) env('ESUN_PORTFOLIO_QUOTE_ROTATION_SECONDS', 1),
     'quote_confirmation_required' => (int) env('ESUN_PORTFOLIO_QUOTE_CONFIRMATION_REQUIRED', 2),
     'quote_confirmation_decimals' => (int) env('ESUN_PORTFOLIO_QUOTE_CONFIRMATION_DECIMALS', 2),
+    'quote_confirmation_tick_tolerance' => (float) env('ESUN_PORTFOLIO_QUOTE_CONFIRMATION_TICK_TOLERANCE', 1),
 
     'timezone' => env('ESUN_PORTFOLIO_TIMEZONE', 'Asia/Taipei'),
     'market_open_start' => env('ESUN_PORTFOLIO_OPEN_START', '09:00'),

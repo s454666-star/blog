@@ -73,6 +73,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertDontSee('整分鐘校準玉山')
             ->assertDontSee('玉山每分鐘校準')
             ->assertSee('quoteCanRepriceRow', false)
+            ->assertSee('canUseCandidateQuote', false)
+            ->assertSee('applyCandidateQuoteToRow', false)
             ->assertSee('applyStaleQuoteToRow', false)
             ->assertSee('exchange-badge', false)
             ->assertSee('exchangeBadgeHtml', false)

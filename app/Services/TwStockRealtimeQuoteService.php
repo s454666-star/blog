@@ -641,7 +641,95 @@ class TwStockRealtimeQuoteService
             ];
         }
 
+        $nearby = $this->nearbyConfirmedQuote($candidates, $required);
+        if ($nearby !== null) {
+            return $nearby;
+        }
+
         return null;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $candidates
+     * @return array<string, mixed>|null
+     */
+    private function nearbyConfirmedQuote(array $candidates, int $required): ?array
+    {
+        if ($required <= 1 || $this->quoteToleranceTicks() <= 0.0) {
+            return null;
+        }
+
+        $valid = collect($candidates)
+            ->filter(fn (array $candidate): bool => $this->priceOrNull($candidate['price'] ?? null) !== null)
+            ->sortByDesc(fn (array $candidate): int => $this->timestampScore($candidate['quotedAt'] ?? null))
+            ->unique(fn (array $candidate): string => (string) ($candidate['source'] ?? ''))
+            ->values()
+            ->all();
+        if (count($valid) < $required) {
+            return null;
+        }
+
+        $sorted = collect($valid)
+            ->sortBy(fn (array $candidate): float => $this->priceOrNull($candidate['price'] ?? null) ?? 0.0)
+            ->values()
+            ->all();
+
+        $best = null;
+        $bestRange = null;
+        $bestTimestamp = 0;
+        $candidateCount = count($sorted);
+        for ($start = 0; $start <= $candidateCount - $required; $start++) {
+            $window = array_slice($sorted, $start, $required);
+            $prices = array_map(
+                fn (array $candidate): float => $this->priceOrNull($candidate['price'] ?? null) ?? 0.0,
+                $window,
+            );
+            $range = max($prices) - min($prices);
+            $allowedRange = max(array_map(fn (float $price): float => $this->priceTick($price), $prices))
+                * $this->quoteToleranceTicks();
+            if ($range - $allowedRange > 0.000001) {
+                continue;
+            }
+
+            $timestamp = max(array_map(
+                fn (array $candidate): int => $this->timestampScore($candidate['quotedAt'] ?? null),
+                $window,
+            ));
+            if (
+                $best === null
+                || $range < $bestRange - 0.000001
+                || (abs($range - $bestRange) <= 0.000001 && $timestamp > $bestTimestamp)
+            ) {
+                $best = $window;
+                $bestRange = $range;
+                $bestTimestamp = $timestamp;
+            }
+        }
+
+        if ($best === null || $bestRange === null) {
+            return null;
+        }
+
+        $base = $this->latestCandidate($best);
+        $labels = collect($best)
+            ->map(fn (array $quote): string => (string) ($quote['sourceLabel'] ?? $quote['source'] ?? ''))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        return [
+            ...$base,
+            'price' => $this->priceOrNull($base['price'] ?? null) ?? 0.0,
+            'priceType' => 'nearby-confirmed',
+            'source' => 'nearby-confirmed',
+            'sourceLabel' => '近似確認：' . implode(' + ', $labels),
+            'confirmedBy' => $labels,
+            'confirmationCount' => count($best),
+            'confirmationRange' => $bestRange,
+            'confirmationTickTolerance' => $this->quoteToleranceTicks(),
+            'candidatePrices' => $this->summarizeCandidates($best),
+        ];
     }
 
     /**
@@ -660,7 +748,13 @@ class TwStockRealtimeQuoteService
             return $labels === [] ? '可用報價源' : implode(' + ', $labels);
         }
 
-        return $labels === [] ? '雙來源確認報價' : '雙來源確認：' . implode(' + ', $labels);
+        $prefix = collect($quotes)->contains(
+            fn (array $quote): bool => ($quote['priceType'] ?? null) === 'nearby-confirmed',
+        )
+            ? '近似雙來源確認：'
+            : '雙來源確認：';
+
+        return $labels === [] ? '雙來源確認報價' : $prefix . implode(' + ', $labels);
     }
 
     /**
@@ -711,6 +805,23 @@ class TwStockRealtimeQuoteService
     private function confirmationRequired(): int
     {
         return max(1, (int) config('esun.quote_confirmation_required', 2));
+    }
+
+    private function quoteToleranceTicks(): float
+    {
+        return max(0.0, (float) config('esun.quote_confirmation_tick_tolerance', 1));
+    }
+
+    private function priceTick(float $price): float
+    {
+        return match (true) {
+            $price >= 1000 => 5.0,
+            $price >= 500 => 1.0,
+            $price >= 100 => 0.5,
+            $price >= 50 => 0.1,
+            $price >= 10 => 0.05,
+            default => 0.01,
+        };
     }
 
     private function timeout(): int

@@ -316,6 +316,26 @@
             transform: translate(-50%, -50%);
         }
 
+        .threshold-dot {
+            position: absolute;
+            width: 11px;
+            height: 11px;
+            border: 2px solid rgba(15, 17, 21, 0.96);
+            border-radius: 999px;
+            background: var(--cyan);
+            box-shadow:
+                0 0 0 2px rgba(34, 211, 238, 0.35),
+                0 0 10px rgba(34, 211, 238, 0.85);
+            transform: translate(-50%, -50%);
+        }
+
+        .threshold-dot.gap {
+            background: var(--orange);
+            box-shadow:
+                0 0 0 2px rgba(245, 158, 11, 0.35),
+                0 0 10px rgba(245, 158, 11, 0.85);
+        }
+
         .temporary-line-label {
             position: absolute;
             right: 58px;
@@ -537,6 +557,8 @@
     const GAP_AXIS_MIN_VISIBLE_MAX = 2000;
     const GAP_AXIS_MIN_NEGATIVE_VISIBLE = 1200;
     const GAP_AXIS_ZERO_RATIO = 0.68;
+    const BIAS_RATE_HIGHLIGHT_THRESHOLD = 0.04;
+    const GAP_HIGHLIGHT_THRESHOLD = 1000;
     const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {
         timeZone: 'Asia/Taipei',
         year: 'numeric',
@@ -822,6 +844,81 @@
         return timeframeDatasets[activeTimeframe]?.markers ?? gapMarkers;
     }
 
+    function visibleCurrentRows(paddingBars = 4) {
+        const range = chart.timeScale().getVisibleLogicalRange();
+        if (!range) {
+            return currentRows;
+        }
+
+        const from = Math.max(0, Math.floor(range.from) - paddingBars);
+        const to = Math.min(lastLogicalIndex, Math.ceil(range.to) + paddingBars);
+
+        if (to < from) {
+            return [];
+        }
+
+        return currentRows.slice(from, to + 1);
+    }
+
+    function appendThresholdDot(fragment, row, series, value, className, title) {
+        const x = chart.timeScale().timeToCoordinate(Number(row.time));
+        const y = series.priceToCoordinate(value);
+        const width = chartElement.clientWidth;
+        const height = chartElement.clientHeight;
+        const dotViewportMargin = 12;
+
+        if (
+            !Number.isFinite(x)
+            || !Number.isFinite(y)
+            || x < -dotViewportMargin
+            || x > width + dotViewportMargin
+            || y < -dotViewportMargin
+            || y > height + dotViewportMargin
+        ) {
+            return;
+        }
+
+        const dot = document.createElement('span');
+        dot.className = className;
+        dot.title = title;
+        dot.setAttribute('aria-hidden', 'true');
+        dot.style.left = `${x}px`;
+        dot.style.top = `${y}px`;
+        fragment.appendChild(dot);
+    }
+
+    function renderThresholdDots(fragment) {
+        visibleCurrentRows().forEach(row => {
+            if (seriesVisibility.biasRate && row.biasRate !== null && row.biasRate !== undefined) {
+                const biasRate = Number(row.biasRate);
+                if (Number.isFinite(biasRate) && Math.abs(biasRate) > BIAS_RATE_HIGHLIGHT_THRESHOLD) {
+                    appendThresholdDot(
+                        fragment,
+                        row,
+                        biasRateSeries,
+                        biasRate,
+                        'threshold-dot bias-rate',
+                        `乖離率 ${formatPercent(biasRate, 2, true)}`
+                    );
+                }
+            }
+
+            if (seriesVisibility.gap && row.gap !== null && row.gap !== undefined) {
+                const gap = Number(row.gap);
+                if (Number.isFinite(gap) && Math.abs(gap) > GAP_HIGHLIGHT_THRESHOLD) {
+                    appendThresholdDot(
+                        fragment,
+                        row,
+                        gapSeries,
+                        gap,
+                        'threshold-dot gap',
+                        `差值 ${formatSignedGapValue(gap)}`
+                    );
+                }
+            }
+        });
+    }
+
     function renderMarkerLabels() {
         const width = chartElement.clientWidth;
         const height = chartElement.clientHeight;
@@ -869,6 +966,8 @@
                 fragment.appendChild(label);
             });
         }
+
+        renderThresholdDots(fragment);
 
         temporaryPriceLines.forEach(item => {
             const y = gapSeries.priceToCoordinate(item.price);

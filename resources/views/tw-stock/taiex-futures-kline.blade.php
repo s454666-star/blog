@@ -21,6 +21,7 @@
             --orange: #f59e0b;
             --violet: #a78bfa;
             --lime: #84cc16;
+            --cyan: #22d3ee;
         }
 
         * { box-sizing: border-box; }
@@ -184,6 +185,27 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
+        }
+
+        .legend-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: inherit;
+            cursor: pointer;
+        }
+
+        .legend-toggle input {
+            width: 14px;
+            height: 14px;
+            margin: 0;
+            accent-color: var(--blue);
+            cursor: pointer;
+            flex: 0 0 auto;
+        }
+
+        .legend-item.is-disabled {
+            opacity: 0.52;
         }
 
         .swatch {
@@ -434,13 +456,13 @@
     <section class="chart-panel">
         <div class="chart-head">
             <div class="legend" data-legend>
-                <span class="legend-item"><span class="swatch" style="background: var(--blue)"></span>週期 <strong data-legend-timeframe>15分K</strong></span>
-                <span class="legend-item"><span class="swatch" style="background: var(--yellow)"></span><span data-legend-ma-label>15K MA380</span> <strong data-legend-ma>--</strong></span>
-                <span class="legend-item"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></span>
-                <span class="legend-item"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></span>
-                <span class="legend-item"><span class="swatch" style="background: var(--violet)"></span>乖離 <strong data-legend-bias>--</strong></span>
-                <span class="legend-item"><span class="swatch" style="background: var(--lime)"></span>乖離-差值 <strong data-legend-bias-gap-diff>--</strong></span>
-                <span class="legend-item">乖離率 <strong data-legend-bias-rate>--</strong></span>
+                <span class="legend-item" data-series-control="candles"><label class="legend-toggle"><input type="checkbox" data-toggle-series="candles" aria-label="顯示週期 K 線"><span class="swatch" style="background: var(--blue)"></span>週期 <strong data-legend-timeframe>15分K</strong></label></span>
+                <span class="legend-item" data-series-control="movingAverage"><label class="legend-toggle"><input type="checkbox" checked data-toggle-series="movingAverage" aria-label="顯示均線"><span class="swatch" style="background: var(--yellow)"></span><span data-legend-ma-label>15K MA380</span> <strong data-legend-ma>--</strong></label></span>
+                <span class="legend-item" data-series-control="dailyMa5"><label class="legend-toggle"><input type="checkbox" data-toggle-series="dailyMa5" aria-label="顯示日 MA5"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></label></span>
+                <span class="legend-item" data-series-control="gap"><label class="legend-toggle"><input type="checkbox" checked data-toggle-series="gap" aria-label="顯示差值"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></label></span>
+                <span class="legend-item" data-series-control="bias"><label class="legend-toggle"><input type="checkbox" data-toggle-series="bias" aria-label="顯示乖離"><span class="swatch" style="background: var(--violet)"></span>乖離 <strong data-legend-bias>--</strong></label></span>
+                <span class="legend-item" data-series-control="biasGapDiff"><label class="legend-toggle"><input type="checkbox" data-toggle-series="biasGapDiff" aria-label="顯示乖離-差值"><span class="swatch" style="background: var(--lime)"></span>乖離-差值 <strong data-legend-bias-gap-diff>--</strong></label></span>
+                <span class="legend-item" data-series-control="biasRate"><label class="legend-toggle"><input type="checkbox" checked data-toggle-series="biasRate" aria-label="顯示乖離率"><span class="swatch" style="background: var(--cyan)"></span>乖離率 <strong data-legend-bias-rate>--</strong></label></span>
                 <span class="legend-item"><span class="swatch" style="background: #e5e7eb"></span>標記 <strong data-marker-count>0</strong></span>
                 <span class="legend-item">開 <strong data-legend-open>--</strong></span>
                 <span class="legend-item">高 <strong data-legend-high>--</strong></span>
@@ -451,11 +473,6 @@
                 <button type="button" class="tool-button active" data-timeframe="fifteen-minute">15分K</button>
                 <button type="button" class="tool-button" data-timeframe="hourly">60分K</button>
                 <button type="button" class="tool-button" data-timeframe="daily">日線</button>
-                <button type="button" class="tool-button active" data-toggle-series="dailyMa5">日MA5</button>
-                <button type="button" class="tool-button active" data-toggle-series="movingAverage">均線</button>
-                <button type="button" class="tool-button active" data-toggle-series="gap">差值</button>
-                <button type="button" class="tool-button active" data-toggle-series="bias">乖離</button>
-                <button type="button" class="tool-button active" data-toggle-series="biasGapDiff">乖離-差值</button>
                 <button type="button" class="tool-button" data-show-all>全部</button>
                 <button type="button" class="tool-button active" data-show-latest>最新</button>
             </div>
@@ -547,6 +564,15 @@
             movingAverageLabel: '15K MA380',
             defaultVisibleBars: 90
         }
+    };
+    const seriesVisibility = {
+        candles: false,
+        movingAverage: true,
+        dailyMa5: false,
+        gap: true,
+        bias: false,
+        biasGapDiff: false,
+        biasRate: true
     };
 
     function timestampValue(time) {
@@ -718,6 +744,15 @@
         lastValueVisible: false
     });
 
+    const biasRateSeries = chart.addLineSeries({
+        priceScaleId: 'biasRate',
+        priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+        color: '#22d3ee',
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false
+    });
+
     const gapHistogramSeries = chart.addHistogramSeries({
         priceScaleId: 'gap',
         priceFormat: { type: 'price', precision: 0, minMove: 1 },
@@ -727,6 +762,7 @@
     });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } });
     chart.priceScale('gap').applyOptions({ scaleMargins: { top: 0.14, bottom: 0.06 } });
+    chart.priceScale('biasRate').applyOptions({ scaleMargins: { top: 0.14, bottom: 0.06 } });
 
     function candleData(rows) {
         return rows.map(row => ({
@@ -787,46 +823,48 @@
         const height = chartElement.clientHeight;
         const fragment = document.createDocumentFragment();
 
-        activeGapMarkers().forEach(marker => {
-            if (!marker.text) {
-                return;
-            }
+        if (seriesVisibility.candles) {
+            activeGapMarkers().forEach(marker => {
+                if (!marker.text) {
+                    return;
+                }
 
-            const time = Number(marker.time);
-            const x = chart.timeScale().timeToCoordinate(time);
-            const labelEdgePadding = 34;
-            if (x === null || x < labelEdgePadding || x > width + labelEdgePadding) {
-                return;
-            }
+                const time = Number(marker.time);
+                const x = chart.timeScale().timeToCoordinate(time);
+                const labelEdgePadding = 34;
+                if (x === null || x < labelEdgePadding || x > width + labelEdgePadding) {
+                    return;
+                }
 
-            const row = legendMap.get(time);
-            if (!row) {
-                return;
-            }
+                const row = legendMap.get(time);
+                if (!row) {
+                    return;
+                }
 
-            const anchorPrice = marker.position === 'aboveBar'
-                ? Number(row.high)
-                : Number(row.low);
-            const anchorY = candleSeries.priceToCoordinate(anchorPrice);
-            if (!Number.isFinite(anchorY)) {
-                return;
-            }
+                const anchorPrice = marker.position === 'aboveBar'
+                    ? Number(row.high)
+                    : Number(row.low);
+                const anchorY = candleSeries.priceToCoordinate(anchorPrice);
+                if (!Number.isFinite(anchorY)) {
+                    return;
+                }
 
-            const labelViewportMargin = 36;
-            if (anchorY < -labelViewportMargin || anchorY > height + labelViewportMargin) {
-                return;
-            }
+                const labelViewportMargin = 36;
+                if (anchorY < -labelViewportMargin || anchorY > height + labelViewportMargin) {
+                    return;
+                }
 
-            const yOffset = marker.position === 'aboveBar' ? -28 : 28;
-            const y = Math.max(18, Math.min(height - 18, anchorY + yOffset));
-            const label = document.createElement('span');
-            label.className = 'marker-label';
-            label.textContent = marker.text;
-            label.style.color = marker.color;
-            label.style.left = `${Math.min(width - labelEdgePadding, x)}px`;
-            label.style.top = `${y}px`;
-            fragment.appendChild(label);
-        });
+                const yOffset = marker.position === 'aboveBar' ? -28 : 28;
+                const y = Math.max(18, Math.min(height - 18, anchorY + yOffset));
+                const label = document.createElement('span');
+                label.className = 'marker-label';
+                label.textContent = marker.text;
+                label.style.color = marker.color;
+                label.style.left = `${Math.min(width - labelEdgePadding, x)}px`;
+                label.style.top = `${y}px`;
+                fragment.appendChild(label);
+            });
+        }
 
         temporaryPriceLines.forEach(item => {
             const y = gapSeries.priceToCoordinate(item.price);
@@ -865,10 +903,15 @@
         const range = chart.timeScale().getVisibleLogicalRange();
         const from = range ? Math.max(0, Math.floor(range.from)) : 0;
         const to = range ? Math.min(lastLogicalIndex, Math.ceil(range.to)) : lastLogicalIndex;
+        const visibleGapKeys = ['gap', 'bias', 'biasGapDiff']
+            .filter(key => seriesVisibility[key]);
+        if (visibleGapKeys.length === 0) {
+            return [];
+        }
 
         return currentRows
             .slice(from, to + 1)
-            .flatMap(row => [Number(row.gap), Number(row.bias), Number(row.biasGapDiff)])
+            .flatMap(row => visibleGapKeys.map(key => Number(row[key])))
             .filter(Number.isFinite);
     }
 
@@ -1086,19 +1129,39 @@
     }
 
     const seriesByToggle = {
+        candles: [candleSeries, volumeSeries],
         movingAverage: [movingAverageSeries],
         dailyMa5: [dailyMa5Series],
         gap: [gapSeries, gapHistogramSeries, gapZeroSeries],
         bias: [biasSeries],
-        biasGapDiff: [biasGapDiffSeries]
+        biasGapDiff: [biasGapDiffSeries],
+        biasRate: [biasRateSeries]
     };
 
-    document.querySelectorAll('[data-toggle-series]').forEach(button => {
-        button.addEventListener('click', () => {
-            const key = button.dataset.toggleSeries;
-            const active = !button.classList.contains('active');
-            button.classList.toggle('active', active);
-            seriesByToggle[key].forEach(series => series.applyOptions({ visible: active }));
+    function applySeriesVisibility() {
+        Object.entries(seriesByToggle).forEach(([key, seriesList]) => {
+            const visible = Boolean(seriesVisibility[key]);
+            seriesList.forEach(series => series.applyOptions({ visible }));
+            document
+                .querySelectorAll(`[data-series-control="${key}"]`)
+                .forEach(item => item.classList.toggle('is-disabled', !visible));
+            document
+                .querySelectorAll(`input[data-toggle-series="${key}"]`)
+                .forEach(input => {
+                    input.checked = visible;
+                });
+        });
+
+        candleSeries.setMarkers(seriesVisibility.candles ? chartMarkerData(activeGapMarkers()) : []);
+        refreshGapAxisScale();
+    }
+
+    document.querySelectorAll('input[data-toggle-series]').forEach(input => {
+        const key = input.dataset.toggleSeries;
+        input.checked = Boolean(seriesVisibility[key]);
+        input.addEventListener('change', () => {
+            seriesVisibility[key] = input.checked;
+            applySeriesVisibility();
         });
     });
 
@@ -1616,13 +1679,14 @@
         const gapData = lineData(currentRows, 'gap');
 
         candleSeries.setData(candleData(currentRows));
-        candleSeries.setMarkers(chartMarkerData(activeGapMarkers()));
+        candleSeries.setMarkers(seriesVisibility.candles ? chartMarkerData(activeGapMarkers()) : []);
         volumeSeries.setData(volumeData(currentRows));
         movingAverageSeries.setData(movingAverageData);
         dailyMa5Series.setData(lineData(currentRows, 'dailyMa5'));
         gapSeries.setData(gapData);
         biasSeries.setData(lineData(currentRows, 'bias'));
         biasGapDiffSeries.setData(lineData(currentRows, 'biasGapDiff'));
+        biasRateSeries.setData(lineData(currentRows, 'biasRate'));
         gapHistogramSeries.setData(gapHistogramData(gapData));
         gapZeroSeries.setData(gapZeroData(currentRows));
         chart.applyOptions({
@@ -1635,6 +1699,7 @@
             button.classList.toggle('active', button.dataset.timeframe === timeframe);
         });
 
+        applySeriesVisibility();
         updateLegend();
         showLatest();
         scheduleMarkerLabelRender();

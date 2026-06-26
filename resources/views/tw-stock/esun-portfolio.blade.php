@@ -893,7 +893,7 @@
     <header class="topbar">
         <div class="title-block">
             <h1>玉山庫存即時看板</h1>
-            <div class="subtitle">正式 API · 玉山每分鐘校準 · 開盤每秒用雙來源確認價重算損益</div>
+            <div class="subtitle">正式 API · 玉山每60秒校準 · 開盤每秒用雙來源確認價重算損益</div>
         </div>
         <div class="status-bar">
             <span class="pill" data-market-status>{{ $initialMarket['label'] }}</span>
@@ -1315,7 +1315,7 @@ function applyPayload(payload) {
     els.marketStatus.classList.toggle('live', Boolean(market.isOpen));
     els.refreshStatus.textContent = source.status === 'stale'
         ? '顯示最近成功資料'
-        : (market.isOpen ? '每秒報價 · 整分鐘校準玉山' : '非開盤已暫停輪詢');
+        : (market.isOpen ? '每秒報價 · 每60秒校準玉山' : '非開盤已暫停輪詢');
     els.refreshStatus.classList.toggle('live', Boolean(market.isOpen));
     els.refreshStatus.classList.toggle('error', source.status === 'stale');
     els.lastUpdated.textContent = `更新 ${formatDateTime(payload.queriedAt || payload.servedAt)}`;
@@ -1395,11 +1395,24 @@ function scheduleQuotePolling(market) {
     }
 }
 
-function millisecondsUntilNextMinute(date = new Date()) {
-    const elapsed = date.getSeconds() * 1000 + date.getMilliseconds();
+function millisecondsUntilNextEsunRefresh(payload = state.lastPayload) {
+    const minSeconds = Math.max(60, Number(payload?.source?.minQuerySeconds) || 60);
+    const status = String(payload?.source?.status || '');
+    if (['stale', 'throttled'].includes(status)) {
+        return (minSeconds * 1000) + 500;
+    }
 
-    // Small offset keeps the browser from firing a hair before the minute flips.
-    return Math.max(250, 60000 - elapsed + 250);
+    const ageSeconds = finiteNumber(payload?.source?.ageSeconds);
+    if (ageSeconds !== null) {
+        return Math.max(250, ((minSeconds - ageSeconds) * 1000) + 500);
+    }
+
+    const queriedAt = Date.parse(payload?.queriedAt || '');
+    if (!Number.isFinite(queriedAt)) {
+        return (minSeconds * 1000) + 500;
+    }
+
+    return Math.max(250, queriedAt + (minSeconds * 1000) - Date.now() + 500);
 }
 
 function scheduleEsunPolling(market) {
@@ -1419,7 +1432,7 @@ function scheduleEsunPolling(market) {
         if (!state.esunTimer) {
             scheduleEsunPolling(state.lastPayload?.market || market);
         }
-    }, millisecondsUntilNextMinute());
+    }, millisecondsUntilNextEsunRefresh(state.lastPayload));
 }
 
 async function fetchData(force, options = {}) {

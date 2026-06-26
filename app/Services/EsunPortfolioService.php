@@ -154,10 +154,7 @@ class EsunPortfolioService
 
         $now ??= CarbonImmutable::now((string) config('esun.timezone', 'Asia/Taipei'));
         $today = $now->startOfDay();
-        $payload = $this->runEsunScript((string) config('esun.query_script'), [
-            ...$this->esunProcessEnvironment(),
-            'ESUN_TODAY_DATE' => $today->toDateString(),
-        ], 60);
+        $payload = $this->queryPortfolioPayload($today);
         if (!isset($payload['inventories']) || !is_array($payload['inventories'])) {
             throw new RuntimeException('E.SUN query returned an unexpected payload.');
         }
@@ -180,6 +177,24 @@ class EsunPortfolioService
             'todayTransactions' => $todayTransactions,
             'warnings' => is_array($payload['warnings'] ?? null) ? $payload['warnings'] : [],
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function queryPortfolioPayload(CarbonImmutable $today): array
+    {
+        $daemonUrl = $this->daemonUrl();
+        if ($daemonUrl !== null) {
+            return $this->queryDaemon($daemonUrl . '/portfolio', [
+                'today' => $today->toDateString(),
+            ], 60);
+        }
+
+        return $this->runEsunScript((string) config('esun.query_script'), [
+            ...$this->esunProcessEnvironment(),
+            'ESUN_TODAY_DATE' => $today->toDateString(),
+        ], 60);
     }
 
     /**
@@ -226,17 +241,79 @@ class EsunPortfolioService
             return [];
         }
 
-        $payload = $this->runEsunScript((string) config('esun.transaction_script'), [
-            ...$this->esunProcessEnvironment(),
-            'ESUN_TRANSACTIONS_START' => $start->toDateString(),
-            'ESUN_TRANSACTIONS_END' => $end->toDateString(),
-            'ESUN_TRANSACTIONS_RANGE' => $range ?? '',
-        ]);
+        $payload = $this->queryTransactionsPayload($start, $end, $range);
         if (!isset($payload['transactions']) || !is_array($payload['transactions'])) {
             throw new RuntimeException('E.SUN transactions query returned an unexpected payload.');
         }
 
         return $payload['transactions'];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function queryTransactionsPayload(CarbonImmutable $start, CarbonImmutable $end, ?string $range): array
+    {
+        $daemonUrl = $this->daemonUrl();
+        if ($daemonUrl !== null) {
+            $query = [
+                'start' => $start->toDateString(),
+                'end' => $end->toDateString(),
+            ];
+            if ($range !== null && trim($range) !== '') {
+                $query['range'] = $range;
+            }
+
+            return $this->queryDaemon($daemonUrl . '/transactions', $query);
+        }
+
+        return $this->runEsunScript((string) config('esun.transaction_script'), [
+            ...$this->esunProcessEnvironment(),
+            'ESUN_TRANSACTIONS_START' => $start->toDateString(),
+            'ESUN_TRANSACTIONS_END' => $end->toDateString(),
+            'ESUN_TRANSACTIONS_RANGE' => $range ?? '',
+        ]);
+    }
+
+    /**
+     * @param array<string, string> $query
+     * @return array<string, mixed>
+     */
+    private function queryDaemon(string $url, array $query, int $timeout = 35): array
+    {
+        try {
+            $response = Http::acceptJson()
+                ->timeout(max(1, (int) config('esun.daemon_timeout_seconds', $timeout)))
+                ->get($url, $query);
+        } catch (\Throwable $exception) {
+            throw new RuntimeException(
+                'E.SUN daemon query failed: ' . $this->redactSecrets($exception->getMessage()),
+                0,
+                $exception,
+            );
+        }
+
+        $payload = $response->json();
+        if (!$response->successful()) {
+            $error = is_array($payload)
+                ? (string) ($payload['error'] ?? json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES))
+                : $response->body();
+
+            throw new RuntimeException('E.SUN daemon query failed: ' . $this->redactSecrets($error));
+        }
+
+        if (!is_array($payload)) {
+            throw new RuntimeException('E.SUN daemon query returned an unexpected payload.');
+        }
+
+        return $payload;
+    }
+
+    private function daemonUrl(): ?string
+    {
+        $url = rtrim(trim((string) config('esun.daemon_url', '')), '/');
+
+        return $url === '' ? null : $url;
     }
 
     /**

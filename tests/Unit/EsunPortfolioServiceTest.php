@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Services\EsunPortfolioService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -232,6 +233,81 @@ class EsunPortfolioServiceTest extends TestCase
             Cache::forget('esun:portfolio:inventories:last-success:v5');
             Cache::forget('esun:portfolio:last-query-at:v5');
         }
+    }
+
+    public function test_it_can_read_inventory_payload_from_persistent_daemon(): void
+    {
+        config()->set('esun.portfolio_enabled', true);
+        config()->set('esun.daemon_url', 'http://127.0.0.1:8765');
+
+        Http::fake([
+            'http://127.0.0.1:8765/portfolio*' => Http::response([
+                'queried_at' => '2026-01-01T02:00:00+00:00',
+                'inventories' => [
+                    [
+                        'stk_no' => '00631L',
+                        'stk_na' => '元大台灣50正2',
+                        'trade' => '0',
+                        'cost_qty' => '8000',
+                    ],
+                ],
+                'balance' => ['available_balance' => '100000'],
+                'settlements' => [],
+                'today_transactions_history' => [
+                    ['make' => '2000', 'trade' => '0', 'c_date' => '20260101'],
+                ],
+                'today_transactions' => [
+                    ['make' => '3000', 'trade' => '0', 'c_date' => '20260101'],
+                    ['make' => '9999', 'trade' => '0', 'c_date' => '20260102'],
+                ],
+                'warnings' => [],
+                'daemon' => ['login_count' => 1],
+            ]),
+        ]);
+
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'queryInventories');
+        $payload = $method->invoke($service, CarbonImmutable::parse('2026-01-01 10:00:00', 'Asia/Taipei'));
+
+        $this->assertSame('2026-01-01T02:00:00+00:00', $payload['queriedAt']);
+        $this->assertSame('00631L', $payload['inventories'][0]['stk_no']);
+        $this->assertSame('8000', $payload['inventories'][0]['cost_qty']);
+        $this->assertSame('100000', $payload['balance']['available_balance']);
+        $this->assertSame('2000', $payload['transactions'][0]['make']);
+        $this->assertCount(1, $payload['todayTransactions']);
+        $this->assertSame('3000', $payload['todayTransactions'][0]['make']);
+
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/portfolio?today=2026-01-01'));
+    }
+
+    public function test_it_can_read_transactions_from_persistent_daemon(): void
+    {
+        config()->set('esun.daemon_url', 'http://127.0.0.1:8765');
+
+        Http::fake([
+            'http://127.0.0.1:8765/transactions*' => Http::response([
+                'queried_at' => '2026-06-26T02:00:00+00:00',
+                'start' => '2026-01-01',
+                'end' => '2026-06-25',
+                'transactions' => [
+                    ['stk_no' => '6271', 'make' => '1200'],
+                ],
+                'daemon' => ['login_count' => 1],
+            ]),
+        ]);
+
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'queryTransactions');
+        $transactions = $method->invoke(
+            $service,
+            CarbonImmutable::parse('2026-01-01', 'Asia/Taipei'),
+            CarbonImmutable::parse('2026-06-25', 'Asia/Taipei'),
+        );
+
+        $this->assertSame([['stk_no' => '6271', 'make' => '1200']], $transactions);
+
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/transactions?start=2026-01-01')
+            && str_contains($request->url(), 'end=2026-06-25'));
     }
 
     public function test_it_calculates_year_profit_from_esun_realized_profit(): void

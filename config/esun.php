@@ -7,6 +7,8 @@ return [
     'python_bin' => env('ESUN_PYTHON_BIN', 'python'),
     'query_script' => base_path('scripts/esun_portfolio_query.py'),
     'transaction_script' => base_path('scripts/esun_transactions_query.py'),
+    'daemon_url' => env('ESUN_PORTFOLIO_DAEMON_URL', ''),
+    'daemon_timeout_seconds' => (int) env('ESUN_PORTFOLIO_DAEMON_TIMEOUT_SECONDS', 35),
 
     'entry' => env('ESUN_API_ENTRY', 'https://esuntradingapi.esunsec.com.tw/api/v1'),
     'account' => env('ESUN_ACCOUNT', ''),

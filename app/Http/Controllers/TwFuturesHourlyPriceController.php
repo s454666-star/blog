@@ -220,8 +220,8 @@ class TwFuturesHourlyPriceController extends Controller
                 : null;
             $gap = $dailyMa5 !== null && $movingAverage !== null ? $dailyMa5 - $movingAverage : null;
             $bias = $movingAverage !== null ? $close - $movingAverage : null;
-            $biasRate = $bias !== null && $close !== 0.0 ? $bias / $close : null;
             $biasGapDiff = $bias !== null && $gap !== null ? $bias - $gap : null;
+            $biasRate = $biasGapDiff !== null && $close !== 0.0 ? $biasGapDiff / $close : null;
             $startedAt = CarbonImmutable::parse($row->started_at, 'Asia/Taipei');
             $startedAtUnix = (int) $row->started_at_unix;
             $time = $this->displayTimestamp($row);

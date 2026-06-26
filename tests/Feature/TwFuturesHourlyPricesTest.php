@@ -228,11 +228,13 @@ class TwFuturesHourlyPricesTest extends TestCase
         $biasRow = $biasRows[array_key_last($biasRows)];
         $expectedBias = (float) $biasRow['close'] - (float) $biasRow['movingAverage'];
         $this->assertEqualsWithDelta($expectedBias, (float) $biasRow['bias'], 0.0001);
-        $this->assertEqualsWithDelta($expectedBias / (float) $biasRow['close'], (float) $biasRow['biasRate'], 0.000001);
 
         $biasGapDiffRows = array_values(array_filter(
             $chartRows,
-            fn (array $row): bool => $row['gap'] !== null && $row['bias'] !== null && $row['biasGapDiff'] !== null,
+            fn (array $row): bool => $row['gap'] !== null
+                && $row['bias'] !== null
+                && $row['biasRate'] !== null
+                && $row['biasGapDiff'] !== null,
         ));
         $this->assertNotEmpty($biasGapDiffRows);
         $biasGapDiffRow = $biasGapDiffRows[array_key_last($biasGapDiffRows)];
@@ -242,6 +244,11 @@ class TwFuturesHourlyPricesTest extends TestCase
             (float) $biasGapDiffRow['close'] - (float) $biasGapDiffRow['dailyMa5'],
             (float) $biasGapDiffRow['biasGapDiff'],
             0.0001,
+        );
+        $this->assertEqualsWithDelta(
+            $expectedBiasGapDiff / (float) $biasGapDiffRow['close'],
+            (float) $biasGapDiffRow['biasRate'],
+            0.000001,
         );
 
         preg_match('/const dailyChartRows = (.*);/', $content, $matches);

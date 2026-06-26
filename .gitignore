@@ -17,6 +17,7 @@ yarn-error.log
 storage/certs/
 /storage/app/esun/
 /storage/app/esun-venv/
+/storage/app/yuanta/
 *.pem
 /python/__pycache__/
 __pycache__/

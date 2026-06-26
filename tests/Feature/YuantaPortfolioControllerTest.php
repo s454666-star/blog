@@ -1,0 +1,118 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Services\TwStockRealtimeQuoteService;
+use App\Services\YuantaPortfolioService;
+use Mockery;
+use Tests\TestCase;
+
+class YuantaPortfolioControllerTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config()->set('yuanta.dashboard_token', 'test-token');
+    }
+
+    public function test_dashboard_requires_token(): void
+    {
+        $this->get(route('tw-stock.yuanta-portfolio.index'))
+            ->assertForbidden();
+    }
+
+    public function test_dashboard_renders_private_realtime_page(): void
+    {
+        $service = Mockery::mock(YuantaPortfolioService::class);
+        $service->shouldReceive('marketStatus')->once()->andReturn([
+            'isOpen' => false,
+            'label' => '非交易時段',
+            'pollSeconds' => null,
+        ]);
+        $this->app->instance(YuantaPortfolioService::class, $service);
+
+        $this->get(route('tw-stock.yuanta-portfolio.index', ['token' => 'test-token']))
+            ->assertOk()
+            ->assertSee('元大庫存即時看板')
+            ->assertSee('元大每60秒校準')
+            ->assertSee('更新元大API')
+            ->assertSee('元大已實現')
+            ->assertSee('apiUrl', false)
+            ->assertSee('quoteUrl', false)
+            ->assertSee('brokerName', false)
+            ->assertDontSee('更新玉山API')
+            ->assertDontSee('玉山庫存即時看板');
+    }
+
+    public function test_data_endpoint_returns_service_snapshot(): void
+    {
+        $payload = [
+            'summary' => [
+                'stockCount' => 1,
+                'marketValue' => 100000,
+            ],
+            'market' => [
+                'isOpen' => true,
+                'label' => '台股交易時段',
+                'pollSeconds' => 2,
+            ],
+            'rows' => [
+                [
+                    'stockNo' => '2303',
+                    'stockName' => '聯電',
+                    'quantity' => 1000,
+                ],
+            ],
+        ];
+
+        $service = Mockery::mock(YuantaPortfolioService::class);
+        $service->shouldReceive('snapshot')->once()->with(false)->andReturn($payload);
+        $this->app->instance(YuantaPortfolioService::class, $service);
+
+        $this->getJson(route('tw-stock.yuanta-portfolio.data', ['token' => 'test-token']))
+            ->assertOk()
+            ->assertJsonPath('summary.stockCount', 1)
+            ->assertJsonPath('rows.0.stockNo', '2303');
+    }
+
+    public function test_quotes_endpoint_returns_requested_holdings_quotes(): void
+    {
+        $portfolio = Mockery::mock(YuantaPortfolioService::class);
+        $portfolio->shouldReceive('marketStatus')->once()->andReturn([
+            'isOpen' => true,
+            'label' => '台股交易時段',
+            'pollSeconds' => 1,
+        ]);
+        $this->app->instance(YuantaPortfolioService::class, $portfolio);
+
+        $quotes = Mockery::mock(TwStockRealtimeQuoteService::class);
+        $quotes->shouldReceive('quotes')->once()->with(['2303'])->andReturn([
+            'servedAt' => '2026-06-26T11:45:00+08:00',
+            'cacheSeconds' => 1,
+            'source' => [
+                'status' => 'live',
+                'providers' => ['cnyes'],
+                'label' => 'CNYES',
+            ],
+            'quotes' => [
+                '2303' => [
+                    'price' => 175.0,
+                    'previousClose' => 170.0,
+                    'source' => 'cnyes',
+                ],
+            ],
+            'missing' => [],
+        ]);
+        $this->app->instance(TwStockRealtimeQuoteService::class, $quotes);
+
+        $this->getJson(route('tw-stock.yuanta-portfolio.quotes', [
+            'token' => 'test-token',
+            'codes' => '2303',
+        ]))
+            ->assertOk()
+            ->assertJsonPath('source.label', 'CNYES')
+            ->assertJsonPath('market.pollSeconds', 1)
+            ->assertJsonPath('quotes.2303.price', 175);
+    }
+}

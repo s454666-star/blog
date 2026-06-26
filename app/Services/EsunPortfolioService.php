@@ -25,6 +25,7 @@ class EsunPortfolioService
         $cached = Cache::get($cacheKey);
         $queryAge = $this->secondsSince(Cache::get($lastQueryKey), $now);
         $minQuerySeconds = $this->minimumQuerySeconds();
+        $fallback = fn (): ?array => $this->lastSuccessfulSnapshot($fallbackKey);
 
         if (is_array($cached) && (!$force || ($queryAge !== null && $queryAge < $minQuerySeconds))) {
             $meta = $force ? [
@@ -38,20 +39,27 @@ class EsunPortfolioService
             return $this->buildSnapshot($cached, $market, $now, $ttl, $meta);
         }
 
+        if ($queryAge !== null && $queryAge < $minQuerySeconds && is_array($raw = $fallback())) {
+            return $this->buildSnapshot($raw, $market, $now, $ttl, [
+                'status' => $force ? 'throttled' : 'cached',
+                'message' => '玉山庫存 API 有查詢頻率限制，先顯示最近一次成功資料。',
+            ]);
+        }
+
         try {
             Cache::put($lastQueryKey, $now->toIso8601String(), now()->addDay());
             $raw = $this->queryInventories($now);
             Cache::put($cacheKey, $raw, now()->addSeconds($ttl));
-            Cache::put($fallbackKey, $raw, now()->addHours(8));
+            $this->storeSuccessfulSnapshot($fallbackKey, $raw);
 
             return $this->buildSnapshot($raw, $market, $now, $ttl, [
                 'status' => 'live',
                 'message' => '玉山 API 查詢成功。',
             ]);
         } catch (RuntimeException $exception) {
-            $fallback = Cache::get($fallbackKey);
-            if (is_array($fallback)) {
-                return $this->buildSnapshot($fallback, $market, $now, $ttl, [
+            $raw = $fallback();
+            if (is_array($raw)) {
+                return $this->buildSnapshot($raw, $market, $now, $ttl, [
                     'status' => 'stale',
                     'message' => $this->isRateLimited($exception)
                         ? '玉山庫存 API 暫時達到查詢頻率限制，顯示最近一次成功資料。'
@@ -61,6 +69,46 @@ class EsunPortfolioService
 
             throw $exception;
         }
+    }
+
+    private function lastSuccessfulSnapshot(string $fallbackKey): ?array
+    {
+        $cached = Cache::get($fallbackKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $path = $this->persistentFallbackPath();
+        if (!is_file($path)) {
+            return null;
+        }
+
+        $decoded = json_decode((string) file_get_contents($path), true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+
+        Cache::put($fallbackKey, $decoded, now()->addHours(8));
+
+        return $decoded;
+    }
+
+    private function storeSuccessfulSnapshot(string $fallbackKey, array $raw): void
+    {
+        Cache::put($fallbackKey, $raw, now()->addHours(8));
+
+        $path = $this->persistentFallbackPath();
+        $directory = dirname($path);
+        if (!is_dir($directory)) {
+            mkdir($directory, 0755, true);
+        }
+
+        file_put_contents($path, json_encode($raw, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    private function persistentFallbackPath(): string
+    {
+        return storage_path('app/esun/portfolio-last-success-v5.json');
     }
 
     public function marketStatus(?CarbonImmutable $now = null): array

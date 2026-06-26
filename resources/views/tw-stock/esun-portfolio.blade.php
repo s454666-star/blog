@@ -1518,6 +1518,15 @@ function applyQuotes(payload) {
             return nextRow;
         }
 
+        if (!quoteCanRepriceRow(row, quote)) {
+            const nextRow = applyStaleQuoteToRow(row, quote);
+            if (nextRow !== row) {
+                changed = true;
+            }
+
+            return nextRow;
+        }
+
         changed = true;
         return applyQuoteToRow(row, quote);
     });
@@ -1532,6 +1541,34 @@ function applyQuotes(payload) {
     updateSortIndicators();
     renderPositions();
     updateQuoteStatus(payload);
+}
+
+function quoteCanRepriceRow(row, quote) {
+    const quotePrice = finiteNumber(quote?.price);
+    const esunPrice = finiteNumber(row.esunCurrentPrice ?? row.currentPrice);
+    if (quotePrice === null || esunPrice === null || Math.abs(quotePrice - esunPrice) < 0.000001) {
+        return true;
+    }
+
+    const quoteTime = Date.parse(quote?.quotedAt || '');
+    const esunTime = Date.parse(state.lastPayload?.queriedAt || '');
+    if (!Number.isFinite(quoteTime) || !Number.isFinite(esunTime)) {
+        return true;
+    }
+
+    return quoteTime + 2000 >= esunTime;
+}
+
+function applyStaleQuoteToRow(row, quote) {
+    const nextRow = applyPreviousCloseToRow(row, quote);
+
+    return {
+        ...nextRow,
+        staleQuotePrice: quote.price ?? null,
+        quoteSource: quote.sourceLabel || quote.source || '',
+        quoteAt: quote.quotedAt || null,
+        quoteStaleForPnl: true,
+    };
 }
 
 function applyQuoteToRow(row, quote) {

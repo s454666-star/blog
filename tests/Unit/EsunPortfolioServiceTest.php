@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Services\EsunPortfolioService;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -196,6 +197,41 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(80000.0, $summary['pendingSettlementAmount']);
         $this->assertSame(410000.0, $summary['bankBalance']);
         $this->assertEqualsWithDelta(54.945054945, $summary['investmentLevelRate'], 0.000001);
+    }
+
+    public function test_it_uses_last_success_snapshot_during_minimum_query_window_after_short_cache_expires(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 09:23:00', 'Asia/Taipei'));
+        Cache::forget('esun:portfolio:inventories:v5');
+        Cache::forget('esun:portfolio:inventories:last-success:v5');
+        Cache::forget('esun:portfolio:last-query-at:v5');
+
+        try {
+            config()->set('esun.portfolio_enabled', false);
+            config()->set('esun.minimum_query_seconds', 60);
+
+            Cache::put('esun:portfolio:last-query-at:v5', '2026-06-26T09:22:40+08:00', now()->addHour());
+            Cache::put('esun:portfolio:inventories:last-success:v5', [
+                'queriedAt' => '2026-06-26T09:22:30+08:00',
+                'inventories' => [],
+                'balance' => ['available_balance' => '1000000'],
+                'settlements' => [],
+                'transactions' => [],
+                'todayTransactions' => [],
+            ], now()->addHour());
+
+            $snapshot = (new EsunPortfolioService())->snapshot(false);
+
+            $this->assertSame('cached', $snapshot['source']['status']);
+            $this->assertSame(30, $snapshot['source']['ageSeconds']);
+            $this->assertSame(0, $snapshot['summary']['stockCount']);
+            $this->assertSame(1000000.0, $snapshot['summary']['bankBalance']);
+        } finally {
+            CarbonImmutable::setTestNow();
+            Cache::forget('esun:portfolio:inventories:v5');
+            Cache::forget('esun:portfolio:inventories:last-success:v5');
+            Cache::forget('esun:portfolio:last-query-at:v5');
+        }
     }
 
     public function test_it_calculates_year_profit_from_esun_realized_profit(): void

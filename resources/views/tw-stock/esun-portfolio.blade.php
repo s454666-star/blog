@@ -1819,11 +1819,19 @@ function updateQuoteStatus(payload) {
     els.marketStatus.classList.toggle('live', Boolean(market.isOpen));
 
     const ok = ['live', 'partial'].includes(source.status);
-    els.refreshStatus.textContent = ok
-        ? `報價每秒更新 · ${source.label || '--'}`
-        : (market.isOpen ? '報價來源暫時缺漏' : '非開盤已暫停輪詢');
-    els.refreshStatus.classList.toggle('live', ok && Boolean(market.isOpen));
-    els.refreshStatus.classList.toggle('error', !ok && Boolean(market.isOpen));
+    if (!isInventoryFresh(state.lastPayload)) {
+        const retrySeconds = Math.max(1, Math.ceil(millisecondsUntilNextEsunRefresh(state.lastPayload) / 1000));
+        const quoteText = ok ? `報價 ${source.label || '--'}` : '報價來源暫時缺漏';
+        els.refreshStatus.textContent = `庫存待校準 · ${retrySeconds}秒後重試 · ${quoteText}`;
+        els.refreshStatus.classList.remove('live');
+        els.refreshStatus.classList.add('error');
+    } else {
+        els.refreshStatus.textContent = ok
+            ? `報價每秒更新 · ${source.label || '--'}`
+            : (market.isOpen ? '報價來源暫時缺漏' : '非開盤已暫停輪詢');
+        els.refreshStatus.classList.toggle('live', ok && Boolean(market.isOpen));
+        els.refreshStatus.classList.toggle('error', !ok && Boolean(market.isOpen));
+    }
     els.lastUpdated.textContent = `報價 ${formatDateTime(payload.servedAt)}`;
 
     if (market.isOpen === false) {

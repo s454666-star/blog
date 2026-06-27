@@ -114,7 +114,7 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_upcoming_dividends.log'));
 
-        $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=15 --bars=4800 --delay-seconds=75')
+        $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=15 --from=' . now(config('app.timezone'))->subDays(7)->toDateString() . ' --to=' . now(config('app.timezone'))->addDays(3)->toDateString() . ' --bars=4800 --delay-seconds=75')
             ->everyFifteenMinutes()
             ->name('tw-stock-fetch-taiex-futures-15-minute')
             ->withoutOverlapping(15)
@@ -123,7 +123,7 @@ class Kernel extends ConsoleKernel
 
         $this->scheduleTaiexFuturesOpeningRetries($schedule);
 
-        $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=60')
+        $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=60 --from=' . now(config('app.timezone'))->subDays(7)->toDateString() . ' --to=' . now(config('app.timezone'))->addDays(3)->toDateString())
             ->hourlyAt(10)
             ->name('tw-stock-fetch-taiex-futures-hourly')
             ->withoutOverlapping(60)
@@ -231,7 +231,7 @@ class Kernel extends ConsoleKernel
             ['cron' => '47,52,57 8 * * 1-5', 'name' => 'day-open'],
             ['cron' => '2,7,12 15 * * 1-5', 'name' => 'night-open'],
         ] as $window) {
-            $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=15 --bars=4800')
+            $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=15 --from=' . now(config('app.timezone'))->subDays(3)->toDateString() . ' --to=' . now(config('app.timezone'))->addDays(3)->toDateString() . ' --bars=4800')
                 ->cron($window['cron'])
                 ->name('tw-stock-fetch-taiex-futures-15-minute-' . $window['name'] . '-retry')
                 ->withoutOverlapping(10)

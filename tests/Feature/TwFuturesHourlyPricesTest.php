@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Console\Commands\BackfillTwFuturesContinuousPricesCommand;
 use App\Services\TwFuturesDailyPriceFetcher;
 use App\Services\TwFuturesHourlyPriceFetcher;
+use App\Services\TwFuturesOfficialIntradayPriceFetcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
@@ -489,6 +490,80 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertStringContainsString('TAIFEX official futures history page', (string) $dailyRow->verified_sources);
     }
 
+    public function test_official_intraday_fetcher_aggregates_taifex_tick_csv_by_official_file_trade_date(): void
+    {
+        if (! class_exists(\ZipArchive::class)) {
+            $this->markTestSkipped('ZipArchive is required for TAIFEX tick ZIP parsing.');
+        }
+
+        DB::table('tw_futures_hourly_prices')->insert([
+            $this->priceRow(
+                interval: '15',
+                startedAt: CarbonImmutable::parse('2026-06-18 15:00:00', 'Asia/Taipei'),
+                tradeDate: '2026-06-19',
+                sessionType: 'night',
+                close: 46752,
+                cursor: 1,
+                now: now(),
+            ),
+        ]);
+
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'dlFutPrevious30DaysSalesData')) {
+                return Http::response(
+                    '<input onclick="window.open(\'https://www.taifex.com.tw/file/taifex/Dailydownload/DailydownloadCSV/Daily_2026_06_22.zip\')">',
+                    200,
+                );
+            }
+
+            if (str_contains($request->url(), 'Daily_2026_06_22.zip')) {
+                return Http::response($this->taifexTickZip([
+                    ['20260618', 'TX', '202607', '150000', '46751', '112'],
+                    ['20260618', 'TX', '202607', '150100', '46752', '4'],
+                    ['20260619', 'TX', '202607', '045959', '47565', '2'],
+                    ['20260622', 'TX', '202607', '084500', '48400', '4'],
+                    ['20260622', 'TX', '202607', '134500', '48413', '6'],
+                ]), 200, ['Content-Type' => 'application/zip']);
+            }
+
+            return Http::response('', 404);
+        });
+
+        $fetcher = app(TwFuturesOfficialIntradayPriceFetcher::class);
+        $rows = $fetcher->fetchRows(from: '2026-06-18', to: '2026-06-22', interval: '15');
+        $stored = $fetcher->upsertRows($rows);
+
+        $this->assertSame(4, $stored);
+
+        $nightOpen = DB::table('tw_futures_hourly_prices')
+            ->where('interval', '15')
+            ->where('started_at', '2026-06-18 15:00:00')
+            ->first();
+        $this->assertNotNull($nightOpen);
+        $this->assertSame('2026-06-22', CarbonImmutable::parse((string) $nightOpen->trade_date, 'Asia/Taipei')->toDateString());
+        $this->assertSame('night', $nightOpen->session_type);
+        $this->assertEqualsWithDelta(46751.0, (float) $nightOpen->open_price, 0.0001);
+        $this->assertEqualsWithDelta(46752.0, (float) $nightOpen->close_price, 0.0001);
+        $this->assertSame(58, (int) $nightOpen->volume_contracts);
+        $this->assertSame(TwFuturesOfficialIntradayPriceFetcher::SOURCE_NAME, $nightOpen->source);
+        $this->assertStringContainsString('official_primary_mismatch_with_existing', (string) $nightOpen->source_payload);
+
+        $nightClose = DB::table('tw_futures_hourly_prices')
+            ->where('interval', '15')
+            ->where('started_at', '2026-06-19 04:45:00')
+            ->first();
+        $this->assertNotNull($nightClose);
+        $this->assertSame('2026-06-22', CarbonImmutable::parse((string) $nightClose->trade_date, 'Asia/Taipei')->toDateString());
+
+        $dayCloseAuction = DB::table('tw_futures_hourly_prices')
+            ->where('interval', '15')
+            ->where('started_at', '2026-06-22 13:45:00')
+            ->first();
+        $this->assertNotNull($dayCloseAuction);
+        $this->assertEqualsWithDelta(48413.0, (float) $dayCloseAuction->close_price, 0.0001);
+        $this->assertSame(3, (int) $dayCloseAuction->volume_contracts);
+    }
+
     public function test_futures_night_session_trade_date_skips_weekends(): void
     {
         $fetcher = app(TwFuturesHourlyPriceFetcher::class);
@@ -916,5 +991,42 @@ class TwFuturesHourlyPricesTest extends TestCase
             "{$tradeDate},TX,{$contractMonth}  ,45709,45922,44264,{$close},-2154,-4.63%,102163,44452,101073,44372,44401,49240,36972,,一般,,",
             "{$tradeDate},TX,{$contractMonth}  ,46430,46884,45311,45805,-722,-1.55%,93096,-,-,45804,45806,49240,36972,,盤後,,",
         ]);
+    }
+
+    /**
+     * @param list<array{0: string, 1: string, 2: string, 3: string, 4: string, 5: string}> $rows
+     */
+    private function taifexTickZip(array $rows): string
+    {
+        $csvRows = [
+            '成交日期,商品代號,到期月份(週別),成交時間,成交價格,成交數量(B+S),近月價格,遠月價格,開盤集合競價',
+        ];
+        foreach ($rows as $row) {
+            $csvRows[] = implode(',', [
+                $row[0],
+                str_pad($row[1], 7),
+                str_pad($row[2], 11),
+                $row[3],
+                $row[4],
+                $row[5],
+                '-',
+                '-',
+                '',
+            ]);
+        }
+
+        $temporaryPath = tempnam(sys_get_temp_dir(), 'taifex_tick_test_');
+        $zipPath = $temporaryPath . '.zip';
+        @unlink($temporaryPath);
+
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($zipPath, \ZipArchive::CREATE) === true);
+        $zip->addFromString('Daily_2026_06_22.csv', mb_convert_encoding(implode("\n", $csvRows), 'CP950', 'UTF-8'));
+        $zip->close();
+
+        $contents = (string) file_get_contents($zipPath);
+        @unlink($zipPath);
+
+        return $contents;
     }
 }

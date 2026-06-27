@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\TwFuturesDailyPrice;
 use App\Models\TwFuturesHourlyPrice;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
@@ -49,8 +50,9 @@ class TwFuturesHourlyPriceController extends Controller
     {
         $rows = $this->priceRows(self::SYMBOL, self::PRIMARY_INTERVAL);
         $hourlyRows = $this->priceRows(self::SYMBOL, '60');
-        $indicatorRows = $this->indicatorRows($rows, self::FIFTEEN_MINUTE_MA_WINDOW);
-        $hourlyIndicatorRows = $this->indicatorRows($hourlyRows, self::HOURLY_MA_WINDOW);
+        $officialDailyCloseByDate = $this->officialDailyCloseByDate(self::SYMBOL);
+        $indicatorRows = $this->indicatorRows($rows, self::FIFTEEN_MINUTE_MA_WINDOW, $officialDailyCloseByDate);
+        $hourlyIndicatorRows = $this->indicatorRows($hourlyRows, self::HOURLY_MA_WINDOW, $officialDailyCloseByDate);
         $latest = $rows->last();
 
         return [
@@ -111,7 +113,21 @@ class TwFuturesHourlyPriceController extends Controller
             ]))
             ->implode(';');
 
-        return sha1($fingerprint);
+        $daily = TwFuturesDailyPrice::query()
+            ->where('symbol', self::SYMBOL)
+            ->where('session_type', 'day')
+            ->selectRaw('COUNT(*) as row_count, MAX(trade_date) as latest_trade_date, MAX(updated_at) as last_updated_at')
+            ->toBase()
+            ->first();
+
+        $dailyFingerprint = $daily === null ? '' : implode('|', [
+            'daily',
+            (string) $daily->row_count,
+            (string) $daily->latest_trade_date,
+            (string) $daily->last_updated_at,
+        ]);
+
+        return sha1($fingerprint . ';' . $dailyFingerprint);
     }
 
     /**
@@ -140,7 +156,28 @@ class TwFuturesHourlyPriceController extends Controller
     }
 
     /**
+     * @return array<string, float>
+     */
+    private function officialDailyCloseByDate(string $symbol): array
+    {
+        return TwFuturesDailyPrice::query()
+            ->where('symbol', $symbol)
+            ->where('session_type', 'day')
+            ->orderBy('trade_date')
+            ->pluck('close_price', 'trade_date')
+            ->mapWithKeys(function (mixed $close, mixed $tradeDate): array {
+                $date = $tradeDate instanceof \DateTimeInterface
+                    ? CarbonImmutable::instance($tradeDate)->toDateString()
+                    : CarbonImmutable::parse((string) $tradeDate, 'Asia/Taipei')->toDateString();
+
+                return [$date => (float) $close];
+            })
+            ->all();
+    }
+
+    /**
      * @param Collection<int, object> $rows
+     * @param array<string, float> $officialDailyCloseByDate
      * @return array{
      *     chartRows: list<array<string, mixed>>,
      *     dailyChartRows: list<array<string, mixed>>,
@@ -156,16 +193,21 @@ class TwFuturesHourlyPriceController extends Controller
      *     minGap: float|null
      * }
      */
-    private function indicatorRows(Collection $rows, int $movingAverageWindowSize): array
+    private function indicatorRows(Collection $rows, int $movingAverageWindowSize, array $officialDailyCloseByDate = []): array
     {
-        $dailyCloseByDate = [];
+        $computedDailyCloseByDate = [];
         foreach ($rows as $row) {
             $tradeDate = $this->tradeDateString($row);
             if ($tradeDate === null) {
                 continue;
             }
 
-            $dailyCloseByDate[$tradeDate] = (float) $row->close_price;
+            $computedDailyCloseByDate[$tradeDate] = (float) $row->close_price;
+        }
+
+        $dailyCloseByDate = $computedDailyCloseByDate;
+        foreach ($officialDailyCloseByDate as $tradeDate => $close) {
+            $dailyCloseByDate[$tradeDate] = (float) $close;
         }
 
         $tradeDates = array_keys($dailyCloseByDate);
@@ -215,8 +257,11 @@ class TwFuturesHourlyPriceController extends Controller
                 : null;
             $tradeDate = $this->tradeDateString($row);
             $previous = $tradeDate !== null ? ($previousDailyCloses[$tradeDate] ?? []) : [];
+            $dailyClose = $tradeDate !== null
+                ? ($officialDailyCloseByDate[$tradeDate] ?? $close)
+                : $close;
             $dailyMa5 = count($previous) === 4
-                ? (array_sum($previous) + $close) / 5
+                ? (array_sum($previous) + $dailyClose) / 5
                 : null;
             $gap = $dailyMa5 !== null && $movingAverage !== null ? $dailyMa5 - $movingAverage : null;
             $bias = $movingAverage !== null ? $close - $movingAverage : null;
@@ -342,6 +387,7 @@ class TwFuturesHourlyPriceController extends Controller
                     'close' => (float) $row['close'],
                     'volume' => 0,
                     'movingAverage' => null,
+                    'dailyMa5' => null,
                     'gap' => null,
                     'bias' => null,
                     'biasRate' => null,
@@ -355,6 +401,9 @@ class TwFuturesHourlyPriceController extends Controller
 
             if ($row['movingAverage'] !== null) {
                 $groups[$tradeDate]['movingAverage'] = (float) $row['movingAverage'];
+            }
+            if ($row['dailyMa5'] !== null) {
+                $groups[$tradeDate]['dailyMa5'] = (float) $row['dailyMa5'];
             }
             if ($row['gap'] !== null) {
                 $groups[$tradeDate]['gap'] = (float) $row['gap'];
@@ -370,17 +419,9 @@ class TwFuturesHourlyPriceController extends Controller
         ksort($groups);
 
         $dailyRows = [];
-        $closeWindow = [];
-        $closeSum = 0.0;
         foreach ($groups as $tradeDate => $group) {
             $close = (float) $group['close'];
-            $closeWindow[] = $close;
-            $closeSum += $close;
-            if (count($closeWindow) > 5) {
-                $closeSum -= array_shift($closeWindow);
-            }
-
-            $dailyMa5 = count($closeWindow) === 5 ? $closeSum / 5 : null;
+            $dailyMa5 = $group['dailyMa5'] === null ? null : (float) $group['dailyMa5'];
             $movingAverage = $group['movingAverage'] === null ? null : (float) $group['movingAverage'];
             $gap = $group['gap'] === null ? null : (float) $group['gap'];
             $bias = $group['bias'] === null ? null : (float) $group['bias'];

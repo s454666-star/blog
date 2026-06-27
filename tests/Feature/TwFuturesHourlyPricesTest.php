@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Console\Commands\BackfillTwFuturesContinuousPricesCommand;
+use App\Services\TwFuturesDailyPriceFetcher;
 use App\Services\TwFuturesHourlyPriceFetcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
@@ -48,6 +49,7 @@ class TwFuturesHourlyPricesTest extends TestCase
 
     protected function tearDown(): void
     {
+        Schema::dropIfExists('tw_futures_daily_prices');
         Schema::dropIfExists('tw_futures_hourly_prices');
 
         Carbon::setTestNow();
@@ -388,6 +390,105 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertStringContainsString('no-store', (string) $unchangedResponse->headers->get('Cache-Control'));
     }
 
+    public function test_taiex_futures_daily_ma5_uses_verified_official_daily_closes(): void
+    {
+        $this->seedHourlyRows();
+        $this->seedOfficialDailyRows([
+            '2026-01-01' => 30000,
+            '2026-01-02' => 30010,
+            '2026-01-03' => 30020,
+            '2026-01-04' => 30030,
+            '2026-01-05' => 30040,
+            '2026-01-06' => 30050,
+            '2026-01-07' => 30060,
+            '2026-01-08' => 30070,
+        ]);
+
+        $response = $this->getJson(route('tw-stock.taiex-futures.kline.data'));
+
+        $rows = $response->json('chartRows');
+        $janFiveRow = collect($rows)->first(fn (array $row): bool => $row['tradeDate'] === '2026-01-05');
+
+        $this->assertNotNull($janFiveRow);
+        $this->assertEqualsWithDelta(30020.0, (float) $janFiveRow['dailyMa5'], 0.0001);
+    }
+
+    public function test_taiex_futures_daily_fetcher_stores_rows_verified_by_self_calculation(): void
+    {
+        DB::table('tw_futures_hourly_prices')->insert([
+            $this->priceRow(
+                interval: '15',
+                startedAt: CarbonImmutable::parse('2026-06-24 08:45:00', 'Asia/Taipei'),
+                tradeDate: '2026-06-24',
+                sessionType: 'day',
+                close: 46000,
+                cursor: 1,
+                now: now(),
+            ),
+            $this->priceRow(
+                interval: '15',
+                startedAt: CarbonImmutable::parse('2026-06-24 13:30:00', 'Asia/Taipei'),
+                tradeDate: '2026-06-24',
+                sessionType: 'day',
+                close: 46387,
+                cursor: 2,
+                now: now(),
+            ),
+        ]);
+
+        Http::fake([
+            'https://www.taifex.com.tw/cht/3/futDataDown' => Http::response($this->taifexDailyCsv('2026/06/24', '202607', '46387'), 200),
+        ]);
+
+        $fetcher = app(TwFuturesDailyPriceFetcher::class);
+        $rows = $fetcher->fetchRows(from: '2026-06-24', to: '2026-06-24');
+        $result = $fetcher->upsertVerifiedRows($rows);
+
+        $this->assertSame(1, $result['stored']);
+        $this->assertSame(0, $result['skipped']);
+        $dailyRow = DB::table('tw_futures_daily_prices')->where('trade_date', '2026-06-24')->first();
+        $this->assertNotNull($dailyRow);
+        $this->assertEqualsWithDelta(46387.0, (float) $dailyRow->close_price, 0.0001);
+        $this->assertStringContainsString('15K self-calculated daily close', (string) $dailyRow->verified_sources);
+    }
+
+    public function test_taiex_futures_daily_fetcher_uses_history_page_as_third_source_on_self_mismatch(): void
+    {
+        DB::table('tw_futures_hourly_prices')->insert([
+            $this->priceRow(
+                interval: '15',
+                startedAt: CarbonImmutable::parse('2026-06-26 13:30:00', 'Asia/Taipei'),
+                tradeDate: '2026-06-26',
+                sessionType: 'day',
+                close: 44000,
+                cursor: 1,
+                now: now(),
+            ),
+        ]);
+
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'futDataDown')) {
+                return Http::response($this->taifexDailyCsv('2026/06/26', '202607', '44373'), 200);
+            }
+
+            if (str_contains($request->url(), 'futDailyMarketReport')) {
+                return Http::response('<table><tr><td>TX</td><td>202607</td><td>45709</td><td>45922</td><td>44264</td><td>44373</td></tr></table>', 200);
+            }
+
+            return Http::response('', 404);
+        });
+
+        $fetcher = app(TwFuturesDailyPriceFetcher::class);
+        $rows = $fetcher->fetchRows(from: '2026-06-26', to: '2026-06-26');
+        $result = $fetcher->upsertVerifiedRows($rows);
+
+        $this->assertSame(1, $result['stored']);
+        $this->assertNotEmpty($result['mismatches']);
+        $dailyRow = DB::table('tw_futures_daily_prices')->where('trade_date', '2026-06-26')->first();
+        $this->assertNotNull($dailyRow);
+        $this->assertStringContainsString('TAIFEX official futures history page', (string) $dailyRow->verified_sources);
+    }
+
     public function test_futures_night_session_trade_date_skips_weekends(): void
     {
         $fetcher = app(TwFuturesHourlyPriceFetcher::class);
@@ -620,6 +721,41 @@ class TwFuturesHourlyPricesTest extends TestCase
     }
 
     /**
+     * @param array<string, int> $closesByDate
+     */
+    private function seedOfficialDailyRows(array $closesByDate): void
+    {
+        $rows = [];
+        foreach ($closesByDate as $tradeDate => $close) {
+            $rows[] = [
+                'exchange' => 'TAIFEX',
+                'symbol' => 'TXF1!',
+                'symbol_name' => '台指期近月連續',
+                'contract_code' => 'TX',
+                'contract_month' => '202601',
+                'trade_date' => $tradeDate,
+                'session_type' => 'day',
+                'open_price' => $close - 100,
+                'high_price' => $close + 100,
+                'low_price' => $close - 200,
+                'close_price' => $close,
+                'settlement_price' => $close,
+                'volume_contracts' => 1000,
+                'open_interest' => 1000,
+                'source' => 'test official daily close',
+                'source_payload' => json_encode(['test' => true], JSON_THROW_ON_ERROR),
+                'verified_sources' => json_encode(['test'], JSON_THROW_ON_ERROR),
+                'validation_status' => 'verified',
+                'fetched_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        }
+
+        DB::table('tw_futures_daily_prices')->insert($rows);
+    }
+
+    /**
      * @param list<array<string, mixed>> $rows
      */
     private function appendFifteenMinuteRows(array &$rows, Carbon $now): void
@@ -746,5 +882,39 @@ class TwFuturesHourlyPricesTest extends TestCase
             $table->timestamps();
             $table->unique(['exchange', 'symbol', 'interval', 'started_at']);
         });
+
+        Schema::create('tw_futures_daily_prices', function (Blueprint $table): void {
+            $table->id();
+            $table->string('exchange', 16)->default('TAIFEX');
+            $table->string('symbol', 32);
+            $table->string('symbol_name')->default('台指期近月連續');
+            $table->string('contract_code', 16)->default('TX');
+            $table->string('contract_month', 16);
+            $table->date('trade_date');
+            $table->string('session_type', 16)->default('day');
+            $table->decimal('open_price', 12, 4);
+            $table->decimal('high_price', 12, 4);
+            $table->decimal('low_price', 12, 4);
+            $table->decimal('close_price', 12, 4);
+            $table->decimal('settlement_price', 12, 4)->nullable();
+            $table->unsignedBigInteger('volume_contracts')->default(0);
+            $table->unsignedBigInteger('open_interest')->nullable();
+            $table->string('source')->nullable();
+            $table->json('source_payload')->nullable();
+            $table->json('verified_sources')->nullable();
+            $table->string('validation_status', 24)->default('verified');
+            $table->timestamp('fetched_at')->nullable();
+            $table->timestamps();
+            $table->unique(['exchange', 'symbol', 'session_type', 'trade_date']);
+        });
+    }
+
+    private function taifexDailyCsv(string $tradeDate, string $contractMonth, string $close): string
+    {
+        return implode("\n", [
+            '交易日期,契約,到期月份(週別),開盤價,最高價,最低價,收盤價,漲跌價,漲跌%,成交量,結算價,未沖銷契約數,最後最佳買價,最後最佳賣價,歷史最高價,歷史最低價,是否因訊息面暫停交易,交易時段,價差對單式委託成交量',
+            "{$tradeDate},TX,{$contractMonth}  ,45709,45922,44264,{$close},-2154,-4.63%,102163,44452,101073,44372,44401,49240,36972,,一般,,",
+            "{$tradeDate},TX,{$contractMonth}  ,46430,46884,45311,45805,-722,-1.55%,93096,-,-,45804,45806,49240,36972,,盤後,,",
+        ]);
     }
 }

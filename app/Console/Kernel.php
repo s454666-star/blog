@@ -130,6 +130,22 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_futures_hourly_prices.log'));
 
+        $schedule->command('tw-stock:fetch-taiex-futures-daily --from=' . now(config('app.timezone'))->subDays(45)->toDateString())
+            ->dailyAt('14:10')
+            ->weekdays()
+            ->name('tw-stock-fetch-taiex-futures-daily')
+            ->withoutOverlapping(60)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_futures_daily_prices.log'));
+
+        $schedule->command('tw-stock:fetch-taiex-futures-daily --from=' . now(config('app.timezone'))->subDays(45)->toDateString())
+            ->dailyAt('16:10')
+            ->weekdays()
+            ->name('tw-stock-fetch-taiex-futures-daily-late')
+            ->withoutOverlapping(60)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_futures_daily_prices.log'));
+
         $schedule->command('tw-stock:refresh-company-profiles')
             ->dailyAt('14:40')
             ->name('tw-stock-refresh-company-profiles')

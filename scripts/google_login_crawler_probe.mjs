@@ -31,6 +31,18 @@ const probe85Sugarbaby = Boolean(options['probe-85sugarbaby']);
 let chromeProcess = null;
 let cdp = null;
 let lastTarget = null;
+let websocketCtor = globalThis.WebSocket;
+
+if (typeof websocketCtor === 'undefined') {
+  // Node 20- (including some AWS runtimes) does not expose global WebSocket.
+  // Keep this lazy and explicit so the script still works on older Node versions.
+  try {
+    const wsModule = await import('ws');
+    websocketCtor = wsModule.WebSocket;
+  } catch {
+    // Intentionally no-op; we'll throw a detailed error in CdpClient.connect().
+  }
+}
 
 async function main() {
   ensureParentDirectory(profileDir);
@@ -388,11 +400,11 @@ class CdpClient {
   }
 
   static async connect(wsUrl) {
-    if (typeof WebSocket === 'undefined') {
+    if (websocketCtor === undefined) {
       throw new Error('This Node.js runtime does not expose WebSocket. Use Node 22 or install a browser automation dependency.');
     }
 
-    const ws = new WebSocket(wsUrl);
+    const ws = new websocketCtor(wsUrl);
     await new Promise((resolve, reject) => {
       ws.addEventListener('open', resolve, { once: true });
       ws.addEventListener('error', reject, { once: true });

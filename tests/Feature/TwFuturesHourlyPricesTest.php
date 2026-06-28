@@ -731,7 +731,7 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertSame(-172800, $row['source_payload']['timestamp_shift_seconds']);
     }
 
-    public function test_hourly_fetcher_skips_upsert_when_latest_yahoo_and_tradingview_mismatch(): void
+    public function test_hourly_fetcher_uses_yahoo_taifex_row_when_latest_yahoo_and_tradingview_mismatch(): void
     {
         $this->fakeYahooLatestFiveMinuteBar();
 
@@ -766,15 +766,52 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $this->assertCount(1, $rows);
         $row = $rows[0];
-        $this->assertEqualsWithDelta(44994.0, (float) $row['close_price'], 0.0001);
-        $this->assertSame(132, $row['volume_contracts']);
-        $this->assertSame('TradingView chart websocket', $row['source']);
-        $this->assertTrue($row['skip_upsert']);
+        $this->assertEqualsWithDelta(44995.0, (float) $row['close_price'], 0.0001);
+        $this->assertSame(133, $row['volume_contracts']);
+        $this->assertSame('Yahoo Taiwan Finance 1m self-aggregate + TAIFEX official quote snapshot', $row['source']);
+        $this->assertArrayNotHasKey('skip_upsert', $row);
         $this->assertSame(
-            'tradingview_yahoo_mismatch_skipped_needs_third_source',
+            'yahoo_taifex_session_used_after_tradingview_mismatch',
             $row['source_payload']['validation']['status'],
         );
+        $this->assertSame('TradingView chart websocket', $row['source_payload']['validation']['rejected_source']);
         $this->assertNotEmpty($row['source_payload']['validation']['mismatches']);
+        $this->assertSame(44994.0, $row['source_payload']['validation']['tradingview']['close_price']);
+    }
+
+    public function test_hourly_fetcher_deletes_existing_row_when_validation_skips_upsert(): void
+    {
+        $existingRow = $this->priceRow(
+            interval: '15',
+            startedAt: CarbonImmutable::parse('2026-06-27 00:15:00', 'Asia/Taipei'),
+            tradeDate: '2026-06-29',
+            sessionType: 'night',
+            close: 45085,
+            cursor: 1,
+            now: now(),
+        );
+        $existingRow['source'] = 'TAIFEX official futures tick CSV aggregate';
+
+        DB::table('tw_futures_hourly_prices')->insert($existingRow);
+
+        $skippedRow = $existingRow;
+        $skippedRow['skip_upsert'] = true;
+        $skippedRow['source'] = 'TradingView chart websocket';
+        $skippedRow['source_payload'] = [
+            'validation' => [
+                'status' => 'tradingview_yahoo_mismatch_skipped_needs_third_source',
+            ],
+        ];
+
+        $stored = app(TwFuturesHourlyPriceFetcher::class)->upsertRows([$skippedRow]);
+
+        $this->assertSame(0, $stored);
+        $this->assertDatabaseMissing('tw_futures_hourly_prices', [
+            'exchange' => 'TAIFEX',
+            'symbol' => 'TXF1!',
+            'interval' => '15',
+            'started_at' => '2026-06-27 00:15:00',
+        ]);
     }
 
     public function test_futures_hourly_fetcher_upserts_large_batches_in_chunks(): void

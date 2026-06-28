@@ -114,6 +114,13 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_upcoming_dividends.log'));
 
+        $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=5 --from=' . now(config('app.timezone'))->subDays(7)->toDateString() . ' --to=' . now(config('app.timezone'))->addDays(3)->toDateString() . ' --bars=12000 --delay-seconds=75')
+            ->everyFiveMinutes()
+            ->name('tw-stock-fetch-taiex-futures-5-minute')
+            ->withoutOverlapping(10)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_futures_5min_prices.log'));
+
         $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=15 --from=' . now(config('app.timezone'))->subDays(7)->toDateString() . ' --to=' . now(config('app.timezone'))->addDays(3)->toDateString() . ' --bars=4800 --delay-seconds=75')
             ->everyFifteenMinutes()
             ->name('tw-stock-fetch-taiex-futures-15-minute')
@@ -237,16 +244,23 @@ class Kernel extends ConsoleKernel
 
     private function scheduleTaiexFuturesOpeningRetries(Schedule $schedule): void
     {
+        $settings = [
+            ['interval' => '5', 'bars' => '12000', 'log' => 'tw_futures_5min_prices.log'],
+            ['interval' => '15', 'bars' => '4800', 'log' => 'tw_futures_15min_prices.log'],
+        ];
+
         foreach ([
             ['cron' => '47,52,57 8 * * 1-5', 'name' => 'day-open'],
             ['cron' => '2,7,12 15 * * 1-5', 'name' => 'night-open'],
         ] as $window) {
-            $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=15 --from=' . now(config('app.timezone'))->subDays(3)->toDateString() . ' --to=' . now(config('app.timezone'))->addDays(3)->toDateString() . ' --bars=4800')
-                ->cron($window['cron'])
-                ->name('tw-stock-fetch-taiex-futures-15-minute-' . $window['name'] . '-retry')
-                ->withoutOverlapping(10)
-                ->runInBackground()
-                ->appendOutputTo(storage_path('logs/tw_futures_15min_prices.log'));
+            foreach ($settings as $setting) {
+                $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=' . $setting['interval'] . ' --from=' . now(config('app.timezone'))->subDays(3)->toDateString() . ' --to=' . now(config('app.timezone'))->addDays(3)->toDateString() . ' --bars=' . $setting['bars'])
+                    ->cron($window['cron'])
+                    ->name('tw-stock-fetch-taiex-futures-' . $setting['interval'] . '-minute-' . $window['name'] . '-retry')
+                    ->withoutOverlapping(10)
+                    ->runInBackground()
+                    ->appendOutputTo(storage_path('logs/' . $setting['log']));
+            }
         }
     }
 

@@ -188,7 +188,7 @@ class TwFuturesHourlyPriceFetcher
                 continue;
             }
 
-            $rowsByStartedAt[$key] = $this->withYahooMismatchSkipValidation($tradingViewRow, $yahooRow, $mismatches);
+            $rowsByStartedAt[$key] = $this->withYahooFallbackValidation($tradingViewRow, $yahooRow, $mismatches);
         }
 
         $mergedRows = array_values($rowsByStartedAt);
@@ -259,6 +259,23 @@ class TwFuturesHourlyPriceFetcher
         return $tradingViewRow;
     }
 
+    private function withYahooFallbackValidation(array $tradingViewRow, array $yahooRow, array $mismatches): array
+    {
+        $yahooRow = $this->withYahooOnlyValidation($yahooRow);
+        $yahooRow['source_payload']['validation']['status'] = 'yahoo_taifex_session_used_after_tradingview_mismatch';
+        $yahooRow['source_payload']['validation']['rejected_source'] = self::SOURCE_NAME;
+        $yahooRow['source_payload']['validation']['mismatches'] = $mismatches;
+        $yahooRow['source_payload']['validation']['tradingview'] = [
+            'open_price' => (float) $tradingViewRow['open_price'],
+            'high_price' => (float) $tradingViewRow['high_price'],
+            'low_price' => (float) $tradingViewRow['low_price'],
+            'close_price' => (float) $tradingViewRow['close_price'],
+            'volume_contracts' => (int) $tradingViewRow['volume_contracts'],
+        ];
+
+        return $yahooRow;
+    }
+
     private function withYahooOnlyValidation(array $yahooRow): array
     {
         $yahooRow['source'] = self::SOURCE_YAHOO_VALIDATED_NAME;
@@ -290,6 +307,8 @@ class TwFuturesHourlyPriceFetcher
      */
     public function upsertRows(array $rows): int
     {
+        $this->deleteSkippedRows($rows);
+
         $rows = array_values(array_filter(
             $rows,
             fn (array $row): bool => ! (bool) ($row['skip_upsert'] ?? false),
@@ -332,6 +351,48 @@ class TwFuturesHourlyPriceFetcher
         }
 
         return count($rows);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     */
+    private function deleteSkippedRows(array $rows): void
+    {
+        $keys = [];
+        foreach ($rows as $row) {
+            if (! (bool) ($row['skip_upsert'] ?? false)) {
+                continue;
+            }
+
+            foreach (['exchange', 'symbol', 'interval', 'started_at'] as $field) {
+                if (! array_key_exists($field, $row)) {
+                    continue 2;
+                }
+            }
+
+            $keys[] = [
+                'exchange' => (string) $row['exchange'],
+                'symbol' => (string) $row['symbol'],
+                'interval' => (string) $row['interval'],
+                'started_at' => (string) $row['started_at'],
+            ];
+        }
+
+        foreach (array_chunk($keys, self::UPSERT_CHUNK_SIZE) as $chunk) {
+            TwFuturesHourlyPrice::query()
+                ->where(function ($query) use ($chunk): void {
+                    foreach ($chunk as $key) {
+                        $query->orWhere(function ($query) use ($key): void {
+                            $query
+                                ->where('exchange', $key['exchange'])
+                                ->where('symbol', $key['symbol'])
+                                ->where('interval', $key['interval'])
+                                ->where('started_at', $key['started_at']);
+                        });
+                    }
+                })
+                ->delete();
+        }
     }
 
     /**

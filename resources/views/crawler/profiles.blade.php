@@ -181,6 +181,26 @@
             border: 2px solid #fff;
             box-shadow: 0 20px 70px rgba(0,0,0,.5);
         }
+        .hover-preview {
+            position: fixed;
+            inset: 0;
+            z-index: 45;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+        .hover-preview img {
+            width: 75vw;
+            height: 75vh;
+            max-width: 75vw;
+            max-height: 75vh;
+            object-fit: contain;
+            border-radius: 16px;
+            border: 2px solid #fff;
+            box-shadow: 0 20px 80px rgba(0,0,0,.55);
+            background: #fff;
+        }
         .pulse {
             position: relative;
             overflow: hidden;
@@ -349,12 +369,46 @@
     <img id="lightbox-image" src="" alt="profile image">
 </div>
 
+<div class="hover-preview" id="hover-preview">
+    <img id="hover-preview-image" src="" alt="hover preview image">
+</div>
+
 <script>
     (function () {
         const layer = document.getElementById('lightbox');
         const picture = document.getElementById('lightbox-image');
+        const hoverLayer = document.getElementById('hover-preview');
+        const hoverImage = document.getElementById('hover-preview-image');
+        let hoverHideTimeout = null;
+
+        const showHover = (src) => {
+            if (!src || hoverImage.src === src) {
+                return;
+            }
+            hoverImage.src = src;
+            hoverLayer.style.display = 'flex';
+        };
+
+        const hideHover = () => {
+            clearTimeout(hoverHideTimeout);
+            hoverLayer.style.display = 'none';
+        };
 
         document.querySelectorAll('[data-lightbox]').forEach((btn) => {
+            btn.addEventListener('mouseenter', () => {
+                const src = btn.getAttribute('data-lightbox');
+                showHover(src);
+            });
+            btn.addEventListener('mouseleave', () => {
+                hideHover();
+            });
+            btn.addEventListener('focus', () => {
+                const src = btn.getAttribute('data-lightbox');
+                showHover(src);
+            });
+            btn.addEventListener('blur', () => {
+                hideHover();
+            });
             btn.addEventListener('click', () => {
                 const src = btn.getAttribute('data-lightbox');
                 if (!src) {

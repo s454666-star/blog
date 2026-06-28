@@ -293,6 +293,8 @@ function spawnChrome(chromePath, port, userDataDir, shouldRunHeadless) {
     `--remote-debugging-port=${port}`,
     '--remote-debugging-address=127.0.0.1',
     `--user-data-dir=${userDataDir}`,
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-popup-blocking',

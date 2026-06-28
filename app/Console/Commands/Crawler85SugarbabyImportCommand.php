@@ -6,6 +6,7 @@ namespace App\Console\Commands;
 
 use App\Models\CrawlerProfileCandidate;
 use Carbon\CarbonImmutable;
+use DateTimeInterface;
 use Illuminate\Console\Command;
 use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
@@ -24,7 +25,7 @@ class Crawler85SugarbabyImportCommand extends Command
                              {--source=85sugarbaby_active_flow : Deduplication source label}
                              {--output-dir= : Directory for crawler output files}
                              {--headless : Run without a visible browser window}
-                             {--clear-source : Remove existing rows for the target source before import}
+                             {--clear-source : Deprecated no-op; imports are append-only}
                              {--backfill-only : Only backfill missing chat links using existing rows of source}
                              {--backfill-chat-links : Populate chat_url for rows missing chat URL only}
                              {--backfill-metrics : Populate height/weight for rows missing metric data only}
@@ -186,8 +187,7 @@ class Crawler85SugarbabyImportCommand extends Command
         ];
 
         if ((bool) $this->option('clear-source')) {
-            CrawlerProfileCandidate::query()->where('source', $source)->delete();
-            $this->info('Cleared previous rows for source: ' . $source);
+            $this->warn('--clear-source is deprecated and ignored. Crawler imports are append-only for source: ' . $source);
         }
 
         if ((bool) $this->option('dry-run')) {
@@ -208,9 +208,50 @@ class Crawler85SugarbabyImportCommand extends Command
         }
 
         $capturedAt = now();
+        $existingUserIds = CrawlerProfileCandidate::query()
+            ->where('source', $source)
+            ->whereIn('external_user_id', array_column($toImport, 'external_user_id'))
+            ->pluck('external_user_id')
+            ->map(static fn ($userId): string => (string) $userId)
+            ->all();
+        $existingUserIdLookup = array_fill_keys($existingUserIds, true);
+        $newCandidates = array_values(array_filter(
+            $toImport,
+            static fn (array $candidate): bool => !isset($existingUserIdLookup[(string) $candidate['external_user_id']])
+        ));
+
+        if (count($newCandidates) < count($toImport)) {
+            $this->info('Skipped existing records: ' . (count($toImport) - count($newCandidates)));
+        }
+
+        $inserted = $this->persistCandidates($source, $newCandidates, $filter, $capturedAt);
+        foreach ($newCandidates as $candidate) {
+            $this->line('insert ' . $candidate['external_user_id']);
+        }
+
+        $backfilled = 0;
+        if ((bool) $this->option('backfill-chat-links') || (bool) $this->option('backfill-metrics')) {
+            $backfilled = $this->backfillMissingFields(
+                $source,
+                (bool) $this->option('backfill-chat-links'),
+                (bool) $this->option('backfill-metrics')
+            );
+        }
+
+        $message = 'Import complete: ' . $inserted . ' new records written.';
+        if ($backfilled > 0) {
+            $message .= ' and ' . $backfilled . ' records enriched.';
+        }
+        $this->info($message);
+
+        return self::SUCCESS;
+    }
+
+    private function persistCandidates(string $source, array $toImport, array $filter, DateTimeInterface $capturedAt): int
+    {
         $inserted = 0;
         foreach ($toImport as $candidate) {
-            $row = CrawlerProfileCandidate::query()->updateOrCreate(
+            $row = CrawlerProfileCandidate::query()->firstOrCreate(
                 [
                     'source' => $source,
                     'external_user_id' => $candidate['external_user_id'],
@@ -229,12 +270,13 @@ class Crawler85SugarbabyImportCommand extends Command
                 ]
             );
 
-            $existingImageHashes = [];
+            if (!$row->wasRecentlyCreated) {
+                continue;
+            }
+
             foreach ($candidate['images'] as $sortOrder => $imageUrl) {
-                $hash = hash('sha256', $imageUrl);
-                $existingImageHashes[] = $hash;
                 $row->images()->updateOrCreate(
-                    ['image_url_hash' => $hash],
+                    ['image_url_hash' => hash('sha256', $imageUrl)],
                     [
                         'image_url' => $imageUrl,
                         'sort_order' => $sortOrder + 1,
@@ -243,27 +285,10 @@ class Crawler85SugarbabyImportCommand extends Command
                 );
             }
 
-            $row->images()->whereNotIn('image_url_hash', $existingImageHashes)->delete();
             $inserted += 1;
-            $this->line('upsert ' . $candidate['external_user_id']);
         }
 
-        $backfilled = 0;
-        if ((bool) $this->option('backfill-chat-links') || (bool) $this->option('backfill-metrics')) {
-            $backfilled = $this->backfillMissingFields(
-                $source,
-                (bool) $this->option('backfill-chat-links'),
-                (bool) $this->option('backfill-metrics')
-            );
-        }
-
-        $message = 'Import complete: ' . $inserted . ' records written.';
-        if ($backfilled > 0) {
-            $message .= ' and ' . $backfilled . ' records enriched.';
-        }
-        $this->info($message);
-
-        return self::SUCCESS;
+        return $inserted;
     }
 
     private function backfillMissingFields(string $source, bool $fillChatLinks, bool $fillMetrics): int

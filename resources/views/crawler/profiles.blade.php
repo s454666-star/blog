@@ -398,22 +398,22 @@
 </head>
 <body>
 @php
-    $recentCaptured = is_string($stats['recent_captured_at'] ?? null) ? \Illuminate\Support\Carbon::parse($stats['recent_captured_at']) : $stats['recent_captured_at'];
+    $recentCreated = is_string($stats['recent_created_at'] ?? null) ? \Illuminate\Support\Carbon::parse($stats['recent_created_at']) : $stats['recent_created_at'];
 @endphp
 <div class="page">
     <section class="hero">
         <div>
             <h1>85sugarbaby 會員資料看板</h1>
             <p>
-                每筆資料都會照「<strong>抓取時間新到舊</strong>」排序，並顯示個資欄位與圖片。
-                目前 Source：<strong>{{ $source }}</strong>，每次抓取會去重複存入同一個人。
+                每筆資料都會照「<strong>第一次建檔時間新到舊</strong>」排序，並顯示個資欄位與圖片。
+                目前 Source：<strong>{{ $source }}</strong>，排程只會新增第一次出現的使用者。
             </p>
         </div>
         <div class="stats">
             <div class="stat"><div class="label">總筆數</div><div class="value">{{ number_format((int) $stats['total']) }}</div></div>
             <div class="stat"><div class="label">台北</div><div class="value">{{ number_format((int) $stats['taibei']) }}</div></div>
             <div class="stat"><div class="label">新北</div><div class="value">{{ number_format((int) $stats['newTaipei']) }}</div></div>
-            <div class="stat"><div class="label">最近抓取</div><div class="value">{{ $recentCaptured instanceof \Illuminate\Support\Carbon ? $recentCaptured->format('m/d H:i') : '-' }}</div></div>
+            <div class="stat"><div class="label">最近建檔</div><div class="value">{{ $recentCreated instanceof \Illuminate\Support\Carbon ? $recentCreated->format('m/d H:i') : '-' }}</div></div>
         </div>
 
         <div class="toolbar">
@@ -458,7 +458,7 @@
                             年齡：<b>{{ (int) $candidate->age }}</b> / 地區：<b>{{ $candidate->area ?: '-' }}</b><br>
                             身高：<b>{{ $candidate->height ? $candidate->height . ' cm' : '-' }}</b> / 體重：<b>{{ $candidate->weight ? $candidate->weight . ' kg' : '-' }}</b><br>
                             使用者ID：<b>{{ $candidate->external_user_id }}</b><br>
-                            建檔時間：<b>{{ optional($candidate->captured_at)->format('Y-m-d H:i:s') ?? '-' }}</b>
+                            建檔時間：<b>{{ optional($candidate->created_at)->format('Y-m-d H:i:s') ?? '-' }}</b>
                         </div>
                         <div class="button-row">
                             <a class="action-btn primary" href="{{ $candidate->profile_url }}" target="_blank" rel="noreferrer">

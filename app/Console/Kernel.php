@@ -215,7 +215,7 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/download_video_exact_duplicates.log'));
 
-        $schedule->command('crawler:85sugarbaby-import --headless --source=85sugarbaby_active_flow --limit=20 --age-min=18 --age-max=22 --areas=台北,新北 --timeout=45 --backfill-chat-links --backfill-metrics')
+        $schedule->command('crawler:85sugarbaby-import --headless --source=85sugarbaby_active_flow --limit=20 --age-min=18 --age-max=22 --areas=台北,新北 --timeout=45')
             ->everyThirtySeconds()
             ->name('crawler-85sugarbaby-import-30s')
             ->withoutOverlapping(1)

@@ -23,7 +23,7 @@ class CrawlerProfileController extends Controller
                 $images->orderBy('sort_order');
             }])
             ->where('source', $source)
-            ->orderByDesc(\DB::raw('COALESCE(captured_at, created_at, updated_at)'))
+            ->orderByDesc('created_at')
             ->orderByDesc('id');
 
         if ($q !== '') {
@@ -56,7 +56,9 @@ class CrawlerProfileController extends Controller
                 ->where('source', $source)
                 ->whereHas('images')
                 ->count(),
-            'recent_captured_at' => $candidates->max('captured_at'),
+            'recent_created_at' => CrawlerProfileCandidate::query()
+                ->where('source', $source)
+                ->max('created_at'),
         ];
 
         $areas = [
@@ -91,7 +93,7 @@ class CrawlerProfileController extends Controller
             ->whereHas('images')
             ->where('source', 'not like', 'synthetic_%')
             ->select('source')
-            ->selectRaw('MAX(captured_at) as latest')
+            ->selectRaw('MAX(created_at) as latest')
             ->groupBy('source')
             ->orderByDesc('latest')
             ->orderByDesc('source')

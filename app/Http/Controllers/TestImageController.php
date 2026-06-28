@@ -21,6 +21,18 @@ class TestImageController extends Controller
             return response('forbidden host', 403);
         }
 
+        $response = $this->fetchImage($imageUrl);
+        if ($response === null) {
+            return response('Image not found', 404);
+        }
+
+        return response($response['body'], 200)
+            ->header('Content-Type', $response['content_type'])
+            ->header('Cache-Control', 'public, max-age=86400');
+    }
+
+    private function fetchImage(string $imageUrl): ?array
+    {
         try {
             $response = Http::withOptions([
                 'verify'      => false,
@@ -33,21 +45,67 @@ class TestImageController extends Controller
             ])->get($imageUrl);
 
             if ($response->status() >= 400) {
-                return response('Image not found', 404);
+                return $this->fetchImageWithCurl($imageUrl);
             }
 
             $contentType = $response->header('Content-Type') ?: 'application/octet-stream';
-
-            return response($response->body(), 200)
-                ->header('Content-Type', $contentType)
-                ->header('Cache-Control', 'public, max-age=86400');
+            return ['body' => $response->body(), 'content_type' => $contentType];
         } catch (\Throwable $e) {
-            Log::error('proxy image failed', [
+            Log::warning('proxy image failed with Http client, fallback to cURL', [
                 'url'   => $imageUrl,
                 'error' => $e->getMessage(),
             ]);
 
-            return response('Image proxy error', 502);
+            return $this->fetchImageWithCurl($imageUrl);
+        }
+    }
+
+    private function fetchImageWithCurl(string $imageUrl): ?array
+    {
+        $ch = curl_init();
+        if ($ch === false) {
+            Log::error('proxy image failed', [
+                'url'   => $imageUrl,
+                'error' => 'curl_init_failed',
+            ]);
+
+            return null;
+        }
+
+        try {
+            curl_setopt_array($ch, [
+                CURLOPT_URL            => $imageUrl,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_CONNECTTIMEOUT => 15,
+                CURLOPT_TIMEOUT        => 20,
+                CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                CURLOPT_REFERER        => 'https://85sugarbaby.com.tw/',
+                CURLOPT_HTTPHEADER     => [
+                    'Accept: image/avif,image/webp,*/*',
+                ],
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_FAILONERROR    => false,
+            ]);
+
+            $body = (string) curl_exec($ch);
+            $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $contentType = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+            if ($httpCode >= 400 || $body === '' || $contentType === '') {
+                Log::warning('proxy image cURL failed', [
+                    'url'         => $imageUrl,
+                    'status'      => $httpCode,
+                    'has_body'    => $body !== '',
+                    'contentType' => $contentType,
+                ]);
+
+                return null;
+            }
+
+            return ['body' => $body, 'content_type' => $contentType];
+        } finally {
+            curl_close($ch);
         }
     }
 }

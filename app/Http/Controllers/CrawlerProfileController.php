@@ -88,6 +88,7 @@ class CrawlerProfileController extends Controller
 
         $source = CrawlerProfileCandidate::query()
             ->whereHas('images')
+            ->where('source', 'not like', 'synthetic_%')
             ->select('source')
             ->selectRaw('MAX(captured_at) as latest')
             ->groupBy('source')
@@ -95,6 +96,6 @@ class CrawlerProfileController extends Controller
             ->orderByDesc('source')
             ->value('source');
 
-        return (string) ($source ?: '85sugarbaby_active_flow');
+        return (string) ($source ?: $preferredSource);
     }
 }

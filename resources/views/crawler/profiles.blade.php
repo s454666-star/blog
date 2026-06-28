@@ -311,9 +311,21 @@
                                 <button class="thumb" type="button" data-lightbox="{{ $proxyImage }}">
                                     <img
                                         src="{{ $proxyImage }}"
+                                        data-original-src="{{ $image->image_url }}"
                                         loading="lazy"
                                         alt="image {{ $candidate->external_user_id }}"
-                                        onerror="if (!this.dataset.broken) { this.dataset.broken = '1'; this.src = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"480\" height=\"480\"><defs><linearGradient id=\"bg\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#dbeafe\"/><stop offset=\"100%\" stop-color=\"#bbf7d0\"/></linearGradient></defs><rect width=\"480\" height=\"480\" fill=\"url(%23bg)\"/><text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"%23374151\" font-size=\"20\" font-family=\"Arial\">圖片無法讀取</text></svg>'); }"
+                                        onerror="
+                                            if (this.dataset.broken === '1') {
+                                                this.src = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"480\" height=\"480\"><defs><linearGradient id=\"bg\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#dbeafe\"/><stop offset=\"100%\" stop-color=\"#bbf7d0\"/></linearGradient></defs><rect width=\"480\" height=\"480\" fill=\"url(%23bg)\"/><text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"%23374151\" font-size=\"20\" font-family=\"Arial\">圖片無法讀取</text></svg>');
+                                            } else {
+                                                this.dataset.broken = '1';
+                                                if (this.dataset.originalSrc) {
+                                                    this.src = this.dataset.originalSrc;
+                                                } else {
+                                                    this.src = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"480\" height=\"480\"><defs><linearGradient id=\"bg\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#dbeafe\"/><stop offset=\"100%\" stop-color=\"#bbf7d0\"/></linearGradient></defs><rect width=\"480\" height=\"480\" fill=\"url(%23bg)\"/><text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"%23374151\" font-size=\"20\" font-family=\"Arial\">圖片無法讀取</text></svg>');
+                                                }
+                                            }
+                                        "
                                     >
                                 </button>
                             @empty

@@ -209,13 +209,13 @@ class Kernel extends ConsoleKernel
             ->appendOutputTo(storage_path('logs/download_video_exact_duplicates.log'));
 
         $schedule->command('crawler:85sugarbaby-import --headless --source=85sugarbaby_active_flow --limit=20 --age-min=18 --age-max=22 --areas=台北,新北 --timeout=45 --backfill-chat-links --backfill-metrics')
-            ->everyFifteenSeconds()
-            ->name('crawler-85sugarbaby-import-15s')
+            ->everyThirtySeconds()
+            ->name('crawler-85sugarbaby-import-30s')
             ->withoutOverlapping(1)
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/crawler_85sugarbaby_import.log'))
             ->onFailure(function () {
-                \Log::error('scheduler crawler:85sugarbaby-import 15s failed');
+                \Log::error('scheduler crawler:85sugarbaby-import 30s failed');
             });
 
         $schedule->exec($this->hiddenBatchCommand('ensure_tg_scan_group_media.bat'))

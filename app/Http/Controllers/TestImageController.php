@@ -1,30 +1,52 @@
 <?php
 
-    namespace App\Http\Controllers;
+namespace App\Http\Controllers;
 
-    use Illuminate\Http\Request;
-    use Illuminate\Support\Facades\Http;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
-    class TestImageController extends Controller
+class TestImageController extends Controller
+{
+    public function proxy(Request $request)
     {
-        public function proxy(Request $request)
-        {
-            // test url
-            $imageUrl = 'http://10.147.18.147/video/o3ik.o%20(@o3ik.o)/o3ik.o%20(@o3ik.o)_1.jpg';
+        $requestUrl = trim((string) $request->query('url', ''));
 
-            try {
-                $response = Http::withOptions([
-                    'verify' => false
-                ])->get($imageUrl);
+        // 保留舊有測試行為
+        $imageUrl = $requestUrl !== '' ? $requestUrl : 'https://85sugarbaby.com.tw/home';
 
-                if ($response->successful()) {
-                    return response($response->body(), 200)
-                        ->header('Content-Type', $response->header('Content-Type'));
-                }
+        $host = strtolower((string) parse_url($imageUrl, PHP_URL_HOST));
+        if ($requestUrl !== '' && $host !== '85sugarbaby.com.tw') {
+            return response('forbidden host', 403);
+        }
 
+        try {
+            $response = Http::withOptions([
+                'verify'      => false,
+                'timeout'     => 15,
+                'http_errors' => false,
+            ])->withHeaders([
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Referer'    => 'https://85sugarbaby.com.tw/',
+                'Accept'     => 'image/avif,image/webp,*/*',
+            ])->get($imageUrl);
+
+            if ($response->status() >= 400) {
                 return response('Image not found', 404);
-            } catch (\Exception $e) {
-                return response('Exception: ' . $e->getMessage(), 500);
             }
+
+            $contentType = $response->header('Content-Type') ?: 'application/octet-stream';
+
+            return response($response->body(), 200)
+                ->header('Content-Type', $contentType)
+                ->header('Cache-Control', 'public, max-age=86400');
+        } catch (\Throwable $e) {
+            Log::error('proxy image failed', [
+                'url'   => $imageUrl,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response('Image proxy error', 502);
         }
     }
+}

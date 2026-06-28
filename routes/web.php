@@ -18,8 +18,9 @@ use App\Http\Controllers\IgGrabController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
 use App\Http\Controllers\LibraryController;
-    use App\Http\Controllers\MemberController;
-    use App\Http\Controllers\OCRController;
+use App\Http\Controllers\MemberController;
+use App\Http\Controllers\OCRController;
+use App\Http\Controllers\CrawlerProfileController;
 use App\Http\Controllers\PageFaviconController;
 use App\Http\Controllers\PdfController;
 use App\Http\Controllers\PdfController2;
@@ -157,7 +158,7 @@ Route::get('/already-verified', [MemberController::class, 'showAlreadyVerified']
 
 Route::get('/data/{path}', [StaticProxyController::class, 'proxy'])
     ->where('path', '.*'); // 支援多層目錄
-Route::get('/proxy-image', [TestImageController::class, 'proxy']);
+Route::get('/proxy-image', [TestImageController::class, 'proxy'])->name('crawler.image-proxy');
 
 Route::get('/extract', [ExtractController::class, 'index'])->name('extract.index');
 Route::post('/extract', [ExtractController::class, 'process'])->name('extract.process');
@@ -178,6 +179,7 @@ Route::post('/tdl', [TdlCommandController::class, 'generate']);
 Route::get('/btdig', [BtdigController::class, 'index'])->name('btdig.index');
 Route::get('/btdig/images/{image}', [BtdigController::class, 'image'])->name('btdig.image');
 Route::post('/btdig/mark-copied', [BtdigController::class, 'markCopied'])->name('btdig.markCopied');
+Route::get('/crawler/85sugarbaby', [CrawlerProfileController::class, 'index'])->name('crawler.profiles');
 Route::get('/tw-stock/q1-financial-reports', [TwStockQ1FinancialReportController::class, 'index'])->name('tw-stock.q1-financial-reports.index');
 Route::get('/tw-stock/annual-financial-comparison', [TwStockQ1FinancialReportController::class, 'annualComparison'])->name('tw-stock.annual-comparison.index');
 Route::get('/tw-stock/daily-price-rankings', [TwStockDailyPriceController::class, 'index'])->name('tw-stock.daily-prices.index');

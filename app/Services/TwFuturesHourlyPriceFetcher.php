@@ -19,6 +19,10 @@ class TwFuturesHourlyPriceFetcher
 
     private const SOURCE_QUOTE_NAME = 'TAIFEX official quote snapshot';
 
+    private const SOURCE_VALIDATED_NAME = 'TradingView chart websocket + Yahoo Taiwan Finance 1m self-aggregate';
+
+    private const SOURCE_YAHOO_VALIDATED_NAME = 'Yahoo Taiwan Finance 1m self-aggregate + TAIFEX official quote snapshot';
+
     private const TAIFEX_QUOTE_LIST_URL = 'https://mis.taifex.com.tw/futures/api/getQuoteList';
 
     private const DEFAULT_EXCHANGE = 'TAIFEX';
@@ -40,6 +44,8 @@ class TwFuturesHourlyPriceFetcher
     private const MAX_MORE_DATA_REQUESTS = 80;
 
     private const FRESH_BAR_WAIT_SECONDS = 12;
+
+    private const UPSERT_CHUNK_SIZE = 200;
 
     /**
      * @return list<array<string, mixed>>
@@ -112,6 +118,14 @@ class TwFuturesHourlyPriceFetcher
             ];
         }
 
+        $rows = $this->mergeYahooLatestValidation(
+            $rows,
+            $fromDate,
+            $toDate,
+            $symbol,
+            $interval,
+        );
+
         return $this->appendCurrentSessionOpeningQuoteRow(
             $rows,
             $fromDate,
@@ -123,15 +137,171 @@ class TwFuturesHourlyPriceFetcher
 
     /**
      * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
+     */
+    private function mergeYahooLatestValidation(
+        array $rows,
+        ?CarbonImmutable $fromDate,
+        ?CarbonImmutable $toDate,
+        string $symbol,
+        string $interval,
+    ): array {
+        if ($symbol !== self::DEFAULT_SYMBOL) {
+            return $rows;
+        }
+
+        $yahooRows = app(TwFuturesYahooMinutePriceFetcher::class)->fetchLatestAggregatedRows($interval, $symbol);
+        if ($yahooRows === []) {
+            return $rows;
+        }
+
+        $rowsByStartedAt = [];
+        foreach ($rows as $row) {
+            $rowsByStartedAt[(string) $row['started_at']] = $row;
+        }
+
+        $minimumMinuteCount = (int) $interval;
+        foreach ($yahooRows as $yahooRow) {
+            $startedAt = CarbonImmutable::parse((string) $yahooRow['started_at'], 'Asia/Taipei');
+            if ($fromDate !== null && $startedAt->lessThan($fromDate)) {
+                continue;
+            }
+
+            if ($toDate !== null && $startedAt->greaterThan($toDate)) {
+                continue;
+            }
+
+            if ((int) ($yahooRow['source_payload']['minute_count'] ?? 0) < $minimumMinuteCount) {
+                continue;
+            }
+
+            $key = (string) $yahooRow['started_at'];
+            $tradingViewRow = $rowsByStartedAt[$key] ?? null;
+            if ($tradingViewRow === null) {
+                $rowsByStartedAt[$key] = $this->withYahooOnlyValidation($yahooRow);
+                continue;
+            }
+
+            $mismatches = $this->rowMismatches($tradingViewRow, $yahooRow);
+            if ($mismatches === []) {
+                $rowsByStartedAt[$key] = $this->withMatchedYahooValidation($tradingViewRow, $yahooRow);
+                continue;
+            }
+
+            $rowsByStartedAt[$key] = $this->withYahooMismatchSkipValidation($tradingViewRow, $yahooRow, $mismatches);
+        }
+
+        $mergedRows = array_values($rowsByStartedAt);
+        usort(
+            $mergedRows,
+            fn (array $first, array $second): int => ((int) $first['started_at_unix']) <=> ((int) $second['started_at_unix']),
+        );
+
+        return $mergedRows;
+    }
+
+    /**
+     * @return list<array{field: string, tradingview: int|float, yahoo: int|float}>
+     */
+    private function rowMismatches(array $tradingViewRow, array $yahooRow): array
+    {
+        $mismatches = [];
+        foreach (['open_price', 'high_price', 'low_price', 'close_price'] as $field) {
+            $tradingView = (float) $tradingViewRow[$field];
+            $yahoo = (float) $yahooRow[$field];
+            if (abs($tradingView - $yahoo) > 0.01) {
+                $mismatches[] = [
+                    'field' => $field,
+                    'tradingview' => $tradingView,
+                    'yahoo' => $yahoo,
+                ];
+            }
+        }
+
+        $tradingViewVolume = (int) $tradingViewRow['volume_contracts'];
+        $yahooVolume = (int) $yahooRow['volume_contracts'];
+        if ($tradingViewVolume !== $yahooVolume) {
+            $mismatches[] = [
+                'field' => 'volume_contracts',
+                'tradingview' => $tradingViewVolume,
+                'yahoo' => $yahooVolume,
+            ];
+        }
+
+        return $mismatches;
+    }
+
+    private function withMatchedYahooValidation(array $tradingViewRow, array $yahooRow): array
+    {
+        $tradingViewRow['source'] = self::SOURCE_VALIDATED_NAME;
+        $tradingViewRow['source_payload']['validation'] = [
+            'status' => 'matched_yahoo_taifex_session_verified',
+            'primary_source' => self::SOURCE_NAME,
+            'secondary_source' => TwFuturesYahooMinutePriceFetcher::SOURCE_NAME,
+            'mismatches' => [],
+            'yahoo' => $this->yahooValidationPayload($yahooRow),
+        ];
+
+        return $tradingViewRow;
+    }
+
+    private function withYahooMismatchSkipValidation(array $tradingViewRow, array $yahooRow, array $mismatches): array
+    {
+        $tradingViewRow['skip_upsert'] = true;
+        $tradingViewRow['source_payload']['validation'] = [
+            'status' => 'tradingview_yahoo_mismatch_skipped_needs_third_source',
+            'primary_source' => self::SOURCE_NAME,
+            'secondary_source' => TwFuturesYahooMinutePriceFetcher::SOURCE_NAME,
+            'mismatches' => $mismatches,
+            'yahoo' => $this->yahooValidationPayload($yahooRow),
+        ];
+
+        return $tradingViewRow;
+    }
+
+    private function withYahooOnlyValidation(array $yahooRow): array
+    {
+        $yahooRow['source'] = self::SOURCE_YAHOO_VALIDATED_NAME;
+        $yahooRow['source_payload']['validation']['status'] = 'yahoo_only_taifex_session_verified';
+        $yahooRow['source_payload']['validation']['primary_source'] = TwFuturesYahooMinutePriceFetcher::SOURCE_NAME;
+        $yahooRow['source_payload']['validation']['secondary_source'] = 'TAIFEX official quote snapshot';
+
+        return $yahooRow;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function yahooValidationPayload(array $yahooRow): array
+    {
+        return [
+            'open_price' => (float) $yahooRow['open_price'],
+            'high_price' => (float) $yahooRow['high_price'],
+            'low_price' => (float) $yahooRow['low_price'],
+            'close_price' => (float) $yahooRow['close_price'],
+            'volume_contracts' => (int) $yahooRow['volume_contracts'],
+            'minute_count' => (int) ($yahooRow['source_payload']['minute_count'] ?? 0),
+            'validation' => $yahooRow['source_payload']['validation'] ?? null,
+        ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
      */
     public function upsertRows(array $rows): int
     {
+        $rows = array_values(array_filter(
+            $rows,
+            fn (array $row): bool => ! (bool) ($row['skip_upsert'] ?? false),
+        ));
+
         if ($rows === []) {
             return 0;
         }
 
         $now = now();
         $payloads = array_map(function (array $row) use ($now): array {
+            unset($row['skip_upsert']);
             $row['source_payload'] = json_encode($row['source_payload'] ?? [], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
             $row['created_at'] = $now;
             $row['updated_at'] = $now;
@@ -139,25 +309,27 @@ class TwFuturesHourlyPriceFetcher
             return $row;
         }, $rows);
 
-        TwFuturesHourlyPrice::query()->upsert(
-            $payloads,
-            ['exchange', 'symbol', 'interval', 'started_at'],
-            [
-                'symbol_name',
-                'started_at_unix',
-                'trade_date',
-                'session_type',
-                'open_price',
-                'high_price',
-                'low_price',
-                'close_price',
-                'volume_contracts',
-                'source',
-                'source_payload',
-                'fetched_at',
-                'updated_at',
-            ],
-        );
+        foreach (array_chunk($payloads, self::UPSERT_CHUNK_SIZE) as $chunk) {
+            TwFuturesHourlyPrice::query()->upsert(
+                $chunk,
+                ['exchange', 'symbol', 'interval', 'started_at'],
+                [
+                    'symbol_name',
+                    'started_at_unix',
+                    'trade_date',
+                    'session_type',
+                    'open_price',
+                    'high_price',
+                    'low_price',
+                    'close_price',
+                    'volume_contracts',
+                    'source',
+                    'source_payload',
+                    'fetched_at',
+                    'updated_at',
+                ],
+            );
+        }
 
         return count($rows);
     }

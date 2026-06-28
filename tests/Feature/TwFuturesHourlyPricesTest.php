@@ -5,7 +5,7 @@ namespace Tests\Feature;
 use App\Console\Commands\BackfillTwFuturesContinuousPricesCommand;
 use App\Services\TwFuturesDailyPriceFetcher;
 use App\Services\TwFuturesHourlyPriceFetcher;
-use App\Services\TwFuturesOfficialIntradayPriceFetcher;
+use App\Services\TwFuturesYahooMinutePriceFetcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
@@ -490,80 +490,6 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertStringContainsString('TAIFEX official futures history page', (string) $dailyRow->verified_sources);
     }
 
-    public function test_official_intraday_fetcher_aggregates_taifex_tick_csv_by_official_file_trade_date(): void
-    {
-        if (! class_exists(\ZipArchive::class)) {
-            $this->markTestSkipped('ZipArchive is required for TAIFEX tick ZIP parsing.');
-        }
-
-        DB::table('tw_futures_hourly_prices')->insert([
-            $this->priceRow(
-                interval: '15',
-                startedAt: CarbonImmutable::parse('2026-06-18 15:00:00', 'Asia/Taipei'),
-                tradeDate: '2026-06-19',
-                sessionType: 'night',
-                close: 46752,
-                cursor: 1,
-                now: now(),
-            ),
-        ]);
-
-        Http::fake(function ($request) {
-            if (str_contains($request->url(), 'dlFutPrevious30DaysSalesData')) {
-                return Http::response(
-                    '<input onclick="window.open(\'https://www.taifex.com.tw/file/taifex/Dailydownload/DailydownloadCSV/Daily_2026_06_22.zip\')">',
-                    200,
-                );
-            }
-
-            if (str_contains($request->url(), 'Daily_2026_06_22.zip')) {
-                return Http::response($this->taifexTickZip([
-                    ['20260618', 'TX', '202607', '150000', '46751', '112'],
-                    ['20260618', 'TX', '202607', '150100', '46752', '4'],
-                    ['20260619', 'TX', '202607', '045959', '47565', '2'],
-                    ['20260622', 'TX', '202607', '084500', '48400', '4'],
-                    ['20260622', 'TX', '202607', '134500', '48413', '6'],
-                ]), 200, ['Content-Type' => 'application/zip']);
-            }
-
-            return Http::response('', 404);
-        });
-
-        $fetcher = app(TwFuturesOfficialIntradayPriceFetcher::class);
-        $rows = $fetcher->fetchRows(from: '2026-06-18', to: '2026-06-22', interval: '15');
-        $stored = $fetcher->upsertRows($rows);
-
-        $this->assertSame(4, $stored);
-
-        $nightOpen = DB::table('tw_futures_hourly_prices')
-            ->where('interval', '15')
-            ->where('started_at', '2026-06-18 15:00:00')
-            ->first();
-        $this->assertNotNull($nightOpen);
-        $this->assertSame('2026-06-22', CarbonImmutable::parse((string) $nightOpen->trade_date, 'Asia/Taipei')->toDateString());
-        $this->assertSame('night', $nightOpen->session_type);
-        $this->assertEqualsWithDelta(46751.0, (float) $nightOpen->open_price, 0.0001);
-        $this->assertEqualsWithDelta(46752.0, (float) $nightOpen->close_price, 0.0001);
-        $this->assertSame(58, (int) $nightOpen->volume_contracts);
-        $this->assertSame(TwFuturesOfficialIntradayPriceFetcher::SOURCE_NAME, $nightOpen->source);
-        $this->assertStringContainsString('official_primary_mismatch_with_existing', (string) $nightOpen->source_payload);
-
-        $nightClose = DB::table('tw_futures_hourly_prices')
-            ->where('interval', '15')
-            ->where('started_at', '2026-06-19 04:45:00')
-            ->first();
-        $this->assertNotNull($nightClose);
-        $this->assertSame('2026-06-22', CarbonImmutable::parse((string) $nightClose->trade_date, 'Asia/Taipei')->toDateString());
-
-        $dayCloseAuction = DB::table('tw_futures_hourly_prices')
-            ->where('interval', '15')
-            ->where('started_at', '2026-06-22 13:45:00')
-            ->first();
-        $this->assertNotNull($dayCloseAuction);
-        $this->assertEqualsWithDelta(48413.0, (float) $dayCloseAuction->close_price, 0.0001);
-        $this->assertSame(3, (int) $dayCloseAuction->volume_contracts);
-    }
-
     public function test_futures_night_session_trade_date_skips_weekends(): void
     {
         $fetcher = app(TwFuturesHourlyPriceFetcher::class);
@@ -785,6 +711,106 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertSame('TXFG6-F', $row['source_payload']['symbol_id']);
     }
 
+    public function test_yahoo_minute_fetcher_aligns_closed_session_with_taifex_quote(): void
+    {
+        $this->fakeYahooLatestFiveMinuteBar();
+
+        $rows = app(TwFuturesYahooMinutePriceFetcher::class)->fetchLatestAggregatedRows('5');
+
+        $this->assertCount(1, $rows);
+        $row = $rows[0];
+        $this->assertSame('2026-06-27 04:55:00', $row['started_at']);
+        $this->assertSame('2026-06-29', $row['trade_date']);
+        $this->assertSame('night', $row['session_type']);
+        $this->assertSame('45025.0000', $row['open_price']);
+        $this->assertSame('45036.0000', $row['high_price']);
+        $this->assertSame('44995.0000', $row['low_price']);
+        $this->assertSame('44995.0000', $row['close_price']);
+        $this->assertSame(133, $row['volume_contracts']);
+        $this->assertSame(5, $row['source_payload']['minute_count']);
+        $this->assertSame(-172800, $row['source_payload']['timestamp_shift_seconds']);
+    }
+
+    public function test_hourly_fetcher_skips_upsert_when_latest_yahoo_and_tradingview_mismatch(): void
+    {
+        $this->fakeYahooLatestFiveMinuteBar();
+
+        $tradingViewRow = $this->priceRow(
+            interval: '5',
+            startedAt: CarbonImmutable::parse('2026-06-27 04:55:00', 'Asia/Taipei'),
+            tradeDate: '2026-06-29',
+            sessionType: 'night',
+            close: 44994,
+            cursor: 1,
+            now: now(),
+        );
+        $tradingViewRow['open_price'] = '45025.0000';
+        $tradingViewRow['high_price'] = '45036.0000';
+        $tradingViewRow['low_price'] = '44995.0000';
+        $tradingViewRow['volume_contracts'] = 132;
+        $tradingViewRow['source'] = 'TradingView chart websocket';
+        $tradingViewRow['source_payload'] = ['tradingview_symbol' => 'TAIFEX:TXF1!'];
+
+        $fetcher = app(TwFuturesHourlyPriceFetcher::class);
+        $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'mergeYahooLatestValidation');
+        $method->setAccessible(true);
+
+        $rows = $method->invoke(
+            $fetcher,
+            [$tradingViewRow],
+            CarbonImmutable::parse('2026-06-26', 'Asia/Taipei')->startOfDay(),
+            CarbonImmutable::parse('2026-06-29', 'Asia/Taipei')->endOfDay(),
+            'TXF1!',
+            '5',
+        );
+
+        $this->assertCount(1, $rows);
+        $row = $rows[0];
+        $this->assertEqualsWithDelta(44994.0, (float) $row['close_price'], 0.0001);
+        $this->assertSame(132, $row['volume_contracts']);
+        $this->assertSame('TradingView chart websocket', $row['source']);
+        $this->assertTrue($row['skip_upsert']);
+        $this->assertSame(
+            'tradingview_yahoo_mismatch_skipped_needs_third_source',
+            $row['source_payload']['validation']['status'],
+        );
+        $this->assertNotEmpty($row['source_payload']['validation']['mismatches']);
+    }
+
+    public function test_futures_hourly_fetcher_upserts_large_batches_in_chunks(): void
+    {
+        $rows = [];
+        $now = now();
+        $startedAt = CarbonImmutable::parse('2026-06-01 08:45:00', 'Asia/Taipei');
+
+        foreach (range(0, 449) as $index) {
+            $row = $this->priceRow(
+                interval: '5',
+                startedAt: $startedAt->addMinutes($index * 5),
+                tradeDate: '2026-06-01',
+                sessionType: 'day',
+                close: 25000 + $index,
+                cursor: $index,
+                now: $now,
+            );
+            $row['source_payload'] = ['index' => $index];
+            $rows[] = $row;
+        }
+
+        $upsertQueries = 0;
+        DB::listen(function ($query) use (&$upsertQueries): void {
+            if (str_contains((string) $query->sql, 'tw_futures_hourly_prices')) {
+                $upsertQueries++;
+            }
+        });
+
+        $stored = app(TwFuturesHourlyPriceFetcher::class)->upsertRows($rows);
+
+        $this->assertSame(450, $stored);
+        $this->assertSame(3, $upsertQueries);
+        $this->assertSame(450, DB::table('tw_futures_hourly_prices')->count());
+    }
+
     private function seedHourlyRows(): void
     {
         $now = now();
@@ -993,40 +1019,53 @@ class TwFuturesHourlyPricesTest extends TestCase
         ]);
     }
 
-    /**
-     * @param list<array{0: string, 1: string, 2: string, 3: string, 4: string, 5: string}> $rows
-     */
-    private function taifexTickZip(array $rows): string
+    private function fakeYahooLatestFiveMinuteBar(): void
     {
-        $csvRows = [
-            '成交日期,商品代號,到期月份(週別),成交時間,成交價格,成交數量(B+S),近月價格,遠月價格,開盤集合競價',
-        ];
-        foreach ($rows as $row) {
-            $csvRows[] = implode(',', [
-                $row[0],
-                str_pad($row[1], 7),
-                str_pad($row[2], 11),
-                $row[3],
-                $row[4],
-                $row[5],
-                '-',
-                '-',
-                '',
-            ]);
+        $timestamps = [];
+        foreach (['2026-06-29 04:56:00', '2026-06-29 04:57:00', '2026-06-29 04:58:00', '2026-06-29 04:59:00', '2026-06-29 05:00:00'] as $time) {
+            $timestamps[] = CarbonImmutable::parse($time, 'Asia/Taipei')->timestamp;
         }
 
-        $temporaryPath = tempnam(sys_get_temp_dir(), 'taifex_tick_test_');
-        $zipPath = $temporaryPath . '.zip';
-        @unlink($temporaryPath);
-
-        $zip = new \ZipArchive();
-        $this->assertTrue($zip->open($zipPath, \ZipArchive::CREATE) === true);
-        $zip->addFromString('Daily_2026_06_22.csv', mb_convert_encoding(implode("\n", $csvRows), 'CP950', 'UTF-8'));
-        $zip->close();
-
-        $contents = (string) file_get_contents($zipPath);
-        @unlink($zipPath);
-
-        return $contents;
+        Http::fake([
+            'https://tw.stock.yahoo.com/*' => Http::response([
+                'data' => [
+                    [
+                        'chart' => [
+                            'timestamp' => $timestamps,
+                            'indicators' => [
+                                'quote' => [
+                                    [
+                                        'open' => [45025, 45018, 45015, 45015, 45009],
+                                        'high' => [45036, 45025, 45025, 45017, 45020],
+                                        'low' => [45018, 45014, 45014, 45000, 44995],
+                                        'close' => [45025, 45014, 45015, 45017, 44995],
+                                        'volume' => [28, 5, 6, 50, 44],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ]),
+            'https://mis.taifex.com.tw/futures/api/getQuoteList' => Http::response([
+                'RtCode' => '0',
+                'RtMsg' => '',
+                'RtData' => [
+                    'QuoteList' => [
+                        [
+                            'SymbolID' => 'TXFG6-M',
+                            'CDate' => '20260626',
+                            'CTime' => '045956',
+                            'COpenPrice' => '45025.00',
+                            'CHighPrice' => '45036.00',
+                            'CLowPrice' => '44995.00',
+                            'CLastPrice' => '44995.00',
+                            'CTotalVolume' => '133',
+                        ],
+                    ],
+                ],
+            ]),
+        ]);
     }
+
 }

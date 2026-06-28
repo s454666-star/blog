@@ -16,7 +16,8 @@ class TestImageController extends Controller
         $imageUrl = $requestUrl !== '' ? $requestUrl : 'https://85sugarbaby.com.tw/home';
 
         $host = strtolower((string) parse_url($imageUrl, PHP_URL_HOST));
-        if ($requestUrl !== '' && $host !== '85sugarbaby.com.tw') {
+        $allowedHosts = ['85sugarbaby.com.tw'];
+        if ($requestUrl !== '' && ! in_array($host, $allowedHosts, true)) {
             return response('forbidden host', 403);
         }
 

@@ -208,6 +208,16 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/download_video_exact_duplicates.log'));
 
+        $schedule->command('crawler:85sugarbaby-import --headless --source=85sugarbaby_active_flow --limit=10 --clear-source')
+            ->cron('*/30 * * * * *')
+            ->name('crawler-85sugarbaby-import-30s')
+            ->withoutOverlapping(1)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/crawler_85sugarbaby_import.log'))
+            ->onFailure(function () {
+                \Log::error('scheduler crawler:85sugarbaby-import 30s failed');
+            });
+
         $schedule->exec($this->hiddenBatchCommand('ensure_tg_scan_group_media.bat'))
             ->hourlyAt(24)
             ->name('blog-ensure-tg-scan-group-media');

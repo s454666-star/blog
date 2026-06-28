@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
+import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
@@ -303,9 +304,9 @@ async function waitForJson(url, timeoutMs) {
 
   while (Date.now() < stopAt) {
     try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return await response.json();
+      const response = await requestJson(url);
+      if (response) {
+        return response;
       }
       lastError = new Error(`${url} returned ${response.status}`);
     } catch (error) {
@@ -315,6 +316,37 @@ async function waitForJson(url, timeoutMs) {
   }
 
   throw lastError || new Error(`Timed out waiting for ${url}`);
+}
+
+function requestJson(url) {
+  return new Promise((resolve, reject) => {
+    const request = http.get(url, { timeout: 3000 }, (res) => {
+      if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume();
+        reject(new Error(`${url} returned ${res.statusCode}`));
+        return;
+      }
+
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        body += chunk;
+      });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(body || '{}'));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+
+    request.on('timeout', () => {
+      request.destroy(new Error(`Timeout waiting for ${url}`));
+    });
+
+    request.on('error', reject);
+  });
 }
 
 async function firstPageTarget(port) {

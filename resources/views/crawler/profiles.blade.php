@@ -246,6 +246,60 @@
         .pagination li a[rel] {
             border-radius: 999px;
         }
+        .pagination-summary {
+            color: #374151;
+            font-size: 0.85rem;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+        .nyaa-pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .nyaa-pagination a,
+        .nyaa-pagination span {
+            text-decoration: none;
+            border-radius: 10px;
+            border: 1px solid rgba(17,24,39,0.14);
+            background: #fff;
+            min-width: 36px;
+            height: 36px;
+            padding: 0 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #111827;
+            font-size: 0.9rem;
+            font-weight: 700;
+            transition: all .15s ease;
+            cursor: pointer;
+        }
+        .nyaa-pagination a:hover {
+            color: #fff;
+            background: var(--primary);
+            border-color: transparent;
+        }
+        .nyaa-pagination .is-current {
+            background: linear-gradient(135deg, var(--primary), #6366f1);
+            color: #fff;
+            border-color: transparent;
+        }
+        .nyaa-pagination .is-disabled {
+            color: #9ca3af;
+            pointer-events: none;
+            cursor: not-allowed;
+            background: #f3f4f6;
+        }
+        .nyaa-pagination .ellipsis {
+            border: none;
+            background: transparent;
+            min-width: auto;
+            width: 20px;
+            color: #6b7280;
+        }
         .lightbox {
             position: fixed;
             inset: 0;
@@ -455,8 +509,56 @@
         </section>
 
         <div class="pagination-wrap">
-            <div class="pagination">
-                {{ $candidates->links() }}
+            @php
+                $currentPage = $candidates->currentPage();
+                $lastPage = $candidates->lastPage();
+                $showWindow = 2;
+                $start = max(1, $currentPage - $showWindow);
+                $end = min($lastPage, $currentPage + $showWindow);
+            @endphp
+
+            <div class="pagination-summary">
+                第 {{ $currentPage }} 頁 / 共 {{ $lastPage }} 頁（{{ $candidates->firstItem() }}-{{ $candidates->lastItem() }} / {{ $candidates->total() }}）
+            </div>
+
+            <div class="nyaa-pagination">
+                @if($candidates->onFirstPage())
+                    <span class="is-disabled">‹</span>
+                    <span class="is-disabled">«</span>
+                @else
+                    <a href="{{ $candidates->previousPageUrl() }}">‹</a>
+                    <a href="{{ $candidates->url(1) }}">«</a>
+                @endif
+
+                @if($start > 1)
+                    <a href="{{ $candidates->url(1) }}">1</a>
+                    @if($start > 2)
+                        <span class="ellipsis">…</span>
+                    @endif
+                @endif
+
+                @for($i = $start; $i <= $end; $i++)
+                    @if($i === $currentPage)
+                        <span class="is-current">{{ $i }}</span>
+                    @else
+                        <a href="{{ $candidates->url($i) }}">{{ $i }}</a>
+                    @endif
+                @endfor
+
+                @if($end < $lastPage)
+                    @if($end < $lastPage - 1)
+                        <span class="ellipsis">…</span>
+                    @endif
+                    <a href="{{ $candidates->url($lastPage) }}">{{ $lastPage }}</a>
+                @endif
+
+                @if($candidates->hasMorePages())
+                    <a href="{{ $candidates->nextPageUrl() }}">›</a>
+                    <a href="{{ $candidates->url($lastPage) }}">»</a>
+                @else
+                    <span class="is-disabled">›</span>
+                    <span class="is-disabled">»</span>
+                @endif
             </div>
         </div>
     @endif

@@ -391,7 +391,7 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertStringContainsString('no-store', (string) $unchangedResponse->headers->get('Cache-Control'));
     }
 
-    public function test_taiex_futures_daily_ma5_uses_verified_official_daily_closes(): void
+    public function test_taiex_futures_daily_ma5_uses_five_minute_dynamic_closes(): void
     {
         $this->seedHourlyRows();
         $this->seedOfficialDailyRows([
@@ -408,10 +408,30 @@ class TwFuturesHourlyPricesTest extends TestCase
         $response = $this->getJson(route('tw-stock.taiex-futures.kline.data'));
 
         $rows = $response->json('chartRows');
-        $janFiveRow = collect($rows)->first(fn (array $row): bool => $row['tradeDate'] === '2026-01-05');
+        $janFiveRows = collect($rows)
+            ->filter(fn (array $row): bool => $row['tradeDate'] === '2026-01-05')
+            ->values();
+        $janFiveRow = $janFiveRows->first();
+        $janFiveLastRow = $janFiveRows->last();
 
         $this->assertNotNull($janFiveRow);
-        $this->assertEqualsWithDelta(30020.0, (float) $janFiveRow['dailyMa5'], 0.0001);
+        $this->assertNotNull($janFiveLastRow);
+
+        $previousFiveMinuteCloses = collect(['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04'])
+            ->map(fn (string $tradeDate): float => (float) DB::table('tw_futures_hourly_prices')
+                ->where('interval', '5')
+                ->where('trade_date', $tradeDate)
+                ->orderByDesc('started_at')
+                ->value('close_price'));
+        $currentFiveMinuteClose = (float) DB::table('tw_futures_hourly_prices')
+            ->where('interval', '5')
+            ->where('started_at_unix', (int) $janFiveRow['time'] - 300)
+            ->value('close_price');
+        $expected = ($previousFiveMinuteCloses->sum() + $currentFiveMinuteClose) / 5;
+
+        $this->assertEqualsWithDelta($expected, (float) $janFiveRow['dailyMa5'], 0.0001);
+        $this->assertNotEquals(30020.0, (float) $janFiveRow['dailyMa5']);
+        $this->assertNotEquals((float) $janFiveRow['dailyMa5'], (float) $janFiveLastRow['dailyMa5']);
     }
 
     public function test_taiex_futures_daily_fetcher_stores_rows_verified_by_self_calculation(): void
@@ -852,10 +872,13 @@ class TwFuturesHourlyPricesTest extends TestCase
     {
         $now = now();
         $rows = [];
+        $this->appendFiveMinuteRows($rows, $now);
         $this->appendFifteenMinuteRows($rows, $now);
         $this->appendHourlyRows($rows, $now);
 
-        DB::table('tw_futures_hourly_prices')->insert($rows);
+        foreach (array_chunk($rows, 100) as $chunk) {
+            DB::table('tw_futures_hourly_prices')->insert($chunk);
+        }
     }
 
     /**
@@ -891,6 +914,48 @@ class TwFuturesHourlyPricesTest extends TestCase
         }
 
         DB::table('tw_futures_daily_prices')->insert($rows);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     */
+    private function appendFiveMinuteRows(array &$rows, Carbon $now): void
+    {
+        $cursor = 0;
+
+        foreach (range(0, 6) as $dayOffset) {
+            $date = CarbonImmutable::parse('2026-01-01', 'Asia/Taipei')->addDays($dayOffset);
+
+            for ($minutes = 0; $minutes < 330; $minutes += 5) {
+                $startedAt = $date->setTime(8, 45)->addMinutes($minutes);
+                $close = 24000 + $cursor;
+                $rows[] = $this->priceRow(
+                    interval: '5',
+                    startedAt: $startedAt,
+                    tradeDate: $date->toDateString(),
+                    sessionType: 'day',
+                    close: $close,
+                    cursor: $cursor,
+                    now: $now,
+                );
+                $cursor++;
+            }
+
+            for ($minutes = 0; $minutes < 870; $minutes += 5) {
+                $startedAt = $date->setTime(15, 0)->addMinutes($minutes);
+                $close = 24000 + $cursor;
+                $rows[] = $this->priceRow(
+                    interval: '5',
+                    startedAt: $startedAt,
+                    tradeDate: $date->addDay()->toDateString(),
+                    sessionType: 'night',
+                    close: $close,
+                    cursor: $cursor,
+                    now: $now,
+                );
+                $cursor++;
+            }
+        }
     }
 
     /**

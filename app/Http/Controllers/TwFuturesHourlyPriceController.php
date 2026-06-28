@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\TwFuturesDailyPrice;
 use App\Models\TwFuturesHourlyPrice;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
@@ -13,6 +12,8 @@ use Illuminate\Support\Collection;
 class TwFuturesHourlyPriceController extends Controller
 {
     private const SYMBOL = 'TXF1!';
+
+    private const DAILY_MA_SOURCE_INTERVAL = '5';
 
     private const PRIMARY_INTERVAL = '15';
 
@@ -49,10 +50,11 @@ class TwFuturesHourlyPriceController extends Controller
     private function chartPayload(?string $dataRevision = null): array
     {
         $rows = $this->priceRows(self::SYMBOL, self::PRIMARY_INTERVAL);
+        $fiveMinuteRows = $this->priceRows(self::SYMBOL, self::DAILY_MA_SOURCE_INTERVAL);
         $hourlyRows = $this->priceRows(self::SYMBOL, '60');
-        $officialDailyCloseByDate = $this->officialDailyCloseByDate(self::SYMBOL);
-        $indicatorRows = $this->indicatorRows($rows, self::FIFTEEN_MINUTE_MA_WINDOW, $officialDailyCloseByDate);
-        $hourlyIndicatorRows = $this->indicatorRows($hourlyRows, self::HOURLY_MA_WINDOW, $officialDailyCloseByDate);
+        $dailyMa5ByTimestamp = $this->fiveMinuteDailyMa5ByTimestamp($fiveMinuteRows);
+        $indicatorRows = $this->indicatorRows($rows, self::FIFTEEN_MINUTE_MA_WINDOW, $dailyMa5ByTimestamp);
+        $hourlyIndicatorRows = $this->indicatorRows($hourlyRows, self::HOURLY_MA_WINDOW, $dailyMa5ByTimestamp);
         $latest = $rows->last();
 
         return [
@@ -96,7 +98,7 @@ class TwFuturesHourlyPriceController extends Controller
     {
         $rows = TwFuturesHourlyPrice::query()
             ->where('symbol', self::SYMBOL)
-            ->whereIn('interval', [self::PRIMARY_INTERVAL, '60'])
+            ->whereIn('interval', [self::DAILY_MA_SOURCE_INTERVAL, self::PRIMARY_INTERVAL, '60'])
             ->select('interval')
             ->selectRaw('COUNT(*) as row_count, MAX(started_at_unix) as latest_started_at_unix, MAX(updated_at) as last_updated_at')
             ->groupBy('interval')
@@ -113,21 +115,7 @@ class TwFuturesHourlyPriceController extends Controller
             ]))
             ->implode(';');
 
-        $daily = TwFuturesDailyPrice::query()
-            ->where('symbol', self::SYMBOL)
-            ->where('session_type', 'day')
-            ->selectRaw('COUNT(*) as row_count, MAX(trade_date) as latest_trade_date, MAX(updated_at) as last_updated_at')
-            ->toBase()
-            ->first();
-
-        $dailyFingerprint = $daily === null ? '' : implode('|', [
-            'daily',
-            (string) $daily->row_count,
-            (string) $daily->latest_trade_date,
-            (string) $daily->last_updated_at,
-        ]);
-
-        return sha1($fingerprint . ';' . $dailyFingerprint);
+        return sha1($fingerprint);
     }
 
     /**
@@ -156,28 +144,64 @@ class TwFuturesHourlyPriceController extends Controller
     }
 
     /**
-     * @return array<string, float>
+     * @param Collection<int, object> $rows
+     * @return array<int, float>
      */
-    private function officialDailyCloseByDate(string $symbol): array
+    private function fiveMinuteDailyMa5ByTimestamp(Collection $rows): array
     {
-        return TwFuturesDailyPrice::query()
-            ->where('symbol', $symbol)
-            ->where('session_type', 'day')
-            ->orderBy('trade_date')
-            ->pluck('close_price', 'trade_date')
-            ->mapWithKeys(function (mixed $close, mixed $tradeDate): array {
-                $date = $tradeDate instanceof \DateTimeInterface
-                    ? CarbonImmutable::instance($tradeDate)->toDateString()
-                    : CarbonImmutable::parse((string) $tradeDate, 'Asia/Taipei')->toDateString();
+        $previousDailyCloses = $this->previousComputedDailyCloses($rows);
+        $dailyMa5ByTimestamp = [];
 
-                return [$date => (float) $close];
-            })
-            ->all();
+        foreach ($rows as $row) {
+            $tradeDate = $this->tradeDateString($row);
+            $previous = $tradeDate !== null ? ($previousDailyCloses[$tradeDate] ?? []) : [];
+            if (count($previous) !== 4) {
+                continue;
+            }
+
+            $dailyMa5ByTimestamp[$this->displayTimestamp($row)] = round(
+                (array_sum($previous) + (float) $row->close_price) / 5,
+                4,
+            );
+        }
+
+        return $dailyMa5ByTimestamp;
     }
 
     /**
      * @param Collection<int, object> $rows
-     * @param array<string, float> $officialDailyCloseByDate
+     * @return array<string, list<float>>
+     */
+    private function previousComputedDailyCloses(Collection $rows): array
+    {
+        $computedDailyCloseByDate = [];
+        foreach ($rows as $row) {
+            $tradeDate = $this->tradeDateString($row);
+            if ($tradeDate === null) {
+                continue;
+            }
+
+            $computedDailyCloseByDate[$tradeDate] = (float) $row->close_price;
+        }
+
+        $tradeDates = array_keys($computedDailyCloseByDate);
+        sort($tradeDates);
+
+        $previousDailyCloses = [];
+        foreach ($tradeDates as $index => $tradeDate) {
+            $previous = [];
+            for ($cursor = max(0, $index - 4); $cursor < $index; $cursor++) {
+                $previous[] = (float) $computedDailyCloseByDate[$tradeDates[$cursor]];
+            }
+            $previousDailyCloses[$tradeDate] = $previous;
+        }
+
+        return $previousDailyCloses;
+    }
+
+    /**
+     * @param Collection<int, object> $rows
+     * @param array<int, float> $dailyMa5ByTimestamp
      * @return array{
      *     chartRows: list<array<string, mixed>>,
      *     dailyChartRows: list<array<string, mixed>>,
@@ -193,33 +217,9 @@ class TwFuturesHourlyPriceController extends Controller
      *     minGap: float|null
      * }
      */
-    private function indicatorRows(Collection $rows, int $movingAverageWindowSize, array $officialDailyCloseByDate = []): array
+    private function indicatorRows(Collection $rows, int $movingAverageWindowSize, array $dailyMa5ByTimestamp = []): array
     {
-        $computedDailyCloseByDate = [];
-        foreach ($rows as $row) {
-            $tradeDate = $this->tradeDateString($row);
-            if ($tradeDate === null) {
-                continue;
-            }
-
-            $computedDailyCloseByDate[$tradeDate] = (float) $row->close_price;
-        }
-
-        $dailyCloseByDate = $computedDailyCloseByDate;
-        foreach ($officialDailyCloseByDate as $tradeDate => $close) {
-            $dailyCloseByDate[$tradeDate] = (float) $close;
-        }
-
-        $tradeDates = array_keys($dailyCloseByDate);
-        sort($tradeDates);
-        $previousDailyCloses = [];
-        foreach ($tradeDates as $index => $tradeDate) {
-            $previous = [];
-            for ($cursor = max(0, $index - 4); $cursor < $index; $cursor++) {
-                $previous[] = (float) $dailyCloseByDate[$tradeDates[$cursor]];
-            }
-            $previousDailyCloses[$tradeDate] = $previous;
-        }
+        $previousDailyCloses = $this->previousComputedDailyCloses($rows);
 
         $sessionCloseTimes = [];
         foreach ($rows as $row) {
@@ -256,20 +256,16 @@ class TwFuturesHourlyPriceController extends Controller
                 ? $movingAverageSum / $movingAverageWindowSize
                 : null;
             $tradeDate = $this->tradeDateString($row);
+            $startedAt = CarbonImmutable::parse($row->started_at, 'Asia/Taipei');
+            $startedAtUnix = (int) $row->started_at_unix;
+            $time = $this->displayTimestamp($row);
             $previous = $tradeDate !== null ? ($previousDailyCloses[$tradeDate] ?? []) : [];
-            $dailyClose = $tradeDate !== null
-                ? ($officialDailyCloseByDate[$tradeDate] ?? $close)
-                : $close;
-            $dailyMa5 = count($previous) === 4
-                ? (array_sum($previous) + $dailyClose) / 5
-                : null;
+            $dailyMa5 = $dailyMa5ByTimestamp[$time]
+                ?? (count($previous) === 4 ? (array_sum($previous) + $close) / 5 : null);
             $gap = $dailyMa5 !== null && $movingAverage !== null ? $dailyMa5 - $movingAverage : null;
             $bias = $movingAverage !== null ? $close - $movingAverage : null;
             $biasGapDiff = $bias !== null && $gap !== null ? $bias - $gap : null;
             $biasRate = $biasGapDiff !== null && $close !== 0.0 ? $biasGapDiff / $close : null;
-            $startedAt = CarbonImmutable::parse($row->started_at, 'Asia/Taipei');
-            $startedAtUnix = (int) $row->started_at_unix;
-            $time = $this->displayTimestamp($row);
             $localTime = $this->displayDateTime($row) ?? $startedAt->format('Y-m-d H:i');
             $sessionType = (string) $row->session_type;
             $isSessionOpen = in_array($startedAt->format('H:i'), ['08:45', '15:00'], true);

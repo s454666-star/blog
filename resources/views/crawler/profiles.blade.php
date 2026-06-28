@@ -379,7 +379,6 @@
         const picture = document.getElementById('lightbox-image');
         const hoverLayer = document.getElementById('hover-preview');
         const hoverImage = document.getElementById('hover-preview-image');
-        let hoverHideTimeout = null;
 
         const showHover = (src) => {
             if (!src || hoverImage.src === src) {
@@ -390,7 +389,6 @@
         };
 
         const hideHover = () => {
-            clearTimeout(hoverHideTimeout);
             hoverLayer.style.display = 'none';
         };
 

@@ -30,7 +30,8 @@ class CrawlerProfileController extends Controller
             $query->where(function ($builder) use ($q) {
                 $builder->where('external_user_id', 'like', "%{$q}%")
                     ->orWhere('nickname', 'like', "%{$q}%")
-                    ->orWhere('profile_url', 'like', "%{$q}%");
+                    ->orWhere('profile_url', 'like', "%{$q}%")
+                    ->orWhere('chat_url', 'like', "%{$q}%");
             });
         }
 

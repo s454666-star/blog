@@ -38,7 +38,8 @@ class CrawlerProfileCandidateSeeder extends Seeder
                         'nickname' => $profile['nickname'],
                         'age' => $profile['age'],
                         'area' => $profile['area'],
-                        'profile_url' => $profile['profile_url'],
+                'profile_url' => $profile['profile_url'],
+                        'chat_url' => $profile['chat_url'],
                         'matched_filter_json' => $filter,
                         'raw_payload' => [
                             'synthetic' => true,
@@ -80,6 +81,7 @@ class CrawlerProfileCandidateSeeder extends Seeder
                 'age' => 18,
                 'area' => '台北',
                 'profile_url' => self::PROFILE_BASE_URL . '114224',
+                        'chat_url' => 'https://85sugarbaby.com.tw/chatroom?peerid=114224',
                 'images' => [
                     self::IMAGE_BASE_URL . '/0/114/114224/2768616154v.jpg',
                     self::IMAGE_BASE_URL . '/0/114/114224/2768616155v.jpg',
@@ -91,6 +93,7 @@ class CrawlerProfileCandidateSeeder extends Seeder
                 'age' => 19,
                 'area' => '新北',
                 'profile_url' => self::PROFILE_BASE_URL . '114225',
+                        'chat_url' => 'https://85sugarbaby.com.tw/chatroom?peerid=114225',
                 'images' => [self::IMAGE_BASE_URL . '/0/114/114225/2768616171v.jpg'],
             ],
             [
@@ -99,6 +102,7 @@ class CrawlerProfileCandidateSeeder extends Seeder
                 'age' => 20,
                 'area' => '台北',
                 'profile_url' => self::PROFILE_BASE_URL . '114226',
+                        'chat_url' => 'https://85sugarbaby.com.tw/chatroom?peerid=114226',
                 'images' => [self::IMAGE_BASE_URL . '/0/114/114226/2768616189v.jpg'],
             ],
             [
@@ -107,6 +111,7 @@ class CrawlerProfileCandidateSeeder extends Seeder
                 'age' => 21,
                 'area' => '新北',
                 'profile_url' => self::PROFILE_BASE_URL . '114227',
+                        'chat_url' => 'https://85sugarbaby.com.tw/chatroom?peerid=114227',
                 'images' => [
                     self::IMAGE_BASE_URL . '/0/114/114227/2768616198v.jpg',
                     self::IMAGE_BASE_URL . '/0/114/114227/2768616203v.jpg',
@@ -118,6 +123,7 @@ class CrawlerProfileCandidateSeeder extends Seeder
                 'age' => 22,
                 'area' => '台北',
                 'profile_url' => self::PROFILE_BASE_URL . '114228',
+                        'chat_url' => 'https://85sugarbaby.com.tw/chatroom?peerid=114228',
                 'images' => [self::IMAGE_BASE_URL . '/0/114/114228/2768616217v.jpg'],
             ],
             [
@@ -126,6 +132,7 @@ class CrawlerProfileCandidateSeeder extends Seeder
                 'age' => 18,
                 'area' => '新北',
                 'profile_url' => self::PROFILE_BASE_URL . '114229',
+                        'chat_url' => 'https://85sugarbaby.com.tw/chatroom?peerid=114229',
                 'images' => [self::IMAGE_BASE_URL . '/0/114/114229/2768616228v.jpg'],
             ],
             [
@@ -134,6 +141,7 @@ class CrawlerProfileCandidateSeeder extends Seeder
                 'age' => 19,
                 'area' => '台北',
                 'profile_url' => self::PROFILE_BASE_URL . '114230',
+                        'chat_url' => 'https://85sugarbaby.com.tw/chatroom?peerid=114230',
                 'images' => [self::IMAGE_BASE_URL . '/0/114/114230/2768616232v.jpg'],
             ],
             [
@@ -142,6 +150,7 @@ class CrawlerProfileCandidateSeeder extends Seeder
                 'age' => 20,
                 'area' => '新北',
                 'profile_url' => self::PROFILE_BASE_URL . '114231',
+                        'chat_url' => 'https://85sugarbaby.com.tw/chatroom?peerid=114231',
                 'images' => [
                     self::IMAGE_BASE_URL . '/0/114/114231/2768616247v.jpg',
                     self::IMAGE_BASE_URL . '/0/114/114231/2768616248v.jpg',
@@ -153,6 +162,7 @@ class CrawlerProfileCandidateSeeder extends Seeder
                 'age' => 21,
                 'area' => '台北',
                 'profile_url' => self::PROFILE_BASE_URL . '114232',
+                        'chat_url' => 'https://85sugarbaby.com.tw/chatroom?peerid=114232',
                 'images' => [self::IMAGE_BASE_URL . '/0/114/114232/2768616259v.jpg'],
             ],
             [
@@ -161,8 +171,11 @@ class CrawlerProfileCandidateSeeder extends Seeder
                 'age' => 22,
                 'area' => '新北',
                 'profile_url' => self::PROFILE_BASE_URL . '114233',
+                        'chat_url' => 'https://85sugarbaby.com.tw/chatroom?peerid=114233',
                 'images' => [self::IMAGE_BASE_URL . '/0/114/114233/2768616271v.jpg'],
             ],
         ];
     }
 }
+
+

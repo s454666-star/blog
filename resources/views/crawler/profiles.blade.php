@@ -116,12 +116,40 @@
             line-height: 1.7;
         }
         .meta b { color: #111827; }
-        .profile-link {
-            display: inline-block;
+        .button-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
             margin-bottom: 12px;
-            color: var(--primary);
+        }
+        .action-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            border-radius: 999px;
+            border: 1px solid rgba(79,70,229,0.24);
+            padding: 8px 12px;
             text-decoration: none;
+            color: #111827;
+            background: #fff;
+            font-size: 0.86rem;
             font-weight: 700;
+            transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+        }
+        .action-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 24px rgba(17,24,39,.12);
+            border-color: var(--primary);
+        }
+        .action-btn.primary {
+            background: linear-gradient(160deg, var(--primary), #6366f1);
+            color: #fff;
+            border-color: transparent;
+        }
+        .action-btn.secondary {
+            background: linear-gradient(160deg, #d1fae5, #bbf7d0);
+            color: #064e3b;
         }
         .thumbs {
             display: grid;
@@ -162,6 +190,61 @@
             padding: 14px;
             background: rgba(255,255,255,.88);
             box-shadow: 0 16px 30px rgba(2,6,23,.08);
+        }
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 0;
+        }
+        .pagination nav {
+            width: 100%;
+        }
+        .pagination ul {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+        .pagination li {
+            margin: 0;
+        }
+        .pagination li a,
+        .pagination li span {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 38px;
+            height: 38px;
+            padding: 0 11px;
+            border-radius: 10px;
+            border: 1px solid rgba(17,24,39,0.14);
+            text-decoration: none;
+            color: #111827;
+            background: #fff;
+            font-weight: 700;
+            font-size: 0.92rem;
+        }
+        .pagination li span[aria-current="page"] {
+            color: #fff;
+            border-color: transparent;
+            background: linear-gradient(135deg, var(--primary), #6366f1);
+        }
+        .pagination li.disabled span,
+        .pagination li.disabled a {
+            color: #9ca3af;
+            pointer-events: none;
+            cursor: not-allowed;
+            border-color: rgba(17,24,39,0.1);
+            background: #f3f4f6;
+        }
+        .pagination li span[aria-label],
+        .pagination li a[rel] {
+            border-radius: 999px;
         }
         .lightbox {
             position: fixed;
@@ -319,10 +402,22 @@
                         <h2 class="title">{{ $candidate->nickname ?: '未命名' }}</h2>
                         <div class="meta">
                             年齡：<b>{{ (int) $candidate->age }}</b> / 地區：<b>{{ $candidate->area ?: '-' }}</b><br>
+                            身高：<b>{{ $candidate->height ? $candidate->height . ' cm' : '-' }}</b> / 體重：<b>{{ $candidate->weight ? $candidate->weight . ' kg' : '-' }}</b><br>
                             使用者ID：<b>{{ $candidate->external_user_id }}</b><br>
                             建檔時間：<b>{{ optional($candidate->captured_at)->format('Y-m-d H:i:s') ?? '-' }}</b>
                         </div>
-                        <a class="profile-link" href="{{ $candidate->profile_url }}" target="_blank" rel="noreferrer">查看個人頁面</a>
+                        <div class="button-row">
+                            <a class="action-btn primary" href="{{ $candidate->profile_url }}" target="_blank" rel="noreferrer">
+                                資料
+                            </a>
+                            @if(!empty($candidate->chat_url))
+                                <a class="action-btn secondary" href="{{ $candidate->chat_url }}" target="_blank" rel="noreferrer">
+                                    聊天
+                                </a>
+                            @else
+                                <span class="action-btn secondary" style="opacity:.7; cursor:default;">聊天待補</span>
+                            @endif
+                        </div>
                         <div class="thumbs">
                             @forelse($candidate->images as $image)
                                 @php
@@ -360,7 +455,9 @@
         </section>
 
         <div class="pagination-wrap">
-            {{ $candidates->links() }}
+            <div class="pagination">
+                {{ $candidates->links() }}
+            </div>
         </div>
     @endif
 </div>

@@ -14,6 +14,9 @@ class CrawlerProfileCandidate extends Model
         'age',
         'area',
         'profile_url',
+        'chat_url',
+        'height',
+        'weight',
         'matched_filter_json',
         'raw_payload',
         'captured_at',
@@ -21,6 +24,8 @@ class CrawlerProfileCandidate extends Model
 
     protected $casts = [
         'age' => 'integer',
+        'height' => 'integer',
+        'weight' => 'integer',
         'matched_filter_json' => 'array',
         'raw_payload' => 'array',
         'captured_at' => 'datetime',

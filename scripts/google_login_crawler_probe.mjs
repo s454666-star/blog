@@ -57,17 +57,15 @@ async function main() {
   }
 
   const chromePath = resolveChromePath(String(options.chrome || '').trim());
-  const port = await findOpenPort();
+  const { port, target: initialTarget } = await startChromeWithRetry(chromePath, profileDir, headless);
 
   log(`Chrome: ${chromePath}`);
   log(`Profile: ${profileDir}`);
   log(`Opening: ${targetUrl}`);
   log('If Google asks for password, passkey, or 2-step verification, complete it in the visible Chrome window.');
 
-  chromeProcess = spawnChrome(chromePath, port, profileDir, headless);
-
   const version = await waitForJson(`http://127.0.0.1:${port}/json/version`, 12000);
-  const target = await firstPageTarget(port);
+  const target = initialTarget || (await firstPageTarget(port));
   lastTarget = target;
   cdp = await CdpClient.connect(target.webSocketDebuggerUrl || version.webSocketDebuggerUrl);
 
@@ -361,6 +359,35 @@ function requestJson(url) {
 
     request.on('error', reject);
   });
+}
+
+async function startChromeWithRetry(chromePath, userDataDir, shouldRunHeadless) {
+  const maxAttempts = 4;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const port = await findOpenPort();
+    log(`Launching Chrome attempt ${attempt}/${maxAttempts} on port ${port}`);
+    try {
+      chromeProcess = spawnChrome(chromePath, port, userDataDir, shouldRunHeadless);
+      const target = await firstPageTarget(port);
+      return { port, target };
+    } catch (error) {
+      lastError = error;
+      const message = error?.message || String(error);
+      log(`Chrome connect retry #${attempt} failed: ${message}`);
+
+      await cleanup(port, true).catch(() => {});
+
+      if (attempt >= maxAttempts) {
+        throw error;
+      }
+
+      await sleep(700);
+    }
+  }
+
+  throw lastError || new Error('Unable to launch Chrome with retries.');
 }
 
 async function firstPageTarget(port) {

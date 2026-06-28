@@ -19,13 +19,16 @@ class Crawler85SugarbabyImportCommand extends Command
                             {--age-min=18 : Minimum age to include}
                             {--age-max=22 : Maximum age to include}
                             {--areas=台北,新北 : Comma-separated area names to include}
-                            {--limit=10 : Maximum number of profiles to upsert}
-                            {--source=85sugarbaby_active_flow : Deduplication source label}
-                            {--output-dir= : Directory for crawler output files}
-                            {--headless : Run without a visible browser window}
-                            {--clear-source : Remove existing rows for the target source before import}
-                            {--dry-run : Print what would be written without writing DB changes}
-                            {--skip-import : Only fetch and print candidate count summary}';
+                            {--limit=20 : Maximum number of profiles to upsert}
+                             {--source=85sugarbaby_active_flow : Deduplication source label}
+                             {--output-dir= : Directory for crawler output files}
+                             {--headless : Run without a visible browser window}
+                             {--clear-source : Remove existing rows for the target source before import}
+                             {--backfill-only : Only backfill missing chat links using existing rows of source}
+                             {--backfill-chat-links : Populate chat_url for rows missing chat URL only}
+                             {--backfill-metrics : Populate height/weight for rows missing metric data only}
+                             {--dry-run : Print what would be written without writing DB changes}
+                             {--skip-import : Only fetch and print candidate count summary}';
 
     protected $description = 'Import active members from 85sugarbaby into crawler_profile_candidates.';
 
@@ -58,6 +61,24 @@ class Crawler85SugarbabyImportCommand extends Command
 
     public function handle(): int
     {
+        $source = trim((string) $this->option('source'));
+        if ($source === '') {
+            $source = '85sugarbaby_active_flow';
+        }
+
+        if ((bool) $this->option('backfill-only')) {
+            $chat = (bool) $this->option('backfill-chat-links');
+            $metrics = (bool) $this->option('backfill-metrics');
+            if (!$chat && !$metrics) {
+                $chat = true;
+                $metrics = true;
+            }
+            $count = $this->backfillMissingFields($source, $chat, $metrics);
+            $this->info('backfill-only mode complete for source=' . $source);
+
+            return self::SUCCESS;
+        }
+
         $url = trim((string) $this->option('url'));
         if (!$this->isHttpUrl($url)) {
             $this->error('The --url value must be a valid http(s) URL.');
@@ -110,7 +131,7 @@ class Crawler85SugarbabyImportCommand extends Command
         }
 
         $this->info('Running 85sugarbaby crawler probe and import flow...');
-        $process = new Process($args, base_path(), null, null, max(15, (int) $this->option('timeout') + 90));
+        $process = new Process($args, base_path(), null, null, max(30, (int) $this->option('timeout') + 25));
         $process->run(function (string $type, string $buffer): void {
             if ($type === Process::ERR) {
                 $this->getOutput()->write('<error>' . $buffer . '</error>');
@@ -153,11 +174,6 @@ class Crawler85SugarbabyImportCommand extends Command
             }
 
             return self::SUCCESS;
-        }
-
-        $source = trim((string) $this->option('source'));
-        if ($source === '') {
-            $source = '85sugarbaby_active_flow';
         }
 
         $filter = [
@@ -203,6 +219,9 @@ class Crawler85SugarbabyImportCommand extends Command
                     'age' => $candidate['age'],
                     'area' => $candidate['area'],
                     'profile_url' => $candidate['profile_url'],
+                    'chat_url' => $candidate['chat_url'],
+                    'height' => $candidate['height'],
+                    'weight' => $candidate['weight'],
                     'matched_filter_json' => $filter,
                     'raw_payload' => $candidate['raw_payload'],
                     'captured_at' => $capturedAt,
@@ -228,9 +247,101 @@ class Crawler85SugarbabyImportCommand extends Command
             $this->line('upsert ' . $candidate['external_user_id']);
         }
 
-        $this->info('Import complete: ' . $inserted . ' records written.');
+        $backfilled = 0;
+        if ((bool) $this->option('backfill-chat-links') || (bool) $this->option('backfill-metrics')) {
+            $backfilled = $this->backfillMissingFields(
+                $source,
+                (bool) $this->option('backfill-chat-links'),
+                (bool) $this->option('backfill-metrics')
+            );
+        }
+
+        $message = 'Import complete: ' . $inserted . ' records written.';
+        if ($backfilled > 0) {
+            $message .= ' and ' . $backfilled . ' records enriched.';
+        }
+        $this->info($message);
 
         return self::SUCCESS;
+    }
+
+    private function backfillMissingFields(string $source, bool $fillChatLinks, bool $fillMetrics): int
+    {
+        if (!$fillChatLinks && !$fillMetrics) {
+            return 0;
+        }
+
+        $query = CrawlerProfileCandidate::query()
+            ->where('source', $source)
+            ->whereNotNull('external_user_id');
+
+        if ($fillChatLinks && $fillMetrics) {
+            $query->where(function ($query): void {
+                $query->whereNull('chat_url')->orWhere('chat_url', '')
+                    ->orWhereNull('height')
+                    ->orWhereNull('weight');
+            });
+        } elseif ($fillChatLinks) {
+            $query->where(function ($query): void {
+                $query->whereNull('chat_url')->orWhere('chat_url', '');
+            });
+        } else {
+            $query->where(function ($query): void {
+                $query->whereNull('height')->orWhereNull('weight');
+            });
+        }
+
+        $rows = $query->orderByDesc('captured_at')->get();
+        $updated = 0;
+        foreach ($rows as $row) {
+            $userId = trim((string) $row->external_user_id);
+            if ($userId === '') {
+                continue;
+            }
+
+            $shouldSave = false;
+
+            if ($fillChatLinks && trim((string) $row->chat_url) === '') {
+                $row->chat_url = 'https://85sugarbaby.com.tw/chatroom?peerid=' . rawurlencode($userId);
+                $shouldSave = true;
+            }
+
+            if ($fillMetrics) {
+                $payload = is_array($row->raw_payload) ? $row->raw_payload : [];
+                if (($row->height === null || $row->height === 0) && isset($payload['Height'])) {
+                    $height = $this->extractNumeric($payload, ['Height', 'height', '身高']);
+                    if ($height > 0) {
+                        $row->height = $height;
+                        $shouldSave = true;
+                    }
+                }
+
+                if (($row->weight === null || $row->weight === 0) && isset($payload['Weight'])) {
+                    $weight = $this->extractNumeric($payload, ['Weight', 'weight', '體重']);
+                    if ($weight > 0) {
+                        $row->weight = $weight;
+                        $shouldSave = true;
+                    }
+                }
+            }
+
+            if (!$shouldSave) {
+                continue;
+            }
+
+            $row->save();
+            $updated += 1;
+        }
+
+        if ($fillChatLinks && $fillMetrics) {
+            $this->info('Backfilled chat links and metrics for ' . $updated . ' rows in source: ' . $source);
+        } elseif ($fillChatLinks) {
+            $this->info('Backfilled chat urls for ' . $updated . ' rows in source: ' . $source);
+        } else {
+            $this->info('Backfilled metrics for ' . $updated . ' rows in source: ' . $source);
+        }
+
+        return $updated;
     }
 
     private function readActiveListFromApiOutput(string $apiOutput): array
@@ -294,7 +405,10 @@ class Crawler85SugarbabyImportCommand extends Command
             }
 
             $profileUrl = 'https://85sugarbaby.com.tw/view?user_id=' . rawurlencode($userId);
+            $chatUrl = 'https://85sugarbaby.com.tw/chatroom?peerid=' . rawurlencode($userId);
             $images = $this->extractImageUrls($row);
+            $height = $this->extractNumeric($row, ['Height', 'height', '身高']);
+            $weight = $this->extractNumeric($row, ['Weight', 'weight', '體重']);
 
             $out[] = [
                 'external_user_id' => $userId,
@@ -302,6 +416,9 @@ class Crawler85SugarbabyImportCommand extends Command
                 'age' => $age,
                 'area' => $area,
                 'profile_url' => $profileUrl,
+                'chat_url' => $chatUrl,
+                'height' => $height > 0 ? $height : null,
+                'weight' => $weight > 0 ? $weight : null,
                 'images' => $images,
                 'raw_payload' => $row,
             ];

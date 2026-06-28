@@ -19,7 +19,8 @@ class Crawler85SugarbabyImportCommand extends Command
                             {--age-min=18 : Minimum age to include}
                             {--age-max=22 : Maximum age to include}
                             {--areas=台北,新北 : Comma-separated area names to include}
-                            {--limit=20 : Maximum number of profiles to upsert}
+                             {--limit=20 : Maximum number of profiles to upsert}
+                             {--active-clicks=1 : Number of times to click the active button for pagination-like refresh}
                              {--source=85sugarbaby_active_flow : Deduplication source label}
                              {--output-dir= : Directory for crawler output files}
                              {--headless : Run without a visible browser window}
@@ -123,7 +124,7 @@ class Crawler85SugarbabyImportCommand extends Command
             '--api-output=' . $apiOutput,
             '--timeout=' . max(5, (int) $this->option('timeout')),
             '--probe-85sugarbaby',
-            '--active-clicks=1',
+            '--active-clicks=' . max(1, min(20, (int) $this->option('active-clicks'))),
         ];
 
         if ((bool) $this->option('headless')) {

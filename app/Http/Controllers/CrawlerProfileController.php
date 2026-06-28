@@ -23,7 +23,7 @@ class CrawlerProfileController extends Controller
                 $images->orderBy('sort_order');
             }])
             ->where('source', $source)
-            ->orderByDesc('captured_at')
+            ->orderByDesc(\DB::raw('COALESCE(captured_at, created_at, updated_at)'))
             ->orderByDesc('id');
 
         if ($q !== '') {

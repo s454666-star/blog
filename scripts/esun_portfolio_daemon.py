@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import threading
+import time
 import traceback
 
 import esun_trade.sdk as sdk_module
@@ -96,6 +97,9 @@ def is_relogin_candidate(message: str) -> bool:
     if "agr" in lowered:
         return False
 
+    if "awa0001" in lowered or "missing header" in lowered:
+        return True
+
     return any(term in lowered for term in [
         "login",
         "token",
@@ -111,7 +115,10 @@ class EsunSession:
         self._lock = threading.RLock()
         self._sdk: SDK | None = None
         self.login_count = 0
+        self.login_attempt_count = 0
         self.login_at: str | None = None
+        self.last_login_attempt_at: str | None = None
+        self._last_login_attempt_monotonic: float | None = None
 
     def health(self) -> dict[str, object]:
         with self._lock:
@@ -119,11 +126,38 @@ class EsunSession:
                 "ok": True,
                 "logged_in": self._sdk is not None,
                 "login_count": self.login_count,
+                "login_attempt_count": self.login_attempt_count,
                 "login_at": self.login_at,
+                "last_login_attempt_at": self.last_login_attempt_at,
+                "relogin_cooldown_seconds": self._relogin_cooldown_seconds(),
                 "now": datetime.now(timezone.utc).isoformat(),
             }
 
+    def _relogin_cooldown_seconds(self) -> int:
+        raw = os.environ.get("ESUN_PORTFOLIO_RELOGIN_COOLDOWN_SECONDS", "1800")
+        try:
+            return max(60, int(raw))
+        except ValueError:
+            return 1800
+
+    def _login_cooldown_remaining(self) -> float:
+        if self._last_login_attempt_monotonic is None:
+            return 0.0
+
+        elapsed = time.monotonic() - self._last_login_attempt_monotonic
+        return max(0.0, self._relogin_cooldown_seconds() - elapsed)
+
     def _login(self) -> SDK:
+        remaining = self._login_cooldown_remaining()
+        if remaining > 0:
+            raise RuntimeError(
+                "E.SUN login attempt is cooling down for "
+                f"{int(remaining)} seconds to avoid repeated logins."
+            )
+
+        self.login_attempt_count += 1
+        self.last_login_attempt_at = datetime.now(timezone.utc).isoformat()
+        self._last_login_attempt_monotonic = time.monotonic()
         install_credentials_loader()
         sdk = SDK(build_config())
         sdk.login()

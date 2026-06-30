@@ -41,6 +41,8 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertSee('apiUrl', false)
             ->assertSee('quoteUrl', false)
             ->assertSee('brokerName', false)
+            ->assertDontSee('fancy-cursor.css', false)
+            ->assertDontSee('data-fancy-cursor=', false)
             ->assertDontSee('更新玉山API')
             ->assertDontSee('玉山庫存即時看板');
     }

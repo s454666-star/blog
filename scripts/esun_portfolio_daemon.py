@@ -223,6 +223,10 @@ class EsunSession:
         if warning:
             warnings.append(warning)
 
+        trade_status, warning = optional_call("trade_status", lambda: self.call(lambda sdk: sdk.get_trade_status(), False))
+        if warning:
+            warnings.append(warning)
+
         today_history = []
         today_transactions = []
         if today:
@@ -246,6 +250,7 @@ class EsunSession:
             "queried_at": datetime.now(timezone.utc).isoformat(),
             "inventories": inventories,
             "balance": balance if isinstance(balance, dict) else {},
+            "trade_status": trade_status if isinstance(trade_status, dict) else {},
             "settlements": settlements if isinstance(settlements, list) else [],
             "today_transactions_history": today_history if isinstance(today_history, list) else [],
             "today_transactions": today_transactions if isinstance(today_transactions, list) else [],

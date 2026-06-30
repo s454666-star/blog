@@ -304,6 +304,32 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(500000.0, $summary['availableAmount']);
     }
 
+    public function test_it_prefers_esun_reported_margin_limit_for_available_amount(): void
+    {
+        config()->set('esun.margin_limit_amount', 2000000);
+
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'marginSummary');
+
+        $summary = $method->invoke($service, [
+            [
+                'tradeType' => '3',
+                'priceAmount' => 2271030.0,
+                'cashCostBasis' => 915255.0,
+                'marketValue' => 2262970.0,
+            ],
+        ], [
+            'tradeStatus' => [
+                'trade_limit' => 4000000,
+                'margin_limit' => 1400000,
+            ],
+        ]);
+
+        $this->assertSame(1400000.0, $summary['limitAmount']);
+        $this->assertSame(1355775.0, $summary['usedAmount']);
+        $this->assertSame(44225.0, $summary['availableAmount']);
+    }
+
     public function test_it_uses_last_success_snapshot_during_minimum_query_window_after_short_cache_expires(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 09:23:00', 'Asia/Taipei'));
@@ -356,6 +382,7 @@ class EsunPortfolioServiceTest extends TestCase
                     ],
                 ],
                 'balance' => ['available_balance' => '100000'],
+                'trade_status' => ['margin_limit' => 1400000],
                 'settlements' => [],
                 'today_transactions_history' => [
                     ['make' => '2000', 'trade' => '0', 'c_date' => '20260101'],
@@ -377,6 +404,7 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame('00631L', $payload['inventories'][0]['stk_no']);
         $this->assertSame('8000', $payload['inventories'][0]['cost_qty']);
         $this->assertSame('100000', $payload['balance']['available_balance']);
+        $this->assertSame(1400000, $payload['tradeStatus']['margin_limit']);
         $this->assertSame([], $payload['transactions']);
         $this->assertCount(1, $payload['todayTransactions']);
         $this->assertSame('2000', $payload['todayTransactions'][0]['make']);

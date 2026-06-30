@@ -84,6 +84,10 @@ def main() -> int:
     if warning:
         warnings.append(warning)
 
+    trade_status, warning = optional_call("trade_status", sdk.get_trade_status)
+    if warning:
+        warnings.append(warning)
+
     today = os.environ.get("ESUN_TODAY_DATE", "").strip()
     today_transactions_history = []
     today_transactions = []
@@ -108,6 +112,7 @@ def main() -> int:
         "queried_at": datetime.now(timezone.utc).isoformat(),
         "inventories": inventories,
         "balance": balance if isinstance(balance, dict) else {},
+        "trade_status": trade_status if isinstance(trade_status, dict) else {},
         "settlements": settlements if isinstance(settlements, list) else [],
         "today_transactions_history": today_transactions_history if isinstance(today_transactions_history, list) else [],
         "today_transactions": today_transactions if isinstance(today_transactions, list) else [],

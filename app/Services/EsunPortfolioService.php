@@ -193,6 +193,7 @@ class EsunPortfolioService
             'queriedAt' => $payload['queried_at'] ?? now()->toIso8601String(),
             'inventories' => $payload['inventories'],
             'balance' => is_array($payload['balance'] ?? null) ? $payload['balance'] : [],
+            'tradeStatus' => is_array($payload['trade_status'] ?? null) ? $payload['trade_status'] : [],
             'settlements' => is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [],
             'transactions' => $this->historicalYearTransactions($now),
             'todayTransactions' => $todayTransactions,
@@ -579,8 +580,9 @@ class EsunPortfolioService
             $rows,
         ));
         $configuredLimitAmount = $this->configuredMarginLimitAmount();
+        $reportedLimitAmount = $this->reportedMarginLimitAmount($raw);
         $reportedAvailableAmount = $this->reportedMarginAvailableAmount($raw);
-        $limitAmount = $configuredLimitAmount ?? ($reportedAvailableAmount === null ? null : $usedAmount + $reportedAvailableAmount);
+        $limitAmount = $reportedLimitAmount ?? $configuredLimitAmount ?? ($reportedAvailableAmount === null ? null : $usedAmount + $reportedAvailableAmount);
         $availableAmount = $limitAmount === null
             ? $reportedAvailableAmount
             : max(0.0, $limitAmount - $usedAmount);
@@ -596,6 +598,22 @@ class EsunPortfolioService
     private function configuredMarginLimitAmount(): ?float
     {
         $amount = $this->numberOrNull(config('esun.margin_limit_amount'));
+
+        return $amount !== null && $amount > 0 ? $amount : null;
+    }
+
+    private function reportedMarginLimitAmount(array $raw): ?float
+    {
+        $tradeStatus = is_array($raw['tradeStatus'] ?? null)
+            ? $raw['tradeStatus']
+            : (is_array($raw['trade_status'] ?? null) ? $raw['trade_status'] : []);
+        $amount = $this->numberOrNull($this->value(
+            $tradeStatus,
+            'margin_limit',
+            'marginLimit',
+            'margin_limit_amount',
+            'marginLimitAmount',
+        ));
 
         return $amount !== null && $amount > 0 ? $amount : null;
     }

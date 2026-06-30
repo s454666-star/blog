@@ -1564,12 +1564,16 @@ function applyQuotes(payload) {
                 return applyCandidateQuoteToRow(row, quoteContext);
             }
 
-            const nextRow = applyPreviousCloseToRow(row, quoteContext);
-            if (nextRow !== row) {
-                changed = true;
+            if (shouldUseQuotePreviousClose(row, quoteContext)) {
+                const nextRow = applyPreviousCloseToRow(row, quoteContext);
+                if (nextRow !== row) {
+                    changed = true;
+                }
+
+                return nextRow;
             }
 
-            return nextRow;
+            return row;
         }
 
         if (!quoteCanRepriceRow(row, quote)) {
@@ -1623,6 +1627,18 @@ function canUseCandidateQuote(row, quote) {
     return staleEsun && quoteCanRepriceRow(row, quote);
 }
 
+function shouldUseQuotePreviousClose(row, quote) {
+    if (!Number.isFinite(Number(quote?.previousClose))) {
+        return false;
+    }
+
+    if (finiteNumber(row.previousClose) === null) {
+        return true;
+    }
+
+    return !isInventoryFresh(state.lastPayload);
+}
+
 function applyCandidateQuoteToRow(row, quote) {
     return applyQuoteToRow(row, {
         ...quote,
@@ -1653,7 +1669,7 @@ function applyQuoteToRow(row, quote) {
     const rowPreviousClose = Number.isFinite(Number(row.previousClose))
         ? Number(row.previousClose)
         : null;
-    const previousClose = quotePreviousClose ?? rowPreviousClose;
+    const previousClose = rowPreviousClose ?? quotePreviousClose;
     const quantity = number(row.quantity);
     const costBasis = number(row.costBasis);
     const esunMarketValue = Number.isFinite(Number(row.esunMarketValue)) ? Number(row.esunMarketValue) : number(row.marketValue);

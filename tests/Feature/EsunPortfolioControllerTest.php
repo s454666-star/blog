@@ -77,6 +77,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertDontSee('玉山每分鐘校準')
             ->assertSee('quoteCanRepriceRow', false)
             ->assertSee('canUseCandidateQuote', false)
+            ->assertSee('shouldUseQuotePreviousClose', false)
+            ->assertSee('const previousClose = rowPreviousClose ?? quotePreviousClose;', false)
             ->assertSee('applyCandidateQuoteToRow', false)
             ->assertSee('applyStaleQuoteToRow', false)
             ->assertSee("window.addEventListener('focus'", false)

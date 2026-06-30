@@ -210,9 +210,34 @@
             box-shadow: 0 0 0 3px rgba(255, 59, 92, 0.14);
         }
 
+        .pnl-pill {
+            min-width: 150px;
+            color: var(--text);
+        }
+
+        .pnl-pill.positive {
+            border-color: rgba(255, 59, 92, 0.45);
+            background: rgba(255, 59, 92, 0.1);
+        }
+
+        .pnl-pill.positive::before {
+            background: var(--red);
+            box-shadow: 0 0 0 3px rgba(255, 59, 92, 0.14), 0 0 16px rgba(255, 59, 92, 0.42);
+        }
+
+        .pnl-pill.negative {
+            border-color: rgba(34, 197, 94, 0.45);
+            background: rgba(34, 197, 94, 0.1);
+        }
+
+        .pnl-pill.negative::before {
+            background: var(--green);
+            box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14), 0 0 16px rgba(34, 197, 94, 0.42);
+        }
+
         .summary-grid {
             display: grid;
-            grid-template-columns: repeat(6, minmax(0, 1fr));
+            grid-template-columns: repeat(5, minmax(0, 1fr));
             gap: 10px;
             margin: 16px 0 12px;
         }
@@ -350,6 +375,12 @@
             color: var(--cyan);
             font-size: 18px;
             text-shadow: 0 0 18px rgba(56, 189, 248, 0.18);
+        }
+
+        .investment-line.rate .investment-value {
+            color: var(--green);
+            font-size: 18px;
+            text-shadow: 0 0 18px rgba(34, 197, 94, 0.16);
         }
 
         .positive { color: var(--red); text-shadow: 0 0 18px rgba(255, 59, 92, 0.16); }
@@ -896,6 +927,7 @@
             <div class="subtitle">正式 API · {{ $brokerName ?? '玉山' }}每{{ $calibrationSeconds ?? 60 }}秒校準 · 開盤每秒用雙來源確認價重算損益</div>
         </div>
         <div class="status-bar">
+            <span class="pill pnl-pill" data-summary="todayPnlCompact">今日損益 --</span>
             <span class="pill" data-market-status>{{ $initialMarket['label'] }}</span>
             <span class="pill" data-refresh-status>等待更新</span>
             <span class="pill" data-last-updated>--</span>
@@ -903,11 +935,6 @@
     </header>
 
     <section class="summary-grid">
-        <div class="summary-card">
-            <div class="label">今日損益</div>
-            <div class="value" data-summary="todayPnl">--</div>
-            <div class="sub" data-summary="todayPnlRate">--</div>
-        </div>
         <div class="summary-card">
             <div class="label">即時累積損益</div>
             <div class="value" data-summary="unrealizedPnl">--</div>
@@ -925,15 +952,19 @@
             <div class="sub" data-summary="yearTotalPnlBreakdown">{{ $brokerName ?? '玉山' }}已實現 -- · 當日已實現 --</div>
         </div>
         <div class="summary-card capital-card">
-            <div class="label">投入總成本</div>
-            <div class="value neutral" data-summary="investedCost">--</div>
+            <div class="label">融資額度</div>
+            <div class="value neutral" data-summary="marginLimitAmount">--</div>
             <div class="investment-metrics" data-summary="investmentLevel">
                 <div class="investment-line">
-                    <span class="investment-label">投資水位</span>
+                    <span class="investment-label">已用額度</span>
                     <span class="investment-value">--</span>
                 </div>
                 <div class="investment-line bank">
-                    <span class="investment-label">銀行餘額</span>
+                    <span class="investment-label">可用額度</span>
+                    <span class="investment-value">--</span>
+                </div>
+                <div class="investment-line rate">
+                    <span class="investment-label">維持率</span>
                     <span class="investment-value">--</span>
                 </div>
             </div>
@@ -1102,8 +1133,10 @@ function updateSummaryCards(summary, sourceText) {
     const esunUnrealizedPnl = finiteNumber(summary.esunUnrealizedPnl ?? state.lastPayload?.summary?.unrealizedPnl ?? summary.unrealizedPnl);
     const esunMarketValue = finiteNumber(summary.esunMarketValue ?? state.lastPayload?.summary?.marketValue ?? summary.marketValue);
     const costBasis = finiteNumber(summary.costBasis ?? state.lastPayload?.summary?.costBasis);
-    const bankBalance = finiteNumber(summary.bankBalance ?? state.lastPayload?.summary?.bankBalance);
-    const investmentLevelRate = finiteNumber(summary.investmentLevelRate ?? state.lastPayload?.summary?.investmentLevelRate);
+    const marginLimitAmount = finiteNumber(summary.marginLimitAmount ?? state.lastPayload?.summary?.marginLimitAmount);
+    const marginUsedAmount = finiteNumber(summary.marginUsedAmount ?? state.lastPayload?.summary?.marginUsedAmount);
+    const marginAvailableAmount = finiteNumber(summary.marginAvailableAmount ?? state.lastPayload?.summary?.marginAvailableAmount);
+    const marginMaintenanceRate = finiteNumber(summary.marginMaintenanceRate ?? state.lastPayload?.summary?.marginMaintenanceRate);
     const yearTotalPnl = finiteNumber(summary.yearTotalPnl ?? state.lastPayload?.summary?.yearTotalPnl);
     const yearTotalPnlRate = finiteNumber(summary.yearTotalPnlRate ?? state.lastPayload?.summary?.yearTotalPnlRate);
     const realizedYearPnl = finiteNumber(summary.realizedYearPnl ?? state.lastPayload?.summary?.realizedYearPnl);
@@ -1114,13 +1147,10 @@ function updateSummaryCards(summary, sourceText) {
         ?? (realizedYearPnl !== null && realizedTodayPnl !== null ? realizedYearPnl - realizedTodayPnl : null)
     );
 
-    const today = document.querySelector('[data-summary="todayPnl"]');
-    today.textContent = formatMoney(summary.todayPnl);
-    setTone(today, summary.todayPnl);
-
-    const todayRate = document.querySelector('[data-summary="todayPnlRate"]');
-    todayRate.textContent = summaryDeltaText(formatPercent(summary.todayPnlRate), brokerName, esunTodayPnl, number(summary.todayPnl) - number(esunTodayPnl));
-    todayRate.className = `sub ${toneClass(summary.todayPnlRate)}`;
+    const todayCompact = document.querySelector('[data-summary="todayPnlCompact"]');
+    todayCompact.textContent = `今日損益 ${formatMoney(summary.todayPnl)} · ${formatPercent(summary.todayPnlRate)}`;
+    todayCompact.classList.remove('positive', 'negative', 'neutral');
+    todayCompact.classList.add(toneClass(summary.todayPnl));
 
     const unrealized = document.querySelector('[data-summary="unrealizedPnl"]');
     unrealized.textContent = formatMoney(summary.unrealizedPnl);
@@ -1141,19 +1171,21 @@ function updateSummaryCards(summary, sourceText) {
     document.querySelector('[data-summary="yearTotalPnlBreakdown"]').textContent =
         `${brokerName}已實現 ${realizedHistoryPnl === null ? '--' : formatMoney(realizedHistoryPnl)} · ` +
         `當日已實現 ${realizedTodayPnl === null ? '--' : formatMoney(realizedTodayPnl)}`;
-    document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
-    renderInvestmentLevel(investmentLevelRate, bankBalance);
+    document.querySelector('[data-summary="marginLimitAmount"]').textContent = marginLimitAmount === null ? '--' : formatInteger(marginLimitAmount);
+    renderMarginMetrics(marginUsedAmount, marginAvailableAmount, marginMaintenanceRate);
     document.querySelector('[data-summary="sourceAge"]').textContent = summary.marketOpen ? 'LIVE' : 'ONCE';
     document.querySelector('[data-summary="servedAt"]').textContent = sourceText;
 }
 
-function renderInvestmentLevel(investmentLevelRate, bankBalance) {
+function renderMarginMetrics(marginUsedAmount, marginAvailableAmount, marginMaintenanceRate) {
     const target = document.querySelector('[data-summary="investmentLevel"]');
-    const levelValue = target.querySelector('.investment-line:not(.bank) .investment-value');
-    const bankValue = target.querySelector('.investment-line.bank .investment-value');
+    const usedValue = target.querySelector('.investment-line:not(.bank):not(.rate) .investment-value');
+    const availableValue = target.querySelector('.investment-line.bank .investment-value');
+    const maintenanceValue = target.querySelector('.investment-line.rate .investment-value');
 
-    levelValue.textContent = formatInvestmentLevel(investmentLevelRate);
-    bankValue.textContent = bankBalance === null ? '--' : formatInteger(bankBalance);
+    usedValue.textContent = marginUsedAmount === null ? '--' : formatInteger(marginUsedAmount);
+    availableValue.textContent = marginAvailableAmount === null ? '--' : formatInteger(marginAvailableAmount);
+    maintenanceValue.textContent = marginMaintenanceRate === null ? '--' : formatPercent(marginMaintenanceRate);
 }
 
 function finiteNumber(value) {
@@ -1558,7 +1590,7 @@ function applyQuotes(payload) {
 
     state.rows = state.rows.map(row => {
         const quote = quotes[row.stockNo];
-        if (!quote || !Number.isFinite(Number(quote.price))) {
+        if (!quote || finiteNumber(quote.price) === null) {
             const quoteContext = quoteContextFromUnconfirmed(payload, row.stockNo);
             if (!quoteContext) {
                 return row;
@@ -1633,7 +1665,7 @@ function canUseCandidateQuote(row, quote) {
 }
 
 function shouldUseQuotePreviousClose(row, quote) {
-    if (!Number.isFinite(Number(quote?.previousClose))) {
+    if (finiteNumber(quote?.previousClose) === null) {
         return false;
     }
 
@@ -1668,25 +1700,21 @@ function applyStaleQuoteToRow(row, quote) {
 
 function applyQuoteToRow(row, quote) {
     const price = number(quote.price);
-    const quotePreviousClose = Number.isFinite(Number(quote.previousClose))
-        ? Number(quote.previousClose)
-        : null;
-    const rowPreviousClose = Number.isFinite(Number(row.previousClose))
-        ? Number(row.previousClose)
-        : null;
+    const quotePreviousClose = finiteNumber(quote.previousClose);
+    const rowPreviousClose = finiteNumber(row.previousClose);
     const previousClose = rowPreviousClose ?? quotePreviousClose;
     const quantity = number(row.quantity);
     const costBasis = number(row.costBasis);
-    const esunMarketValue = Number.isFinite(Number(row.esunMarketValue)) ? Number(row.esunMarketValue) : number(row.marketValue);
-    const esunUnrealizedPnl = Number.isFinite(Number(row.esunUnrealizedPnl)) ? Number(row.esunUnrealizedPnl) : number(row.unrealizedPnl);
-    const esunCurrentPrice = Number.isFinite(Number(row.esunCurrentPrice)) ? Number(row.esunCurrentPrice) : number(row.currentPrice);
-    const pnlBasePrice = Number.isFinite(Number(row.realtimePnlBasePrice)) ? Number(row.realtimePnlBasePrice) : esunCurrentPrice;
-    const dayChange = previousClose === null || previousClose === undefined ? null : price - number(previousClose);
-    const esunDayChange = previousClose === null || previousClose === undefined ? row.dayChange : esunCurrentPrice - number(previousClose);
-    const todayPnl = previousClose === null || previousClose === undefined
+    const esunMarketValue = finiteNumber(row.esunMarketValue) ?? number(row.marketValue);
+    const esunUnrealizedPnl = finiteNumber(row.esunUnrealizedPnl) ?? number(row.unrealizedPnl);
+    const esunCurrentPrice = finiteNumber(row.esunCurrentPrice) ?? number(row.currentPrice);
+    const pnlBasePrice = finiteNumber(row.realtimePnlBasePrice) ?? esunCurrentPrice;
+    const dayChange = previousClose === null ? null : price - previousClose;
+    const esunDayChange = previousClose === null ? row.dayChange : esunCurrentPrice - previousClose;
+    const todayPnl = previousClose === null
         ? row.todayPnl
         : dayChange * quantity;
-    const esunTodayPnl = previousClose === null || previousClose === undefined
+    const esunTodayPnl = previousClose === null
         ? row.esunTodayPnl
         : esunDayChange * quantity;
     const marketValue = price * quantity;
@@ -1700,12 +1728,12 @@ function applyQuoteToRow(row, quote) {
         realtimePnlBasePrice: pnlBasePrice,
         previousClose,
         dayChange: esunDayChange,
-        dayChangeRate: number(previousClose) > 0 ? esunDayChange / number(previousClose) * 100 : row.dayChangeRate,
+        dayChangeRate: previousClose !== null && previousClose > 0 ? esunDayChange / previousClose * 100 : row.dayChangeRate,
         esunTodayPnl,
         realtimePrice: price,
         realtimePreviousClose: previousClose,
         realtimeDayChange: dayChange,
-        realtimeDayChangeRate: number(previousClose) > 0 ? dayChange / number(previousClose) * 100 : null,
+        realtimeDayChangeRate: previousClose !== null && previousClose > 0 ? dayChange / previousClose * 100 : null,
         todayPnl,
         marketValue,
         unrealizedPnl,
@@ -1727,7 +1755,7 @@ function quoteContextFromUnconfirmed(payload, stockNo) {
     }
 
     return candidates
-        .filter(candidate => Number.isFinite(Number(candidate.price)) && Number.isFinite(Number(candidate.previousClose)))
+        .filter(candidate => finiteNumber(candidate.price) !== null && finiteNumber(candidate.previousClose) !== null)
         .sort((a, b) => timestampScore(b.quotedAt) - timestampScore(a.quotedAt))[0] || null;
 }
 
@@ -1737,39 +1765,27 @@ function timestampScore(value) {
 }
 
 function applyPreviousCloseToRow(row, quote) {
-    const previousClose = Number.isFinite(Number(quote.previousClose))
-        ? Number(quote.previousClose)
-        : null;
+    const previousClose = finiteNumber(quote.previousClose);
     if (previousClose === null) {
         return row;
     }
 
-    const currentPreviousClose = Number.isFinite(Number(row.previousClose))
-        ? Number(row.previousClose)
-        : null;
-    const needsFallbackUpdate = !Number.isFinite(Number(row.esunMarketValue))
-        || !Number.isFinite(Number(row.esunUnrealizedPnl))
-        || !Number.isFinite(Number(row.esunTodayPnl))
-        || !Number.isFinite(Number(row.todayPnl));
-    if (currentPreviousClose === previousClose && Number.isFinite(Number(row.dayChangeRate)) && !needsFallbackUpdate) {
+    const currentPreviousClose = finiteNumber(row.previousClose);
+    const needsFallbackUpdate = finiteNumber(row.esunMarketValue) === null
+        || finiteNumber(row.esunUnrealizedPnl) === null
+        || finiteNumber(row.esunTodayPnl) === null
+        || finiteNumber(row.todayPnl) === null;
+    if (currentPreviousClose === previousClose && finiteNumber(row.dayChangeRate) !== null && !needsFallbackUpdate) {
         return row;
     }
 
-    const esunCurrentPrice = Number.isFinite(Number(row.esunCurrentPrice))
-        ? Number(row.esunCurrentPrice)
-        : number(row.currentPrice);
-    const esunMarketValue = Number.isFinite(Number(row.esunMarketValue))
-        ? Number(row.esunMarketValue)
-        : number(row.marketValue);
-    const esunUnrealizedPnl = Number.isFinite(Number(row.esunUnrealizedPnl))
-        ? Number(row.esunUnrealizedPnl)
-        : number(row.unrealizedPnl);
-    const pnlBasePrice = Number.isFinite(Number(row.realtimePnlBasePrice))
-        ? Number(row.realtimePnlBasePrice)
-        : esunCurrentPrice;
+    const esunCurrentPrice = finiteNumber(row.esunCurrentPrice) ?? number(row.currentPrice);
+    const esunMarketValue = finiteNumber(row.esunMarketValue) ?? number(row.marketValue);
+    const esunUnrealizedPnl = finiteNumber(row.esunUnrealizedPnl) ?? number(row.unrealizedPnl);
+    const pnlBasePrice = finiteNumber(row.realtimePnlBasePrice) ?? esunCurrentPrice;
     const quantity = number(row.quantity);
     const esunDayChange = esunCurrentPrice - previousClose;
-    const hasRealtimePrice = Number.isFinite(Number(row.realtimePrice));
+    const hasRealtimePrice = finiteNumber(row.realtimePrice) !== null;
 
     return {
         ...row,
@@ -1808,8 +1824,8 @@ function buildSummaryFromRows() {
     const yearTotalPnlRate = yearReturnBase !== null && yearReturnBase > 0 ? yearTotalPnl / yearReturnBase * 100 : null;
     const yearElapsedDays = Number(state.lastPayload?.summary?.yearElapsedDays) || 1;
     const previousMarketValue = state.rows.reduce((sum, row) => {
-        const previousClose = row.realtimePreviousClose ?? row.previousClose;
-        return Number.isFinite(Number(previousClose)) ? sum + number(previousClose) * number(row.quantity) : sum;
+        const previousClose = finiteNumber(row.realtimePreviousClose) ?? finiteNumber(row.previousClose);
+        return previousClose === null ? sum : sum + previousClose * number(row.quantity);
     }, 0);
 
     return {

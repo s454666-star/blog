@@ -142,6 +142,7 @@ class YuantaPortfolioService
         $totalCostBasis = array_sum(array_column($rows, 'costBasis'));
         $totalUnrealizedPnl = array_sum(array_column($rows, 'unrealizedPnl'));
         $totalTodayPnl = array_sum(array_column($rows, 'todayPnl'));
+        $marginSummary = $this->marginSummary($rows, $raw);
         $balanceSummary = $this->balanceSummary($raw, $totalCostBasis, $now);
         $yearProfitSummary = $this->yearProfitSummary($raw);
         $totalCapital = $balanceSummary['bankBalance'] === null ? null : $totalCostBasis + $balanceSummary['bankBalance'];
@@ -182,6 +183,10 @@ class YuantaPortfolioService
                 'pendingSettlementAmount' => $balanceSummary['pendingSettlementAmount'],
                 'bankBalance' => $balanceSummary['bankBalance'],
                 'investmentLevelRate' => $balanceSummary['investmentLevelRate'],
+                'marginLimitAmount' => $marginSummary['limitAmount'],
+                'marginUsedAmount' => $marginSummary['usedAmount'],
+                'marginAvailableAmount' => $marginSummary['availableAmount'],
+                'marginMaintenanceRate' => $marginSummary['maintenanceRate'],
                 'todayPnl' => $totalTodayPnl,
                 'esunTodayPnl' => $totalTodayPnl,
                 'todayPnlRate' => $previousMarketValue > 0 ? $totalTodayPnl / $previousMarketValue * 100 : null,
@@ -200,6 +205,50 @@ class YuantaPortfolioService
             ],
             'rows' => $rows,
         ];
+    }
+
+    private function marginSummary(array $rows, array $raw): array
+    {
+        $usedAmount = array_sum(array_map(
+            fn (array $row): float => $row['tradeType'] === '3'
+                ? $this->number($row['raw']['loan'] ?? 0)
+                : 0.0,
+            $rows,
+        ));
+        $marketValue = array_sum(array_map(
+            fn (array $row): float => $row['tradeType'] === '3'
+                ? $this->number($row['marketValue'] ?? 0)
+                : 0.0,
+            $rows,
+        ));
+        $availableAmount = $this->marginAvailableAmount($raw);
+
+        return [
+            'limitAmount' => $availableAmount === null ? null : $usedAmount + $availableAmount,
+            'usedAmount' => $usedAmount,
+            'availableAmount' => $availableAmount,
+            'maintenanceRate' => $usedAmount > 0 ? $marketValue / $usedAmount * 100 : null,
+        ];
+    }
+
+    private function marginAvailableAmount(array $raw): ?float
+    {
+        $balances = collect($raw['balance'] ?? [])->filter(fn (mixed $row): bool => is_array($row))->values();
+        if ($balances->isEmpty()) {
+            return null;
+        }
+
+        return $this->numberOrNull($this->value(
+            $balances->first(),
+            'MarginAvailableAmount',
+            'marginAvailableAmount',
+            'CreditAvailableAmount',
+            'creditAvailableAmount',
+            'AvailableMargin',
+            'availableMargin',
+            'AvailableBalance',
+            'availableBalance',
+        ));
     }
 
     private function formatInventoryRow(array $row, array $history, array $exchange = []): array
@@ -263,6 +312,7 @@ class YuantaPortfolioService
                 'tradingQty' => $this->number($this->value($row, 'TradingQty', 'tradingQty')),
                 'buyPrice' => $this->number($this->value($row, 'BuyPrice', 'buyPrice')),
                 'sellPrice' => $this->number($this->value($row, 'SellPrice', 'sellPrice')),
+                'loan' => $this->number($this->value($row, 'Loan', 'loan')),
             ],
         ];
     }

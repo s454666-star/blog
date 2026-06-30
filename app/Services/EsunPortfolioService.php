@@ -21,6 +21,7 @@ class EsunPortfolioService
         $cacheKey = 'esun:portfolio:inventories:v5';
         $fallbackKey = 'esun:portfolio:inventories:last-success:v5';
         $lastQueryKey = 'esun:portfolio:last-query-at:v5';
+        $rateLimitedUntilKey = 'esun:portfolio:rate-limited-until:v5';
 
         $cached = Cache::get($cacheKey);
         if (is_array($cached) && !$this->isFreshCachedSnapshot($cached, $now, $ttl)) {
@@ -30,6 +31,16 @@ class EsunPortfolioService
         $queryAge = $this->secondsSince(Cache::get($lastQueryKey), $now);
         $minQuerySeconds = $this->minimumQuerySeconds();
         $fallback = fn (): ?array => $this->lastSuccessfulSnapshot($fallbackKey);
+        $rateLimitRetryAfter = $this->secondsUntil(Cache::get($rateLimitedUntilKey), $now);
+
+        if ($rateLimitRetryAfter !== null && $rateLimitRetryAfter > 0 && is_array($raw = $fallback())) {
+            return $this->buildSnapshot($raw, $market, $now, $ttl, [
+                'status' => 'throttled',
+                'message' => '玉山庫存 API 暫時達到查詢頻率限制，先顯示最近一次成功資料。',
+                'lastQueryAgeSeconds' => $queryAge,
+                'retryAfterSeconds' => $rateLimitRetryAfter,
+            ]);
+        }
 
         if (is_array($cached) && (!$force || ($queryAge !== null && $queryAge < $minQuerySeconds))) {
             $meta = $force ? [
@@ -57,6 +68,7 @@ class EsunPortfolioService
             $raw = $this->queryInventories($now, $fallback());
             Cache::put($cacheKey, $raw, now()->addSeconds($ttl));
             $this->storeSuccessfulSnapshot($fallbackKey, $raw);
+            Cache::forget($rateLimitedUntilKey);
 
             return $this->buildSnapshot($raw, $market, $now, $ttl, [
                 'status' => 'live',
@@ -64,12 +76,17 @@ class EsunPortfolioService
                 'lastQueryAgeSeconds' => 0,
             ]);
         } catch (RuntimeException $exception) {
+            if ($this->isRateLimited($exception)) {
+                Cache::put($rateLimitedUntilKey, $now->addSeconds(65)->toIso8601String(), now()->addMinutes(2));
+            }
+
             $raw = $fallback();
             if (is_array($raw)) {
                 return $this->buildSnapshot($raw, $market, $now, $ttl, [
                     'status' => 'stale',
                     'message' => $this->staleSnapshotMessage($exception),
                     'lastQueryAgeSeconds' => 0,
+                    'retryAfterSeconds' => $this->isRateLimited($exception) ? 65 : null,
                 ]);
             }
 
@@ -432,6 +449,7 @@ class EsunPortfolioService
                 'ageSeconds' => $snapshotAgeSeconds,
                 'snapshotAgeSeconds' => $snapshotAgeSeconds,
                 'lastQueryAgeSeconds' => $source['lastQueryAgeSeconds'] ?? null,
+                'retryAfterSeconds' => $source['retryAfterSeconds'] ?? null,
                 'minQuerySeconds' => $this->minimumQuerySeconds(),
                 'inventoryFresh' => $snapshotAgeSeconds !== null && $snapshotAgeSeconds <= $this->minimumQuerySeconds(),
             ],
@@ -1277,6 +1295,19 @@ class EsunPortfolioService
 
         try {
             return (int) round(CarbonImmutable::parse($value)->diffInSeconds($now, true));
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function secondsUntil(mixed $value, CarbonImmutable $now): ?int
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            return max(0, CarbonImmutable::parse($value)->getTimestamp() - $now->getTimestamp());
         } catch (\Throwable) {
             return null;
         }

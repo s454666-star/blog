@@ -1430,6 +1430,11 @@ function millisecondsUntilNextEsunRefresh(payload = state.lastPayload) {
     const minSeconds = Math.max(45, Number(payload?.source?.minQuerySeconds) || calibrationSeconds || 45);
     const status = String(payload?.source?.status || '');
     if (['stale', 'throttled'].includes(status)) {
+        const retryAfter = finiteNumber(payload?.source?.retryAfterSeconds);
+        if (retryAfter !== null && retryAfter > 0) {
+            return Math.max(250, (retryAfter * 1000) + 500);
+        }
+
         const lastQueryAge = finiteNumber(payload?.source?.lastQueryAgeSeconds);
         if (lastQueryAge !== null) {
             return Math.max(250, ((minSeconds - lastQueryAge) * 1000) + 500);

@@ -1058,6 +1058,13 @@ function formatMoney(value) {
     return prefix + Math.round(numeric).toLocaleString('zh-TW');
 }
 
+function formatMoneyOrDash(value) {
+    const numeric = finiteNumber(value);
+    if (numeric === null) return '--';
+    const prefix = numeric > 0 ? '+' : '';
+    return prefix + Math.round(numeric).toLocaleString('zh-TW');
+}
+
 function formatPrice(value) {
     if (value === null || value === undefined || value === '') return '--';
     return number(value).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1330,7 +1337,7 @@ function renderPositions() {
             <td class="${toneClass(row.realtimeDayChangeRate ?? row.dayChangeRate)}">
                 ${formatPercent(row.realtimeDayChangeRate ?? row.dayChangeRate)}
             </td>
-            <td class="${toneClass(row.todayPnl)}"><strong>${formatMoney(row.todayPnl)}</strong></td>
+            <td class="${toneClass(row.todayPnl)}"><strong>${formatMoneyOrDash(row.todayPnl)}</strong></td>
             <td class="${toneClass(row.unrealizedPnl)}">
                 <strong>${formatMoney(row.unrealizedPnl)}</strong>
             </td>

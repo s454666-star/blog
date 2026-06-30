@@ -342,6 +342,39 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         $this->assertSame(11467.0, $payload['quotes']['5285']['volumeLots']);
     }
 
+    public function test_it_keeps_quotes_after_the_thirtieth_holding(): void
+    {
+        config()->set('esun.quote_providers', 'yahoo_tw');
+
+        Http::fake([
+            'https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.stockList*' => Http::response([
+                [
+                    'systexId' => '7861',
+                    'symbol' => '7861.TW',
+                    'symbolName' => '貝爾威勒',
+                    'exchange' => 'TAI',
+                    'price' => ['raw' => '1235.0'],
+                    'regularMarketPreviousClose' => ['raw' => '1186.47'],
+                    'change' => ['raw' => '48.53'],
+                    'changePercent' => '4.09%',
+                    'regularMarketTime' => '2026-06-30T03:09:00Z',
+                ],
+            ]),
+        ]);
+
+        $codes = collect(range(1, 35))
+            ->map(fn (int $index): string => str_pad((string) $index, 4, '0', STR_PAD_LEFT))
+            ->push('7861')
+            ->all();
+
+        $payload = app(TwStockRealtimeQuoteService::class)->quotes($codes);
+
+        $this->assertArrayHasKey('7861', $payload['quotes']);
+        $this->assertSame(1235.0, $payload['quotes']['7861']['price']);
+        $this->assertSame(1186.47, $payload['quotes']['7861']['previousClose']);
+        $this->assertSame(4.09, $payload['quotes']['7861']['dayChangeRate']);
+    }
+
     public function test_it_parses_tradingview_batch_quotes(): void
     {
         config()->set('esun.quote_providers', 'tradingview');

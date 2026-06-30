@@ -523,7 +523,7 @@ class TwStockRealtimeQuoteService
             ->map(fn (mixed $code): string => $this->normalizeCode((string) $code))
             ->filter()
             ->unique()
-            ->take(30)
+            ->take(120)
             ->values()
             ->all();
     }

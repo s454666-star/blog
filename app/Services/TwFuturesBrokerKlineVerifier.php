@@ -11,7 +11,7 @@ use Throwable;
 
 class TwFuturesBrokerKlineVerifier
 {
-    public const SOURCE_YUANTA = 'Yuanta Spark API futures K-line';
+    public const SOURCE_YUANTA = 'Yuanta Spark API futures tick aggregate';
 
     /**
      * @param list<array<string, mixed>> $dailyRows
@@ -134,6 +134,7 @@ class TwFuturesBrokerKlineVerifier
             'YUANTA_FUTURES_KLINE_SYMBOL' => $symbol,
             'YUANTA_FUTURES_KLINE_INTERVAL' => $interval,
             'YUANTA_FUTURES_KLINE_MARKET' => 'TAIFEX',
+            'YUANTA_FUTURES_TICK_LAST_COUNT' => (string) config('yuanta.futures_tick_last_count', 6000),
         ], [
             '--from',
             $from,
@@ -145,6 +146,8 @@ class TwFuturesBrokerKlineVerifier
             $interval,
             '--market',
             'TAIFEX',
+            '--last-count',
+            (string) config('yuanta.futures_tick_last_count', 6000),
         ]);
 
         $rows = [];

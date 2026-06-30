@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from argparse import ArgumentParser
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import json
 import os
@@ -64,6 +64,16 @@ def dotnet_datetime_payload(value) -> dict:
         }
 
 
+def dotnet_datetime(value) -> datetime | None:
+    try:
+        return datetime(value.Year, value.Month, value.Day, value.Hour, value.Minute, value.Second)
+    except Exception:
+        try:
+            return datetime.fromisoformat(str(value).replace("/", "-"))
+        except Exception:
+            return None
+
+
 def parse_args():
     parser = ArgumentParser(description="Query Yuanta Spark API futures K-line data.")
     parser.add_argument("--from", dest="from_date", required=True)
@@ -71,7 +81,122 @@ def parse_args():
     parser.add_argument("--symbol", default=os.environ.get("YUANTA_FUTURES_KLINE_SYMBOL", "TXFPM1"))
     parser.add_argument("--interval", default=os.environ.get("YUANTA_FUTURES_KLINE_INTERVAL", "daily"))
     parser.add_argument("--market", default=os.environ.get("YUANTA_FUTURES_KLINE_MARKET", "TAIFEX"))
+    parser.add_argument("--last-count", type=int, default=int(os.environ.get("YUANTA_FUTURES_TICK_LAST_COUNT", "6000")))
     return parser.parse_args()
+
+
+def session_start(timestamp: datetime) -> datetime | None:
+    time_text = timestamp.strftime("%H:%M")
+    if "08:45" <= time_text < "13:45":
+        return timestamp.replace(hour=8, minute=45, second=0, microsecond=0)
+    if time_text >= "15:00":
+        return timestamp.replace(hour=15, minute=0, second=0, microsecond=0)
+    if time_text < "05:00":
+        previous = timestamp - timedelta(days=1)
+        return previous.replace(hour=15, minute=0, second=0, microsecond=0)
+    return None
+
+
+def bar_started_at(timestamp: datetime, interval_key: str) -> datetime | None:
+    if interval_key == "daily":
+        return timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    interval_minutes = int(interval_key.rstrip("m"))
+    start = session_start(timestamp)
+    if start is None:
+        return None
+
+    elapsed_seconds = int((timestamp - start).total_seconds())
+    if elapsed_seconds < 0:
+        return None
+
+    return start + timedelta(minutes=(elapsed_seconds // (interval_minutes * 60)) * interval_minutes)
+
+
+def aggregate_ticks(ticks: list[dict], interval_key: str, from_date: str, to_date: str) -> list[dict]:
+    rows: dict[str, dict] = {}
+    from_day = datetime.fromisoformat(from_date.replace("/", "-")).date()
+    to_day = datetime.fromisoformat(to_date.replace("/", "-")).date()
+
+    for tick in sorted(ticks, key=lambda item: item["timestamp"]):
+        timestamp = tick["timestamp"]
+        if timestamp.date() < from_day or timestamp.date() > to_day:
+            continue
+
+        started_at = bar_started_at(timestamp, interval_key)
+        if started_at is None:
+            continue
+
+        key = started_at.strftime("%Y-%m-%d %H:%M:%S")
+        price = float(tick["price"])
+        if key not in rows:
+            rows[key] = {
+                "timestamp": key,
+                "date": started_at.strftime("%Y-%m-%d"),
+                "open": price,
+                "high": price,
+                "low": price,
+                "close": price,
+                "volume": 0,
+            }
+
+        rows[key]["high"] = max(float(rows[key]["high"]), price)
+        rows[key]["low"] = min(float(rows[key]["low"]), price)
+        rows[key]["close"] = price
+        rows[key]["volume"] += int(tick["volume"])
+
+    return list(rows.values())
+
+
+def query_taifex_ticks(api, account, market, symbol, select_type, lang, last_count: int):
+    try:
+        value = response_value(
+            api.GetStkTickDetailSync(
+                account,
+                market,
+                symbol,
+                select_type.區間查詢,
+                "000000",
+                "235959",
+                0,
+                lang,
+            ),
+            "GetStkTickDetail",
+        )
+    except Exception:
+        value = response_value(
+            api.GetStkTickDetailSync(
+                account,
+                market,
+                symbol,
+                select_type.最後筆數,
+                "",
+                "",
+                max(1, last_count),
+                lang,
+            ),
+            "GetStkTickDetail",
+        )
+
+    tick_list = getattr(value, "StickDetailList", [])
+    ticks = []
+    for index in range(tick_list.Count):
+        item = tick_list[index]
+        timestamp = dotnet_datetime(item.TimeStamp)
+        if timestamp is None:
+            continue
+
+        price = float(item.DealPrice)
+        if price <= 0:
+            continue
+
+        ticks.append({
+            "timestamp": timestamp,
+            "price": price,
+            "volume": int(item.DealVol),
+        })
+
+    return ticks
 
 
 def main() -> int:
@@ -109,7 +234,14 @@ def main() -> int:
             os.add_dll_directory(str(sdk_path))
 
         clr.AddReference("YuantaSparkAPI")
-        from YuantaOneAPI import YuantaSparkAPITrader, enumEnvironmentMode, enumLangType, enumMarketType, KLineType
+        from YuantaOneAPI import (
+            YuantaSparkAPITrader,
+            enumEnvironmentMode,
+            enumLangType,
+            enumMarketType,
+            enumStkTickSelectType,
+            KLineType,
+        )
 
         log_path = Path(os.environ.get("YUANTA_LOG_PATH", Path.cwd() / "storage" / "logs" / "yuanta"))
         log_path.mkdir(parents=True, exist_ok=True)
@@ -141,36 +273,50 @@ def main() -> int:
         if not accepted:
             return fail("Yuanta login call was rejected before receiving a response.", 7)
 
-        value = response_value(
-            api.GetKLineSync(
+        if args.market.upper() == "TAIFEX":
+            ticks = query_taifex_ticks(
+                api,
                 account,
-                kline_type,
                 market,
                 args.symbol,
-                args.from_date.replace("-", "/"),
-                args.to_date.replace("-", "/"),
+                enumStkTickSelectType,
                 enumLangType.UTF8,
-            ),
-            "GetKLine",
-        )
+                args.last_count,
+            )
+            rows = aggregate_ticks(ticks, interval_key, args.from_date, args.to_date)
+            source = "yuanta_spark_api_taifex_tick_aggregate"
+        else:
+            value = response_value(
+                api.GetKLineSync(
+                    account,
+                    kline_type,
+                    market,
+                    args.symbol,
+                    args.from_date.replace("-", "/"),
+                    args.to_date.replace("-", "/"),
+                    enumLangType.UTF8,
+                ),
+                "GetKLine",
+            )
 
-        rows = []
-        kline_list = getattr(value, "KLineList", [])
-        for index in range(kline_list.Count):
-            item = kline_list[index]
-            timestamp = dotnet_datetime_payload(item.TimeStamp)
-            rows.append({
-                **timestamp,
-                "open": float(item.OpenPrice),
-                "high": float(item.HighPrice),
-                "low": float(item.LowPrice),
-                "close": float(item.ClosePrice),
-                "volume": int(item.DealVol),
-            })
+            rows = []
+            kline_list = getattr(value, "KLineList", [])
+            for index in range(kline_list.Count):
+                item = kline_list[index]
+                timestamp = dotnet_datetime_payload(item.TimeStamp)
+                rows.append({
+                    **timestamp,
+                    "open": float(item.OpenPrice),
+                    "high": float(item.HighPrice),
+                    "low": float(item.LowPrice),
+                    "close": float(item.ClosePrice),
+                    "volume": int(item.DealVol),
+                })
+            source = "yuanta_spark_api_kline"
 
         print(json.dumps({
             "queried_at": datetime.now(timezone.utc).isoformat(),
-            "provider": "yuanta_spark_api",
+            "provider": source,
             "market": args.market.upper(),
             "symbol": args.symbol,
             "interval": interval_key,

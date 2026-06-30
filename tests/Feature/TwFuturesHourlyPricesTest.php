@@ -540,7 +540,7 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertSame(1, $result['stored']);
         $dailyRow = DB::table('tw_futures_daily_prices')->where('trade_date', '2026-06-24')->first();
         $this->assertNotNull($dailyRow);
-        $this->assertStringContainsString('Yuanta Spark API futures K-line', (string) $dailyRow->verified_sources);
+        $this->assertStringContainsString('Yuanta Spark API futures tick aggregate', (string) $dailyRow->verified_sources);
         $this->assertStringContainsString('TXFPM1', (string) $dailyRow->verified_sources);
     }
 
@@ -884,7 +884,7 @@ class TwFuturesHourlyPricesTest extends TestCase
         $rows = $method->invoke($fetcher, [$row], 'TXF1!', '15');
 
         $this->assertCount(1, $rows);
-        $this->assertStringContainsString('Yuanta Spark API futures K-line', $rows[0]['source']);
+        $this->assertStringContainsString('Yuanta Spark API futures tick aggregate', $rows[0]['source']);
         $this->assertSame('matched_yuanta_kline', $rows[0]['source_payload']['validation']['status']);
         $this->assertSame('TXFPM1', $rows[0]['source_payload']['validation']['broker']['symbol']);
     }

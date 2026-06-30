@@ -21,6 +21,7 @@ return [
     'futures_kline_timeout_seconds' => (int) env('YUANTA_FUTURES_KLINE_TIMEOUT_SECONDS', 70),
     'futures_kline_excluded_start' => env('YUANTA_FUTURES_KLINE_EXCLUDED_START', '09:00'),
     'futures_kline_excluded_end' => env('YUANTA_FUTURES_KLINE_EXCLUDED_END', '13:30'),
+    'futures_tick_last_count' => (int) env('YUANTA_FUTURES_TICK_LAST_COUNT', 6000),
 
     'cache_seconds_open' => (int) env('YUANTA_PORTFOLIO_CACHE_SECONDS_OPEN', 5),
     'cache_seconds_closed' => (int) env('YUANTA_PORTFOLIO_CACHE_SECONDS_CLOSED', 600),

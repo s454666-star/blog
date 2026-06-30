@@ -143,9 +143,18 @@ async function main() {
     }
   }
 
-  if (Date.now() >= timeoutAt && status === 'captured' && isGoogleLoginUrl(snapshot.url)) {
+  const cloudflareChallenge = detectCloudflareVerification(snapshot);
+  const siteLoginRequired = detect85SugarbabyLogin(snapshot);
+
+  if (cloudflareChallenge) {
+    status = 'cloudflare_verification_needed';
+    reason = '85sugarbaby returned a Cloudflare security verification page';
+  } else if (Date.now() >= timeoutAt && status === 'captured' && isGoogleLoginUrl(snapshot.url)) {
     status = detectGoogleVerification(snapshot.text) ? 'google_verification_needed' : 'google_login_incomplete';
     reason = 'timed out while still on Google login';
+  } else if (siteLoginRequired && !clickGoogle) {
+    status = 'site_login_required';
+    reason = '85sugarbaby redirected to login page';
   } else if (Date.now() >= timeoutAt && waitSelector !== '' && !snapshot.waitSelectorMatched) {
     status = 'wait_selector_timeout';
     reason = `timed out before selector appeared: ${waitSelector}`;
@@ -177,7 +186,7 @@ async function main() {
     active_click_summary: summarizeActiveClickProbe(activeClickSummary),
     text_length: snapshot.textLength,
     html_length: snapshot.html.length,
-    chrome_kept_open: keepOpen || status.startsWith('google_'),
+    chrome_kept_open: keepOpen || (!headless && status.startsWith('google_')),
   };
 
   fs.writeFileSync(metaOutput, JSON.stringify(meta, null, 2), 'utf8');
@@ -191,7 +200,12 @@ async function main() {
   }
 
   await cleanup(port, meta.chrome_kept_open);
-  process.exitCode = status.startsWith('google_') || status.endsWith('_timeout') ? 2 : 0;
+  process.exitCode = status.startsWith('google_')
+    || status === 'cloudflare_verification_needed'
+    || status === 'site_login_required'
+    || status.endsWith('_timeout')
+    ? 2
+    : 0;
 }
 
 function parseArgs(args) {
@@ -836,6 +850,26 @@ function detectGoogleVerification(text) {
     '密碼',
     '安全性',
   ].some((needle) => normalized.includes(needle));
+}
+
+function detectCloudflareVerification(snapshot) {
+  const title = String(snapshot?.title || '').toLowerCase();
+  const text = String(snapshot?.text || '').toLowerCase();
+
+  return title.includes('just a moment')
+    || text.includes('performing security verification')
+    || text.includes('cloudflare')
+    || text.includes('ray id:');
+}
+
+function detect85SugarbabyLogin(snapshot) {
+  const url = String(snapshot?.url || '').toLowerCase();
+  const title = String(snapshot?.title || '');
+  const text = String(snapshot?.text || '');
+
+  return url.includes('/login')
+    || title.includes('登入')
+    || (text.includes('會員登入') && text.includes('GOOGLE'));
 }
 
 async function cleanup(port, shouldKeepOpen) {

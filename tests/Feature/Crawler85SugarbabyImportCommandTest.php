@@ -168,7 +168,15 @@ class Crawler85SugarbabyImportCommandTest extends TestCase
             ->assertOk()
             ->assertSeeInOrder(['New User', 'Old User'])
             ->assertSee('第一次建檔時間新到舊')
+            ->assertSee('重新登入 Session')
             ->assertSee('2026-06-28 15:21:56');
+    }
+
+    public function test_login_session_route_is_safe_in_testing(): void
+    {
+        $this->get('/crawler/85sugarbaby/session/login')
+            ->assertRedirect('/crawler/85sugarbaby')
+            ->assertSessionHas('crawler_status', '測試模式已略過啟動 Chrome。');
     }
 
     private function invokePersistCandidates(string $source, array $candidates, CarbonImmutable $capturedAt): int

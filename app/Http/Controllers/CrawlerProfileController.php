@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CrawlerProfileCandidate;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
 class CrawlerProfileController extends Controller
@@ -74,7 +75,43 @@ class CrawlerProfileController extends Controller
             'areas' => $areas,
             'source' => $source,
             'perPage' => $perPage,
+            'localLoginUrl' => config('crawler.85sugarbaby.local_login_url'),
+            'crawlerEnabled' => (bool) config('crawler.85sugarbaby.enabled', true),
         ]);
+    }
+
+    public function loginSession(Request $request): RedirectResponse
+    {
+        if (app()->environment('testing')) {
+            return redirect()
+                ->route('crawler.profiles')
+                ->with('crawler_status', '測試模式已略過啟動 Chrome。');
+        }
+
+        if (PHP_OS_FAMILY !== 'Windows') {
+            return redirect()
+                ->route('crawler.profiles')
+                ->with('crawler_error', '這個登入按鈕需要在本機 Windows 的 blog.test 執行；AWS 主機沒有可互動 Chrome 視窗。');
+        }
+
+        $command = sprintf(
+            'cmd /C start "85sugarbaby login" /D %s %s artisan crawler:85sugarbaby-login --timeout=300',
+            escapeshellarg(base_path()),
+            escapeshellarg(PHP_BINARY)
+        );
+
+        $handle = popen($command, 'r');
+        if ($handle === false) {
+            return redirect()
+                ->route('crawler.profiles')
+                ->with('crawler_error', '無法啟動登入用 Chrome，請改用 php artisan crawler:85sugarbaby-login。');
+        }
+
+        pclose($handle);
+
+        return redirect()
+            ->route('crawler.profiles')
+            ->with('crawler_status', '已啟動登入用 Chrome。完成 Google 登入後，排程會用更新後的 session 繼續抓資料。');
     }
 
     private function resolveDefaultSource(): string

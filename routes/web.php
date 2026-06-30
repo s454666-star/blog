@@ -180,6 +180,7 @@ Route::get('/btdig', [BtdigController::class, 'index'])->name('btdig.index');
 Route::get('/btdig/images/{image}', [BtdigController::class, 'image'])->name('btdig.image');
 Route::post('/btdig/mark-copied', [BtdigController::class, 'markCopied'])->name('btdig.markCopied');
 Route::get('/crawler/85sugarbaby', [CrawlerProfileController::class, 'index'])->name('crawler.profiles');
+Route::get('/crawler/85sugarbaby/session/login', [CrawlerProfileController::class, 'loginSession'])->name('crawler.profiles.login-session');
 Route::get('/tw-stock/q1-financial-reports', [TwStockQ1FinancialReportController::class, 'index'])->name('tw-stock.q1-financial-reports.index');
 Route::get('/tw-stock/annual-financial-comparison', [TwStockQ1FinancialReportController::class, 'annualComparison'])->name('tw-stock.annual-comparison.index');
 Route::get('/tw-stock/daily-price-rankings', [TwStockDailyPriceController::class, 'index'])->name('tw-stock.daily-prices.index');

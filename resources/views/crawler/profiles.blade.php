@@ -87,6 +87,48 @@
         .toolbar input { flex: 1; min-width: 220px; }
         .toolbar button { background: linear-gradient(160deg, var(--primary), #6366f1); color: #fff; cursor: pointer; font-weight: 700; }
         .toolbar a { text-decoration: none; color: var(--primary); font-weight: 700; }
+        .session-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-top: 12px;
+        }
+        .session-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(79,70,229,0.2);
+            border-radius: 12px;
+            padding: 10px 14px;
+            text-decoration: none;
+            color: #fff;
+            background: linear-gradient(160deg, var(--primary), #6366f1);
+            font-weight: 800;
+            font-size: 0.92rem;
+        }
+        .session-note {
+            color: #4b5563;
+            font-size: 0.88rem;
+            line-height: 1.6;
+        }
+        .notice {
+            border-radius: 14px;
+            padding: 10px 12px;
+            margin-top: 12px;
+            font-weight: 700;
+            line-height: 1.6;
+        }
+        .notice.ok {
+            border: 1px solid rgba(16,185,129,.28);
+            color: #065f46;
+            background: #d1fae5;
+        }
+        .notice.error {
+            border: 1px solid rgba(239,68,68,.24);
+            color: #991b1b;
+            background: #fee2e2;
+        }
         .grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -408,6 +450,19 @@
                 每筆資料都會照「<strong>第一次建檔時間新到舊</strong>」排序，並顯示個資欄位與圖片。
                 目前 Source：<strong>{{ $source }}</strong>，排程只會新增第一次出現的使用者。
             </p>
+            <div class="session-actions">
+                <a class="session-btn" href="{{ $localLoginUrl }}">重新登入 Session</a>
+                <span class="session-note">
+                    排程：{{ $crawlerEnabled ? '啟用' : '停用' }} /
+                    最近建檔：{{ $recentCreated instanceof \Illuminate\Support\Carbon ? $recentCreated->format('Y-m-d H:i:s') : '-' }}
+                </span>
+            </div>
+            @if(session('crawler_status'))
+                <div class="notice ok">{{ session('crawler_status') }}</div>
+            @endif
+            @if(session('crawler_error'))
+                <div class="notice error">{{ session('crawler_error') }}</div>
+            @endif
         </div>
         <div class="stats">
             <div class="stat"><div class="label">總筆數</div><div class="value">{{ number_format((int) $stats['total']) }}</div></div>

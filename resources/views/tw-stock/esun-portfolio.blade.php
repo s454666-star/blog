@@ -951,7 +951,7 @@
             </div>
         </div>
         <div class="summary-card capital-card">
-            <div class="label">融資額度</div>
+            <div class="label" data-summary="marginLimitLabel">融資額度</div>
             <div class="value neutral" data-summary="marginLimitAmount">--</div>
             <div class="investment-metrics" data-summary="marginMetrics">
                 <div class="investment-line">
@@ -1185,7 +1185,10 @@ function updateSummaryCards(summary, sourceText) {
         `當日已實現 ${realizedTodayPnl === null ? '--' : formatMoney(realizedTodayPnl)}`;
     document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
     renderInvestmentLevel(investmentLevelRate, bankBalance);
-    document.querySelector('[data-summary="marginLimitAmount"]').textContent = marginLimitAmount === null ? '--' : formatInteger(marginLimitAmount);
+    const marginPrimaryAmount = marginLimitAmount ?? marginUsedAmount;
+    const marginPrimaryLabel = document.querySelector('[data-summary="marginLimitLabel"]');
+    marginPrimaryLabel.textContent = marginLimitAmount === null && marginUsedAmount !== null ? '融資已用' : '融資額度';
+    document.querySelector('[data-summary="marginLimitAmount"]').textContent = marginPrimaryAmount === null ? '--' : formatInteger(marginPrimaryAmount);
     renderMarginMetrics(marginUsedAmount, marginAvailableAmount, marginMaintenanceRate);
 }
 

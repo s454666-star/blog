@@ -246,12 +246,16 @@ class TwFuturesHourlyPriceFetcher
     private function brokerRowMismatches(array $row, array $brokerRow): array
     {
         $mismatches = [];
-        foreach ([
+        $fields = (($brokerRow['quality'] ?? '') === 'subscription_snapshot')
+            ? ['close_price']
+            : [
             'open_price',
             'high_price',
             'low_price',
             'close_price',
-        ] as $field) {
+        ];
+
+        foreach ($fields as $field) {
             $primary = $this->floatValue($row[$field] ?? null);
             $broker = $this->floatValue($brokerRow[$field] ?? null);
             if ($primary === null || $broker === null || abs($primary - $broker) > 0.01) {
@@ -311,6 +315,7 @@ class TwFuturesHourlyPriceFetcher
             'symbol' => (string) ($brokerRow['symbol'] ?? ''),
             'market' => (string) ($brokerRow['market'] ?? 'TAIFEX'),
             'timestamp' => (string) ($brokerRow['timestamp'] ?? ''),
+            'quality' => (string) ($brokerRow['quality'] ?? ''),
             'open_price' => $this->floatValue($brokerRow['open_price'] ?? null),
             'high_price' => $this->floatValue($brokerRow['high_price'] ?? null),
             'low_price' => $this->floatValue($brokerRow['low_price'] ?? null),

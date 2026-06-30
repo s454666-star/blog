@@ -82,6 +82,7 @@ def parse_args():
     parser.add_argument("--interval", default=os.environ.get("YUANTA_FUTURES_KLINE_INTERVAL", "daily"))
     parser.add_argument("--market", default=os.environ.get("YUANTA_FUTURES_KLINE_MARKET", "TAIFEX"))
     parser.add_argument("--last-count", type=int, default=int(os.environ.get("YUANTA_FUTURES_TICK_LAST_COUNT", "6000")))
+    parser.add_argument("--subscribe-seconds", type=float, default=float(os.environ.get("YUANTA_FUTURES_SUBSCRIBE_SECONDS", "6")))
     return parser.parse_args()
 
 
@@ -113,7 +114,7 @@ def bar_started_at(timestamp: datetime, interval_key: str) -> datetime | None:
     return start + timedelta(minutes=(elapsed_seconds // (interval_minutes * 60)) * interval_minutes)
 
 
-def aggregate_ticks(ticks: list[dict], interval_key: str, from_date: str, to_date: str) -> list[dict]:
+def aggregate_ticks(ticks: list[dict], interval_key: str, from_date: str, to_date: str, quality: str) -> list[dict]:
     rows: dict[str, dict] = {}
     from_day = datetime.fromisoformat(from_date.replace("/", "-")).date()
     to_day = datetime.fromisoformat(to_date.replace("/", "-")).date()
@@ -138,6 +139,7 @@ def aggregate_ticks(ticks: list[dict], interval_key: str, from_date: str, to_dat
                 "low": price,
                 "close": price,
                 "volume": 0,
+                "quality": quality,
             }
 
         rows[key]["high"] = max(float(rows[key]["high"]), price)
@@ -148,7 +150,66 @@ def aggregate_ticks(ticks: list[dict], interval_key: str, from_date: str, to_dat
     return list(rows.values())
 
 
-def query_taifex_ticks(api, account, market, symbol, select_type, lang, last_count: int):
+def stock_tick_result_to_tick(result, trade_date: datetime) -> dict | None:
+    try:
+        tick_time = result.Time
+        timestamp = trade_date.replace(
+            hour=int(tick_time.bytHour),
+            minute=int(tick_time.bytMin),
+            second=int(tick_time.bytSec),
+            microsecond=int(tick_time.ushtMSec) * 1000,
+        )
+        price = float(result.DealPrice)
+        if price <= 0:
+            return None
+
+        return {
+            "timestamp": timestamp,
+            "price": price,
+            "volume": int(result.DealVol),
+        }
+    except Exception:
+        return None
+
+
+def subscribe_taifex_ticks(api, account, market, symbol, lang, seconds: float) -> list[dict]:
+    from System.Collections.Generic import List
+    from YuantaOneAPI import StockTick
+
+    ticks = []
+    taipei_today = datetime.utcnow() + timedelta(hours=8)
+
+    def on_subscription(intMark, dwIndex, strIndex, objHandle, objValue):
+        if int(intMark) != 2 or str(strIndex) != "SubscribeStockTick":
+            return
+        tick = stock_tick_result_to_tick(objValue, taipei_today)
+        if tick is not None:
+            ticks.append(tick)
+
+    stocktick_list = List[StockTick]()
+    stocktick = StockTick()
+    stocktick.MarketType = market
+    stocktick.StockCode = symbol
+    stocktick_list.Add(stocktick)
+
+    api.OnResponse += on_subscription
+    try:
+        api.SubscribeStockTick(account, stocktick_list, lang)
+        time.sleep(max(1.0, seconds))
+        try:
+            api.UnSubscribeStockTick(account, stocktick_list, lang)
+        except Exception:
+            pass
+    finally:
+        try:
+            api.OnResponse -= on_subscription
+        except Exception:
+            pass
+
+    return ticks
+
+
+def query_taifex_ticks(api, account, market, symbol, select_type, lang, last_count: int, subscribe_seconds: float):
     try:
         value = response_value(
             api.GetStkTickDetailSync(
@@ -163,20 +224,26 @@ def query_taifex_ticks(api, account, market, symbol, select_type, lang, last_cou
             ),
             "GetStkTickDetail",
         )
+        quality = "tick_detail_range"
     except Exception:
-        value = response_value(
-            api.GetStkTickDetailSync(
-                account,
-                market,
-                symbol,
-                select_type.最後筆數,
-                "",
-                "",
-                max(1, last_count),
-                lang,
-            ),
-            "GetStkTickDetail",
-        )
+        try:
+            value = response_value(
+                api.GetStkTickDetailSync(
+                    account,
+                    market,
+                    symbol,
+                    select_type.最後筆數,
+                    "",
+                    "",
+                    max(1, last_count),
+                    lang,
+                ),
+                "GetStkTickDetail",
+            )
+            quality = "tick_detail_last_count"
+        except Exception:
+            ticks = subscribe_taifex_ticks(api, account, market, symbol, lang, subscribe_seconds)
+            return ticks, "subscription_snapshot"
 
     tick_list = getattr(value, "StickDetailList", [])
     ticks = []
@@ -196,7 +263,7 @@ def query_taifex_ticks(api, account, market, symbol, select_type, lang, last_cou
             "volume": int(item.DealVol),
         })
 
-    return ticks
+    return ticks, quality
 
 
 def main() -> int:
@@ -274,7 +341,7 @@ def main() -> int:
             return fail("Yuanta login call was rejected before receiving a response.", 7)
 
         if args.market.upper() == "TAIFEX":
-            ticks = query_taifex_ticks(
+            ticks, quality = query_taifex_ticks(
                 api,
                 account,
                 market,
@@ -282,8 +349,9 @@ def main() -> int:
                 enumStkTickSelectType,
                 enumLangType.UTF8,
                 args.last_count,
+                args.subscribe_seconds,
             )
-            rows = aggregate_ticks(ticks, interval_key, args.from_date, args.to_date)
+            rows = aggregate_ticks(ticks, interval_key, args.from_date, args.to_date, quality)
             source = "yuanta_spark_api_taifex_tick_aggregate"
         else:
             value = response_value(

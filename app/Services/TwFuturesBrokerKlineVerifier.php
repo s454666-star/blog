@@ -135,6 +135,7 @@ class TwFuturesBrokerKlineVerifier
             'YUANTA_FUTURES_KLINE_INTERVAL' => $interval,
             'YUANTA_FUTURES_KLINE_MARKET' => 'TAIFEX',
             'YUANTA_FUTURES_TICK_LAST_COUNT' => (string) config('yuanta.futures_tick_last_count', 6000),
+            'YUANTA_FUTURES_SUBSCRIBE_SECONDS' => (string) config('yuanta.futures_subscribe_seconds', 6),
         ], [
             '--from',
             $from,
@@ -148,6 +149,8 @@ class TwFuturesBrokerKlineVerifier
             'TAIFEX',
             '--last-count',
             (string) config('yuanta.futures_tick_last_count', 6000),
+            '--subscribe-seconds',
+            (string) config('yuanta.futures_subscribe_seconds', 6),
         ]);
 
         $rows = [];
@@ -172,6 +175,7 @@ class TwFuturesBrokerKlineVerifier
                 'symbol' => (string) ($responsePayload['symbol'] ?? $symbol),
                 'market' => (string) ($responsePayload['market'] ?? 'TAIFEX'),
                 'timestamp' => (string) ($row['timestamp'] ?? $date),
+                'quality' => (string) ($row['quality'] ?? ''),
                 'open_price' => $this->numberOrNull($row['open'] ?? null),
                 'high_price' => $this->numberOrNull($row['high'] ?? null),
                 'low_price' => $this->numberOrNull($row['low'] ?? null),

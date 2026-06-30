@@ -116,6 +116,8 @@
         ->withoutMiddleware('throttle:api');
     Route::post('/line/webhook', [LineWebhookController::class, 'handle'])
         ->withoutMiddleware('throttle:api');
+    Route::post('/line/yuanta/webhook', [LineWebhookController::class, 'handleYuanta'])
+        ->withoutMiddleware('throttle:api');
     Route::get('/telegram/run-all-pages', [TelegramBotPaginationController::class, 'runAllPagesByBot']);
     Route::get('/folder-videos', [FolderVideoController::class, 'index'])->name('folder-videos.index');
     Route::get('/folder-videos/{id}/stream', [FolderVideoController::class, 'stream'])->name('folder-videos.stream');

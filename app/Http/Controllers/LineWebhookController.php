@@ -11,9 +11,34 @@ class LineWebhookController extends Controller
 {
     public function handle(Request $request): JsonResponse
     {
+        return $this->handleWithConfig(
+            $request,
+            (string) config('line.channel_secret', ''),
+            'line/dashboard-notify-target-id.txt',
+            'line/latest-webhook-target.json',
+        );
+    }
+
+    public function handleYuanta(Request $request): JsonResponse
+    {
+        return $this->handleWithConfig(
+            $request,
+            (string) config('line.yuanta_channel_secret', ''),
+            'line/yuanta-dashboard-notify-target-id.txt',
+            'line/yuanta-latest-webhook-target.json',
+        );
+    }
+
+    private function handleWithConfig(
+        Request $request,
+        string $channelSecret,
+        string $targetPath,
+        string $metadataPath,
+    ): JsonResponse
+    {
         $body = $request->getContent();
 
-        if (! $this->signatureIsValid($body, (string) $request->header('X-Line-Signature', ''))) {
+        if (! $this->signatureIsValid($body, (string) $request->header('X-Line-Signature', ''), $channelSecret)) {
             return response()->json(['message' => 'invalid signature'], 403);
         }
 
@@ -42,7 +67,7 @@ class LineWebhookController extends Controller
                 continue;
             }
 
-            $this->storeLatestTarget($target, $event);
+            $this->storeLatestTarget($target, $event, $targetPath, $metadataPath);
             $capturedTargets[] = $target;
         }
 
@@ -52,9 +77,8 @@ class LineWebhookController extends Controller
         ]);
     }
 
-    private function signatureIsValid(string $body, string $signature): bool
+    private function signatureIsValid(string $body, string $signature, string $secret): bool
     {
-        $secret = (string) config('line.channel_secret', '');
         if ($secret === '' || $signature === '') {
             return false;
         }
@@ -86,10 +110,10 @@ class LineWebhookController extends Controller
      * @param array{id: string, type: string} $target
      * @param array<string, mixed> $event
      */
-    private function storeLatestTarget(array $target, array $event): void
+    private function storeLatestTarget(array $target, array $event, string $targetPath, string $metadataPath): void
     {
-        Storage::disk('local')->put('line/dashboard-notify-target-id.txt', $target['id'] . "\n");
-        Storage::disk('local')->put('line/latest-webhook-target.json', json_encode([
+        Storage::disk('local')->put($targetPath, $target['id'] . "\n");
+        Storage::disk('local')->put($metadataPath, json_encode([
             'target_id' => $target['id'],
             'target_type' => $target['type'],
             'event_type' => $event['type'] ?? null,

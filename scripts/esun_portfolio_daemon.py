@@ -119,6 +119,8 @@ class EsunSession:
         self.login_at: str | None = None
         self.last_login_attempt_at: str | None = None
         self._last_login_attempt_monotonic: float | None = None
+        self.last_success: dict[str, object] | None = None
+        self.last_error: dict[str, object] | None = None
 
     def health(self) -> dict[str, object]:
         with self._lock:
@@ -130,6 +132,8 @@ class EsunSession:
                 "login_at": self.login_at,
                 "last_login_attempt_at": self.last_login_attempt_at,
                 "relogin_cooldown_seconds": self._relogin_cooldown_seconds(),
+                "last_success": self.last_success,
+                "last_error": self.last_error,
                 "now": datetime.now(timezone.utc).isoformat(),
             }
 
@@ -186,6 +190,26 @@ class EsunSession:
                     return callback(sdk)
 
                 raise
+
+    def record_success(self, path: str) -> None:
+        with self._lock:
+            self.last_success = {
+                "path": path,
+                "at": datetime.now(timezone.utc).isoformat(),
+            }
+
+    def record_error(self, path: str, exc: Exception) -> dict[str, object]:
+        payload = {
+            "path": path,
+            "at": datetime.now(timezone.utc).isoformat(),
+            "error": f"{type(exc).__name__}: {exc}",
+            "trace": traceback.format_exc(limit=3),
+        }
+
+        with self._lock:
+            self.last_error = payload
+
+        return payload
 
     def portfolio(self, today: str | None) -> dict[str, object]:
         inventories = self.call(lambda sdk: sdk.get_inventories())
@@ -267,6 +291,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
                 self.respond(200, SESSION.portfolio(today))
+                SESSION.record_success(parsed.path)
                 return
 
             if parsed.path == "/transactions":
@@ -278,10 +303,17 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
                 self.respond(200, SESSION.transactions(start, end, query_range))
+                SESSION.record_success(parsed.path)
                 return
 
             self.respond(404, {"error": "not found"})
         except Exception as exc:
+            error = SESSION.record_error(parsed.path, exc)
+            print(
+                json.dumps({"event": "request_failed", **error}, ensure_ascii=True),
+                file=sys.stderr,
+                flush=True,
+            )
             self.respond(503, {
                 "error": f"{type(exc).__name__}: {exc}",
                 "trace": traceback.format_exc(limit=3),

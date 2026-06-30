@@ -125,7 +125,6 @@ class TwFuturesHourlyPriceFetcher
             $symbol,
             $interval,
         );
-        $rows = $this->mergeBrokerKlineValidation($rows, $symbol, $interval);
 
         return $this->appendCurrentSessionOpeningQuoteRow(
             $rows,
@@ -199,129 +198,6 @@ class TwFuturesHourlyPriceFetcher
         );
 
         return $mergedRows;
-    }
-
-    /**
-     * @param list<array<string, mixed>> $rows
-     * @return list<array<string, mixed>>
-     */
-    private function mergeBrokerKlineValidation(array $rows, string $symbol, string $interval): array
-    {
-        if ($symbol !== self::DEFAULT_SYMBOL || $rows === []) {
-            return $rows;
-        }
-
-        $brokerRows = app(TwFuturesBrokerKlineVerifier::class)->klineRowsByStartedAt($rows, $interval);
-        if ($brokerRows === []) {
-            return $rows;
-        }
-
-        foreach ($rows as $index => $row) {
-            $key = (string) ($row['started_at'] ?? '');
-            $brokerRow = $brokerRows[$key] ?? null;
-            if (! is_array($brokerRow)) {
-                continue;
-            }
-
-            $mismatches = $this->brokerRowMismatches($row, $brokerRow);
-            if ($mismatches === []) {
-                $rows[$index] = $this->withBrokerMatchedValidation($row, $brokerRow);
-                continue;
-            }
-
-            $rows[$index]['source_payload']['broker_validation'] = [
-                'status' => 'yuanta_kline_mismatch',
-                'broker_source' => TwFuturesBrokerKlineVerifier::SOURCE_YUANTA,
-                'mismatches' => $mismatches,
-                'broker' => $this->brokerValidationPayload($brokerRow),
-            ];
-        }
-
-        return $rows;
-    }
-
-    /**
-     * @return list<array{field: string, primary: int|float|null, yuanta: int|float|null}>
-     */
-    private function brokerRowMismatches(array $row, array $brokerRow): array
-    {
-        $mismatches = [];
-        $fields = (($brokerRow['quality'] ?? '') === 'subscription_snapshot')
-            ? ['close_price']
-            : [
-            'open_price',
-            'high_price',
-            'low_price',
-            'close_price',
-        ];
-
-        foreach ($fields as $field) {
-            $primary = $this->floatValue($row[$field] ?? null);
-            $broker = $this->floatValue($brokerRow[$field] ?? null);
-            if ($primary === null || $broker === null || abs($primary - $broker) > 0.01) {
-                $mismatches[] = [
-                    'field' => $field,
-                    'primary' => $primary,
-                    'yuanta' => $broker,
-                ];
-            }
-        }
-
-        return $mismatches;
-    }
-
-    private function withBrokerMatchedValidation(array $row, array $brokerRow): array
-    {
-        $originalSource = (string) ($row['source'] ?? self::SOURCE_NAME);
-        $row['source'] = $this->appendSourceName($originalSource, TwFuturesBrokerKlineVerifier::SOURCE_YUANTA);
-        $brokerPayload = $this->brokerValidationPayload($brokerRow);
-
-        if (isset($row['source_payload']['validation']) && is_array($row['source_payload']['validation'])) {
-            $row['source_payload']['validation']['broker_source'] = TwFuturesBrokerKlineVerifier::SOURCE_YUANTA;
-            $row['source_payload']['validation']['broker'] = $brokerPayload;
-        } else {
-            $row['source_payload']['validation'] = [
-                'status' => 'matched_yuanta_kline',
-                'primary_source' => $originalSource,
-                'secondary_source' => TwFuturesBrokerKlineVerifier::SOURCE_YUANTA,
-                'mismatches' => [],
-                'broker' => $brokerPayload,
-            ];
-        }
-
-        return $row;
-    }
-
-    private function appendSourceName(string $source, string $extraSource): string
-    {
-        if ($source === '') {
-            return $extraSource;
-        }
-
-        if (str_contains($source, $extraSource)) {
-            return $source;
-        }
-
-        return $source . ' + ' . $extraSource;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function brokerValidationPayload(array $brokerRow): array
-    {
-        return [
-            'provider' => (string) ($brokerRow['provider'] ?? 'yuanta'),
-            'symbol' => (string) ($brokerRow['symbol'] ?? ''),
-            'market' => (string) ($brokerRow['market'] ?? 'TAIFEX'),
-            'timestamp' => (string) ($brokerRow['timestamp'] ?? ''),
-            'quality' => (string) ($brokerRow['quality'] ?? ''),
-            'open_price' => $this->floatValue($brokerRow['open_price'] ?? null),
-            'high_price' => $this->floatValue($brokerRow['high_price'] ?? null),
-            'low_price' => $this->floatValue($brokerRow['low_price'] ?? null),
-            'close_price' => $this->floatValue($brokerRow['close_price'] ?? null),
-            'volume_contracts' => $this->floatValue($brokerRow['volume_contracts'] ?? null),
-        ];
     }
 
     /**

@@ -32,11 +32,6 @@ class TwFuturesDailyPriceFetcher
 
     private const CLOSE_TOLERANCE_POINTS = 1.0;
 
-    public function __construct(
-        private readonly TwFuturesBrokerKlineVerifier $brokerKlineVerifier,
-    ) {
-    }
-
     /**
      * @return list<array<string, mixed>>
      */
@@ -91,7 +86,6 @@ class TwFuturesDailyPriceFetcher
             $rows,
         )));
         $selfCalculatedByDate = $this->selfCalculatedDailyRowsByDate((string) $rows[0]['symbol'], $dates);
-        $brokerDailyRowsByDate = $this->brokerKlineVerifier->dailyRowsByDate($rows);
         $verifiedRows = [];
         $mismatches = [];
 
@@ -99,7 +93,6 @@ class TwFuturesDailyPriceFetcher
             [$verifiedRow, $validation] = $this->verifyRow(
                 $row,
                 $selfCalculatedByDate[$row['trade_date']] ?? null,
-                $brokerDailyRowsByDate[$row['trade_date']] ?? null,
             );
             if ($verifiedRow === null) {
                 $mismatches[] = $validation;
@@ -369,10 +362,9 @@ class TwFuturesDailyPriceFetcher
     /**
      * @param array<string, mixed> $row
      * @param array<string, mixed>|null $selfCalculated
-     * @param array<string, mixed>|null $brokerDailyRow
      * @return array{0: array<string, mixed>|null, 1: array<string, mixed>}
      */
-    private function verifyRow(array $row, ?array $selfCalculated, ?array $brokerDailyRow): array
+    private function verifyRow(array $row, ?array $selfCalculated): array
     {
         $sources = [
             [
@@ -394,28 +386,6 @@ class TwFuturesDailyPriceFetcher
                     'source' => self::SOURCE_SELF_CALCULATED,
                     'close' => round((float) $selfCalculated['close_price'], 4),
                     'expected_close' => (float) $row['close_price'],
-                ];
-            }
-        }
-
-        if ($brokerDailyRow !== null) {
-            $sourceName = (string) ($brokerDailyRow['source'] ?? TwFuturesBrokerKlineVerifier::SOURCE_YUANTA);
-            $brokerClose = $this->numberValue($brokerDailyRow['close_price'] ?? null);
-            if ($brokerClose !== null && $this->closeMatches((float) $row['close_price'], $brokerClose)) {
-                $sources[] = [
-                    'name' => $sourceName,
-                    'close' => round($brokerClose, 4),
-                    'provider' => (string) ($brokerDailyRow['provider'] ?? 'yuanta'),
-                    'symbol' => (string) ($brokerDailyRow['symbol'] ?? ''),
-                    'timestamp' => (string) ($brokerDailyRow['timestamp'] ?? ''),
-                ];
-            } else {
-                $mismatches[] = [
-                    'source' => $sourceName,
-                    'close' => $brokerClose === null ? null : round($brokerClose, 4),
-                    'expected_close' => (float) $row['close_price'],
-                    'provider' => (string) ($brokerDailyRow['provider'] ?? 'yuanta'),
-                    'symbol' => (string) ($brokerDailyRow['symbol'] ?? ''),
                 ];
             }
         }

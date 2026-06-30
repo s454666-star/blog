@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Console\Commands\BackfillTwFuturesContinuousPricesCommand;
-use App\Services\TwFuturesBrokerKlineVerifier;
 use App\Services\TwFuturesDailyPriceFetcher;
 use App\Services\TwFuturesHourlyPriceFetcher;
 use App\Services\TwFuturesYahooMinutePriceFetcher;
@@ -13,7 +12,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
-use Mockery;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -45,7 +43,6 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         Carbon::setTestNow('2026-05-25 22:00:00');
         CarbonImmutable::setTestNow('2026-05-25 22:00:00');
-        config()->set('yuanta.futures_kline_enabled', false);
 
         Schema::dropAllTables();
         $this->createTables();
@@ -513,50 +510,6 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertStringContainsString('TAIFEX official futures history page', (string) $dailyRow->verified_sources);
     }
 
-    public function test_taiex_futures_daily_fetcher_can_use_yuanta_kline_as_second_source_after_close(): void
-    {
-        $broker = Mockery::mock(TwFuturesBrokerKlineVerifier::class);
-        $broker->shouldReceive('dailyRowsByDate')
-            ->once()
-            ->andReturn([
-                '2026-06-24' => [
-                    'source' => TwFuturesBrokerKlineVerifier::SOURCE_YUANTA,
-                    'provider' => 'yuanta',
-                    'symbol' => 'TXFPM1',
-                    'timestamp' => '2026-06-24 00:00:00',
-                    'close_price' => 46387.0,
-                ],
-            ]);
-        $this->app->instance(TwFuturesBrokerKlineVerifier::class, $broker);
-
-        Http::fake([
-            'https://www.taifex.com.tw/cht/3/futDataDown' => Http::response($this->taifexDailyCsv('2026/06/24', '202607', '46387'), 200),
-        ]);
-
-        $fetcher = app(TwFuturesDailyPriceFetcher::class);
-        $rows = $fetcher->fetchRows(from: '2026-06-24', to: '2026-06-24');
-        $result = $fetcher->upsertVerifiedRows($rows);
-
-        $this->assertSame(1, $result['stored']);
-        $dailyRow = DB::table('tw_futures_daily_prices')->where('trade_date', '2026-06-24')->first();
-        $this->assertNotNull($dailyRow);
-        $this->assertStringContainsString('Yuanta Spark API futures tick aggregate', (string) $dailyRow->verified_sources);
-        $this->assertStringContainsString('TXFPM1', (string) $dailyRow->verified_sources);
-    }
-
-    public function test_futures_broker_kline_verifier_excludes_regular_trading_session(): void
-    {
-        config()->set('yuanta.timezone', 'Asia/Taipei');
-
-        $verifier = app(TwFuturesBrokerKlineVerifier::class);
-
-        $this->assertTrue($verifier->canUseBrokerSource(CarbonImmutable::parse('2026-06-30 08:59:59', 'Asia/Taipei')));
-        $this->assertFalse($verifier->canUseBrokerSource(CarbonImmutable::parse('2026-06-30 09:00:00', 'Asia/Taipei')));
-        $this->assertFalse($verifier->canUseBrokerSource(CarbonImmutable::parse('2026-06-30 13:29:59', 'Asia/Taipei')));
-        $this->assertFalse($verifier->canUseBrokerSource(CarbonImmutable::parse('2026-06-30 13:30:00', 'Asia/Taipei')));
-        $this->assertTrue($verifier->canUseBrokerSource(CarbonImmutable::parse('2026-06-30 13:30:01', 'Asia/Taipei')));
-    }
-
     public function test_futures_night_session_trade_date_skips_weekends(): void
     {
         $fetcher = app(TwFuturesHourlyPriceFetcher::class);
@@ -844,50 +797,6 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertSame('TradingView chart websocket', $row['source_payload']['validation']['rejected_source']);
         $this->assertNotEmpty($row['source_payload']['validation']['mismatches']);
         $this->assertSame(44994.0, $row['source_payload']['validation']['tradingview']['close_price']);
-    }
-
-    public function test_hourly_fetcher_adds_yuanta_kline_validation_when_prices_match(): void
-    {
-        $row = $this->priceRow(
-            interval: '15',
-            startedAt: CarbonImmutable::parse('2026-06-24 13:30:00', 'Asia/Taipei'),
-            tradeDate: '2026-06-24',
-            sessionType: 'day',
-            close: 46387,
-            cursor: 1,
-            now: now(),
-        );
-        $row['source'] = 'TradingView chart websocket';
-        $row['source_payload'] = ['tradingview_symbol' => 'TAIFEX:TXF1!'];
-
-        $broker = Mockery::mock(TwFuturesBrokerKlineVerifier::class);
-        $broker->shouldReceive('klineRowsByStartedAt')
-            ->once()
-            ->andReturn([
-                '2026-06-24 13:30:00' => [
-                    'source' => TwFuturesBrokerKlineVerifier::SOURCE_YUANTA,
-                    'provider' => 'yuanta',
-                    'symbol' => 'TXFPM1',
-                    'market' => 'TAIFEX',
-                    'timestamp' => '2026-06-24 13:30:00',
-                    'open_price' => (float) $row['open_price'],
-                    'high_price' => (float) $row['high_price'],
-                    'low_price' => (float) $row['low_price'],
-                    'close_price' => (float) $row['close_price'],
-                    'volume_contracts' => (int) $row['volume_contracts'],
-                ],
-            ]);
-        $this->app->instance(TwFuturesBrokerKlineVerifier::class, $broker);
-
-        $fetcher = app(TwFuturesHourlyPriceFetcher::class);
-        $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'mergeBrokerKlineValidation');
-        $method->setAccessible(true);
-        $rows = $method->invoke($fetcher, [$row], 'TXF1!', '15');
-
-        $this->assertCount(1, $rows);
-        $this->assertStringContainsString('Yuanta Spark API futures tick aggregate', $rows[0]['source']);
-        $this->assertSame('matched_yuanta_kline', $rows[0]['source_payload']['validation']['status']);
-        $this->assertSame('TXFPM1', $rows[0]['source_payload']['validation']['broker']['symbol']);
     }
 
     public function test_hourly_fetcher_deletes_existing_row_when_validation_skips_upsert(): void

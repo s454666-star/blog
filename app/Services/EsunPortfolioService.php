@@ -826,7 +826,7 @@ class EsunPortfolioService
 
     /**
      * @param Collection<int, string> $stockCodes
-     * @return array<string, array<string, float|null>>
+     * @return array<string, array<string, float|string|null>>
      */
     private function historicalPrices(Collection $stockCodes): array
     {
@@ -851,10 +851,6 @@ class EsunPortfolioService
 
         foreach ($stockCodes->unique()->values() as $stockCode) {
             $stockCode = (string) $stockCode;
-            if ($this->hasCompleteHistoricalReturns($history[$stockCode] ?? [])) {
-                continue;
-            }
-
             $fallback = $this->yahooHistoricalPriceSummary($stockCode, $today, $startOfYear);
             if ($fallback === null) {
                 continue;
@@ -868,7 +864,7 @@ class EsunPortfolioService
 
     /**
      * @param Collection<int, TwStockDailyPrice|array{tradeDate?: string, closePrice?: mixed}> $prices
-     * @return array{previousClose: float|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}
+     * @return array{previousClose: float|null, previousCloseDate: string|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}
      */
     private function historicalPriceSummary(Collection $prices, string $today, string $startOfYear): array
     {
@@ -902,6 +898,7 @@ class EsunPortfolioService
 
         return [
             'previousClose' => $this->numberOrNull($previousClose),
+            'previousCloseDate' => $previous['tradeDate'] ?? null,
             'fiveDayReturn' => $this->returnRate($previousClose, $base5['closePrice'] ?? null),
             'twentyDayReturn' => $this->returnRate($previousClose, $base20['closePrice'] ?? null),
             'sixtyDayReturn' => $this->returnRate($previousClose, $base60['closePrice'] ?? null),
@@ -910,7 +907,7 @@ class EsunPortfolioService
     }
 
     /**
-     * @return array{previousClose: float|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}|null
+     * @return array{previousClose: float|null, previousCloseDate: string|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}|null
      */
     private function yahooHistoricalPriceSummary(string $stockCode, string $today, string $startOfYear): ?array
     {
@@ -931,7 +928,7 @@ class EsunPortfolioService
     }
 
     /**
-     * @return array{previousClose: float|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}|null
+     * @return array{previousClose: float|null, previousCloseDate: string|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}|null
      */
     private function fetchYahooHistoricalPriceSummary(string $stockCode, string $suffix, string $today, string $startOfYear): ?array
     {
@@ -993,13 +990,39 @@ class EsunPortfolioService
 
     private function mergeHistoricalSummary(array $base, array $fallback): array
     {
+        if ($this->fallbackHasNewerPreviousClose($base, $fallback)) {
+            foreach (['previousClose', 'previousCloseDate', 'fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $key) {
+                if (($fallback[$key] ?? null) !== null) {
+                    $base[$key] = $fallback[$key];
+                }
+            }
+
+            return $base;
+        }
+
         foreach (['previousClose', 'fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $key) {
             if (($base[$key] ?? null) === null && ($fallback[$key] ?? null) !== null) {
                 $base[$key] = $fallback[$key];
             }
         }
 
+        if (($base['previousCloseDate'] ?? null) === null && ($fallback['previousCloseDate'] ?? null) !== null) {
+            $base['previousCloseDate'] = $fallback['previousCloseDate'];
+        }
+
         return $base;
+    }
+
+    private function fallbackHasNewerPreviousClose(array $base, array $fallback): bool
+    {
+        if (($fallback['previousClose'] ?? null) === null) {
+            return false;
+        }
+
+        $baseDate = (string) ($base['previousCloseDate'] ?? '');
+        $fallbackDate = (string) ($fallback['previousCloseDate'] ?? '');
+
+        return $fallbackDate !== '' && ($baseDate === '' || $fallbackDate > $baseDate);
     }
 
     private function returnRate(mixed $current, mixed $base): ?float
@@ -1082,7 +1105,7 @@ class EsunPortfolioService
 
     private function minimumQuerySeconds(): int
     {
-        return max(60, (int) config('esun.minimum_query_seconds', 60));
+        return max(30, (int) config('esun.minimum_query_seconds', 30));
     }
 
     private function secondsSince(mixed $value, CarbonImmutable $now): ?int

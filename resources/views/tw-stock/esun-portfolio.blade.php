@@ -893,7 +893,7 @@
     <header class="topbar">
         <div class="title-block">
             <h1>{{ $pageTitle ?? '玉山庫存即時看板' }}</h1>
-            <div class="subtitle">正式 API · {{ $brokerName ?? '玉山' }}每60秒校準 · 開盤每秒用雙來源確認價重算損益</div>
+            <div class="subtitle">正式 API · {{ $brokerName ?? '玉山' }}每{{ $calibrationSeconds ?? 60 }}秒校準 · 開盤每秒用雙來源確認價重算損益</div>
         </div>
         <div class="status-bar">
             <span class="pill" data-market-status>{{ $initialMarket['label'] }}</span>
@@ -991,6 +991,7 @@ const quoteUrl = @json($quoteUrl);
 const dashboardToken = @json($token);
 const brokerName = @json($brokerName ?? '玉山');
 const brokerApiLabel = `${brokerName}API`;
+const calibrationSeconds = Number(@json($calibrationSeconds ?? 60)) || 60;
 const state = {
     rows: [],
     dataLoading: false,
@@ -1333,7 +1334,7 @@ function updateInventoryStatus(payload) {
     } else if (source.status === 'live') {
         els.refreshStatus.textContent = market.isOpen ? `${brokerName}庫存已校準 · 每秒報價` : `${brokerName}庫存已校準`;
     } else if (fresh) {
-        els.refreshStatus.textContent = market.isOpen ? `每秒報價 · 每60秒校準${brokerName}` : '非開盤已暫停輪詢';
+        els.refreshStatus.textContent = market.isOpen ? `每秒報價 · 每${calibrationSeconds}秒校準${brokerName}` : '非開盤已暫停輪詢';
     } else {
         els.refreshStatus.textContent = '顯示最近成功資料';
     }
@@ -1349,7 +1350,7 @@ function isInventoryFresh(payload = state.lastPayload) {
     }
 
     const ageSeconds = finiteNumber(source.snapshotAgeSeconds ?? source.ageSeconds);
-    const minSeconds = Math.max(60, Number(source.minQuerySeconds) || 60);
+    const minSeconds = Math.max(30, Number(source.minQuerySeconds) || calibrationSeconds || 30);
 
     return ageSeconds !== null && ageSeconds <= minSeconds;
 }
@@ -1426,7 +1427,7 @@ function scheduleQuotePolling(market) {
 }
 
 function millisecondsUntilNextEsunRefresh(payload = state.lastPayload) {
-    const minSeconds = Math.max(60, Number(payload?.source?.minQuerySeconds) || 60);
+    const minSeconds = Math.max(30, Number(payload?.source?.minQuerySeconds) || calibrationSeconds || 30);
     const status = String(payload?.source?.status || '');
     if (['stale', 'throttled'].includes(status)) {
         const lastQueryAge = finiteNumber(payload?.source?.lastQueryAgeSeconds);
@@ -1617,7 +1618,7 @@ function canUseCandidateQuote(row, quote) {
     const ageSeconds = Number(source.ageSeconds);
     const staleEsun = !isInventoryFresh(state.lastPayload)
         || ['stale', 'throttled'].includes(source.status)
-        || (source.status === 'cached' && Number.isFinite(ageSeconds) && ageSeconds >= Number(source.minQuerySeconds || 60));
+        || (source.status === 'cached' && Number.isFinite(ageSeconds) && ageSeconds >= Number(source.minQuerySeconds || calibrationSeconds || 30));
 
     return staleEsun && quoteCanRepriceRow(row, quote);
 }

@@ -25,6 +25,7 @@ class YuantaPortfolioController extends Controller
             'initialMarket' => $service->marketStatus(),
             'pageTitle' => '元大庫存即時看板',
             'brokerName' => '元大',
+            'calibrationSeconds' => max(60, (int) config('yuanta.minimum_query_seconds', 60)),
         ]);
 
         return $this->clearRememberedAccess($response);

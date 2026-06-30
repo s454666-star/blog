@@ -175,6 +175,45 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertEqualsWithDelta(300.0, $summary['yearToDateReturn'], 0.000001);
     }
 
+    public function test_it_uses_newer_yahoo_previous_close_when_database_daily_price_is_stale(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'mergeHistoricalSummary');
+
+        $summary = $method->invoke($service, [
+            'previousClose' => 364.0,
+            'previousCloseDate' => '2026-06-26',
+            'fiveDayReturn' => -1.0,
+            'twentyDayReturn' => -2.0,
+            'sixtyDayReturn' => -3.0,
+            'yearToDateReturn' => -4.0,
+        ], [
+            'previousClose' => 344.5,
+            'previousCloseDate' => '2026-06-29',
+            'fiveDayReturn' => 1.0,
+            'twentyDayReturn' => 2.0,
+            'sixtyDayReturn' => 3.0,
+            'yearToDateReturn' => 4.0,
+        ]);
+
+        $this->assertSame(344.5, $summary['previousClose']);
+        $this->assertSame('2026-06-29', $summary['previousCloseDate']);
+        $this->assertSame(1.0, $summary['fiveDayReturn']);
+        $this->assertSame(2.0, $summary['twentyDayReturn']);
+        $this->assertSame(3.0, $summary['sixtyDayReturn']);
+        $this->assertSame(4.0, $summary['yearToDateReturn']);
+    }
+
+    public function test_esun_minimum_query_seconds_can_be_lowered_to_thirty_seconds(): void
+    {
+        config()->set('esun.minimum_query_seconds', 30);
+
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'minimumQuerySeconds');
+
+        $this->assertSame(30, $method->invoke($service));
+    }
+
     public function test_it_calculates_investment_level_from_bank_balance(): void
     {
         $service = new EsunPortfolioService();

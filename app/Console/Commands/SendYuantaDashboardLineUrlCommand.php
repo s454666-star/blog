@@ -70,7 +70,7 @@ class SendYuantaDashboardLineUrlCommand extends Command
     {
         $target = (string) ($this->option('target') ?: config('line.yuanta_dashboard_notify_target_id', ''));
         if ($target !== '') {
-            return $target;
+            return $this->validatedTargetId($target);
         }
 
         if (Storage::disk('local')->exists('line/yuanta-dashboard-notify-target-id.txt')) {
@@ -81,7 +81,7 @@ class SendYuantaDashboardLineUrlCommand extends Command
             throw new RuntimeException('Yuanta LINE target id is missing. Add the bot to the group and send a message after configuring /api/line/yuanta/webhook.');
         }
 
-        return $target;
+        return $this->validatedTargetId($target);
     }
 
     private function lineAccessToken(): string
@@ -121,5 +121,15 @@ class SendYuantaDashboardLineUrlCommand extends Command
         }
 
         return substr($value, 0, 6) . '...' . substr($value, -4);
+    }
+
+    private function validatedTargetId(string $target): string
+    {
+        $esunTarget = (string) config('line.dashboard_notify_target_id', '');
+        if ($esunTarget !== '' && hash_equals($esunTarget, $target)) {
+            throw new RuntimeException('Refusing to send Yuanta dashboard URL to the E.SUN LINE target.');
+        }
+
+        return $target;
     }
 }

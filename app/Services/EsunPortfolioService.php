@@ -159,14 +159,15 @@ class EsunPortfolioService
             throw new RuntimeException('E.SUN query returned an unexpected payload.');
         }
 
-        $todayHistory = is_array($payload['today_transactions_history'] ?? null)
-            ? $payload['today_transactions_history']
-            : [];
-        $todayTransactions = array_values(array_filter(
-            is_array($payload['today_transactions'] ?? null) ? $payload['today_transactions'] : [],
-            fn (mixed $transaction): bool => is_array($transaction)
-                && $this->transactionSettlesOn($transaction, $today),
+        $todayHistory = array_values(array_filter(
+            is_array($payload['today_transactions_history'] ?? null) ? $payload['today_transactions_history'] : [],
+            fn (mixed $transaction): bool => is_array($transaction),
         ));
+        $todayRangeTransactions = array_values(array_filter(
+            is_array($payload['today_transactions'] ?? null) ? $payload['today_transactions'] : [],
+            fn (mixed $transaction): bool => is_array($transaction),
+        ));
+        $todayTransactions = $this->todayRealizedTransactions($todayHistory, $todayRangeTransactions, $today);
 
         return [
             'queriedAt' => $payload['queried_at'] ?? now()->toIso8601String(),
@@ -470,9 +471,11 @@ class EsunPortfolioService
         $unrealizedPnl = $this->number($this->value($row, 'make_a_sum', 'makeASum'));
         $apiReturnRate = $this->numberOrNull($this->value($row, 'make_a_per', 'makeAPer'));
         $signedCostBasis = $this->number($this->value($row, 'cost_sum', 'costSum'));
-        $costBasis = abs($signedCostBasis);
+        $cashCostBasis = abs($signedCostBasis);
+        $priceAmount = abs($this->number($this->value($row, 'price_qty_sum', 'priceQtySum')));
+        $costBasis = $priceAmount > 0 ? $priceAmount : $cashCostBasis;
         if ($costBasis <= 0) {
-            $costBasis = abs($this->number($this->value($row, 'price_qty_sum', 'priceQtySum')));
+            $costBasis = $cashCostBasis;
         }
         if ($costBasis <= 0 && $quantity > 0) {
             $costBasis = abs($this->number($this->value($row, 'price_evn', 'priceEvn')) * $quantity);
@@ -501,16 +504,17 @@ class EsunPortfolioService
             'esunTodayPnl' => $todayPnl,
             'averagePrice' => $this->number($this->value($row, 'price_avg', 'priceAvg')),
             'breakevenPrice' => $this->number($this->value($row, 'price_evn', 'priceEvn')),
-            'priceAmount' => $this->number($this->value($row, 'price_qty_sum', 'priceQtySum')),
+            'priceAmount' => $priceAmount,
             'marketValue' => $marketValue,
             'esunCurrentPrice' => $currentPrice,
             'esunMarketValue' => $marketValue,
             'costBasis' => $costBasis,
             'signedCostBasis' => $signedCostBasis,
+            'cashCostBasis' => $cashCostBasis,
             'unrealizedPnl' => $unrealizedPnl,
             'esunUnrealizedPnl' => $unrealizedPnl,
             'realtimePnlBasePrice' => $currentPrice,
-            'unrealizedPnlRate' => $costBasis > 0 ? $unrealizedPnl / $costBasis * 100 : null,
+            'unrealizedPnlRate' => $apiReturnRate ?? ($costBasis > 0 ? $unrealizedPnl / $costBasis * 100 : null),
             'fiveDayReturn' => $history['fiveDayReturn'] ?? null,
             'twentyDayReturn' => $history['twentyDayReturn'] ?? null,
             'sixtyDayReturn' => $history['sixtyDayReturn'] ?? null,
@@ -725,18 +729,69 @@ class EsunPortfolioService
         }
     }
 
-    private function transactionSettlesOn(array $transaction, CarbonImmutable $date): bool
-    {
-        $rawDate = $this->value($transaction, 'c_date', 'cDate', 'settlement_date', 'settlementDate');
-        if ($rawDate === null || trim((string) $rawDate) === '') {
-            return false;
+    /**
+     * @param array<int, array<string, mixed>> $todayHistory
+     * @param array<int, array<string, mixed>> $todayRangeTransactions
+     * @return array<int, array<string, mixed>>
+     */
+    private function todayRealizedTransactions(
+        array $todayHistory,
+        array $todayRangeTransactions,
+        CarbonImmutable $today,
+    ): array {
+        $history = array_values(array_filter(
+            $todayHistory,
+            fn (array $transaction): bool => $this->transactionOccursOn($transaction, $today),
+        ));
+
+        if ($history !== []) {
+            return $history;
         }
 
-        try {
-            return $this->parseEsunDate($rawDate, $date)?->isSameDay($date) ?? false;
-        } catch (\Throwable) {
-            return false;
+        return array_values(array_filter(
+            $todayRangeTransactions,
+            fn (array $transaction): bool => $this->transactionOccursOn($transaction, $today),
+        ));
+    }
+
+    private function transactionOccursOn(array $transaction, CarbonImmutable $date): bool
+    {
+        foreach ([
+            ['t_date', 'tDate', 'trade_date', 'tradeDate', 'TradeDate', 'date', 'Date'],
+            ['c_date', 'cDate', 'settlement_date', 'settlementDate', 'SettlementDate'],
+        ] as $keys) {
+            $matches = $this->transactionDateMatches($transaction, $keys, $date);
+            if ($matches !== null) {
+                return $matches;
+            }
         }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, string> $keys
+     */
+    private function transactionDateMatches(array $transaction, array $keys, CarbonImmutable $date): ?bool
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $transaction) || $transaction[$key] === null) {
+                continue;
+            }
+
+            $rawDate = trim((string) $transaction[$key]);
+            if ($rawDate === '') {
+                continue;
+            }
+
+            try {
+                return $this->parseEsunDate($rawDate, $date)?->isSameDay($date) ?? false;
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        return null;
     }
 
     private function parseEsunDate(mixed $rawDate, CarbonImmutable $reference): ?CarbonImmutable
@@ -767,10 +822,10 @@ class EsunPortfolioService
     {
         $historyTransactions = is_array($raw['transactions'] ?? null) ? $raw['transactions'] : [];
         $todayTransactions = is_array($raw['todayTransactions'] ?? null) ? $raw['todayTransactions'] : [];
-        $allTransactions = array_merge($historyTransactions, $todayTransactions);
+        $allTransactions = $this->mergeAdditionalTransactions($historyTransactions, $todayTransactions);
         $realizedHistoryPnl = $this->sumTransactionProfit($historyTransactions);
         $realizedTodayPnl = $this->sumTransactionProfit($todayTransactions);
-        $realizedYearPnl = $realizedHistoryPnl + $realizedTodayPnl;
+        $realizedYearPnl = $this->sumTransactionProfit($allTransactions);
         $dayTradeYearPnl = 0.0;
 
         foreach ($allTransactions as $transaction) {
@@ -795,6 +850,83 @@ class EsunPortfolioService
             'adjustedRealizedYearPnl' => $adjustedRealizedYearPnl,
             'yearTotalPnl' => $realizedYearPnl,
         ];
+    }
+
+    /**
+     * @param array<int, mixed> $transactions
+     * @param array<int, mixed> $additionalTransactions
+     * @return array<int, array<string, mixed>>
+     */
+    private function mergeAdditionalTransactions(array $transactions, array $additionalTransactions): array
+    {
+        $merged = [];
+        $seen = [];
+
+        foreach ($transactions as $transaction) {
+            if (!is_array($transaction)) {
+                continue;
+            }
+
+            $seen[$this->transactionIdentity($transaction)] = true;
+            $merged[] = $transaction;
+        }
+
+        foreach ($additionalTransactions as $transaction) {
+            if (!is_array($transaction)) {
+                continue;
+            }
+
+            $identity = $this->transactionIdentity($transaction);
+            if (isset($seen[$identity])) {
+                continue;
+            }
+
+            $seen[$identity] = true;
+            $merged[] = $transaction;
+        }
+
+        return $merged;
+    }
+
+    private function transactionIdentity(array $transaction): string
+    {
+        $fields = [
+            $this->firstFilledTransactionValue($transaction, ['t_date', 'tDate', 'trade_date', 'tradeDate', 'TradeDate', 'date', 'Date']),
+            $this->firstFilledTransactionValue($transaction, ['c_date', 'cDate', 'settlement_date', 'settlementDate', 'SettlementDate']),
+            $this->firstFilledTransactionValue($transaction, ['stk_no', 'stkNo', 'stock_no', 'stockNo', 'StockNo']),
+            $this->firstFilledTransactionValue($transaction, ['stk_na', 'stkNa', 'stock_name', 'stockName', 'StockName']),
+            $this->firstFilledTransactionValue($transaction, ['trade', 'Trade']),
+            $this->firstFilledTransactionValue($transaction, ['qty', 'quantity', 'Quantity', 'cost_qty', 'costQty']),
+            $this->firstFilledTransactionValue($transaction, ['price', 'Price', 'price_avg', 'priceAvg']),
+            $this->firstFilledTransactionValue($transaction, ['price_qty_sum', 'priceQtySum', 'amount', 'Amount']),
+            $this->firstFilledTransactionValue($transaction, ['make', 'profit_loss', 'profitLoss', 'ProfitLoss']),
+            $this->firstFilledTransactionValue($transaction, ['ord_no', 'ordNo', 'order_no', 'orderNo', 'OrderNo']),
+        ];
+
+        if (array_filter($fields, fn (string $value): bool => $value !== '') === []) {
+            return sha1((string) json_encode($transaction, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        }
+
+        return sha1(implode('|', $fields));
+    }
+
+    /**
+     * @param array<int, string> $keys
+     */
+    private function firstFilledTransactionValue(array $transaction, array $keys): string
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $transaction) || $transaction[$key] === null) {
+                continue;
+            }
+
+            $value = trim((string) $transaction[$key]);
+            if ($value !== '') {
+                return str_replace(',', '', $value);
+            }
+        }
+
+        return '';
     }
 
     /**

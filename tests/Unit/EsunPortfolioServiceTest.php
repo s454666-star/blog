@@ -11,7 +11,7 @@ use Tests\TestCase;
 
 class EsunPortfolioServiceTest extends TestCase
 {
-    public function test_it_uses_esun_market_price_and_direct_cost_for_margin_inventory(): void
+    public function test_it_uses_full_price_amount_for_margin_invested_cost(): void
     {
         $service = new EsunPortfolioService();
         $method = new ReflectionMethod($service, 'formatInventoryRow');
@@ -41,8 +41,9 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(110000.0, $row['marketValue']);
         $this->assertSame(110.0, $row['esunCurrentPrice']);
         $this->assertSame(110000.0, $row['esunMarketValue']);
-        $this->assertSame(43057.0, $row['costBasis']);
+        $this->assertSame(106000.0, $row['costBasis']);
         $this->assertSame(-43057.0, $row['signedCostBasis']);
+        $this->assertSame(43057.0, $row['cashCostBasis']);
         $this->assertSame(3466.0, $row['unrealizedPnl']);
         $this->assertSame(3466.0, $row['esunUnrealizedPnl']);
         $this->assertSame(110.0, $row['realtimePnlBasePrice']);
@@ -314,7 +315,7 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame('100000', $payload['balance']['available_balance']);
         $this->assertSame('2000', $payload['transactions'][0]['make']);
         $this->assertCount(1, $payload['todayTransactions']);
-        $this->assertSame('3000', $payload['todayTransactions'][0]['make']);
+        $this->assertSame('2000', $payload['todayTransactions'][0]['make']);
 
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/portfolio?today=2026-01-01'));
     }
@@ -393,15 +394,40 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(1211882.0, $summary['yearTotalPnl']);
     }
 
-    public function test_it_counts_today_realized_profit_only_when_settlement_date_is_today(): void
+    public function test_it_reports_today_history_realized_profit_without_double_counting_year_total(): void
     {
         $service = new EsunPortfolioService();
-        $method = new ReflectionMethod($service, 'transactionSettlesOn');
+        $method = new ReflectionMethod($service, 'yearProfitSummary');
+        $todayRows = [
+            ['t_date' => '20260630', 'stk_no' => '3362', 'trade' => '3', 'qty' => '1000', 'price' => '179.00', 'make' => '-13857'],
+            ['t_date' => '20260630', 'stk_no' => '6548', 'trade' => '0', 'qty' => '1000', 'price' => '82.40', 'make' => '-5938'],
+            ['t_date' => '20260630', 'stk_no' => '6548', 'trade' => '3', 'qty' => '2000', 'price' => '82.50', 'make' => '-11115'],
+            ['t_date' => '20260630', 'stk_no' => '8016', 'trade' => '3', 'qty' => '1000', 'price' => '315.50', 'make' => '-11395'],
+        ];
+
+        $summary = $method->invoke($service, [
+            'transactions' => [
+                ['t_date' => '20260601', 'stk_no' => '9999', 'trade' => '0', 'qty' => '1000', 'price' => '1240.55', 'make' => '1240552'],
+                ...$todayRows,
+            ],
+            'todayTransactions' => $todayRows,
+        ]);
+
+        $this->assertSame(1198247.0, $summary['realizedHistoryPnl']);
+        $this->assertSame(-42305.0, $summary['realizedTodayPnl']);
+        $this->assertSame(1198247.0, $summary['realizedYearPnl']);
+        $this->assertSame(1198247.0, $summary['yearTotalPnl']);
+    }
+
+    public function test_it_counts_today_realized_profit_by_trade_date_with_settlement_fallback(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'transactionOccursOn');
         $today = CarbonImmutable::parse('2026-06-25 10:00:00', 'Asia/Taipei');
 
+        $this->assertTrue($method->invoke($service, ['t_date' => '20260625'], $today));
+        $this->assertFalse($method->invoke($service, ['t_date' => '20260629'], $today));
         $this->assertTrue($method->invoke($service, ['c_date' => '20260625'], $today));
-        $this->assertFalse($method->invoke($service, ['c_date' => '20260629'], $today));
-        $this->assertFalse($method->invoke($service, ['t_date' => '20260625'], $today));
     }
 
     public function test_it_calculates_year_return_rate_from_current_capital_minus_profit(): void

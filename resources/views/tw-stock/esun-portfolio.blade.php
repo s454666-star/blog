@@ -1023,6 +1023,7 @@ const state = {
     quoteTimer: null,
     esunTimer: null,
     quoteLoading: false,
+    lastQuotePayload: null,
     lastPayload: null,
     sort: {
         key: 'unrealizedPnl',
@@ -1357,10 +1358,18 @@ function renderPositions() {
     `).join('');
 }
 
-function applyPayload(payload) {
+function applyPayload(payload, options = {}) {
     state.lastPayload = payload;
-    state.rows = payload.rows || [];
-    updateSummary(payload);
+    const quotePayload = state.lastQuotePayload;
+    const quoteResult = quotePayload
+        ? applyQuotePayloadToRows(payload.rows || [], quotePayload)
+        : { rows: payload.rows || [], changed: false };
+    state.rows = quoteResult.rows;
+    if (quoteResult.changed) {
+        updateSummaryCards(buildSummaryFromRows(), quoteSourceText(quotePayload));
+    } else {
+        updateSummary(payload);
+    }
     updateSortIndicators();
     renderPositions();
 
@@ -1369,7 +1378,12 @@ function applyPayload(payload) {
     els.marketStatus.classList.toggle('live', Boolean(market.isOpen));
     updateInventoryStatus(payload);
     els.lastUpdated.textContent = `更新 ${formatDateTime(payload.queriedAt || payload.servedAt)}`;
-    fetchQuotes();
+    if (quoteResult.changed) {
+        updateQuoteStatus(quotePayload);
+    }
+    if (!options.skipQuoteFetch) {
+        fetchQuotes();
+    }
     scheduleQuotePolling(market);
     scheduleEsunPolling(market);
 }
@@ -1555,7 +1569,15 @@ async function fetchData(force, options = {}) {
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
-        applyPayload(await response.json());
+        const payload = await response.json();
+        if (!options.background && !state.lastQuotePayload && Array.isArray(payload.rows) && payload.rows.length) {
+            try {
+                state.lastQuotePayload = await fetchQuotePayloadForRows(payload.rows);
+            } catch (error) {
+                state.lastQuotePayload = null;
+            }
+        }
+        applyPayload(payload, { skipQuoteFetch: Boolean(state.lastQuotePayload) && !options.background });
     } catch (error) {
         if (!options.background) {
             els.refreshStatus.textContent = '更新失敗';
@@ -1580,21 +1602,9 @@ async function fetchQuotes(manual = false) {
         els.refreshStatus.textContent = '更新即時報價中';
         els.refreshStatus.classList.remove('error');
     }
-    const url = new URL(quoteUrl, window.location.origin);
-    if (dashboardToken) {
-        url.searchParams.set('token', dashboardToken);
-    }
-    url.searchParams.set('codes', state.rows.map(row => row.stockNo).join(','));
 
     try {
-        const response = await fetch(url.toString(), {
-            headers: { 'Accept': 'application/json' },
-            cache: 'no-store',
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        applyQuotes(await response.json());
+        applyQuotes(await fetchQuotePayloadForRows(state.rows));
     } catch (error) {
         els.refreshStatus.textContent = '報價暫時失敗';
         els.refreshStatus.classList.add('error');
@@ -1604,11 +1614,46 @@ async function fetchQuotes(manual = false) {
     }
 }
 
+async function fetchQuotePayloadForRows(rows) {
+    const url = new URL(quoteUrl, window.location.origin);
+    if (dashboardToken) {
+        url.searchParams.set('token', dashboardToken);
+    }
+    url.searchParams.set('codes', rows.map(row => row.stockNo).join(','));
+
+    const response = await fetch(url.toString(), {
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store',
+    });
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+
+    return response.json();
+}
+
 function applyQuotes(payload) {
+    state.lastQuotePayload = payload;
+    const quoteResult = applyQuotePayloadToRows(state.rows, payload);
+    state.rows = quoteResult.rows;
+
+    if (!quoteResult.changed) {
+        updateQuoteStatus(payload);
+        return;
+    }
+
+    recalculateWeights();
+    updateSummaryCards(buildSummaryFromRows(), quoteSourceText(payload));
+    updateSortIndicators();
+    renderPositions();
+    updateQuoteStatus(payload);
+}
+
+function applyQuotePayloadToRows(rows, payload) {
     const quotes = payload.quotes || {};
     let changed = false;
 
-    state.rows = state.rows.map(row => {
+    const nextRows = rows.map(row => {
         const quote = quotes[row.stockNo];
         if (!quote || finiteNumber(quote.price) === null) {
             const quoteContext = quoteContextFromUnconfirmed(payload, row.stockNo);
@@ -1646,16 +1691,7 @@ function applyQuotes(payload) {
         return applyQuoteToRow(row, quote);
     });
 
-    if (!changed) {
-        updateQuoteStatus(payload);
-        return;
-    }
-
-    recalculateWeights();
-    updateSummaryCards(buildSummaryFromRows(), quoteSourceText(payload));
-    updateSortIndicators();
-    renderPositions();
-    updateQuoteStatus(payload);
+    return { rows: nextRows, changed };
 }
 
 function quoteCanRepriceRow(row, quote) {

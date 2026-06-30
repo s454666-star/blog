@@ -417,6 +417,7 @@ class EsunPortfolioService
         $totalCostBasis = array_sum(array_column($rows, 'costBasis'));
         $totalUnrealizedPnl = array_sum(array_column($rows, 'unrealizedPnl'));
         $totalTodayPnl = array_sum(array_column($rows, 'todayPnl'));
+        $marginSummary = $this->marginSummary($rows, $raw);
         $balanceSummary = $this->balanceSummary($raw, $totalCostBasis);
         $yearProfitSummary = $this->yearProfitSummary($raw);
         $totalCapital = $balanceSummary['bankBalance'] === null ? null : $totalCostBasis + $balanceSummary['bankBalance'];
@@ -464,6 +465,10 @@ class EsunPortfolioService
                 'pendingSettlementAmount' => $balanceSummary['pendingSettlementAmount'],
                 'bankBalance' => $balanceSummary['bankBalance'],
                 'investmentLevelRate' => $balanceSummary['investmentLevelRate'],
+                'marginLimitAmount' => $marginSummary['limitAmount'],
+                'marginUsedAmount' => $marginSummary['usedAmount'],
+                'marginAvailableAmount' => $marginSummary['availableAmount'],
+                'marginMaintenanceRate' => $marginSummary['maintenanceRate'],
                 'todayPnl' => $totalTodayPnl,
                 'esunTodayPnl' => $totalTodayPnl,
                 'todayPnlRate' => $previousMarketValue > 0 ? $totalTodayPnl / $previousMarketValue * 100 : null,
@@ -554,8 +559,62 @@ class EsunPortfolioService
                 'qtyBuy' => $this->number($this->value($row, 'qty_b', 'qtyB')),
                 'qtySell' => $this->number($this->value($row, 'qty_s', 'qtyS')),
                 'apiReturnRate' => $apiReturnRate,
+                'marginLoan' => $tradeType === '3' ? max(0.0, $priceAmount - $cashCostBasis) : 0.0,
             ],
         ];
+    }
+
+    private function marginSummary(array $rows, array $raw): array
+    {
+        $usedAmount = array_sum(array_map(
+            fn (array $row): float => $row['tradeType'] === '3'
+                ? max(0.0, $this->number($row['priceAmount'] ?? 0) - $this->number($row['cashCostBasis'] ?? $row['costBasis'] ?? 0))
+                : 0.0,
+            $rows,
+        ));
+        $marketValue = array_sum(array_map(
+            fn (array $row): float => $row['tradeType'] === '3'
+                ? $this->number($row['marketValue'] ?? 0)
+                : 0.0,
+            $rows,
+        ));
+        $configuredLimitAmount = $this->configuredMarginLimitAmount();
+        $reportedAvailableAmount = $this->reportedMarginAvailableAmount($raw);
+        $limitAmount = $configuredLimitAmount ?? ($reportedAvailableAmount === null ? null : $usedAmount + $reportedAvailableAmount);
+        $availableAmount = $limitAmount === null
+            ? $reportedAvailableAmount
+            : max(0.0, $limitAmount - $usedAmount);
+
+        return [
+            'limitAmount' => $limitAmount,
+            'usedAmount' => $usedAmount,
+            'availableAmount' => $availableAmount,
+            'maintenanceRate' => $usedAmount > 0 ? $marketValue / $usedAmount * 100 : null,
+        ];
+    }
+
+    private function configuredMarginLimitAmount(): ?float
+    {
+        $amount = $this->numberOrNull(config('esun.margin_limit_amount'));
+
+        return $amount !== null && $amount > 0 ? $amount : null;
+    }
+
+    private function reportedMarginAvailableAmount(array $raw): ?float
+    {
+        $balance = is_array($raw['balance'] ?? null) ? $raw['balance'] : [];
+
+        return $this->numberOrNull($this->value(
+            $balance,
+            'margin_available_amount',
+            'marginAvailableAmount',
+            'margin_available_balance',
+            'marginAvailableBalance',
+            'credit_available_amount',
+            'creditAvailableAmount',
+            'available_margin',
+            'availableMargin',
+        ));
     }
 
     private function formatLot(string $stockNo, string $stockName, array $lot): array

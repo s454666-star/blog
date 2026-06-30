@@ -241,6 +241,69 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertEqualsWithDelta(51.546391752, $summary['investmentLevelRate'], 0.000001);
     }
 
+    public function test_it_summarizes_margin_usage_from_esun_margin_rows(): void
+    {
+        config()->set('esun.margin_limit_amount', 2000000);
+
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'marginSummary');
+
+        $summary = $method->invoke($service, [
+            [
+                'tradeType' => '3',
+                'priceAmount' => 417530.0,
+                'cashCostBasis' => 168755.0,
+                'marketValue' => 421080.0,
+            ],
+            [
+                'tradeType' => '3',
+                'priceAmount' => 345000.0,
+                'cashCostBasis' => 139186.0,
+                'marketValue' => 334000.0,
+            ],
+            [
+                'tradeType' => '0',
+                'priceAmount' => 264000.0,
+                'cashCostBasis' => 264142.0,
+                'marketValue' => 267000.0,
+            ],
+        ], [
+            'balance' => [
+                'available_balance' => 784777,
+            ],
+        ]);
+
+        $this->assertSame(2000000.0, $summary['limitAmount']);
+        $this->assertSame(454589.0, $summary['usedAmount']);
+        $this->assertSame(1545411.0, $summary['availableAmount']);
+        $this->assertEqualsWithDelta(755080 / 454589 * 100, $summary['maintenanceRate'], 0.000001);
+    }
+
+    public function test_it_can_derive_esun_margin_limit_from_reported_available_amount(): void
+    {
+        config()->set('esun.margin_limit_amount', null);
+
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'marginSummary');
+
+        $summary = $method->invoke($service, [
+            [
+                'tradeType' => '3',
+                'priceAmount' => 300000.0,
+                'cashCostBasis' => 120000.0,
+                'marketValue' => 310000.0,
+            ],
+        ], [
+            'balance' => [
+                'margin_available_balance' => 500000,
+            ],
+        ]);
+
+        $this->assertSame(680000.0, $summary['limitAmount']);
+        $this->assertSame(180000.0, $summary['usedAmount']);
+        $this->assertSame(500000.0, $summary['availableAmount']);
+    }
+
     public function test_it_uses_last_success_snapshot_during_minimum_query_window_after_short_cache_expires(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 09:23:00', 'Asia/Taipei'));

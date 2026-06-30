@@ -20,6 +20,7 @@ return [
     'poll_seconds_open' => (int) env('YUANTA_PORTFOLIO_POLL_SECONDS_OPEN', 1),
     'minimum_query_seconds' => (int) env('YUANTA_PORTFOLIO_MINIMUM_QUERY_SECONDS', 60),
     'year_transaction_cache_days' => (int) env('YUANTA_PORTFOLIO_YEAR_TRANSACTION_CACHE_DAYS', 10),
+    'margin_limit_amount' => (float) env('YUANTA_MARGIN_LIMIT_AMOUNT', 1000000),
 
     'timezone' => env('YUANTA_PORTFOLIO_TIMEZONE', env('ESUN_PORTFOLIO_TIMEZONE', 'Asia/Taipei')),
     'market_open_start' => env('YUANTA_PORTFOLIO_OPEN_START', env('ESUN_PORTFOLIO_OPEN_START', '09:00')),

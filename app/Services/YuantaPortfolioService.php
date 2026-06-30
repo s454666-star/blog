@@ -221,17 +221,29 @@ class YuantaPortfolioService
                 : 0.0,
             $rows,
         ));
-        $availableAmount = $this->marginAvailableAmount($raw);
+        $configuredLimitAmount = $this->configuredMarginLimitAmount();
+        $reportedAvailableAmount = $this->reportedMarginAvailableAmount($raw);
+        $limitAmount = $configuredLimitAmount ?? ($reportedAvailableAmount === null ? null : $usedAmount + $reportedAvailableAmount);
+        $availableAmount = $limitAmount === null
+            ? $reportedAvailableAmount
+            : max(0.0, $limitAmount - $usedAmount);
 
         return [
-            'limitAmount' => $availableAmount === null ? null : $usedAmount + $availableAmount,
+            'limitAmount' => $limitAmount,
             'usedAmount' => $usedAmount,
             'availableAmount' => $availableAmount,
             'maintenanceRate' => $usedAmount > 0 ? $marketValue / $usedAmount * 100 : null,
         ];
     }
 
-    private function marginAvailableAmount(array $raw): ?float
+    private function configuredMarginLimitAmount(): ?float
+    {
+        $amount = $this->numberOrNull(config('yuanta.margin_limit_amount'));
+
+        return $amount !== null && $amount > 0 ? $amount : null;
+    }
+
+    private function reportedMarginAvailableAmount(array $raw): ?float
     {
         $balances = collect($raw['balance'] ?? [])->filter(fn (mixed $row): bool => is_array($row))->values();
         if ($balances->isEmpty()) {
@@ -246,8 +258,6 @@ class YuantaPortfolioService
             'creditAvailableAmount',
             'AvailableMargin',
             'availableMargin',
-            'AvailableBalance',
-            'availableBalance',
         ));
     }
 

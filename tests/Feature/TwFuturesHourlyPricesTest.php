@@ -553,7 +553,8 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertTrue($verifier->canUseBrokerSource(CarbonImmutable::parse('2026-06-30 08:59:59', 'Asia/Taipei')));
         $this->assertFalse($verifier->canUseBrokerSource(CarbonImmutable::parse('2026-06-30 09:00:00', 'Asia/Taipei')));
         $this->assertFalse($verifier->canUseBrokerSource(CarbonImmutable::parse('2026-06-30 13:29:59', 'Asia/Taipei')));
-        $this->assertTrue($verifier->canUseBrokerSource(CarbonImmutable::parse('2026-06-30 13:30:00', 'Asia/Taipei')));
+        $this->assertFalse($verifier->canUseBrokerSource(CarbonImmutable::parse('2026-06-30 13:30:00', 'Asia/Taipei')));
+        $this->assertTrue($verifier->canUseBrokerSource(CarbonImmutable::parse('2026-06-30 13:30:01', 'Asia/Taipei')));
     }
 
     public function test_futures_night_session_trade_date_skips_weekends(): void

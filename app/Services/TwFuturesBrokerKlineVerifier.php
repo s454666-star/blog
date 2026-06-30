@@ -120,7 +120,7 @@ class TwFuturesBrokerKlineVerifier
             $timezone,
         );
 
-        return ! ($now->greaterThanOrEqualTo($excludedStart) && $now->lessThan($excludedEnd));
+        return ! ($now->greaterThanOrEqualTo($excludedStart) && $now->lessThanOrEqualTo($excludedEnd));
     }
 
     /**
@@ -183,6 +183,10 @@ class TwFuturesBrokerKlineVerifier
                 'volume_contracts' => $this->integerOrNull($row['volume'] ?? null),
             ];
             $rows[$interval === 'daily' ? $date : $startedAt] = $rowPayload;
+        }
+
+        if ($rows === []) {
+            throw new RuntimeException('Yuanta futures tick query returned no rows.');
         }
 
         return array_values($rows);

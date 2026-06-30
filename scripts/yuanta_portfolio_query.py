@@ -24,32 +24,47 @@ def fail(message: str, exit_code: int = 1) -> int:
     return exit_code
 
 
-def public_fields(obj) -> dict:
+def public_fields(obj, seen=None, depth: int = 0) -> dict:
     if obj is None:
         return {}
+    if depth > 10:
+        return {}
+
+    if seen is None:
+        seen = set()
+    marker = id(obj)
+    if marker in seen:
+        return {}
+    seen.add(marker)
 
     fields = obj.GetType().GetFields()
     result = {}
     for field in fields:
+        if getattr(field, "IsStatic", False):
+            continue
         value = field.GetValue(obj)
-        result[field.Name] = convert_value(value)
+        result[field.Name] = convert_value(value, seen, depth + 1)
+
+    seen.discard(marker)
 
     return result
 
 
-def convert_value(value):
+def convert_value(value, seen=None, depth: int = 0):
     if value is None:
         return None
+    if depth > 10:
+        return str(value)
 
     if isinstance(value, (str, int, float, bool)):
         return value
 
     type_name = value.GetType().FullName if hasattr(value, "GetType") else ""
     if type_name and type_name.startswith("System.Collections.Generic.List"):
-        return [convert_value(item) for item in value]
+        return [convert_value(item, seen, depth + 1) for item in value]
 
     if type_name and type_name.startswith("YuantaOneAPI."):
-        return public_fields(value)
+        return public_fields(value, seen, depth + 1)
 
     return str(value)
 

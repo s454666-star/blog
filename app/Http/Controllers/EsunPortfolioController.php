@@ -23,7 +23,7 @@ class EsunPortfolioController extends Controller
             'quoteUrl' => route('tw-stock.esun-portfolio.quotes'),
             'token' => (string) $request->query('token', ''),
             'initialMarket' => $service->marketStatus(),
-            'calibrationSeconds' => max(30, (int) config('esun.minimum_query_seconds', 30)),
+            'calibrationSeconds' => max(45, (int) config('esun.minimum_query_seconds', 45)),
         ]);
 
         return $this->clearRememberedAccess($response);

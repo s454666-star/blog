@@ -1350,7 +1350,7 @@ function isInventoryFresh(payload = state.lastPayload) {
     }
 
     const ageSeconds = finiteNumber(source.snapshotAgeSeconds ?? source.ageSeconds);
-    const minSeconds = Math.max(30, Number(source.minQuerySeconds) || calibrationSeconds || 30);
+    const minSeconds = Math.max(45, Number(source.minQuerySeconds) || calibrationSeconds || 45);
 
     return ageSeconds !== null && ageSeconds <= minSeconds;
 }
@@ -1427,7 +1427,7 @@ function scheduleQuotePolling(market) {
 }
 
 function millisecondsUntilNextEsunRefresh(payload = state.lastPayload) {
-    const minSeconds = Math.max(30, Number(payload?.source?.minQuerySeconds) || calibrationSeconds || 30);
+    const minSeconds = Math.max(45, Number(payload?.source?.minQuerySeconds) || calibrationSeconds || 45);
     const status = String(payload?.source?.status || '');
     if (['stale', 'throttled'].includes(status)) {
         const lastQueryAge = finiteNumber(payload?.source?.lastQueryAgeSeconds);
@@ -1622,7 +1622,7 @@ function canUseCandidateQuote(row, quote) {
     const ageSeconds = Number(source.ageSeconds);
     const staleEsun = !isInventoryFresh(state.lastPayload)
         || ['stale', 'throttled'].includes(source.status)
-        || (source.status === 'cached' && Number.isFinite(ageSeconds) && ageSeconds >= Number(source.minQuerySeconds || calibrationSeconds || 30));
+        || (source.status === 'cached' && Number.isFinite(ageSeconds) && ageSeconds >= Number(source.minQuerySeconds || calibrationSeconds || 45));
 
     return staleEsun && quoteCanRepriceRow(row, quote);
 }

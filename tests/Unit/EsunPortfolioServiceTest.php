@@ -206,14 +206,14 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(4.0, $summary['yearToDateReturn']);
     }
 
-    public function test_esun_minimum_query_seconds_can_be_lowered_to_thirty_seconds(): void
+    public function test_esun_minimum_query_seconds_uses_forty_five_second_floor(): void
     {
         config()->set('esun.minimum_query_seconds', 30);
 
         $service = new EsunPortfolioService();
         $method = new ReflectionMethod($service, 'minimumQuerySeconds');
 
-        $this->assertSame(30, $method->invoke($service));
+        $this->assertSame(45, $method->invoke($service));
     }
 
     public function test_it_calculates_investment_level_from_bank_balance(): void
@@ -314,11 +314,55 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame('00631L', $payload['inventories'][0]['stk_no']);
         $this->assertSame('8000', $payload['inventories'][0]['cost_qty']);
         $this->assertSame('100000', $payload['balance']['available_balance']);
-        $this->assertSame('2000', $payload['transactions'][0]['make']);
+        $this->assertSame([], $payload['transactions']);
         $this->assertCount(1, $payload['todayTransactions']);
         $this->assertSame('2000', $payload['todayTransactions'][0]['make']);
+        $this->assertSame('2026-01-01', $payload['todayTransactionsDate']);
 
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/portfolio?today=2026-01-01'));
+    }
+
+    public function test_it_keeps_previous_today_realized_profit_when_current_payload_misses_today_transactions(): void
+    {
+        config()->set('esun.portfolio_enabled', true);
+        config()->set('esun.daemon_url', 'http://127.0.0.1:8765');
+
+        Http::fake([
+            'http://127.0.0.1:8765/portfolio*' => Http::response([
+                'queried_at' => '2026-06-30T02:00:00+00:00',
+                'inventories' => [],
+                'balance' => ['available_balance' => '100000'],
+                'settlements' => [],
+                'today_transactions_history' => [],
+                'today_transactions' => [],
+                'warnings' => [
+                    ['label' => 'today_transactions_range', 'error' => 'AGR0003'],
+                ],
+            ]),
+            'http://127.0.0.1:8765/transactions*' => Http::response([
+                'queried_at' => '2026-06-30T02:00:00+00:00',
+                'transactions' => [],
+            ]),
+        ]);
+
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'queryInventories');
+        $payload = $method->invoke(
+            $service,
+            CarbonImmutable::parse('2026-06-30 10:00:00', 'Asia/Taipei'),
+            [
+                'todayTransactions' => [
+                    ['t_date' => '20260630', 'stk_no' => '3362', 'trade' => '3', 'qty' => '1000', 'make' => '-13857'],
+                    ['t_date' => '20260630', 'stk_no' => '6548', 'trade' => '0', 'qty' => '1000', 'make' => '-5938'],
+                    ['t_date' => '20260630', 'stk_no' => '6548', 'trade' => '3', 'qty' => '2000', 'make' => '-11115'],
+                    ['t_date' => '20260630', 'stk_no' => '8016', 'trade' => '3', 'qty' => '1000', 'make' => '-11395'],
+                ],
+            ],
+        );
+
+        $sumMethod = new ReflectionMethod($service, 'sumTransactionProfit');
+
+        $this->assertSame(-42305.0, $sumMethod->invoke($service, $payload['todayTransactions']));
     }
 
     public function test_it_can_read_transactions_from_persistent_daemon(): void
@@ -418,6 +462,26 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(-42305.0, $summary['realizedTodayPnl']);
         $this->assertSame(1198247.0, $summary['realizedYearPnl']);
         $this->assertSame(1198247.0, $summary['yearTotalPnl']);
+    }
+
+    public function test_it_subtracts_today_realized_loss_from_year_history_total(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'yearProfitSummary');
+
+        $summary = $method->invoke($service, [
+            'transactions' => [
+                ['t_date' => '20260629', 'stk_no' => '9999', 'trade' => '0', 'qty' => '1000', 'make' => '1198247'],
+            ],
+            'todayTransactions' => [
+                ['t_date' => '20260630', 'stk_no' => '3362', 'trade' => '3', 'qty' => '1000', 'make' => '-42305'],
+            ],
+        ]);
+
+        $this->assertSame(1198247.0, $summary['realizedHistoryPnl']);
+        $this->assertSame(-42305.0, $summary['realizedTodayPnl']);
+        $this->assertSame(1155942.0, $summary['realizedYearPnl']);
+        $this->assertSame(1155942.0, $summary['yearTotalPnl']);
     }
 
     public function test_it_counts_today_realized_profit_by_trade_date_with_settlement_fallback(): void

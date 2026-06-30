@@ -54,7 +54,7 @@ class EsunPortfolioService
 
         try {
             Cache::put($lastQueryKey, $now->toIso8601String(), now()->addDay());
-            $raw = $this->queryInventories($now);
+            $raw = $this->queryInventories($now, $fallback());
             Cache::put($cacheKey, $raw, now()->addSeconds($ttl));
             $this->storeSuccessfulSnapshot($fallbackKey, $raw);
 
@@ -146,7 +146,7 @@ class EsunPortfolioService
         ];
     }
 
-    private function queryInventories(?CarbonImmutable $now = null): array
+    private function queryInventories(?CarbonImmutable $now = null, ?array $previousRaw = null): array
     {
         if (!config('esun.portfolio_enabled')) {
             throw new RuntimeException('E.SUN portfolio query is disabled.');
@@ -168,14 +168,18 @@ class EsunPortfolioService
             fn (mixed $transaction): bool => is_array($transaction),
         ));
         $todayTransactions = $this->todayRealizedTransactions($todayHistory, $todayRangeTransactions, $today);
+        if ($todayTransactions === []) {
+            $todayTransactions = $this->previousTodayTransactions($previousRaw, $today);
+        }
 
         return [
             'queriedAt' => $payload['queried_at'] ?? now()->toIso8601String(),
             'inventories' => $payload['inventories'],
             'balance' => is_array($payload['balance'] ?? null) ? $payload['balance'] : [],
             'settlements' => is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [],
-            'transactions' => array_values(array_merge($this->historicalYearTransactions($now), $todayHistory)),
+            'transactions' => $this->historicalYearTransactions($now),
             'todayTransactions' => $todayTransactions,
+            'todayTransactionsDate' => $today->toDateString(),
             'warnings' => is_array($payload['warnings'] ?? null) ? $payload['warnings'] : [],
         ];
     }
@@ -754,6 +758,31 @@ class EsunPortfolioService
         ));
     }
 
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function previousTodayTransactions(?array $previousRaw, CarbonImmutable $today): array
+    {
+        if (!is_array($previousRaw)) {
+            return [];
+        }
+
+        $todayTransactions = array_values(array_filter(
+            is_array($previousRaw['todayTransactions'] ?? null) ? $previousRaw['todayTransactions'] : [],
+            fn (mixed $transaction): bool => is_array($transaction)
+                && $this->transactionOccursOn($transaction, $today),
+        ));
+        if ($todayTransactions !== []) {
+            return $todayTransactions;
+        }
+
+        return array_values(array_filter(
+            is_array($previousRaw['transactions'] ?? null) ? $previousRaw['transactions'] : [],
+            fn (mixed $transaction): bool => is_array($transaction)
+                && $this->transactionOccursOn($transaction, $today),
+        ));
+    }
+
     private function transactionOccursOn(array $transaction, CarbonImmutable $date): bool
     {
         foreach ([
@@ -1237,7 +1266,7 @@ class EsunPortfolioService
 
     private function minimumQuerySeconds(): int
     {
-        return max(30, (int) config('esun.minimum_query_seconds', 30));
+        return max(45, (int) config('esun.minimum_query_seconds', 45));
     }
 
     private function secondsSince(mixed $value, CarbonImmutable $now): ?int

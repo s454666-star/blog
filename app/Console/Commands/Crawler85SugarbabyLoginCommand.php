@@ -50,7 +50,6 @@ class Crawler85SugarbabyLoginCommand extends Command
             '--probe-85sugarbaby',
             '--active-clicks=1',
             '--click-google',
-            '--keep-open',
         ];
 
         $this->info('Opening visible Chrome for 85sugarbaby login session refresh...');

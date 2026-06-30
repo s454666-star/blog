@@ -19,52 +19,68 @@ class Crawler85SugarbabyLoginCommand extends Command
 
     public function handle(): int
     {
-        $scriptPath = base_path('scripts/google_login_crawler_probe.mjs');
-        if (!is_file($scriptPath)) {
-            $this->error('Crawler probe script was not found: ' . $scriptPath);
-
-            return self::FAILURE;
+        $lockPath = storage_path('app/google-login-crawler/85sugarbaby-login.lock');
+        if (!is_dir(dirname($lockPath))) {
+            mkdir(dirname($lockPath), 0777, true);
         }
 
-        $baseDir = storage_path('app/google-login-crawler/85sugarbaby-login');
-        if (!is_dir($baseDir)) {
-            mkdir($baseDir, 0777, true);
-        }
+        touch($lockPath);
 
-        $stamp = CarbonImmutable::now()->format('Ymd_His');
-        $profilePath = $this->option('profile')
-            ? (string) $this->option('profile')
-            : storage_path('app/google-login-crawler/chrome-profile');
+        $success = false;
+        try {
+            $scriptPath = base_path('scripts/google_login_crawler_probe.mjs');
+            if (!is_file($scriptPath)) {
+                $this->error('Crawler probe script was not found: ' . $scriptPath);
 
-        $args = [
-            $this->nodeBinary(),
-            $scriptPath,
-            '--url=' . trim((string) $this->option('url')),
-            '--email=' . trim((string) config('services.google_login_crawler.email', 's454666123@gmail.com')),
-            '--profile=' . $profilePath,
-            '--output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_page.html',
-            '--text-output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_page.txt',
-            '--meta-output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_meta.json',
-            '--api-output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_api.json',
-            '--timeout=' . max(30, (int) $this->option('timeout')),
-            '--probe-85sugarbaby',
-            '--active-clicks=1',
-            '--click-google',
-        ];
-
-        $this->info('Opening visible Chrome for 85sugarbaby login session refresh...');
-        $process = new Process($args, base_path(), null, null, max(60, (int) $this->option('timeout') + 30));
-        $process->run(function (string $type, string $buffer): void {
-            if ($type === Process::ERR) {
-                $this->getOutput()->write('<error>' . $buffer . '</error>');
-
-                return;
+                return self::FAILURE;
             }
 
-            $this->getOutput()->write($buffer);
-        });
+            $baseDir = storage_path('app/google-login-crawler/85sugarbaby-login');
+            if (!is_dir($baseDir)) {
+                mkdir($baseDir, 0777, true);
+            }
 
-        return $process->isSuccessful() ? self::SUCCESS : self::FAILURE;
+            $stamp = CarbonImmutable::now()->format('Ymd_His');
+            $profilePath = $this->option('profile')
+                ? (string) $this->option('profile')
+                : storage_path('app/google-login-crawler/chrome-profile');
+
+            $args = [
+                $this->nodeBinary(),
+                $scriptPath,
+                '--url=' . trim((string) $this->option('url')),
+                '--email=' . trim((string) config('services.google_login_crawler.email', 's454666123@gmail.com')),
+                '--profile=' . $profilePath,
+                '--output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_page.html',
+                '--text-output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_page.txt',
+                '--meta-output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_meta.json',
+                '--api-output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_api.json',
+                '--timeout=' . max(30, (int) $this->option('timeout')),
+                '--probe-85sugarbaby',
+                '--active-clicks=0',
+                '--click-google',
+            ];
+
+            $this->info('Opening visible Chrome for 85sugarbaby login session refresh...');
+            $process = new Process($args, base_path(), null, null, max(60, (int) $this->option('timeout') + 30));
+            $process->run(function (string $type, string $buffer): void {
+                if ($type === Process::ERR) {
+                    $this->getOutput()->write('<error>' . $buffer . '</error>');
+
+                    return;
+                }
+
+                $this->getOutput()->write($buffer);
+            });
+
+            $success = $process->isSuccessful();
+
+            return $success ? self::SUCCESS : self::FAILURE;
+        } finally {
+            if ($success && is_file($lockPath)) {
+                @unlink($lockPath);
+            }
+        }
     }
 
     private function nodeBinary(): string

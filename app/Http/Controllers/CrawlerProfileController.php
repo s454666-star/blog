@@ -94,11 +94,7 @@ class CrawlerProfileController extends Controller
                 ->with('crawler_error', '這個登入按鈕需要在本機 Windows 的 blog.test 執行；AWS 主機沒有可互動 Chrome 視窗。');
         }
 
-        $command = sprintf(
-            'cmd /C start "85sugarbaby login" /D %s %s artisan crawler:85sugarbaby-login --timeout=300',
-            escapeshellarg(base_path()),
-            escapeshellarg(PHP_BINARY)
-        );
+        $command = $this->crawlerLoginLauncherCommand();
 
         $handle = popen($command, 'r');
         if ($handle === false) {
@@ -112,6 +108,28 @@ class CrawlerProfileController extends Controller
         return redirect()
             ->route('crawler.profiles')
             ->with('crawler_status', '已啟動登入用 Chrome。完成 Google 登入後，排程會用更新後的 session 繼續抓資料。');
+    }
+
+    private function crawlerLoginLauncherCommand(): string
+    {
+        $taskName = 'Blog 85Sugarbaby Login';
+        $queryCommand = 'schtasks /Query /TN ' . $this->cmdQuote($taskName) . ' >NUL 2>NUL';
+        $taskExists = false;
+        exec($queryCommand, $output, $exitCode);
+        $taskExists = $exitCode === 0;
+
+        if ($taskExists) {
+            return 'schtasks /Run /TN ' . $this->cmdQuote($taskName) . ' >NUL 2>NUL';
+        }
+
+        $scriptPath = base_path('scripts/start_85sugarbaby_login_visible.ps1');
+
+        return 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File ' . $this->cmdQuote($scriptPath) . ' >NUL 2>NUL';
+    }
+
+    private function cmdQuote(string $value): string
+    {
+        return '"' . str_replace('"', '\"', $value) . '"';
     }
 
     private function resolveDefaultSource(): string

@@ -63,6 +63,12 @@ class Crawler85SugarbabyImportCommand extends Command
 
     public function handle(): int
     {
+        if ($this->loginRefreshLockIsActive()) {
+            $this->warn('85sugarbaby login session refresh is active; skipping import to avoid Chrome profile contention.');
+
+            return self::SUCCESS;
+        }
+
         $source = trim((string) $this->option('source'));
         if ($source === '') {
             $source = '85sugarbaby_active_flow';
@@ -595,5 +601,20 @@ class Crawler85SugarbabyImportCommand extends Command
     private function nodeBinary(): string
     {
         return PHP_OS_FAMILY === 'Windows' ? 'node.exe' : 'node';
+    }
+
+    private function loginRefreshLockIsActive(): bool
+    {
+        $lockPath = storage_path('app/google-login-crawler/85sugarbaby-login.lock');
+        if (!is_file($lockPath)) {
+            return false;
+        }
+
+        $mtime = filemtime($lockPath);
+        if ($mtime === false) {
+            return false;
+        }
+
+        return $mtime >= time() - 600;
     }
 }

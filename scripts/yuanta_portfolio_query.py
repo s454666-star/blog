@@ -110,14 +110,14 @@ def main() -> int:
         account = os.environ["YUANTA_ACCOUNT"]
 
         api.Open(mode)
-        time.sleep(1)
+        time.sleep(float(os.environ.get("YUANTA_OPEN_WAIT_SECONDS", "2")))
         accepted = bool(api.Login(
             str(pfx_path),
             os.environ["YUANTA_PFX_PASSWORD"],
             account,
             os.environ["YUANTA_PASSWORD"],
         ))
-        time.sleep(3)
+        time.sleep(float(os.environ.get("YUANTA_LOGIN_WAIT_SECONDS", "6")))
 
         if not accepted:
             return fail("Yuanta login call was rejected before receiving a response.", 6)

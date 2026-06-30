@@ -72,7 +72,8 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertOk()
             ->assertSee('台指期 15K 差值 K 線')
             ->assertSee('TAIFEX · TXF1! · 15K / 60K')
-            ->assertSee('15K MA380')
+            ->assertSee('<span data-legend-ma-label>15K</span>', false)
+            ->assertDontSee('15K MA380')
             ->assertSee('60K MA95')
             ->assertSee('日 MA5')
             ->assertSee('差值')
@@ -211,7 +212,7 @@ class TwFuturesHourlyPricesTest extends TestCase
         $content = (string) $response->getContent();
         $summaryGapPosition = strpos($content, '<div class="label">差值</div>');
         $latestClosePosition = strpos($content, '<div class="label">最新收盤</div>');
-        $movingAveragePosition = strpos($content, '<div class="label">15K MA380</div>');
+        $movingAveragePosition = strpos($content, '<div class="label">15K</div>');
         $biasPosition = strpos($content, '<div class="label">乖離</div>');
         $biasRatePosition = strpos($content, '<div class="label">乖離率</div>');
         $this->assertNotFalse($summaryGapPosition);

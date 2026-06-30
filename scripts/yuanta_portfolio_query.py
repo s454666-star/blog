@@ -59,7 +59,11 @@ def convert_value(value, seen=None, depth: int = 0):
     if isinstance(value, (str, int, float, bool)):
         return value
 
-    type_name = value.GetType().FullName if hasattr(value, "GetType") else ""
+    value_type = value.GetType() if hasattr(value, "GetType") else None
+    if value_type is not None and value_type.IsEnum:
+        return str(value)
+
+    type_name = value_type.FullName if value_type is not None else ""
     if type_name and type_name.startswith("System.Collections.Generic.List"):
         return [convert_value(item, seen, depth + 1) for item in value]
 

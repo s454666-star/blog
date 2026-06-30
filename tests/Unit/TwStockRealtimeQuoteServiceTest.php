@@ -224,7 +224,7 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         $this->assertSame(0.5, $payload['quotes']['2303']['confirmationRange']);
     }
 
-    public function test_it_keeps_quote_missing_when_no_two_sources_match(): void
+    public function test_it_uses_provisional_quote_when_no_two_sources_match(): void
     {
         config()->set('esun.quote_providers', 'cnyes,yahoo_tw,tradingview');
         config()->set('esun.quote_confirmation_required', 2);
@@ -268,14 +268,15 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
 
         $payload = app(TwStockRealtimeQuoteService::class)->quotes(['5285']);
 
-        $this->assertSame('unavailable', $payload['source']['status']);
-        $this->assertArrayNotHasKey('5285', $payload['quotes']);
-        $this->assertSame(['5285'], $payload['missing']);
-        $this->assertCount(3, $payload['unconfirmed']['5285']);
-        $cnyesCandidate = collect($payload['unconfirmed']['5285'])
-            ->firstWhere('source', 'cnyes');
-        $this->assertSame(100.0, $cnyesCandidate['previousClose']);
-        $this->assertSame(10.0, $cnyesCandidate['dayChangeRate']);
+        $this->assertSame('partial', $payload['source']['status']);
+        $this->assertStringStartsWith('多來源暫用：', $payload['source']['label']);
+        $this->assertSame([], $payload['missing']);
+        $this->assertArrayNotHasKey('5285', $payload['unconfirmed']);
+        $this->assertSame(109.0, $payload['quotes']['5285']['price']);
+        $this->assertSame('provisional', $payload['quotes']['5285']['source']);
+        $this->assertSame('provisional', $payload['quotes']['5285']['priceType']);
+        $this->assertSame(3, $payload['quotes']['5285']['confirmationCount']);
+        $this->assertCount(3, $payload['quotes']['5285']['candidatePrices']);
     }
 
     public function test_it_parses_cnyes_batch_quotes(): void
@@ -347,19 +348,25 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         config()->set('esun.quote_providers', 'yahoo_tw');
 
         Http::fake([
-            'https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.stockList*' => Http::response([
-                [
-                    'systexId' => '7861',
-                    'symbol' => '7861.TW',
-                    'symbolName' => '貝爾威勒',
-                    'exchange' => 'TAI',
-                    'price' => ['raw' => '1235.0'],
-                    'regularMarketPreviousClose' => ['raw' => '1186.47'],
-                    'change' => ['raw' => '48.53'],
-                    'changePercent' => '4.09%',
-                    'regularMarketTime' => '2026-06-30T03:09:00Z',
-                ],
-            ]),
+            'https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.stockList*' => function ($request) {
+                if (!str_contains(urldecode((string) $request->url()), '7861.TW')) {
+                    return Http::response([]);
+                }
+
+                return Http::response([
+                    [
+                        'systexId' => '7861',
+                        'symbol' => '7861.TW',
+                        'symbolName' => '貝爾威勒',
+                        'exchange' => 'TAI',
+                        'price' => ['raw' => '1235.0'],
+                        'regularMarketPreviousClose' => ['raw' => '1186.47'],
+                        'change' => ['raw' => '48.53'],
+                        'changePercent' => '4.09%',
+                        'regularMarketTime' => '2026-06-30T03:09:00Z',
+                    ],
+                ]);
+            },
         ]);
 
         $codes = collect(range(1, 35))
@@ -373,6 +380,7 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         $this->assertSame(1235.0, $payload['quotes']['7861']['price']);
         $this->assertSame(1186.47, $payload['quotes']['7861']['previousClose']);
         $this->assertSame(4.09, $payload['quotes']['7861']['dayChangeRate']);
+        Http::assertSentCount(2);
     }
 
     public function test_it_parses_tradingview_batch_quotes(): void

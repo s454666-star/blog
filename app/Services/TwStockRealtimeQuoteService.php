@@ -50,14 +50,7 @@ class TwStockRealtimeQuoteService
             }
 
             try {
-                $providerQuotes = match ($provider) {
-                    'twse' => $this->fetchTwseQuotes($missing),
-                    'cnyes' => $this->fetchCnyesQuotes($missing),
-                    'yahoo_tw' => $this->fetchYahooTwQuotes($missing),
-                    'tradingview' => $this->fetchTradingViewQuotes($missing),
-                    'yahoo_chart' => $this->fetchYahooChartQuotes($missing),
-                    default => [],
-                };
+                $providerQuotes = $this->fetchProviderQuotes($provider, $missing);
 
                 foreach ($providerQuotes as $code => $quote) {
                     $code = (string) $code;
@@ -89,7 +82,21 @@ class TwStockRealtimeQuoteService
             }
         }
 
+        foreach ($codes as $code) {
+            if (isset($quotes[$code])) {
+                continue;
+            }
+
+            $provisional = $this->provisionalQuote($candidates[$code] ?? []);
+            if ($provisional !== null) {
+                $quotes[$code] = $provisional;
+            }
+        }
+
         $missing = array_values(array_diff($codes, array_keys($quotes)));
+        $hasProvisional = collect($quotes)->contains(
+            fn (array $quote): bool => ($quote['priceType'] ?? null) === 'provisional',
+        );
         $unconfirmed = [];
         foreach ($missing as $code) {
             if (($candidates[$code] ?? []) !== []) {
@@ -101,14 +108,12 @@ class TwStockRealtimeQuoteService
             'servedAt' => $this->now()->toIso8601String(),
             'cacheSeconds' => $ttl,
             'source' => [
-                'status' => $quotes === [] ? 'unavailable' : ($missing === [] ? 'live' : 'partial'),
+                'status' => $quotes === [] ? 'unavailable' : ($missing === [] && !$hasProvisional ? 'live' : 'partial'),
                 'providers' => $providers,
                 'label' => $quotes === []
                     ? ($providers === [] ? '無可用報價源' : '未達雙來源一致')
                     : $this->confirmedSourceLabel($quotes),
-                'message' => $missing === []
-                    ? '庫存報價已通過雙來源一致性驗證。'
-                    : '部分庫存報價尚未有兩個來源同價，已保留上一筆確認價格。',
+                'message' => $this->sourceMessage($quotes, $missing),
                 'errors' => $errors,
                 'confirmationRequired' => $this->confirmationRequired(),
             ],
@@ -116,6 +121,41 @@ class TwStockRealtimeQuoteService
             'missing' => $missing,
             'unconfirmed' => $unconfirmed,
         ];
+    }
+
+    /**
+     * @param list<string> $codes
+     * @return array<string, array<string, mixed>>
+     */
+    private function fetchProviderQuotes(string $provider, array $codes): array
+    {
+        $quotes = [];
+        foreach (array_chunk($codes, $this->providerChunkSize($provider)) as $chunk) {
+            $chunkQuotes = match ($provider) {
+                'twse' => $this->fetchTwseQuotes($chunk),
+                'cnyes' => $this->fetchCnyesQuotes($chunk),
+                'yahoo_tw' => $this->fetchYahooTwQuotes($chunk),
+                'tradingview' => $this->fetchTradingViewQuotes($chunk),
+                'yahoo_chart' => $this->fetchYahooChartQuotes($chunk),
+                default => [],
+            };
+
+            foreach ($chunkQuotes as $code => $quote) {
+                $quotes[(string) $code] = $quote;
+            }
+        }
+
+        return $quotes;
+    }
+
+    private function providerChunkSize(string $provider): int
+    {
+        return match ($provider) {
+            'twse', 'yahoo_tw' => 25,
+            'cnyes', 'tradingview' => 40,
+            'yahoo_chart' => 30,
+            default => 30,
+        };
     }
 
     /**
@@ -653,6 +693,72 @@ class TwStockRealtimeQuoteService
      * @param list<array<string, mixed>> $candidates
      * @return array<string, mixed>|null
      */
+    private function provisionalQuote(array $candidates): ?array
+    {
+        $valid = collect($candidates)
+            ->filter(fn (array $candidate): bool => $this->priceOrNull($candidate['price'] ?? null) !== null)
+            ->sortByDesc(fn (array $candidate): int => $this->timestampScore($candidate['quotedAt'] ?? null))
+            ->unique(fn (array $candidate): string => (string) ($candidate['source'] ?? ''))
+            ->values()
+            ->all();
+        if ($valid === []) {
+            return null;
+        }
+
+        $best = collect($valid)
+            ->sortByDesc(fn (array $candidate): int => $this->provisionalCandidateScore($candidate))
+            ->first() ?? $valid[0];
+        $labels = collect($valid)
+            ->map(fn (array $quote): string => (string) ($quote['sourceLabel'] ?? $quote['source'] ?? ''))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $bestLabel = (string) ($best['sourceLabel'] ?? $best['source'] ?? '可用來源');
+
+        return [
+            ...$best,
+            'price' => $this->priceOrNull($best['price'] ?? null) ?? 0.0,
+            'priceType' => 'provisional',
+            'source' => 'provisional',
+            'sourceLabel' => '暫用報價：' . $bestLabel,
+            'confirmedBy' => $labels,
+            'confirmationCount' => count($valid),
+            'candidatePrices' => $this->summarizeCandidates($valid),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $candidate
+     */
+    private function provisionalCandidateScore(array $candidate): int
+    {
+        $completeness = 0;
+        $completeness += $this->numberOrNull($candidate['previousClose'] ?? null) !== null ? 3 : 0;
+        $completeness += $this->numberOrNull($candidate['dayChangeRate'] ?? null) !== null ? 2 : 0;
+        $completeness += $this->timestampScore($candidate['quotedAt'] ?? null) > 0 ? 1 : 0;
+
+        return $completeness * 100_000_000_000
+            + $this->sourcePriorityScore((string) ($candidate['source'] ?? '')) * 1_000_000_000
+            + $this->timestampScore($candidate['quotedAt'] ?? null);
+    }
+
+    private function sourcePriorityScore(string $source): int
+    {
+        return match ($source) {
+            'yahoo_tw' => 50,
+            'cnyes' => 45,
+            'twse' => 40,
+            'tradingview' => 30,
+            'yahoo_chart' => 25,
+            default => 0,
+        };
+    }
+
+    /**
+     * @param list<array<string, mixed>> $candidates
+     * @return array<string, mixed>|null
+     */
     private function nearbyConfirmedQuote(array $candidates, int $required): ?array
     {
         if ($required <= 1 || $this->quoteToleranceTicks() <= 0.0) {
@@ -748,6 +854,10 @@ class TwStockRealtimeQuoteService
             return $labels === [] ? '可用報價源' : implode(' + ', $labels);
         }
 
+        if (collect($quotes)->contains(fn (array $quote): bool => ($quote['priceType'] ?? null) === 'provisional')) {
+            return $labels === [] ? '多來源暫用報價' : '多來源暫用：' . implode(' + ', $labels);
+        }
+
         $prefix = collect($quotes)->contains(
             fn (array $quote): bool => ($quote['priceType'] ?? null) === 'nearby-confirmed',
         )
@@ -755,6 +865,31 @@ class TwStockRealtimeQuoteService
             : '雙來源確認：';
 
         return $labels === [] ? '雙來源確認報價' : $prefix . implode(' + ', $labels);
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $quotes
+     * @param list<string> $missing
+     */
+    private function sourceMessage(array $quotes, array $missing): string
+    {
+        if ($quotes === []) {
+            return '目前沒有任何來源提供可用即時報價。';
+        }
+
+        $hasProvisional = collect($quotes)->contains(
+            fn (array $quote): bool => ($quote['priceType'] ?? null) === 'provisional',
+        );
+
+        if ($missing !== []) {
+            return $hasProvisional
+                ? '部分庫存未達雙來源一致，已使用多來源暫用報價；仍有少數代號沒有可用報價。'
+                : '部分庫存報價尚未有兩個來源同價，已保留上一筆確認價格。';
+        }
+
+        return $hasProvisional
+            ? '部分庫存未達雙來源一致，已改用多來源暫用報價避免空白。'
+            : '庫存報價已通過雙來源一致性驗證。';
     }
 
     /**

@@ -26,7 +26,7 @@ return [
     'quote_cache_seconds' => (int) env('ESUN_PORTFOLIO_QUOTE_CACHE_SECONDS', 1),
     'quote_timeout_seconds' => (int) env('ESUN_PORTFOLIO_QUOTE_TIMEOUT_SECONDS', 4),
     'quote_providers' => env('ESUN_PORTFOLIO_QUOTE_PROVIDERS', 'cnyes,yahoo_tw'),
-    'quote_fallback_providers' => env('ESUN_PORTFOLIO_QUOTE_FALLBACK_PROVIDERS', ''),
+    'quote_fallback_providers' => env('ESUN_PORTFOLIO_QUOTE_FALLBACK_PROVIDERS', 'tradingview,yahoo_chart'),
     'quote_rotation_seconds' => (int) env('ESUN_PORTFOLIO_QUOTE_ROTATION_SECONDS', 1),
     'quote_confirmation_required' => (int) env('ESUN_PORTFOLIO_QUOTE_CONFIRMATION_REQUIRED', 2),
     'quote_confirmation_decimals' => (int) env('ESUN_PORTFOLIO_QUOTE_CONFIRMATION_DECIMALS', 2),

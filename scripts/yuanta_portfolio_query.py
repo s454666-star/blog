@@ -114,7 +114,9 @@ def main() -> int:
         clr.AddReference("YuantaSparkAPI")
         from YuantaOneAPI import YuantaSparkAPITrader, enumEnvironmentMode, enumLangType
 
-        api = YuantaSparkAPITrader()
+        log_path = Path(os.environ.get("YUANTA_LOG_PATH", Path.cwd() / "storage" / "logs" / "yuanta"))
+        log_path.mkdir(parents=True, exist_ok=True)
+        api = YuantaSparkAPITrader(str(log_path))
         login_events = []
 
         def on_response(intMark, dwIndex, strIndex, objHandle, objValue):

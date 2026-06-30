@@ -473,9 +473,9 @@ class EsunPortfolioService
         $signedCostBasis = $this->number($this->value($row, 'cost_sum', 'costSum'));
         $cashCostBasis = abs($signedCostBasis);
         $priceAmount = abs($this->number($this->value($row, 'price_qty_sum', 'priceQtySum')));
-        $costBasis = $priceAmount > 0 ? $priceAmount : $cashCostBasis;
+        $costBasis = $cashCostBasis;
         if ($costBasis <= 0) {
-            $costBasis = $cashCostBasis;
+            $costBasis = $priceAmount;
         }
         if ($costBasis <= 0 && $quantity > 0) {
             $costBasis = abs($this->number($this->value($row, 'price_evn', 'priceEvn')) * $quantity);
@@ -679,7 +679,7 @@ class EsunPortfolioService
         $pendingSettlementAmount = $this->pendingSettlementAmount($raw, $now);
         $bankBalance = $availableBalance === null
             ? null
-            : $availableBalance - $dayTradeOffsetAmount - $pendingSettlementAmount;
+            : $availableBalance - $dayTradeOffsetAmount + $pendingSettlementAmount;
         $totalCapital = $bankBalance === null ? null : $totalCostBasis + $bankBalance;
 
         return [
@@ -701,13 +701,13 @@ class EsunPortfolioService
         return collect($settlements)
             ->filter(fn (mixed $settlement): bool => is_array($settlement))
             ->filter(fn (array $settlement): bool => $this->isFutureSettlement($settlement, $today))
-            ->sum(fn (array $settlement): float => abs($this->number($this->value(
+            ->sum(fn (array $settlement): float => $this->number($this->value(
                 $settlement,
                 'price',
                 'amount',
                 'settlement_amount',
                 'settlementAmount',
-            ))));
+            )));
     }
 
     private function isFutureSettlement(array $settlement, CarbonImmutable $today): bool

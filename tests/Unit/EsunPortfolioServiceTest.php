@@ -11,7 +11,7 @@ use Tests\TestCase;
 
 class EsunPortfolioServiceTest extends TestCase
 {
-    public function test_it_uses_full_price_amount_for_margin_invested_cost(): void
+    public function test_it_uses_cash_cost_for_margin_invested_cost(): void
     {
         $service = new EsunPortfolioService();
         $method = new ReflectionMethod($service, 'formatInventoryRow');
@@ -41,9 +41,10 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(110000.0, $row['marketValue']);
         $this->assertSame(110.0, $row['esunCurrentPrice']);
         $this->assertSame(110000.0, $row['esunMarketValue']);
-        $this->assertSame(106000.0, $row['costBasis']);
+        $this->assertSame(43057.0, $row['costBasis']);
         $this->assertSame(-43057.0, $row['signedCostBasis']);
         $this->assertSame(43057.0, $row['cashCostBasis']);
+        $this->assertSame(106000.0, $row['priceAmount']);
         $this->assertSame(3466.0, $row['unrealizedPnl']);
         $this->assertSame(3466.0, $row['esunUnrealizedPnl']);
         $this->assertSame(110.0, $row['realtimePnlBasePrice']);
@@ -235,9 +236,9 @@ class EsunPortfolioServiceTest extends TestCase
 
         $this->assertSame(500000.0, $summary['availableBalance']);
         $this->assertSame(10000.0, $summary['dayTradeOffsetAmount']);
-        $this->assertSame(80000.0, $summary['pendingSettlementAmount']);
-        $this->assertSame(410000.0, $summary['bankBalance']);
-        $this->assertEqualsWithDelta(54.945054945, $summary['investmentLevelRate'], 0.000001);
+        $this->assertSame(-20000.0, $summary['pendingSettlementAmount']);
+        $this->assertSame(470000.0, $summary['bankBalance']);
+        $this->assertEqualsWithDelta(51.546391752, $summary['investmentLevelRate'], 0.000001);
     }
 
     public function test_it_uses_last_success_snapshot_during_minimum_query_window_after_short_cache_expires(): void

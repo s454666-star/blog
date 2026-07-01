@@ -1704,6 +1704,10 @@ function quoteCanRepriceRow(row, quote) {
         return true;
     }
 
+    if (rowLooksParkedAtPreviousClose(row, quote)) {
+        return true;
+    }
+
     const quoteTime = Date.parse(quote?.quotedAt || '');
     const esunTime = Date.parse(state.lastPayload?.queriedAt || '');
     if (!Number.isFinite(quoteTime) || !Number.isFinite(esunTime)) {
@@ -1711,6 +1715,33 @@ function quoteCanRepriceRow(row, quote) {
     }
 
     return quoteTime + 2000 >= esunTime;
+}
+
+function rowLooksParkedAtPreviousClose(row, quote) {
+    const quotePrice = finiteNumber(quote?.price);
+    const quotePreviousClose = finiteNumber(quote?.previousClose);
+    const rowPreviousClose = finiteNumber(row.previousClose);
+    const esunPrice = finiteNumber(row.esunCurrentPrice ?? row.currentPrice);
+    if (quotePrice === null || quotePreviousClose === null || rowPreviousClose === null || esunPrice === null) {
+        return false;
+    }
+
+    const epsilon = 0.000001;
+    if (Math.abs(esunPrice - rowPreviousClose) > epsilon || Math.abs(quotePreviousClose - rowPreviousClose) > epsilon) {
+        return false;
+    }
+
+    if (Math.abs(quotePrice - rowPreviousClose) <= epsilon) {
+        return false;
+    }
+
+    const parkedValues = [
+        finiteNumber(row.dayChange),
+        finiteNumber(row.dayChangeRate),
+        finiteNumber(row.todayPnl),
+    ];
+
+    return parkedValues.every(value => value === null || Math.abs(value) <= epsilon);
 }
 
 function canUseCandidateQuote(row, quote) {

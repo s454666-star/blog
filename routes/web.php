@@ -28,6 +28,7 @@ use App\Http\Controllers\StaticProxyController;
 use App\Http\Controllers\TdlCommandController;
     use App\Http\Controllers\TelegramWebhookController;
 use App\Http\Controllers\TestImageController;
+use App\Http\Controllers\TwActiveEtfOperationController;
 use App\Http\Controllers\TwStockDailyPriceController;
 use App\Http\Controllers\TwFuturesHourlyPriceController;
 use App\Http\Controllers\TwStockInstitutionalFlowController;
@@ -190,6 +191,7 @@ Route::get('/tw-stock/daily-price-rankings/{stockCode}', [TwStockDailyPriceContr
 Route::get('/tw-stock/taiex-futures-kline', [TwFuturesHourlyPriceController::class, 'index'])->name('tw-stock.taiex-futures.kline');
 Route::get('/tw-stock/taiex-futures-kline/data', [TwFuturesHourlyPriceController::class, 'data'])->name('tw-stock.taiex-futures.kline.data');
 Route::get('/tw-stock/upcoming-dividends', [TwStockUpcomingDividendController::class, 'index'])->name('tw-stock.upcoming-dividends.index');
+Route::get('/tw-stock/active-etf-operations', [TwActiveEtfOperationController::class, 'index'])->name('tw-stock.active-etf-operations.index');
 Route::get('/tw-stock/institutional-flows', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.institutional-flows.index');
 Route::get('/tw-stock', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.index');
 Route::get('/tw-stock/esun-portfolio', [EsunPortfolioController::class, 'index'])->name('tw-stock.esun-portfolio.index');

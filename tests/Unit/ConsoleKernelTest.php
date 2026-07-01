@@ -60,4 +60,29 @@ class ConsoleKernelTest extends TestCase
             ],
         ], $monthlyRevenueEvents);
     }
+
+    public function test_active_etf_operations_schedule_runs_daily_at_1740(): void
+    {
+        $schedule = new Schedule(config('app.timezone'));
+        $method = new ReflectionMethod(Kernel::class, 'schedule');
+        $kernel = $this->app->make(Kernel::class);
+
+        $method->invoke($kernel, $schedule);
+
+        $activeEtfEvents = collect($schedule->events())
+            ->filter(fn ($event): bool => str_contains((string) $event->command, 'tw-stock:fetch-active-etf-operations'))
+            ->map(fn ($event): array => [
+                'expression' => $event->expression,
+                'name' => $event->description,
+            ])
+            ->values()
+            ->all();
+
+        $this->assertSame([
+            [
+                'expression' => '40 17 * * *',
+                'name' => 'tw-stock-fetch-active-etf-operations',
+            ],
+        ], $activeEtfEvents);
+    }
 }

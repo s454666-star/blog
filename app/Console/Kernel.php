@@ -77,14 +77,6 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_daily_turnover_rates.log'));
 
-        $schedule->command('tw-stock:fetch-active-etf-operations --backfill-days=31 --sleep-ms=450')
-            ->dailyAt('15:45')
-            ->weekdays()
-            ->name('tw-stock-fetch-active-etf-operations')
-            ->withoutOverlapping(180)
-            ->runInBackground()
-            ->appendOutputTo(storage_path('logs/tw_active_etf_operations.log'));
-
         $schedule->command('tw-stock:fetch-monthly-revenues --skip-outside-window')
             ->dailyAt('18:30')
             ->weekdays()
@@ -101,9 +93,8 @@ class Kernel extends ConsoleKernel
             ->appendOutputTo(storage_path('logs/tw_stock_daily_turnover_rates.log'));
 
         $schedule->command('tw-stock:fetch-active-etf-operations --backfill-days=31 --sleep-ms=450')
-            ->dailyAt('17:35')
-            ->weekdays()
-            ->name('tw-stock-fetch-active-etf-operations-late')
+            ->dailyAt('17:40')
+            ->name('tw-stock-fetch-active-etf-operations')
             ->withoutOverlapping(180)
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_active_etf_operations.log'));

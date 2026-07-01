@@ -165,9 +165,12 @@ class TwStockMonthlyRevenuesTest extends TestCase
             ->assertSee('每月營收排行')
             ->assertSee('月增 &gt; 30%', false)
             ->assertSee('最近5日漲跌')
+            ->assertSee('exchange-badge--twse', false)
+            ->assertSee('即時')
             ->assertSee('共 105 筆符合條件')
             ->assertSee('顯示前 100 筆')
             ->assertSeeInOrder(['9001', '9002', '9003'])
+            ->assertDontSee('上市/櫃')
             ->assertDontSee('低於門檻')
             ->assertDontSee('9105');
 

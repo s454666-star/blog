@@ -353,16 +353,42 @@
             font-weight: 850;
         }
 
-        .exchange-badge {
+        .stock-exchange {
             display: inline-flex;
-            min-width: 44px;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 6px;
+        }
+
+        .exchange-badge,
+        .realtime-price-link {
+            display: inline-flex;
+            height: 22px;
+            align-items: center;
             justify-content: center;
-            padding: 4px 7px;
-            border-radius: 7px;
-            color: #12624c;
-            background: rgba(84, 212, 197, 0.18);
+            border-radius: 4px;
             font-size: 12px;
             font-weight: 950;
+        }
+
+        .exchange-badge {
+            width: 22px;
+            color: #ffffff;
+            box-shadow: 0 8px 14px rgba(15, 23, 42, 0.12);
+        }
+
+        .exchange-badge--twse { background: #1d4ed8; }
+        .exchange-badge--tpex { background: #047857; }
+
+        .realtime-price-link {
+            min-width: 34px;
+            padding: 0 7px;
+            border: 1px solid rgba(37, 99, 235, 0.26);
+            color: #1d4ed8;
+            background: #dbeafe;
+            text-decoration: none;
+            white-space: nowrap;
         }
 
         .num {
@@ -466,9 +492,7 @@
             }
 
             td[data-label="股票"] {
-                display: grid;
-                grid-template-columns: auto 1fr;
-                align-items: center;
+                display: block;
                 text-align: left !important;
             }
 
@@ -506,7 +530,9 @@
 
         return $number > 0 ? 'positive' : ($number < 0 ? 'negative' : 'neutral');
     };
-    $exchangeLabel = fn (string $exchange): string => $exchange === 'TPEx' ? '上櫃' : '上市';
+    $exchangeBadge = fn (string $exchange): array => $exchange === 'TPEx'
+        ? ['label' => '櫃', 'class' => 'tpex', 'title' => '上櫃', 'suffix' => '.TWO']
+        : ['label' => '市', 'class' => 'twse', 'title' => '上市', 'suffix' => '.TW'];
     $thresholdText = fn (float $value): string => rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
     $queryBase = [
         'period' => $periodValue,
@@ -631,7 +657,6 @@
                 <tr>
                     <th>#</th>
                     <th><a href="{{ $sortUrl('stock') }}">股票 {{ $sortMark('stock') }}</a></th>
-                    <th><a href="{{ $sortUrl('exchange') }}">上市/櫃 {{ $sortMark('exchange') }}</a></th>
                     <th><a href="{{ $sortUrl('revenue') }}">當月營收 {{ $sortMark('revenue') }}</a></th>
                     <th><a href="{{ $sortUrl('mom') }}">月增 {{ $sortMark('mom') }}</a></th>
                     <th><a href="{{ $sortUrl('yoy') }}">年增 {{ $sortMark('yoy') }}</a></th>
@@ -643,15 +668,22 @@
             </thead>
             <tbody>
                 @forelse ($rows as $index => $row)
+                    @php
+                        $badge = $exchangeBadge((string) $row->exchange);
+                        $quoteUrl = 'https://tw.stock.yahoo.com/quote/' . $row->stock_code . $badge['suffix'];
+                    @endphp
                     <tr>
                         <td data-label="#"><span class="rank">{{ $index + 1 }}</span></td>
                         <td data-label="股票">
                             <span>
                                 <span class="stock-code">{{ $row->stock_code }}</span>
                                 <span class="stock-name">{{ $row->stock_name }}{{ $row->industry ? ' · ' . $row->industry : '' }}</span>
+                                <span class="stock-exchange">
+                                    <span class="exchange-badge exchange-badge--{{ $badge['class'] }}" title="{{ $badge['title'] }}" aria-label="{{ $badge['title'] }}">{{ $badge['label'] }}</span>
+                                    <a class="realtime-price-link" href="{{ $quoteUrl }}" target="_blank" rel="noopener noreferrer" title="Yahoo 即時股價 {{ $row->stock_code }}" aria-label="開啟 Yahoo 即時股價 {{ $row->stock_code }}">即時</a>
+                                </span>
                             </span>
                         </td>
-                        <td data-label="上市/櫃"><span class="exchange-badge">{{ $exchangeLabel((string) $row->exchange) }}</span></td>
                         <td data-label="當月營收" class="num">{{ $fmtRevenue($row->monthly_revenue_thousands) }}</td>
                         <td data-label="月增" class="num {{ $tone($row->month_over_month_percent) }}">{{ $fmtPct($row->month_over_month_percent, true) }}</td>
                         <td data-label="年增" class="num {{ $tone($row->year_over_year_percent) }}">{{ $fmtPct($row->year_over_year_percent, true) }}</td>
@@ -662,7 +694,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td class="empty" colspan="10">目前沒有符合條件的已公告資料。</td>
+                        <td class="empty" colspan="9">目前沒有符合條件的已公告資料。</td>
                     </tr>
                 @endforelse
             </tbody>

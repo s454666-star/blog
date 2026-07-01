@@ -6,6 +6,8 @@ use App\Models\CrawlerProfileCandidate;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use SplFileInfo;
 
 class CrawlerProfileController extends Controller
 {
@@ -77,12 +79,13 @@ class CrawlerProfileController extends Controller
             'perPage' => $perPage,
             'localLoginUrl' => config('crawler.85sugarbaby.local_login_url'),
             'crawlerEnabled' => (bool) config('crawler.85sugarbaby.enabled', true),
+            'crawlerRuntime' => $this->crawlerRuntimeStatus(),
         ]);
     }
 
     public function loginSession(Request $request): RedirectResponse
     {
-        if (app()->environment('testing')) {
+        if ($this->isAutomatedTestRequest()) {
             return redirect()
                 ->route('crawler.profiles')
                 ->with('crawler_status', '測試模式已略過啟動 Chrome。');
@@ -155,5 +158,159 @@ class CrawlerProfileController extends Controller
             ->value('source');
 
         return (string) ($source ?: $preferredSource);
+    }
+
+    /**
+     * @return array{
+     *     enabled: bool,
+     *     state: string,
+     *     label: string,
+     *     latest_run_at: Carbon|null,
+     *     rows: int|null,
+     *     final_url: string|null,
+     *     reason: string|null
+     * }
+     */
+    private function crawlerRuntimeStatus(): array
+    {
+        $enabled = (bool) config('crawler.85sugarbaby.enabled', true);
+        $status = [
+            'enabled' => $enabled,
+            'state' => $enabled ? 'unknown' : 'disabled',
+            'label' => $enabled ? '啟用，尚無最新執行紀錄' : '停用',
+            'latest_run_at' => null,
+            'rows' => null,
+            'final_url' => null,
+            'reason' => null,
+        ];
+
+        if (! $enabled) {
+            return $status;
+        }
+
+        $latestMeta = $this->latestCrawlerMeta();
+        if ($latestMeta === null) {
+            return $status;
+        }
+
+        $status['latest_run_at'] = $this->parseCrawlerTimestamp($latestMeta['payload']['captured_at'] ?? null)
+            ?? Carbon::createFromTimestamp($latestMeta['file']->getMTime(), config('app.timezone'));
+
+        $probe = is_array($latestMeta['payload']['api_probe_summary'] ?? null)
+            ? $latestMeta['payload']['api_probe_summary']
+            : [];
+        $endpoint = is_array($probe['endpoints']['/GetLoginListByLoginTime'] ?? null)
+            ? $probe['endpoints']['/GetLoginListByLoginTime']
+            : [];
+
+        $rows = $endpoint['rows'] ?? null;
+        $status['rows'] = is_numeric($rows) ? (int) $rows : null;
+        $status['final_url'] = $this->stringOrNull($latestMeta['payload']['final_url'] ?? null);
+        $status['reason'] = $this->stringOrNull($latestMeta['payload']['reason'] ?? null);
+
+        $probeStatus = (string) ($latestMeta['payload']['status'] ?? '');
+        $isLoggedIn = $probe['isLoggedIn'] ?? null;
+        $haystack = strtolower($probeStatus . ' ' . ($status['reason'] ?? '') . ' ' . ($status['final_url'] ?? ''));
+
+        if ($isLoggedIn === true || ($status['rows'] !== null && $status['rows'] > 0)) {
+            $status['state'] = 'ok';
+            $status['label'] = '啟用，最新抓取正常';
+
+            return $status;
+        }
+
+        if ($isLoggedIn === false || str_contains($haystack, 'login')) {
+            $status['state'] = 'session_expired';
+            $status['label'] = '啟用，但 Session 失效';
+            $status['rows'] ??= 0;
+
+            return $status;
+        }
+
+        if (str_contains($haystack, 'cloudflare') || str_contains($haystack, 'security')) {
+            $status['state'] = 'blocked';
+            $status['label'] = '啟用，但網站驗證阻擋';
+
+            return $status;
+        }
+
+        $status['state'] = 'failing';
+        $status['label'] = '啟用，但最新抓取失敗';
+
+        return $status;
+    }
+
+    /**
+     * @return array{file: SplFileInfo, payload: array<string, mixed>}|null
+     */
+    private function latestCrawlerMeta(): ?array
+    {
+        $dir = (string) config('crawler.85sugarbaby.import_output_dir');
+        if ($dir === '' || ! is_dir($dir)) {
+            return null;
+        }
+
+        $latestFile = null;
+        $latestMtime = -1;
+        foreach (glob($dir . DIRECTORY_SEPARATOR . '*_meta.json') ?: [] as $path) {
+            if (! is_file($path)) {
+                continue;
+            }
+
+            $mtime = filemtime($path);
+            if ($mtime === false || $mtime < $latestMtime) {
+                continue;
+            }
+
+            $latestFile = new SplFileInfo($path);
+            $latestMtime = $mtime;
+        }
+
+        if ($latestFile === null) {
+            return null;
+        }
+
+        $payload = json_decode((string) file_get_contents($latestFile->getPathname()), true);
+        if (! is_array($payload)) {
+            return null;
+        }
+
+        return [
+            'file' => $latestFile,
+            'payload' => $payload,
+        ];
+    }
+
+    private function parseCrawlerTimestamp(mixed $value): ?Carbon
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value)->timezone(config('app.timezone'));
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function stringOrNull(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return $value === '' ? null : $value;
+    }
+
+    private function isAutomatedTestRequest(): bool
+    {
+        return app()->runningUnitTests()
+            || app()->environment('testing')
+            || defined('PHPUNIT_COMPOSER_INSTALL')
+            || defined('__PHPUNIT_PHAR__')
+            || class_exists(\PHPUnit\Framework\TestCase::class, false);
     }
 }

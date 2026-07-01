@@ -112,6 +112,20 @@
             font-size: 0.88rem;
             line-height: 1.6;
         }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-weight: 800;
+            background: #e5e7eb;
+            color: #374151;
+        }
+        .status-pill.ok { background: #d1fae5; color: #065f46; }
+        .status-pill.session_expired,
+        .status-pill.blocked,
+        .status-pill.failing { background: #fee2e2; color: #991b1b; }
+        .status-pill.unknown { background: #fef3c7; color: #92400e; }
         .notice {
             border-radius: 14px;
             padding: 10px 12px;
@@ -128,6 +142,11 @@
             border: 1px solid rgba(239,68,68,.24);
             color: #991b1b;
             background: #fee2e2;
+        }
+        .notice.warning {
+            border: 1px solid rgba(245,158,11,.3);
+            color: #92400e;
+            background: #fef3c7;
         }
         .grid {
             display: grid;
@@ -441,6 +460,8 @@
 <body>
 @php
     $recentCreated = is_string($stats['recent_created_at'] ?? null) ? \Illuminate\Support\Carbon::parse($stats['recent_created_at']) : $stats['recent_created_at'];
+    $latestCrawlerRun = $crawlerRuntime['latest_run_at'] ?? null;
+    $crawlerState = (string) ($crawlerRuntime['state'] ?? 'unknown');
 @endphp
 <div class="page">
     <section class="hero">
@@ -453,10 +474,25 @@
             <div class="session-actions">
                 <a class="session-btn" href="{{ $localLoginUrl }}">重新登入 Session</a>
                 <span class="session-note">
-                    排程：{{ $crawlerEnabled ? '啟用' : '停用' }} /
+                    排程：<span class="status-pill {{ $crawlerState }}">{{ $crawlerRuntime['label'] ?? ($crawlerEnabled ? '啟用' : '停用') }}</span>
+                    @if($latestCrawlerRun instanceof \Illuminate\Support\Carbon)
+                        / 最近執行：{{ $latestCrawlerRun->format('Y-m-d H:i:s') }}
+                    @endif
+                    @if(array_key_exists('rows', $crawlerRuntime) && $crawlerRuntime['rows'] !== null)
+                        / API rows：{{ number_format((int) $crawlerRuntime['rows']) }}
+                    @endif
+                    /
                     最近建檔：{{ $recentCreated instanceof \Illuminate\Support\Carbon ? $recentCreated->format('Y-m-d H:i:s') : '-' }}
                 </span>
             </div>
+            @if(in_array($crawlerState, ['session_expired', 'blocked', 'failing'], true))
+                <div class="notice warning">
+                    最新抓取沒有成功匯入：{{ $crawlerRuntime['reason'] ?? '請查看 crawler log。' }}
+                    @if(!empty($crawlerRuntime['final_url']))
+                        目前頁面：{{ $crawlerRuntime['final_url'] }}
+                    @endif
+                </div>
+            @endif
             @if(session('crawler_status'))
                 <div class="notice ok">{{ session('crawler_status') }}</div>
             @endif

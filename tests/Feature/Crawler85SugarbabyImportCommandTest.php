@@ -6,6 +6,7 @@ use App\Console\Commands\Crawler85SugarbabyImportCommand;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use ReflectionMethod;
 use Tests\TestCase;
@@ -13,6 +14,7 @@ use Tests\TestCase;
 class Crawler85SugarbabyImportCommandTest extends TestCase
 {
     private string $originalDatabaseDefault;
+    private ?string $crawlerStatusTempDir = null;
 
     protected function setUp(): void
     {
@@ -76,6 +78,9 @@ class Crawler85SugarbabyImportCommandTest extends TestCase
     {
         Schema::dropIfExists('crawler_profile_images');
         Schema::dropIfExists('crawler_profile_candidates');
+        if ($this->crawlerStatusTempDir !== null) {
+            File::deleteDirectory($this->crawlerStatusTempDir);
+        }
 
         DB::disconnect('sqlite');
         config()->set('database.default', $this->originalDatabaseDefault);
@@ -170,6 +175,48 @@ class Crawler85SugarbabyImportCommandTest extends TestCase
             ->assertSee('第一次建檔時間新到舊')
             ->assertSee('重新登入 Session')
             ->assertSee('2026-06-28 15:21:56');
+    }
+
+    public function test_dashboard_shows_session_expired_when_latest_probe_requires_login(): void
+    {
+        $source = '85sugarbaby_active_flow';
+        $this->crawlerStatusTempDir = storage_path('framework/testing/85sugarbaby-status-' . uniqid('', true));
+        File::ensureDirectoryExists($this->crawlerStatusTempDir);
+        config()->set('crawler.85sugarbaby.import_output_dir', $this->crawlerStatusTempDir);
+
+        DB::table('crawler_profile_candidates')->insert([
+            'source' => $source,
+            'external_user_id' => 'old-user',
+            'nickname' => 'Old User',
+            'age' => 20,
+            'area' => '新北',
+            'captured_at' => '2026-07-01 04:27:55',
+            'created_at' => '2026-07-01 04:27:55',
+            'updated_at' => '2026-07-01 04:27:55',
+        ]);
+
+        file_put_contents($this->crawlerStatusTempDir . DIRECTORY_SEPARATOR . '20260701_173415_meta.json', json_encode([
+            'captured_at' => '2026-07-01T09:34:18.775Z',
+            'final_url' => 'https://85sugarbaby.com.tw/login.html',
+            'status' => 'site_login_required',
+            'reason' => '85sugarbaby redirected to login page',
+            'api_probe_summary' => [
+                'isLoggedIn' => false,
+                'endpoints' => [
+                    '/GetLoginListByLoginTime' => [
+                        'rows' => null,
+                    ],
+                ],
+            ],
+        ], JSON_UNESCAPED_UNICODE));
+
+        $this->get('/crawler/85sugarbaby?source=' . $source)
+            ->assertOk()
+            ->assertSee('啟用，但 Session 失效')
+            ->assertSee('最近執行：2026-07-01 17:34:18')
+            ->assertSee('API rows：0')
+            ->assertSee('最新抓取沒有成功匯入')
+            ->assertSee('https://85sugarbaby.com.tw/login.html');
     }
 
     public function test_login_session_route_is_safe_in_testing(): void

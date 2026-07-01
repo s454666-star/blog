@@ -86,9 +86,9 @@ class Kernel extends ConsoleKernel
             ->appendOutputTo(storage_path('logs/tw_active_etf_operations.log'));
 
         $schedule->command('tw-stock:fetch-monthly-revenues --skip-outside-window')
-            ->dailyAt('08:25')
+            ->dailyAt('18:30')
             ->weekdays()
-            ->name('tw-stock-fetch-monthly-revenues-morning')
+            ->name('tw-stock-fetch-monthly-revenues-evening')
             ->withoutOverlapping(180)
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_monthly_revenues.log'));
@@ -109,9 +109,9 @@ class Kernel extends ConsoleKernel
             ->appendOutputTo(storage_path('logs/tw_active_etf_operations.log'));
 
         $schedule->command('tw-stock:fetch-monthly-revenues --skip-outside-window')
-            ->dailyAt('18:25')
+            ->dailyAt('22:00')
             ->weekdays()
-            ->name('tw-stock-fetch-monthly-revenues-evening')
+            ->name('tw-stock-fetch-monthly-revenues-night')
             ->withoutOverlapping(180)
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_monthly_revenues.log'));

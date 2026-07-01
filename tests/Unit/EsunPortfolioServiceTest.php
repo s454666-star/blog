@@ -206,6 +206,30 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(4.0, $summary['yearToDateReturn']);
     }
 
+    public function test_it_uses_official_mis_previous_close_when_historical_etf_close_is_stale(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'mergeOfficialPreviousClose');
+
+        $summary = $method->invoke($service, [
+            'previousClose' => 36.28,
+            'previousCloseDate' => '2026-06-30',
+            'fiveDayReturn' => 1.0,
+            'twentyDayReturn' => 2.0,
+            'sixtyDayReturn' => 3.0,
+            'yearToDateReturn' => 4.0,
+        ], [
+            'previousClose' => 38.42,
+        ]);
+
+        $this->assertSame(38.42, $summary['previousClose']);
+        $this->assertSame('2026-06-30', $summary['previousCloseDate']);
+        $this->assertSame(1.0, $summary['fiveDayReturn']);
+        $this->assertSame(2.0, $summary['twentyDayReturn']);
+        $this->assertSame(3.0, $summary['sixtyDayReturn']);
+        $this->assertSame(4.0, $summary['yearToDateReturn']);
+    }
+
     public function test_esun_minimum_query_seconds_uses_forty_five_second_floor(): void
     {
         config()->set('esun.minimum_query_seconds', 30);

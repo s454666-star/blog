@@ -1682,6 +1682,10 @@ function applyQuotePayloadToRows(rows, payload) {
         }
 
         if (!quoteCanRepriceRow(row, quote)) {
+            if (!quotePreviousCloseMatchesRow(row, quote)) {
+                return row;
+            }
+
             const nextRow = applyStaleQuoteToRow(row, quote);
             if (nextRow !== row) {
                 changed = true;
@@ -1706,6 +1710,10 @@ function quoteCanRepriceRow(row, quote) {
 
     if (rowLooksParkedAtPreviousClose(row, quote)) {
         return true;
+    }
+
+    if (!quotePreviousCloseMatchesRow(row, quote)) {
+        return false;
     }
 
     const quoteTime = Date.parse(quote?.quotedAt || '');
@@ -1744,6 +1752,18 @@ function rowLooksParkedAtPreviousClose(row, quote) {
     return parkedValues.every(value => value === null || Math.abs(value) <= epsilon);
 }
 
+function quotePreviousCloseMatchesRow(row, quote) {
+    const quotePreviousClose = finiteNumber(quote?.previousClose);
+    const rowPreviousClose = finiteNumber(row.previousClose);
+    if (quotePreviousClose === null || rowPreviousClose === null) {
+        return true;
+    }
+
+    const tolerance = Math.max(0.01, Math.abs(rowPreviousClose) * 0.0001);
+
+    return Math.abs(quotePreviousClose - rowPreviousClose) <= tolerance;
+}
+
 function canUseCandidateQuote(row, quote) {
     const source = state.lastPayload?.source || {};
     const ageSeconds = Number(source.ageSeconds);
@@ -1756,6 +1776,10 @@ function canUseCandidateQuote(row, quote) {
 
 function shouldUseQuotePreviousClose(row, quote) {
     if (finiteNumber(quote?.previousClose) === null) {
+        return false;
+    }
+
+    if (!quotePreviousCloseMatchesRow(row, quote)) {
         return false;
     }
 
@@ -1857,6 +1881,10 @@ function timestampScore(value) {
 function applyPreviousCloseToRow(row, quote) {
     const previousClose = finiteNumber(quote.previousClose);
     if (previousClose === null) {
+        return row;
+    }
+
+    if (!quotePreviousCloseMatchesRow(row, quote)) {
         return row;
     }
 

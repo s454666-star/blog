@@ -77,6 +77,7 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertDontSee('玉山每分鐘校準')
             ->assertSee('quoteCanRepriceRow', false)
             ->assertSee('rowLooksParkedAtPreviousClose', false)
+            ->assertSee('quotePreviousCloseMatchesRow', false)
             ->assertSee('canUseCandidateQuote', false)
             ->assertSee('shouldUseQuotePreviousClose', false)
             ->assertSee('const previousClose = rowPreviousClose ?? quotePreviousClose;', false)

@@ -11,11 +11,18 @@ use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Collection;
 use RuntimeException;
 
 class TwActiveEtfOperationFetcher
 {
     private const TWSE_ACTIVE_ETF_URL = 'https://www.twse.com.tw/rwd/zh/ETF/activeList';
+
+    private const TPEX_ETF_LIST_URL = 'https://www.tpex.org.tw/www/zh-tw/ETF/list';
+
+    private const TPEX_DAILY_QUOTE_URL = 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes';
+
+    private const TWSE_MIS_URL = 'https://mis.twse.com.tw/stock/api/getStockInfo.jsp';
 
     private const CMONEY_FORUM_URL = 'https://www.cmoney.tw/forum/stock/%s';
 
@@ -25,10 +32,39 @@ class TwActiveEtfOperationFetcher
 
     private const CMONEY_TOKEN_CACHE_SECONDS = 1200;
 
+    private const TPEX_ETF_TYPES = [
+        'domestic' => '國內成分股 ETF',
+        'foreign' => '國外成分股 ETF',
+        'bond' => '債券及固定收益 ETF',
+    ];
+
+    public function __construct(
+        private readonly TwStockTwseDailyQuoteService $twseDailyQuoteService,
+    ) {
+    }
+
     /**
      * @return list<array<string, mixed>>
      */
     public function fetchActiveEtfList(): array
+    {
+        $rows = $this->mergeActiveEtfRows([
+            ...$this->fetchTwseActiveEtfRows(),
+            ...$this->fetchTpexActiveEtfRows(),
+        ]);
+        $quotes = $this->fetchQuoteSnapshots($rows);
+
+        return array_map(function (array $row) use ($quotes): array {
+            $quote = $quotes[(string) $row['stock_code']] ?? [];
+
+            return [...$row, ...$quote];
+        }, $rows);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function fetchTwseActiveEtfRows(): array
     {
         $payload = $this->http()
             ->get(self::TWSE_ACTIVE_ETF_URL, ['response' => 'json'])
@@ -53,6 +89,7 @@ class TwActiveEtfOperationFetcher
             $rows[] = [
                 'stock_code' => $code,
                 'stock_name' => trim((string) $row[1]),
+                'exchange' => 'TWSE',
                 'management_type' => trim((string) $row[2]),
                 'etf_category' => trim((string) $row[3]),
                 'is_active' => true,
@@ -66,6 +103,385 @@ class TwActiveEtfOperationFetcher
         }
 
         return $rows;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function fetchTpexActiveEtfRows(): array
+    {
+        $rows = [];
+        foreach (self::TPEX_ETF_TYPES as $type => $category) {
+            $payload = $this->http()
+                ->asForm()
+                ->post(self::TPEX_ETF_LIST_URL, [
+                    'type' => $type,
+                    'response' => 'json',
+                ])
+                ->throw()
+                ->json();
+
+            if (!is_array($payload) || ($payload['stat'] ?? null) !== 'ok' || !is_array($payload['tables'] ?? null)) {
+                throw new RuntimeException('TPEx ETF 清單回應格式不正確。');
+            }
+
+            foreach ($payload['tables'] as $table) {
+                if (!is_array($table) || !is_array($table['data'] ?? null)) {
+                    continue;
+                }
+
+                foreach ($table['data'] as $row) {
+                    if (!is_array($row) || count($row) < 2) {
+                        continue;
+                    }
+
+                    $code = strtoupper(trim((string) $row[0]));
+                    if (!$this->isActiveEtfCode($code)) {
+                        continue;
+                    }
+
+                    $rows[] = [
+                        'stock_code' => $code,
+                        'stock_name' => trim((string) $row[1]),
+                        'exchange' => 'TPEx',
+                        'management_type' => '主動式',
+                        'etf_category' => $category,
+                        'is_active' => true,
+                        'source' => 'TPEx ETF/list',
+                        'source_payload' => [
+                            'type' => $type,
+                            'fields' => $table['fields'] ?? null,
+                            'row' => $row,
+                        ],
+                        'fetched_at' => now(),
+                    ];
+                }
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
+     */
+    private function mergeActiveEtfRows(array $rows): array
+    {
+        $merged = [];
+        foreach ($rows as $row) {
+            $code = (string) ($row['stock_code'] ?? '');
+            if ($code === '') {
+                continue;
+            }
+
+            $merged[$code] = $row;
+        }
+
+        ksort($merged, SORT_NATURAL);
+
+        return array_values($merged);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $etfs
+     * @return array<string, array<string, mixed>>
+     */
+    private function fetchQuoteSnapshots(array $etfs): array
+    {
+        $daily = $this->fetchDailyQuoteSnapshots($etfs);
+        $realtime = $this->fetchMisQuoteSnapshots($etfs);
+
+        foreach ($realtime as $code => $quote) {
+            $dailyQuote = $daily[$code] ?? null;
+            if (
+                $dailyQuote !== null
+                && ($dailyQuote['quote_date'] ?? null) === ($quote['quote_date'] ?? null)
+                && ($dailyQuote['trade_value'] ?? null) !== null
+            ) {
+                $quote['trade_value'] = $dailyQuote['trade_value'];
+                $quote['transaction_count'] = $dailyQuote['transaction_count'] ?? null;
+                $quote['quote_source'] = $quote['quote_source'] . ' + ' . $dailyQuote['quote_source'];
+                $quote['quote_payload']['daily_quote_payload'] = $dailyQuote['quote_payload'] ?? null;
+                $quote['quote_payload']['trade_value_estimated'] = false;
+            }
+
+            $daily[$code] = $quote;
+        }
+
+        return $daily;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $etfs
+     * @return array<string, array<string, mixed>>
+     */
+    private function fetchMisQuoteSnapshots(array $etfs): array
+    {
+        $channels = collect($etfs)
+            ->map(function (array $etf): ?string {
+                $code = strtoupper(trim((string) ($etf['stock_code'] ?? '')));
+                if ($code === '') {
+                    return null;
+                }
+
+                $prefix = (string) ($etf['exchange'] ?? '') === 'TPEx' ? 'otc' : 'tse';
+
+                return $prefix . '_' . $code . '.tw';
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($channels === []) {
+            return [];
+        }
+
+        $snapshots = [];
+        foreach (array_chunk($channels, 35) as $chunk) {
+            $payload = $this->http()
+                ->get(self::TWSE_MIS_URL, [
+                    'ex_ch' => implode('|', $chunk),
+                    'json' => '1',
+                    'delay' => '0',
+                    '_' => (string) floor(microtime(true) * 1000),
+                ])
+                ->throw()
+                ->json();
+
+            $rows = is_array($payload) ? ($payload['msgArray'] ?? []) : [];
+            if (!is_array($rows)) {
+                continue;
+            }
+
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                $snapshot = $this->misRowToQuoteSnapshot($row);
+                if ($snapshot !== null) {
+                    $snapshots[(string) $snapshot['stock_code']] = $snapshot;
+                }
+            }
+        }
+
+        return array_map(function (array $snapshot): array {
+            unset($snapshot['stock_code']);
+
+            return $snapshot;
+        }, $snapshots);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>|null
+     */
+    private function misRowToQuoteSnapshot(array $row): ?array
+    {
+        $code = strtoupper(trim((string) ($row['c'] ?? '')));
+        $close = $this->parseMarketNumber($row['z'] ?? null)
+            ?? $this->parseMarketNumber($row['pz'] ?? null)
+            ?? $this->midQuotePrice($row['b'] ?? null, $row['a'] ?? null);
+        $previousClose = $this->parseMarketNumber($row['y'] ?? null);
+        $quoteDate = $this->parseYmdStringDate((string) ($row['d'] ?? ''));
+        if ($code === '' || $close === null || $previousClose === null || $quoteDate === null) {
+            return null;
+        }
+
+        $volumeLots = $this->parseMarketInteger($row['v'] ?? null);
+        $volumeShares = $volumeLots === null ? null : $volumeLots * 1000;
+        $change = $close - $previousClose;
+        $tradeValue = $volumeLots === null ? null : (int) round($close * $volumeLots * 1000);
+
+        return [
+            'stock_code' => $code,
+            'exchange' => (string) ($row['ex'] ?? '') === 'otc' ? 'TPEx' : 'TWSE',
+            'quote_date' => $quoteDate,
+            'close_price' => $this->decimal($close),
+            'previous_close_price' => $this->decimal($previousClose),
+            'price_change_amount' => $this->decimal($change),
+            'price_change_percent' => $previousClose > 0.0 ? $this->decimal(($change / $previousClose) * 100) : null,
+            'volume_lots' => $volumeLots,
+            'volume_shares' => $volumeShares,
+            'trade_value' => $tradeValue,
+            'transaction_count' => null,
+            'quote_source' => 'TWSE MIS stockInfo',
+            'quote_payload' => [
+                'row' => $row,
+                'trade_value_estimated' => true,
+            ],
+            'quote_fetched_at' => now(),
+        ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $etfs
+     * @return array<string, array<string, mixed>>
+     */
+    private function fetchDailyQuoteSnapshots(array $etfs): array
+    {
+        $codesByExchange = collect($etfs)
+            ->groupBy(fn (array $etf): string => (string) ($etf['exchange'] ?? ''))
+            ->map(fn (Collection $group): array => $group
+                ->pluck('stock_code')
+                ->map(fn (mixed $code): string => strtoupper(trim((string) $code)))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all())
+            ->all();
+
+        return [
+            ...$this->fetchTwseDailyQuoteSnapshots($codesByExchange['TWSE'] ?? []),
+            ...$this->fetchTpexDailyQuoteSnapshots($codesByExchange['TPEx'] ?? []),
+        ];
+    }
+
+    /**
+     * @param list<string> $codes
+     * @return array<string, array<string, mixed>>
+     */
+    private function fetchTwseDailyQuoteSnapshots(array $codes): array
+    {
+        $allowed = array_flip($codes);
+        if ($allowed === []) {
+            return [];
+        }
+
+        $snapshots = [];
+        foreach ($this->twseDailyQuoteService->fetchRows() as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $code = strtoupper(trim((string) ($row['Code'] ?? '')));
+            if (!isset($allowed[$code])) {
+                continue;
+            }
+
+            $snapshot = $this->dailyQuoteSnapshotFromRow(
+                $code,
+                'TWSE',
+                trim((string) ($row['Name'] ?? '')),
+                $this->parseRocDate((string) ($row['Date'] ?? '')),
+                $row['ClosingPrice'] ?? null,
+                $row['Change'] ?? null,
+                $row['TradeVolume'] ?? null,
+                $row['TradeValue'] ?? null,
+                $row['Transaction'] ?? null,
+                'TWSE STOCK_DAY_ALL',
+                $row,
+            );
+
+            if ($snapshot !== null) {
+                $snapshots[$code] = $snapshot;
+            }
+        }
+
+        return $snapshots;
+    }
+
+    /**
+     * @param list<string> $codes
+     * @return array<string, array<string, mixed>>
+     */
+    private function fetchTpexDailyQuoteSnapshots(array $codes): array
+    {
+        $allowed = array_flip($codes);
+        if ($allowed === []) {
+            return [];
+        }
+
+        $payload = $this->http()
+            ->get(self::TPEX_DAILY_QUOTE_URL)
+            ->throw()
+            ->json();
+        if (!is_array($payload)) {
+            return [];
+        }
+
+        $snapshots = [];
+        foreach ($payload as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $code = strtoupper(trim((string) ($row['SecuritiesCompanyCode'] ?? '')));
+            if (!isset($allowed[$code])) {
+                continue;
+            }
+
+            $snapshot = $this->dailyQuoteSnapshotFromRow(
+                $code,
+                'TPEx',
+                trim((string) ($row['CompanyName'] ?? '')),
+                $this->parseRocDate((string) ($row['Date'] ?? '')),
+                $row['Close'] ?? null,
+                $row['Change'] ?? null,
+                $row['TradingShares'] ?? null,
+                $row['TransactionAmount'] ?? null,
+                $row['TransactionNumber'] ?? null,
+                'TPEx tpex_mainboard_quotes',
+                $row,
+            );
+
+            if ($snapshot !== null) {
+                $snapshots[$code] = $snapshot;
+            }
+        }
+
+        return $snapshots;
+    }
+
+    /**
+     * @param array<string, mixed> $sourceRow
+     * @return array<string, mixed>|null
+     */
+    private function dailyQuoteSnapshotFromRow(
+        string $code,
+        string $exchange,
+        string $name,
+        ?string $quoteDate,
+        mixed $closeValue,
+        mixed $changeValue,
+        mixed $volumeSharesValue,
+        mixed $tradeValue,
+        mixed $transactionCount,
+        string $source,
+        array $sourceRow,
+    ): ?array {
+        $close = $this->parseMarketNumber($closeValue);
+        if ($quoteDate === null || $close === null) {
+            return null;
+        }
+
+        $change = $this->parseMarketNumber($changeValue);
+        $previousClose = $change === null ? null : $close - $change;
+        $volumeShares = $this->parseMarketInteger($volumeSharesValue);
+
+        return [
+            'exchange' => $exchange,
+            'stock_name' => $name,
+            'quote_date' => $quoteDate,
+            'close_price' => $this->decimal($close),
+            'previous_close_price' => $this->decimal($previousClose),
+            'price_change_amount' => $this->decimal($change),
+            'price_change_percent' => $previousClose !== null && $previousClose > 0.0 && $change !== null
+                ? $this->decimal(($change / $previousClose) * 100)
+                : null,
+            'volume_lots' => $volumeShares === null ? null : (int) floor($volumeShares / 1000),
+            'volume_shares' => $volumeShares,
+            'trade_value' => $this->parseMarketInteger($tradeValue),
+            'transaction_count' => $this->parseMarketInteger($transactionCount),
+            'quote_source' => $source,
+            'quote_payload' => [
+                'row' => $sourceRow,
+                'trade_value_estimated' => false,
+            ],
+            'quote_fetched_at' => now(),
+        ];
     }
 
     /**
@@ -292,6 +708,91 @@ class TwActiveEtfOperationFetcher
         $date = CarbonImmutable::createFromFormat('Ymd', $value, (string) config('app.timezone'));
 
         return $date instanceof CarbonImmutable ? $date->startOfDay() : null;
+    }
+
+    private function parseYmdStringDate(string $value): ?string
+    {
+        $normalized = preg_replace('/\D+/', '', trim($value)) ?? '';
+        if (strlen($normalized) !== 8) {
+            return null;
+        }
+
+        $year = (int) substr($normalized, 0, 4);
+        $month = (int) substr($normalized, 4, 2);
+        $day = (int) substr($normalized, 6, 2);
+        if (!checkdate($month, $day, $year)) {
+            return null;
+        }
+
+        return sprintf('%04d-%02d-%02d', $year, $month, $day);
+    }
+
+    private function parseRocDate(string $value): ?string
+    {
+        $normalized = preg_replace('/\D+/', '', trim($value)) ?? '';
+        if (strlen($normalized) !== 7) {
+            return null;
+        }
+
+        $year = (int) substr($normalized, 0, 3) + 1911;
+        $month = (int) substr($normalized, 3, 2);
+        $day = (int) substr($normalized, 5, 2);
+        if (!checkdate($month, $day, $year)) {
+            return null;
+        }
+
+        return sprintf('%04d-%02d-%02d', $year, $month, $day);
+    }
+
+    private function isActiveEtfCode(string $code): bool
+    {
+        return preg_match('/^\d{5}[AD]$/', strtoupper(trim($code))) === 1;
+    }
+
+    private function parseMarketNumber(mixed $value): ?float
+    {
+        $normalized = str_replace([',', "\xc2\xa0", ' ', '+', '%'], '', trim((string) $value));
+
+        if ($normalized === '' || $normalized === '-' || $normalized === '－' || $normalized === '--') {
+            return null;
+        }
+
+        if (!is_numeric($normalized)) {
+            return null;
+        }
+
+        return (float) $normalized;
+    }
+
+    private function parseMarketInteger(mixed $value): ?int
+    {
+        $number = $this->parseMarketNumber($value);
+
+        return $number === null ? null : (int) round($number);
+    }
+
+    private function midQuotePrice(mixed $bidValue, mixed $askValue): ?float
+    {
+        $bid = $this->firstOrderBookPrice($bidValue);
+        $ask = $this->firstOrderBookPrice($askValue);
+
+        if ($bid !== null && $ask !== null) {
+            return round(($bid + $ask) / 2, 4);
+        }
+
+        return $bid ?? $ask;
+    }
+
+    private function firstOrderBookPrice(mixed $value): ?float
+    {
+        $first = explode('_', (string) $value)[0] ?? null;
+
+        return $this->parseMarketNumber($first);
+    }
+
+    private function decimal(?float $value): ?string
+    {
+        return $value === null ? null : number_format($value, 4, '.', '');
     }
 
     private function parseInteger(mixed $value): ?int

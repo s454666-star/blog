@@ -67,6 +67,91 @@ class TwActiveEtfOperationsTest extends TestCase
                     ['00981A', '主動統一台股增', '主動式', '股票型'],
                 ],
             ]),
+            'https://www.tpex.org.tw/www/zh-tw/ETF/list' => function ($request) {
+                $type = (string) (($request->data())['type'] ?? '');
+
+                return Http::response([
+                    'stat' => 'ok',
+                    'tables' => [[
+                        'fields' => ['證券代號', 'ETF簡稱', '上櫃日期'],
+                        'data' => match ($type) {
+                            'foreign' => [['00998A', '主動復華金融股息', '115/04/15']],
+                            'bond' => [['00981D', '主動中信非投等債', '114/09/16']],
+                            default => [],
+                        },
+                    ]],
+                ]);
+            },
+            'https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL*' => Http::response([
+                'date' => '20260701',
+                'data' => [
+                    ['00403A', '主動統一升級50', '381,613,000', '4,270,000,000', '11.24', '11.29', '11.06', '11.15', '0.13', '46,057'],
+                    ['00981A', '主動統一台股增', '307,148,000', '9,840,000,000', '32.07', '32.23', '31.55', '32.00', '0.72', '58,038'],
+                ],
+            ]),
+            'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes' => Http::response([
+                [
+                    'SecuritiesCompanyCode' => '00998A',
+                    'CompanyName' => '主動復華金融股息',
+                    'Date' => '1150701',
+                    'Close' => '16.58',
+                    'Change' => '0.00',
+                    'TradingShares' => '2537000',
+                    'TransactionAmount' => '42000000',
+                    'TransactionNumber' => '797',
+                ],
+                [
+                    'SecuritiesCompanyCode' => '00981D',
+                    'CompanyName' => '主動中信非投等債',
+                    'Date' => '1150701',
+                    'Close' => '10.40',
+                    'Change' => '-0.02',
+                    'TradingShares' => '2547000',
+                    'TransactionAmount' => '26000000',
+                    'TransactionNumber' => '230',
+                ],
+            ]),
+            'https://mis.twse.com.tw/stock/api/getStockInfo.jsp*' => Http::response([
+                'rtcode' => '0000',
+                'msgArray' => [
+                    [
+                        'c' => '00403A',
+                        'n' => '主動統一升級50',
+                        'ex' => 'tse',
+                        'd' => '20260701',
+                        'z' => '11.15',
+                        'y' => '11.02',
+                        'v' => '381613',
+                    ],
+                    [
+                        'c' => '00981A',
+                        'n' => '主動統一台股增長',
+                        'ex' => 'tse',
+                        'd' => '20260701',
+                        'z' => '32.00',
+                        'y' => '31.28',
+                        'v' => '307148',
+                    ],
+                    [
+                        'c' => '00998A',
+                        'n' => '主動復華金融股息',
+                        'ex' => 'otc',
+                        'd' => '20260701',
+                        'z' => '16.58',
+                        'y' => '16.58',
+                        'v' => '2537',
+                    ],
+                    [
+                        'c' => '00981D',
+                        'n' => '主動中信非投等債',
+                        'ex' => 'otc',
+                        'd' => '20260701',
+                        'z' => '10.40',
+                        'y' => '10.42',
+                        'v' => '2547',
+                    ],
+                ],
+            ]),
             'https://www.cmoney.tw/forum/stock/00403A*' => Http::response('<html><script>tokens:{at:"guest-token"}</script></html>'),
             'https://customreport.cmoney.tw/app/v2/dtno/JsonCsv' => Http::response([
                 'columns' => ['日期', '變動狀態', '變動標的代號', '變動標的名稱', '持股變動數', '持股變動數(張)', '標籤'],
@@ -91,6 +176,18 @@ class TwActiveEtfOperationsTest extends TestCase
             'stock_name' => '主動統一升級50',
             'is_active' => 1,
         ]);
+        $this->assertDatabaseHas('tw_active_etfs', [
+            'stock_code' => '00998A',
+            'exchange' => 'TPEx',
+            'stock_name' => '主動復華金融股息',
+            'is_active' => 1,
+        ]);
+        $quote = DB::table('tw_active_etfs')->where('stock_code', '00403A')->first();
+        $this->assertNotNull($quote);
+        $this->assertSame('TWSE', $quote->exchange);
+        $this->assertEquals(11.15, (float) $quote->close_price);
+        $this->assertEquals(0.13, (float) $quote->price_change_amount);
+        $this->assertEquals(381613, (int) $quote->volume_lots);
         $this->assertDatabaseCount('tw_active_etf_operation_reports', 2);
         $this->assertDatabaseCount('tw_active_etf_operation_items', 3);
         $this->assertDatabaseHas('tw_active_etf_operation_reports', [
@@ -120,14 +217,48 @@ class TwActiveEtfOperationsTest extends TestCase
         $now = now();
 
         DB::table('tw_active_etfs')->insert([
-            'stock_code' => '00403A',
-            'stock_name' => '主動統一升級50',
-            'management_type' => '主動式',
-            'etf_category' => '股票型',
-            'is_active' => true,
-            'fetched_at' => $now,
-            'created_at' => $now,
-            'updated_at' => $now,
+            [
+                'stock_code' => '00403A',
+                'stock_name' => '主動統一升級50',
+                'exchange' => 'TWSE',
+                'management_type' => '主動式',
+                'etf_category' => '股票型',
+                'is_active' => true,
+                'fetched_at' => $now,
+                'quote_date' => '2026-07-01',
+                'close_price' => 11.15,
+                'previous_close_price' => 11.02,
+                'price_change_amount' => 0.13,
+                'price_change_percent' => 1.1797,
+                'volume_lots' => 381613,
+                'volume_shares' => 381613000,
+                'trade_value' => 4270000000,
+                'quote_source' => 'TWSE MIS stockInfo',
+                'quote_fetched_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'stock_code' => '00981A',
+                'stock_name' => '主動統一台股增',
+                'exchange' => 'TWSE',
+                'management_type' => '主動式',
+                'etf_category' => '股票型',
+                'is_active' => true,
+                'fetched_at' => $now,
+                'quote_date' => '2026-07-01',
+                'close_price' => 32.00,
+                'previous_close_price' => 31.28,
+                'price_change_amount' => 0.72,
+                'price_change_percent' => 2.3018,
+                'volume_lots' => 307148,
+                'volume_shares' => 307148000,
+                'trade_value' => 9840000000,
+                'quote_source' => 'TWSE MIS stockInfo',
+                'quote_fetched_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
         ]);
 
         $reportId = DB::table('tw_active_etf_operation_reports')->insertGetId([
@@ -142,10 +273,23 @@ class TwActiveEtfOperationsTest extends TestCase
             'created_at' => $now,
             'updated_at' => $now,
         ]);
+        $secondReportId = DB::table('tw_active_etf_operation_reports')->insertGetId([
+            'etf_code' => '00981A',
+            'etf_name' => '主動統一台股增',
+            'operation_date' => '2026-06-30',
+            'source_kind' => 'cmoney_dtno',
+            'source_url' => 'https://www.cmoney.tw/forum/stock/00981A',
+            'source_row_count' => 1,
+            'changed_row_count' => 1,
+            'fetched_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
 
         DB::table('tw_active_etf_operation_items')->insert([
             $this->itemRow($reportId, '00403A', '主動統一升級50', '2026-06-30', '6239', '力成', 'new', '新增', 500),
             $this->itemRow($reportId, '00403A', '主動統一升級50', '2026-06-30', '6147', '頎邦', 'reduce', '減碼', -2500),
+            $this->itemRow($secondReportId, '00981A', '主動統一台股增', '2026-06-30', '5274', '信驊', 'add', '加碼', 12),
         ]);
 
         $this->get(route('tw-stock.active-etf-operations.index'))
@@ -153,10 +297,19 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertSee('主動式 ETF 操作日報')
             ->assertSee('value="2026-06-30"', false)
             ->assertSee('00403A')
+            ->assertSee('11.15')
+            ->assertSee('+0.13')
+            ->assertSee('+1.18%')
+            ->assertSee('42.7億')
+            ->assertSee('market_sort=price', false)
+            ->assertSee('detail_sort=change_lots', false)
             ->assertSee('力成')
             ->assertSee('頎邦')
+            ->assertSee('信驊')
             ->assertSee('desktop-ledger', false)
-            ->assertSee('mobile-operations', false);
+            ->assertSee('mobile-operations', false)
+            ->assertDontSee('來源')
+            ->assertDontSee('CMoney');
 
         $this->get(route('tw-stock.active-etf-operations.index', [
             'from' => '2026-06-30',
@@ -166,6 +319,16 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertOk()
             ->assertSee('頎邦')
             ->assertDontSee('力成</strong>', false);
+
+        $this->get(route('tw-stock.active-etf-operations.index', [
+            'from' => '2026-06-30',
+            'to' => '2026-06-30',
+            'etf' => '00403A',
+        ]))
+            ->assertOk()
+            ->assertSee('aria-current="true"', false)
+            ->assertSee('頎邦')
+            ->assertDontSee('信驊</strong>', false);
     }
 
     private function createTables(): void
@@ -174,12 +337,25 @@ class TwActiveEtfOperationsTest extends TestCase
             $table->id();
             $table->string('stock_code', 12)->unique();
             $table->string('stock_name');
+            $table->string('exchange', 16)->nullable();
             $table->string('management_type')->nullable();
             $table->string('etf_category', 32)->nullable();
             $table->boolean('is_active')->default(true);
             $table->string('source')->nullable();
             $table->json('source_payload')->nullable();
             $table->timestamp('fetched_at')->nullable();
+            $table->date('quote_date')->nullable();
+            $table->decimal('close_price', 12, 4)->nullable();
+            $table->decimal('previous_close_price', 12, 4)->nullable();
+            $table->decimal('price_change_amount', 12, 4)->nullable();
+            $table->decimal('price_change_percent', 8, 4)->nullable();
+            $table->unsignedBigInteger('volume_lots')->nullable();
+            $table->unsignedBigInteger('volume_shares')->nullable();
+            $table->unsignedBigInteger('trade_value')->nullable();
+            $table->unsignedInteger('transaction_count')->nullable();
+            $table->string('quote_source')->nullable();
+            $table->json('quote_payload')->nullable();
+            $table->timestamp('quote_fetched_at')->nullable();
             $table->timestamps();
         });
 

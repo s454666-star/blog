@@ -17,7 +17,7 @@ class FetchTwActiveEtfOperationsCommand extends Command
         {--sleep-ms=350 : 每檔 ETF 間的等待毫秒數}
         {--stop-on-error : 任一 ETF 抓取失敗就停止}';
 
-    protected $description = '抓取 TWSE 主動式 ETF 清單與 CMoney 主動 ETF 操作日報。';
+    protected $description = '抓取 TWSE/TPEx 主動式 ETF 清單、行情與 CMoney 主動 ETF 操作日報。';
 
     public function handle(TwActiveEtfOperationFetcher $fetcher): int
     {

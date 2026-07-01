@@ -271,14 +271,16 @@
         .summary-card,
         .etf-card {
             position: relative;
+            display: block;
             overflow: hidden;
             min-width: 0;
             border: 1px solid rgba(246, 251, 248, 0.18);
             border-radius: 8px;
             background: var(--panel);
             color: var(--ink);
+            text-decoration: none;
             box-shadow: 0 18px 44px rgba(0, 0, 0, 0.18);
-            transition: transform 180ms ease, box-shadow 180ms ease;
+            transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
         }
 
         .summary-card:hover,
@@ -330,6 +332,19 @@
             padding: 14px;
         }
 
+        .etf-card.active {
+            border-color: rgba(242, 184, 75, 0.96);
+            background:
+                linear-gradient(135deg, rgba(255, 248, 217, 0.98), rgba(229, 255, 249, 0.95));
+            box-shadow: 0 0 0 2px rgba(242, 184, 75, 0.34), 0 28px 70px rgba(88, 216, 208, 0.26);
+            transform: translateY(-3px);
+        }
+
+        .etf-card:focus-visible {
+            outline: 3px solid rgba(88, 216, 208, 0.7);
+            outline-offset: 3px;
+        }
+
         .etf-title {
             display: flex;
             align-items: baseline;
@@ -352,6 +367,47 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        .quote-strip {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 6px;
+            margin-top: 12px;
+        }
+
+        .quote-pill {
+            min-height: 50px;
+            padding: 7px 8px;
+            border: 1px solid rgba(20, 30, 24, 0.08);
+            border-radius: 8px;
+            background: rgba(245, 249, 246, 0.76);
+        }
+
+        .quote-pill span {
+            display: block;
+            color: var(--muted-dark);
+            font-size: 11px;
+            font-weight: 900;
+        }
+
+        .quote-pill strong {
+            display: block;
+            margin-top: 4px;
+            overflow: hidden;
+            color: var(--ink);
+            font-size: 15px;
+            font-weight: 950;
+            text-overflow: ellipsis;
+            white-space: normal;
+        }
+
+        .quote-sub {
+            display: block;
+            margin-top: 2px;
+            font-size: 12px;
+            font-weight: 900;
+            line-height: 1.25;
         }
 
         .etf-meter {
@@ -389,6 +445,10 @@
             color: var(--ink);
         }
 
+        .market-panel {
+            margin-bottom: 16px;
+        }
+
         .ledger-head {
             display: flex;
             align-items: center;
@@ -423,6 +483,10 @@
             font-variant-numeric: tabular-nums;
         }
 
+        .market-table {
+            min-width: 980px;
+        }
+
         th,
         td {
             padding: 13px 14px;
@@ -442,11 +506,25 @@
             font-weight: 950;
         }
 
-        td:nth-child(4),
-        th:nth-child(4),
-        td:nth-child(5),
-        th:nth-child(5) {
-            text-align: right;
+        .sort-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .sort-link:hover {
+            color: #0c766f;
+        }
+
+        .sort-link.active {
+            color: #0b645e;
+        }
+
+        .sort-mark {
+            color: #92a29a;
+            font-size: 10px;
         }
 
         tbody tr {
@@ -521,29 +599,27 @@
 
         .change-positive { color: #c63245; }
         .change-negative { color: #08744f; }
+        .change-neutral { color: #26302a; }
 
-        .source-link {
-            color: #0d716a;
-            font-weight: 900;
-            text-decoration: none;
+        .numeric-cell {
+            text-align: right;
         }
 
-        .source-link:hover {
-            text-decoration: underline;
-        }
-
-        .mobile-operations {
+        .mobile-operations,
+        .mobile-market {
             display: none;
         }
 
-        .operation-card {
+        .operation-card,
+        .market-card {
             border: 1px solid var(--line-dark);
             border-radius: 8px;
             background: #ffffff;
             box-shadow: 0 14px 32px rgba(14, 21, 18, 0.08);
         }
 
-        .operation-card-head {
+        .operation-card-head,
+        .market-card-head {
             display: flex;
             align-items: flex-start;
             justify-content: space-between;
@@ -552,12 +628,31 @@
             border-bottom: 1px solid rgba(20, 30, 24, 0.08);
         }
 
-        .operation-card-body {
+        .operation-card-body,
+        .market-card-body {
             display: grid;
             grid-template-columns: 1fr auto;
             gap: 10px;
             align-items: end;
             padding: 12px;
+        }
+
+        .market-card-body {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .mobile-metric span {
+            display: block;
+            color: var(--muted-dark);
+            font-size: 11px;
+            font-weight: 900;
+        }
+
+        .mobile-metric strong {
+            display: block;
+            margin-top: 5px;
+            font-size: 16px;
+            font-weight: 950;
         }
 
         .empty {
@@ -666,6 +761,10 @@
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
+            .quote-strip {
+                grid-template-columns: 1fr;
+            }
+
             .ledger-head {
                 align-items: flex-start;
                 flex-direction: column;
@@ -680,7 +779,8 @@
                 display: none;
             }
 
-            .mobile-operations {
+            .mobile-operations,
+            .mobile-market {
                 display: grid;
                 grid-template-columns: 1fr;
                 gap: 10px;
@@ -702,6 +802,10 @@
             .operation-card-body {
                 grid-template-columns: 1fr;
             }
+
+            .market-card-body {
+                grid-template-columns: 1fr;
+            }
         }
 @include('tw-stock.partials.shared-shell-width')
     </style>
@@ -720,8 +824,68 @@
         return ($number > 0 ? '+' : ($number < 0 ? '-' : '')) . $formatted . ' 張';
     };
 
-    $changeClass = static fn ($value): string => (float) $value < 0 ? 'change-negative' : 'change-positive';
+    $formatPrice = static fn ($value): string => $value === null ? 'N/A' : number_format((float) $value, 2);
+    $formatSignedNumber = static function ($value, int $decimals = 2, string $suffix = ''): string {
+        if ($value === null) {
+            return 'N/A';
+        }
+
+        $number = (float) $value;
+
+        return ($number > 0 ? '+' : ($number < 0 ? '-' : '')) . number_format(abs($number), $decimals) . $suffix;
+    };
+    $formatPercent = static fn ($value): string => $formatSignedNumber($value, 2, '%');
+    $formatVolume = static fn ($value): string => $value === null ? 'N/A' : number_format((int) $value);
+    $formatTradeValue = static function ($value): string {
+        if ($value === null) {
+            return 'N/A';
+        }
+
+        $number = (int) $value;
+        if ($number >= 100000000) {
+            return number_format($number / 100000000, 1) . '億';
+        }
+
+        if ($number >= 10000) {
+            return number_format($number / 10000, 1) . '萬';
+        }
+
+        return number_format($number);
+    };
+
+    $changeClass = static function ($value): string {
+        $number = (float) $value;
+
+        return $number < 0 ? 'change-negative' : ($number > 0 ? 'change-positive' : 'change-neutral');
+    };
     $actionClass = static fn (string $action): string => 'action-' . $action;
+    $withQuery = static function (array $updates = []): string {
+        $query = array_merge(request()->query(), $updates);
+        foreach ($query as $key => $value) {
+            if ($value === null || $value === '') {
+                unset($query[$key]);
+            }
+        }
+
+        return route('tw-stock.active-etf-operations.index', $query);
+    };
+    $sortUrl = static function (string $scope, string $field, string $currentSort, string $currentDirection) use ($withQuery): string {
+        $sortKey = $scope . '_sort';
+        $directionKey = $scope . '_dir';
+        $nextDirection = $currentSort === $field && $currentDirection === 'asc' ? 'desc' : 'asc';
+
+        return $withQuery([
+            $sortKey => $field,
+            $directionKey => $nextDirection,
+        ]);
+    };
+    $sortMark = static function (string $field, string $currentSort, string $currentDirection): string {
+        if ($field !== $currentSort) {
+            return '↕';
+        }
+
+        return $currentDirection === 'asc' ? '↑' : '↓';
+    };
 @endphp
 <main class="shell">
     <header class="topbar">
@@ -746,6 +910,10 @@
     </header>
 
     <form class="filter-tool" method="get" action="{{ route('tw-stock.active-etf-operations.index') }}">
+        <input type="hidden" name="market_sort" value="{{ $marketSort }}">
+        <input type="hidden" name="market_dir" value="{{ $marketDirection }}">
+        <input type="hidden" name="detail_sort" value="{{ $detailSort }}">
+        <input type="hidden" name="detail_dir" value="{{ $detailDirection }}">
         <div class="field">
             <label for="from">起始日期</label>
             <input id="from" name="from" type="date" value="{{ $from }}">
@@ -760,7 +928,7 @@
                 <option value="">全部主動式 ETF</option>
                 @foreach ($activeEtfs as $etf)
                     <option value="{{ $etf->stock_code }}" @selected($selectedEtf === $etf->stock_code)>
-                        {{ $etf->stock_code }} {{ $etf->stock_name }}
+                        {{ $etf->stock_code }} {{ $etf->stock_name }}{{ $etf->exchange ? ' / ' . $etf->exchange : '' }}
                     </option>
                 @endforeach
             </select>
@@ -822,14 +990,37 @@
         </article>
     </section>
 
-    @if ($reports->isNotEmpty())
+    @if ($etfCards->isNotEmpty())
         <section class="etf-grid" aria-label="ETF 操作概況">
             @foreach ($etfCards as $card)
-                <article class="etf-card">
+                @php
+                    $isFocused = $selectedEtf === $card['etf_code'];
+                    $cardUrl = $isFocused
+                        ? $withQuery(['etf' => null])
+                        : $withQuery(['etf' => $card['etf_code']]);
+                @endphp
+                <a class="etf-card {{ $isFocused ? 'active' : '' }}" href="{{ $cardUrl }}" @if ($isFocused) aria-current="true" @endif>
                     <div class="etf-kicker">{{ $card['latest_operation_date'] ?? 'N/A' }} · {{ number_format($card['report_count']) }} 份報告</div>
                     <div class="etf-title">
                         <div class="etf-code">{{ $card['etf_code'] }}</div>
                         <div class="etf-name" title="{{ $card['etf_name'] }}">{{ $card['etf_name'] }}</div>
+                    </div>
+                    <div class="quote-strip" aria-label="行情">
+                        <div class="quote-pill">
+                            <span>股價</span>
+                            <strong>{{ $formatPrice($card['close_price']) }}</strong>
+                        </div>
+                        <div class="quote-pill">
+                            <span>漲跌幅</span>
+                            <strong class="{{ $changeClass($card['price_change_amount']) }}">
+                                {{ $formatSignedNumber($card['price_change_amount']) }}
+                                <span class="quote-sub">{{ $formatPercent($card['price_change_percent']) }}</span>
+                            </strong>
+                        </div>
+                        <div class="quote-pill">
+                            <span>成交金額</span>
+                            <strong>{{ $formatTradeValue($card['trade_value']) }}</strong>
+                        </div>
                     </div>
                     <div class="etf-meter">
                         <div class="mini-stat"><span>新增</span><strong class="value-new">{{ number_format($card['new_count']) }}</strong></div>
@@ -837,10 +1028,113 @@
                         <div class="mini-stat"><span>減碼</span><strong class="value-reduce">{{ number_format($card['reduce_count']) }}</strong></div>
                         <div class="mini-stat"><span>刪除</span><strong class="value-remove">{{ number_format($card['remove_count']) }}</strong></div>
                     </div>
-                </article>
+                </a>
             @endforeach
         </section>
     @endif
+
+    <section class="ledger-panel market-panel">
+        <div class="ledger-head">
+            <h2 class="ledger-title">ETF 行情列表</h2>
+            <div class="ledger-meta">
+                共 {{ number_format($marketEtfs->count()) }} 檔，
+                行情日：{{ optional($marketEtfs->firstWhere('quote_date', '!=', null)?->quote_date)->toDateString() ?? 'N/A' }}
+            </div>
+        </div>
+
+        @if ($marketEtfs->isEmpty())
+            <div class="empty">目前沒有符合條件的主動式 ETF 行情。</div>
+        @else
+            <div class="table-wrap desktop-ledger">
+                <table class="market-table">
+                    <thead>
+                    <tr>
+                        <th>
+                            <a class="sort-link {{ $marketSort === 'stock' ? 'active' : '' }}" href="{{ $sortUrl('market', 'stock', $marketSort, $marketDirection) }}">
+                                股票 <span class="sort-mark">{{ $sortMark('stock', $marketSort, $marketDirection) }}</span>
+                            </a>
+                        </th>
+                        <th>
+                            <a class="sort-link {{ $marketSort === 'exchange' ? 'active' : '' }}" href="{{ $sortUrl('market', 'exchange', $marketSort, $marketDirection) }}">
+                                市場 <span class="sort-mark">{{ $sortMark('exchange', $marketSort, $marketDirection) }}</span>
+                            </a>
+                        </th>
+                        <th class="numeric-cell">
+                            <a class="sort-link {{ $marketSort === 'price' ? 'active' : '' }}" href="{{ $sortUrl('market', 'price', $marketSort, $marketDirection) }}">
+                                股價 <span class="sort-mark">{{ $sortMark('price', $marketSort, $marketDirection) }}</span>
+                            </a>
+                        </th>
+                        <th class="numeric-cell">
+                            <a class="sort-link {{ $marketSort === 'change_percent' ? 'active' : '' }}" href="{{ $sortUrl('market', 'change_percent', $marketSort, $marketDirection) }}">
+                                漲跌幅 <span class="sort-mark">{{ $sortMark('change_percent', $marketSort, $marketDirection) }}</span>
+                            </a>
+                        </th>
+                        <th class="numeric-cell">
+                            <a class="sort-link {{ $marketSort === 'volume' ? 'active' : '' }}" href="{{ $sortUrl('market', 'volume', $marketSort, $marketDirection) }}">
+                                成交量 <span class="sort-mark">{{ $sortMark('volume', $marketSort, $marketDirection) }}</span>
+                            </a>
+                        </th>
+                        <th class="numeric-cell">
+                            <a class="sort-link {{ $marketSort === 'trade_value' ? 'active' : '' }}" href="{{ $sortUrl('market', 'trade_value', $marketSort, $marketDirection) }}">
+                                成交金額 <span class="sort-mark">{{ $sortMark('trade_value', $marketSort, $marketDirection) }}</span>
+                            </a>
+                        </th>
+                        <th>
+                            <a class="sort-link {{ $marketSort === 'quote_date' ? 'active' : '' }}" href="{{ $sortUrl('market', 'quote_date', $marketSort, $marketDirection) }}">
+                                行情日 <span class="sort-mark">{{ $sortMark('quote_date', $marketSort, $marketDirection) }}</span>
+                            </a>
+                        </th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach ($marketEtfs as $etf)
+                        <tr>
+                            <td>
+                                <div class="etf-line">
+                                    <strong>{{ $etf->stock_code }}</strong>
+                                    <span>{{ $etf->stock_name }}</span>
+                                </div>
+                            </td>
+                            <td>{{ $etf->exchange ?? 'N/A' }}</td>
+                            <td class="numeric-cell">{{ $formatPrice($etf->close_price) }}</td>
+                            <td class="numeric-cell">
+                                <span class="{{ $changeClass($etf->price_change_amount) }}">
+                                    {{ $formatSignedNumber($etf->price_change_amount) }} / {{ $formatPercent($etf->price_change_percent) }}
+                                </span>
+                            </td>
+                            <td class="numeric-cell">{{ $formatVolume($etf->volume_lots) }}</td>
+                            <td class="numeric-cell">{{ $formatTradeValue($etf->trade_value) }}</td>
+                            <td>{{ $etf->quote_date?->toDateString() ?? 'N/A' }}</td>
+                        </tr>
+                    @endforeach
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mobile-market">
+                @foreach ($marketEtfs as $etf)
+                    <article class="market-card">
+                        <div class="market-card-head">
+                            <div class="etf-line">
+                                <strong>{{ $etf->stock_code }} {{ $etf->stock_name }}</strong>
+                                <span>{{ $etf->exchange ?? 'N/A' }} · {{ $etf->quote_date?->toDateString() ?? 'N/A' }}</span>
+                            </div>
+                        </div>
+                        <div class="market-card-body">
+                            <div class="mobile-metric"><span>股價</span><strong>{{ $formatPrice($etf->close_price) }}</strong></div>
+                            <div class="mobile-metric">
+                                <span>漲跌幅</span>
+                                <strong class="{{ $changeClass($etf->price_change_amount) }}">
+                                    {{ $formatSignedNumber($etf->price_change_amount) }} / {{ $formatPercent($etf->price_change_percent) }}
+                                </strong>
+                            </div>
+                            <div class="mobile-metric"><span>成交金額</span><strong>{{ $formatTradeValue($etf->trade_value) }}</strong></div>
+                        </div>
+                    </article>
+                @endforeach
+            </div>
+        @endif
+    </section>
 
     <section class="ledger-panel">
         <div class="ledger-head">
@@ -858,12 +1152,31 @@
                 <table>
                     <thead>
                     <tr>
-                        <th>日期</th>
-                        <th>ETF</th>
-                        <th>操作</th>
-                        <th>變動張數</th>
-                        <th>成分股</th>
-                        <th>來源</th>
+                        <th>
+                            <a class="sort-link {{ $detailSort === 'date' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'date', $detailSort, $detailDirection) }}">
+                                日期 <span class="sort-mark">{{ $sortMark('date', $detailSort, $detailDirection) }}</span>
+                            </a>
+                        </th>
+                        <th>
+                            <a class="sort-link {{ $detailSort === 'etf' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'etf', $detailSort, $detailDirection) }}">
+                                ETF <span class="sort-mark">{{ $sortMark('etf', $detailSort, $detailDirection) }}</span>
+                            </a>
+                        </th>
+                        <th>
+                            <a class="sort-link {{ $detailSort === 'action' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'action', $detailSort, $detailDirection) }}">
+                                操作 <span class="sort-mark">{{ $sortMark('action', $detailSort, $detailDirection) }}</span>
+                            </a>
+                        </th>
+                        <th class="numeric-cell">
+                            <a class="sort-link {{ $detailSort === 'change_lots' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'change_lots', $detailSort, $detailDirection) }}">
+                                變動張數 <span class="sort-mark">{{ $sortMark('change_lots', $detailSort, $detailDirection) }}</span>
+                            </a>
+                        </th>
+                        <th>
+                            <a class="sort-link {{ $detailSort === 'stock' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'stock', $detailSort, $detailDirection) }}">
+                                成分股 <span class="sort-mark">{{ $sortMark('stock', $detailSort, $detailDirection) }}</span>
+                            </a>
+                        </th>
                     </tr>
                     </thead>
                     <tbody>
@@ -877,15 +1190,12 @@
                                 </div>
                             </td>
                             <td><span class="action-badge {{ $actionClass($item->action) }}">{{ $item->action_label }}</span></td>
-                            <td><span class="change-lots {{ $changeClass($item->change_lots) }}">{{ $formatLots($item->change_lots) }}</span></td>
+                            <td class="numeric-cell"><span class="change-lots {{ $changeClass($item->change_lots) }}">{{ $formatLots($item->change_lots) }}</span></td>
                             <td>
                                 <div class="stock-line">
                                     <strong>{{ $item->stock_name }}</strong>
                                     <span>{{ $item->stock_code }}</span>
                                 </div>
-                            </td>
-                            <td>
-                                <a class="source-link" href="https://www.cmoney.tw/forum/stock/{{ $item->etf_code }}?s=constituent" target="_blank" rel="noopener noreferrer">CMoney</a>
                             </td>
                         </tr>
                     @endforeach

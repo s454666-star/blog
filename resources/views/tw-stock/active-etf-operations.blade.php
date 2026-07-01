@@ -80,9 +80,9 @@
         }
 
         .shell {
-            width: min(1560px, calc(100vw - 32px));
+            width: min(1560px, 100%);
             margin: 0 auto;
-            padding: 28px 0 44px;
+            padding: 28px 16px 44px;
         }
 
         .topbar {
@@ -592,9 +592,22 @@
             border: 1px solid #c9d2d8;
         }
 
-        .change-lots {
+        .change-lots,
+        .amount-main {
             font-size: 18px;
             font-weight: 950;
+        }
+
+        .amount-main,
+        .amount-sub {
+            display: block;
+        }
+
+        .amount-sub {
+            margin-top: 3px;
+            color: var(--muted-dark);
+            font-size: 11px;
+            font-weight: 850;
         }
 
         .change-positive { color: #c63245; }
@@ -655,6 +668,14 @@
             font-weight: 950;
         }
 
+        .operation-metrics {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 10px;
+            text-align: right;
+        }
+
         .empty {
             padding: 42px 18px;
             color: var(--muted-dark);
@@ -694,8 +715,8 @@
 
         @media (max-width: 720px) {
             .shell {
-                width: min(100vw - 16px, 1560px);
-                padding-top: 18px;
+                width: 100%;
+                padding: 18px 8px 44px;
             }
 
             h1 {
@@ -818,8 +839,12 @@
         }
 
         $number = (float) $value;
-        $formatted = number_format(abs($number), abs($number) >= 100 ? 0 : 3);
-        $formatted = rtrim(rtrim($formatted, '0'), '.');
+        $decimals = abs($number) >= 100 ? 0 : 3;
+        $formatted = number_format(abs($number), $decimals);
+
+        if ($decimals > 0) {
+            $formatted = rtrim(rtrim($formatted, '0'), '.');
+        }
 
         return ($number > 0 ? '+' : ($number < 0 ? '-' : '')) . $formatted . ' 張';
     };
@@ -851,6 +876,15 @@
         }
 
         return number_format($number);
+    };
+    $formatAmountPrice = static function ($price, $date) use ($formatPrice): string {
+        if ($price === null) {
+            return '缺股價';
+        }
+
+        $dateText = $date instanceof \Carbon\CarbonInterface ? $date->toDateString() : (string) $date;
+
+        return '股價 ' . $formatPrice($price) . ($dateText !== '' ? ' / ' . $dateText : '');
     };
 
     $changeClass = static function ($value): string {
@@ -1173,6 +1207,11 @@
                                 變動張數 <span class="sort-mark">{{ $sortMark('change_lots', $detailSort, $detailDirection) }}</span>
                             </a>
                         </th>
+                        <th class="numeric-cell">
+                            <a class="sort-link {{ $detailSort === 'amount' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'amount', $detailSort, $detailDirection) }}">
+                                總金額 <span class="sort-mark">{{ $sortMark('amount', $detailSort, $detailDirection) }}</span>
+                            </a>
+                        </th>
                         <th>
                             <a class="sort-link {{ $detailSort === 'stock' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'stock', $detailSort, $detailDirection) }}">
                                 成分股 <span class="sort-mark">{{ $sortMark('stock', $detailSort, $detailDirection) }}</span>
@@ -1192,6 +1231,10 @@
                             </td>
                             <td><span class="action-badge {{ $actionClass($item->action) }}">{{ $item->action_label }}</span></td>
                             <td class="numeric-cell"><span class="change-lots {{ $changeClass($item->change_lots) }}">{{ $formatLots($item->change_lots) }}</span></td>
+                            <td class="numeric-cell amount-cell">
+                                <span class="amount-main {{ $changeClass($item->change_lots) }}">{{ $formatTradeValue($item->operation_total_amount) }}</span>
+                                <span class="amount-sub">{{ $formatAmountPrice($item->operation_close_price, $item->operation_price_date) }}</span>
+                            </td>
                             <td>
                                 <div class="stock-line">
                                     <strong>{{ $item->stock_name }}</strong>
@@ -1219,7 +1262,16 @@
                                 <strong>{{ $item->stock_name }}</strong>
                                 <span>{{ $item->stock_code }}</span>
                             </div>
-                            <span class="change-lots {{ $changeClass($item->change_lots) }}">{{ $formatLots($item->change_lots) }}</span>
+                            <div class="operation-metrics">
+                                <div class="mobile-metric">
+                                    <span>張數</span>
+                                    <strong class="{{ $changeClass($item->change_lots) }}">{{ $formatLots($item->change_lots) }}</strong>
+                                </div>
+                                <div class="mobile-metric">
+                                    <span>總金額</span>
+                                    <strong class="{{ $changeClass($item->change_lots) }}">{{ $formatTradeValue($item->operation_total_amount) }}</strong>
+                                </div>
+                            </div>
                         </div>
                     </article>
                 @endforeach

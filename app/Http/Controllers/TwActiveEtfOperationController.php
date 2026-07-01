@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\TwActiveEtf;
 use App\Models\TwActiveEtfOperationItem;
 use App\Models\TwActiveEtfOperationReport;
+use App\Models\TwStockDailyPrice;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
@@ -38,6 +39,7 @@ class TwActiveEtfOperationController extends Controller
         'etf' => 'etf_code',
         'action' => 'action',
         'change_lots' => 'change_lots',
+        'amount' => 'operation_total_amount',
         'stock' => 'stock_code',
     ];
 
@@ -52,7 +54,7 @@ class TwActiveEtfOperationController extends Controller
 
         $keyword = trim((string) $request->query('q', ''));
         [$marketSort, $marketDirection] = $this->resolveSort($request, 'market_sort', 'market_dir', self::MARKET_SORTS, 'volume', 'desc');
-        [$detailSort, $detailDirection] = $this->resolveSort($request, 'detail_sort', 'detail_dir', self::DETAIL_SORTS, 'date', 'desc');
+        [$detailSort, $detailDirection] = $this->resolveSort($request, 'detail_sort', 'detail_dir', self::DETAIL_SORTS, 'amount', 'desc');
 
         $reportQuery = TwActiveEtfOperationReport::query()
             ->whereBetween('operation_date', [$from->toDateString(), $to->toDateString()]);
@@ -116,7 +118,11 @@ class TwActiveEtfOperationController extends Controller
             });
         }
 
-        $items = $this->applyDetailSort($itemQuery, $detailSort, $detailDirection)->get();
+        $items = $this->sortDetailItems(
+            $this->attachOperationAmounts($itemQuery->get()),
+            $detailSort,
+            $detailDirection,
+        );
         $cardItems = $cardItemQuery->get();
 
         $activeEtfs = TwActiveEtf::query()
@@ -280,23 +286,140 @@ class TwActiveEtfOperationController extends Controller
             ->orderBy('stock_code');
     }
 
-    private function applyDetailSort(Builder $query, string $sort, string $direction): Builder
+    /**
+     * @param Collection<int, TwActiveEtfOperationItem> $items
+     * @return Collection<int, TwActiveEtfOperationItem>
+     */
+    private function attachOperationAmounts(Collection $items): Collection
     {
-        if ($sort === 'action') {
-            return $query
-                ->orderByRaw("CASE action WHEN 'new' THEN 1 WHEN 'add' THEN 2 WHEN 'reduce' THEN 3 WHEN 'remove' THEN 4 ELSE 5 END " . $direction)
-                ->orderByDesc('operation_date')
-                ->orderBy('etf_code')
-                ->orderByDesc('change_lots');
+        if ($items->isEmpty()) {
+            return $items;
         }
 
-        $column = self::DETAIL_SORTS[$sort] ?? self::DETAIL_SORTS['date'];
+        $stockCodes = $items
+            ->pluck('stock_code')
+            ->filter()
+            ->unique()
+            ->values();
 
-        return $query
-            ->orderBy($column, $direction)
-            ->orderBy('etf_code')
-            ->orderByRaw("CASE action WHEN 'new' THEN 1 WHEN 'add' THEN 2 WHEN 'reduce' THEN 3 WHEN 'remove' THEN 4 ELSE 5 END")
-            ->orderByDesc('change_lots');
+        $operationDates = $items
+            ->pluck('operation_date')
+            ->filter();
+
+        $maxDate = CarbonImmutable::parse((string) $operationDates->max(), (string) config('app.timezone'));
+        $minDate = CarbonImmutable::parse((string) $operationDates->min(), (string) config('app.timezone'))->subDays(21);
+
+        $pricesByStock = TwStockDailyPrice::query()
+            ->whereIn('stock_code', $stockCodes)
+            ->whereBetween('trade_date', [$minDate->toDateString(), $maxDate->toDateString()])
+            ->orderBy('stock_code')
+            ->orderByDesc('trade_date')
+            ->get(['stock_code', 'trade_date', 'close_price'])
+            ->groupBy('stock_code');
+
+        return $items->each(function (TwActiveEtfOperationItem $item) use ($pricesByStock): void {
+            $operationDate = CarbonImmutable::parse($item->operation_date->toDateString(), (string) config('app.timezone'));
+            $price = $pricesByStock
+                ->get($item->stock_code, collect())
+                ->first(fn (TwStockDailyPrice $price): bool => !$price->trade_date->gt($operationDate));
+
+            $closePrice = $price?->close_price === null ? null : (float) $price->close_price;
+            $changeLots = $item->change_lots === null ? null : (float) $item->change_lots;
+            $totalAmount = $closePrice === null || $changeLots === null
+                ? null
+                : (int) round(abs($changeLots) * $closePrice * 1000);
+
+            $item->setAttribute('operation_close_price', $closePrice);
+            $item->setAttribute('operation_price_date', $price?->trade_date);
+            $item->setAttribute('operation_total_amount', $totalAmount);
+        });
+    }
+
+    /**
+     * @param Collection<int, TwActiveEtfOperationItem> $items
+     * @return Collection<int, TwActiveEtfOperationItem>
+     */
+    private function sortDetailItems(Collection $items, string $sort, string $direction): Collection
+    {
+        return $items
+            ->sort(fn (TwActiveEtfOperationItem $left, TwActiveEtfOperationItem $right): int => $this->compareDetailItems($left, $right, $sort, $direction))
+            ->values();
+    }
+
+    private function compareDetailItems(TwActiveEtfOperationItem $left, TwActiveEtfOperationItem $right, string $sort, string $direction): int
+    {
+        $primary = $this->compareNullable(
+            $this->detailSortValue($left, $sort),
+            $this->detailSortValue($right, $sort),
+            $direction,
+        );
+        if ($primary !== 0) {
+            return $primary;
+        }
+
+        foreach ([
+            ['date', 'desc'],
+            ['etf', 'asc'],
+            ['action', 'asc'],
+            ['amount', 'desc'],
+            ['change_lots', 'desc'],
+            ['stock', 'asc'],
+        ] as [$fallbackSort, $fallbackDirection]) {
+            if ($fallbackSort === $sort) {
+                continue;
+            }
+
+            $comparison = $this->compareNullable(
+                $this->detailSortValue($left, $fallbackSort),
+                $this->detailSortValue($right, $fallbackSort),
+                $fallbackDirection,
+            );
+            if ($comparison !== 0) {
+                return $comparison;
+            }
+        }
+
+        return 0;
+    }
+
+    private function detailSortValue(TwActiveEtfOperationItem $item, string $sort): mixed
+    {
+        return match ($sort) {
+            'date' => $item->operation_date?->toDateString(),
+            'etf' => $item->etf_code,
+            'action' => $this->actionRank((string) $item->action),
+            'change_lots' => $item->change_lots,
+            'amount' => $item->getAttribute('operation_total_amount'),
+            'stock' => $item->stock_code,
+            default => $item->getAttribute('operation_total_amount'),
+        };
+    }
+
+    private function actionRank(string $action): int
+    {
+        return match ($action) {
+            'new' => 1,
+            'add' => 2,
+            'reduce' => 3,
+            'remove' => 4,
+            default => 5,
+        };
+    }
+
+    private function compareNullable(mixed $left, mixed $right, string $direction): int
+    {
+        $leftMissing = $left === null || $left === '';
+        $rightMissing = $right === null || $right === '';
+
+        if ($leftMissing || $rightMissing) {
+            return $leftMissing === $rightMissing ? 0 : ($leftMissing ? 1 : -1);
+        }
+
+        $comparison = is_numeric($left) && is_numeric($right)
+            ? ((float) $left <=> (float) $right)
+            : strcmp((string) $left, (string) $right);
+
+        return $direction === 'desc' ? -$comparison : $comparison;
     }
 
     /**

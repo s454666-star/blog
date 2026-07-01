@@ -44,6 +44,7 @@ class TwActiveEtfOperationsTest extends TestCase
     protected function tearDown(): void
     {
         Carbon::setTestNow();
+        Schema::dropIfExists('tw_stock_daily_prices');
         Schema::dropIfExists('tw_active_etf_operation_items');
         Schema::dropIfExists('tw_active_etf_operation_reports');
         Schema::dropIfExists('tw_active_etfs');
@@ -290,6 +291,13 @@ class TwActiveEtfOperationsTest extends TestCase
             $this->itemRow($reportId, '00403A', '主動統一升級50', '2026-06-30', '6239', '力成', 'new', '新增', 500),
             $this->itemRow($reportId, '00403A', '主動統一升級50', '2026-06-30', '6147', '頎邦', 'reduce', '減碼', -2500),
             $this->itemRow($secondReportId, '00981A', '主動統一台股增', '2026-06-30', '5274', '信驊', 'add', '加碼', 12),
+            $this->itemRow($secondReportId, '00981A', '主動統一台股增', '2026-06-30', '2330', '台積電', 'reduce', '減碼', -10),
+        ]);
+        DB::table('tw_stock_daily_prices')->insert([
+            $this->dailyPriceRow('6147', '頎邦', '2026-06-30', 50.00),
+            $this->dailyPriceRow('6239', '力成', '2026-06-30', 120.00),
+            $this->dailyPriceRow('5274', '信驊', '2026-06-30', 5000.00),
+            $this->dailyPriceRow('2330', '台積電', '2026-06-30', 1000.00),
         ]);
 
         $this->get(route('tw-stock.active-etf-operations.index'))
@@ -302,7 +310,11 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertSee('+1.18%')
             ->assertSee('42.7億')
             ->assertSee('market_sort=price', false)
-            ->assertSee('detail_sort=change_lots', false)
+            ->assertSee('detail_sort=amount', false)
+            ->assertSee('總金額')
+            ->assertSee('1.3億')
+            ->assertSee('-2,500 張')
+            ->assertSeeInOrder(['頎邦', '力成', '信驊', '台積電'])
             ->assertSee('力成')
             ->assertSee('頎邦')
             ->assertSee('信驊')
@@ -317,6 +329,7 @@ class TwActiveEtfOperationsTest extends TestCase
             'action' => 'reduce',
         ]))
             ->assertOk()
+            ->assertSeeInOrder(['頎邦', '台積電'])
             ->assertSee('頎邦')
             ->assertDontSee('力成</strong>', false);
 
@@ -394,6 +407,29 @@ class TwActiveEtfOperationsTest extends TestCase
             $table->timestamps();
             $table->unique(['report_id', 'stock_code', 'action']);
         });
+
+        Schema::create('tw_stock_daily_prices', function (Blueprint $table): void {
+            $table->id();
+            $table->string('exchange', 12);
+            $table->string('stock_code', 12);
+            $table->string('stock_name');
+            $table->date('trade_date');
+            $table->decimal('open_price', 12, 4)->nullable();
+            $table->decimal('high_price', 12, 4)->nullable();
+            $table->decimal('low_price', 12, 4)->nullable();
+            $table->decimal('close_price', 12, 4);
+            $table->decimal('previous_close_price', 12, 4)->nullable();
+            $table->decimal('price_change_amount', 12, 4)->nullable();
+            $table->decimal('price_change_percent', 10, 4)->nullable();
+            $table->unsignedBigInteger('volume_lots')->default(0);
+            $table->unsignedBigInteger('volume_shares')->default(0);
+            $table->unsignedBigInteger('trade_value')->nullable();
+            $table->unsignedInteger('transaction_count')->nullable();
+            $table->string('source')->nullable();
+            $table->json('source_payload')->nullable();
+            $table->timestamp('fetched_at')->nullable();
+            $table->timestamps();
+        });
     }
 
     /**
@@ -422,6 +458,33 @@ class TwActiveEtfOperationsTest extends TestCase
             'change_shares' => $lots * 1000,
             'change_lots' => $lots,
             'source_status' => $label,
+            'fetched_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function dailyPriceRow(string $stockCode, string $stockName, string $date, float $closePrice): array
+    {
+        return [
+            'exchange' => 'TWSE',
+            'stock_code' => $stockCode,
+            'stock_name' => $stockName,
+            'trade_date' => $date,
+            'open_price' => $closePrice,
+            'high_price' => $closePrice,
+            'low_price' => $closePrice,
+            'close_price' => $closePrice,
+            'previous_close_price' => $closePrice,
+            'price_change_amount' => 0,
+            'price_change_percent' => 0,
+            'volume_lots' => 1000,
+            'volume_shares' => 1000000,
+            'trade_value' => (int) round($closePrice * 1000000),
+            'source' => 'test',
             'fetched_at' => now(),
             'created_at' => now(),
             'updated_at' => now(),

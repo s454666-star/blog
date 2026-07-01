@@ -34,6 +34,11 @@ class TwStockSharedLayoutTest extends TestCase
                 $content,
                 "{$viewPath} should use the shared tw-stock shell width.",
             );
+            $this->assertStringContainsString(
+                "route('tw-stock.active-etf-operations.index')",
+                $content,
+                "{$viewPath} should link to the active ETF operations page.",
+            );
         }
     }
 }

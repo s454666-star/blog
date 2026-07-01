@@ -32,6 +32,7 @@ use App\Http\Controllers\TwActiveEtfOperationController;
 use App\Http\Controllers\TwStockDailyPriceController;
 use App\Http\Controllers\TwFuturesHourlyPriceController;
 use App\Http\Controllers\TwStockInstitutionalFlowController;
+use App\Http\Controllers\TwStockMonthlyRevenueController;
 use App\Http\Controllers\TwStockQ1FinancialReportController;
 use App\Http\Controllers\TwStockUpcomingDividendController;
     use App\Http\Controllers\UploadStorageController;
@@ -184,6 +185,7 @@ Route::get('/crawler/85sugarbaby', [CrawlerProfileController::class, 'index'])->
 Route::get('/crawler/85sugarbaby/session/login', [CrawlerProfileController::class, 'loginSession'])->name('crawler.profiles.login-session');
 Route::get('/tw-stock/q1-financial-reports', [TwStockQ1FinancialReportController::class, 'index'])->name('tw-stock.q1-financial-reports.index');
 Route::get('/tw-stock/annual-financial-comparison', [TwStockQ1FinancialReportController::class, 'annualComparison'])->name('tw-stock.annual-comparison.index');
+Route::get('/tw-stock/monthly-revenue-rankings', [TwStockMonthlyRevenueController::class, 'index'])->name('tw-stock.monthly-revenues.index');
 Route::get('/tw-stock/daily-price-rankings', [TwStockDailyPriceController::class, 'index'])->name('tw-stock.daily-prices.index');
 Route::get('/tw-stock/daily-price-rankings/{stockCode}', [TwStockDailyPriceController::class, 'show'])
     ->where('stockCode', '[A-Za-z0-9]+')

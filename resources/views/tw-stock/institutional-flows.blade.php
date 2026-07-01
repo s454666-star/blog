@@ -452,6 +452,7 @@
                 <a href="{{ route('tw-stock.daily-prices.index') }}">每日漲幅</a>
                 <a class="active" href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
                 <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
+                <a href="{{ route('tw-stock.monthly-revenues.index') }}">月營收</a>
                 <a href="{{ route('tw-stock.active-etf-operations.index') }}">主動ETF</a>
                 <a href="{{ route('tw-stock.taiex-futures.kline') }}">台指期K線</a>
             </nav>

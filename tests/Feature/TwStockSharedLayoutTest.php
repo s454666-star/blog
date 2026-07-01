@@ -21,6 +21,7 @@ class TwStockSharedLayoutTest extends TestCase
             'views/tw-stock/daily-prices/show.blade.php',
             'views/tw-stock/institutional-flows.blade.php',
             'views/tw-stock/upcoming-dividends.blade.php',
+            'views/tw-stock/monthly-revenue-rankings.blade.php',
             'views/tw-stock/active-etf-operations.blade.php',
             'views/tw-stock/taiex-futures-kline.blade.php',
         ];
@@ -38,6 +39,11 @@ class TwStockSharedLayoutTest extends TestCase
                 "route('tw-stock.active-etf-operations.index')",
                 $content,
                 "{$viewPath} should link to the active ETF operations page.",
+            );
+            $this->assertStringContainsString(
+                "route('tw-stock.monthly-revenues.index')",
+                $content,
+                "{$viewPath} should link to the monthly revenue rankings page.",
             );
         }
     }

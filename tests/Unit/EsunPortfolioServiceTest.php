@@ -480,6 +480,60 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(-42305.0, $sumMethod->invoke($service, $payload['todayTransactions']));
     }
 
+    public function test_it_keeps_fresh_inventory_when_year_transactions_query_fails(): void
+    {
+        config()->set('esun.portfolio_enabled', true);
+        config()->set('esun.daemon_url', 'http://127.0.0.1:8765');
+
+        Http::fake([
+            'http://127.0.0.1:8765/portfolio*' => Http::response([
+                'queried_at' => '2026-07-02T01:35:00+00:00',
+                'inventories' => [
+                    [
+                        'stk_no' => '6271',
+                        'stk_na' => '同欣電',
+                        'trade' => '0',
+                        'cost_qty' => '1000',
+                    ],
+                ],
+                'balance' => ['available_balance' => '600000'],
+                'settlements' => [],
+                'today_transactions_history' => [],
+                'today_transactions' => [],
+                'warnings' => [],
+            ]),
+            'http://127.0.0.1:8765/transactions*' => Http::response([
+                'error' => 'ValueError: AW00002: Parameter error',
+            ], 503),
+        ]);
+
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'queryInventories');
+        $payload = $method->invoke(
+            $service,
+            CarbonImmutable::parse('2026-07-02 09:35:00', 'Asia/Taipei'),
+            [
+                'transactions' => [
+                    ['t_date' => '20260630', 'stk_no' => '3362', 'trade' => '0', 'qty' => '1000', 'make' => '1000'],
+                ],
+                'todayTransactions' => [
+                    ['t_date' => '20260701', 'stk_no' => '6548', 'trade' => '0', 'qty' => '1000', 'make' => '2000'],
+                    ['t_date' => '20260702', 'stk_no' => '8016', 'trade' => '0', 'qty' => '1000', 'make' => '9999'],
+                ],
+            ],
+        );
+
+        $this->assertSame('2026-07-02T01:35:00+00:00', $payload['queriedAt']);
+        $this->assertSame('6271', $payload['inventories'][0]['stk_no']);
+        $this->assertSame('600000', $payload['balance']['available_balance']);
+        $this->assertCount(2, $payload['transactions']);
+        $this->assertSame(3000.0, (new ReflectionMethod($service, 'sumTransactionProfit'))->invoke($service, $payload['transactions']));
+        $this->assertCount(1, $payload['todayTransactions']);
+        $this->assertSame('20260702', $payload['todayTransactions'][0]['t_date']);
+        $this->assertSame('year_transactions', $payload['warnings'][0]['label']);
+        $this->assertStringContainsString('AW00002', $payload['warnings'][0]['error']);
+    }
+
     public function test_it_can_read_transactions_from_persistent_daemon(): void
     {
         config()->set('esun.daemon_url', 'http://127.0.0.1:8765');

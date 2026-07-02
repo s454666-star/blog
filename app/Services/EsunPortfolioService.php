@@ -191,16 +191,27 @@ class EsunPortfolioService
             $todayTransactions = $this->previousTodayTransactions($previousRaw, $today);
         }
 
+        $warnings = is_array($payload['warnings'] ?? null) ? $payload['warnings'] : [];
+        try {
+            $transactions = $this->historicalYearTransactions($now);
+        } catch (\Throwable $exception) {
+            $transactions = $this->previousHistoricalYearTransactions($previousRaw, $now);
+            $warnings[] = [
+                'label' => 'year_transactions',
+                'error' => $this->redactSecrets($exception->getMessage()),
+            ];
+        }
+
         return [
             'queriedAt' => $payload['queried_at'] ?? now()->toIso8601String(),
             'inventories' => $payload['inventories'],
             'balance' => is_array($payload['balance'] ?? null) ? $payload['balance'] : [],
             'tradeStatus' => is_array($payload['trade_status'] ?? null) ? $payload['trade_status'] : [],
             'settlements' => is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [],
-            'transactions' => $this->historicalYearTransactions($now),
+            'transactions' => $transactions,
             'todayTransactions' => $todayTransactions,
             'todayTransactionsDate' => $today->toDateString(),
-            'warnings' => is_array($payload['warnings'] ?? null) ? $payload['warnings'] : [],
+            'warnings' => $warnings,
         ];
     }
 
@@ -239,15 +250,11 @@ class EsunPortfolioService
                 $historyEnd->format('Ymd'),
             );
 
-            try {
-                $history = Cache::remember(
-                    $cacheKey,
-                    now()->addDays(max(1, (int) config('esun.year_transaction_cache_days', 10))),
-                    fn (): array => $this->queryTransactions($yearStart, $historyEnd),
-                );
-            } catch (\Throwable) {
-                $history = $this->queryTransactions($yearStart, $historyEnd);
-            }
+            $history = Cache::remember(
+                $cacheKey,
+                now()->addDays(max(1, (int) config('esun.year_transaction_cache_days', 10))),
+                fn (): array => $this->queryTransactions($yearStart, $historyEnd),
+            );
 
             if (is_array($history)) {
                 $transactions = array_merge($transactions, $history);
@@ -255,6 +262,67 @@ class EsunPortfolioService
         }
 
         return array_values($transactions);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function previousHistoricalYearTransactions(?array $previousRaw, CarbonImmutable $now): array
+    {
+        if (!is_array($previousRaw)) {
+            return [];
+        }
+
+        $today = $now->startOfDay();
+        $yearStart = $today->startOfYear();
+        $historyEnd = $today->subDay();
+        if ($historyEnd->lessThan($yearStart)) {
+            return [];
+        }
+
+        $history = $this->filterHistoricalTransactions(
+            is_array($previousRaw['transactions'] ?? null) ? $previousRaw['transactions'] : [],
+            $yearStart,
+            $historyEnd,
+            true,
+        );
+        $previousToday = $this->filterHistoricalTransactions(
+            is_array($previousRaw['todayTransactions'] ?? null) ? $previousRaw['todayTransactions'] : [],
+            $yearStart,
+            $historyEnd,
+            false,
+        );
+
+        return $this->mergeAdditionalTransactions($history, $previousToday);
+    }
+
+    /**
+     * @param array<int, mixed> $transactions
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterHistoricalTransactions(
+        array $transactions,
+        CarbonImmutable $yearStart,
+        CarbonImmutable $historyEnd,
+        bool $allowUnknownDate,
+    ): array {
+        return array_values(array_filter(
+            $transactions,
+            function (mixed $transaction) use ($yearStart, $historyEnd, $allowUnknownDate): bool {
+                if (!is_array($transaction)) {
+                    return false;
+                }
+
+                $date = $this->transactionDate($transaction, $historyEnd);
+                if ($date === null) {
+                    return $allowUnknownDate;
+                }
+
+                $date = $date->startOfDay();
+
+                return $date->betweenIncluded($yearStart, $historyEnd);
+            },
+        ));
     }
 
     /**
@@ -893,6 +961,33 @@ class EsunPortfolioService
         }
 
         return false;
+    }
+
+    private function transactionDate(array $transaction, CarbonImmutable $reference): ?CarbonImmutable
+    {
+        foreach ([
+            ['t_date', 'tDate', 'trade_date', 'tradeDate', 'TradeDate', 'date', 'Date'],
+            ['c_date', 'cDate', 'settlement_date', 'settlementDate', 'SettlementDate'],
+        ] as $keys) {
+            foreach ($keys as $key) {
+                if (!array_key_exists($key, $transaction) || $transaction[$key] === null) {
+                    continue;
+                }
+
+                $rawDate = trim((string) $transaction[$key]);
+                if ($rawDate === '') {
+                    continue;
+                }
+
+                try {
+                    return $this->parseEsunDate($rawDate, $reference);
+                } catch (\Throwable) {
+                    continue;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**

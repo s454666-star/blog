@@ -78,7 +78,7 @@ class YuantaPortfolioServiceTest extends TestCase
         $this->assertNull($summary['availableAmount']);
     }
 
-    public function test_it_uses_yuanta_available_balance_as_bank_balance(): void
+    public function test_it_subtracts_future_settlements_from_yuanta_available_balance(): void
     {
         $service = new YuantaPortfolioService();
         $method = new ReflectionMethod($service, 'balanceSummary');
@@ -96,7 +96,7 @@ class YuantaPortfolioServiceTest extends TestCase
 
         $this->assertSame(48971.0, $summary['availableBalance']);
         $this->assertSame(48109.0, $summary['pendingSettlementAmount']);
-        $this->assertSame(48971.0, $summary['bankBalance']);
-        $this->assertEqualsWithDelta(1590986 / (1590986 + 48971) * 100, $summary['investmentLevelRate'], 0.000001);
+        $this->assertSame(862.0, $summary['bankBalance']);
+        $this->assertEqualsWithDelta(1590986 / (1590986 + 862) * 100, $summary['investmentLevelRate'], 0.000001);
     }
 }

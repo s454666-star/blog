@@ -334,7 +334,7 @@ class YuantaPortfolioService
             ? null
             : $this->numberOrNull($this->value($balances->first(), 'AvailableBalance', 'availableBalance'));
         $pendingSettlementAmount = $this->pendingSettlementAmount($raw, $now);
-        $bankBalance = $availableBalance === null ? null : $availableBalance - $pendingSettlementAmount;
+        $bankBalance = $availableBalance;
         $totalCapital = $bankBalance === null ? null : $totalCostBasis + $bankBalance;
 
         return [

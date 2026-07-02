@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\YuantaPortfolioService;
+use Carbon\CarbonImmutable;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -75,5 +76,27 @@ class YuantaPortfolioServiceTest extends TestCase
         $this->assertNull($summary['limitAmount']);
         $this->assertSame(179000.0, $summary['usedAmount']);
         $this->assertNull($summary['availableAmount']);
+    }
+
+    public function test_it_uses_yuanta_available_balance_as_bank_balance(): void
+    {
+        $service = new YuantaPortfolioService();
+        $method = new ReflectionMethod($service, 'balanceSummary');
+
+        $summary = $method->invoke($service, [
+            'balance' => [
+                ['AvailableBalance' => 48971],
+            ],
+            'settlements' => [
+                ['SettlementDay' => '2026/07/02', 'SettlementAmt' => -466131],
+                ['SettlementDay' => '2026/07/03', 'SettlementAmt' => -41624],
+                ['SettlementDay' => '2026/07/06', 'SettlementAmt' => -6485],
+            ],
+        ], 1590986.0, CarbonImmutable::parse('2026-07-02 09:45:00', 'Asia/Taipei'));
+
+        $this->assertSame(48971.0, $summary['availableBalance']);
+        $this->assertSame(48109.0, $summary['pendingSettlementAmount']);
+        $this->assertSame(48971.0, $summary['bankBalance']);
+        $this->assertEqualsWithDelta(1590986 / (1590986 + 48971) * 100, $summary['investmentLevelRate'], 0.000001);
     }
 }

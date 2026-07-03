@@ -182,7 +182,7 @@ class YuantaPortfolioServiceTest extends TestCase
 
         $service = new YuantaPortfolioService();
         $snapshot = $service->storeDailySnapshot([
-            'queriedAt' => '2099-07-03T17:54:50+08:00',
+            'queriedAt' => '2099-07-03T09:54:50+00:00',
             'servedAt' => '2099-07-03T17:55:02+08:00',
             'cacheSeconds' => 600,
             'market' => [
@@ -225,6 +225,7 @@ class YuantaPortfolioServiceTest extends TestCase
         $payload = $service->dailySnapshotPayload('2099-07-03');
         $this->assertSame('historical', $payload['source']['status']);
         $this->assertSame('2099-07-03', $payload['history']['date']);
+        $this->assertSame('2099-07-03T17:54:50+08:00', $payload['history']['queriedAt']);
         $this->assertFalse($payload['market']['isOpen']);
         $this->assertSame(16000, $payload['summary']['todayPnl']);
         $this->assertSame('2303', $payload['rows'][0]['stockNo']);

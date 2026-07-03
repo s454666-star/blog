@@ -844,7 +844,7 @@ class YuantaPortfolioService
         }
 
         try {
-            return CarbonImmutable::parse((string) $value, $timezone);
+            return CarbonImmutable::parse((string) $value, $timezone)->setTimezone($timezone);
         } catch (\Throwable) {
             return null;
         }

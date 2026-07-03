@@ -177,6 +177,55 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         $this->assertSame([], $payload['missing']);
     }
 
+    public function test_confirmed_price_does_not_reuse_unconfirmed_previous_close(): void
+    {
+        config()->set('esun.quote_providers', 'tradingview,yahoo_chart');
+        config()->set('esun.quote_fallback_providers', '');
+        config()->set('esun.quote_confirmation_required', 2);
+
+        Http::fake([
+            'https://scanner.tradingview.com/taiwan/scan' => Http::response([
+                'totalCount' => 1,
+                'data' => [
+                    [
+                        's' => 'TWSE:00685L',
+                        'd' => ['00685L', 'Capital TAIEX Daily Leveraged 2X ETF', 306.0, 6.1210334662736, 17.65, 8814375, 'delayed_streaming_900'],
+                    ],
+                ],
+            ]),
+            'https://query1.finance.yahoo.com/v8/finance/chart/00685L.TW*' => Http::response([
+                'chart' => [
+                    'result' => [
+                        [
+                            'meta' => [
+                                'regularMarketPrice' => 306.0,
+                                'previousClose' => 306.0,
+                                'regularMarketTime' => 1783389383,
+                                'shortName' => 'Capital TAIEX Daily Leveraged 2X ETF',
+                            ],
+                        ],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $payload = app(TwStockRealtimeQuoteService::class)->quotes(['00685L']);
+
+        $this->assertSame('live', $payload['source']['status']);
+        $this->assertSame(306.0, $payload['quotes']['00685L']['price']);
+        $this->assertSame('confirmed', $payload['quotes']['00685L']['source']);
+        $this->assertNull($payload['quotes']['00685L']['previousClose']);
+        $this->assertNull($payload['quotes']['00685L']['dayChange']);
+        $this->assertNull($payload['quotes']['00685L']['dayChangeRate']);
+        $candidatePreviousCloses = collect($payload['quotes']['00685L']['candidatePrices'])
+            ->pluck('previousClose')
+            ->sort()
+            ->values()
+            ->all();
+
+        $this->assertSame([288.35, 306.0], $candidatePreviousCloses);
+    }
+
     public function test_it_confirms_quotes_when_two_sources_are_within_one_tick(): void
     {
         config()->set('esun.quote_providers', 'cnyes,yahoo_tw');

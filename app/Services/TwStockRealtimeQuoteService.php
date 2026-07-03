@@ -661,15 +661,15 @@ class TwStockRealtimeQuoteService
                 ->all();
 
             if ($required <= 1) {
-                return [
+                return $this->withConfirmedPreviousClose([
                     ...$base,
                     'confirmedBy' => $labels,
                     'confirmationCount' => count($matches),
                     'candidatePrices' => $this->summarizeCandidates($matches),
-                ];
+                ], $matches, $required);
             }
 
-            return [
+            return $this->withConfirmedPreviousClose([
                 ...$base,
                 'price' => (float) $priceKey,
                 'priceType' => 'confirmed',
@@ -678,7 +678,7 @@ class TwStockRealtimeQuoteService
                 'confirmedBy' => $labels,
                 'confirmationCount' => count($matches),
                 'candidatePrices' => $this->summarizeCandidates($matches),
-            ];
+            ], $matches, $required);
         }
 
         $nearby = $this->nearbyConfirmedQuote($candidates, $required);
@@ -824,7 +824,7 @@ class TwStockRealtimeQuoteService
             ->values()
             ->all();
 
-        return [
+        return $this->withConfirmedPreviousClose([
             ...$base,
             'price' => $this->priceOrNull($base['price'] ?? null) ?? 0.0,
             'priceType' => 'nearby-confirmed',
@@ -835,7 +835,71 @@ class TwStockRealtimeQuoteService
             'confirmationRange' => $bestRange,
             'confirmationTickTolerance' => $this->quoteToleranceTicks(),
             'candidatePrices' => $this->summarizeCandidates($best),
+        ], $best, $required);
+    }
+
+    /**
+     * @param array<string, mixed> $quote
+     * @param list<array<string, mixed>> $candidates
+     * @return array<string, mixed>
+     */
+    private function withConfirmedPreviousClose(array $quote, array $candidates, int $required): array
+    {
+        if ($required <= 1) {
+            return $quote;
+        }
+
+        $previousClose = $this->confirmedPreviousClose($candidates, $required);
+        if ($previousClose === null) {
+            return [
+                ...$quote,
+                'previousClose' => null,
+                'dayChange' => null,
+                'dayChangeRate' => null,
+            ];
+        }
+
+        $price = $this->priceOrNull($quote['price'] ?? null);
+        $dayChange = $price === null ? null : $price - $previousClose;
+
+        return [
+            ...$quote,
+            'previousClose' => $previousClose,
+            'dayChange' => $dayChange,
+            'dayChangeRate' => $previousClose > 0 && $dayChange !== null ? $dayChange / $previousClose * 100 : null,
         ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $candidates
+     */
+    private function confirmedPreviousClose(array $candidates, int $required): ?float
+    {
+        $decimals = max(0, (int) config('esun.quote_confirmation_decimals', 2));
+        $groups = [];
+        foreach ($candidates as $candidate) {
+            $previousClose = $this->numberOrNull($candidate['previousClose'] ?? null);
+            if ($previousClose === null) {
+                continue;
+            }
+
+            $key = number_format(round($previousClose, $decimals), $decimals, '.', '');
+            $source = (string) ($candidate['source'] ?? '');
+            $alreadyCounted = collect($groups[$key] ?? [])
+                ->contains(fn (array $item): bool => (string) ($item['source'] ?? '') === $source);
+
+            if (!$alreadyCounted) {
+                $groups[$key][] = $candidate;
+            }
+        }
+
+        foreach ($groups as $previousCloseKey => $matches) {
+            if (count($matches) >= $required) {
+                return (float) $previousCloseKey;
+            }
+        }
+
+        return null;
     }
 
     /**

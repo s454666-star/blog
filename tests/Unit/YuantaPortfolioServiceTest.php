@@ -4,6 +4,7 @@ namespace Tests\Unit;
 
 use App\Services\YuantaPortfolioService;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
@@ -12,9 +13,19 @@ use Tests\TestCase;
 
 class YuantaPortfolioServiceTest extends TestCase
 {
+    private bool $createdYuantaSnapshotsTable = false;
+
     protected function tearDown(): void
     {
-        Schema::dropIfExists('yuanta_portfolio_daily_snapshots');
+        if (Schema::hasTable('yuanta_portfolio_daily_snapshots')) {
+            DB::table('yuanta_portfolio_daily_snapshots')
+                ->where('snapshot_date', '2099-07-03')
+                ->delete();
+        }
+
+        if ($this->createdYuantaSnapshotsTable) {
+            Schema::dropIfExists('yuanta_portfolio_daily_snapshots');
+        }
 
         parent::tearDown();
     }
@@ -171,8 +182,8 @@ class YuantaPortfolioServiceTest extends TestCase
 
         $service = new YuantaPortfolioService();
         $snapshot = $service->storeDailySnapshot([
-            'queriedAt' => '2026-07-03T17:54:50+08:00',
-            'servedAt' => '2026-07-03T17:55:02+08:00',
+            'queriedAt' => '2099-07-03T17:54:50+08:00',
+            'servedAt' => '2099-07-03T17:55:02+08:00',
             'cacheSeconds' => 600,
             'market' => [
                 'isOpen' => false,
@@ -201,19 +212,19 @@ class YuantaPortfolioServiceTest extends TestCase
                     'unrealizedPnl' => -12000,
                 ],
             ],
-        ], CarbonImmutable::parse('2026-07-03', 'Asia/Taipei'));
+        ], CarbonImmutable::parse('2099-07-03', 'Asia/Taipei'));
 
-        $this->assertSame('2026-07-03', $snapshot->snapshot_date->toDateString());
+        $this->assertSame('2099-07-03', $snapshot->snapshot_date->toDateString());
         $this->assertSame(16000.0, $snapshot->today_pnl);
         $this->assertSame(-12000.0, $snapshot->unrealized_pnl);
 
         $dates = $service->dailySnapshotDates();
-        $this->assertSame('2026-07-03', $dates[0]['date']);
+        $this->assertSame('2099-07-03', $dates[0]['date']);
         $this->assertSame(16000.0, $dates[0]['todayPnl']);
 
-        $payload = $service->dailySnapshotPayload('2026-07-03');
+        $payload = $service->dailySnapshotPayload('2099-07-03');
         $this->assertSame('historical', $payload['source']['status']);
-        $this->assertSame('2026-07-03', $payload['history']['date']);
+        $this->assertSame('2099-07-03', $payload['history']['date']);
         $this->assertFalse($payload['market']['isOpen']);
         $this->assertSame(16000, $payload['summary']['todayPnl']);
         $this->assertSame('2303', $payload['rows'][0]['stockNo']);
@@ -221,9 +232,16 @@ class YuantaPortfolioServiceTest extends TestCase
 
     private function migrateYuantaDailySnapshotsTable(): void
     {
-        Schema::dropIfExists('yuanta_portfolio_daily_snapshots');
+        if (Schema::hasTable('yuanta_portfolio_daily_snapshots')) {
+            DB::table('yuanta_portfolio_daily_snapshots')
+                ->where('snapshot_date', '2099-07-03')
+                ->delete();
+
+            return;
+        }
 
         $migration = require base_path('database/migrations/2026_07_03_110000_create_yuanta_portfolio_daily_snapshots_table.php');
         $migration->up();
+        $this->createdYuantaSnapshotsTable = true;
     }
 }

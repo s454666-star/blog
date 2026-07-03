@@ -11,8 +11,8 @@ return new class extends Migration
         Schema::create('yuanta_portfolio_daily_snapshots', function (Blueprint $table): void {
             $table->id();
             $table->date('snapshot_date');
-            $table->timestamp('captured_at')->nullable();
-            $table->timestamp('queried_at')->nullable();
+            $table->dateTime('captured_at')->nullable();
+            $table->dateTime('queried_at')->nullable();
             $table->string('source_status', 32)->nullable();
             $table->string('source_message')->nullable();
             $table->unsignedInteger('source_age_seconds')->nullable();

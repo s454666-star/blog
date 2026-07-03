@@ -188,13 +188,17 @@ class CrawlerProfileController extends Controller
             return $status;
         }
 
-        $latestMeta = $this->latestCrawlerMeta();
+        $latestMeta = $this->latestCrawlerMeta((string) config('crawler.85sugarbaby.import_output_dir'));
+        $latestLoginMeta = $this->latestCrawlerMeta((string) config('crawler.85sugarbaby.login_output_dir'));
         if ($latestMeta === null) {
+            if ($this->crawlerMetaLooksAuthenticated($latestLoginMeta)) {
+                return $this->sessionRefreshedStatus($status, $latestLoginMeta);
+            }
+
             return $status;
         }
 
-        $status['latest_run_at'] = $this->parseCrawlerTimestamp($latestMeta['payload']['captured_at'] ?? null)
-            ?? Carbon::createFromTimestamp($latestMeta['file']->getMTime(), config('app.timezone'));
+        $status['latest_run_at'] = $this->crawlerMetaRunAt($latestMeta);
 
         $probe = is_array($latestMeta['payload']['api_probe_summary'] ?? null)
             ? $latestMeta['payload']['api_probe_summary']
@@ -217,6 +221,10 @@ class CrawlerProfileController extends Controller
             $status['label'] = '啟用，最新抓取正常';
 
             return $status;
+        }
+
+        if ($this->newerAuthenticatedMeta($latestLoginMeta, $status['latest_run_at'])) {
+            return $this->sessionRefreshedStatus($status, $latestLoginMeta);
         }
 
         if ($isLoggedIn === false || str_contains($haystack, 'login')) {
@@ -243,9 +251,8 @@ class CrawlerProfileController extends Controller
     /**
      * @return array{file: SplFileInfo, payload: array<string, mixed>}|null
      */
-    private function latestCrawlerMeta(): ?array
+    private function latestCrawlerMeta(string $dir): ?array
     {
-        $dir = (string) config('crawler.85sugarbaby.import_output_dir');
         if ($dir === '' || ! is_dir($dir)) {
             return null;
         }
@@ -279,6 +286,75 @@ class CrawlerProfileController extends Controller
             'file' => $latestFile,
             'payload' => $payload,
         ];
+    }
+
+    /**
+     * @param array{file: SplFileInfo, payload: array<string, mixed>} $latestMeta
+     */
+    private function crawlerMetaRunAt(array $latestMeta): Carbon
+    {
+        return $this->parseCrawlerTimestamp($latestMeta['payload']['captured_at'] ?? null)
+            ?? Carbon::createFromTimestamp($latestMeta['file']->getMTime(), config('app.timezone'));
+    }
+
+    /**
+     * @param array{file: SplFileInfo, payload: array<string, mixed>}|null $latestMeta
+     */
+    private function crawlerMetaLooksAuthenticated(?array $latestMeta): bool
+    {
+        if ($latestMeta === null) {
+            return false;
+        }
+
+        $probe = is_array($latestMeta['payload']['api_probe_summary'] ?? null)
+            ? $latestMeta['payload']['api_probe_summary']
+            : [];
+        $endpoint = is_array($probe['endpoints']['/GetLoginListByLoginTime'] ?? null)
+            ? $probe['endpoints']['/GetLoginListByLoginTime']
+            : [];
+        $rows = $endpoint['rows'] ?? null;
+
+        return ($probe['isLoggedIn'] ?? null) === true
+            || (is_numeric($rows) && (int) $rows > 0);
+    }
+
+    /**
+     * @param array{file: SplFileInfo, payload: array<string, mixed>}|null $latestMeta
+     */
+    private function newerAuthenticatedMeta(?array $latestMeta, ?Carbon $baseline): bool
+    {
+        if (! $this->crawlerMetaLooksAuthenticated($latestMeta)) {
+            return false;
+        }
+
+        if (! $baseline instanceof Carbon) {
+            return true;
+        }
+
+        return $this->crawlerMetaRunAt($latestMeta)->greaterThan($baseline);
+    }
+
+    /**
+     * @param array{file: SplFileInfo, payload: array<string, mixed>} $latestMeta
+     */
+    private function sessionRefreshedStatus(array $status, array $latestMeta): array
+    {
+        $probe = is_array($latestMeta['payload']['api_probe_summary'] ?? null)
+            ? $latestMeta['payload']['api_probe_summary']
+            : [];
+        $endpoint = is_array($probe['endpoints']['/GetLoginListByLoginTime'] ?? null)
+            ? $probe['endpoints']['/GetLoginListByLoginTime']
+            : [];
+        $rows = $endpoint['rows'] ?? null;
+
+        $status['state'] = 'ok';
+        $status['label'] = '啟用，Session 已重新整理';
+        $status['latest_run_at'] = $this->crawlerMetaRunAt($latestMeta);
+        $status['rows'] = is_numeric($rows) ? (int) $rows : null;
+        $status['final_url'] = $this->stringOrNull($latestMeta['payload']['final_url'] ?? null);
+        $status['reason'] = null;
+
+        return $status;
     }
 
     private function parseCrawlerTimestamp(mixed $value): ?Carbon

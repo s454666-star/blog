@@ -57,6 +57,7 @@ class SugarbabyCrawlerTestCommand extends Command
             '--output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_page.html',
             '--text-output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_page.txt',
             '--meta-output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_meta.json',
+            '--cookie-state=' . $this->cookieStatePath(),
             '--timeout=' . $timeoutSeconds,
         ];
 
@@ -122,5 +123,13 @@ class SugarbabyCrawlerTestCommand extends Command
     private function nodeBinary(): string
     {
         return PHP_OS_FAMILY === 'Windows' ? 'node.exe' : 'node';
+    }
+
+    private function cookieStatePath(): string
+    {
+        return (string) config(
+            'crawler.85sugarbaby.cookie_state_path',
+            storage_path('app/google-login-crawler/85sugarbaby-session-cookies.json')
+        );
     }
 }

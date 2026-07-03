@@ -19,6 +19,9 @@ const waitSelector = String(options['wait-selector'] || '').trim();
 const apiOutput = String(options['api-output'] || '').trim() === ''
   ? ''
   : path.resolve(String(options['api-output']));
+const cookieStatePath = String(options['cookie-state'] || '').trim() === ''
+  ? ''
+  : path.resolve(String(options['cookie-state']));
 const activeClicks = Math.max(0, Number(options['active-clicks'] || 0));
 const activeSummaryOutput = String(options['active-summary-output'] || '').trim() === ''
   ? ''
@@ -52,6 +55,9 @@ async function main() {
   if (apiOutput !== '') {
     ensureParentDirectory(apiOutput);
   }
+  if (cookieStatePath !== '') {
+    ensureParentDirectory(cookieStatePath);
+  }
   if (activeSummaryOutput !== '') {
     ensureParentDirectory(activeSummaryOutput);
   }
@@ -71,6 +77,8 @@ async function main() {
 
   await cdp.send('Page.enable');
   await cdp.send('Runtime.enable');
+  await cdp.send('Network.enable');
+  const cookieStateLoad = await loadCookieState(cdp, cookieStatePath);
   await cdp.send('Page.navigate', { url: targetUrl });
   await waitForDocumentReady(cdp, timeoutAt);
 
@@ -181,6 +189,9 @@ async function main() {
     api_output: apiOutput || null,
     api_probe_enabled: probe85Sugarbaby,
     api_probe_summary: summarizeApiProbe(apiProbe),
+    cookie_state_path: cookieStatePath || null,
+    cookie_state_loaded: cookieStateLoad,
+    cookie_state_saved: null,
     active_clicks: activeClicks,
     active_summary_output: activeSummaryOutput || null,
     active_click_summary: summarizeActiveClickProbe(activeClickSummary),
@@ -188,6 +199,10 @@ async function main() {
     html_length: snapshot.html.length,
     chrome_kept_open: keepOpen || (!headless && status.startsWith('google_')),
   };
+
+  if (shouldPersistCookieState(apiProbe)) {
+    meta.cookie_state_saved = await saveCookieState(cdp, cookieStatePath);
+  }
 
   fs.writeFileSync(metaOutput, JSON.stringify(meta, null, 2), 'utf8');
   log(`Saved HTML: ${htmlOutput}`);
@@ -824,6 +839,150 @@ function summarizeActiveClickProbe(activeClickSummary) {
     detailUrlTechnicallyDerivable: Boolean(activeClickSummary.detailUrlTechnicallyDerivable),
     emittedPersonalIdentifiers: Boolean(activeClickSummary.emittedPersonalIdentifiers),
   };
+}
+
+async function loadCookieState(client, statePath) {
+  if (!statePath) {
+    return { loaded: false, reason: 'not configured', cookieCount: 0 };
+  }
+
+  if (!fs.existsSync(statePath)) {
+    return { loaded: false, reason: 'file missing', cookieCount: 0 };
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    const cookies = Array.isArray(parsed?.cookies) ? parsed.cookies : [];
+    const normalized = cookies
+      .filter(is85SugarbabyCookie)
+      .map(normalizeCookieForSet)
+      .filter(Boolean);
+
+    if (normalized.length === 0) {
+      return { loaded: false, reason: 'no 85sugarbaby cookies', cookieCount: 0 };
+    }
+
+    await client.send('Network.setCookies', { cookies: normalized });
+    log(`Loaded 85sugarbaby cookie state: ${statePath} (${normalized.length} cookies)`);
+
+    return { loaded: true, reason: 'loaded', cookieCount: normalized.length };
+  } catch (error) {
+    const message = error?.message || String(error);
+    log(`Failed to load 85sugarbaby cookie state: ${message}`);
+
+    return { loaded: false, reason: message, cookieCount: 0 };
+  }
+}
+
+async function saveCookieState(client, statePath) {
+  if (!statePath) {
+    return { saved: false, reason: 'not configured', cookieCount: 0 };
+  }
+
+  try {
+    const result = await client.send('Network.getAllCookies');
+    const cookies = (Array.isArray(result?.cookies) ? result.cookies : [])
+      .filter(is85SugarbabyCookie)
+      .map(normalizeCookieForState)
+      .filter(Boolean);
+
+    fs.writeFileSync(statePath, JSON.stringify({
+      saved_at: new Date().toISOString(),
+      source: '85sugarbaby',
+      cookies,
+    }, null, 2), 'utf8');
+    log(`Saved 85sugarbaby cookie state: ${statePath} (${cookies.length} cookies)`);
+
+    return { saved: true, reason: 'saved', cookieCount: cookies.length };
+  } catch (error) {
+    const message = error?.message || String(error);
+    log(`Failed to save 85sugarbaby cookie state: ${message}`);
+
+    return { saved: false, reason: message, cookieCount: 0 };
+  }
+}
+
+function shouldPersistCookieState(apiProbe) {
+  if (!apiProbe || typeof apiProbe !== 'object') {
+    return false;
+  }
+
+  if (apiProbe.isLoggedIn === true) {
+    return true;
+  }
+
+  return Object.values(apiProbe.endpoints || {}).some((result) => {
+    if (Array.isArray(result?.data) && result.data.length > 0) {
+      return true;
+    }
+
+    return Number(result?.rows || 0) > 0;
+  });
+}
+
+function is85SugarbabyCookie(cookie) {
+  const domain = String(cookie?.domain || '').replace(/^\./, '').toLowerCase();
+
+  return domain === '85sugarbaby.com.tw' || domain.endsWith('.85sugarbaby.com.tw');
+}
+
+function normalizeCookieForSet(cookie) {
+  const name = String(cookie?.name || '');
+  const value = String(cookie?.value || '');
+  if (name === '') {
+    return null;
+  }
+
+  const normalized = {
+    name,
+    value,
+    domain: String(cookie.domain || '.85sugarbaby.com.tw'),
+    path: String(cookie.path || '/'),
+  };
+
+  if (typeof cookie.secure === 'boolean') {
+    normalized.secure = cookie.secure;
+  }
+  if (typeof cookie.httpOnly === 'boolean') {
+    normalized.httpOnly = cookie.httpOnly;
+  }
+  if (typeof cookie.expires === 'number' && cookie.expires > 0) {
+    normalized.expires = cookie.expires;
+  }
+
+  const sameSite = normalizeSameSite(cookie.sameSite);
+  if (sameSite) {
+    normalized.sameSite = sameSite;
+  }
+
+  return normalized;
+}
+
+function normalizeCookieForState(cookie) {
+  const normalized = normalizeCookieForSet(cookie);
+  if (!normalized) {
+    return null;
+  }
+
+  return {
+    ...normalized,
+    session: Boolean(cookie.session),
+  };
+}
+
+function normalizeSameSite(value) {
+  const candidate = String(value || '').toLowerCase();
+  if (candidate === 'strict') {
+    return 'Strict';
+  }
+  if (candidate === 'lax') {
+    return 'Lax';
+  }
+  if (candidate === 'none' || candidate === 'no_restriction') {
+    return 'None';
+  }
+
+  return null;
 }
 
 function isGoogleLoginUrl(url) {

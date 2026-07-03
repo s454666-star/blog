@@ -13,7 +13,7 @@ class Crawler85SugarbabyLoginCommand extends Command
     protected $signature = 'crawler:85sugarbaby-login
                             {--url=https://85sugarbaby.com.tw/home : Target page URL}
                             {--profile= : Chrome user data directory that stores the reusable login session}
-                            {--timeout=300 : Seconds to keep the login browser flow alive}';
+                            {--timeout=1200 : Seconds to keep the login browser flow alive}';
 
     protected $description = 'Open a visible browser for refreshing the reusable 85sugarbaby crawler login session.';
 
@@ -35,7 +35,10 @@ class Crawler85SugarbabyLoginCommand extends Command
                 return self::FAILURE;
             }
 
-            $baseDir = storage_path('app/google-login-crawler/85sugarbaby-login');
+            $baseDir = (string) config(
+                'crawler.85sugarbaby.login_output_dir',
+                storage_path('app/google-login-crawler/85sugarbaby-login')
+            );
             if (!is_dir($baseDir)) {
                 mkdir($baseDir, 0777, true);
             }
@@ -55,6 +58,7 @@ class Crawler85SugarbabyLoginCommand extends Command
                 '--text-output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_page.txt',
                 '--meta-output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_meta.json',
                 '--api-output=' . $baseDir . DIRECTORY_SEPARATOR . $stamp . '_api.json',
+                '--cookie-state=' . $this->cookieStatePath(),
                 '--timeout=' . max(30, (int) $this->option('timeout')),
                 '--probe-85sugarbaby',
                 '--active-clicks=0',
@@ -86,5 +90,13 @@ class Crawler85SugarbabyLoginCommand extends Command
     private function nodeBinary(): string
     {
         return PHP_OS_FAMILY === 'Windows' ? 'node.exe' : 'node';
+    }
+
+    private function cookieStatePath(): string
+    {
+        return (string) config(
+            'crawler.85sugarbaby.cookie_state_path',
+            storage_path('app/google-login-crawler/85sugarbaby-session-cookies.json')
+        );
     }
 }

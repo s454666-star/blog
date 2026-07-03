@@ -57,7 +57,7 @@ if (-not (Test-Path -LiteralPath $php)) {
 
 Write-TaskLog 'Starting visible crawler login command.'
 Start-Process -FilePath $php `
-    -ArgumentList @('artisan', 'crawler:85sugarbaby-login', '--timeout=300') `
+    -ArgumentList @('artisan', 'crawler:85sugarbaby-login', '--timeout=1200') `
     -WorkingDirectory $projectRoot `
     -WindowStyle Normal
 

@@ -129,6 +129,7 @@ class Crawler85SugarbabyImportCommand extends Command
             '--text-output=' . $textOutput,
             '--meta-output=' . $metaOutput,
             '--api-output=' . $apiOutput,
+            '--cookie-state=' . $this->cookieStatePath(),
             '--timeout=' . max(5, (int) $this->option('timeout')),
             '--probe-85sugarbaby',
             '--active-clicks=' . max(1, min(20, (int) $this->option('active-clicks'))),
@@ -615,6 +616,16 @@ class Crawler85SugarbabyImportCommand extends Command
             return false;
         }
 
-        return $mtime >= time() - 600;
+        $ttl = max(600, (int) config('crawler.85sugarbaby.login_lock_ttl', 1800));
+
+        return $mtime >= time() - $ttl;
+    }
+
+    private function cookieStatePath(): string
+    {
+        return (string) config(
+            'crawler.85sugarbaby.cookie_state_path',
+            storage_path('app/google-login-crawler/85sugarbaby-session-cookies.json')
+        );
     }
 }

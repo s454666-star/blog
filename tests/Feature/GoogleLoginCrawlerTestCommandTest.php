@@ -32,7 +32,9 @@ class GoogleLoginCrawlerTestCommandTest extends TestCase
         $exitCode = $this->artisan('crawler:85sugarbaby-test', [
             '--timeout' => 5,
             '--dry-run' => true,
-        ])->run();
+        ])
+            ->expectsOutputToContain('--cookie-state=')
+            ->run();
 
         $this->assertSame(0, $exitCode);
     }

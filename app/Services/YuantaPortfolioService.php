@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\TwStockCompanyProfile;
 use App\Models\TwStockDailyPrice;
+use App\Models\YuantaPortfolioDailySnapshot;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -88,6 +89,111 @@ class YuantaPortfolioService
             'openEnd' => $end->format('H:i'),
             'pollSeconds' => $isOpen ? max(2, (int) config('yuanta.poll_seconds_open', 2)) : null,
         ];
+    }
+
+    public function captureDailySnapshot(?CarbonImmutable $snapshotDate = null, bool $force = true): YuantaPortfolioDailySnapshot
+    {
+        return $this->storeDailySnapshot($this->snapshot($force), $snapshotDate);
+    }
+
+    public function storeDailySnapshot(array $payload, ?CarbonImmutable $snapshotDate = null): YuantaPortfolioDailySnapshot
+    {
+        $timezone = (string) config('yuanta.timezone', 'Asia/Taipei');
+        $summary = is_array($payload['summary'] ?? null) ? $payload['summary'] : [];
+        $source = is_array($payload['source'] ?? null) ? $payload['source'] : [];
+        $rows = is_array($payload['rows'] ?? null) ? array_values($payload['rows']) : [];
+        $queriedAt = $this->parseDateTime($payload['queriedAt'] ?? null, $timezone);
+        $capturedAt = $this->parseDateTime($payload['servedAt'] ?? null, $timezone)
+            ?? CarbonImmutable::now($timezone);
+        $date = $snapshotDate?->startOfDay()
+            ?? ($queriedAt ?? $capturedAt)->setTimezone($timezone)->startOfDay();
+
+        return YuantaPortfolioDailySnapshot::query()->updateOrCreate(
+            ['snapshot_date' => $date->toDateString()],
+            [
+                'captured_at' => $capturedAt,
+                'queried_at' => $queriedAt,
+                'source_status' => (string) ($source['status'] ?? ''),
+                'source_message' => (string) ($source['message'] ?? ''),
+                'source_age_seconds' => $this->integerOrNull($source['ageSeconds'] ?? null),
+                'stock_count' => (int) round($this->number($summary['stockCount'] ?? count($rows))),
+                'share_count' => $this->number($summary['shareCount'] ?? 0),
+                'market_value' => $this->numberOrNull($summary['marketValue'] ?? null),
+                'cost_basis' => $this->numberOrNull($summary['costBasis'] ?? null),
+                'today_pnl' => $this->numberOrNull($summary['todayPnl'] ?? null),
+                'unrealized_pnl' => $this->numberOrNull($summary['unrealizedPnl'] ?? null),
+                'bank_balance' => $this->numberOrNull($summary['bankBalance'] ?? null),
+                'margin_used_amount' => $this->numberOrNull($summary['marginUsedAmount'] ?? null),
+                'margin_available_amount' => $this->numberOrNull($summary['marginAvailableAmount'] ?? null),
+                'summary' => $summary,
+                'rows' => $rows,
+                'payload' => $payload,
+            ],
+        );
+    }
+
+    /**
+     * @return array<int, array{date: string, capturedAt: string|null, todayPnl: float|null, unrealizedPnl: float|null}>
+     */
+    public function dailySnapshotDates(int $limit = 90): array
+    {
+        return YuantaPortfolioDailySnapshot::query()
+            ->orderByDesc('snapshot_date')
+            ->limit(max(1, $limit))
+            ->get()
+            ->map(fn (YuantaPortfolioDailySnapshot $snapshot): array => [
+                'date' => $snapshot->snapshot_date?->toDateString() ?? '',
+                'capturedAt' => $snapshot->captured_at?->toIso8601String(),
+                'todayPnl' => $snapshot->today_pnl,
+                'unrealizedPnl' => $snapshot->unrealized_pnl,
+            ])
+            ->filter(fn (array $row): bool => $row['date'] !== '')
+            ->values()
+            ->all();
+    }
+
+    public function dailySnapshotPayload(string $date): ?array
+    {
+        $snapshotDate = $this->parseSnapshotDate($date);
+        $snapshot = YuantaPortfolioDailySnapshot::query()
+            ->where('snapshot_date', $snapshotDate->toDateString())
+            ->first();
+        if (!$snapshot instanceof YuantaPortfolioDailySnapshot) {
+            return null;
+        }
+
+        $timezone = (string) config('yuanta.timezone', 'Asia/Taipei');
+        $payload = is_array($snapshot->payload) ? $snapshot->payload : [];
+        $payload['summary'] = is_array($snapshot->summary) ? $snapshot->summary : [];
+        $payload['rows'] = is_array($snapshot->rows) ? $snapshot->rows : [];
+        $payload['queriedAt'] = $snapshot->queried_at?->toIso8601String() ?? ($payload['queriedAt'] ?? null);
+        $payload['servedAt'] = CarbonImmutable::now($timezone)->toIso8601String();
+        $payload['cacheSeconds'] = 86400;
+        $payload['market'] = [
+            'isOpen' => false,
+            'isWeekday' => $snapshotDate->isWeekday(),
+            'status' => 'historical',
+            'label' => '歷史收盤快照',
+            'timezone' => $timezone,
+            'now' => CarbonImmutable::now($timezone)->toIso8601String(),
+            'openStart' => (string) config('yuanta.market_open_start', '09:00'),
+            'openEnd' => (string) config('yuanta.market_open_end', '13:35'),
+            'pollSeconds' => null,
+        ];
+        $payload['source'] = [
+            'status' => 'historical',
+            'message' => '元大收盤快照',
+            'ageSeconds' => null,
+            'originalStatus' => $snapshot->source_status,
+            'capturedAt' => $snapshot->captured_at?->toIso8601String(),
+        ];
+        $payload['history'] = [
+            'date' => $snapshotDate->toDateString(),
+            'capturedAt' => $snapshot->captured_at?->toIso8601String(),
+            'queriedAt' => $snapshot->queried_at?->toIso8601String(),
+        ];
+
+        return $payload;
     }
 
     private function queryPortfolio(CarbonImmutable $now): array
@@ -724,6 +830,35 @@ class YuantaPortfolioService
     private function numberOrNull(mixed $value): ?float
     {
         return is_numeric($value) ? (float) $value : null;
+    }
+
+    private function integerOrNull(mixed $value): ?int
+    {
+        return is_numeric($value) ? (int) round((float) $value) : null;
+    }
+
+    private function parseDateTime(mixed $value, string $timezone): ?CarbonImmutable
+    {
+        if ($value === null || trim((string) $value) === '') {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse((string) $value, $timezone);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function parseSnapshotDate(string $date): CarbonImmutable
+    {
+        $normalized = str_replace('/', '-', trim($date));
+        $parsed = CarbonImmutable::createFromFormat('Y-m-d', $normalized, (string) config('yuanta.timezone', 'Asia/Taipei'));
+        if (!$parsed instanceof CarbonImmutable || $parsed->format('Y-m-d') !== $normalized) {
+            throw new \InvalidArgumentException('日期格式錯誤：' . $date);
+        }
+
+        return $parsed->startOfDay();
     }
 
     private function secondsSince(mixed $timestamp, CarbonImmutable $now): ?int

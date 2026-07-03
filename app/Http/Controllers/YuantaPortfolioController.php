@@ -21,12 +21,45 @@ class YuantaPortfolioController extends Controller
         $response = response()->view('tw-stock.esun-portfolio', [
             'apiUrl' => route('tw-stock.yuanta-portfolio.data'),
             'quoteUrl' => route('tw-stock.yuanta-portfolio.quotes'),
+            'historyUrl' => route('tw-stock.yuanta-portfolio.history'),
+            'historyDatesUrl' => route('tw-stock.yuanta-portfolio.history-dates'),
             'token' => (string) $request->query('token', ''),
             'initialMarket' => $service->marketStatus(),
             'pageTitle' => '元大庫存即時看板',
             'brokerName' => '元大',
             'calibrationSeconds' => max(60, (int) config('yuanta.minimum_query_seconds', 60)),
         ]);
+
+        return $this->clearRememberedAccess($response);
+    }
+
+    public function historyDates(Request $request, YuantaPortfolioService $service): JsonResponse
+    {
+        $this->authorizePortfolio($request);
+
+        $response = response()->json([
+            'dates' => $service->dailySnapshotDates(),
+        ]);
+
+        return $this->clearRememberedAccess($response);
+    }
+
+    public function history(Request $request, YuantaPortfolioService $service): JsonResponse
+    {
+        $this->authorizePortfolio($request);
+
+        $date = (string) $request->query('date', '');
+        abort_if($date === '', 422, 'date is required.');
+
+        try {
+            $payload = $service->dailySnapshotPayload($date);
+        } catch (\InvalidArgumentException) {
+            abort(422, 'date is invalid.');
+        }
+
+        abort_if($payload === null, 404, 'history snapshot not found.');
+
+        $response = response()->json($payload);
 
         return $this->clearRememberedAccess($response);
     }

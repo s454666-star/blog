@@ -45,6 +45,9 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertSee('元大已實現')
             ->assertSee('apiUrl', false)
             ->assertSee('quoteUrl', false)
+            ->assertSee('historyUrl', false)
+            ->assertSee('historyDatesUrl', false)
+            ->assertSee('data-history-date', false)
             ->assertSee('brokerName', false)
             ->assertDontSee('fancy-cursor.css', false)
             ->assertDontSee('data-fancy-cursor=', false)
@@ -121,5 +124,55 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertJsonPath('source.label', 'CNYES')
             ->assertJsonPath('market.pollSeconds', 1)
             ->assertJsonPath('quotes.2303.price', 175);
+    }
+
+    public function test_history_dates_endpoint_returns_available_snapshot_dates(): void
+    {
+        $service = Mockery::mock(YuantaPortfolioService::class);
+        $service->shouldReceive('dailySnapshotDates')->once()->andReturn([
+            [
+                'date' => '2026-07-03',
+                'capturedAt' => '2026-07-03T17:55:00+08:00',
+                'todayPnl' => 16000.0,
+                'unrealizedPnl' => -12000.0,
+            ],
+        ]);
+        $this->app->instance(YuantaPortfolioService::class, $service);
+
+        $this->getJson(route('tw-stock.yuanta-portfolio.history-dates', ['token' => 'test-token']))
+            ->assertOk()
+            ->assertJsonPath('dates.0.date', '2026-07-03')
+            ->assertJsonPath('dates.0.todayPnl', 16000);
+    }
+
+    public function test_history_endpoint_returns_requested_snapshot(): void
+    {
+        $service = Mockery::mock(YuantaPortfolioService::class);
+        $service->shouldReceive('dailySnapshotPayload')->once()->with('2026-07-03')->andReturn([
+            'history' => [
+                'date' => '2026-07-03',
+            ],
+            'source' => [
+                'status' => 'historical',
+            ],
+            'summary' => [
+                'todayPnl' => 16000.0,
+                'unrealizedPnl' => -12000.0,
+            ],
+            'rows' => [
+                ['stockNo' => '2303'],
+            ],
+        ]);
+        $this->app->instance(YuantaPortfolioService::class, $service);
+
+        $this->getJson(route('tw-stock.yuanta-portfolio.history', [
+            'token' => 'test-token',
+            'date' => '2026-07-03',
+        ]))
+            ->assertOk()
+            ->assertJsonPath('source.status', 'historical')
+            ->assertJsonPath('history.date', '2026-07-03')
+            ->assertJsonPath('summary.unrealizedPnl', -12000)
+            ->assertJsonPath('rows.0.stockNo', '2303');
     }
 }

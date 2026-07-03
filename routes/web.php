@@ -202,6 +202,8 @@ Route::get('/tw-stock/esun-portfolio/quotes', [EsunPortfolioController::class, '
 Route::get('/tw-stock/yuanta-portfolio', [YuantaPortfolioController::class, 'index'])->name('tw-stock.yuanta-portfolio.index');
 Route::get('/tw-stock/yuanta-portfolio/data', [YuantaPortfolioController::class, 'data'])->name('tw-stock.yuanta-portfolio.data');
 Route::get('/tw-stock/yuanta-portfolio/quotes', [YuantaPortfolioController::class, 'quotes'])->name('tw-stock.yuanta-portfolio.quotes');
+Route::get('/tw-stock/yuanta-portfolio/history/dates', [YuantaPortfolioController::class, 'historyDates'])->name('tw-stock.yuanta-portfolio.history-dates');
+Route::get('/tw-stock/yuanta-portfolio/history', [YuantaPortfolioController::class, 'history'])->name('tw-stock.yuanta-portfolio.history');
 Route::get('/videos/duplicates', [VideoDuplicateController::class, 'index'])->name('videos.duplicates.index');
 Route::post('/videos/duplicates/open', [VideoDuplicateController::class, 'open'])->name('videos.duplicates.open');
 Route::post('/videos/duplicates/mark-unique', [VideoDuplicateController::class, 'markUnique'])->name('videos.duplicates.markUnique');

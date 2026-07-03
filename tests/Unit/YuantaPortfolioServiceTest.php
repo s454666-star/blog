@@ -6,11 +6,19 @@ use App\Services\YuantaPortfolioService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use ReflectionMethod;
 use Tests\TestCase;
 
 class YuantaPortfolioServiceTest extends TestCase
 {
+    protected function tearDown(): void
+    {
+        Schema::dropIfExists('yuanta_portfolio_daily_snapshots');
+
+        parent::tearDown();
+    }
+
     public function test_it_summarizes_margin_usage_from_yuanta_loan_fields(): void
     {
         config()->set('yuanta.margin_limit_amount', 1000000);
@@ -155,5 +163,67 @@ class YuantaPortfolioServiceTest extends TestCase
         $this->assertSame(40.0, $row['dayChange']);
         $this->assertSame(3080.0, $row['todayPnl']);
         $this->assertSame(7664.0, $row['unrealizedPnl']);
+    }
+
+    public function test_it_stores_and_reads_daily_snapshot_payloads(): void
+    {
+        $this->migrateYuantaDailySnapshotsTable();
+
+        $service = new YuantaPortfolioService();
+        $snapshot = $service->storeDailySnapshot([
+            'queriedAt' => '2026-07-03T17:54:50+08:00',
+            'servedAt' => '2026-07-03T17:55:02+08:00',
+            'cacheSeconds' => 600,
+            'market' => [
+                'isOpen' => false,
+                'label' => '非交易時段',
+            ],
+            'source' => [
+                'status' => 'live',
+                'message' => '元大 API 查詢成功。',
+                'ageSeconds' => 12,
+            ],
+            'summary' => [
+                'stockCount' => 2,
+                'shareCount' => 2000,
+                'marketValue' => 118000,
+                'costBasis' => 130000,
+                'todayPnl' => 16000,
+                'unrealizedPnl' => -12000,
+                'bankBalance' => 7506,
+                'marginUsedAmount' => 603000,
+                'marginAvailableAmount' => 397000,
+            ],
+            'rows' => [
+                [
+                    'stockNo' => '2303',
+                    'todayPnl' => 16000,
+                    'unrealizedPnl' => -12000,
+                ],
+            ],
+        ], CarbonImmutable::parse('2026-07-03', 'Asia/Taipei'));
+
+        $this->assertSame('2026-07-03', $snapshot->snapshot_date->toDateString());
+        $this->assertSame(16000.0, $snapshot->today_pnl);
+        $this->assertSame(-12000.0, $snapshot->unrealized_pnl);
+
+        $dates = $service->dailySnapshotDates();
+        $this->assertSame('2026-07-03', $dates[0]['date']);
+        $this->assertSame(16000.0, $dates[0]['todayPnl']);
+
+        $payload = $service->dailySnapshotPayload('2026-07-03');
+        $this->assertSame('historical', $payload['source']['status']);
+        $this->assertSame('2026-07-03', $payload['history']['date']);
+        $this->assertFalse($payload['market']['isOpen']);
+        $this->assertSame(16000, $payload['summary']['todayPnl']);
+        $this->assertSame('2303', $payload['rows'][0]['stockNo']);
+    }
+
+    private function migrateYuantaDailySnapshotsTable(): void
+    {
+        Schema::dropIfExists('yuanta_portfolio_daily_snapshots');
+
+        $migration = require base_path('database/migrations/2026_07_03_110000_create_yuanta_portfolio_daily_snapshots_table.php');
+        $migration->up();
     }
 }

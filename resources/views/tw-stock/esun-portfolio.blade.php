@@ -392,7 +392,8 @@
         }
 
         .button,
-        input {
+        input,
+        select {
             min-height: 36px;
             border: 1px solid var(--line-soft);
             border-radius: 8px;
@@ -473,16 +474,33 @@
             transform: none;
         }
 
-        input {
+        input,
+        select {
             width: 210px;
             outline: none;
             background: rgba(15, 23, 42, 0.68);
             transition: border-color 160ms ease, box-shadow 160ms ease;
         }
 
-        input:focus {
+        select {
+            width: 180px;
+            cursor: pointer;
+        }
+
+        input:focus,
+        select:focus {
             border-color: rgba(56, 189, 248, 0.66);
             box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.14);
+        }
+
+        .history-control {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 36px;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 900;
         }
 
         .table-wrap {
@@ -884,7 +902,8 @@
             h1 { font-size: 24px; }
             .summary-grid { grid-template-columns: 1fr; }
             .value { font-size: 28px; }
-            input { width: 100%; }
+            input,
+            select { width: 100%; }
             .button { flex: 1 1 150px; }
         }
 </style>
@@ -976,6 +995,14 @@
             <button class="button secondary" type="button" data-quote-refresh>更新即時報價</button>
         </div>
         <div class="controls">
+            @if (!empty($historyDatesUrl ?? null) && !empty($historyUrl ?? null))
+                <label class="history-control">
+                    <span>快照日期</span>
+                    <select data-history-date>
+                        <option value="">即時</option>
+                    </select>
+                </label>
+            @endif
             <input type="search" placeholder="搜尋代號或名稱" data-filter>
         </div>
     </section>
@@ -1013,6 +1040,8 @@
 <script>
 const apiUrl = @json($apiUrl);
 const quoteUrl = @json($quoteUrl);
+const historyUrl = @json($historyUrl ?? null);
+const historyDatesUrl = @json($historyDatesUrl ?? null);
 const dashboardToken = @json($token);
 const brokerName = @json($brokerName ?? '玉山');
 const brokerApiLabel = `${brokerName}API`;
@@ -1023,6 +1052,8 @@ const state = {
     quoteTimer: null,
     esunTimer: null,
     quoteLoading: false,
+    historyMode: false,
+    historyLoading: false,
     lastQuotePayload: null,
     lastPayload: null,
     sort: {
@@ -1041,6 +1072,7 @@ const els = {
     filter: document.querySelector('[data-filter]'),
     esunRefresh: document.querySelector('[data-esun-refresh]'),
     quoteRefresh: document.querySelector('[data-quote-refresh]'),
+    historyDate: document.querySelector('[data-history-date]'),
     sortButtons: document.querySelectorAll('[data-sort-key]'),
 };
 
@@ -1363,7 +1395,11 @@ function renderPositions() {
 
 function applyPayload(payload, options = {}) {
     state.lastPayload = payload;
-    const quotePayload = state.lastQuotePayload;
+    if (options.historical) {
+        state.lastQuotePayload = null;
+    }
+
+    const quotePayload = options.historical ? null : state.lastQuotePayload;
     const quoteResult = quotePayload
         ? applyQuotePayloadToRows(payload.rows || [], quotePayload)
         : { rows: payload.rows || [], changed: false };
@@ -1380,25 +1416,32 @@ function applyPayload(payload, options = {}) {
     els.marketStatus.textContent = market.label || '--';
     els.marketStatus.classList.toggle('live', Boolean(market.isOpen));
     updateInventoryStatus(payload);
-    els.lastUpdated.textContent = `更新 ${formatDateTime(payload.queriedAt || payload.servedAt)}`;
+    els.lastUpdated.textContent = options.historical
+        ? `快照 ${formatDateTime(payload.history?.capturedAt || payload.queriedAt || payload.servedAt)}`
+        : `更新 ${formatDateTime(payload.queriedAt || payload.servedAt)}`;
     if (quoteResult.changed) {
         updateQuoteStatus(quotePayload);
     }
-    if (!options.skipQuoteFetch) {
+    if (!options.skipQuoteFetch && !options.historical) {
         fetchQuotes();
     }
-    scheduleQuotePolling(market);
-    scheduleEsunPolling(market);
+    if (!options.historical) {
+        scheduleQuotePolling(market);
+        scheduleEsunPolling(market);
+    }
 }
 
 function updateInventoryStatus(payload) {
     const market = payload.market || {};
     const source = payload.source || {};
     const fresh = isInventoryFresh(payload);
+    const historical = source.status === 'historical' || Boolean(payload.history);
     const retryMs = millisecondsUntilNextEsunRefresh(payload);
     const retrySeconds = Math.max(1, Math.ceil(retryMs / 1000));
 
-    if (!fresh && market.isOpen) {
+    if (historical) {
+        els.refreshStatus.textContent = `歷史收盤快照 · ${payload.history?.date || '--'}`;
+    } else if (!fresh && market.isOpen) {
         els.refreshStatus.textContent = `庫存待校準 · ${retrySeconds}秒後重試`;
     } else if (source.status === 'live') {
         els.refreshStatus.textContent = market.isOpen ? `${brokerName}庫存已校準 · 每秒報價` : `${brokerName}庫存已校準`;
@@ -1408,8 +1451,8 @@ function updateInventoryStatus(payload) {
         els.refreshStatus.textContent = '顯示最近成功資料';
     }
 
-    els.refreshStatus.classList.toggle('live', Boolean(market.isOpen) && fresh);
-    els.refreshStatus.classList.toggle('error', !fresh);
+    els.refreshStatus.classList.toggle('live', Boolean(market.isOpen) && fresh && !historical);
+    els.refreshStatus.classList.toggle('error', !fresh && !historical);
 }
 
 function isInventoryFresh(payload = state.lastPayload) {
@@ -1484,7 +1527,24 @@ function updateSortIndicators() {
     });
 }
 
+function clearPolling() {
+    if (state.quoteTimer) {
+        clearInterval(state.quoteTimer);
+        state.quoteTimer = null;
+    }
+
+    if (state.esunTimer) {
+        clearTimeout(state.esunTimer);
+        state.esunTimer = null;
+    }
+}
+
 function scheduleQuotePolling(market) {
+    if (state.historyMode) {
+        clearPolling();
+        return;
+    }
+
     if (state.quoteTimer) {
         clearInterval(state.quoteTimer);
         state.quoteTimer = null;
@@ -1526,6 +1586,11 @@ function millisecondsUntilNextEsunRefresh(payload = state.lastPayload) {
 }
 
 function scheduleEsunPolling(market) {
+    if (state.historyMode) {
+        clearPolling();
+        return;
+    }
+
     if (state.esunTimer) {
         clearTimeout(state.esunTimer);
         state.esunTimer = null;
@@ -1546,6 +1611,10 @@ function scheduleEsunPolling(market) {
 }
 
 async function fetchData(force, options = {}) {
+    if (state.historyMode && !options.ignoreHistoryMode) {
+        return;
+    }
+
     if (state.dataLoading) {
         return;
     }
@@ -1590,12 +1659,12 @@ async function fetchData(force, options = {}) {
         els.error.textContent = `讀取${brokerName}庫存失敗：${error.message}`;
     } finally {
         state.dataLoading = false;
-        els.esunRefresh.disabled = false;
+        els.esunRefresh.disabled = state.historyMode;
     }
 }
 
 async function fetchQuotes(manual = false) {
-    if (state.quoteLoading || !state.rows.length) {
+    if (state.historyMode || state.quoteLoading || !state.rows.length) {
         return;
     }
 
@@ -1613,7 +1682,7 @@ async function fetchQuotes(manual = false) {
         els.refreshStatus.classList.add('error');
     } finally {
         state.quoteLoading = false;
-        els.quoteRefresh.disabled = false;
+        els.quoteRefresh.disabled = state.historyMode;
     }
 }
 
@@ -1633,6 +1702,102 @@ async function fetchQuotePayloadForRows(rows) {
     }
 
     return response.json();
+}
+
+async function loadHistoryDates() {
+    if (!els.historyDate || !historyDatesUrl) {
+        return;
+    }
+
+    try {
+        const url = new URL(historyDatesUrl, window.location.origin);
+        if (dashboardToken) {
+            url.searchParams.set('token', dashboardToken);
+        }
+
+        const response = await fetch(url.toString(), {
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store',
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        renderHistoryDateOptions((await response.json()).dates || []);
+    } catch (error) {
+        els.historyDate.innerHTML = '<option value="">即時</option>';
+    }
+}
+
+function renderHistoryDateOptions(dates) {
+    if (!els.historyDate) {
+        return;
+    }
+
+    const currentValue = els.historyDate.value;
+    const options = ['<option value="">即時</option>'];
+    dates.forEach(row => {
+        const date = String(row.date || '');
+        if (!date) return;
+
+        options.push(
+            `<option value="${escapeHtml(date)}">${escapeHtml(date)} · 今 ${escapeHtml(formatMoneyOrDash(row.todayPnl))} · 累 ${escapeHtml(formatMoneyOrDash(row.unrealizedPnl))}</option>`
+        );
+    });
+
+    els.historyDate.innerHTML = options.join('');
+    els.historyDate.value = [...els.historyDate.options].some(option => option.value === currentValue)
+        ? currentValue
+        : '';
+}
+
+function setHistoryMode(enabled) {
+    state.historyMode = enabled;
+    if (enabled) {
+        clearPolling();
+        state.lastQuotePayload = null;
+    }
+
+    els.esunRefresh.disabled = enabled || state.dataLoading;
+    els.quoteRefresh.disabled = enabled || state.quoteLoading;
+}
+
+async function fetchHistorySnapshot(date) {
+    if (!historyUrl || state.historyLoading) {
+        return;
+    }
+
+    state.historyLoading = true;
+    setHistoryMode(true);
+    els.refreshStatus.textContent = '讀取歷史快照';
+    els.refreshStatus.classList.remove('error');
+    els.error.style.display = 'none';
+
+    try {
+        const url = new URL(historyUrl, window.location.origin);
+        if (dashboardToken) {
+            url.searchParams.set('token', dashboardToken);
+        }
+        url.searchParams.set('date', date);
+
+        const response = await fetch(url.toString(), {
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store',
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        applyPayload(await response.json(), { historical: true, skipQuoteFetch: true });
+    } catch (error) {
+        els.refreshStatus.textContent = '歷史快照讀取失敗';
+        els.refreshStatus.classList.add('error');
+        els.error.style.display = 'block';
+        els.error.textContent = `讀取歷史快照失敗：${error.message}`;
+    } finally {
+        state.historyLoading = false;
+        setHistoryMode(true);
+    }
 }
 
 function applyQuotes(payload) {
@@ -2122,6 +2287,18 @@ els.filter.addEventListener('input', () => {
 });
 els.esunRefresh.addEventListener('click', () => fetchData(true));
 els.quoteRefresh.addEventListener('click', () => fetchQuotes(true));
+if (els.historyDate) {
+    els.historyDate.addEventListener('change', async () => {
+        const date = els.historyDate.value;
+        if (date === '') {
+            setHistoryMode(false);
+            await fetchData(true, { ignoreHistoryMode: true });
+            return;
+        }
+
+        await fetchHistorySnapshot(date);
+    });
+}
 window.addEventListener('focus', () => fetchData(true, { background: true }));
 window.addEventListener('pageshow', () => fetchData(true, { background: true }));
 document.addEventListener('visibilitychange', () => {
@@ -2135,6 +2312,7 @@ els.sortButtons.forEach(button => {
 
 setupSilentCopy();
 updateSortIndicators();
+loadHistoryDates();
 fetchData(true);
 </script>
 </body>

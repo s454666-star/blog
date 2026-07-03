@@ -107,6 +107,14 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/yuanta_portfolio_daily_snapshots.log'));
 
+        $schedule->command('esun:portfolio-capture-daily')
+            ->dailyAt('17:56')
+            ->weekdays()
+            ->name('esun-portfolio-capture-daily')
+            ->withoutOverlapping(30)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/esun_portfolio_daily_snapshots.log'));
+
         $schedule->command('tw-stock:fetch-monthly-revenues --skip-outside-window')
             ->dailyAt('22:00')
             ->weekdays()

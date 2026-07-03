@@ -21,10 +21,43 @@ class EsunPortfolioController extends Controller
         $response = response()->view('tw-stock.esun-portfolio', [
             'apiUrl' => route('tw-stock.esun-portfolio.data'),
             'quoteUrl' => route('tw-stock.esun-portfolio.quotes'),
+            'historyUrl' => route('tw-stock.esun-portfolio.history'),
+            'historyDatesUrl' => route('tw-stock.esun-portfolio.history-dates'),
             'token' => (string) $request->query('token', ''),
             'initialMarket' => $service->marketStatus(),
             'calibrationSeconds' => max(45, (int) config('esun.minimum_query_seconds', 45)),
         ]);
+
+        return $this->clearRememberedAccess($response);
+    }
+
+    public function historyDates(Request $request, EsunPortfolioService $service): JsonResponse
+    {
+        $this->authorizePortfolio($request);
+
+        $response = response()->json([
+            'dates' => $service->dailySnapshotDates(),
+        ]);
+
+        return $this->clearRememberedAccess($response);
+    }
+
+    public function history(Request $request, EsunPortfolioService $service): JsonResponse
+    {
+        $this->authorizePortfolio($request);
+
+        $date = (string) $request->query('date', '');
+        abort_if($date === '', 422, 'date is required.');
+
+        try {
+            $payload = $service->dailySnapshotPayload($date);
+        } catch (\InvalidArgumentException) {
+            abort(422, 'date is invalid.');
+        }
+
+        abort_if($payload === null, 404, 'history snapshot not found.');
+
+        $response = response()->json($payload);
 
         return $this->clearRememberedAccess($response);
     }

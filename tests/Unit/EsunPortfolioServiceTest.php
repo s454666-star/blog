@@ -4,13 +4,32 @@ namespace Tests\Unit;
 
 use App\Services\EsunPortfolioService;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use ReflectionMethod;
 use Tests\TestCase;
 
 class EsunPortfolioServiceTest extends TestCase
 {
+    private bool $createdEsunSnapshotsTable = false;
+
+    protected function tearDown(): void
+    {
+        if (Schema::hasTable('esun_portfolio_daily_snapshots')) {
+            DB::table('esun_portfolio_daily_snapshots')
+                ->where('snapshot_date', '2099-07-03')
+                ->delete();
+        }
+
+        if ($this->createdEsunSnapshotsTable) {
+            Schema::dropIfExists('esun_portfolio_daily_snapshots');
+        }
+
+        parent::tearDown();
+    }
+
     public function test_it_uses_cash_cost_for_margin_invested_cost(): void
     {
         $service = new EsunPortfolioService();
@@ -691,5 +710,75 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertEqualsWithDelta(210000 / 790000 * 100, $snapshot['summary']['yearTotalPnlRate'], 0.000001);
         $this->assertSame(176, $snapshot['summary']['yearElapsedDays']);
         $this->assertEqualsWithDelta((210000 / 790000 * 100) * 365 / 176, $snapshot['summary']['annualizedReturnRate'], 0.000001);
+    }
+
+    public function test_it_stores_and_reads_daily_snapshot_payloads(): void
+    {
+        $this->migrateEsunDailySnapshotsTable();
+
+        $service = new EsunPortfolioService();
+        $snapshot = $service->storeDailySnapshot([
+            'queriedAt' => '2099-07-03T09:54:50+00:00',
+            'servedAt' => '2099-07-03T17:55:02+08:00',
+            'cacheSeconds' => 600,
+            'market' => [
+                'isOpen' => false,
+                'label' => '非交易時段',
+            ],
+            'source' => [
+                'status' => 'live',
+                'message' => '玉山 API 查詢成功。',
+                'ageSeconds' => 12,
+            ],
+            'summary' => [
+                'stockCount' => 2,
+                'shareCount' => 2000,
+                'marketValue' => 118000,
+                'costBasis' => 130000,
+                'todayPnl' => 16000,
+                'unrealizedPnl' => -12000,
+                'bankBalance' => 7506,
+                'marginUsedAmount' => 603000,
+                'marginAvailableAmount' => 397000,
+            ],
+            'rows' => [
+                [
+                    'stockNo' => '2303',
+                    'todayPnl' => 16000,
+                    'unrealizedPnl' => -12000,
+                ],
+            ],
+        ], CarbonImmutable::parse('2099-07-03', 'Asia/Taipei'));
+
+        $this->assertSame('2099-07-03', $snapshot->snapshot_date->toDateString());
+        $this->assertSame(16000.0, $snapshot->today_pnl);
+        $this->assertSame(-12000.0, $snapshot->unrealized_pnl);
+
+        $dates = $service->dailySnapshotDates();
+        $this->assertSame('2099-07-03', $dates[0]['date']);
+        $this->assertSame(16000.0, $dates[0]['todayPnl']);
+
+        $payload = $service->dailySnapshotPayload('2099-07-03');
+        $this->assertSame('historical', $payload['source']['status']);
+        $this->assertSame('2099-07-03', $payload['history']['date']);
+        $this->assertSame('2099-07-03T17:54:50+08:00', $payload['history']['queriedAt']);
+        $this->assertFalse($payload['market']['isOpen']);
+        $this->assertSame(16000, $payload['summary']['todayPnl']);
+        $this->assertSame('2303', $payload['rows'][0]['stockNo']);
+    }
+
+    private function migrateEsunDailySnapshotsTable(): void
+    {
+        if (Schema::hasTable('esun_portfolio_daily_snapshots')) {
+            DB::table('esun_portfolio_daily_snapshots')
+                ->where('snapshot_date', '2099-07-03')
+                ->delete();
+
+            return;
+        }
+
+        $migration = require base_path('database/migrations/2026_07_03_112000_create_esun_portfolio_daily_snapshots_table.php');
+        $migration->up();
+        $this->createdEsunSnapshotsTable = true;
     }
 }

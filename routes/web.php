@@ -199,6 +199,8 @@ Route::get('/tw-stock', [TwStockInstitutionalFlowController::class, 'index'])->n
 Route::get('/tw-stock/esun-portfolio', [EsunPortfolioController::class, 'index'])->name('tw-stock.esun-portfolio.index');
 Route::get('/tw-stock/esun-portfolio/data', [EsunPortfolioController::class, 'data'])->name('tw-stock.esun-portfolio.data');
 Route::get('/tw-stock/esun-portfolio/quotes', [EsunPortfolioController::class, 'quotes'])->name('tw-stock.esun-portfolio.quotes');
+Route::get('/tw-stock/esun-portfolio/history/dates', [EsunPortfolioController::class, 'historyDates'])->name('tw-stock.esun-portfolio.history-dates');
+Route::get('/tw-stock/esun-portfolio/history', [EsunPortfolioController::class, 'history'])->name('tw-stock.esun-portfolio.history');
 Route::get('/tw-stock/yuanta-portfolio', [YuantaPortfolioController::class, 'index'])->name('tw-stock.yuanta-portfolio.index');
 Route::get('/tw-stock/yuanta-portfolio/data', [YuantaPortfolioController::class, 'data'])->name('tw-stock.yuanta-portfolio.data');
 Route::get('/tw-stock/yuanta-portfolio/quotes', [YuantaPortfolioController::class, 'quotes'])->name('tw-stock.yuanta-portfolio.quotes');

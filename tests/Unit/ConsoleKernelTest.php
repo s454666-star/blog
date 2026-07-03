@@ -110,4 +110,29 @@ class ConsoleKernelTest extends TestCase
             ],
         ], $events);
     }
+
+    public function test_esun_daily_snapshot_schedule_runs_weekdays_at_1756(): void
+    {
+        $schedule = new Schedule(config('app.timezone'));
+        $method = new ReflectionMethod(Kernel::class, 'schedule');
+        $kernel = $this->app->make(Kernel::class);
+
+        $method->invoke($kernel, $schedule);
+
+        $events = collect($schedule->events())
+            ->filter(fn ($event): bool => str_contains((string) $event->command, 'esun:portfolio-capture-daily'))
+            ->map(fn ($event): array => [
+                'expression' => $event->expression,
+                'name' => $event->description,
+            ])
+            ->values()
+            ->all();
+
+        $this->assertSame([
+            [
+                'expression' => '56 17 * * 1-5',
+                'name' => 'esun-portfolio-capture-daily',
+            ],
+        ], $events);
+    }
 }

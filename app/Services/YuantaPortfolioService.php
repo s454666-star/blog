@@ -7,11 +7,14 @@ use App\Models\TwStockDailyPrice;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 
 class YuantaPortfolioService
 {
+    private const TWSE_MIS_URL = 'https://mis.twse.com.tw/stock/api/getStockInfo.jsp';
+
     public function snapshot(bool $force = false): array
     {
         $now = CarbonImmutable::now((string) config('yuanta.timezone', 'Asia/Taipei'));
@@ -430,10 +433,19 @@ class YuantaPortfolioService
         $today = CarbonImmutable::now((string) config('yuanta.timezone', 'Asia/Taipei'))->toDateString();
         $startOfYear = CarbonImmutable::now((string) config('yuanta.timezone', 'Asia/Taipei'))->startOfYear()->toDateString();
 
-        return $rows
+        $history = $rows
             ->groupBy('stock_code')
             ->map(fn (Collection $prices): array => $this->historicalPriceSummary($prices->values(), $today, $startOfYear))
             ->all();
+
+        foreach ($this->twseMisPreviousCloses($stockCodes) as $stockCode => $official) {
+            $history[(string) $stockCode] = $this->mergeOfficialPreviousClose(
+                $history[(string) $stockCode] ?? [],
+                $official,
+            );
+        }
+
+        return $history;
     }
 
     /**
@@ -466,6 +478,88 @@ class YuantaPortfolioService
     private function returnRate(?float $current, ?float $base): ?float
     {
         return $current !== null && $base !== null && $base > 0 ? ($current - $base) / $base * 100 : null;
+    }
+
+    /**
+     * @param Collection<int, string> $stockCodes
+     * @return array<string, array{previousClose: float|null}>
+     */
+    private function twseMisPreviousCloses(Collection $stockCodes): array
+    {
+        $codes = $stockCodes
+            ->map(fn (mixed $code): string => strtoupper(preg_replace('/[^0-9A-Z]/i', '', (string) $code) ?? ''))
+            ->filter()
+            ->unique()
+            ->values();
+        if ($codes->isEmpty()) {
+            return [];
+        }
+
+        return Cache::remember(
+            'yuanta:portfolio:twse-mis-prevclose:' . CarbonImmutable::now((string) config('yuanta.timezone', 'Asia/Taipei'))->toDateString() . ':' . sha1($codes->implode(',')) . ':v1',
+            now()->addSeconds(60),
+            function () use ($codes): array {
+                $channels = $codes
+                    ->flatMap(fn (string $code): array => ['tse_' . $code . '.tw', 'otc_' . $code . '.tw'])
+                    ->implode('|');
+
+                try {
+                    $payload = Http::withHeaders([
+                        'Accept' => 'application/json,text/plain,*/*',
+                        'Referer' => 'https://mis.twse.com.tw/stock/index.jsp',
+                        'User-Agent' => 'Mozilla/5.0',
+                    ])
+                        ->timeout(4)
+                        ->retry(1, 150)
+                        ->get(self::TWSE_MIS_URL, [
+                            'ex_ch' => $channels,
+                            'json' => '1',
+                            'delay' => '0',
+                            '_' => (string) (int) (microtime(true) * 1000),
+                        ])
+                        ->throw()
+                        ->json();
+                } catch (\Throwable) {
+                    return [];
+                }
+
+                $rows = is_array($payload['msgArray'] ?? null) ? $payload['msgArray'] : [];
+                $previousCloses = [];
+                foreach ($rows as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+
+                    $code = strtoupper(preg_replace('/[^0-9A-Z]/i', '', (string) ($row['c'] ?? '')) ?? '');
+                    $previousClose = $this->numberOrNull($row['y'] ?? null);
+                    if ($code === '' || !$codes->contains($code) || $previousClose === null) {
+                        continue;
+                    }
+
+                    $previousCloses[$code] = ['previousClose' => $previousClose];
+                }
+
+                return $previousCloses;
+            },
+        );
+    }
+
+    private function mergeOfficialPreviousClose(array $base, array $official): array
+    {
+        $officialPreviousClose = $this->numberOrNull($official['previousClose'] ?? null);
+        if ($officialPreviousClose === null) {
+            return $base;
+        }
+
+        $basePreviousClose = $this->numberOrNull($base['previousClose'] ?? null);
+        $tolerance = max(0.01, abs($officialPreviousClose) * 0.0001);
+        if ($basePreviousClose !== null && abs($basePreviousClose - $officialPreviousClose) <= $tolerance) {
+            return $base;
+        }
+
+        $base['previousClose'] = $officialPreviousClose;
+
+        return $base;
     }
 
     /**

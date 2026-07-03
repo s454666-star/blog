@@ -4,6 +4,8 @@ namespace Tests\Unit;
 
 use App\Services\YuantaPortfolioService;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -98,5 +100,60 @@ class YuantaPortfolioServiceTest extends TestCase
         $this->assertSame(48109.0, $summary['pendingSettlementAmount']);
         $this->assertSame(862.0, $summary['bankBalance']);
         $this->assertEqualsWithDelta(1590986 / (1590986 + 862) * 100, $summary['investmentLevelRate'], 0.000001);
+    }
+
+    public function test_it_reads_twse_mis_previous_close_for_yuanta_holdings(): void
+    {
+        Cache::flush();
+        Http::fake([
+            'https://mis.twse.com.tw/stock/api/getStockInfo.jsp*' => Http::response([
+                'msgArray' => [
+                    ['c' => '5269', 'y' => '1520'],
+                    ['c' => '00685L', 'y' => '306.50'],
+                ],
+            ]),
+        ]);
+
+        $service = new YuantaPortfolioService();
+        $method = new ReflectionMethod($service, 'twseMisPreviousCloses');
+
+        $previousCloses = $method->invoke($service, collect(['5269', '00685L']));
+
+        $this->assertSame(1520.0, $previousCloses['5269']['previousClose']);
+        $this->assertSame(306.5, $previousCloses['00685L']['previousClose']);
+    }
+
+    public function test_it_uses_official_previous_close_for_yuanta_today_pnl(): void
+    {
+        $service = new YuantaPortfolioService();
+        $mergeMethod = new ReflectionMethod($service, 'mergeOfficialPreviousClose');
+        $rowMethod = new ReflectionMethod($service, 'formatInventoryRow');
+
+        $history = $mergeMethod->invoke($service, [
+            'previousClose' => 1470.0,
+            'fiveDayReturn' => 1.0,
+            'twentyDayReturn' => 2.0,
+            'sixtyDayReturn' => 3.0,
+            'yearToDateReturn' => 4.0,
+        ], [
+            'previousClose' => 1520.0,
+        ]);
+
+        $row = $rowMethod->invoke($service, [
+            'StkCode' => '5269',
+            'StkName' => '祥碩',
+            'StockQty' => 77,
+            'MarketPrice' => 1560,
+            'MarketAmt' => 120120,
+            'ReturnAmt' => 7664,
+            'Cost' => 111925,
+            'Price' => 1453.57,
+            'TradeKind' => '0',
+        ], $history);
+
+        $this->assertSame(1520.0, $row['previousClose']);
+        $this->assertSame(40.0, $row['dayChange']);
+        $this->assertSame(3080.0, $row['todayPnl']);
+        $this->assertSame(7664.0, $row['unrealizedPnl']);
     }
 }

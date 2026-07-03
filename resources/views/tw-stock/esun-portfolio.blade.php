@@ -916,28 +916,28 @@
 
     <section class="summary-grid">
         <div class="summary-card">
-            <div class="label">今日損益（萬）</div>
+            <div class="label">今日損益</div>
             <div class="value" data-summary="todayPnl">--</div>
             <div class="sub" data-summary="todayPnlRate">--</div>
         </div>
         <div class="summary-card">
-            <div class="label">即時累積損益（萬）</div>
+            <div class="label">即時累積損益</div>
             <div class="value" data-summary="unrealizedPnl">--</div>
             <div class="sub" data-summary="unrealizedPnlRate">--</div>
         </div>
         <div class="summary-card">
-            <div class="label">股票市值（萬）</div>
+            <div class="label">股票市值</div>
             <div class="value neutral" data-summary="marketValue">--</div>
             <div class="sub" data-summary="costBasis">成本 --</div>
         </div>
         <div class="summary-card">
-            <div class="label">今年總損益（萬）</div>
+            <div class="label">今年總損益</div>
             <div class="value" data-summary="yearTotalPnl">--</div>
             <div class="return-rate-line" data-summary="yearTotalPnlRate">今年報酬率 --</div>
             <div class="sub" data-summary="yearTotalPnlBreakdown">{{ $brokerName ?? '玉山' }}已實現 -- · 當日已實現 --</div>
         </div>
         <div class="summary-card capital-card">
-            <div class="label">投入總成本（萬）</div>
+            <div class="label">投入總成本</div>
             <div class="value neutral" data-summary="investedCost">--</div>
             <div class="investment-metrics" data-summary="investmentLevel">
                 <div class="investment-line">
@@ -951,7 +951,7 @@
             </div>
         </div>
         <div class="summary-card capital-card">
-            <div class="label" data-summary="marginLimitLabel">融資額度（萬）</div>
+            <div class="label" data-summary="marginLimitLabel">融資額度</div>
             <div class="value neutral" data-summary="marginLimitAmount">--</div>
             <div class="investment-metrics" data-summary="marginMetrics">
                 <div class="investment-line">
@@ -1059,44 +1059,6 @@ function formatMoney(value) {
     return prefix + Math.round(numeric).toLocaleString('zh-TW');
 }
 
-function formatWanMoney(value) {
-    const numeric = finiteNumber(value);
-    if (numeric === null) return '--';
-
-    return `${signedWanNumber(numeric)}萬`;
-}
-
-function formatWanAmount(value) {
-    const numeric = finiteNumber(value);
-    if (numeric === null) return '--';
-
-    return `${wanNumber(numeric)}萬`;
-}
-
-function signedWanNumber(value) {
-    const rounded = roundedWan(value);
-    const prefix = rounded > 0 ? '+' : '';
-
-    return prefix + localizedWanNumber(rounded);
-}
-
-function wanNumber(value) {
-    return localizedWanNumber(roundedWan(value));
-}
-
-function roundedWan(value) {
-    const rounded = Math.round(number(value) / 1000) / 10;
-
-    return Object.is(rounded, -0) ? 0 : rounded;
-}
-
-function localizedWanNumber(value) {
-    return value.toLocaleString('zh-TW', {
-        minimumFractionDigits: Number.isInteger(value) ? 0 : 1,
-        maximumFractionDigits: 1,
-    });
-}
-
 function formatMoneyOrDash(value) {
     const numeric = finiteNumber(value);
     if (numeric === null) return '--';
@@ -1183,9 +1145,6 @@ function updateSummaryCards(summary, sourceText) {
     const yearTotalPnlRate = finiteNumber(summary.yearTotalPnlRate ?? state.lastPayload?.summary?.yearTotalPnlRate);
     const realizedYearPnl = finiteNumber(summary.realizedYearPnl ?? state.lastPayload?.summary?.realizedYearPnl);
     const realizedTodayPnl = finiteNumber(summary.realizedTodayPnl ?? state.lastPayload?.summary?.realizedTodayPnl);
-    const todayPnl = finiteNumber(summary.todayPnl);
-    const unrealizedPnl = finiteNumber(summary.unrealizedPnl);
-    const previousUnrealizedPnl = todayPnl === null || unrealizedPnl === null ? null : unrealizedPnl - todayPnl;
     const realizedHistoryPnl = finiteNumber(
         summary.realizedHistoryPnl
         ?? state.lastPayload?.summary?.realizedHistoryPnl
@@ -1198,7 +1157,7 @@ function updateSummaryCards(summary, sourceText) {
     sourceCompact.title = sourceText;
 
     const today = document.querySelector('[data-summary="todayPnl"]');
-    today.textContent = formatWanMoney(summary.todayPnl);
+    today.textContent = formatMoney(summary.todayPnl);
     setTone(today, summary.todayPnl);
 
     const todayRate = document.querySelector('[data-summary="todayPnlRate"]');
@@ -1206,32 +1165,30 @@ function updateSummaryCards(summary, sourceText) {
     todayRate.className = `sub ${toneClass(summary.todayPnlRate)}`;
 
     const unrealized = document.querySelector('[data-summary="unrealizedPnl"]');
-    unrealized.textContent = formatWanMoney(summary.unrealizedPnl);
+    unrealized.textContent = formatMoney(summary.unrealizedPnl);
     setTone(unrealized, summary.unrealizedPnl);
 
     const unrealizedRate = document.querySelector('[data-summary="unrealizedPnlRate"]');
-    unrealizedRate.textContent = previousUnrealizedPnl === null
-        ? summaryDeltaText(formatPercent(summary.unrealizedPnlRate), brokerName, esunUnrealizedPnl, number(summary.unrealizedPnl) - number(esunUnrealizedPnl))
-        : `${formatPercent(summary.unrealizedPnlRate)} · 昨收累積 ${formatWanMoney(previousUnrealizedPnl)} · 今日 ${formatWanMoney(todayPnl)}`;
+    unrealizedRate.textContent = summaryDeltaText(formatPercent(summary.unrealizedPnlRate), brokerName, esunUnrealizedPnl, number(summary.unrealizedPnl) - number(esunUnrealizedPnl));
     unrealizedRate.className = `sub ${toneClass(summary.unrealizedPnlRate)}`;
 
-    document.querySelector('[data-summary="marketValue"]').textContent = formatWanAmount(summary.marketValue);
-    document.querySelector('[data-summary="costBasis"]').textContent = `${brokerName}投資成本 ${formatWanAmount(costBasis)} · ${brokerName}市值 ${formatWanAmount(esunMarketValue)} · 差 ${formatWanMoney(number(summary.marketValue) - number(esunMarketValue))}`;
+    document.querySelector('[data-summary="marketValue"]').textContent = formatInteger(summary.marketValue);
+    document.querySelector('[data-summary="costBasis"]').textContent = `${brokerName}投資成本 ${formatInteger(costBasis)} · ${brokerName}市值 ${formatInteger(esunMarketValue)} · 差 ${formatMoney(number(summary.marketValue) - number(esunMarketValue))}`;
     const year = document.querySelector('[data-summary="yearTotalPnl"]');
-    year.textContent = yearTotalPnl === null ? '--' : formatWanMoney(yearTotalPnl);
+    year.textContent = yearTotalPnl === null ? '--' : formatMoney(yearTotalPnl);
     setTone(year, yearTotalPnl);
     const yearRate = document.querySelector('[data-summary="yearTotalPnlRate"]');
     yearRate.textContent = `今年報酬率 ${formatPercent(yearTotalPnlRate)}`;
     yearRate.className = `return-rate-line ${toneClass(yearTotalPnlRate)}`;
     document.querySelector('[data-summary="yearTotalPnlBreakdown"]').textContent =
-        `${brokerName}已實現 ${realizedHistoryPnl === null ? '--' : formatWanMoney(realizedHistoryPnl)} · ` +
-        `當日已實現 ${realizedTodayPnl === null ? '--' : formatWanMoney(realizedTodayPnl)}`;
-    document.querySelector('[data-summary="investedCost"]').textContent = formatWanAmount(costBasis);
+        `${brokerName}已實現 ${realizedHistoryPnl === null ? '--' : formatMoney(realizedHistoryPnl)} · ` +
+        `當日已實現 ${realizedTodayPnl === null ? '--' : formatMoney(realizedTodayPnl)}`;
+    document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
     renderInvestmentLevel(investmentLevelRate, bankBalance);
     const marginPrimaryAmount = marginLimitAmount ?? marginUsedAmount;
     const marginPrimaryLabel = document.querySelector('[data-summary="marginLimitLabel"]');
-    marginPrimaryLabel.textContent = marginLimitAmount === null && marginUsedAmount !== null ? '融資已用（萬）' : '融資額度（萬）';
-    document.querySelector('[data-summary="marginLimitAmount"]').textContent = marginPrimaryAmount === null ? '--' : formatWanAmount(marginPrimaryAmount);
+    marginPrimaryLabel.textContent = marginLimitAmount === null && marginUsedAmount !== null ? '融資已用' : '融資額度';
+    document.querySelector('[data-summary="marginLimitAmount"]').textContent = marginPrimaryAmount === null ? '--' : formatInteger(marginPrimaryAmount);
     renderMarginMetrics(marginUsedAmount, marginAvailableAmount, marginMaintenanceRate);
 }
 
@@ -1241,7 +1198,7 @@ function renderInvestmentLevel(investmentLevelRate, bankBalance) {
     const bankValue = target.querySelector('.investment-line.bank .investment-value');
 
     levelValue.textContent = formatInvestmentLevel(investmentLevelRate);
-    bankValue.textContent = bankBalance === null ? '--' : formatWanAmount(bankBalance);
+    bankValue.textContent = bankBalance === null ? '--' : formatInteger(bankBalance);
 }
 
 function renderMarginMetrics(marginUsedAmount, marginAvailableAmount, marginMaintenanceRate) {
@@ -1250,8 +1207,8 @@ function renderMarginMetrics(marginUsedAmount, marginAvailableAmount, marginMain
     const availableValue = target.querySelector('.investment-line.bank .investment-value');
     const maintenanceValue = target.querySelector('.investment-line.rate .investment-value');
 
-    usedValue.textContent = marginUsedAmount === null ? '--' : formatWanAmount(marginUsedAmount);
-    availableValue.textContent = marginAvailableAmount === null ? '--' : formatWanAmount(marginAvailableAmount);
+    usedValue.textContent = marginUsedAmount === null ? '--' : formatInteger(marginUsedAmount);
+    availableValue.textContent = marginAvailableAmount === null ? '--' : formatInteger(marginAvailableAmount);
     maintenanceValue.textContent = marginMaintenanceRate === null ? '--' : formatPercent(marginMaintenanceRate);
 }
 
@@ -1269,7 +1226,7 @@ function summaryDeltaText(prefix, label, baseline, diff) {
         return prefix;
     }
 
-    return `${prefix} · ${label} ${formatWanMoney(baseline)} · 差 ${formatWanMoney(diff)}`;
+    return `${prefix} · ${label} ${formatMoney(baseline)} · 差 ${formatMoney(diff)}`;
 }
 
 function stockCell(row) {

@@ -86,7 +86,7 @@ class ConsoleKernelTest extends TestCase
         ], $activeEtfEvents);
     }
 
-    public function test_yuanta_daily_snapshot_schedule_runs_weekdays_at_1755(): void
+    public function test_yuanta_daily_snapshot_schedule_runs_weekdays_after_close_and_after_broker_finalization(): void
     {
         $schedule = new Schedule(config('app.timezone'));
         $method = new ReflectionMethod(Kernel::class, 'schedule');
@@ -108,10 +108,14 @@ class ConsoleKernelTest extends TestCase
                 'expression' => '55 17 * * 1-5',
                 'name' => 'yuanta-portfolio-capture-daily',
             ],
+            [
+                'expression' => '30 21 * * 1-5',
+                'name' => 'yuanta-portfolio-capture-daily-final',
+            ],
         ], $events);
     }
 
-    public function test_esun_daily_snapshot_schedule_runs_weekdays_at_1756(): void
+    public function test_esun_daily_snapshot_schedule_runs_weekdays_after_close_and_after_broker_finalization(): void
     {
         $schedule = new Schedule(config('app.timezone'));
         $method = new ReflectionMethod(Kernel::class, 'schedule');
@@ -132,6 +136,10 @@ class ConsoleKernelTest extends TestCase
             [
                 'expression' => '56 17 * * 1-5',
                 'name' => 'esun-portfolio-capture-daily',
+            ],
+            [
+                'expression' => '31 21 * * 1-5',
+                'name' => 'esun-portfolio-capture-daily-final',
             ],
         ], $events);
     }

@@ -249,14 +249,14 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(4.0, $summary['yearToDateReturn']);
     }
 
-    public function test_esun_minimum_query_seconds_uses_forty_five_second_floor(): void
+    public function test_esun_minimum_query_seconds_uses_sixty_second_floor(): void
     {
         config()->set('esun.minimum_query_seconds', 30);
 
         $service = new EsunPortfolioService();
         $method = new ReflectionMethod($service, 'minimumQuerySeconds');
 
-        $this->assertSame(45, $method->invoke($service));
+        $this->assertSame(60, $method->invoke($service));
     }
 
     public function test_it_calculates_investment_level_from_esun_signed_settlements(): void
@@ -379,6 +379,7 @@ class EsunPortfolioServiceTest extends TestCase
         Cache::forget('esun:portfolio:inventories:v5');
         Cache::forget('esun:portfolio:inventories:last-success:v5');
         Cache::forget('esun:portfolio:last-query-at:v5');
+        Cache::forget('esun:portfolio:rate-limited-until:v5');
 
         try {
             config()->set('esun.portfolio_enabled', false);
@@ -405,6 +406,7 @@ class EsunPortfolioServiceTest extends TestCase
             Cache::forget('esun:portfolio:inventories:v5');
             Cache::forget('esun:portfolio:inventories:last-success:v5');
             Cache::forget('esun:portfolio:last-query-at:v5');
+            Cache::forget('esun:portfolio:rate-limited-until:v5');
         }
     }
 

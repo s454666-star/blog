@@ -1722,7 +1722,7 @@ class EsunPortfolioService
 
     private function minimumQuerySeconds(): int
     {
-        return max(45, (int) config('esun.minimum_query_seconds', 45));
+        return max(60, (int) config('esun.minimum_query_seconds', 60));
     }
 
     private function secondsSince(mixed $value, CarbonImmutable $now): ?int

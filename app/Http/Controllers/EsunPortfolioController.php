@@ -25,7 +25,7 @@ class EsunPortfolioController extends Controller
             'historyDatesUrl' => route('tw-stock.esun-portfolio.history-dates'),
             'token' => (string) $request->query('token', ''),
             'initialMarket' => $service->marketStatus(),
-            'calibrationSeconds' => max(45, (int) config('esun.minimum_query_seconds', 45)),
+            'calibrationSeconds' => max(60, (int) config('esun.minimum_query_seconds', 60)),
         ]);
 
         return $this->clearRememberedAccess($response);

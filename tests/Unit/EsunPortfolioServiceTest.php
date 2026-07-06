@@ -280,8 +280,29 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(500000.0, $summary['availableBalance']);
         $this->assertSame(10000.0, $summary['dayTradeOffsetAmount']);
         $this->assertSame(-20000.0, $summary['pendingSettlementAmount']);
-        $this->assertSame(510000.0, $summary['bankBalance']);
-        $this->assertEqualsWithDelta(500000 / (500000 + 510000) * 100, $summary['investmentLevelRate'], 0.000001);
+        $this->assertSame(470000.0, $summary['bankBalance']);
+        $this->assertEqualsWithDelta(500000 / (500000 + 470000) * 100, $summary['investmentLevelRate'], 0.000001);
+    }
+
+    public function test_it_applies_live_style_negative_future_settlements_to_bank_balance(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'balanceSummary');
+
+        $summary = $method->invoke($service, [
+            'balance' => [
+                'available_balance' => '590361',
+                'exchange_balance' => '0',
+            ],
+            'settlements' => [
+                ['c_date' => '20260708', 'date' => '20260706', 'price' => '-20219'],
+                ['c_date' => '20260706', 'date' => '20260702', 'price' => '256'],
+                ['c_date' => '20260707', 'date' => '20260703', 'price' => '-337206'],
+            ],
+        ], 1971378.0, CarbonImmutable::parse('2026-07-06 11:20:00', 'Asia/Taipei'));
+
+        $this->assertSame(-357425.0, $summary['pendingSettlementAmount']);
+        $this->assertSame(232936.0, $summary['bankBalance']);
     }
 
     public function test_it_summarizes_margin_usage_from_esun_margin_rows(): void
@@ -623,6 +644,68 @@ class EsunPortfolioServiceTest extends TestCase
 
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/transactions?start=2026-01-01')
             && str_contains($request->url(), 'end=2026-06-25'));
+    }
+
+    public function test_it_queries_year_transactions_in_monthly_chunks(): void
+    {
+        config()->set('esun.daemon_url', 'http://127.0.0.1:8765');
+
+        foreach ([
+            ['20990101', '20990131'],
+            ['20990201', '20990228'],
+            ['20990301', '20990331'],
+            ['20990401', '20990430'],
+            ['20990501', '20990531'],
+            ['20990601', '20990630'],
+            ['20990701', '20990705'],
+        ] as [$start, $end]) {
+            Cache::forget(sprintf('esun:portfolio:year-transactions:%s:%s:v2', $start, $end));
+        }
+
+        Http::fake(function ($request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+            $makeByStart = [
+                '2099-01-01' => 100.0,
+                '2099-02-01' => 200.0,
+                '2099-03-01' => 300.0,
+                '2099-04-01' => 400.0,
+                '2099-05-01' => 500.0,
+                '2099-06-01' => 600.0,
+                '2099-07-01' => 700.0,
+            ];
+
+            return Http::response([
+                'transactions' => [
+                    [
+                        't_date' => str_replace('-', '', (string) $query['start']),
+                        'make' => $makeByStart[(string) $query['start']] ?? 0,
+                    ],
+                ],
+            ]);
+        });
+
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'historicalYearTransactions');
+        $transactions = $method->invoke(
+            $service,
+            CarbonImmutable::parse('2099-07-06 11:20:00', 'Asia/Taipei'),
+        );
+
+        $this->assertSame(7, count($transactions));
+        $this->assertSame(2800.0, (new ReflectionMethod($service, 'sumTransactionProfit'))->invoke($service, $transactions));
+
+        foreach ([
+            ['2099-01-01', '2099-01-31'],
+            ['2099-02-01', '2099-02-28'],
+            ['2099-03-01', '2099-03-31'],
+            ['2099-04-01', '2099-04-30'],
+            ['2099-05-01', '2099-05-31'],
+            ['2099-06-01', '2099-06-30'],
+            ['2099-07-01', '2099-07-05'],
+        ] as [$start, $end]) {
+            Http::assertSent(fn ($request): bool => str_contains($request->url(), 'start=' . $start)
+                && str_contains($request->url(), 'end=' . $end));
+        }
     }
 
     public function test_it_calculates_year_profit_from_esun_realized_profit(): void

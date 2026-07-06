@@ -354,22 +354,28 @@ class EsunPortfolioService
         $historyEnd = $today->subDay();
         $transactions = [];
 
-        if ($historyEnd->greaterThanOrEqualTo($yearStart)) {
-            $cacheKey = sprintf(
-                'esun:portfolio:year-transactions:%s:%s:v1',
-                $yearStart->format('Ymd'),
-                $historyEnd->format('Ymd'),
-            );
+        $cursor = $yearStart;
+        while ($cursor->lessThanOrEqualTo($historyEnd)) {
+            $chunkEnd = $cursor->endOfMonth();
+            if ($chunkEnd->greaterThan($historyEnd)) {
+                $chunkEnd = $historyEnd;
+            }
 
             $history = Cache::remember(
-                $cacheKey,
+                sprintf(
+                    'esun:portfolio:year-transactions:%s:%s:v2',
+                    $cursor->format('Ymd'),
+                    $chunkEnd->format('Ymd'),
+                ),
                 now()->addDays(max(1, (int) config('esun.year_transaction_cache_days', 10))),
-                fn (): array => $this->queryTransactions($yearStart, $historyEnd),
+                fn (): array => $this->queryTransactions($cursor, $chunkEnd),
             );
 
             if (is_array($history)) {
                 $transactions = array_merge($transactions, $history);
             }
+
+            $cursor = $chunkEnd->addDay()->startOfDay();
         }
 
         return array_values($transactions);
@@ -988,7 +994,7 @@ class EsunPortfolioService
         $pendingSettlementAmount = $this->pendingSettlementAmount($raw, $now);
         $bankBalance = $availableBalance === null
             ? null
-            : $availableBalance - $dayTradeOffsetAmount - $pendingSettlementAmount;
+            : $availableBalance - $dayTradeOffsetAmount + $pendingSettlementAmount;
         $totalCapital = $bankBalance === null ? null : $totalCostBasis + $bankBalance;
 
         return [

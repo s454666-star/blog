@@ -475,7 +475,7 @@ class YuantaPortfolioService
                     return true;
                 }
             })
-            ->sum(fn (array $settlement): float => abs($this->number($this->value($settlement, 'SettlementAmt', 'settlementAmt'))));
+            ->sum(fn (array $settlement): float => $this->number($this->value($settlement, 'SettlementAmt', 'settlementAmt')));
     }
 
     private function yearProfitSummary(array $raw): array

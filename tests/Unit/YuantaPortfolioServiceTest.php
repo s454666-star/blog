@@ -99,26 +99,25 @@ class YuantaPortfolioServiceTest extends TestCase
         $this->assertNull($summary['availableAmount']);
     }
 
-    public function test_it_subtracts_future_settlements_from_yuanta_available_balance(): void
+    public function test_it_applies_future_settlements_with_yuanta_signs(): void
     {
         $service = new YuantaPortfolioService();
         $method = new ReflectionMethod($service, 'balanceSummary');
 
         $summary = $method->invoke($service, [
             'balance' => [
-                ['AvailableBalance' => 48971],
+                ['AvailableBalance' => 51607],
             ],
             'settlements' => [
-                ['SettlementDay' => '2026/07/02', 'SettlementAmt' => -466131],
-                ['SettlementDay' => '2026/07/03', 'SettlementAmt' => -41624],
-                ['SettlementDay' => '2026/07/06', 'SettlementAmt' => -6485],
+                ['SettlementDay' => '2026/07/06', 'SettlementAmt' => -5926],
+                ['SettlementDay' => '2026/07/08', 'SettlementAmt' => -48377],
             ],
-        ], 1590986.0, CarbonImmutable::parse('2026-07-02 09:45:00', 'Asia/Taipei'));
+        ], 1590986.0, CarbonImmutable::parse('2026-07-06 10:45:00', 'Asia/Taipei'));
 
-        $this->assertSame(48971.0, $summary['availableBalance']);
-        $this->assertSame(48109.0, $summary['pendingSettlementAmount']);
-        $this->assertSame(862.0, $summary['bankBalance']);
-        $this->assertEqualsWithDelta(1590986 / (1590986 + 862) * 100, $summary['investmentLevelRate'], 0.000001);
+        $this->assertSame(51607.0, $summary['availableBalance']);
+        $this->assertSame(-48377.0, $summary['pendingSettlementAmount']);
+        $this->assertSame(99984.0, $summary['bankBalance']);
+        $this->assertEqualsWithDelta(1590986 / (1590986 + 99984) * 100, $summary['investmentLevelRate'], 0.000001);
     }
 
     public function test_it_reads_twse_mis_previous_close_for_yuanta_holdings(): void

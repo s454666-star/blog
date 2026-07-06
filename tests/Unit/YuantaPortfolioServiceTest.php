@@ -110,12 +110,12 @@ class YuantaPortfolioServiceTest extends TestCase
             ],
             'settlements' => [
                 ['SettlementDay' => '2026/07/06', 'SettlementAmt' => -5926],
-                ['SettlementDay' => '2026/07/08', 'SettlementAmt' => -48377],
+                ['SettlementDay' => '2026/07/08', 'SettlementAmt' => 48377],
             ],
         ], 1590986.0, CarbonImmutable::parse('2026-07-06 10:45:00', 'Asia/Taipei'));
 
         $this->assertSame(51607.0, $summary['availableBalance']);
-        $this->assertSame(-48377.0, $summary['pendingSettlementAmount']);
+        $this->assertSame(48377.0, $summary['pendingSettlementAmount']);
         $this->assertSame(99984.0, $summary['bankBalance']);
         $this->assertEqualsWithDelta(1590986 / (1590986 + 99984) * 100, $summary['investmentLevelRate'], 0.000001);
     }

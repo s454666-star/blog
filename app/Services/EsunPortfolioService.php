@@ -298,6 +298,11 @@ class EsunPortfolioService
         }
 
         $warnings = is_array($payload['warnings'] ?? null) ? $payload['warnings'] : [];
+        $settlements = is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [];
+        if ($settlements === [] && $this->hasWarning($warnings, 'settlements')) {
+            $settlements = $this->previousSettlements($previousRaw);
+        }
+
         try {
             $transactions = $this->historicalYearTransactions($now);
         } catch (\Throwable $exception) {
@@ -313,7 +318,7 @@ class EsunPortfolioService
             'inventories' => $payload['inventories'],
             'balance' => is_array($payload['balance'] ?? null) ? $payload['balance'] : [],
             'tradeStatus' => is_array($payload['trade_status'] ?? null) ? $payload['trade_status'] : [],
-            'settlements' => is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [],
+            'settlements' => $settlements,
             'transactions' => $transactions,
             'todayTransactions' => $todayTransactions,
             'todayTransactionsDate' => $today->toDateString(),
@@ -400,6 +405,35 @@ class EsunPortfolioService
         );
 
         return $this->mergeAdditionalTransactions($history, $previousToday);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function previousSettlements(?array $previousRaw): array
+    {
+        if (!is_array($previousRaw)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            is_array($previousRaw['settlements'] ?? null) ? $previousRaw['settlements'] : [],
+            fn (mixed $settlement): bool => is_array($settlement),
+        ));
+    }
+
+    /**
+     * @param array<int, mixed> $warnings
+     */
+    private function hasWarning(array $warnings, string $label): bool
+    {
+        foreach ($warnings as $warning) {
+            if (is_array($warning) && ($warning['label'] ?? null) === $label) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -954,7 +988,7 @@ class EsunPortfolioService
         $pendingSettlementAmount = $this->pendingSettlementAmount($raw, $now);
         $bankBalance = $availableBalance === null
             ? null
-            : $availableBalance - $dayTradeOffsetAmount + $pendingSettlementAmount;
+            : $availableBalance - $dayTradeOffsetAmount - $pendingSettlementAmount;
         $totalCapital = $bankBalance === null ? null : $totalCostBasis + $bankBalance;
 
         return [

@@ -259,7 +259,7 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(45, $method->invoke($service));
     }
 
-    public function test_it_calculates_investment_level_from_bank_balance(): void
+    public function test_it_calculates_investment_level_from_esun_signed_settlements(): void
     {
         $service = new EsunPortfolioService();
         $method = new ReflectionMethod($service, 'balanceSummary');
@@ -280,8 +280,8 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame(500000.0, $summary['availableBalance']);
         $this->assertSame(10000.0, $summary['dayTradeOffsetAmount']);
         $this->assertSame(-20000.0, $summary['pendingSettlementAmount']);
-        $this->assertSame(470000.0, $summary['bankBalance']);
-        $this->assertEqualsWithDelta(51.546391752, $summary['investmentLevelRate'], 0.000001);
+        $this->assertSame(510000.0, $summary['bankBalance']);
+        $this->assertEqualsWithDelta(500000 / (500000 + 510000) * 100, $summary['investmentLevelRate'], 0.000001);
     }
 
     public function test_it_summarizes_margin_usage_from_esun_margin_rows(): void
@@ -454,6 +454,46 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame('2026-01-01', $payload['todayTransactionsDate']);
 
         Http::assertSent(fn ($request): bool => str_contains($request->url(), '/portfolio?today=2026-01-01'));
+    }
+
+    public function test_it_keeps_previous_settlements_when_current_settlement_query_is_rate_limited(): void
+    {
+        config()->set('esun.portfolio_enabled', true);
+        config()->set('esun.daemon_url', 'http://127.0.0.1:8765');
+
+        Http::fake([
+            'http://127.0.0.1:8765/portfolio*' => Http::response([
+                'queried_at' => '2026-07-06T02:50:00+00:00',
+                'inventories' => [],
+                'balance' => ['available_balance' => '590361'],
+                'trade_status' => [],
+                'settlements' => [],
+                'today_transactions_history' => [],
+                'today_transactions' => [],
+                'warnings' => [
+                    ['label' => 'settlements', 'error' => 'ValueError: AGR0006'],
+                ],
+            ]),
+            'http://127.0.0.1:8765/transactions*' => Http::response([
+                'queried_at' => '2026-07-06T02:50:00+00:00',
+                'transactions' => [],
+            ]),
+        ]);
+
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'queryInventories');
+        $payload = $method->invoke(
+            $service,
+            CarbonImmutable::parse('2026-07-06 10:50:00', 'Asia/Taipei'),
+            [
+                'settlements' => [
+                    ['c_date' => '20260708', 'price' => '-329588'],
+                ],
+            ],
+        );
+
+        $this->assertSame([['c_date' => '20260708', 'price' => '-329588']], $payload['settlements']);
+        $this->assertSame('settlements', $payload['warnings'][0]['label']);
     }
 
     public function test_it_keeps_previous_today_realized_profit_when_current_payload_misses_today_transactions(): void

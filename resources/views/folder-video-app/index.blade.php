@@ -451,6 +451,9 @@
     const DEFAULT_GRID_COLUMNS = 3;
     const MAX_GRID_COLUMNS = 5;
     const GRID_PRESET_VERSION = '3x3-20260707-11';
+    const PLAYER_HOLD_SEEK_DELAY_MS = 420;
+    const PLAYER_HOLD_SEEK_INTERVAL_MS = 260;
+    const PLAYER_HOLD_SEEK_SECONDS = 5;
     const MODE_ALL = 'all';
     const MODE_WATCHED = 'watched';
     const MODE_LIKED = 'liked';
@@ -481,7 +484,7 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.11',
+        version: '2026.07.07.12',
         page_limit: 36,
         preview_max_connections: 12,
     }, BOOT_CONFIG || {});
@@ -502,6 +505,7 @@
     let previewRefreshQueued = false;
     let gridMetricsRefreshQueued = false;
     let loadMoreQueued = false;
+    let stopPlayerHoldSeek = () => {};
 
     const observer = new IntersectionObserver(handlePreviewIntersections, {
         root: null,
@@ -842,10 +846,6 @@
         );
     }
 
-    function usableViewportHeight() {
-        return Math.max(160, rawViewportHeight() - bottomSafeInset());
-    }
-
     window.folderVideoSetAndroidInsets = (payload = {}) => {
         const bottom = typeof payload === 'number' ? payload : payload.bottom;
         setCssPxVariable('--android-nav-inset', androidNavigationFallbackInset(bottom));
@@ -859,7 +859,7 @@
         const viewportOffsetTop = Number(window.visualViewport?.offsetTop || 0);
         const gridTop = Math.max(0, (elements.grid.getBoundingClientRect().top || 0) - viewportOffsetTop);
         const gap = 3;
-        const available = Math.max(240, viewportHeight - gridTop - bottomSafeInset() - gap - rows * gap);
+        const available = Math.max(240, viewportHeight - gridTop - gap - rows * gap);
         const rowHeight = Math.max(76, Math.ceil(available / rows));
 
         document.documentElement.style.setProperty('--card-height', `${rowHeight}px`);
@@ -1145,7 +1145,7 @@
     }
 
     function collectPreviewEntries() {
-        const viewportHeight = usableViewportHeight();
+        const viewportHeight = Math.max(160, rawViewportHeight());
         const preloadBand = Math.max(160, Math.min(360, viewportHeight * .45));
 
         return Array.from(document.querySelectorAll('.video-card'))
@@ -1227,7 +1227,7 @@
             return;
         }
 
-        const viewportHeight = usableViewportHeight();
+        const viewportHeight = Math.max(160, rawViewportHeight());
         const distanceToBottom = document.documentElement.scrollHeight - (window.scrollY + viewportHeight);
 
         if (displayVideos().length < bufferedTargetCount() || distanceToBottom < viewportHeight * 2.5) {
@@ -1367,6 +1367,7 @@
 
     function closePlayer() {
         recordPlayerProgress();
+        stopPlayerHoldSeek();
         elements.player.classList.remove('open');
         elements.player.setAttribute('aria-hidden', 'true');
         elements.playerVideo.pause();
@@ -1686,6 +1687,45 @@
         let moved = false;
         let longPressTimer = null;
         let longPressFired = false;
+        let holdSeekTimer = null;
+        let holdSeekInterval = null;
+        let holdSeekDirection = 0;
+        let holdSeekStarted = false;
+
+        const clearHoldSeek = () => {
+            clearTimeout(holdSeekTimer);
+            clearInterval(holdSeekInterval);
+            holdSeekTimer = null;
+            holdSeekInterval = null;
+            holdSeekDirection = 0;
+        };
+
+        stopPlayerHoldSeek = clearHoldSeek;
+
+        const playerHoldSeekDirection = (event) => {
+            const rect = elements.player.getBoundingClientRect();
+            const tapX = event.clientX - rect.left;
+            if (tapX < rect.width * .45) {
+                return -1;
+            }
+            if (tapX > rect.width * .55) {
+                return 1;
+            }
+
+            return 0;
+        };
+
+        const startHoldSeek = () => {
+            if (!holdSeekDirection) {
+                return;
+            }
+
+            holdSeekStarted = true;
+            seekPlayer(holdSeekDirection * PLAYER_HOLD_SEEK_SECONDS);
+            holdSeekInterval = setInterval(() => {
+                seekPlayer(holdSeekDirection * PLAYER_HOLD_SEEK_SECONDS);
+            }, PLAYER_HOLD_SEEK_INTERVAL_MS);
+        };
 
         elements.player.addEventListener('pointerdown', (event) => {
             if (event.target.closest('button')) {
@@ -1697,24 +1737,47 @@
             startTime = Date.now();
             moved = false;
             longPressFired = false;
+            holdSeekStarted = false;
             clearTimeout(longPressTimer);
-            longPressTimer = setTimeout(() => {
-                if (!moved) {
-                    longPressFired = true;
-                    toggleCurrentLike();
-                }
-            }, 1000);
+            clearHoldSeek();
+            holdSeekDirection = playerHoldSeekDirection(event);
+
+            if (holdSeekDirection) {
+                holdSeekTimer = setTimeout(() => {
+                    if (!moved) {
+                        startHoldSeek();
+                    }
+                }, PLAYER_HOLD_SEEK_DELAY_MS);
+            } else {
+                longPressTimer = setTimeout(() => {
+                    if (!moved) {
+                        longPressFired = true;
+                        toggleCurrentLike();
+                    }
+                }, 1000);
+            }
         });
 
         elements.player.addEventListener('pointermove', (event) => {
             if (Math.abs(event.clientX - startX) > 16 || Math.abs(event.clientY - startY) > 16) {
                 moved = true;
                 clearTimeout(longPressTimer);
+                if (!holdSeekStarted) {
+                    clearHoldSeek();
+                }
             }
         });
 
         elements.player.addEventListener('pointerup', (event) => {
             clearTimeout(longPressTimer);
+            const hadHoldSeek = holdSeekStarted;
+            clearHoldSeek();
+            holdSeekStarted = false;
+            if (hadHoldSeek) {
+                event.preventDefault();
+                return;
+            }
+
             if (longPressFired || Date.now() - startTime > 900) {
                 return;
             }
@@ -1749,6 +1812,14 @@
 
         elements.player.addEventListener('pointercancel', () => {
             clearTimeout(longPressTimer);
+            clearHoldSeek();
+            holdSeekStarted = false;
+        });
+
+        elements.player.addEventListener('pointerleave', () => {
+            clearTimeout(longPressTimer);
+            clearHoldSeek();
+            holdSeekStarted = false;
         });
     }
 

@@ -484,7 +484,7 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.12',
+        version: '2026.07.07.13',
         page_limit: 36,
         preview_max_connections: 12,
     }, BOOT_CONFIG || {});
@@ -1698,6 +1698,7 @@
             holdSeekTimer = null;
             holdSeekInterval = null;
             holdSeekDirection = 0;
+            holdSeekStarted = false;
         };
 
         stopPlayerHoldSeek = clearHoldSeek;
@@ -1716,15 +1717,36 @@
         };
 
         const startHoldSeek = () => {
-            if (!holdSeekDirection) {
+            if (!holdSeekDirection || holdSeekStarted) {
                 return;
             }
 
+            clearTimeout(holdSeekTimer);
+            holdSeekTimer = null;
             holdSeekStarted = true;
             seekPlayer(holdSeekDirection * PLAYER_HOLD_SEEK_SECONDS);
             holdSeekInterval = setInterval(() => {
                 seekPlayer(holdSeekDirection * PLAYER_HOLD_SEEK_SECONDS);
             }, PLAYER_HOLD_SEEK_INTERVAL_MS);
+        };
+
+        const armHoldSeek = (direction, delayMs = PLAYER_HOLD_SEEK_DELAY_MS) => {
+            if (!direction) {
+                return;
+            }
+
+            if (holdSeekStarted) {
+                holdSeekDirection = direction;
+                return;
+            }
+
+            if (holdSeekDirection === direction && holdSeekTimer) {
+                return;
+            }
+
+            holdSeekDirection = direction;
+            clearTimeout(holdSeekTimer);
+            holdSeekTimer = setTimeout(startHoldSeek, Math.max(0, delayMs));
         };
 
         elements.player.addEventListener('pointerdown', (event) => {
@@ -1743,11 +1765,7 @@
             holdSeekDirection = playerHoldSeekDirection(event);
 
             if (holdSeekDirection) {
-                holdSeekTimer = setTimeout(() => {
-                    if (!moved) {
-                        startHoldSeek();
-                    }
-                }, PLAYER_HOLD_SEEK_DELAY_MS);
+                armHoldSeek(holdSeekDirection);
             } else {
                 longPressTimer = setTimeout(() => {
                     if (!moved) {
@@ -1759,12 +1777,26 @@
         });
 
         elements.player.addEventListener('pointermove', (event) => {
-            if (Math.abs(event.clientX - startX) > 16 || Math.abs(event.clientY - startY) > 16) {
+            const dx = event.clientX - startX;
+            const dy = event.clientY - startY;
+            const absX = Math.abs(dx);
+            const absY = Math.abs(dy);
+
+            if (absX > 16 || absY > 16) {
                 moved = true;
                 clearTimeout(longPressTimer);
-                if (!holdSeekStarted) {
-                    clearHoldSeek();
-                }
+            }
+
+            if (absX > 28 && absX > absY * 1.15) {
+                const elapsed = Date.now() - startTime;
+                const delay = Math.max(0, PLAYER_HOLD_SEEK_DELAY_MS - elapsed);
+                armHoldSeek(dx > 0 ? 1 : -1, delay);
+                event.preventDefault();
+                return;
+            }
+
+            if (absY > 28 && absY > absX && !holdSeekStarted) {
+                clearHoldSeek();
             }
         });
 
@@ -1772,7 +1804,6 @@
             clearTimeout(longPressTimer);
             const hadHoldSeek = holdSeekStarted;
             clearHoldSeek();
-            holdSeekStarted = false;
             if (hadHoldSeek) {
                 event.preventDefault();
                 return;
@@ -1813,13 +1844,11 @@
         elements.player.addEventListener('pointercancel', () => {
             clearTimeout(longPressTimer);
             clearHoldSeek();
-            holdSeekStarted = false;
         });
 
         elements.player.addEventListener('pointerleave', () => {
             clearTimeout(longPressTimer);
             clearHoldSeek();
-            holdSeekStarted = false;
         });
     }
 

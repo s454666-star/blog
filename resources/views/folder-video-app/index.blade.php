@@ -458,7 +458,7 @@
     const MAX_GRID_COLUMNS = 5;
     const GRID_PRESET_VERSION = '3x3-20260707-11';
     const PLAYER_DRAG_SEEK_STEP_PX = 42;
-    const PLAYER_DRAG_SEEK_SECONDS = 5;
+    const PLAYER_DRAG_SEEK_RATIO = .05;
     const MODE_ALL = 'all';
     const MODE_WATCHED = 'watched';
     const MODE_LIKED = 'liked';
@@ -489,7 +489,7 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.15',
+        version: '2026.07.07.16',
         page_limit: 36,
         preview_max_connections: 12,
     }, BOOT_CONFIG || {});
@@ -1578,15 +1578,28 @@
         return toggleLike(playerItem);
     }
 
-    function seekPlayer(seconds) {
+    function seekPlayer(seconds, label = null) {
         const video = elements.playerVideo;
-        if (!video.duration) {
+        const duration = Number(video.duration || playerItem?.duration_seconds || 0);
+        if (!duration) {
             return;
         }
 
-        video.currentTime = clamp(video.currentTime + seconds, 0, video.duration);
+        video.currentTime = clamp(video.currentTime + seconds, 0, duration);
         recordPlayerProgress();
-        showFlash(seconds > 0 ? `+${seconds}s` : `${seconds}s`);
+        showFlash(label || (seconds > 0 ? `+${seconds}s` : `${seconds}s`));
+    }
+
+    function seekPlayerByRatio(stepCount) {
+        const video = elements.playerVideo;
+        const duration = Number(video.duration || playerItem?.duration_seconds || 0);
+        if (!duration || !stepCount) {
+            return;
+        }
+
+        const percent = stepCount * PLAYER_DRAG_SEEK_RATIO;
+        const labelPercent = Math.round(percent * 100);
+        seekPlayer(duration * percent, `${labelPercent > 0 ? '+' : ''}${labelPercent}%`);
     }
 
     elements.playerVideo.addEventListener('timeupdate', () => {
@@ -1688,16 +1701,16 @@
     function bindPlayerGestures() {
         let startX = 0;
         let startY = 0;
-        let dragSeekAnchorX = 0;
         let startTime = 0;
         let moved = false;
         let longPressTimer = null;
         let longPressFired = false;
         let dragSeekApplied = false;
+        let dragSeekStepIndex = 0;
 
         const clearDragSeek = () => {
             dragSeekApplied = false;
-            dragSeekAnchorX = startX;
+            dragSeekStepIndex = 0;
         };
 
         stopPlayerDragSeek = clearDragSeek;
@@ -1709,11 +1722,11 @@
 
             startX = event.clientX;
             startY = event.clientY;
-            dragSeekAnchorX = startX;
             startTime = Date.now();
             moved = false;
             longPressFired = false;
             dragSeekApplied = false;
+            dragSeekStepIndex = 0;
             clearTimeout(longPressTimer);
             longPressTimer = setTimeout(() => {
                 if (!moved) {
@@ -1734,12 +1747,12 @@
                 clearTimeout(longPressTimer);
             }
 
-            if (absX > 28 && absX > absY * 1.15) {
-                const deltaFromAnchor = event.clientX - dragSeekAnchorX;
-                const steps = Math.trunc(deltaFromAnchor / PLAYER_DRAG_SEEK_STEP_PX);
-                if (steps !== 0) {
-                    seekPlayer(steps * PLAYER_DRAG_SEEK_SECONDS);
-                    dragSeekAnchorX += steps * PLAYER_DRAG_SEEK_STEP_PX;
+            if ((absX > 28 && absX > absY * 1.15) || dragSeekApplied) {
+                const nextStepIndex = Math.round(dx / PLAYER_DRAG_SEEK_STEP_PX);
+                const stepDelta = nextStepIndex - dragSeekStepIndex;
+                if (stepDelta !== 0) {
+                    seekPlayerByRatio(stepDelta);
+                    dragSeekStepIndex = nextStepIndex;
                     dragSeekApplied = true;
                 }
 
@@ -1769,7 +1782,7 @@
             const dy = event.clientY - startY;
 
             if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy)) {
-                seekPlayer(dx > 0 ? PLAYER_DRAG_SEEK_SECONDS : -PLAYER_DRAG_SEEK_SECONDS);
+                seekPlayerByRatio(dx > 0 ? 1 : -1);
                 return;
             }
 

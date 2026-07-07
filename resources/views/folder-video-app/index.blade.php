@@ -480,7 +480,7 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.9',
+        version: '2026.07.07.10',
         page_limit: 36,
         preview_max_connections: 12,
     }, BOOT_CONFIG || {});
@@ -498,6 +498,7 @@
     let toastTimer = null;
     let flashTimer = null;
     let previewPaused = false;
+    let previewRefreshQueued = false;
     let loadMoreQueued = false;
 
     const observer = new IntersectionObserver(handlePreviewIntersections, {
@@ -1080,7 +1081,49 @@
     }
 
     function schedulePreviewRefresh() {
-        window.requestAnimationFrame(refreshPreviews);
+        if (previewRefreshQueued) {
+            return;
+        }
+
+        previewRefreshQueued = true;
+        window.requestAnimationFrame(() => {
+            previewRefreshQueued = false;
+            refreshPreviews();
+        });
+    }
+
+    function collectPreviewEntries() {
+        const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || 0);
+        const preloadBand = Math.max(160, Math.min(360, viewportHeight * .45));
+
+        return Array.from(document.querySelectorAll('.video-card'))
+            .map((card) => {
+                const rect = card.getBoundingClientRect();
+                const visiblePixels = Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0);
+                const visible = visiblePixels > 2;
+                const near = rect.bottom > -preloadBand && rect.top < viewportHeight + preloadBand;
+
+                if (!near) {
+                    visiblePreviewCards.delete(card);
+
+                    return null;
+                }
+
+                const ratio = visible
+                    ? clamp(visiblePixels / Math.max(1, rect.height || 1), 0, 1)
+                    : .01;
+                const below = rect.top >= viewportHeight;
+                const band = visible ? 0 : (below ? 1 : 2);
+                const distance = visible
+                    ? Math.max(0, rect.top)
+                    : (below ? rect.top - viewportHeight : Math.abs(rect.bottom));
+
+                visiblePreviewCards.set(card, ratio);
+
+                return {card, band, distance, left: rect.left};
+            })
+            .filter(Boolean)
+            .sort((left, right) => (left.band - right.band) || (left.distance - right.distance) || (left.left - right.left));
     }
 
     function refreshPreviews() {
@@ -1089,21 +1132,7 @@
             return;
         }
 
-        const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || 0);
-        const cards = Array.from(visiblePreviewCards.entries())
-            .map(([card]) => {
-                const rect = card.getBoundingClientRect();
-                const visible = rect.bottom > 0 && rect.top < viewportHeight;
-                const below = rect.top >= viewportHeight;
-                const band = visible ? 0 : (below ? 1 : 2);
-                const distance = visible
-                    ? Math.max(0, rect.top)
-                    : (below ? rect.top - viewportHeight : Math.abs(rect.bottom));
-
-                return {card, band, distance, left: rect.left};
-            })
-            .sort((left, right) => (left.band - right.band) || (left.distance - right.distance) || (left.left - right.left))
-            .map((entry) => entry.card);
+        const cards = collectPreviewEntries().map((entry) => entry.card);
 
         if (cards.length === 0) {
             stopAllPreviews();
@@ -1117,6 +1146,12 @@
         for (let offset = 0; offset < Math.min(maxActive, cards.length); offset++) {
             activeCards.add(cards[offset]);
         }
+
+        document.querySelectorAll('.video-card').forEach((card) => {
+            if (!activeCards.has(card) && !visiblePreviewCards.has(card)) {
+                stopPreview(card);
+            }
+        });
 
         cards.forEach((card, index) => {
             if (activeCards.has(card)) {
@@ -1823,26 +1858,32 @@
     }, {passive: true});
 
     document.addEventListener('scroll', () => {
+        schedulePreviewRefresh();
         maybeLoadMoreSoon();
     }, {passive: true});
 
     elements.grid.addEventListener('scroll', () => {
+        schedulePreviewRefresh();
         maybeLoadMoreSoon();
     }, {passive: true});
 
     elements.shell.addEventListener('scroll', () => {
+        schedulePreviewRefresh();
         maybeLoadMoreSoon();
     }, {passive: true});
 
     document.body.addEventListener('touchmove', () => {
+        schedulePreviewRefresh();
         maybeLoadMoreSoon();
     }, {passive: true});
 
     document.body.addEventListener('wheel', () => {
+        schedulePreviewRefresh();
         maybeLoadMoreSoon();
     }, {passive: true});
 
     document.body.addEventListener('pointerup', () => {
+        schedulePreviewRefresh();
         maybeLoadMoreSoon();
     });
 
@@ -1854,6 +1895,7 @@
         });
         window.visualViewport.addEventListener('scroll', () => {
             updateGridMetrics();
+            schedulePreviewRefresh();
             maybeLoadMoreSoon();
         });
     }

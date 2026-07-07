@@ -2,8 +2,8 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $projectRoot '..\..')
-$versionCode = 9
-$versionName = '2026.07.07.9'
+$versionCode = 10
+$versionName = '2026.07.07.11'
 $sdkRoot = $env:ANDROID_SDK_ROOT
 if (-not $sdkRoot) {
     $sdkRoot = $env:ANDROID_HOME
@@ -47,8 +47,14 @@ $dexDir = Join-Path $buildDir 'dex'
 $unsignedApk = Join-Path $buildDir 'folder-video-unsigned.apk'
 $dexApk = Join-Path $buildDir 'folder-video-with-dex.apk'
 $alignedApk = Join-Path $buildDir 'folder-video-aligned.apk'
-$keystore = Join-Path $buildDir 'debug.keystore'
+$keystore = Join-Path $repoRoot 'storage\app\folder-video-app.keystore'
+$legacyBuildKeystore = Join-Path $buildDir 'debug.keystore'
 $outputApk = Join-Path $repoRoot 'storage\app\folder-video-app.apk'
+
+if (-not (Test-Path $keystore) -and (Test-Path $legacyBuildKeystore)) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $keystore) | Out-Null
+    Copy-Item -LiteralPath $legacyBuildKeystore -Destination $keystore -Force
+}
 
 if (Test-Path $buildDir) {
     Remove-Item -LiteralPath $buildDir -Recurse -Force
@@ -118,17 +124,19 @@ try {
 & $zipalign -f 4 $dexApk $alignedApk
 if ($LASTEXITCODE -ne 0) { throw 'zipalign failed' }
 
-& $keytool -genkeypair `
-    -keystore $keystore `
-    -storepass android `
-    -keypass android `
-    -alias androiddebugkey `
-    -keyalg RSA `
-    -keysize 2048 `
-    -validity 10000 `
-    -dname 'CN=Android Debug,O=Android,C=US' `
-    -storetype JKS | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'keytool failed' }
+if (-not (Test-Path $keystore)) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $keystore) | Out-Null
+    & $keytool -genkeypair `
+        -keystore $keystore `
+        -storepass android `
+        -keypass android `
+        -alias androiddebugkey `
+        -keyalg RSA `
+        -keysize 2048 `
+        -validity 10000 `
+        -dname 'CN=Android Debug,O=Android,C=US' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'keytool failed' }
+}
 
 & $apksigner sign `
     --ks $keystore `

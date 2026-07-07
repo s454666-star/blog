@@ -46,8 +46,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 9;
-    private static final String APP_VERSION_NAME = "2026.07.07.9";
+    private static final int APP_VERSION_CODE = 10;
+    private static final String APP_VERSION_NAME = "2026.07.07.11";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.19:8090/folder-video-app",
@@ -166,8 +166,10 @@ public class MainActivity extends Activity {
             return;
         }
 
+        final float density = Math.max(1f, getResources().getDisplayMetrics().density);
+        final int bottomInset = Math.max(0, Math.round(systemBarBottomInset / density));
         webView.post(() -> webView.evaluateJavascript(
-            "if (window.folderVideoSetAndroidInsets) { window.folderVideoSetAndroidInsets({bottom:0}); }",
+            "if (window.folderVideoSetAndroidInsets) { window.folderVideoSetAndroidInsets({bottom:" + bottomInset + "}); }",
             null
         ));
     }

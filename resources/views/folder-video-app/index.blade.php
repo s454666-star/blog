@@ -450,6 +450,7 @@
     const MIN_GRID_COLUMNS = 2;
     const DEFAULT_GRID_COLUMNS = 3;
     const MAX_GRID_COLUMNS = 5;
+    const GRID_PRESET_VERSION = '3x3-20260707-11';
     const MODE_ALL = 'all';
     const MODE_WATCHED = 'watched';
     const MODE_LIKED = 'liked';
@@ -480,7 +481,7 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.10',
+        version: '2026.07.07.11',
         page_limit: 36,
         preview_max_connections: 12,
     }, BOOT_CONFIG || {});
@@ -499,6 +500,7 @@
     let flashTimer = null;
     let previewPaused = false;
     let previewRefreshQueued = false;
+    let gridMetricsRefreshQueued = false;
     let loadMoreQueued = false;
 
     const observer = new IntersectionObserver(handlePreviewIntersections, {
@@ -513,6 +515,7 @@
             const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
             return Object.assign({
                 gridColumns: DEFAULT_GRID_COLUMNS,
+                layoutPresetVersion: '',
                 progress: {},
                 completed: {},
                 liked: {},
@@ -526,6 +529,7 @@
         } catch (error) {
             return {
                 gridColumns: DEFAULT_GRID_COLUMNS,
+                layoutPresetVersion: '',
                 progress: {},
                 completed: {},
                 liked: {},
@@ -760,7 +764,18 @@
         }
 
         state.gridColumns = next;
+        state.layoutPresetVersion = GRID_PRESET_VERSION;
         applyGridColumns();
+    }
+
+    function ensureDefaultGridPreset() {
+        if (state.layoutPresetVersion === GRID_PRESET_VERSION) {
+            return;
+        }
+
+        state.gridColumns = DEFAULT_GRID_COLUMNS;
+        state.layoutPresetVersion = GRID_PRESET_VERSION;
+        saveState();
     }
 
     function rowsForGridColumns(columns) {
@@ -790,6 +805,25 @@
         return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
     }
 
+    function isFolderVideoAndroidApp() {
+        const userAgent = navigator.userAgent || '';
+
+        return /Android/i.test(userAgent) && /FolderVideoApp\//.test(userAgent);
+    }
+
+    function rawViewportHeight() {
+        return Number(window.visualViewport?.height || window.innerHeight || 0);
+    }
+
+    function androidNavigationFallbackInset(value = 0) {
+        const bottom = Math.max(0, Number(value || 0));
+        if (bottom > 0 || !isFolderVideoAndroidApp()) {
+            return bottom;
+        }
+
+        return clamp(Math.round(rawViewportHeight() * .065), 48, 76);
+    }
+
     function refreshViewportInsets() {
         const viewport = window.visualViewport;
         const visualBottom = viewport
@@ -808,16 +842,20 @@
         );
     }
 
+    function usableViewportHeight() {
+        return Math.max(160, rawViewportHeight() - bottomSafeInset());
+    }
+
     window.folderVideoSetAndroidInsets = (payload = {}) => {
         const bottom = typeof payload === 'number' ? payload : payload.bottom;
-        setCssPxVariable('--android-nav-inset', bottom);
+        setCssPxVariable('--android-nav-inset', androidNavigationFallbackInset(bottom));
         updateGridMetrics();
         schedulePreviewRefresh();
     };
 
     function updateGridMetrics() {
         const rows = rowsForGridColumns(state.gridColumns);
-        const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || 0);
+        const viewportHeight = rawViewportHeight();
         const viewportOffsetTop = Number(window.visualViewport?.offsetTop || 0);
         const gridTop = Math.max(0, (elements.grid.getBoundingClientRect().top || 0) - viewportOffsetTop);
         const gap = 3;
@@ -827,8 +865,22 @@
         document.documentElement.style.setProperty('--card-height', `${rowHeight}px`);
     }
 
+    function scheduleGridMetricsRefresh() {
+        if (gridMetricsRefreshQueued) {
+            return;
+        }
+
+        gridMetricsRefreshQueued = true;
+        window.requestAnimationFrame(() => {
+            gridMetricsRefreshQueued = false;
+            updateGridMetrics();
+            schedulePreviewRefresh();
+        });
+    }
+
     function applyGridColumns() {
         state.gridColumns = normalizeGridColumns(state.gridColumns);
+        state.layoutPresetVersion = GRID_PRESET_VERSION;
         document.documentElement.style.setProperty('--columns', String(state.gridColumns));
         updateGridMetrics();
         saveState();
@@ -1093,7 +1145,7 @@
     }
 
     function collectPreviewEntries() {
-        const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || 0);
+        const viewportHeight = usableViewportHeight();
         const preloadBand = Math.max(160, Math.min(360, viewportHeight * .45));
 
         return Array.from(document.querySelectorAll('.video-card'))
@@ -1175,7 +1227,7 @@
             return;
         }
 
-        const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || 0);
+        const viewportHeight = usableViewportHeight();
         const distanceToBottom = document.documentElement.scrollHeight - (window.scrollY + viewportHeight);
 
         if (displayVideos().length < bufferedTargetCount() || distanceToBottom < viewportHeight * 2.5) {
@@ -1853,37 +1905,37 @@
     });
 
     window.addEventListener('scroll', () => {
-        schedulePreviewRefresh();
+        scheduleGridMetricsRefresh();
         maybeLoadMoreSoon();
     }, {passive: true});
 
     document.addEventListener('scroll', () => {
-        schedulePreviewRefresh();
+        scheduleGridMetricsRefresh();
         maybeLoadMoreSoon();
     }, {passive: true});
 
     elements.grid.addEventListener('scroll', () => {
-        schedulePreviewRefresh();
+        scheduleGridMetricsRefresh();
         maybeLoadMoreSoon();
     }, {passive: true});
 
     elements.shell.addEventListener('scroll', () => {
-        schedulePreviewRefresh();
+        scheduleGridMetricsRefresh();
         maybeLoadMoreSoon();
     }, {passive: true});
 
     document.body.addEventListener('touchmove', () => {
-        schedulePreviewRefresh();
+        scheduleGridMetricsRefresh();
         maybeLoadMoreSoon();
     }, {passive: true});
 
     document.body.addEventListener('wheel', () => {
-        schedulePreviewRefresh();
+        scheduleGridMetricsRefresh();
         maybeLoadMoreSoon();
     }, {passive: true});
 
     document.body.addEventListener('pointerup', () => {
-        schedulePreviewRefresh();
+        scheduleGridMetricsRefresh();
         maybeLoadMoreSoon();
     });
 
@@ -1902,8 +1954,7 @@
 
     window.addEventListener('orientationchange', () => {
         setTimeout(() => {
-            updateGridMetrics();
-            schedulePreviewRefresh();
+            scheduleGridMetricsRefresh();
             maybeLoadMoreSoon();
         }, 250);
     });
@@ -1917,6 +1968,10 @@
     }, {rootMargin: '1800px 0px'}).observe(elements.sentinel);
 
     async function boot() {
+        if (isFolderVideoAndroidApp() && cssPxVariable('--android-nav-inset') === 0) {
+            setCssPxVariable('--android-nav-inset', androidNavigationFallbackInset(0));
+        }
+        ensureDefaultGridPreset();
         applyGridColumns();
         bindPlayerGestures();
         bindGridPinch();

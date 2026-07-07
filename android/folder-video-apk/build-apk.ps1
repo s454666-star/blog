@@ -2,6 +2,8 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $projectRoot '..\..')
+$versionCode = 2
+$versionName = '2026.07.07.2'
 $sdkRoot = $env:ANDROID_SDK_ROOT
 if (-not $sdkRoot) {
     $sdkRoot = $env:ANDROID_HOME
@@ -49,6 +51,8 @@ if ($LASTEXITCODE -ne 0) { throw 'aapt2 compile failed' }
 & $aapt2 link `
     -o $unsignedApk `
     -I $platformJar `
+    --version-code $versionCode `
+    --version-name $versionName `
     --manifest (Join-Path $projectRoot 'app\src\main\AndroidManifest.xml') `
     --java $generatedDir `
     $compiledResources

@@ -86,6 +86,8 @@ Route::get('/videoplayer-list', [VideoPlayerController::class, 'getVideoPlayerLi
 
 Route::get('/folder-video-app', [FolderVideoAppController::class, 'index'])->name('folder-video-app.index');
 Route::get('/folder-video-app/version.json', [FolderVideoAppController::class, 'version'])->name('folder-video-app.version');
+Route::get('/folder-video-app/android-version.json', [FolderVideoAppController::class, 'androidVersion'])->name('folder-video-app.android-version');
+Route::get('/folder-video-app/folder-video-app.apk', [FolderVideoAppController::class, 'androidApk'])->name('folder-video-app.android-apk');
 Route::get('/folder-video-app/manifest.webmanifest', [FolderVideoAppController::class, 'manifest'])->name('folder-video-app.manifest');
 Route::get('/folder-video-app/sw.js', [FolderVideoAppController::class, 'serviceWorker'])->name('folder-video-app.service-worker');
 

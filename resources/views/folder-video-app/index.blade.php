@@ -8,9 +8,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Folder Video</title>
-    <link rel="manifest" href="{{ route('folder-video-app.manifest') }}">
-    <link rel="apple-touch-icon" href="{{ asset('folder-video-app/icon-192.png') }}">
-    <link rel="icon" href="{{ asset('folder-video-app/icon-192.png') }}">
+    <link rel="manifest" href="{{ route('folder-video-app.manifest', [], false) }}">
+    <link rel="apple-touch-icon" href="/folder-video-app/icon-192.png">
+    <link rel="icon" href="/folder-video-app/icon-192.png">
     <style>
         :root {
             color-scheme: dark;
@@ -383,7 +383,7 @@
 <div class="app-shell" id="appShell">
     <header class="topbar">
         <div class="brand">
-            <img src="{{ asset('folder-video-app/icon-192.png') }}" alt="">
+            <img src="/folder-video-app/icon-192.png" alt="">
             <div>
                 <div class="brand-title">Folder Video</div>
                 <div class="brand-subtitle" id="subtitle">準備中</div>

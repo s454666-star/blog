@@ -11,16 +11,20 @@ class FolderVideoControllerTest extends TestCase
 
     private string $fakeFfprobe;
 
+    private string $fakeApk;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->tempRoot = storage_path('framework/testing/folder-video-'.uniqid());
         $this->fakeFfprobe = $this->tempRoot.DIRECTORY_SEPARATOR.'fake-ffprobe.bat';
+        $this->fakeApk = $this->tempRoot.DIRECTORY_SEPARATOR.'folder-video-app.apk';
 
         File::ensureDirectoryExists($this->tempRoot);
         file_put_contents($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4', 'short-video');
         file_put_contents($this->tempRoot.DIRECTORY_SEPARATOR.'long.mp4', 'long-video');
+        file_put_contents($this->fakeApk, 'fake-apk');
         File::ensureDirectoryExists($this->tempRoot.DIRECTORY_SEPARATOR.'good');
 
         file_put_contents(
@@ -39,6 +43,9 @@ class FolderVideoControllerTest extends TestCase
         config()->set('folder_video.app_version', 'test-version');
         config()->set('folder_video.app_preview_max_connections', 4);
         config()->set('folder_video.app_page_limit', 18);
+        config()->set('folder_video.android_apk_version_code', 9);
+        config()->set('folder_video.android_apk_version_name', 'test-apk-version');
+        config()->set('folder_video.android_apk_path', $this->fakeApk);
     }
 
     protected function tearDown(): void
@@ -184,10 +191,32 @@ class FolderVideoControllerTest extends TestCase
     {
         $this->get('/folder-video-app/manifest.webmanifest')
             ->assertOk()
-            ->assertJsonPath('name', 'Folder Video');
+            ->assertJsonPath('name', 'Folder Video')
+            ->assertJsonPath('start_url', '/folder-video-app')
+            ->assertJsonPath('icons.0.src', '/folder-video-app/icon-192.png');
 
         $this->get('/folder-video-app/sw.js')
             ->assertOk()
             ->assertSee('folder-video-app-test-version', false);
+    }
+
+    public function test_android_update_endpoint_uses_forwarded_lan_host(): void
+    {
+        $response = $this->withHeaders([
+            'X-Forwarded-Host' => '10.0.0.19',
+            'X-Forwarded-Port' => '8090',
+            'X-Forwarded-Proto' => 'http',
+        ])->getJson('/folder-video-app/android-version.json');
+
+        $response->assertOk()
+            ->assertJsonPath('data.version_code', 9)
+            ->assertJsonPath('data.version_name', 'test-apk-version')
+            ->assertJsonPath('data.apk_url', 'http://10.0.0.19:8090/folder-video-app/folder-video-app.apk')
+            ->assertJsonPath('data.sha256', hash_file('sha256', $this->fakeApk))
+            ->assertJsonPath('data.size_bytes', filesize($this->fakeApk));
+
+        $this->get('/folder-video-app/folder-video-app.apk')
+            ->assertOk()
+            ->assertHeader('content-type', 'application/vnd.android.package-archive');
     }
 }

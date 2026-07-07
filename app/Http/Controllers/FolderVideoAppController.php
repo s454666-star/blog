@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Services\FolderVideoService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class FolderVideoAppController extends Controller
 {
@@ -34,20 +36,20 @@ class FolderVideoAppController extends Controller
         return response()->json([
             'name' => 'Folder Video',
             'short_name' => 'Folder Video',
-            'start_url' => route('folder-video-app.index'),
-            'scope' => url('/folder-video-app'),
+            'start_url' => route('folder-video-app.index', [], false),
+            'scope' => '/folder-video-app',
             'display' => 'standalone',
             'orientation' => 'portrait',
             'background_color' => '#090b0f',
             'theme_color' => '#090b0f',
             'icons' => [
                 [
-                    'src' => asset('folder-video-app/icon-192.png'),
+                    'src' => '/folder-video-app/icon-192.png',
                     'sizes' => '192x192',
                     'type' => 'image/png',
                 ],
                 [
-                    'src' => asset('folder-video-app/icon-512.png'),
+                    'src' => '/folder-video-app/icon-512.png',
                     'sizes' => '512x512',
                     'type' => 'image/png',
                     'purpose' => 'any maskable',
@@ -59,11 +61,11 @@ class FolderVideoAppController extends Controller
     public function serviceWorker(): Response
     {
         $version = $this->folderVideoService->appConfig()['version'];
-        $shellUrl = route('folder-video-app.index');
-        $manifestUrl = route('folder-video-app.manifest');
-        $versionUrl = route('folder-video-app.version');
-        $icon192 = asset('folder-video-app/icon-192.png');
-        $icon512 = asset('folder-video-app/icon-512.png');
+        $shellUrl = route('folder-video-app.index', [], false);
+        $manifestUrl = route('folder-video-app.manifest', [], false);
+        $versionUrl = route('folder-video-app.version', [], false);
+        $icon192 = '/folder-video-app/icon-192.png';
+        $icon512 = '/folder-video-app/icon-512.png';
 
         $script = <<<JS
 const CACHE_NAME = 'folder-video-app-{$version}';
@@ -132,5 +134,54 @@ JS;
             'Content-Type' => 'application/javascript; charset=UTF-8',
             'Cache-Control' => 'no-store, max-age=0',
         ]);
+    }
+
+    public function androidVersion(Request $request): JsonResponse
+    {
+        $apkPath = (string) config('folder_video.android_apk_path');
+        $exists = is_file($apkPath);
+
+        return response()->json([
+            'data' => [
+                'version_code' => (int) config('folder_video.android_apk_version_code'),
+                'version_name' => (string) config('folder_video.android_apk_version_name'),
+                'apk_url' => $this->publicUrl($request, route('folder-video-app.android-apk', [], false)),
+                'sha256' => $exists ? hash_file('sha256', $apkPath) : null,
+                'size_bytes' => $exists ? filesize($apkPath) : null,
+                'checked_at' => now()->toIso8601String(),
+            ],
+        ])->header('Cache-Control', 'no-store, max-age=0');
+    }
+
+    public function androidApk(): BinaryFileResponse|JsonResponse
+    {
+        $apkPath = (string) config('folder_video.android_apk_path');
+
+        if (! is_file($apkPath)) {
+            return response()->json([
+                'message' => 'APK file is not available.',
+            ], 404)->header('Cache-Control', 'no-store, max-age=0');
+        }
+
+        return response()->download($apkPath, 'folder-video-app.apk', [
+            'Content-Type' => 'application/vnd.android.package-archive',
+            'Cache-Control' => 'no-store, max-age=0',
+        ]);
+    }
+
+    private function publicUrl(Request $request, string $path): string
+    {
+        $host = $request->headers->get('x-forwarded-host') ?: $request->getHttpHost();
+        $scheme = $request->headers->get('x-forwarded-proto') ?: $request->getScheme();
+        $port = $request->headers->get('x-forwarded-port');
+
+        if ($port !== null && ctype_digit((string) $port) && ! str_contains($host, ':')) {
+            $isDefaultPort = ($scheme === 'http' && $port === '80') || ($scheme === 'https' && $port === '443');
+            if (! $isDefaultPort) {
+                $host .= ':'.$port;
+            }
+        }
+
+        return rtrim($scheme.'://'.$host, '/').'/'.ltrim($path, '/');
     }
 }

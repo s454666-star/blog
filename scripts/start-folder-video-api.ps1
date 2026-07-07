@@ -116,7 +116,7 @@ $configText = @"
         header_up Host $UpstreamHost
         header_up X-Forwarded-Host {host}
         header_up X-Forwarded-Proto {scheme}
-        header_up X-Forwarded-Port {server_port}
+        header_up X-Forwarded-Port $Port
 
         transport http {
             tls_insecure_skip_verify

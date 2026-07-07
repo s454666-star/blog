@@ -258,11 +258,12 @@
             position: fixed;
             top: 0;
             right: 0;
-            bottom: var(--bottom-safe);
+            bottom: 0;
             left: 0;
             z-index: 50;
             display: none;
             background: #000;
+            overflow: hidden;
             touch-action: none;
         }
 
@@ -271,8 +272,13 @@
         }
 
         .player video {
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: var(--bottom-safe);
+            left: 0;
             width: 100%;
-            height: 100%;
+            height: calc(100% - var(--bottom-safe));
             background: #000;
             object-fit: contain;
         }
@@ -310,7 +316,7 @@
         .player-actions {
             position: absolute;
             right: 8px;
-            bottom: 22px;
+            bottom: calc(var(--bottom-safe) + 22px);
             z-index: 4;
             display: grid;
             gap: 10px;
@@ -319,7 +325,7 @@
         .player-progress {
             position: absolute;
             right: 0;
-            bottom: 0;
+            bottom: var(--bottom-safe);
             left: 0;
             z-index: 5;
             height: 4px;
@@ -484,7 +490,7 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.13',
+        version: '2026.07.07.14',
         page_limit: 36,
         preview_max_connections: 12,
     }, BOOT_CONFIG || {});

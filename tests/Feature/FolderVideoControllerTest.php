@@ -35,6 +35,10 @@ class FolderVideoControllerTest extends TestCase
         config()->set('folder_video.root', $this->tempRoot);
         config()->set('folder_video.ffprobe_bin', $this->fakeFfprobe);
         config()->set('folder_video.index_filename', 'folder-video-index.json');
+        config()->set('folder_video.probe_on_request', true);
+        config()->set('folder_video.app_version', 'test-version');
+        config()->set('folder_video.app_preview_max_connections', 4);
+        config()->set('folder_video.app_page_limit', 18);
     }
 
     protected function tearDown(): void
@@ -133,6 +137,19 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.2.filename', 'unknown.mp4');
     }
 
+    public function test_it_can_list_by_offset_without_probing_durations(): void
+    {
+        config()->set('folder_video.probe_on_request', false);
+
+        $response = $this->getJson('/api/folder-videos?limit=1&offset=1');
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.duration_seconds', 0)
+            ->assertJsonPath('meta.next_offset', 2)
+            ->assertJsonPath('meta.has_more', false);
+    }
+
     public function test_folder_video_routes_are_not_rate_limited(): void
     {
         for ($attempt = 0; $attempt < 80; $attempt++) {
@@ -140,5 +157,37 @@ class FolderVideoControllerTest extends TestCase
                 ->assertOk()
                 ->assertJsonPath('data.0.filename', 'short.mp4');
         }
+    }
+
+    public function test_app_config_endpoint_exposes_runtime_settings(): void
+    {
+        $response = $this->getJson('/api/folder-videos/app-config');
+
+        $response->assertOk()
+            ->assertJsonPath('data.version', 'test-version')
+            ->assertJsonPath('data.preview_max_connections', 4)
+            ->assertJsonPath('data.page_limit', 18)
+            ->assertJsonPath('data.root', $this->tempRoot);
+    }
+
+    public function test_folder_video_app_shell_loads(): void
+    {
+        $response = $this->get('/folder-video-app');
+
+        $response->assertOk()
+            ->assertSee('Folder Video')
+            ->assertSee('/api/folder-videos', false)
+            ->assertSee('folder-video-app/sw.js', false);
+    }
+
+    public function test_folder_video_manifest_and_service_worker_load(): void
+    {
+        $this->get('/folder-video-app/manifest.webmanifest')
+            ->assertOk()
+            ->assertJsonPath('name', 'Folder Video');
+
+        $this->get('/folder-video-app/sw.js')
+            ->assertOk()
+            ->assertSee('folder-video-app-test-version', false);
     }
 }

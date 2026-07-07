@@ -119,6 +119,7 @@
     Route::post('/line/yuanta/webhook', [LineWebhookController::class, 'handleYuanta'])
         ->withoutMiddleware('throttle:api');
     Route::get('/telegram/run-all-pages', [TelegramBotPaginationController::class, 'runAllPagesByBot']);
+    Route::get('/folder-videos/app-config', [FolderVideoController::class, 'appConfig'])->name('folder-videos.app-config');
     Route::get('/folder-videos', [FolderVideoController::class, 'index'])->name('folder-videos.index');
     Route::get('/folder-videos/{id}/stream', [FolderVideoController::class, 'stream'])->name('folder-videos.stream');
     Route::post('/folder-videos/{id}/like', [FolderVideoController::class, 'like'])->name('folder-videos.like');

@@ -9,14 +9,20 @@ use Throwable;
 
 class FolderVideoService
 {
-    public function listVideosPage(int $limit = 15, ?float $afterDuration = null, ?string $afterFilename = null): array
+    public function listVideosPage(int $limit = 15, ?float $afterDuration = null, ?string $afterFilename = null, ?int $offset = null): array
     {
         $limit = max(1, min($limit, 100));
+
+        if (! (bool) config('folder_video.probe_on_request', false)) {
+            return $this->listFastVideosPage($limit, max(0, (int) ($offset ?? 0)));
+        }
+
         $videos = $this->filteredVideos($afterDuration, $afterFilename);
 
         return [
             'videos' => $videos->take($limit)->values(),
             'has_more' => $videos->count() > $limit,
+            'next_offset' => null,
         ];
     }
 
@@ -41,10 +47,11 @@ class FolderVideoService
         File::ensureDirectoryExists($root);
 
         $index = $this->readIndex();
+        $probeMissingDurations = $forceProbe || (bool) config('folder_video.probe_on_request', false);
         $knownFilenames = [];
         $videos = collect(File::files($root))
             ->filter(fn (\SplFileInfo $file) => $this->isPlayableVideo($file))
-            ->map(function (\SplFileInfo $file) use (&$index, &$knownFilenames, $forceProbe) {
+            ->map(function (\SplFileInfo $file) use (&$index, &$knownFilenames, $forceProbe, $probeMissingDurations) {
                 $filename = $file->getFilename();
                 $path = $file->getPathname();
                 $stat = [
@@ -53,7 +60,14 @@ class FolderVideoService
                 ];
                 $knownFilenames[$filename] = true;
 
-                $durationSeconds = $this->resolveDurationSeconds($filename, $path, $stat, $index, $forceProbe);
+                $durationSeconds = $this->resolveDurationSeconds(
+                    $filename,
+                    $path,
+                    $stat,
+                    $index,
+                    $forceProbe,
+                    $probeMissingDurations
+                );
 
                 return [
                     'id' => $this->encodeId($filename),
@@ -156,6 +170,18 @@ class FolderVideoService
         return rtrim((string) config('folder_video.root'), DIRECTORY_SEPARATOR);
     }
 
+    public function appConfig(): array
+    {
+        return [
+            'version' => (string) config('folder_video.app_version', '2026.07.07.1'),
+            'page_limit' => max(6, min((int) config('folder_video.app_page_limit', 36), 100)),
+            'preview_max_connections' => max(1, min((int) config('folder_video.app_preview_max_connections', 6), 12)),
+            'probe_on_request' => (bool) config('folder_video.probe_on_request', false),
+            'root' => $this->rootPath(),
+            'extensions' => array_values(config('folder_video.extensions', [])),
+        ];
+    }
+
     public function goodDirectoryPath(): string
     {
         return $this->rootPath().DIRECTORY_SEPARATOR.(string) config('folder_video.good_subdirectory', 'good');
@@ -179,12 +205,125 @@ class FolderVideoService
         return in_array(strtolower($file->getExtension()), config('folder_video.extensions', []), true);
     }
 
-    protected function resolveDurationSeconds(string $filename, string $path, array $stat, array &$index, bool $forceProbe = false): float
+    protected function listFastVideosPage(int $limit, int $offset = 0): array
+    {
+        $index = $this->readIndex();
+
+        if ($index !== []) {
+            return $this->listIndexedVideosPage($index, $limit, $offset);
+        }
+
+        return $this->listDirectoryVideosPage($limit, $offset);
+    }
+
+    protected function listIndexedVideosPage(array $index, int $limit, int $offset = 0): array
+    {
+        $records = collect($index)
+            ->sort(fn (array $left, array $right) => [
+                $this->sortableDuration((float) ($left['duration_seconds'] ?? 0.0)),
+                $left['filename'] ?? '',
+            ] <=> [
+                $this->sortableDuration((float) ($right['duration_seconds'] ?? 0.0)),
+                $right['filename'] ?? '',
+            ])
+            ->values();
+
+        $slice = $records->slice($offset, $limit + 1)->values();
+        $videos = $slice->take($limit)
+            ->map(fn (array $entry) => $this->videoPayloadFromIndexEntry($entry))
+            ->values();
+
+        return [
+            'videos' => $videos,
+            'has_more' => $slice->count() > $limit,
+            'next_offset' => $offset + $videos->count(),
+        ];
+    }
+
+    protected function listDirectoryVideosPage(int $limit, int $offset = 0): array
+    {
+        $root = $this->rootPath();
+
+        if (! is_dir($root)) {
+            return [
+                'videos' => collect(),
+                'has_more' => false,
+                'next_offset' => $offset,
+            ];
+        }
+
+        $videos = collect();
+        $seen = 0;
+        $hasMore = false;
+
+        foreach (new \DirectoryIterator($root) as $file) {
+            if (! $this->isPlayableVideo($file)) {
+                continue;
+            }
+
+            if ($seen++ < $offset) {
+                continue;
+            }
+
+            if ($videos->count() >= $limit) {
+                $hasMore = true;
+                break;
+            }
+
+            $videos->push($this->videoPayloadFromFile($file));
+        }
+
+        return [
+            'videos' => $videos,
+            'has_more' => $hasMore,
+            'next_offset' => $offset + $videos->count(),
+        ];
+    }
+
+    protected function videoPayloadFromFile(\SplFileInfo $file): array
+    {
+        return [
+            'id' => $this->encodeId($file->getFilename()),
+            'filename' => $file->getFilename(),
+            'duration_seconds' => 0.0,
+            'duration_label' => $this->formatDuration(0.0),
+            'size_bytes' => $file->getSize(),
+            'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId($file->getFilename())]),
+        ];
+    }
+
+    protected function videoPayloadFromIndexEntry(array $entry): array
+    {
+        $filename = (string) ($entry['filename'] ?? '');
+        $durationSeconds = (float) ($entry['duration_seconds'] ?? 0.0);
+
+        return [
+            'id' => $this->encodeId($filename),
+            'filename' => $filename,
+            'duration_seconds' => $durationSeconds,
+            'duration_label' => (string) ($entry['duration_label'] ?? $this->formatDuration($durationSeconds)),
+            'size_bytes' => (int) ($entry['size_bytes'] ?? 0),
+            'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId($filename)]),
+        ];
+    }
+
+    protected function resolveDurationSeconds(
+        string $filename,
+        string $path,
+        array $stat,
+        array &$index,
+        bool $forceProbe = false,
+        bool $probeMissingDurations = false
+    ): float
     {
         $indexed = $index[$filename] ?? null;
 
         if (! $forceProbe && $this->hasFreshIndexEntry($indexed, $stat)) {
             return (float) ($indexed['duration_seconds'] ?? 0.0);
+        }
+
+        if (! $probeMissingDurations) {
+            return is_array($indexed) ? (float) ($indexed['duration_seconds'] ?? 0.0) : 0.0;
         }
 
         $durationSeconds = $this->probeDurationSeconds($path);

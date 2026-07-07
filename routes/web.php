@@ -14,6 +14,7 @@ use App\Http\Controllers\ExtractController;
 use App\Http\Controllers\FaceIdentityController;
 use App\Http\Controllers\FetchController;
 use App\Http\Controllers\GalleryController;
+use App\Http\Controllers\FolderVideoAppController;
 use App\Http\Controllers\IgGrabController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
@@ -82,6 +83,11 @@ Route::post('/download-chunk/{folder}/{file}', [EncryptionController::class, 'do
 
 Route::get('/videoplayer-list', [VideoPlayerController::class, 'getVideoPlayerList'])
         ->name('videos.api.videoplayer_list');
+
+Route::get('/folder-video-app', [FolderVideoAppController::class, 'index'])->name('folder-video-app.index');
+Route::get('/folder-video-app/version.json', [FolderVideoAppController::class, 'version'])->name('folder-video-app.version');
+Route::get('/folder-video-app/manifest.webmanifest', [FolderVideoAppController::class, 'manifest'])->name('folder-video-app.manifest');
+Route::get('/folder-video-app/sw.js', [FolderVideoAppController::class, 'serviceWorker'])->name('folder-video-app.service-worker');
 
 Route::get('/command-runner', [CommandRunnerController::class, 'index'])->name('command-runner.index');
 Route::post('/command-runner/run', [CommandRunnerController::class, 'run'])->name('command-runner.run');

@@ -286,6 +286,7 @@ class FolderVideoControllerTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Folder Video')
+            ->assertSee('watchedOnlyButton')
             ->assertSee('likedOnlyButton')
             ->assertSee('/api/folder-videos', false)
             ->assertSee('folder-video-app/sw.js', false);

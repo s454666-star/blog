@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -21,6 +22,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.webkit.DownloadListener;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -44,8 +46,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 6;
-    private static final String APP_VERSION_NAME = "2026.07.07.6";
+    private static final int APP_VERSION_CODE = 7;
+    private static final String APP_VERSION_NAME = "2026.07.07.7";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.19:8090/folder-video-app",
@@ -65,6 +67,7 @@ public class MainActivity extends Activity {
     private long lastApkUpdateCheckMs = 0L;
     private boolean apkUpdateCheckRunning = false;
     private boolean updateDownloadReceiverRegistered = false;
+    private int systemBarBottomInset = 0;
 
     private final BroadcastReceiver updateDownloadReceiver = new BroadcastReceiver() {
         @Override
@@ -90,6 +93,7 @@ public class MainActivity extends Activity {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ));
+        applySystemBarInsets();
 
         errorView = createErrorView();
         errorView.setVisibility(View.GONE);
@@ -123,6 +127,41 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new FolderVideoWebViewClient());
         webView.setWebChromeClient(new FullscreenChromeClient());
         webView.setDownloadListener(new FolderVideoDownloadListener());
+    }
+
+    private void applySystemBarInsets() {
+        Window window = getWindow();
+        window.setStatusBarColor(Color.BLACK);
+        window.setNavigationBarColor(Color.BLACK);
+
+        webView.setOnApplyWindowInsetsListener((view, insets) -> {
+            int bottom = 0;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Insets systemBars = insets.getInsets(WindowInsets.Type.systemBars());
+                bottom = systemBars.bottom;
+            } else {
+                bottom = insets.getSystemWindowInsetBottom();
+            }
+
+            if (bottom != systemBarBottomInset) {
+                systemBarBottomInset = bottom;
+                injectSystemBarInsets();
+            }
+
+            return insets;
+        });
+        webView.requestApplyInsets();
+    }
+
+    private void injectSystemBarInsets() {
+        if (webView == null) {
+            return;
+        }
+
+        webView.post(() -> webView.evaluateJavascript(
+            "if (window.folderVideoSetAndroidInsets) { window.folderVideoSetAndroidInsets({bottom:" + Math.max(0, systemBarBottomInset) + "}); }",
+            null
+        ));
     }
 
     @Override
@@ -372,6 +411,7 @@ public class MainActivity extends Activity {
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
             hideErrorView();
+            injectSystemBarInsets();
         }
 
         @Override

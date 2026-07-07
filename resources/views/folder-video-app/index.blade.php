@@ -25,6 +25,9 @@
             --columns: 3;
             --grid-gap: 3px;
             --card-height: 180px;
+            --android-nav-inset: 0px;
+            --visual-bottom-inset: 0px;
+            --bottom-safe: max(env(safe-area-inset-bottom), var(--android-nav-inset), var(--visual-bottom-inset));
         }
 
         * {
@@ -153,7 +156,7 @@
             grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
             grid-auto-rows: var(--card-height);
             gap: var(--grid-gap);
-            padding: var(--grid-gap);
+            padding: var(--grid-gap) var(--grid-gap) calc(var(--grid-gap) + var(--bottom-safe));
             touch-action: pan-y;
         }
 
@@ -248,12 +251,15 @@
         }
 
         .sentinel {
-            height: 72px;
+            height: calc(180px + var(--bottom-safe));
         }
 
         .player {
             position: fixed;
-            inset: 0;
+            top: 0;
+            right: 0;
+            bottom: var(--bottom-safe);
+            left: 0;
             z-index: 50;
             display: none;
             background: #000;
@@ -304,7 +310,7 @@
         .player-actions {
             position: absolute;
             right: 8px;
-            bottom: calc(env(safe-area-inset-bottom) + 22px);
+            bottom: 22px;
             z-index: 4;
             display: grid;
             gap: 10px;
@@ -316,7 +322,7 @@
             bottom: 0;
             left: 0;
             z-index: 5;
-            height: calc(env(safe-area-inset-bottom) + 4px);
+            height: 4px;
             background: rgba(255, 255, 255, .13);
         }
 
@@ -330,7 +336,7 @@
         .toast {
             position: fixed;
             right: 16px;
-            bottom: calc(env(safe-area-inset-bottom) + 22px);
+            bottom: calc(var(--bottom-safe) + 22px);
             z-index: 80;
             max-width: calc(100vw - 32px);
             padding: 10px 12px;
@@ -400,6 +406,7 @@
         </div>
         <div class="status-pill" id="statusPill">v{{ $appConfig['version'] }}</div>
         <div class="toolbar-actions">
+            <button class="icon-button" id="watchedOnlyButton" type="button" title="只看已觀看">✓</button>
             <button class="icon-button" id="likedOnlyButton" type="button" title="只看 LIKE">♥</button>
             <button class="icon-button" id="zoomOutButton" type="button" title="縮小">−</button>
             <button class="icon-button" id="zoomResetButton" type="button" title="回到 3 欄">3</button>
@@ -443,6 +450,9 @@
     const MIN_GRID_COLUMNS = 2;
     const DEFAULT_GRID_COLUMNS = 3;
     const MAX_GRID_COLUMNS = 5;
+    const MODE_ALL = 'all';
+    const MODE_WATCHED = 'watched';
+    const MODE_LIKED = 'liked';
 
     const elements = {
         shell: document.getElementById('appShell'),
@@ -451,6 +461,7 @@
         empty: document.getElementById('emptyState'),
         subtitle: document.getElementById('subtitle'),
         status: document.getElementById('statusPill'),
+        watchedOnly: document.getElementById('watchedOnlyButton'),
         likedOnly: document.getElementById('likedOnlyButton'),
         zoomIn: document.getElementById('zoomInButton'),
         zoomOut: document.getElementById('zoomOutButton'),
@@ -469,7 +480,7 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.6',
+        version: '2026.07.07.7',
         page_limit: 36,
         preview_max_connections: 12,
     }, BOOT_CONFIG || {});
@@ -487,10 +498,11 @@
     let toastTimer = null;
     let flashTimer = null;
     let previewPaused = false;
+    let loadMoreQueued = false;
 
     const observer = new IntersectionObserver(handlePreviewIntersections, {
         root: null,
-        rootMargin: '120px 0px',
+        rootMargin: '720px 0px',
         threshold: [0, .2, .6],
     });
     const visiblePreviewCards = new Map();
@@ -503,6 +515,7 @@
                 progress: {},
                 completed: {},
                 liked: {},
+                viewMode: parsed.showLikedOnly ? MODE_LIKED : MODE_ALL,
                 showLikedOnly: false,
                 known: {},
                 lastLibraryScanAt: 0,
@@ -515,6 +528,7 @@
                 progress: {},
                 completed: {},
                 liked: {},
+                viewMode: MODE_ALL,
                 showLikedOnly: false,
                 known: {},
                 lastLibraryScanAt: 0,
@@ -526,6 +540,28 @@
 
     function saveState() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function currentMode() {
+        if ([MODE_ALL, MODE_WATCHED, MODE_LIKED].includes(state.viewMode)) {
+            return state.viewMode;
+        }
+
+        return state.showLikedOnly ? MODE_LIKED : MODE_ALL;
+    }
+
+    function setMode(mode) {
+        state.viewMode = [MODE_ALL, MODE_WATCHED, MODE_LIKED].includes(mode) ? mode : MODE_ALL;
+        state.showLikedOnly = state.viewMode === MODE_LIKED;
+        saveState();
+    }
+
+    function isWatchedMode() {
+        return currentMode() === MODE_WATCHED;
+    }
+
+    function isLikedMode() {
+        return currentMode() === MODE_LIKED;
     }
 
     function clamp(value, min, max) {
@@ -564,7 +600,7 @@
             return `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
         }
 
-        return `${minutes}:${String(rest).padStart(2, '0')}`;
+        return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
     }
 
     function normalizeVideo(video) {
@@ -583,6 +619,33 @@
 
     function isCompleted(id) {
         return Boolean(state.completed[id]);
+    }
+
+    function videoFromStoredRecord(id, record, fallbackLiked = false) {
+        const stored = record?.video || {};
+
+        return normalizeVideo({
+            id,
+            filename: stored.filename || record?.filename || id,
+            duration_seconds: stored.duration_seconds || record?.duration || 0,
+            duration_label: stored.duration_label,
+            size_bytes: stored.size_bytes || 0,
+            modified_at: stored.modified_at || 0,
+            created_at: stored.created_at || 0,
+            stream_url: stored.stream_url || `${API_BASE}/${id}/stream`,
+            liked: fallbackLiked || Boolean(stored.liked),
+        });
+    }
+
+    function completedVideos() {
+        return Object.entries(state.completed || {})
+            .map(([id, record]) => videoFromStoredRecord(id, record, isLiked(id)))
+            .sort((left, right) => {
+                const leftAt = Number(state.completed?.[left.id]?.completedAt || 0);
+                const rightAt = Number(state.completed?.[right.id]?.completedAt || 0);
+
+                return rightAt - leftAt;
+            });
     }
 
     function isLiked(id) {
@@ -623,7 +686,7 @@
 
         if (normalized.liked) {
             rememberLikedVideo(normalized);
-        } else if (state.showLikedOnly && !isLiked(normalized.id)) {
+        } else if (isLikedMode() && !isLiked(normalized.id)) {
             normalized.liked = true;
             rememberLikedVideo(normalized);
         }
@@ -643,7 +706,17 @@
     }
 
     function displayVideos() {
-        return videos.filter((video) => state.showLikedOnly ? isLiked(video.id) : !isCompleted(video.id))
+        return videos.filter((video) => {
+            if (isWatchedMode()) {
+                return isCompleted(video.id);
+            }
+
+            if (isLikedMode()) {
+                return isLiked(video.id);
+            }
+
+            return !isCompleted(video.id);
+        })
             .sort((left, right) => {
                 const leftFresh = freshVideoIds.has(left.id) ? 0 : 1;
                 const rightFresh = freshVideoIds.has(right.id) ? 0 : 1;
@@ -702,13 +775,50 @@
         return 7;
     }
 
+    function setCssPxVariable(name, value) {
+        const pixels = Math.max(0, Math.round(Number(value || 0)));
+        document.documentElement.style.setProperty(name, `${pixels}px`);
+    }
+
+    function cssPxVariable(name) {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(name);
+        const parsed = Number.parseFloat(value);
+
+        return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+    }
+
+    function refreshViewportInsets() {
+        const viewport = window.visualViewport;
+        const visualBottom = viewport
+            ? Math.max(0, (window.innerHeight || 0) - viewport.height - viewport.offsetTop)
+            : 0;
+
+        setCssPxVariable('--visual-bottom-inset', visualBottom);
+    }
+
+    function bottomSafeInset() {
+        refreshViewportInsets();
+
+        return Math.max(
+            cssPxVariable('--android-nav-inset'),
+            cssPxVariable('--visual-bottom-inset')
+        );
+    }
+
+    window.folderVideoSetAndroidInsets = (payload = {}) => {
+        const bottom = typeof payload === 'number' ? payload : payload.bottom;
+        setCssPxVariable('--android-nav-inset', bottom);
+        updateGridMetrics();
+        schedulePreviewRefresh();
+    };
+
     function updateGridMetrics() {
         const rows = rowsForGridColumns(state.gridColumns);
         const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || 0);
         const viewportOffsetTop = Number(window.visualViewport?.offsetTop || 0);
         const gridTop = Math.max(0, (elements.grid.getBoundingClientRect().top || 0) - viewportOffsetTop);
         const gap = 3;
-        const available = Math.max(240, viewportHeight - gridTop - gap - rows * gap);
+        const available = Math.max(240, viewportHeight - gridTop - bottomSafeInset() - gap - rows * gap);
         const rowHeight = Math.max(76, Math.ceil(available / rows));
 
         document.documentElement.style.setProperty('--card-height', `${rowHeight}px`);
@@ -726,11 +836,28 @@
         const visible = displayVideos().length;
         const liked = Object.keys(state.liked || {}).length;
         const completed = Object.keys(state.completed || {}).length;
-        elements.subtitle.textContent = state.showLikedOnly
-            ? `${visible} LIKE · ${completed} 已看`
-            : `${visible} 可播放 · ${liked} LIKE · ${completed} 已看`;
+        if (isWatchedMode()) {
+            elements.subtitle.textContent = `${visible} 已觀看 · ${liked} LIKE`;
+        } else if (isLikedMode()) {
+            elements.subtitle.textContent = `${visible} LIKE · ${completed} 已看`;
+        } else {
+            elements.subtitle.textContent = `${visible} 可播放 · ${liked} LIKE · ${completed} 已看`;
+        }
         elements.status.textContent = `v${appConfig.version}`;
-        elements.likedOnly.classList.toggle('is-active', Boolean(state.showLikedOnly));
+        elements.watchedOnly.classList.toggle('is-active', isWatchedMode());
+        elements.likedOnly.classList.toggle('is-active', isLikedMode());
+    }
+
+    function emptyMessage() {
+        if (isWatchedMode()) {
+            return '沒有已觀看影片';
+        }
+
+        if (isLikedMode()) {
+            return '沒有 LIKE 影片';
+        }
+
+        return '沒有可播放的影片';
     }
 
     function progressPercent(video) {
@@ -762,7 +889,7 @@
                 <div class="card-meta">
                     <div class="card-name">${escapeHtml(video.filename)}</div>
                     <div class="card-row">
-                        <span>${escapeHtml(video.duration_label)}</span>
+                        <span class="preview-time">${escapeHtml(progressPercent(video) > 0 ? formatDuration(Number(state.progress?.[video.id]?.time || 0)) : '00:00')}</span>
                         <span class="progress-shell"><span class="progress-fill" style="width:${progressPercent(video)}%"></span></span>
                     </div>
                 </div>
@@ -782,10 +909,11 @@
         });
 
         elements.grid.appendChild(fragment);
-        elements.empty.textContent = state.showLikedOnly ? '沒有 LIKE 影片' : '沒有可播放的影片';
+        elements.empty.textContent = emptyMessage();
         elements.empty.classList.toggle('show', items.length === 0 && !cursor.hasMore && !isLoading);
         updateStatus();
         schedulePreviewRefresh();
+        maybeLoadMoreSoon();
     }
 
     function handlePreviewIntersections(entries) {
@@ -810,7 +938,9 @@
             return;
         }
 
+        bindPreviewVideoEvents(video);
         video.dataset.activePreview = '1';
+        video.preload = 'auto';
         if (!video.getAttribute('src')) {
             video.setAttribute('src', video.dataset.src);
             video.load();
@@ -820,6 +950,54 @@
         video.defaultMuted = true;
         video.disableRemotePlayback = true;
         video.play().catch(() => {});
+    }
+
+    function warmPreview(card) {
+        const video = card.querySelector('video');
+        if (!video || video.getAttribute('src')) {
+            return;
+        }
+
+        bindPreviewVideoEvents(video);
+        video.preload = 'metadata';
+        video.muted = true;
+        video.defaultMuted = true;
+        video.disableRemotePlayback = true;
+        video.setAttribute('src', video.dataset.src);
+        video.load();
+    }
+
+    function bindPreviewVideoEvents(video) {
+        if (!video || video.dataset.previewEventsBound === '1') {
+            return;
+        }
+
+        video.dataset.previewEventsBound = '1';
+        video.addEventListener('loadedmetadata', () => updatePreviewProgress(video));
+        video.addEventListener('durationchange', () => updatePreviewProgress(video));
+        video.addEventListener('timeupdate', () => updatePreviewProgress(video));
+        video.addEventListener('playing', () => updatePreviewProgress(video));
+        video.addEventListener('seeked', () => updatePreviewProgress(video));
+    }
+
+    function updatePreviewProgress(video) {
+        const card = video.closest('.video-card');
+        if (!card) {
+            return;
+        }
+
+        const current = Math.max(0, Number(video.currentTime || 0));
+        const duration = Number(video.duration || 0);
+        const time = card.querySelector('.preview-time');
+        const fill = card.querySelector('.progress-fill');
+
+        if (time) {
+            time.textContent = formatDuration(current);
+        }
+
+        if (fill && Number.isFinite(duration) && duration > 0) {
+            fill.style.width = `${clamp((current / duration) * 100, 0, 100)}%`;
+        }
     }
 
     function pausePreview(card) {
@@ -860,34 +1038,76 @@
             return;
         }
 
+        const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || 0);
         const cards = Array.from(visiblePreviewCards.entries())
-            .sort((left, right) => {
-                const rectLeft = left[0].getBoundingClientRect();
-                const rectRight = right[0].getBoundingClientRect();
-                return (rectLeft.top - rectRight.top) || (rectLeft.left - rectRight.left);
+            .map(([card]) => {
+                const rect = card.getBoundingClientRect();
+                const visible = rect.bottom > 0 && rect.top < viewportHeight;
+                const below = rect.top >= viewportHeight;
+                const band = visible ? 0 : (below ? 1 : 2);
+                const distance = visible
+                    ? Math.max(0, rect.top)
+                    : (below ? rect.top - viewportHeight : Math.abs(rect.bottom));
+
+                return {card, band, distance, left: rect.left};
             })
-            .map(([card]) => card);
+            .sort((left, right) => (left.band - right.band) || (left.distance - right.distance) || (left.left - right.left))
+            .map((entry) => entry.card);
 
         if (cards.length === 0) {
             stopAllPreviews();
             return;
         }
 
-        const desiredActive = normalizeGridColumns(state.gridColumns) * rowsForGridColumns(state.gridColumns);
+        const desiredActive = desiredVisibleCount();
         const maxActive = clamp(Math.min(Number(appConfig.preview_max_connections || 12), desiredActive), 1, 24);
+        const warmLimit = clamp(maxActive + Math.min(12, desiredActive), maxActive, 28);
         const activeCards = new Set();
+        const warmCards = new Set();
 
         for (let offset = 0; offset < Math.min(maxActive, cards.length); offset++) {
             activeCards.add(cards[offset]);
         }
 
+        for (let offset = 0; offset < Math.min(warmLimit, cards.length); offset++) {
+            warmCards.add(cards[offset]);
+        }
+
         cards.forEach((card) => {
             if (activeCards.has(card)) {
                 startPreview(card);
+            } else if (warmCards.has(card)) {
+                warmPreview(card);
+                pausePreview(card);
             } else {
                 pausePreview(card);
             }
         });
+    }
+
+    function desiredVisibleCount() {
+        return normalizeGridColumns(state.gridColumns) * rowsForGridColumns(state.gridColumns);
+    }
+
+    function bufferedTargetCount() {
+        return Math.min(140, Math.max(Number(appConfig.page_limit || 36), desiredVisibleCount() * 4));
+    }
+
+    function maybeLoadMoreSoon() {
+        if (isLoading || isWatchedMode() || isLikedMode() || !cursor.hasMore || loadMoreQueued) {
+            return;
+        }
+
+        const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || 0);
+        const distanceToBottom = document.documentElement.scrollHeight - (window.scrollY + viewportHeight);
+
+        if (displayVideos().length < bufferedTargetCount() || distanceToBottom < viewportHeight * 2.5) {
+            loadMoreQueued = true;
+            window.setTimeout(async () => {
+                loadMoreQueued = false;
+                await loadMoreVideos();
+            }, 80);
+        }
     }
 
     async function fetchAppConfig() {
@@ -909,6 +1129,17 @@
             return;
         }
 
+        if (isWatchedMode()) {
+            cursor = {offset: 0, hasMore: false};
+            videos = completedVideos();
+            videoById = new Map(videos.map((video) => [video.id, video]));
+            renderGrid();
+            updateStatus();
+            elements.empty.textContent = emptyMessage();
+            elements.empty.classList.toggle('show', displayVideos().length === 0);
+            return;
+        }
+
         isLoading = true;
         elements.subtitle.textContent = '載入中';
 
@@ -916,7 +1147,7 @@
             cursor = {offset: 0, hasMore: true};
             videos = [];
             videoById = new Map();
-            if (state.currentVideo && (state.showLikedOnly ? isLiked(state.currentVideo.id) : !isCompleted(state.currentVideo.id))) {
+            if (state.currentVideo && (isLikedMode() ? isLiked(state.currentVideo.id) : !isCompleted(state.currentVideo.id))) {
                 upsertVideo(state.currentVideo, true);
             }
         }
@@ -927,7 +1158,7 @@
             order: 'random_new_first',
             seed: sessionSeed,
             new_first_after: String(sessionNewFirstAfter),
-            liked: state.showLikedOnly ? '1' : '0',
+            liked: isLikedMode() ? '1' : '0',
         });
 
         try {
@@ -946,7 +1177,7 @@
             };
             renderGrid();
 
-            if (!state.showLikedOnly && displayVideos().length < 12 && cursor.hasMore) {
+            if (!isLikedMode() && displayVideos().length < bufferedTargetCount() && cursor.hasMore) {
                 await loadMoreVideos();
             }
         } catch (error) {
@@ -954,8 +1185,9 @@
         } finally {
             isLoading = false;
             updateStatus();
-            elements.empty.textContent = state.showLikedOnly ? '沒有 LIKE 影片' : '沒有可播放的影片';
+            elements.empty.textContent = emptyMessage();
             elements.empty.classList.toggle('show', displayVideos().length === 0 && !cursor.hasMore);
+            maybeLoadMoreSoon();
         }
     }
 
@@ -1052,9 +1284,11 @@
     }
 
     function markCompleted(video) {
-        state.completed[video.id] = {
-            filename: video.filename,
+        const normalized = normalizeVideo(video);
+        state.completed[normalized.id] = {
+            filename: normalized.filename,
             completedAt: Date.now(),
+            video: normalized,
         };
         delete state.progress[video.id];
         saveState();
@@ -1119,7 +1353,8 @@
 
         const wasLiked = isLiked(target.id);
         const previousPlayerIndex = playerIndex;
-        const removedFromCurrentQueue = (!state.showLikedOnly && !wasLiked) || (state.showLikedOnly && wasLiked);
+        const modeAtStart = currentMode();
+        const removedFromCurrentQueue = (modeAtStart === MODE_ALL && !wasLiked) || (modeAtStart === MODE_LIKED && wasLiked);
         const endpoint = `${API_BASE}/${encodeURIComponent(target.id)}/like`;
 
         try {
@@ -1134,6 +1369,14 @@
                 duration_seconds: target.duration_seconds,
                 duration_label: target.duration_label,
             }));
+            if (state.completed?.[target.id]) {
+                const completedRecord = state.completed[target.id];
+                delete state.completed[target.id];
+                state.completed[returned.id] = Object.assign({}, completedRecord, {
+                    filename: returned.filename,
+                    video: returned,
+                });
+            }
 
             if (wasLiked) {
                 forgetLikedVideo(target.id);
@@ -1168,11 +1411,19 @@
             }
 
             videos = videos.filter((item) => item.id !== target.id);
-            if ((state.showLikedOnly && !wasLiked) || (!state.showLikedOnly && wasLiked)) {
+            if (
+                (modeAtStart === MODE_WATCHED && isCompleted(returned.id))
+                || (modeAtStart === MODE_LIKED && !wasLiked)
+                || (modeAtStart === MODE_ALL && wasLiked)
+            ) {
                 videos.push(returned);
             }
             videoById.delete(target.id);
-            if ((state.showLikedOnly && !wasLiked) || (!state.showLikedOnly && wasLiked)) {
+            if (
+                (modeAtStart === MODE_WATCHED && isCompleted(returned.id))
+                || (modeAtStart === MODE_LIKED && !wasLiked)
+                || (modeAtStart === MODE_ALL && wasLiked)
+            ) {
                 videoById.set(returned.id, returned);
             }
             if (removedFromCurrentQueue && playerItem && playerItem.id === returned.id) {
@@ -1483,9 +1734,14 @@
         setGridColumns(DEFAULT_GRID_COLUMNS);
     });
 
+    elements.watchedOnly.addEventListener('click', async () => {
+        setMode(isWatchedMode() ? MODE_ALL : MODE_WATCHED);
+        updateStatus();
+        await loadMoreVideos(true);
+    });
+
     elements.likedOnly.addEventListener('click', async () => {
-        state.showLikedOnly = !state.showLikedOnly;
-        saveState();
+        setMode(isLikedMode() ? MODE_ALL : MODE_LIKED);
         updateStatus();
         await loadMoreVideos(true);
     });
@@ -1509,18 +1765,54 @@
             updateGridMetrics();
             schedulePreviewRefresh();
             checkForUpdates();
+            maybeLoadMoreSoon();
         }
     });
 
     window.addEventListener('resize', () => {
         updateGridMetrics();
         schedulePreviewRefresh();
+        maybeLoadMoreSoon();
+    });
+
+    window.addEventListener('scroll', () => {
+        schedulePreviewRefresh();
+        maybeLoadMoreSoon();
+    }, {passive: true});
+
+    document.addEventListener('scroll', () => {
+        maybeLoadMoreSoon();
+    }, {passive: true});
+
+    elements.grid.addEventListener('scroll', () => {
+        maybeLoadMoreSoon();
+    }, {passive: true});
+
+    elements.shell.addEventListener('scroll', () => {
+        maybeLoadMoreSoon();
+    }, {passive: true});
+
+    document.body.addEventListener('touchmove', () => {
+        maybeLoadMoreSoon();
+    }, {passive: true});
+
+    document.body.addEventListener('wheel', () => {
+        maybeLoadMoreSoon();
+    }, {passive: true});
+
+    document.body.addEventListener('pointerup', () => {
+        maybeLoadMoreSoon();
     });
 
     if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', () => {
             updateGridMetrics();
             schedulePreviewRefresh();
+            maybeLoadMoreSoon();
+        });
+        window.visualViewport.addEventListener('scroll', () => {
+            updateGridMetrics();
+            maybeLoadMoreSoon();
         });
     }
 
@@ -1528,6 +1820,7 @@
         setTimeout(() => {
             updateGridMetrics();
             schedulePreviewRefresh();
+            maybeLoadMoreSoon();
         }, 250);
     });
 
@@ -1537,13 +1830,20 @@
         if (entries.some((entry) => entry.isIntersecting)) {
             loadMoreVideos();
         }
-    }, {rootMargin: '600px 0px'}).observe(elements.sentinel);
+    }, {rootMargin: '1800px 0px'}).observe(elements.sentinel);
 
     async function boot() {
+        if (/Android/i.test(navigator.userAgent) && /FolderVideoApp\//.test(navigator.userAgent) && cssPxVariable('--android-nav-inset') === 0) {
+            setCssPxVariable('--android-nav-inset', 48);
+        }
         applyGridColumns();
         bindPlayerGestures();
         bindGridPinch();
-        if (state.currentVideo && (state.showLikedOnly ? isLiked(state.currentVideo.id) : !isCompleted(state.currentVideo.id))) {
+        if (state.currentVideo && (
+            isWatchedMode()
+                ? isCompleted(state.currentVideo.id)
+                : (isLikedMode() ? isLiked(state.currentVideo.id) : !isCompleted(state.currentVideo.id))
+        )) {
             upsertVideo(state.currentVideo, true);
             renderGrid();
         }

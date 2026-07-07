@@ -44,8 +44,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 3;
-    private static final String APP_VERSION_NAME = "2026.07.07.3";
+    private static final int APP_VERSION_CODE = 5;
+    private static final String APP_VERSION_NAME = "2026.07.07.5";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.19:8090/folder-video-app",
@@ -146,6 +146,24 @@ public class MainActivity extends Activity {
             return;
         }
 
+        if (webView != null) {
+            webView.evaluateJavascript(
+                "(function(){return !!(window.folderVideoHandleBack && window.folderVideoHandleBack());})()",
+                handled -> {
+                    if ("true".equals(handled)) {
+                        return;
+                    }
+
+                    finishWebBack();
+                }
+            );
+            return;
+        }
+
+        super.onBackPressed();
+    }
+
+    private void finishWebBack() {
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
             return;

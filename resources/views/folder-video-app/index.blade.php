@@ -23,6 +23,8 @@
             --coral: #ff7d67;
             --gold: #ffd36a;
             --columns: 3;
+            --grid-gap: 3px;
+            --card-height: 180px;
         }
 
         * {
@@ -143,9 +145,10 @@
         .video-grid {
             display: grid;
             grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
-            gap: 3px;
-            padding: 3px;
-            touch-action: pan-y pinch-zoom;
+            grid-auto-rows: var(--card-height);
+            gap: var(--grid-gap);
+            padding: var(--grid-gap);
+            touch-action: pan-y;
         }
 
         .video-card {
@@ -154,7 +157,7 @@
             overflow: hidden;
             border: 1px solid rgba(255, 255, 255, .08);
             border-radius: 6px;
-            aspect-ratio: 3 / 4;
+            height: 100%;
             background: #121820;
             cursor: pointer;
             isolation: isolate;
@@ -392,6 +395,7 @@
         <div class="status-pill" id="statusPill">v{{ $appConfig['version'] }}</div>
         <div class="toolbar-actions">
             <button class="icon-button" id="zoomOutButton" type="button" title="縮小">−</button>
+            <button class="icon-button" id="zoomResetButton" type="button" title="回到 3 欄">3</button>
             <button class="icon-button" id="zoomInButton" type="button" title="放大">＋</button>
             <button class="icon-button" id="refreshButton" type="button" title="重新整理">↻</button>
         </div>
@@ -429,6 +433,9 @@
     const VERSION_URL = '/folder-video-app/version.json';
     const SW_URL = '/folder-video-app/sw.js';
     const STORAGE_KEY = 'folder-video-app-state-v1';
+    const MIN_GRID_COLUMNS = 2;
+    const DEFAULT_GRID_COLUMNS = 3;
+    const MAX_GRID_COLUMNS = 5;
 
     const elements = {
         shell: document.getElementById('appShell'),
@@ -439,6 +446,7 @@
         status: document.getElementById('statusPill'),
         zoomIn: document.getElementById('zoomInButton'),
         zoomOut: document.getElementById('zoomOutButton'),
+        zoomReset: document.getElementById('zoomResetButton'),
         refresh: document.getElementById('refreshButton'),
         player: document.getElementById('playerOverlay'),
         playerVideo: document.getElementById('playerVideo'),
@@ -453,9 +461,9 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.3',
+        version: '2026.07.07.5',
         page_limit: 36,
-        preview_max_connections: 6,
+        preview_max_connections: 12,
     }, BOOT_CONFIG || {});
     const sessionSeed = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     const freshVideoIds = new Set();
@@ -478,13 +486,12 @@
         threshold: [0, .2, .6],
     });
     const visiblePreviewCards = new Map();
-    let previewRotation = 0;
 
     function loadState() {
         try {
             const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
             return Object.assign({
-                gridColumns: 3,
+                gridColumns: DEFAULT_GRID_COLUMNS,
                 progress: {},
                 completed: {},
                 liked: {},
@@ -495,7 +502,7 @@
             }, parsed);
         } catch (error) {
             return {
-                gridColumns: 3,
+                gridColumns: DEFAULT_GRID_COLUMNS,
                 progress: {},
                 completed: {},
                 liked: {},
@@ -621,10 +628,54 @@
         saveState();
     }
 
+    function normalizeGridColumns(value) {
+        return clamp(Math.round(Number(value || DEFAULT_GRID_COLUMNS)), MIN_GRID_COLUMNS, MAX_GRID_COLUMNS);
+    }
+
+    function setGridColumns(value) {
+        const next = normalizeGridColumns(value);
+        if (Number(state.gridColumns) === next) {
+            updateGridMetrics();
+            return;
+        }
+
+        state.gridColumns = next;
+        applyGridColumns();
+    }
+
+    function rowsForGridColumns(columns) {
+        const normalized = normalizeGridColumns(columns);
+        if (normalized <= 2) {
+            return 3;
+        }
+        if (normalized === 3) {
+            return 4;
+        }
+        if (normalized === 4) {
+            return 5;
+        }
+
+        return 7;
+    }
+
+    function updateGridMetrics() {
+        const rows = rowsForGridColumns(state.gridColumns);
+        const viewportHeight = Number(window.visualViewport?.height || window.innerHeight || 0);
+        const viewportOffsetTop = Number(window.visualViewport?.offsetTop || 0);
+        const gridTop = Math.max(0, (elements.grid.getBoundingClientRect().top || 0) - viewportOffsetTop);
+        const gap = 3;
+        const available = Math.max(240, viewportHeight - gridTop - gap - rows * gap);
+        const rowHeight = Math.max(76, Math.ceil(available / rows));
+
+        document.documentElement.style.setProperty('--card-height', `${rowHeight}px`);
+    }
+
     function applyGridColumns() {
-        state.gridColumns = clamp(Number(state.gridColumns || 3), 1, 5);
+        state.gridColumns = normalizeGridColumns(state.gridColumns);
         document.documentElement.style.setProperty('--columns', String(state.gridColumns));
+        updateGridMetrics();
         saveState();
+        schedulePreviewRefresh();
     }
 
     function updateStatus() {
@@ -659,7 +710,7 @@
             card.className = 'video-card';
             card.dataset.id = video.id;
             card.innerHTML = `
-                <video class="preview-video" muted loop playsinline preload="none" data-src="${escapeHtml(video.stream_url)}"></video>
+                <video class="preview-video" muted loop playsinline preload="metadata" data-src="${escapeHtml(video.stream_url)}"></video>
                 <div class="card-meta">
                     <div class="card-name">${escapeHtml(video.filename)}</div>
                     <div class="card-row">
@@ -711,29 +762,18 @@
         }
 
         video.dataset.activePreview = '1';
-        if (video.dataset.previewBound !== '1') {
-            video.dataset.previewBound = '1';
-            video.addEventListener('loadedmetadata', () => {
-                const duration = Number(video.duration || 0);
-                if (!duration || duration < 8 || video.dataset.previewSeeked === '1') {
-                    return;
-                }
-
-                video.dataset.previewSeeked = '1';
-                const hash = Array.from(card.dataset.id || '').reduce((sum, char) => sum + char.charCodeAt(0), 0);
-                video.currentTime = Math.min(duration - 2, Math.max(1, duration * (.18 + (hash % 42) / 100)));
-            });
-        }
-
         if (!video.getAttribute('src')) {
             video.setAttribute('src', video.dataset.src);
             video.load();
         }
 
+        video.muted = true;
+        video.defaultMuted = true;
+        video.disableRemotePlayback = true;
         video.play().catch(() => {});
     }
 
-    function stopPreview(card) {
+    function pausePreview(card) {
         const video = card.querySelector('video');
         if (!video) {
             return;
@@ -744,6 +784,15 @@
             video.pause();
         } catch (error) {
         }
+    }
+
+    function stopPreview(card) {
+        const video = card.querySelector('video');
+        if (!video) {
+            return;
+        }
+
+        pausePreview(card);
         video.removeAttribute('src');
         video.load();
     }
@@ -775,27 +824,22 @@
             return;
         }
 
-        const maxActive = clamp(Number(appConfig.preview_max_connections || 6), 1, 12);
+        const desiredActive = normalizeGridColumns(state.gridColumns) * rowsForGridColumns(state.gridColumns);
+        const maxActive = clamp(Math.min(Number(appConfig.preview_max_connections || 12), desiredActive), 1, 24);
         const activeCards = new Set();
-        const start = cards.length > maxActive ? previewRotation % cards.length : 0;
 
         for (let offset = 0; offset < Math.min(maxActive, cards.length); offset++) {
-            activeCards.add(cards[(start + offset) % cards.length]);
+            activeCards.add(cards[offset]);
         }
 
         cards.forEach((card) => {
             if (activeCards.has(card)) {
                 startPreview(card);
             } else {
-                stopPreview(card);
+                pausePreview(card);
             }
         });
     }
-
-    setInterval(() => {
-        previewRotation += clamp(Number(appConfig.preview_max_connections || 6), 1, 12);
-        schedulePreviewRefresh();
-    }, 4200);
 
     async function fetchAppConfig() {
         try {
@@ -892,6 +936,8 @@
         elements.playerVideo.pause();
         elements.playerVideo.removeAttribute('src');
         elements.playerVideo.load();
+        elements.playerVideo.preload = 'auto';
+        elements.playerVideo.disableRemotePlayback = true;
         elements.playerVideo.src = normalized.stream_url;
         elements.playerVideo.loop = false;
         elements.playerVideo.onloadedmetadata = () => {
@@ -915,6 +961,15 @@
         previewPaused = false;
         schedulePreviewRefresh();
     }
+
+    window.folderVideoHandleBack = () => {
+        if (elements.player.classList.contains('open')) {
+            closePlayer();
+            return true;
+        }
+
+        return false;
+    };
 
     function recordPlayerProgress() {
         if (!playerItem || !elements.playerVideo.duration) {
@@ -1126,6 +1181,21 @@
 
             if (Math.abs(dy) > 56 && Math.abs(dy) > Math.abs(dx)) {
                 playAdjacent(dy < 0 ? 1 : -1);
+                return;
+            }
+
+            if (Math.abs(dx) <= 18 && Math.abs(dy) <= 18) {
+                const rect = elements.player.getBoundingClientRect();
+                const tapX = event.clientX - rect.left;
+                if (tapX < rect.width * .45) {
+                    seekPlayer(-10);
+                    return;
+                }
+
+                if (tapX > rect.width * .55) {
+                    seekPlayer(10);
+                    return;
+                }
             }
         });
 
@@ -1136,8 +1206,7 @@
 
     function bindGridPinch() {
         let initialDistance = 0;
-        let initialColumns = 3;
-        let applied = false;
+        let initialColumns = DEFAULT_GRID_COLUMNS;
 
         elements.grid.addEventListener('touchstart', (event) => {
             if (event.touches.length !== 2) {
@@ -1145,8 +1214,7 @@
             }
 
             initialDistance = touchDistance(event.touches[0], event.touches[1]);
-            initialColumns = state.gridColumns;
-            applied = false;
+            initialColumns = normalizeGridColumns(state.gridColumns);
         }, {passive: true});
 
         elements.grid.addEventListener('touchmove', (event) => {
@@ -1154,18 +1222,25 @@
                 return;
             }
 
+            event.preventDefault();
             const distance = touchDistance(event.touches[0], event.touches[1]);
             const ratio = distance / initialDistance;
-
-            if (!applied && ratio > 1.18) {
-                state.gridColumns = clamp(initialColumns - 1, 1, 5);
-                applied = true;
-                applyGridColumns();
-            } else if (!applied && ratio < .84) {
-                state.gridColumns = clamp(initialColumns + 1, 1, 5);
-                applied = true;
-                applyGridColumns();
+            if (!Number.isFinite(ratio) || ratio <= 0) {
+                return;
             }
+
+            const steps = Math.round(Math.log(ratio) / Math.log(1.18));
+            if (steps !== 0) {
+                setGridColumns(initialColumns - steps);
+            }
+        }, {passive: false});
+
+        elements.grid.addEventListener('touchend', () => {
+            initialDistance = 0;
+        }, {passive: true});
+
+        elements.grid.addEventListener('touchcancel', () => {
+            initialDistance = 0;
         }, {passive: true});
     }
 
@@ -1229,13 +1304,15 @@
     }
 
     elements.zoomIn.addEventListener('click', () => {
-        state.gridColumns = clamp(state.gridColumns - 1, 1, 5);
-        applyGridColumns();
+        setGridColumns(state.gridColumns - 1);
     });
 
     elements.zoomOut.addEventListener('click', () => {
-        state.gridColumns = clamp(state.gridColumns + 1, 1, 5);
-        applyGridColumns();
+        setGridColumns(state.gridColumns + 1);
+    });
+
+    elements.zoomReset.addEventListener('click', () => {
+        setGridColumns(DEFAULT_GRID_COLUMNS);
     });
 
     elements.refresh.addEventListener('click', async () => {
@@ -1254,9 +1331,29 @@
             recordPlayerProgress();
             stopAllPreviews();
         } else {
+            updateGridMetrics();
             schedulePreviewRefresh();
             checkForUpdates();
         }
+    });
+
+    window.addEventListener('resize', () => {
+        updateGridMetrics();
+        schedulePreviewRefresh();
+    });
+
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', () => {
+            updateGridMetrics();
+            schedulePreviewRefresh();
+        });
+    }
+
+    window.addEventListener('orientationchange', () => {
+        setTimeout(() => {
+            updateGridMetrics();
+            schedulePreviewRefresh();
+        }, 250);
     });
 
     window.addEventListener('beforeunload', recordPlayerProgress);

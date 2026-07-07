@@ -2,8 +2,8 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $projectRoot '..\..')
-$versionCode = 3
-$versionName = '2026.07.07.3'
+$versionCode = 5
+$versionName = '2026.07.07.5'
 $sdkRoot = $env:ANDROID_SDK_ROOT
 if (-not $sdkRoot) {
     $sdkRoot = $env:ANDROID_HOME
@@ -12,7 +12,17 @@ if (-not $sdkRoot) {
     $sdkRoot = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
 }
 
-$buildTools = Join-Path $sdkRoot 'build-tools\35.0.0'
+$buildTools = $null
+foreach ($version in @('36.1.0', '34.0.0', '35.0.0')) {
+    $candidate = Join-Path $sdkRoot "build-tools\$version"
+    if (Test-Path $candidate) {
+        $buildTools = $candidate
+        break
+    }
+}
+if (-not $buildTools) {
+    throw "Missing Android build-tools under $sdkRoot"
+}
 $platformJar = Join-Path $sdkRoot 'platforms\android-35\android.jar'
 $aapt2 = Join-Path $buildTools 'aapt2.exe'
 $d8 = Join-Path $buildTools 'd8.bat'
@@ -45,8 +55,17 @@ if (Test-Path $buildDir) {
 }
 New-Item -ItemType Directory -Force -Path $buildDir, $generatedDir, $classesDir, $dexDir | Out-Null
 
-& $aapt2 compile --dir (Join-Path $projectRoot 'app\src\main\res') -o $compiledResources
-if ($LASTEXITCODE -ne 0) { throw 'aapt2 compile failed' }
+$compiled = $false
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    Remove-Item -LiteralPath $compiledResources -ErrorAction SilentlyContinue
+    & $aapt2 compile --dir (Join-Path $projectRoot 'app\src\main\res') -o $compiledResources
+    if ($LASTEXITCODE -eq 0) {
+        $compiled = $true
+        break
+    }
+    Start-Sleep -Milliseconds (250 * $attempt)
+}
+if (-not $compiled) { throw 'aapt2 compile failed' }
 
 & $aapt2 link `
     -o $unsignedApk `

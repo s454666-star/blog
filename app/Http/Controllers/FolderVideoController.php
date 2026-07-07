@@ -22,7 +22,19 @@ class FolderVideoController extends Controller
         $afterDurationValue = is_numeric($afterDuration) ? (float) $afterDuration : null;
         $afterFilenameValue = is_string($afterFilename) && $afterFilename !== '' ? $afterFilename : null;
         $offset = $request->has('offset') ? max(0, (int) $request->integer('offset', 0)) : null;
-        $page = $this->folderVideoService->listVideosPage($limit, $afterDurationValue, $afterFilenameValue, $offset);
+        $order = (string) $request->query('order', 'duration');
+        $seed = (string) $request->query('seed', '');
+        $newFirstAfter = $request->query('new_first_after');
+        $newFirstAfterValue = is_numeric($newFirstAfter) ? (int) $newFirstAfter : null;
+        $page = $this->folderVideoService->listVideosPage(
+            $limit,
+            $afterDurationValue,
+            $afterFilenameValue,
+            $offset,
+            $order,
+            $seed,
+            $newFirstAfterValue
+        );
         $videos = $page['videos'];
         $lastVideo = $videos->last();
 

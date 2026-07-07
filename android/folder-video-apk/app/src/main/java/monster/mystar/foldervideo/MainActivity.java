@@ -44,8 +44,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 2;
-    private static final String APP_VERSION_NAME = "2026.07.07.2";
+    private static final int APP_VERSION_CODE = 3;
+    private static final String APP_VERSION_NAME = "2026.07.07.3";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.19:8090/folder-video-app",
@@ -101,7 +101,7 @@ public class MainActivity extends Activity {
         configureWebView();
         registerUpdateDownloadReceiver();
         loadCurrentAppUrl();
-        checkForApkUpdate(false);
+        checkForApkUpdate(true);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -131,7 +131,7 @@ public class MainActivity extends Activity {
         if (webView != null) {
             webView.evaluateJavascript("if (window.folderVideoCheckUpdates) { window.folderVideoCheckUpdates(); }", null);
         }
-        checkForApkUpdate(false);
+        checkForApkUpdate(true);
     }
 
     @Override

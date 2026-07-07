@@ -39,6 +39,7 @@ class FolderVideoControllerTest extends TestCase
         config()->set('folder_video.root', $this->tempRoot);
         config()->set('folder_video.ffprobe_bin', $this->fakeFfprobe);
         config()->set('folder_video.index_filename', 'folder-video-index.json');
+        config()->set('folder_video.index_path', null);
         config()->set('folder_video.probe_on_request', true);
         config()->set('folder_video.app_version', 'test-version');
         config()->set('folder_video.app_preview_max_connections', 4);
@@ -175,6 +176,67 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.preview_max_connections', 4)
             ->assertJsonPath('data.page_limit', 18)
             ->assertJsonPath('data.root', $this->tempRoot);
+    }
+
+    public function test_video_payload_uses_relative_stream_urls_for_lan_clients(): void
+    {
+        $response = $this->getJson('/api/folder-videos?limit=1');
+
+        $response->assertOk()
+            ->assertJsonPath('data.0.stream_url', '/api/folder-videos/c2hvcnQubXA0/stream');
+    }
+
+    public function test_random_order_is_seeded_and_pageable(): void
+    {
+        config()->set('folder_video.probe_on_request', false);
+        file_put_contents($this->tempRoot.DIRECTORY_SEPARATOR.'mid.mp4', 'mid-video');
+
+        $expected = collect(['short.mp4', 'long.mp4', 'mid.mp4'])
+            ->sort(fn (string $left, string $right) => [
+                hash('sha256', 'seed-1|'.$left),
+                $left,
+            ] <=> [
+                hash('sha256', 'seed-1|'.$right),
+                $right,
+            ])
+            ->values()
+            ->all();
+
+        $response = $this->getJson('/api/folder-videos?limit=3&offset=0&order=random_new_first&seed=seed-1');
+        $responseAgain = $this->getJson('/api/folder-videos?limit=3&offset=0&order=random_new_first&seed=seed-1');
+        $secondPage = $this->getJson('/api/folder-videos?limit=1&offset=1&order=random_new_first&seed=seed-1');
+
+        $response->assertOk()
+            ->assertJsonPath('data.0.filename', $expected[0])
+            ->assertJsonPath('data.1.filename', $expected[1])
+            ->assertJsonPath('data.2.filename', $expected[2])
+            ->assertJsonPath('data.0.stream_url', '/api/folder-videos/'.rtrim(strtr(base64_encode($expected[0]), '+/', '-_'), '=').'/stream');
+
+        $this->assertSame($response->json('data'), $responseAgain->json('data'));
+
+        $secondPage->assertOk()
+            ->assertJsonPath('data.0.filename', $expected[1])
+            ->assertJsonPath('meta.next_offset', 2);
+    }
+
+    public function test_random_listing_writes_lightweight_index_without_probing(): void
+    {
+        config()->set('folder_video.probe_on_request', false);
+        file_put_contents($this->tempRoot.DIRECTORY_SEPARATOR.'mid.mp4', 'mid-video');
+
+        $response = $this->getJson('/api/folder-videos?limit=2&offset=0&order=random_new_first&seed=seed-2');
+
+        $response->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.duration_seconds', 0);
+
+        $indexPath = $this->tempRoot.DIRECTORY_SEPARATOR.'folder-video-index.json';
+        $payload = json_decode((string) file_get_contents($indexPath), true);
+
+        $this->assertIsArray($payload);
+        $this->assertArrayHasKey('generated_at_unix', $payload);
+        $this->assertArrayHasKey('directory_mtime', $payload);
+        $this->assertCount(3, $payload['videos']);
     }
 
     public function test_folder_video_app_shell_loads(): void

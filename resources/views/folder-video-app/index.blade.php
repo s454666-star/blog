@@ -453,11 +453,14 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.1',
+        version: '2026.07.07.3',
         page_limit: 36,
         preview_max_connections: 6,
     }, BOOT_CONFIG || {});
+    const sessionSeed = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const freshVideoIds = new Set();
     let state = loadState();
+    const sessionNewFirstAfter = Number(state.lastLibraryScanAt || 0);
     let videos = [];
     let videoById = new Map();
     let cursor = {offset: 0, hasMore: true};
@@ -485,6 +488,8 @@
                 progress: {},
                 completed: {},
                 liked: {},
+                known: {},
+                lastLibraryScanAt: 0,
                 currentId: null,
                 currentVideo: null,
             }, parsed);
@@ -494,6 +499,8 @@
                 progress: {},
                 completed: {},
                 liked: {},
+                known: {},
+                lastLibraryScanAt: 0,
                 currentId: null,
                 currentVideo: null,
             };
@@ -518,6 +525,18 @@
         })[match]);
     }
 
+    function toPlayableUrl(value) {
+        try {
+            const parsed = new URL(String(value || ''), window.location.origin);
+            if (parsed.hostname === 'blog.test' || parsed.origin === window.location.origin) {
+                return `${parsed.pathname}${parsed.search}`;
+            }
+        } catch (error) {
+        }
+
+        return String(value || '');
+    }
+
     function formatDuration(seconds) {
         const safe = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
         const hours = Math.floor(safe / 3600);
@@ -538,7 +557,9 @@
             duration_seconds: Number(video.duration_seconds || 0),
             duration_label: String(video.duration_label || formatDuration(Number(video.duration_seconds || 0))),
             size_bytes: Number(video.size_bytes || 0),
-            stream_url: String(video.stream_url || `${API_BASE}/${video.id}/stream`),
+            modified_at: Number(video.modified_at || 0),
+            created_at: Number(video.created_at || 0),
+            stream_url: toPlayableUrl(video.stream_url || `${API_BASE}/${video.id}/stream`),
         };
     }
 
@@ -550,6 +571,10 @@
         const normalized = normalizeVideo(video);
         if (!normalized.id) {
             return;
+        }
+
+        if (!state.known?.[normalized.id]) {
+            freshVideoIds.add(normalized.id);
         }
 
         if (videoById.has(normalized.id)) {
@@ -567,7 +592,33 @@
     }
 
     function playableVideos() {
-        return videos.filter((video) => !isCompleted(video.id));
+        return videos.filter((video) => !isCompleted(video.id))
+            .sort((left, right) => {
+                const leftFresh = freshVideoIds.has(left.id) ? 0 : 1;
+                const rightFresh = freshVideoIds.has(right.id) ? 0 : 1;
+
+                return leftFresh - rightFresh;
+            });
+    }
+
+    function rememberKnownVideos(items) {
+        const now = Math.floor(Date.now() / 1000);
+        state.known = state.known || {};
+
+        (items || []).forEach((item) => {
+            const video = normalizeVideo(item);
+            if (!video.id || state.known[video.id]) {
+                return;
+            }
+
+            state.known[video.id] = {
+                filename: video.filename,
+                firstSeenAt: now,
+            };
+        });
+
+        state.lastLibraryScanAt = now;
+        saveState();
     }
 
     function applyGridColumns() {
@@ -780,6 +831,9 @@
         const params = new URLSearchParams({
             limit: String(appConfig.page_limit || 36),
             offset: String(cursor.offset || 0),
+            order: 'random_new_first',
+            seed: sessionSeed,
+            new_first_after: String(sessionNewFirstAfter),
         });
 
         try {
@@ -789,9 +843,11 @@
             }
 
             const payload = await response.json();
-            (payload.data || []).forEach((video) => upsertVideo(video));
+            const items = payload.data || [];
+            items.forEach((video) => upsertVideo(video));
+            rememberKnownVideos(items);
             cursor = {
-                offset: Number(payload.meta?.next_offset ?? ((cursor.offset || 0) + (payload.data || []).length)),
+                offset: Number(payload.meta?.next_offset ?? ((cursor.offset || 0) + items.length)),
                 hasMore: Boolean(payload.meta?.has_more),
             };
             renderGrid();
@@ -825,7 +881,7 @@
         const normalized = normalizeVideo(video);
         upsertVideo(normalized);
         playerItem = normalized;
-        playerIndex = videos.findIndex((item) => item.id === normalized.id);
+        playerIndex = playableVideos().findIndex((item) => item.id === normalized.id);
         rememberCurrent(normalized);
         previewPaused = true;
         stopAllPreviews();
@@ -897,21 +953,28 @@
     }
 
     async function findNextPlayable(delta) {
-        const current = Math.max(0, playerIndex);
+        let queue = playableVideos();
+        let current = playerItem ? queue.findIndex((video) => video.id === playerItem.id) : playerIndex;
+        if (current < 0) {
+            current = delta > 0 ? Math.max(-1, playerIndex) : queue.length;
+        }
 
-        for (let index = current + delta; index >= 0 && index < videos.length; index += delta) {
-            if (!isCompleted(videos[index].id)) {
-                return videos[index];
+        for (let index = current + delta; index >= 0 && index < queue.length; index += delta) {
+            if (!isCompleted(queue[index].id)) {
+                return queue[index];
             }
         }
 
         if (delta > 0 && cursor.hasMore) {
-            const before = videos.length;
             await loadMoreVideos();
-            for (let index = Math.max(current + 1, before); index < videos.length; index++) {
-                if (!isCompleted(videos[index].id)) {
-                    return videos[index];
-                }
+            queue = playableVideos();
+            current = playerItem ? queue.findIndex((video) => video.id === playerItem.id) : current;
+            if (current < 0) {
+                current = Math.max(-1, playerIndex);
+            }
+
+            for (let index = current + 1; index < queue.length; index++) {
+                return queue[index];
             }
         }
 

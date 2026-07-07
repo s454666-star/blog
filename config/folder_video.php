@@ -17,7 +17,7 @@ return [
     'app_version' => env('FOLDER_VIDEO_APP_VERSION', '2026.07.07.9'),
     'app_preview_max_connections' => (int) env('FOLDER_VIDEO_APP_PREVIEW_MAX_CONNECTIONS', 12),
     'app_page_limit' => (int) env('FOLDER_VIDEO_APP_PAGE_LIMIT', 36),
-    'android_apk_version_code' => (int) env('FOLDER_VIDEO_ANDROID_APK_VERSION_CODE', 8),
-    'android_apk_version_name' => env('FOLDER_VIDEO_ANDROID_APK_VERSION_NAME', '2026.07.07.8'),
+    'android_apk_version_code' => (int) env('FOLDER_VIDEO_ANDROID_APK_VERSION_CODE', 9),
+    'android_apk_version_name' => env('FOLDER_VIDEO_ANDROID_APK_VERSION_NAME', '2026.07.07.9'),
     'android_apk_path' => env('FOLDER_VIDEO_ANDROID_APK_PATH', storage_path('app/folder-video-app.apk')),
 ];

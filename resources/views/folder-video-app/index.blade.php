@@ -457,9 +457,8 @@
     const DEFAULT_GRID_COLUMNS = 3;
     const MAX_GRID_COLUMNS = 5;
     const GRID_PRESET_VERSION = '3x3-20260707-11';
-    const PLAYER_HOLD_SEEK_DELAY_MS = 420;
-    const PLAYER_HOLD_SEEK_INTERVAL_MS = 260;
-    const PLAYER_HOLD_SEEK_SECONDS = 5;
+    const PLAYER_DRAG_SEEK_STEP_PX = 42;
+    const PLAYER_DRAG_SEEK_SECONDS = 5;
     const MODE_ALL = 'all';
     const MODE_WATCHED = 'watched';
     const MODE_LIKED = 'liked';
@@ -490,7 +489,7 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.14',
+        version: '2026.07.07.15',
         page_limit: 36,
         preview_max_connections: 12,
     }, BOOT_CONFIG || {});
@@ -511,7 +510,7 @@
     let previewRefreshQueued = false;
     let gridMetricsRefreshQueued = false;
     let loadMoreQueued = false;
-    let stopPlayerHoldSeek = () => {};
+    let stopPlayerDragSeek = () => {};
 
     const observer = new IntersectionObserver(handlePreviewIntersections, {
         root: null,
@@ -1373,7 +1372,7 @@
 
     function closePlayer() {
         recordPlayerProgress();
-        stopPlayerHoldSeek();
+        stopPlayerDragSeek();
         elements.player.classList.remove('open');
         elements.player.setAttribute('aria-hidden', 'true');
         elements.playerVideo.pause();
@@ -1689,71 +1688,19 @@
     function bindPlayerGestures() {
         let startX = 0;
         let startY = 0;
+        let dragSeekAnchorX = 0;
         let startTime = 0;
         let moved = false;
         let longPressTimer = null;
         let longPressFired = false;
-        let holdSeekTimer = null;
-        let holdSeekInterval = null;
-        let holdSeekDirection = 0;
-        let holdSeekStarted = false;
+        let dragSeekApplied = false;
 
-        const clearHoldSeek = () => {
-            clearTimeout(holdSeekTimer);
-            clearInterval(holdSeekInterval);
-            holdSeekTimer = null;
-            holdSeekInterval = null;
-            holdSeekDirection = 0;
-            holdSeekStarted = false;
+        const clearDragSeek = () => {
+            dragSeekApplied = false;
+            dragSeekAnchorX = startX;
         };
 
-        stopPlayerHoldSeek = clearHoldSeek;
-
-        const playerHoldSeekDirection = (event) => {
-            const rect = elements.player.getBoundingClientRect();
-            const tapX = event.clientX - rect.left;
-            if (tapX < rect.width * .45) {
-                return -1;
-            }
-            if (tapX > rect.width * .55) {
-                return 1;
-            }
-
-            return 0;
-        };
-
-        const startHoldSeek = () => {
-            if (!holdSeekDirection || holdSeekStarted) {
-                return;
-            }
-
-            clearTimeout(holdSeekTimer);
-            holdSeekTimer = null;
-            holdSeekStarted = true;
-            seekPlayer(holdSeekDirection * PLAYER_HOLD_SEEK_SECONDS);
-            holdSeekInterval = setInterval(() => {
-                seekPlayer(holdSeekDirection * PLAYER_HOLD_SEEK_SECONDS);
-            }, PLAYER_HOLD_SEEK_INTERVAL_MS);
-        };
-
-        const armHoldSeek = (direction, delayMs = PLAYER_HOLD_SEEK_DELAY_MS) => {
-            if (!direction) {
-                return;
-            }
-
-            if (holdSeekStarted) {
-                holdSeekDirection = direction;
-                return;
-            }
-
-            if (holdSeekDirection === direction && holdSeekTimer) {
-                return;
-            }
-
-            holdSeekDirection = direction;
-            clearTimeout(holdSeekTimer);
-            holdSeekTimer = setTimeout(startHoldSeek, Math.max(0, delayMs));
-        };
+        stopPlayerDragSeek = clearDragSeek;
 
         elements.player.addEventListener('pointerdown', (event) => {
             if (event.target.closest('button')) {
@@ -1762,24 +1709,18 @@
 
             startX = event.clientX;
             startY = event.clientY;
+            dragSeekAnchorX = startX;
             startTime = Date.now();
             moved = false;
             longPressFired = false;
-            holdSeekStarted = false;
+            dragSeekApplied = false;
             clearTimeout(longPressTimer);
-            clearHoldSeek();
-            holdSeekDirection = playerHoldSeekDirection(event);
-
-            if (holdSeekDirection) {
-                armHoldSeek(holdSeekDirection);
-            } else {
-                longPressTimer = setTimeout(() => {
-                    if (!moved) {
-                        longPressFired = true;
-                        toggleCurrentLike();
-                    }
-                }, 1000);
-            }
+            longPressTimer = setTimeout(() => {
+                if (!moved) {
+                    longPressFired = true;
+                    toggleCurrentLike();
+                }
+            }, 1000);
         });
 
         elements.player.addEventListener('pointermove', (event) => {
@@ -1794,23 +1735,28 @@
             }
 
             if (absX > 28 && absX > absY * 1.15) {
-                const elapsed = Date.now() - startTime;
-                const delay = Math.max(0, PLAYER_HOLD_SEEK_DELAY_MS - elapsed);
-                armHoldSeek(dx > 0 ? 1 : -1, delay);
+                const deltaFromAnchor = event.clientX - dragSeekAnchorX;
+                const steps = Math.trunc(deltaFromAnchor / PLAYER_DRAG_SEEK_STEP_PX);
+                if (steps !== 0) {
+                    seekPlayer(steps * PLAYER_DRAG_SEEK_SECONDS);
+                    dragSeekAnchorX += steps * PLAYER_DRAG_SEEK_STEP_PX;
+                    dragSeekApplied = true;
+                }
+
                 event.preventDefault();
                 return;
             }
 
-            if (absY > 28 && absY > absX && !holdSeekStarted) {
-                clearHoldSeek();
+            if (absY > 28 && absY > absX && !dragSeekApplied) {
+                clearDragSeek();
             }
         });
 
         elements.player.addEventListener('pointerup', (event) => {
             clearTimeout(longPressTimer);
-            const hadHoldSeek = holdSeekStarted;
-            clearHoldSeek();
-            if (hadHoldSeek) {
+            const hadDragSeek = dragSeekApplied;
+            clearDragSeek();
+            if (hadDragSeek) {
                 event.preventDefault();
                 return;
             }
@@ -1823,7 +1769,7 @@
             const dy = event.clientY - startY;
 
             if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy)) {
-                seekPlayer(dx > 0 ? 10 : -10);
+                seekPlayer(dx > 0 ? PLAYER_DRAG_SEEK_SECONDS : -PLAYER_DRAG_SEEK_SECONDS);
                 return;
             }
 
@@ -1849,12 +1795,12 @@
 
         elements.player.addEventListener('pointercancel', () => {
             clearTimeout(longPressTimer);
-            clearHoldSeek();
+            clearDragSeek();
         });
 
         elements.player.addEventListener('pointerleave', () => {
             clearTimeout(longPressTimer);
-            clearHoldSeek();
+            clearDragSeek();
         });
     }
 

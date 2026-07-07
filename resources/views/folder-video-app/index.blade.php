@@ -142,6 +142,12 @@
             transform: scale(.96);
         }
 
+        .icon-button.is-active {
+            border-color: rgba(255, 125, 103, .78);
+            background: rgba(255, 125, 103, .22);
+            color: var(--coral);
+        }
+
         .video-grid {
             display: grid;
             grid-template-columns: repeat(var(--columns), minmax(0, 1fr));
@@ -394,6 +400,7 @@
         </div>
         <div class="status-pill" id="statusPill">v{{ $appConfig['version'] }}</div>
         <div class="toolbar-actions">
+            <button class="icon-button" id="likedOnlyButton" type="button" title="只看 LIKE">♥</button>
             <button class="icon-button" id="zoomOutButton" type="button" title="縮小">−</button>
             <button class="icon-button" id="zoomResetButton" type="button" title="回到 3 欄">3</button>
             <button class="icon-button" id="zoomInButton" type="button" title="放大">＋</button>
@@ -444,6 +451,7 @@
         empty: document.getElementById('emptyState'),
         subtitle: document.getElementById('subtitle'),
         status: document.getElementById('statusPill'),
+        likedOnly: document.getElementById('likedOnlyButton'),
         zoomIn: document.getElementById('zoomInButton'),
         zoomOut: document.getElementById('zoomOutButton'),
         zoomReset: document.getElementById('zoomResetButton'),
@@ -461,7 +469,7 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.5',
+        version: '2026.07.07.6',
         page_limit: 36,
         preview_max_connections: 12,
     }, BOOT_CONFIG || {});
@@ -495,6 +503,7 @@
                 progress: {},
                 completed: {},
                 liked: {},
+                showLikedOnly: false,
                 known: {},
                 lastLibraryScanAt: 0,
                 currentId: null,
@@ -506,6 +515,7 @@
                 progress: {},
                 completed: {},
                 liked: {},
+                showLikedOnly: false,
                 known: {},
                 lastLibraryScanAt: 0,
                 currentId: null,
@@ -567,11 +577,38 @@
             modified_at: Number(video.modified_at || 0),
             created_at: Number(video.created_at || 0),
             stream_url: toPlayableUrl(video.stream_url || `${API_BASE}/${video.id}/stream`),
+            liked: Boolean(video.liked),
         };
     }
 
     function isCompleted(id) {
         return Boolean(state.completed[id]);
+    }
+
+    function isLiked(id) {
+        return Boolean(state.liked?.[id]);
+    }
+
+    function rememberLikedVideo(video, likedAt = Date.now()) {
+        const normalized = normalizeVideo(video);
+        if (!normalized.id) {
+            return;
+        }
+
+        state.liked = state.liked || {};
+        state.liked[normalized.id] = {
+            filename: normalized.filename,
+            likedAt,
+            video: normalized,
+        };
+    }
+
+    function forgetLikedVideo(id) {
+        if (!state.liked) {
+            return;
+        }
+
+        delete state.liked[id];
     }
 
     function upsertVideo(video, placeFirst = false) {
@@ -582,6 +619,13 @@
 
         if (!state.known?.[normalized.id]) {
             freshVideoIds.add(normalized.id);
+        }
+
+        if (normalized.liked) {
+            rememberLikedVideo(normalized);
+        } else if (state.showLikedOnly && !isLiked(normalized.id)) {
+            normalized.liked = true;
+            rememberLikedVideo(normalized);
         }
 
         if (videoById.has(normalized.id)) {
@@ -598,8 +642,8 @@
         videos.push(normalized);
     }
 
-    function playableVideos() {
-        return videos.filter((video) => !isCompleted(video.id))
+    function displayVideos() {
+        return videos.filter((video) => state.showLikedOnly ? isLiked(video.id) : !isCompleted(video.id))
             .sort((left, right) => {
                 const leftFresh = freshVideoIds.has(left.id) ? 0 : 1;
                 const rightFresh = freshVideoIds.has(right.id) ? 0 : 1;
@@ -679,10 +723,14 @@
     }
 
     function updateStatus() {
-        const remaining = playableVideos().length;
+        const visible = displayVideos().length;
+        const liked = Object.keys(state.liked || {}).length;
         const completed = Object.keys(state.completed || {}).length;
-        elements.subtitle.textContent = `${remaining} 可播放 · ${completed} 已看`;
+        elements.subtitle.textContent = state.showLikedOnly
+            ? `${visible} LIKE · ${completed} 已看`
+            : `${visible} 可播放 · ${liked} LIKE · ${completed} 已看`;
         elements.status.textContent = `v${appConfig.version}`;
+        elements.likedOnly.classList.toggle('is-active', Boolean(state.showLikedOnly));
     }
 
     function progressPercent(video) {
@@ -702,7 +750,7 @@
         visiblePreviewCards.clear();
         elements.grid.textContent = '';
 
-        const items = playableVideos();
+        const items = displayVideos();
         const fragment = document.createDocumentFragment();
 
         items.forEach((video) => {
@@ -724,16 +772,17 @@
                 card.classList.add('is-current');
             }
 
-            if (state.liked?.[video.id]) {
+            if (isLiked(video.id)) {
                 card.classList.add('is-liked');
             }
 
-            card.addEventListener('click', () => openPlayer(video));
+            bindCardGestures(card, video);
             observer.observe(card);
             fragment.appendChild(card);
         });
 
         elements.grid.appendChild(fragment);
+        elements.empty.textContent = state.showLikedOnly ? '沒有 LIKE 影片' : '沒有可播放的影片';
         elements.empty.classList.toggle('show', items.length === 0 && !cursor.hasMore && !isLoading);
         updateStatus();
         schedulePreviewRefresh();
@@ -867,7 +916,7 @@
             cursor = {offset: 0, hasMore: true};
             videos = [];
             videoById = new Map();
-            if (state.currentVideo && !isCompleted(state.currentVideo.id)) {
+            if (state.currentVideo && (state.showLikedOnly ? isLiked(state.currentVideo.id) : !isCompleted(state.currentVideo.id))) {
                 upsertVideo(state.currentVideo, true);
             }
         }
@@ -878,6 +927,7 @@
             order: 'random_new_first',
             seed: sessionSeed,
             new_first_after: String(sessionNewFirstAfter),
+            liked: state.showLikedOnly ? '1' : '0',
         });
 
         try {
@@ -896,7 +946,7 @@
             };
             renderGrid();
 
-            if (playableVideos().length < 12 && cursor.hasMore) {
+            if (!state.showLikedOnly && displayVideos().length < 12 && cursor.hasMore) {
                 await loadMoreVideos();
             }
         } catch (error) {
@@ -904,7 +954,8 @@
         } finally {
             isLoading = false;
             updateStatus();
-            elements.empty.classList.toggle('show', playableVideos().length === 0 && !cursor.hasMore);
+            elements.empty.textContent = state.showLikedOnly ? '沒有 LIKE 影片' : '沒有可播放的影片';
+            elements.empty.classList.toggle('show', displayVideos().length === 0 && !cursor.hasMore);
         }
     }
 
@@ -925,7 +976,7 @@
         const normalized = normalizeVideo(video);
         upsertVideo(normalized);
         playerItem = normalized;
-        playerIndex = playableVideos().findIndex((item) => item.id === normalized.id);
+        playerIndex = displayVideos().findIndex((item) => item.id === normalized.id);
         rememberCurrent(normalized);
         previewPaused = true;
         stopAllPreviews();
@@ -933,6 +984,8 @@
         elements.player.classList.add('open');
         elements.player.setAttribute('aria-hidden', 'false');
         elements.playerTitle.textContent = normalized.filename;
+        elements.playerLike.classList.toggle('is-active', isLiked(normalized.id));
+        elements.playerLike.title = isLiked(normalized.id) ? '取消 LIKE' : '喜歡';
         elements.playerVideo.pause();
         elements.playerVideo.removeAttribute('src');
         elements.playerVideo.load();
@@ -1008,21 +1061,19 @@
     }
 
     async function findNextPlayable(delta) {
-        let queue = playableVideos();
+        let queue = displayVideos();
         let current = playerItem ? queue.findIndex((video) => video.id === playerItem.id) : playerIndex;
         if (current < 0) {
             current = delta > 0 ? Math.max(-1, playerIndex) : queue.length;
         }
 
         for (let index = current + delta; index >= 0 && index < queue.length; index += delta) {
-            if (!isCompleted(queue[index].id)) {
-                return queue[index];
-            }
+            return queue[index];
         }
 
         if (delta > 0 && cursor.hasMore) {
             await loadMoreVideos();
-            queue = playableVideos();
+            queue = displayVideos();
             current = playerItem ? queue.findIndex((video) => video.id === playerItem.id) : current;
             if (current < 0) {
                 current = Math.max(-1, playerIndex);
@@ -1047,37 +1098,98 @@
         openPlayer(next);
     }
 
-    async function likeCurrent() {
-        if (!playerItem || state.liked[playerItem.id]) {
+    function updateLikeVisuals(id) {
+        const liked = isLiked(id);
+        const card = elements.grid.querySelector(`.video-card[data-id="${CSS.escape(id)}"]`);
+        if (card) {
+            card.classList.toggle('is-liked', liked);
+        }
+
+        if (playerItem && playerItem.id === id) {
+            elements.playerLike.classList.toggle('is-active', liked);
+            elements.playerLike.title = liked ? '取消 LIKE' : '喜歡';
+        }
+    }
+
+    async function toggleLike(video) {
+        const target = normalizeVideo(video || playerItem);
+        if (!target.id) {
             return;
         }
 
-        const likedVideo = playerItem;
-        state.liked[likedVideo.id] = {
-            filename: likedVideo.filename,
-            likedAt: Date.now(),
-        };
-        saveState();
-        showFlash('♥');
+        const wasLiked = isLiked(target.id);
+        const previousPlayerIndex = playerIndex;
+        const removedFromCurrentQueue = (!state.showLikedOnly && !wasLiked) || (state.showLikedOnly && wasLiked);
+        const endpoint = `${API_BASE}/${encodeURIComponent(target.id)}/like`;
 
         try {
-            const likedIndex = playerIndex;
-            const response = await fetch(`${API_BASE}/${encodeURIComponent(likedVideo.id)}/like`, {method: 'POST'});
+            const response = await fetch(endpoint, {method: wasLiked ? 'DELETE' : 'POST'});
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
 
-            markCompleted(likedVideo);
-            videos = videos.filter((video) => video.id !== likedVideo.id);
-            videoById.delete(likedVideo.id);
-            playerIndex = likedIndex - 1;
-            renderGrid();
-            await playAdjacent(1);
-        } catch (error) {
-            delete state.liked[likedVideo.id];
+            const payload = await response.json();
+            const returned = normalizeVideo(Object.assign({}, target, payload.data || {}, {
+                liked: !wasLiked,
+                duration_seconds: target.duration_seconds,
+                duration_label: target.duration_label,
+            }));
+
+            if (wasLiked) {
+                forgetLikedVideo(target.id);
+                showFlash('♡');
+                showToast('已取消 LIKE');
+            } else {
+                rememberLikedVideo(returned);
+                showFlash('♥');
+                showToast('已加入 LIKE');
+            }
+
+            if (playerItem && playerItem.id === target.id) {
+                const previousStreamUrl = playerItem.stream_url;
+                const previousTime = Number(elements.playerVideo.currentTime || 0);
+                const shouldResume = !elements.playerVideo.paused;
+                playerItem = Object.assign({}, playerItem, returned, {liked: !wasLiked});
+                state.currentId = playerItem.id;
+                state.currentVideo = playerItem;
+                elements.playerTitle.textContent = playerItem.filename;
+                if (returned.stream_url && returned.stream_url !== previousStreamUrl) {
+                    elements.playerVideo.src = returned.stream_url;
+                    elements.playerVideo.onloadedmetadata = () => {
+                        if (previousTime > 0 && elements.playerVideo.duration && previousTime < elements.playerVideo.duration - 1) {
+                            elements.playerVideo.currentTime = previousTime;
+                        }
+                        if (shouldResume) {
+                            elements.playerVideo.play().catch(() => {});
+                        }
+                    };
+                    elements.playerVideo.load();
+                }
+            }
+
+            videos = videos.filter((item) => item.id !== target.id);
+            if ((state.showLikedOnly && !wasLiked) || (!state.showLikedOnly && wasLiked)) {
+                videos.push(returned);
+            }
+            videoById.delete(target.id);
+            if ((state.showLikedOnly && !wasLiked) || (!state.showLikedOnly && wasLiked)) {
+                videoById.set(returned.id, returned);
+            }
+            if (removedFromCurrentQueue && playerItem && playerItem.id === returned.id) {
+                playerIndex = previousPlayerIndex - 1;
+            }
+
             saveState();
-            showToast('按讚失敗');
+            renderGrid();
+            updateLikeVisuals(target.id);
+            updateLikeVisuals(returned.id);
+        } catch (error) {
+            showToast(wasLiked ? '取消 LIKE 失敗' : '按讚失敗');
         }
+    }
+
+    function toggleCurrentLike() {
+        return toggleLike(playerItem);
     }
 
     function seekPlayer(seconds) {
@@ -1131,6 +1243,62 @@
         flashTimer = setTimeout(() => elements.flash.classList.remove('show'), 650);
     }
 
+    function bindCardGestures(card, video) {
+        let startX = 0;
+        let startY = 0;
+        let startTime = 0;
+        let moved = false;
+        let longPressTimer = null;
+        let longPressFired = false;
+
+        const clearLongPress = () => {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        };
+
+        card.addEventListener('pointerdown', (event) => {
+            if (event.button !== undefined && event.button !== 0) {
+                return;
+            }
+
+            startX = event.clientX;
+            startY = event.clientY;
+            startTime = Date.now();
+            moved = false;
+            longPressFired = false;
+            clearLongPress();
+            longPressTimer = setTimeout(() => {
+                if (!moved) {
+                    longPressFired = true;
+                    toggleLike(video);
+                }
+            }, 1000);
+        });
+
+        card.addEventListener('pointermove', (event) => {
+            if (Math.abs(event.clientX - startX) > 16 || Math.abs(event.clientY - startY) > 16) {
+                moved = true;
+                clearLongPress();
+            }
+        });
+
+        card.addEventListener('pointerup', (event) => {
+            clearLongPress();
+            if (longPressFired || Date.now() - startTime > 950) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+
+            if (!moved) {
+                openPlayer(video);
+            }
+        });
+
+        card.addEventListener('pointercancel', clearLongPress);
+        card.addEventListener('pointerleave', clearLongPress);
+    }
+
     function bindPlayerGestures() {
         let startX = 0;
         let startY = 0;
@@ -1153,9 +1321,9 @@
             longPressTimer = setTimeout(() => {
                 if (!moved) {
                     longPressFired = true;
-                    likeCurrent();
+                    toggleCurrentLike();
                 }
-            }, 720);
+            }, 1000);
         });
 
         elements.player.addEventListener('pointermove', (event) => {
@@ -1315,6 +1483,13 @@
         setGridColumns(DEFAULT_GRID_COLUMNS);
     });
 
+    elements.likedOnly.addEventListener('click', async () => {
+        state.showLikedOnly = !state.showLikedOnly;
+        saveState();
+        updateStatus();
+        await loadMoreVideos(true);
+    });
+
     elements.refresh.addEventListener('click', async () => {
         await fetchAppConfig();
         await loadMoreVideos(true);
@@ -1322,7 +1497,7 @@
     });
 
     elements.closePlayer.addEventListener('click', closePlayer);
-    elements.playerLike.addEventListener('click', likeCurrent);
+    elements.playerLike.addEventListener('click', toggleCurrentLike);
     elements.playerNext.addEventListener('click', () => playAdjacent(1));
     elements.playerPrev.addEventListener('click', () => playAdjacent(-1));
 
@@ -1368,7 +1543,7 @@
         applyGridColumns();
         bindPlayerGestures();
         bindGridPinch();
-        if (state.currentVideo && !isCompleted(state.currentVideo.id)) {
+        if (state.currentVideo && (state.showLikedOnly ? isLiked(state.currentVideo.id) : !isCompleted(state.currentVideo.id))) {
             upsertVideo(state.currentVideo, true);
             renderGrid();
         }

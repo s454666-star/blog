@@ -16,10 +16,20 @@ class FolderVideoService
         ?int $offset = null,
         string $order = 'duration',
         string $seed = '',
-        ?int $newFirstAfter = null
+        ?int $newFirstAfter = null,
+        bool $likedOnly = false
     ): array
     {
         $limit = max(1, min($limit, 100));
+        if ($likedOnly) {
+            return $this->listGoodVideosPage(
+                $limit,
+                max(0, (int) ($offset ?? 0)),
+                $order,
+                $seed,
+                $newFirstAfter
+            );
+        }
 
         if (! (bool) config('folder_video.probe_on_request', false)) {
             return $this->listFastVideosPage(
@@ -106,6 +116,7 @@ class FolderVideoService
                     'mtime' => $stat['mtime'],
                     'ctime' => $stat['ctime'],
                     'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId($filename)], false),
+                    'liked' => false,
                 ];
             })
             ->sort(fn (array $left, array $right) => [
@@ -146,26 +157,37 @@ class FolderVideoService
     public function resolveVideoPath(string $id): string
     {
         $filename = $this->decodeId($id);
-        $path = $this->rootPath().DIRECTORY_SEPARATOR.$filename;
-        $realPath = realpath($path);
-        $realRoot = realpath($this->rootPath());
-
-        if (! $realRoot || ! $realPath || ! str_starts_with($realPath, $realRoot.DIRECTORY_SEPARATOR) && $realPath !== $realRoot) {
-            abort(404, 'Video not found.');
+        foreach ([$this->rootPath(), $this->goodDirectoryPath()] as $directory) {
+            $realPath = $this->safeVideoPathInDirectory($directory, $filename);
+            if ($realPath !== null) {
+                return $realPath;
+            }
         }
 
-        if (! is_file($realPath)) {
-            abort(404, 'Video not found.');
-        }
-
-        return $realPath;
+        abort(404, 'Video not found.');
     }
 
     public function moveToGood(string $id): array
     {
-        $sourcePath = $this->resolveVideoPath($id);
+        $filename = $this->decodeId($id);
+        $sourcePath = $this->safeVideoPathInDirectory($this->rootPath(), $filename);
         $goodDirectory = $this->goodDirectoryPath();
         File::ensureDirectoryExists($goodDirectory);
+
+        if ($sourcePath === null) {
+            $likedPath = $this->safeVideoPathInDirectory($goodDirectory, $filename);
+            if ($likedPath !== null) {
+                return [
+                    'id' => $this->encodeId(basename($likedPath)),
+                    'filename' => basename($likedPath),
+                    'destination' => $likedPath,
+                    'liked' => true,
+                    'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId(basename($likedPath))], false),
+                ];
+            }
+
+            abort(404, 'Video not found.');
+        }
 
         $destinationPath = $this->uniqueDestinationPath($goodDirectory, basename($sourcePath));
 
@@ -176,8 +198,47 @@ class FolderVideoService
         $this->forgetIndexEntry(basename($sourcePath));
 
         return [
+            'id' => $this->encodeId(basename($destinationPath)),
             'filename' => basename($destinationPath),
             'destination' => $destinationPath,
+            'liked' => true,
+            'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId(basename($destinationPath))], false),
+        ];
+    }
+
+    public function moveFromGood(string $id): array
+    {
+        $filename = $this->decodeId($id);
+        $sourcePath = $this->safeVideoPathInDirectory($this->goodDirectoryPath(), $filename);
+
+        if ($sourcePath === null) {
+            $rootPath = $this->safeVideoPathInDirectory($this->rootPath(), $filename);
+            if ($rootPath !== null) {
+                return [
+                    'id' => $this->encodeId(basename($rootPath)),
+                    'filename' => basename($rootPath),
+                    'destination' => $rootPath,
+                    'liked' => false,
+                    'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId(basename($rootPath))], false),
+                ];
+            }
+
+            abort(404, 'Video not found.');
+        }
+
+        File::ensureDirectoryExists($this->rootPath());
+        $destinationPath = $this->uniqueDestinationPath($this->rootPath(), basename($sourcePath));
+
+        if (! @rename($sourcePath, $destinationPath)) {
+            throw new FileException('Unable to move video back to video folder.');
+        }
+
+        return [
+            'id' => $this->encodeId(basename($destinationPath)),
+            'filename' => basename($destinationPath),
+            'destination' => $destinationPath,
+            'liked' => false,
+            'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId(basename($destinationPath))], false),
         ];
     }
 
@@ -256,6 +317,44 @@ class FolderVideoService
         return $this->listDirectoryVideosPage($limit, $offset, $order, $seed, $newFirstAfter);
     }
 
+    protected function listGoodVideosPage(
+        int $limit,
+        int $offset = 0,
+        string $order = 'duration',
+        string $seed = '',
+        ?int $newFirstAfter = null
+    ): array
+    {
+        $directory = $this->goodDirectoryPath();
+
+        if (! is_dir($directory)) {
+            return [
+                'videos' => collect(),
+                'has_more' => false,
+                'next_offset' => $offset,
+            ];
+        }
+
+        $records = collect();
+        foreach (new \DirectoryIterator($directory) as $file) {
+            if (! $this->isPlayableVideo($file)) {
+                continue;
+            }
+
+            $records->push($this->videoPayloadFromFile($file, true));
+        }
+
+        $records = $this->sortRecords($records, $order, $seed, $newFirstAfter)->values();
+        $slice = $records->slice($offset, $limit + 1)->values();
+        $videos = $slice->take($limit)->values();
+
+        return [
+            'videos' => $videos,
+            'has_more' => $slice->count() > $limit,
+            'next_offset' => $offset + $videos->count(),
+        ];
+    }
+
     protected function listIndexedVideosPage(
         array $index,
         int $limit,
@@ -323,7 +422,7 @@ class FolderVideoService
                 break;
             }
 
-            $videos->push($this->videoPayloadFromFile($file));
+            $videos->push($this->videoPayloadFromFile($file, false));
         }
 
         return [
@@ -333,7 +432,7 @@ class FolderVideoService
         ];
     }
 
-    protected function videoPayloadFromFile(\SplFileInfo $file): array
+    protected function videoPayloadFromFile(\SplFileInfo $file, bool $liked = false): array
     {
         return [
             'id' => $this->encodeId($file->getFilename()),
@@ -344,6 +443,7 @@ class FolderVideoService
             'modified_at' => $file->getMTime(),
             'created_at' => $file->getCTime(),
             'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId($file->getFilename())], false),
+            'liked' => $liked,
         ];
     }
 
@@ -361,6 +461,7 @@ class FolderVideoService
             'modified_at' => (int) ($entry['mtime'] ?? 0),
             'created_at' => (int) ($entry['ctime'] ?? 0),
             'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId($filename)], false),
+            'liked' => false,
         ];
     }
 
@@ -685,6 +786,23 @@ POWERSHELL;
         }
 
         return $decoded;
+    }
+
+    protected function safeVideoPathInDirectory(string $directory, string $filename): ?string
+    {
+        $realDirectory = realpath($directory);
+        if (! $realDirectory) {
+            return null;
+        }
+
+        $realPath = realpath($realDirectory.DIRECTORY_SEPARATOR.$filename);
+        if (! $realPath || ! is_file($realPath)) {
+            return null;
+        }
+
+        $insideDirectory = str_starts_with($realPath, $realDirectory.DIRECTORY_SEPARATOR) || $realPath === $realDirectory;
+
+        return $insideDirectory ? $realPath : null;
     }
 
     protected function hasFreshIndexEntry(?array $entry, array $stat): bool

@@ -123,4 +123,5 @@
     Route::get('/folder-videos', [FolderVideoController::class, 'index'])->name('folder-videos.index');
     Route::get('/folder-videos/{id}/stream', [FolderVideoController::class, 'stream'])->name('folder-videos.stream');
     Route::post('/folder-videos/{id}/like', [FolderVideoController::class, 'like'])->name('folder-videos.like');
+    Route::delete('/folder-videos/{id}/like', [FolderVideoController::class, 'unlike'])->name('folder-videos.unlike');
     Route::delete('/folder-videos/{id}', [FolderVideoController::class, 'destroy'])->name('folder-videos.destroy');

@@ -100,10 +100,51 @@ class FolderVideoControllerTest extends TestCase
         $response = $this->postJson("/api/folder-videos/{$id}/like");
 
         $response->assertOk()
-            ->assertJsonPath('data.filename', 'short.mp4');
+            ->assertJsonPath('data.filename', 'short.mp4')
+            ->assertJsonPath('data.liked', true)
+            ->assertJsonPath('data.stream_url', "/api/folder-videos/{$id}/stream");
 
         $this->assertFileDoesNotExist($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4');
         $this->assertFileExists($this->tempRoot.DIRECTORY_SEPARATOR.'good'.DIRECTORY_SEPARATOR.'short.mp4');
+    }
+
+    public function test_it_lists_and_streams_liked_videos_from_good_folder(): void
+    {
+        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
+        $this->postJson("/api/folder-videos/{$id}/like")->assertOk();
+
+        $this->getJson('/api/folder-videos?liked=1')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.filename', 'short.mp4')
+            ->assertJsonPath('data.0.liked', true)
+            ->assertJsonPath('data.0.stream_url', "/api/folder-videos/{$id}/stream");
+
+        $this->get("/api/folder-videos/{$id}/stream")
+            ->assertOk();
+
+        $this->assertFileDoesNotExist($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4');
+        $this->assertFileExists($this->tempRoot.DIRECTORY_SEPARATOR.'good'.DIRECTORY_SEPARATOR.'short.mp4');
+    }
+
+    public function test_it_can_cancel_liked_video(): void
+    {
+        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
+        $this->postJson("/api/folder-videos/{$id}/like")->assertOk();
+
+        $response = $this->deleteJson("/api/folder-videos/{$id}/like");
+
+        $response->assertOk()
+            ->assertJsonPath('data.filename', 'short.mp4')
+            ->assertJsonPath('data.liked', false)
+            ->assertJsonPath('data.stream_url', "/api/folder-videos/{$id}/stream");
+
+        $this->assertFileExists($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4');
+        $this->assertFileDoesNotExist($this->tempRoot.DIRECTORY_SEPARATOR.'good'.DIRECTORY_SEPARATOR.'short.mp4');
+
+        $this->getJson('/api/folder-videos?liked=1')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
     }
 
     public function test_it_deletes_video(): void
@@ -245,6 +286,7 @@ class FolderVideoControllerTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Folder Video')
+            ->assertSee('likedOnlyButton')
             ->assertSee('/api/folder-videos', false)
             ->assertSee('folder-video-app/sw.js', false);
     }

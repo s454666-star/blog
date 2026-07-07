@@ -1133,6 +1133,8 @@
         }
     }
 
+    window.folderVideoCheckUpdates = () => checkForUpdates();
+
     async function registerServiceWorker() {
         if (!('serviceWorker' in navigator)) {
             return;

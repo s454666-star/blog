@@ -1867,6 +1867,10 @@ function applyQuotePayloadToRows(rows, payload) {
 }
 
 function quoteCanRepriceRow(row, quote) {
+    if (!quoteCanUpdatePnl(quote)) {
+        return false;
+    }
+
     const quotePrice = finiteNumber(quote?.price);
     const esunPrice = finiteNumber(row.esunCurrentPrice ?? row.currentPrice);
     if (quotePrice === null || esunPrice === null || Math.abs(quotePrice - esunPrice) < 0.000001) {
@@ -1888,6 +1892,10 @@ function quoteCanRepriceRow(row, quote) {
     }
 
     return quoteTime + 2000 >= esunTime;
+}
+
+function quoteCanUpdatePnl(quote) {
+    return String(quote?.priceType || quote?.source || '').toLowerCase() !== 'provisional';
 }
 
 function rowLooksParkedAtPreviousClose(row, quote) {
@@ -1972,6 +1980,7 @@ function applyStaleQuoteToRow(row, quote) {
         ...nextRow,
         staleQuotePrice: quote.price ?? null,
         quoteSource: quote.sourceLabel || quote.source || '',
+        quoteType: quote.priceType || row.quoteType || 'stale',
         quoteAt: quote.quotedAt || null,
         quoteStaleForPnl: true,
     };
@@ -2163,7 +2172,11 @@ function updateQuoteStatus(payload) {
 
 function quoteSourceText(payload) {
     const source = payload.source || {};
-    return `即時損益 · ${source.label || '--'} · 快取 ${payload.cacheSeconds || 1}s`;
+    const hasProvisional = Object.values(payload.quotes || {})
+        .some(quote => String(quote?.priceType || quote?.source || '').toLowerCase() === 'provisional');
+    const prefix = hasProvisional ? '即時損益 · 暫用報價未計入' : '即時損益';
+
+    return `${prefix} · ${source.label || '--'} · 快取 ${payload.cacheSeconds || 1}s`;
 }
 
 function formatDate(value) {

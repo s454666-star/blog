@@ -409,7 +409,7 @@
             <button class="icon-button" id="watchedOnlyButton" type="button" title="只看已觀看">✓</button>
             <button class="icon-button" id="likedOnlyButton" type="button" title="只看 LIKE">♥</button>
             <button class="icon-button" id="zoomOutButton" type="button" title="縮小">−</button>
-            <button class="icon-button" id="zoomResetButton" type="button" title="回到 3 欄">3</button>
+            <button class="icon-button" id="zoomResetButton" type="button" title="回到 3x3">3</button>
             <button class="icon-button" id="zoomInButton" type="button" title="放大">＋</button>
             <button class="icon-button" id="refreshButton" type="button" title="重新整理">↻</button>
         </div>
@@ -480,7 +480,7 @@
     };
 
     let appConfig = Object.assign({
-        version: '2026.07.07.7',
+        version: '2026.07.07.9',
         page_limit: 36,
         preview_max_connections: 12,
     }, BOOT_CONFIG || {});
@@ -502,7 +502,7 @@
 
     const observer = new IntersectionObserver(handlePreviewIntersections, {
         root: null,
-        rootMargin: '720px 0px',
+        rootMargin: '300px 0px',
         threshold: [0, .2, .6],
     });
     const visiblePreviewCards = new Map();
@@ -613,6 +613,7 @@
             modified_at: Number(video.modified_at || 0),
             created_at: Number(video.created_at || 0),
             stream_url: toPlayableUrl(video.stream_url || `${API_BASE}/${video.id}/stream`),
+            preview_url: toPlayableUrl(video.preview_url || `${API_BASE}/${video.id}/preview`),
             liked: Boolean(video.liked),
         };
     }
@@ -633,6 +634,7 @@
             modified_at: stored.modified_at || 0,
             created_at: stored.created_at || 0,
             stream_url: stored.stream_url || `${API_BASE}/${id}/stream`,
+            preview_url: stored.preview_url || `${API_BASE}/${id}/preview`,
             liked: fallbackLiked || Boolean(stored.liked),
         });
     }
@@ -766,7 +768,7 @@
             return 3;
         }
         if (normalized === 3) {
-            return 4;
+            return 3;
         }
         if (normalized === 4) {
             return 5;
@@ -885,7 +887,7 @@
             card.className = 'video-card';
             card.dataset.id = video.id;
             card.innerHTML = `
-                <video class="preview-video" muted loop playsinline preload="metadata" data-src="${escapeHtml(video.stream_url)}"></video>
+                <video class="preview-video" muted loop playsinline preload="none" data-src="${escapeHtml(video.preview_url || video.stream_url)}" data-fallback-src="${escapeHtml(video.stream_url)}"></video>
                 <div class="card-meta">
                     <div class="card-name">${escapeHtml(video.filename)}</div>
                     <div class="card-row">
@@ -952,6 +954,41 @@
         video.play().catch(() => {});
     }
 
+    function scheduleStartPreview(card, order = 0) {
+        if (previewPaused) {
+            return;
+        }
+
+        const video = card.querySelector('video');
+        if (!video) {
+            return;
+        }
+
+        video.dataset.previewWanted = '1';
+        if (video.dataset.activePreview === '1') {
+            startPreview(card);
+            return;
+        }
+
+        if (video.dataset.previewStartQueued === '1') {
+            return;
+        }
+
+        const delay = Math.min(420, Math.max(0, order) * 40);
+        if (delay <= 0) {
+            startPreview(card);
+            return;
+        }
+
+        video.dataset.previewStartQueued = '1';
+        window.setTimeout(() => {
+            delete video.dataset.previewStartQueued;
+            if (video.dataset.previewWanted === '1' && visiblePreviewCards.has(card)) {
+                startPreview(card);
+            }
+        }, delay);
+    }
+
     function warmPreview(card) {
         const video = card.querySelector('video');
         if (!video || video.getAttribute('src')) {
@@ -978,6 +1015,19 @@
         video.addEventListener('timeupdate', () => updatePreviewProgress(video));
         video.addEventListener('playing', () => updatePreviewProgress(video));
         video.addEventListener('seeked', () => updatePreviewProgress(video));
+        video.addEventListener('error', () => {
+            const fallback = video.dataset.fallbackSrc || '';
+            const current = video.getAttribute('src') || '';
+
+            if (!fallback || current === fallback || video.dataset.previewFallback === '1') {
+                return;
+            }
+
+            video.dataset.previewFallback = '1';
+            video.setAttribute('src', fallback);
+            video.load();
+            video.play().catch(() => {});
+        });
     }
 
     function updatePreviewProgress(video) {
@@ -1006,6 +1056,7 @@
             return;
         }
 
+        video.dataset.previewWanted = '0';
         video.dataset.activePreview = '0';
         try {
             video.pause();
@@ -1061,24 +1112,15 @@
 
         const desiredActive = desiredVisibleCount();
         const maxActive = clamp(Math.min(Number(appConfig.preview_max_connections || 12), desiredActive), 1, 24);
-        const warmLimit = clamp(maxActive + Math.min(12, desiredActive), maxActive, 28);
         const activeCards = new Set();
-        const warmCards = new Set();
 
         for (let offset = 0; offset < Math.min(maxActive, cards.length); offset++) {
             activeCards.add(cards[offset]);
         }
 
-        for (let offset = 0; offset < Math.min(warmLimit, cards.length); offset++) {
-            warmCards.add(cards[offset]);
-        }
-
-        cards.forEach((card) => {
+        cards.forEach((card, index) => {
             if (activeCards.has(card)) {
-                startPreview(card);
-            } else if (warmCards.has(card)) {
-                warmPreview(card);
-                pausePreview(card);
+                scheduleStartPreview(card, index);
             } else {
                 pausePreview(card);
             }
@@ -1090,7 +1132,7 @@
     }
 
     function bufferedTargetCount() {
-        return Math.min(140, Math.max(Number(appConfig.page_limit || 36), desiredVisibleCount() * 4));
+        return Math.min(72, Math.max(Number(appConfig.page_limit || 36), desiredVisibleCount() * 2));
     }
 
     function maybeLoadMoreSoon() {
@@ -1833,9 +1875,6 @@
     }, {rootMargin: '1800px 0px'}).observe(elements.sentinel);
 
     async function boot() {
-        if (/Android/i.test(navigator.userAgent) && /FolderVideoApp\//.test(navigator.userAgent) && cssPxVariable('--android-nav-inset') === 0) {
-            setCssPxVariable('--android-nav-inset', 48);
-        }
         applyGridColumns();
         bindPlayerGestures();
         bindGridPinch();

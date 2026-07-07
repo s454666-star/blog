@@ -2,8 +2,8 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $projectRoot '..\..')
-$versionCode = 7
-$versionName = '2026.07.07.7'
+$versionCode = 8
+$versionName = '2026.07.07.8'
 $sdkRoot = $env:ANDROID_SDK_ROOT
 if (-not $sdkRoot) {
     $sdkRoot = $env:ANDROID_HOME
@@ -96,12 +96,23 @@ try {
 if ($LASTEXITCODE -ne 0) { throw 'd8 failed' }
 
 Copy-Item -LiteralPath $unsignedApk -Destination $dexApk -Force
-Push-Location $dexDir
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$apkArchive = [System.IO.Compression.ZipFile]::Open($dexApk, [System.IO.Compression.ZipArchiveMode]::Update)
 try {
-    & $jar uf $dexApk classes.dex
-    if ($LASTEXITCODE -ne 0) { throw 'jar update failed' }
+    $existingDex = $apkArchive.GetEntry('classes.dex')
+    if ($existingDex -ne $null) {
+        $existingDex.Delete()
+    }
+
+    [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+        $apkArchive,
+        (Join-Path $dexDir 'classes.dex'),
+        'classes.dex',
+        [System.IO.Compression.CompressionLevel]::Optimal
+    ) | Out-Null
 } finally {
-    Pop-Location
+    $apkArchive.Dispose()
 }
 
 & $zipalign -f 4 $dexApk $alignedApk

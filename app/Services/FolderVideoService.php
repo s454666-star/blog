@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\HttpFoundation\File\Exception\FileException;
+use Symfony\Component\Process\Process;
 use Throwable;
 
 class FolderVideoService
@@ -97,6 +98,7 @@ class FolderVideoService
                     'ctime' => $file->getCTime(),
                 ];
                 $knownFilenames[$filename] = true;
+                $id = $this->encodeId($filename);
 
                 $durationSeconds = $this->resolveDurationSeconds(
                     $filename,
@@ -108,14 +110,15 @@ class FolderVideoService
                 );
 
                 return [
-                    'id' => $this->encodeId($filename),
+                    'id' => $id,
                     'filename' => $filename,
                     'duration_seconds' => $durationSeconds,
                     'duration_label' => $this->formatDuration($durationSeconds),
                     'size_bytes' => $stat['size'],
                     'mtime' => $stat['mtime'],
                     'ctime' => $stat['ctime'],
-                    'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId($filename)], false),
+                    'stream_url' => route('folder-videos.stream', ['id' => $id], false),
+                    'preview_url' => route('folder-videos.preview', ['id' => $id], false),
                     'liked' => false,
                 ];
             })
@@ -167,6 +170,55 @@ class FolderVideoService
         abort(404, 'Video not found.');
     }
 
+    public function resolvePreviewPath(string $id): string
+    {
+        $sourcePath = $this->resolveVideoPath($id);
+        $previewPath = $this->previewPathForSource($sourcePath);
+
+        if (is_file($previewPath) || $this->ensurePreviewClip($sourcePath, $previewPath)) {
+            return $previewPath;
+        }
+
+        return $sourcePath;
+    }
+
+    public function previewCachePath(): string
+    {
+        return rtrim((string) config('folder_video.preview_cache_path'), DIRECTORY_SEPARATOR);
+    }
+
+    public function warmPreviewCache(int $limit = 0): int
+    {
+        $limit = max(0, $limit);
+        $count = 0;
+
+        $records = collect($this->collectLightweightFileStats())
+            ->sortByDesc(fn (array $record) => max((int) ($record['mtime'] ?? 0), (int) ($record['ctime'] ?? 0)))
+            ->values();
+
+        foreach ($records as $record) {
+            if ($limit > 0 && $count >= $limit) {
+                break;
+            }
+
+            $filename = (string) ($record['filename'] ?? '');
+            if ($filename === '') {
+                continue;
+            }
+
+            $sourcePath = $this->safeVideoPathInDirectory($this->rootPath(), $filename);
+            if ($sourcePath === null) {
+                continue;
+            }
+
+            if ($this->ensurePreviewClip($sourcePath, $this->previewPathForSource($sourcePath))) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
     public function moveToGood(string $id): array
     {
         $filename = $this->decodeId($id);
@@ -177,12 +229,15 @@ class FolderVideoService
         if ($sourcePath === null) {
             $likedPath = $this->safeVideoPathInDirectory($goodDirectory, $filename);
             if ($likedPath !== null) {
+                $likedId = $this->encodeId(basename($likedPath));
+
                 return [
-                    'id' => $this->encodeId(basename($likedPath)),
+                    'id' => $likedId,
                     'filename' => basename($likedPath),
                     'destination' => $likedPath,
                     'liked' => true,
-                    'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId(basename($likedPath))], false),
+                    'stream_url' => route('folder-videos.stream', ['id' => $likedId], false),
+                    'preview_url' => route('folder-videos.preview', ['id' => $likedId], false),
                 ];
             }
 
@@ -196,13 +251,15 @@ class FolderVideoService
         }
 
         $this->forgetIndexEntry(basename($sourcePath));
+        $destinationId = $this->encodeId(basename($destinationPath));
 
         return [
-            'id' => $this->encodeId(basename($destinationPath)),
+            'id' => $destinationId,
             'filename' => basename($destinationPath),
             'destination' => $destinationPath,
             'liked' => true,
-            'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId(basename($destinationPath))], false),
+            'stream_url' => route('folder-videos.stream', ['id' => $destinationId], false),
+            'preview_url' => route('folder-videos.preview', ['id' => $destinationId], false),
         ];
     }
 
@@ -214,12 +271,15 @@ class FolderVideoService
         if ($sourcePath === null) {
             $rootPath = $this->safeVideoPathInDirectory($this->rootPath(), $filename);
             if ($rootPath !== null) {
+                $rootId = $this->encodeId(basename($rootPath));
+
                 return [
-                    'id' => $this->encodeId(basename($rootPath)),
+                    'id' => $rootId,
                     'filename' => basename($rootPath),
                     'destination' => $rootPath,
                     'liked' => false,
-                    'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId(basename($rootPath))], false),
+                    'stream_url' => route('folder-videos.stream', ['id' => $rootId], false),
+                    'preview_url' => route('folder-videos.preview', ['id' => $rootId], false),
                 ];
             }
 
@@ -233,12 +293,15 @@ class FolderVideoService
             throw new FileException('Unable to move video back to video folder.');
         }
 
+        $destinationId = $this->encodeId(basename($destinationPath));
+
         return [
-            'id' => $this->encodeId(basename($destinationPath)),
+            'id' => $destinationId,
             'filename' => basename($destinationPath),
             'destination' => $destinationPath,
             'liked' => false,
-            'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId(basename($destinationPath))], false),
+            'stream_url' => route('folder-videos.stream', ['id' => $destinationId], false),
+            'preview_url' => route('folder-videos.preview', ['id' => $destinationId], false),
         ];
     }
 
@@ -434,15 +497,18 @@ class FolderVideoService
 
     protected function videoPayloadFromFile(\SplFileInfo $file, bool $liked = false): array
     {
+        $id = $this->encodeId($file->getFilename());
+
         return [
-            'id' => $this->encodeId($file->getFilename()),
+            'id' => $id,
             'filename' => $file->getFilename(),
             'duration_seconds' => 0.0,
             'duration_label' => $this->formatDuration(0.0),
             'size_bytes' => $file->getSize(),
             'modified_at' => $file->getMTime(),
             'created_at' => $file->getCTime(),
-            'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId($file->getFilename())], false),
+            'stream_url' => route('folder-videos.stream', ['id' => $id], false),
+            'preview_url' => route('folder-videos.preview', ['id' => $id], false),
             'liked' => $liked,
         ];
     }
@@ -451,16 +517,18 @@ class FolderVideoService
     {
         $filename = (string) ($entry['filename'] ?? '');
         $durationSeconds = (float) ($entry['duration_seconds'] ?? 0.0);
+        $id = $this->encodeId($filename);
 
         return [
-            'id' => $this->encodeId($filename),
+            'id' => $id,
             'filename' => $filename,
             'duration_seconds' => $durationSeconds,
             'duration_label' => (string) ($entry['duration_label'] ?? $this->formatDuration($durationSeconds)),
             'size_bytes' => (int) ($entry['size_bytes'] ?? 0),
             'modified_at' => (int) ($entry['mtime'] ?? 0),
             'created_at' => (int) ($entry['ctime'] ?? 0),
-            'stream_url' => route('folder-videos.stream', ['id' => $this->encodeId($filename)], false),
+            'stream_url' => route('folder-videos.stream', ['id' => $id], false),
+            'preview_url' => route('folder-videos.preview', ['id' => $id], false),
             'liked' => false,
         ];
     }
@@ -645,6 +713,120 @@ POWERSHELL;
             ])
             ->values()
             ->all();
+    }
+
+    protected function previewPathForSource(string $sourcePath): string
+    {
+        $stat = @stat($sourcePath) ?: [];
+        $key = hash('sha256', implode('|', [
+            basename($sourcePath),
+            (string) ($stat['size'] ?? 0),
+            (string) ($stat['mtime'] ?? 0),
+        ]));
+
+        return $this->previewCachePath().DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.mp4';
+    }
+
+    protected function ensurePreviewClip(string $sourcePath, string $previewPath): bool
+    {
+        if (is_file($previewPath) && filesize($previewPath) > 0) {
+            return true;
+        }
+
+        $ffmpeg = $this->ffmpegBinary();
+        if ($ffmpeg === '') {
+            return false;
+        }
+
+        File::ensureDirectoryExists(dirname($previewPath));
+
+        $lockPath = $previewPath.'.lock';
+        $lock = @fopen($lockPath, 'c');
+        if (! $lock) {
+            return false;
+        }
+
+        try {
+            if (! flock($lock, LOCK_EX)) {
+                return false;
+            }
+
+            if (is_file($previewPath) && filesize($previewPath) > 0) {
+                return true;
+            }
+
+            return $this->runPreviewTranscode($ffmpeg, $sourcePath, $previewPath);
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    protected function runPreviewTranscode(string $ffmpeg, string $sourcePath, string $previewPath): bool
+    {
+        $seconds = max(4, min((int) config('folder_video.preview_seconds', 18), 120));
+        $height = max(144, min((int) config('folder_video.preview_height', 360), 720));
+        $timeout = max(15, min((int) config('folder_video.preview_timeout', 90), 600));
+        $temporaryPath = $previewPath.'.tmp.'.getmypid().'.mp4';
+
+        @unlink($temporaryPath);
+
+        $process = new Process([
+            $ffmpeg,
+            '-hide_banner',
+            '-loglevel',
+            'error',
+            '-y',
+            '-ss',
+            '0',
+            '-i',
+            $sourcePath,
+            '-t',
+            (string) $seconds,
+            '-vf',
+            'scale=-2:'.$height,
+            '-an',
+            '-c:v',
+            'libx264',
+            '-preset',
+            'veryfast',
+            '-tune',
+            'fastdecode',
+            '-crf',
+            '32',
+            '-pix_fmt',
+            'yuv420p',
+            '-movflags',
+            '+faststart',
+            $temporaryPath,
+        ], null, null, null, $timeout);
+
+        $process->run();
+
+        if (! $process->isSuccessful() || ! is_file($temporaryPath) || filesize($temporaryPath) <= 0) {
+            @unlink($temporaryPath);
+
+            return false;
+        }
+
+        if (! @rename($temporaryPath, $previewPath)) {
+            @unlink($temporaryPath);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    protected function ffmpegBinary(): string
+    {
+        $configured = trim((string) config('folder_video.ffmpeg_bin', ''));
+
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        return 'ffmpeg';
     }
 
     protected function indexRecord(string $filename, array $stat, float $durationSeconds): array

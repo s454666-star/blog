@@ -6,8 +6,8 @@ Native Android WebView wrapper for the local `blog` Folder Video app.
 - Fallback URL: `http://10.147.18.155:8090/folder-video-app`
 - Android update metadata: `/folder-video-app/android-version.json`
 - Package: `monster.mystar.foldervideo`
-- Version: `2026.07.07.7` / code `7`
+- Version: `2026.07.07.8` / code `8`
 - Min SDK: 23
-- Target SDK: 35
+- Target SDK: 34
 
 The Laravel app remains the backend and UI source. The APK exists so Android can install and launch it like a normal app.

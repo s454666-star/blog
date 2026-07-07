@@ -37,7 +37,9 @@ class FolderVideoControllerTest extends TestCase
         );
 
         config()->set('folder_video.root', $this->tempRoot);
+        config()->set('folder_video.ffmpeg_bin', '');
         config()->set('folder_video.ffprobe_bin', $this->fakeFfprobe);
+        config()->set('folder_video.preview_cache_path', $this->tempRoot.DIRECTORY_SEPARATOR.'previews');
         config()->set('folder_video.index_filename', 'folder-video-index.json');
         config()->set('folder_video.index_path', null);
         config()->set('folder_video.probe_on_request', true);
@@ -102,7 +104,8 @@ class FolderVideoControllerTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('data.filename', 'short.mp4')
             ->assertJsonPath('data.liked', true)
-            ->assertJsonPath('data.stream_url', "/api/folder-videos/{$id}/stream");
+            ->assertJsonPath('data.stream_url', "/api/folder-videos/{$id}/stream")
+            ->assertJsonPath('data.preview_url', "/api/folder-videos/{$id}/preview");
 
         $this->assertFileDoesNotExist($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4');
         $this->assertFileExists($this->tempRoot.DIRECTORY_SEPARATOR.'good'.DIRECTORY_SEPARATOR.'short.mp4');
@@ -118,7 +121,8 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.filename', 'short.mp4')
             ->assertJsonPath('data.0.liked', true)
-            ->assertJsonPath('data.0.stream_url', "/api/folder-videos/{$id}/stream");
+            ->assertJsonPath('data.0.stream_url', "/api/folder-videos/{$id}/stream")
+            ->assertJsonPath('data.0.preview_url', "/api/folder-videos/{$id}/preview");
 
         $this->get("/api/folder-videos/{$id}/stream")
             ->assertOk();
@@ -137,7 +141,8 @@ class FolderVideoControllerTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('data.filename', 'short.mp4')
             ->assertJsonPath('data.liked', false)
-            ->assertJsonPath('data.stream_url', "/api/folder-videos/{$id}/stream");
+            ->assertJsonPath('data.stream_url', "/api/folder-videos/{$id}/stream")
+            ->assertJsonPath('data.preview_url', "/api/folder-videos/{$id}/preview");
 
         $this->assertFileExists($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4');
         $this->assertFileDoesNotExist($this->tempRoot.DIRECTORY_SEPARATOR.'good'.DIRECTORY_SEPARATOR.'short.mp4');
@@ -224,7 +229,23 @@ class FolderVideoControllerTest extends TestCase
         $response = $this->getJson('/api/folder-videos?limit=1');
 
         $response->assertOk()
-            ->assertJsonPath('data.0.stream_url', '/api/folder-videos/c2hvcnQubXA0/stream');
+            ->assertJsonPath('data.0.stream_url', '/api/folder-videos/c2hvcnQubXA0/stream')
+            ->assertJsonPath('data.0.preview_url', '/api/folder-videos/c2hvcnQubXA0/preview');
+    }
+
+    public function test_preview_endpoint_falls_back_to_source_when_cache_is_unavailable(): void
+    {
+        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
+
+        $response = $this->get("/api/folder-videos/{$id}/preview");
+
+        $response->assertOk()
+            ->assertHeader('accept-ranges', 'bytes');
+
+        $this->assertSame(
+            realpath($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4'),
+            realpath($response->baseResponse->getFile()->getPathname())
+        );
     }
 
     public function test_random_order_is_seeded_and_pageable(): void
@@ -251,7 +272,8 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.0.filename', $expected[0])
             ->assertJsonPath('data.1.filename', $expected[1])
             ->assertJsonPath('data.2.filename', $expected[2])
-            ->assertJsonPath('data.0.stream_url', '/api/folder-videos/'.rtrim(strtr(base64_encode($expected[0]), '+/', '-_'), '=').'/stream');
+            ->assertJsonPath('data.0.stream_url', '/api/folder-videos/'.rtrim(strtr(base64_encode($expected[0]), '+/', '-_'), '=').'/stream')
+            ->assertJsonPath('data.0.preview_url', '/api/folder-videos/'.rtrim(strtr(base64_encode($expected[0]), '+/', '-_'), '=').'/preview');
 
         $this->assertSame($response->json('data'), $responseAgain->json('data'));
 

@@ -70,6 +70,18 @@ class FolderVideoController extends Controller
         ]);
     }
 
+    public function preview(string $id): BinaryFileResponse
+    {
+        $path = $this->folderVideoService->resolvePreviewPath($id);
+
+        return response()->file($path, [
+            'Content-Type' => mime_content_type($path) ?: 'video/mp4',
+            'Accept-Ranges' => 'bytes',
+            'Cache-Control' => 'public, max-age=86400',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
     public function like(string $id): JsonResponse
     {
         $result = $this->folderVideoService->moveToGood($id);

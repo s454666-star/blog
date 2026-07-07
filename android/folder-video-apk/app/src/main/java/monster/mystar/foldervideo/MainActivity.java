@@ -46,8 +46,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 7;
-    private static final String APP_VERSION_NAME = "2026.07.07.7";
+    private static final int APP_VERSION_CODE = 8;
+    private static final String APP_VERSION_NAME = "2026.07.07.8";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.19:8090/folder-video-app",
@@ -67,6 +67,7 @@ public class MainActivity extends Activity {
     private long lastApkUpdateCheckMs = 0L;
     private boolean apkUpdateCheckRunning = false;
     private boolean updateDownloadReceiverRegistered = false;
+    private int systemBarTopInset = 0;
     private int systemBarBottomInset = 0;
 
     private final BroadcastReceiver updateDownloadReceiver = new BroadcastReceiver() {
@@ -133,24 +134,31 @@ public class MainActivity extends Activity {
         Window window = getWindow();
         window.setStatusBarColor(Color.BLACK);
         window.setNavigationBarColor(Color.BLACK);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
+        }
 
-        webView.setOnApplyWindowInsetsListener((view, insets) -> {
-            int bottom = 0;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Insets systemBars = insets.getInsets(WindowInsets.Type.systemBars());
-                bottom = systemBars.bottom;
-            } else {
-                bottom = insets.getSystemWindowInsetBottom();
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                return insets;
             }
 
-            if (bottom != systemBarBottomInset) {
+            int top = 0;
+            int bottom = 0;
+            Insets systemBars = insets.getInsets(WindowInsets.Type.systemBars());
+            top = systemBars.top;
+            bottom = systemBars.bottom;
+
+            if (top != systemBarTopInset || bottom != systemBarBottomInset) {
+                systemBarTopInset = top;
                 systemBarBottomInset = bottom;
+                root.setPadding(0, Math.max(0, systemBarTopInset), 0, Math.max(0, systemBarBottomInset));
                 injectSystemBarInsets();
             }
 
-            return insets;
+            return WindowInsets.CONSUMED;
         });
-        webView.requestApplyInsets();
+        root.requestApplyInsets();
     }
 
     private void injectSystemBarInsets() {
@@ -159,7 +167,7 @@ public class MainActivity extends Activity {
         }
 
         webView.post(() -> webView.evaluateJavascript(
-            "if (window.folderVideoSetAndroidInsets) { window.folderVideoSetAndroidInsets({bottom:" + Math.max(0, systemBarBottomInset) + "}); }",
+            "if (window.folderVideoSetAndroidInsets) { window.folderVideoSetAndroidInsets({bottom:0}); }",
             null
         ));
     }

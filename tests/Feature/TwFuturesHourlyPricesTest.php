@@ -9,6 +9,7 @@ use App\Services\TwFuturesYahooMinutePriceFetcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
@@ -78,7 +79,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('日 MA5')
             ->assertSee('差值')
             ->assertSee('乖離')
-            ->assertSee('乖離-差值')
+            ->assertDontSee('乖離-差值')
             ->assertSee('乖離率')
             ->assertSee('const dailyChartRows =', false)
             ->assertSee('const hourlyChartRows =', false)
@@ -98,7 +99,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('type="checkbox" checked data-toggle-series="dailyMa5"', false)
             ->assertSee('type="checkbox" checked data-toggle-series="gap"', false)
             ->assertSee('type="checkbox" data-toggle-series="bias"', false)
-            ->assertSee('type="checkbox" data-toggle-series="biasGapDiff"', false)
+            ->assertDontSee('type="checkbox" data-toggle-series="biasGapDiff"', false)
             ->assertSee('type="checkbox" checked data-toggle-series="biasRate"', false)
             ->assertSee('const seriesVisibility =', false)
             ->assertSee('candles: true', false)
@@ -106,7 +107,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('dailyMa5: true', false)
             ->assertSee('gap: true', false)
             ->assertSee('bias: false', false)
-            ->assertSee('biasGapDiff: false', false)
+            ->assertDontSee('biasGapDiff: false', false)
             ->assertSee('biasRate: true', false)
             ->assertSee('const gapMarkers =', false)
             ->assertSee('const dailyGapMarkers =', false)
@@ -118,7 +119,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('maxRightLogicalIndex', false)
             ->assertSee('data-toggle-series="gap"', false)
             ->assertSee('data-toggle-series="bias"', false)
-            ->assertSee('data-toggle-series="biasGapDiff"', false)
+            ->assertDontSee('data-toggle-series="biasGapDiff"', false)
             ->assertSee('data-toggle-series="movingAverage"', false)
             ->assertSee("upColor: '#ef5350'", false)
             ->assertSee("downColor: '#26a69a'", false)
@@ -136,7 +137,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('TEMPORARY_LINE_CLICK_MOVE_LIMIT = 6', false)
             ->assertSee('data-marker-count', false)
             ->assertSee('data-legend-bias', false)
-            ->assertSee('data-legend-bias-gap-diff', false)
+            ->assertDontSee('data-legend-bias-gap-diff', false)
             ->assertSee('data-legend-bias-rate', false)
             ->assertSee('const biasRateSeries = chart.addLineSeries', false)
             ->assertSee('marker-label-layer', false)
@@ -171,15 +172,14 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('startMarkerLabelRenderLoop', false)
             ->assertSee('const gapSeries = chart.addBaselineSeries', false)
             ->assertSee('const biasSeries = chart.addLineSeries', false)
-            ->assertSee('const biasGapDiffSeries = chart.addLineSeries', false)
+            ->assertDontSee('const biasGapDiffSeries = chart.addLineSeries', false)
             ->assertSee("color: '#a78bfa'", false)
-            ->assertSee("color: '#84cc16'", false)
             ->assertSee("biasSeries.setData(lineData(currentRows, 'bias'))", false)
-            ->assertSee("biasGapDiffSeries.setData(lineData(currentRows, 'biasGapDiff'))", false)
+            ->assertDontSee("biasGapDiffSeries.setData(lineData(currentRows, 'biasGapDiff'))", false)
             ->assertSee("biasRateSeries.setData(lineData(currentRows, 'biasRate'))", false)
             ->assertSee('candles: [candleSeries, volumeSeries]', false)
             ->assertSee('bias: [biasSeries]', false)
-            ->assertSee('biasGapDiff: [biasGapDiffSeries]', false)
+            ->assertDontSee('biasGapDiff: [biasGapDiffSeries]', false)
             ->assertSee('biasRate: [biasRateSeries]', false)
             ->assertSee('visibleGapKeys.map(key => Number(row[key]))', false)
             ->assertSee("priceScaleId: 'gap'", false)
@@ -243,28 +243,12 @@ class TwFuturesHourlyPricesTest extends TestCase
         $biasRow = $biasRows[array_key_last($biasRows)];
         $expectedBias = (float) $biasRow['close'] - (float) $biasRow['movingAverage'];
         $this->assertEqualsWithDelta($expectedBias, (float) $biasRow['bias'], 0.0001);
-
-        $biasGapDiffRows = array_values(array_filter(
-            $chartRows,
-            fn (array $row): bool => $row['gap'] !== null
-                && $row['bias'] !== null
-                && $row['biasRate'] !== null
-                && $row['biasGapDiff'] !== null,
-        ));
-        $this->assertNotEmpty($biasGapDiffRows);
-        $biasGapDiffRow = $biasGapDiffRows[array_key_last($biasGapDiffRows)];
-        $expectedBiasGapDiff = (float) $biasGapDiffRow['bias'] - (float) $biasGapDiffRow['gap'];
-        $this->assertEqualsWithDelta($expectedBiasGapDiff, (float) $biasGapDiffRow['biasGapDiff'], 0.0001);
         $this->assertEqualsWithDelta(
-            (float) $biasGapDiffRow['close'] - (float) $biasGapDiffRow['dailyMa5'],
-            (float) $biasGapDiffRow['biasGapDiff'],
-            0.0001,
-        );
-        $this->assertEqualsWithDelta(
-            $expectedBiasGapDiff / (float) $biasGapDiffRow['close'],
-            (float) $biasGapDiffRow['biasRate'],
+            $expectedBias / (float) $biasRow['close'],
+            (float) $biasRow['biasRate'],
             0.000001,
         );
+        $this->assertArrayNotHasKey('biasGapDiff', $biasRow);
 
         preg_match('/const dailyChartRows = (.*);/', $content, $matches);
         $this->assertNotEmpty($matches[1] ?? null);
@@ -278,10 +262,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             $dailyRows,
             fn (array $row): bool => $row['bias'] !== null && $row['biasRate'] !== null,
         ));
-        $this->assertNotEmpty(array_filter(
-            $dailyRows,
-            fn (array $row): bool => $row['biasGapDiff'] !== null,
-        ));
+        $this->assertArrayNotHasKey('biasGapDiff', $dailyRows[array_key_first($dailyRows)]);
 
         preg_match('/const hourlyChartRows = (.*);/', $content, $hourlyMatches);
         $this->assertNotEmpty($hourlyMatches[1] ?? null);
@@ -295,10 +276,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             $hourlyRows,
             fn (array $row): bool => $row['bias'] !== null && $row['biasRate'] !== null,
         ));
-        $this->assertNotEmpty(array_filter(
-            $hourlyRows,
-            fn (array $row): bool => $row['biasGapDiff'] !== null,
-        ));
+        $this->assertArrayNotHasKey('biasGapDiff', $hourlyRows[array_key_first($hourlyRows)]);
 
         preg_match('/const dailyGapMarkers = (.*);/', $content, $markerMatches);
         $this->assertNotEmpty($markerMatches[1] ?? null);
@@ -346,7 +324,6 @@ class TwFuturesHourlyPricesTest extends TestCase
                         'gap',
                         'bias',
                         'biasRate',
-                        'biasGapDiff',
                     ],
                 ],
                 'dailyChartRows',
@@ -354,6 +331,15 @@ class TwFuturesHourlyPricesTest extends TestCase
                 'dailyGapMarkers',
                 'hourlyChartRows',
                 'hourlyGapMarkers',
+                'fourHourMa5Rows' => [
+                    [
+                        'time',
+                        'localTime',
+                        'close',
+                        'fourHourMa5',
+                        'fourHourMa5Diff',
+                    ],
+                ],
                 'sessionGapRows',
                 'stats' => [
                     'firstDateTime',
@@ -376,6 +362,8 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertIsNumeric($response->json('stats.latestClose'));
         $this->assertNotEmpty($response->json('dailyChartRows'));
         $this->assertNotEmpty($response->json('hourlyChartRows'));
+        $this->assertNotEmpty($response->json('fourHourMa5Rows'));
+        $this->assertArrayNotHasKey('biasGapDiff', $response->json('chartRows.0'));
 
         $revision = (string) $response->json('dataRevision');
         $unchangedResponse = $this->getJson(route('tw-stock.taiex-futures.kline.data', [
@@ -390,6 +378,41 @@ class TwFuturesHourlyPricesTest extends TestCase
             ]);
         $this->assertArrayNotHasKey('chartRows', $unchangedResponse->json());
         $this->assertStringContainsString('no-store', (string) $unchangedResponse->headers->get('Cache-Control'));
+    }
+
+    public function test_taiex_futures_line_alert_command_sends_four_hour_ma5_notification(): void
+    {
+        $this->seedHourlyRows();
+        Cache::flush();
+        Carbon::setTestNow('2026-01-09 23:30:00');
+        CarbonImmutable::setTestNow('2026-01-09 23:30:00');
+
+        config()->set('app.url', 'https://stock.mystar.monster');
+        config()->set('line.channel_access_token', 'test-line-token');
+        config()->set('line.taiex_futures_notify_target_id', 'Ctesttarget');
+
+        Http::fake([
+            'https://api.line.me/v2/bot/message/push' => Http::response([], 200, [
+                'x-line-request-id' => 'test-request-id',
+            ]),
+        ]);
+
+        $this->artisan('tw-stock:notify-taiex-futures-line', [
+            '--lookback-minutes' => 999999,
+            '--max-alerts' => 50,
+        ])->assertExitCode(0);
+
+        Http::assertSent(function ($request): bool {
+            $body = $request->data();
+            $message = (string) data_get($body, 'messages.0.text', '');
+
+            return $request->url() === 'https://api.line.me/v2/bot/message/push'
+                && data_get($body, 'to') === 'Ctesttarget'
+                && str_contains($message, '台指期 4H MA5 通知')
+                && str_contains($message, '目前價格')
+                && str_contains($message, '價差')
+                && str_contains($message, 'https://stock.mystar.monster/tw-stock/taiex-futures-kline');
+        });
     }
 
     public function test_taiex_futures_daily_ma5_uses_five_minute_dynamic_closes(): void

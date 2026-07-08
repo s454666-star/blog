@@ -21,6 +21,12 @@ class TwFuturesHourlyPriceController extends Controller
 
     private const HOURLY_MA_WINDOW = 95;
 
+    private const FOUR_HOUR_MA5_BOUNDARY_TIMES = ['03:00', '05:00', '12:45', '13:45', '19:00', '23:00'];
+
+    private const FOUR_HOUR_MA5_NOTIFY_TIMES = ['12:45', '19:00', '23:00'];
+
+    private const FOUR_HOUR_MA5_WINDOW = 5;
+
     public function index(): View
     {
         $dataRevision = $this->currentDataRevision();
@@ -47,6 +53,20 @@ class TwFuturesHourlyPriceController extends Controller
     /**
      * @return array<string, mixed>
      */
+    public function lineAlertPayload(): array
+    {
+        $payload = $this->chartPayload();
+
+        return [
+            'chartRows' => $payload['chartRows'],
+            'fourHourMa5Rows' => $payload['fourHourMa5Rows'],
+            'stats' => $payload['stats'],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function chartPayload(?string $dataRevision = null): array
     {
         $rows = $this->priceRows(self::SYMBOL, self::PRIMARY_INTERVAL);
@@ -55,6 +75,7 @@ class TwFuturesHourlyPriceController extends Controller
         $dailyMa5ByTimestamp = $this->fiveMinuteDailyMa5ByTimestamp($fiveMinuteRows);
         $indicatorRows = $this->indicatorRows($rows, self::FIFTEEN_MINUTE_MA_WINDOW, $dailyMa5ByTimestamp);
         $hourlyIndicatorRows = $this->indicatorRows($hourlyRows, self::HOURLY_MA_WINDOW, $dailyMa5ByTimestamp);
+        $fourHourMa5Rows = $this->fourHourMa5Rows($hourlyIndicatorRows['chartRows']);
         $latest = $rows->last();
 
         return [
@@ -66,6 +87,7 @@ class TwFuturesHourlyPriceController extends Controller
             'dailyGapMarkers' => $indicatorRows['dailyGapMarkers'],
             'hourlyChartRows' => $hourlyIndicatorRows['chartRows'],
             'hourlyGapMarkers' => $hourlyIndicatorRows['gapMarkers'],
+            'fourHourMa5Rows' => $fourHourMa5Rows,
             'sessionGapRows' => $indicatorRows['sessionGapRows'],
             'stats' => [
                 'firstDateTime' => $this->displayDateTime($rows->first()),
@@ -264,8 +286,7 @@ class TwFuturesHourlyPriceController extends Controller
                 ?? (count($previous) === 4 ? (array_sum($previous) + $close) / 5 : null);
             $gap = $dailyMa5 !== null && $movingAverage !== null ? $dailyMa5 - $movingAverage : null;
             $bias = $movingAverage !== null ? $close - $movingAverage : null;
-            $biasGapDiff = $bias !== null && $gap !== null ? $bias - $gap : null;
-            $biasRate = $biasGapDiff !== null && $close !== 0.0 ? $biasGapDiff / $close : null;
+            $biasRate = $bias !== null && $close !== 0.0 ? $bias / $close : null;
             $localTime = $this->displayDateTime($row) ?? $startedAt->format('Y-m-d H:i');
             $sessionType = (string) $row->session_type;
             $isSessionOpen = in_array($startedAt->format('H:i'), ['08:45', '15:00'], true);
@@ -339,7 +360,6 @@ class TwFuturesHourlyPriceController extends Controller
                 'gap' => $gap === null ? null : round($gap, 4),
                 'bias' => $bias === null ? null : round($bias, 4),
                 'biasRate' => $biasRate === null ? null : round($biasRate, 8),
-                'biasGapDiff' => $biasGapDiff === null ? null : round($biasGapDiff, 4),
                 'isSessionOpen' => $isSessionOpen,
             ];
         }
@@ -422,7 +442,6 @@ class TwFuturesHourlyPriceController extends Controller
             $gap = $group['gap'] === null ? null : (float) $group['gap'];
             $bias = $group['bias'] === null ? null : (float) $group['bias'];
             $biasRate = $group['biasRate'] === null ? null : (float) $group['biasRate'];
-            $biasGapDiff = $bias !== null && $gap !== null ? $bias - $gap : null;
             $time = CarbonImmutable::parse($tradeDate . ' 12:00:00', 'Asia/Taipei')->timestamp;
 
             $dailyRows[] = [
@@ -440,12 +459,55 @@ class TwFuturesHourlyPriceController extends Controller
                 'gap' => $gap === null ? null : round($gap, 4),
                 'bias' => $bias === null ? null : round($bias, 4),
                 'biasRate' => $biasRate === null ? null : round($biasRate, 8),
-                'biasGapDiff' => $biasGapDiff === null ? null : round($biasGapDiff, 4),
                 'isSessionOpen' => false,
             ];
         }
 
         return $dailyRows;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $hourlyRows
+     * @return list<array<string, mixed>>
+     */
+    private function fourHourMa5Rows(array $hourlyRows): array
+    {
+        $boundaryCloses = [];
+        $rows = [];
+
+        foreach ($hourlyRows as $row) {
+            $localTime = (string) ($row['localTime'] ?? '');
+            $clock = substr($localTime, -5);
+
+            if (! in_array($clock, self::FOUR_HOUR_MA5_BOUNDARY_TIMES, true)) {
+                continue;
+            }
+
+            $close = (float) $row['close'];
+            $boundaryCloses[] = $close;
+
+            if (! in_array($clock, self::FOUR_HOUR_MA5_NOTIFY_TIMES, true)) {
+                continue;
+            }
+
+            if (count($boundaryCloses) < self::FOUR_HOUR_MA5_WINDOW) {
+                continue;
+            }
+
+            $window = array_slice($boundaryCloses, -self::FOUR_HOUR_MA5_WINDOW);
+            $ma5 = array_sum($window) / self::FOUR_HOUR_MA5_WINDOW;
+            $diff = $close - $ma5;
+
+            $rows[] = [
+                'time' => (int) $row['time'],
+                'localTime' => $localTime,
+                'close' => round($close, 4),
+                'fourHourMa5' => round($ma5, 4),
+                'fourHourMa5Diff' => round($diff, 4),
+            ];
+        }
+
+        return $rows;
     }
 
     /**

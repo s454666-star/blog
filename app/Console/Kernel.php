@@ -201,6 +201,14 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_futures_15min_prices.log'));
 
+        $schedule->command('tw-stock:notify-taiex-futures-line')
+            ->everyFiveMinutes()
+            ->name('tw-stock-notify-taiex-futures-line')
+            ->withoutOverlapping(10)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_futures_line_alerts.log'))
+            ->when(fn (): bool => filter_var(config('line.taiex_futures_notify_enabled', true), FILTER_VALIDATE_BOOL));
+
         $this->scheduleTaiexFuturesOpeningRetries($schedule);
 
         $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=60 --from=' . now(config('app.timezone'))->subDays(7)->toDateString() . ' --to=' . now(config('app.timezone'))->addDays(3)->toDateString())

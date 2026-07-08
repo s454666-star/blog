@@ -44,7 +44,7 @@ class LinePushService
 
         foreach ([
             'line/taiex-futures-notify-target-id.txt',
-            'line/dashboard-notify-target-id.txt',
+            'line/yuanta-dashboard-notify-target-id.txt',
         ] as $path) {
             if (Storage::disk('local')->exists($path)) {
                 $target = trim(Storage::disk('local')->get($path));
@@ -54,25 +54,25 @@ class LinePushService
             }
         }
 
-        $fallback = trim((string) config('line.dashboard_notify_target_id', ''));
+        $fallback = trim((string) config('line.yuanta_dashboard_notify_target_id', ''));
         if ($fallback !== '') {
             return $fallback;
         }
 
-        throw new RuntimeException('LINE target id is missing. Configure LINE_TAIEX_FUTURES_NOTIFY_TARGET_ID or send a message to the LINE bot webhook target first.');
+        throw new RuntimeException('LINE target id is missing. Configure LINE_TAIEX_FUTURES_NOTIFY_TARGET_ID or send a message to the Yuanta LINE bot webhook target first.');
     }
 
     private function lineAccessToken(): string
     {
-        $configuredToken = trim((string) config('line.channel_access_token', ''));
+        $configuredToken = trim((string) config('line.yuanta_channel_access_token', ''));
         if ($configuredToken !== '') {
             return $configuredToken;
         }
 
-        $channelId = trim((string) config('line.channel_id', ''));
-        $channelSecret = trim((string) config('line.channel_secret', ''));
+        $channelId = trim((string) config('line.yuanta_channel_id', ''));
+        $channelSecret = trim((string) config('line.yuanta_channel_secret', ''));
         if ($channelId === '' || $channelSecret === '') {
-            throw new RuntimeException('LINE_CHANNEL_ACCESS_TOKEN or LINE_CHANNEL_ID/LINE_CHANNEL_SECRET is required.');
+            throw new RuntimeException('YUANTA_LINE_CHANNEL_ACCESS_TOKEN or YUANTA_LINE_CHANNEL_ID/YUANTA_LINE_CHANNEL_SECRET is required.');
         }
 
         $response = Http::asForm()->post('https://api.line.me/oauth2/v3/token', [

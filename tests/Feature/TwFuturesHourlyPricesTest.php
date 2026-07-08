@@ -388,8 +388,10 @@ class TwFuturesHourlyPricesTest extends TestCase
         CarbonImmutable::setTestNow('2026-01-09 23:30:00');
 
         config()->set('app.url', 'https://stock.mystar.monster');
-        config()->set('line.channel_access_token', 'test-line-token');
-        config()->set('line.taiex_futures_notify_target_id', 'Ctesttarget');
+        config()->set('line.channel_access_token', 'stock-line-token');
+        config()->set('line.dashboard_notify_target_id', 'Cstocktarget');
+        config()->set('line.yuanta_channel_access_token', 'yuanta-line-token');
+        config()->set('line.yuanta_dashboard_notify_target_id', 'Cyuantatarget');
 
         Http::fake([
             'https://api.line.me/v2/bot/message/push' => Http::response([], 200, [
@@ -407,7 +409,8 @@ class TwFuturesHourlyPricesTest extends TestCase
             $message = (string) data_get($body, 'messages.0.text', '');
 
             return $request->url() === 'https://api.line.me/v2/bot/message/push'
-                && data_get($body, 'to') === 'Ctesttarget'
+                && $request->hasHeader('Authorization', 'Bearer yuanta-line-token')
+                && data_get($body, 'to') === 'Cyuantatarget'
                 && str_contains($message, '台指期 4H MA5 通知')
                 && str_contains($message, '目前價格')
                 && str_contains($message, '價差')

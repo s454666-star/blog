@@ -115,6 +115,24 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/yuanta_portfolio_daily_snapshots.log'));
 
+        if (config('line.dashboard_token_rotation_schedule_enabled', false)) {
+            $schedule->command('line:rotate-dashboard-tokens esun')
+                ->dailyAt('08:00')
+                ->name('line-rotate-esun-dashboard-token')
+                ->withoutOverlapping(30)
+                ->user('www-data')
+                ->runInBackground()
+                ->appendOutputTo(storage_path('logs/dashboard_token_rotation.log'));
+
+            $schedule->command('line:rotate-dashboard-tokens yuanta')
+                ->dailyAt('08:05')
+                ->name('line-rotate-yuanta-dashboard-token')
+                ->withoutOverlapping(30)
+                ->user('www-data')
+                ->runInBackground()
+                ->appendOutputTo(storage_path('logs/dashboard_token_rotation.log'));
+        }
+
         $schedule->command('esun:portfolio-capture-daily')
             ->dailyAt('17:56')
             ->weekdays()

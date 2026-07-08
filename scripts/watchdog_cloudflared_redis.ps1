@@ -13,6 +13,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+if (-not $PSBoundParameters.ContainsKey('ProjectDir')) {
+    $repoRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')
+    $ProjectDir = $repoRoot.Path
+}
+
 $logDir = Join-Path $ProjectDir 'storage\logs'
 $logPath = Join-Path $logDir 'cloudflared_redis_watchdog.log'
 $redisExe = Join-Path $RedisHome 'redis-server.exe'
@@ -235,6 +240,12 @@ function Restart-AwsRedisTunnel {
     Write-WatchdogLog 'restarting AWS blog-redis-tunnel.service'
     & $plink -batch $AwsPuttySession 'sudo -n systemctl restart blog-redis-tunnel.service' 2>&1 | Out-Null
     Start-Sleep -Seconds ($RestartWaitSeconds * 2)
+}
+
+$configuredRedisHost = Get-BlogEnvValue 'REDIS_HOST'
+if ($configuredRedisHost -and $configuredRedisHost -notin @('127.0.0.1', 'localhost')) {
+    Write-WatchdogLog "remote Redis configured at $configuredRedisHost; skipping legacy local Redis tunnel watchdog"
+    exit 0
 }
 
 try {

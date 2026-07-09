@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Console\Commands\BackfillTwFuturesContinuousPricesCommand;
+use App\Console\Commands\NotifyTaiexFuturesLineAlertsCommand;
 use App\Services\TwFuturesDailyPriceFetcher;
 use App\Services\TwFuturesHourlyPriceFetcher;
 use App\Services\TwFuturesYahooMinutePriceFetcher;
@@ -234,11 +235,8 @@ class TwFuturesHourlyPricesTest extends TestCase
             CarbonImmutable::parse('2026-01-01 09:00:00', 'Asia/Taipei')->timestamp,
             $chartRows[0]['time'],
         );
-        $this->assertSame('2026-01-01 08:45', $chartRows[0]['alertLocalTime']);
-        $this->assertSame(
-            CarbonImmutable::parse('2026-01-01 08:45:00', 'Asia/Taipei')->timestamp,
-            $chartRows[0]['alertTime'],
-        );
+        $this->assertArrayNotHasKey('alertLocalTime', $chartRows[0]);
+        $this->assertArrayNotHasKey('alertTime', $chartRows[0]);
 
         $biasRows = array_values(array_filter(
             $chartRows,
@@ -317,8 +315,6 @@ class TwFuturesHourlyPricesTest extends TestCase
                     [
                         'time',
                         'localTime',
-                        'alertTime',
-                        'alertLocalTime',
                         'tradeDate',
                         'sessionType',
                         'open',
@@ -371,6 +367,8 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertNotEmpty($response->json('hourlyChartRows'));
         $this->assertNotEmpty($response->json('fourHourMa5Rows'));
         $this->assertArrayNotHasKey('biasGapDiff', $response->json('chartRows.0'));
+        $this->assertArrayNotHasKey('alertTime', $response->json('chartRows.0'));
+        $this->assertArrayNotHasKey('alertLocalTime', $response->json('chartRows.0'));
 
         $fourHourNotifyTimes = collect($response->json('fourHourMa5Rows'))
             ->map(fn (array $row): string => substr((string) $row['localTime'], -5))
@@ -394,6 +392,43 @@ class TwFuturesHourlyPricesTest extends TestCase
             ]);
         $this->assertArrayNotHasKey('chartRows', $unchangedResponse->json());
         $this->assertStringContainsString('no-store', (string) $unchangedResponse->headers->get('Cache-Control'));
+    }
+
+    public function test_taiex_futures_price_alert_uses_15k_start_time_and_5_percent_bias_threshold(): void
+    {
+        config()->set('app.timezone', 'Asia/Taipei');
+        config()->set('app.url', 'https://stock.mystar.monster');
+
+        $command = new NotifyTaiexFuturesLineAlertsCommand();
+        $method = new ReflectionMethod(NotifyTaiexFuturesLineAlertsCommand::class, 'priceAlert');
+        $method->setAccessible(true);
+
+        $baseRow = [
+            'time' => CarbonImmutable::parse('2026-01-01 09:00:00', 'Asia/Taipei')->timestamp,
+            'localTime' => '2026-01-01 09:00',
+            'gap' => null,
+            'isSessionOpen' => false,
+            'biasRate' => 0.0499,
+            'close' => 25000,
+            'dailyMa5' => 25200,
+            'movingAverage' => 24000,
+        ];
+        $minTimestamp = CarbonImmutable::parse('2026-01-01 08:30:00', 'Asia/Taipei')->timestamp;
+
+        $this->assertNull($method->invoke($command, $baseRow, $minTimestamp));
+
+        $alert = $method->invoke($command, [
+            ...$baseRow,
+            'biasRate' => 0.05,
+        ], $minTimestamp);
+
+        $this->assertIsArray($alert);
+        $this->assertSame(
+            CarbonImmutable::parse('2026-01-01 08:45:00', 'Asia/Taipei')->timestamp,
+            $alert['time'],
+        );
+        $this->assertStringContainsString('台指期通知 2026-01-01 08:45', $alert['message']);
+        $this->assertStringContainsString('乖離率 +5.00% 高於 +5.00%', $alert['message']);
     }
 
     public function test_taiex_futures_line_alert_command_sends_four_hour_ma5_notification(): void

@@ -348,8 +348,6 @@ class TwFuturesHourlyPriceController extends Controller
             $chartRows[] = [
                 'time' => $time,
                 'localTime' => $localTime,
-                'alertTime' => $startedAtUnix,
-                'alertLocalTime' => $startedAt->format('Y-m-d H:i'),
                 'tradeDate' => $tradeDate,
                 'sessionType' => $row->session_type,
                 'open' => (float) $row->open_price,
@@ -507,11 +505,11 @@ class TwFuturesHourlyPriceController extends Controller
         $snapshotCount = count($snapshots);
 
         foreach ($primaryRows as $row) {
-            $alertTime = (int) ($row['alertTime'] ?? $row['time'] ?? 0);
-            $alertLocalTime = (string) ($row['alertLocalTime'] ?? $row['localTime'] ?? '');
+            $alertTime = $this->primaryAlertTime($row);
+            $alertLocalTime = $this->primaryAlertLocalTime($row);
             $clock = substr($alertLocalTime, -5);
 
-            if (! in_array($clock, self::FOUR_HOUR_MA5_NOTIFY_TIMES, true)) {
+            if ($alertTime <= 0 || ! in_array($clock, self::FOUR_HOUR_MA5_NOTIFY_TIMES, true)) {
                 continue;
             }
 
@@ -537,6 +535,32 @@ class TwFuturesHourlyPriceController extends Controller
         }
 
         return $rows;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function primaryAlertTime(array $row): int
+    {
+        $time = (int) ($row['time'] ?? 0);
+        if ($time <= 0) {
+            return 0;
+        }
+
+        return $time - ($this->intervalMinutes(self::PRIMARY_INTERVAL) * 60);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function primaryAlertLocalTime(array $row): string
+    {
+        $alertTime = $this->primaryAlertTime($row);
+        if ($alertTime <= 0) {
+            return (string) ($row['localTime'] ?? '');
+        }
+
+        return CarbonImmutable::createFromTimestamp($alertTime, 'Asia/Taipei')->format('Y-m-d H:i');
     }
 
     /**

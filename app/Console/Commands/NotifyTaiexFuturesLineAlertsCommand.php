@@ -16,6 +16,8 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
 
     private const BIAS_RATE_THRESHOLD = 0.05;
 
+    private const PRICE_ALERT_DISPLAY_OFFSET_MINUTES = 15;
+
     private const CACHE_TTL_DAYS = 7;
 
     protected $signature = 'tw-stock:notify-taiex-futures-line
@@ -129,7 +131,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
      */
     private function priceAlert(array $row, int $minTimestamp): ?array
     {
-        $time = (int) ($row['alertTime'] ?? $row['time'] ?? 0);
+        $time = $this->priceAlertTime($row);
         if ($time < $minTimestamp) {
             return null;
         }
@@ -170,7 +172,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         }
 
         $lines = [
-            '台指期通知 ' . (string) ($row['alertLocalTime'] ?? $row['localTime'] ?? ''),
+            '台指期通知 ' . $this->priceAlertLocalTime($row),
             ...$conditions,
             sprintf(
                 '現價 %s / 日MA5 %s / 15K %s',
@@ -186,6 +188,43 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
             'time' => $time,
             'message' => implode("\n", $lines),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function priceAlertTime(array $row): int
+    {
+        if (isset($row['alertTime'])) {
+            return (int) $row['alertTime'];
+        }
+
+        $time = (int) ($row['time'] ?? 0);
+        if ($time <= 0) {
+            return 0;
+        }
+
+        return $time - (self::PRICE_ALERT_DISPLAY_OFFSET_MINUTES * 60);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function priceAlertLocalTime(array $row): string
+    {
+        $alertLocalTime = trim((string) ($row['alertLocalTime'] ?? ''));
+        if ($alertLocalTime !== '') {
+            return $alertLocalTime;
+        }
+
+        $time = $this->priceAlertTime($row);
+        if ($time <= 0) {
+            return (string) ($row['localTime'] ?? '');
+        }
+
+        $timezone = (string) config('app.timezone', 'Asia/Taipei');
+
+        return CarbonImmutable::createFromTimestamp($time, $timezone)->format('Y-m-d H:i');
     }
 
     /**

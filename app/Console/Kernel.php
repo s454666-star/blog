@@ -120,7 +120,6 @@ class Kernel extends ConsoleKernel
                 ->dailyAt('08:00')
                 ->name('line-rotate-esun-dashboard-token')
                 ->withoutOverlapping(30)
-                ->user('www-data')
                 ->runInBackground()
                 ->appendOutputTo(storage_path('logs/dashboard_token_rotation.log'));
 
@@ -128,7 +127,6 @@ class Kernel extends ConsoleKernel
                 ->dailyAt('08:05')
                 ->name('line-rotate-yuanta-dashboard-token')
                 ->withoutOverlapping(30)
-                ->user('www-data')
                 ->runInBackground()
                 ->appendOutputTo(storage_path('logs/dashboard_token_rotation.log'));
         }

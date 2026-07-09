@@ -86,6 +86,40 @@ class ConsoleKernelTest extends TestCase
         ], $activeEtfEvents);
     }
 
+    public function test_dashboard_token_rotation_schedule_runs_daily_without_user_override(): void
+    {
+        $this->app['config']->set('line.dashboard_token_rotation_schedule_enabled', true);
+
+        $schedule = new Schedule(config('app.timezone'));
+        $method = new ReflectionMethod(Kernel::class, 'schedule');
+        $kernel = $this->app->make(Kernel::class);
+
+        $method->invoke($kernel, $schedule);
+
+        $events = collect($schedule->events())
+            ->filter(fn ($event): bool => str_contains((string) $event->command, 'line:rotate-dashboard-tokens'))
+            ->map(fn ($event): array => [
+                'expression' => $event->expression,
+                'name' => $event->description,
+                'user' => $event->user,
+            ])
+            ->values()
+            ->all();
+
+        $this->assertSame([
+            [
+                'expression' => '0 8 * * *',
+                'name' => 'line-rotate-esun-dashboard-token',
+                'user' => null,
+            ],
+            [
+                'expression' => '5 8 * * *',
+                'name' => 'line-rotate-yuanta-dashboard-token',
+                'user' => null,
+            ],
+        ], $events);
+    }
+
     public function test_yuanta_daily_snapshot_schedule_runs_weekdays_after_close_and_after_broker_finalization(): void
     {
         $schedule = new Schedule(config('app.timezone'));

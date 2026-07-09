@@ -23,7 +23,7 @@ class TwFuturesHourlyPriceController extends Controller
 
     private const FOUR_HOUR_MA5_BOUNDARY_TIMES = ['03:00', '05:00', '12:45', '13:45', '19:00', '23:00'];
 
-    private const FOUR_HOUR_MA5_NOTIFY_TIMES = ['12:45', '19:00', '23:00'];
+    private const FOUR_HOUR_MA5_NOTIFY_TIMES = ['08:45', '12:45', '15:00', '19:00', '23:00'];
 
     private const FOUR_HOUR_MA5_WINDOW = 5;
 
@@ -75,7 +75,7 @@ class TwFuturesHourlyPriceController extends Controller
         $dailyMa5ByTimestamp = $this->fiveMinuteDailyMa5ByTimestamp($fiveMinuteRows);
         $indicatorRows = $this->indicatorRows($rows, self::FIFTEEN_MINUTE_MA_WINDOW, $dailyMa5ByTimestamp);
         $hourlyIndicatorRows = $this->indicatorRows($hourlyRows, self::HOURLY_MA_WINDOW, $dailyMa5ByTimestamp);
-        $fourHourMa5Rows = $this->fourHourMa5Rows($hourlyIndicatorRows['chartRows']);
+        $fourHourMa5Rows = $this->fourHourMa5Rows($hourlyIndicatorRows['chartRows'], $indicatorRows['chartRows']);
         $latest = $rows->last();
 
         return [
@@ -348,6 +348,8 @@ class TwFuturesHourlyPriceController extends Controller
             $chartRows[] = [
                 'time' => $time,
                 'localTime' => $localTime,
+                'alertTime' => $startedAtUnix,
+                'alertLocalTime' => $startedAt->format('Y-m-d H:i'),
                 'tradeDate' => $tradeDate,
                 'sessionType' => $row->session_type,
                 'open' => (float) $row->open_price,
@@ -468,12 +470,13 @@ class TwFuturesHourlyPriceController extends Controller
 
     /**
      * @param list<array<string, mixed>> $hourlyRows
+     * @param list<array<string, mixed>> $primaryRows
      * @return list<array<string, mixed>>
      */
-    private function fourHourMa5Rows(array $hourlyRows): array
+    private function fourHourMa5Rows(array $hourlyRows, array $primaryRows): array
     {
         $boundaryCloses = [];
-        $rows = [];
+        $snapshots = [];
 
         foreach ($hourlyRows as $row) {
             $localTime = (string) ($row['localTime'] ?? '');
@@ -486,21 +489,47 @@ class TwFuturesHourlyPriceController extends Controller
             $close = (float) $row['close'];
             $boundaryCloses[] = $close;
 
-            if (! in_array($clock, self::FOUR_HOUR_MA5_NOTIFY_TIMES, true)) {
-                continue;
-            }
-
             if (count($boundaryCloses) < self::FOUR_HOUR_MA5_WINDOW) {
                 continue;
             }
 
             $window = array_slice($boundaryCloses, -self::FOUR_HOUR_MA5_WINDOW);
             $ma5 = array_sum($window) / self::FOUR_HOUR_MA5_WINDOW;
+
+            $snapshots[] = [
+                'time' => (int) $row['time'],
+                'fourHourMa5' => round($ma5, 4),
+            ];
+        }
+
+        $rows = [];
+        $snapshotIndex = -1;
+        $snapshotCount = count($snapshots);
+
+        foreach ($primaryRows as $row) {
+            $alertTime = (int) ($row['alertTime'] ?? $row['time'] ?? 0);
+            $alertLocalTime = (string) ($row['alertLocalTime'] ?? $row['localTime'] ?? '');
+            $clock = substr($alertLocalTime, -5);
+
+            if (! in_array($clock, self::FOUR_HOUR_MA5_NOTIFY_TIMES, true)) {
+                continue;
+            }
+
+            while ($snapshotIndex + 1 < $snapshotCount && $snapshots[$snapshotIndex + 1]['time'] <= $alertTime) {
+                $snapshotIndex++;
+            }
+
+            if ($snapshotIndex < 0) {
+                continue;
+            }
+
+            $close = (float) $row['close'];
+            $ma5 = (float) $snapshots[$snapshotIndex]['fourHourMa5'];
             $diff = $close - $ma5;
 
             $rows[] = [
-                'time' => (int) $row['time'],
-                'localTime' => $localTime,
+                'time' => $alertTime,
+                'localTime' => $alertLocalTime,
                 'close' => round($close, 4),
                 'fourHourMa5' => round($ma5, 4),
                 'fourHourMa5Diff' => round($diff, 4),

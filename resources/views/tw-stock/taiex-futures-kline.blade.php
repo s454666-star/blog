@@ -557,7 +557,7 @@
     const GAP_AXIS_MIN_VISIBLE_MAX = 2000;
     const GAP_AXIS_MIN_NEGATIVE_VISIBLE = 1200;
     const GAP_AXIS_ZERO_RATIO = 0.68;
-    const BIAS_RATE_HIGHLIGHT_THRESHOLD = 0.04;
+    const BIAS_RATE_HIGHLIGHT_THRESHOLD = 0.05;
     const GAP_HIGHLIGHT_THRESHOLD = 1000;
     const taipeiTimePartsFormatter = new Intl.DateTimeFormat('zh-TW', {
         timeZone: 'Asia/Taipei',

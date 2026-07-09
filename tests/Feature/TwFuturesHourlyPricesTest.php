@@ -142,7 +142,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('const biasRateSeries = chart.addLineSeries', false)
             ->assertSee('marker-label-layer', false)
             ->assertSee('threshold-dot', false)
-            ->assertSee('BIAS_RATE_HIGHLIGHT_THRESHOLD = 0.04', false)
+            ->assertSee('BIAS_RATE_HIGHLIGHT_THRESHOLD = 0.05', false)
             ->assertSee('GAP_HIGHLIGHT_THRESHOLD = 1000', false)
             ->assertSee('chartMarkerData', false)
             ->assertSee('renderMarkerLabels', false)
@@ -234,6 +234,11 @@ class TwFuturesHourlyPricesTest extends TestCase
             CarbonImmutable::parse('2026-01-01 09:00:00', 'Asia/Taipei')->timestamp,
             $chartRows[0]['time'],
         );
+        $this->assertSame('2026-01-01 08:45', $chartRows[0]['alertLocalTime']);
+        $this->assertSame(
+            CarbonImmutable::parse('2026-01-01 08:45:00', 'Asia/Taipei')->timestamp,
+            $chartRows[0]['alertTime'],
+        );
 
         $biasRows = array_values(array_filter(
             $chartRows,
@@ -312,6 +317,8 @@ class TwFuturesHourlyPricesTest extends TestCase
                     [
                         'time',
                         'localTime',
+                        'alertTime',
+                        'alertLocalTime',
                         'tradeDate',
                         'sessionType',
                         'open',
@@ -365,6 +372,15 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertNotEmpty($response->json('fourHourMa5Rows'));
         $this->assertArrayNotHasKey('biasGapDiff', $response->json('chartRows.0'));
 
+        $fourHourNotifyTimes = collect($response->json('fourHourMa5Rows'))
+            ->map(fn (array $row): string => substr((string) $row['localTime'], -5))
+            ->unique()
+            ->values()
+            ->all();
+        foreach (['08:45', '12:45', '15:00', '19:00', '23:00'] as $clock) {
+            $this->assertContains($clock, $fourHourNotifyTimes);
+        }
+
         $revision = (string) $response->json('dataRevision');
         $unchangedResponse = $this->getJson(route('tw-stock.taiex-futures.kline.data', [
             'revision' => $revision,
@@ -384,8 +400,8 @@ class TwFuturesHourlyPricesTest extends TestCase
     {
         $this->seedHourlyRows();
         Cache::flush();
-        Carbon::setTestNow('2026-01-09 23:30:00');
-        CarbonImmutable::setTestNow('2026-01-09 23:30:00');
+        Carbon::setTestNow('2026-01-07 23:30:00');
+        CarbonImmutable::setTestNow('2026-01-07 23:30:00');
 
         config()->set('app.url', 'https://stock.mystar.monster');
         config()->set('line.channel_access_token', 'stock-line-token');
@@ -412,6 +428,7 @@ class TwFuturesHourlyPricesTest extends TestCase
                 && $request->hasHeader('Authorization', 'Bearer yuanta-line-token')
                 && data_get($body, 'to') === 'Cyuantatarget'
                 && str_contains($message, '台指期 4H MA5 通知')
+                && str_contains($message, '23:00')
                 && str_contains($message, '目前價格')
                 && str_contains($message, '價差')
                 && str_contains($message, 'https://stock.mystar.monster/tw-stock/taiex-futures-kline');

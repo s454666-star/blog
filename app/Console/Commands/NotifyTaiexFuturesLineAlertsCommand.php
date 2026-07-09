@@ -14,7 +14,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
 
     private const OPENING_GAP_THRESHOLD = 600.0;
 
-    private const BIAS_RATE_THRESHOLD = 0.04;
+    private const BIAS_RATE_THRESHOLD = 0.05;
 
     private const CACHE_TTL_DAYS = 7;
 
@@ -129,7 +129,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
      */
     private function priceAlert(array $row, int $minTimestamp): ?array
     {
-        $time = (int) ($row['time'] ?? 0);
+        $time = (int) ($row['alertTime'] ?? $row['time'] ?? 0);
         if ($time < $minTimestamp) {
             return null;
         }
@@ -170,7 +170,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         }
 
         $lines = [
-            '台指期通知 ' . (string) ($row['localTime'] ?? ''),
+            '台指期通知 ' . (string) ($row['alertLocalTime'] ?? $row['localTime'] ?? ''),
             ...$conditions,
             sprintf(
                 '現價 %s / 日MA5 %s / 15K %s',

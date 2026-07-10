@@ -295,15 +295,10 @@ class Kernel extends ConsoleKernel
             ->appendOutputTo(storage_path('logs/download_video_exact_duplicates.log'));
 
         if (config('crawler.85sugarbaby.enabled', true)) {
-            $crawlerIntervalMinutes = max(
-                1,
-                min(30, (int) config('crawler.85sugarbaby.schedule_interval_minutes', 5))
-            );
-
             $schedule->command('crawler:85sugarbaby-import --headless --source=85sugarbaby_active_flow --limit=20 --age-min=18 --age-max=22 --areas=台北,新北 --timeout=45')
-                ->cron("*/{$crawlerIntervalMinutes} * * * *")
-                ->name('crawler-85sugarbaby-import')
-                ->withoutOverlapping(max(2, $crawlerIntervalMinutes))
+                ->everyThirtySeconds()
+                ->name('crawler-85sugarbaby-import-30s')
+                ->withoutOverlapping(1)
                 ->runInBackground()
                 ->appendOutputTo(storage_path('logs/crawler_85sugarbaby_import.log'))
                 ->onFailure(function () {

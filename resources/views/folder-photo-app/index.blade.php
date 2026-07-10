@@ -82,14 +82,124 @@
             object-fit: contain;
             object-position: center;
             opacity: 0;
-            transform: scale(1.012);
-            transition: opacity 480ms ease, transform 700ms ease;
+            transform: none;
+            backface-visibility: hidden;
+            transform-origin: center;
+            will-change: opacity, transform, filter;
             pointer-events: none;
         }
 
         .photo-cell img.is-visible {
             opacity: 1;
             transform: scale(1);
+        }
+
+        .photo-cell img.photo-enter-fade {
+            animation: photo-fade-in 850ms ease both;
+        }
+
+        .photo-cell img.photo-exit-fade {
+            animation: photo-fade-out 850ms ease both;
+        }
+
+        .photo-cell img.photo-enter-flip-x {
+            animation: photo-flip-x-in 900ms cubic-bezier(.2, .72, .2, 1) both;
+        }
+
+        .photo-cell img.photo-exit-flip-x {
+            animation: photo-flip-x-out 900ms cubic-bezier(.4, 0, .65, .3) both;
+        }
+
+        .photo-cell img.photo-enter-flip-y {
+            animation: photo-flip-y-in 900ms cubic-bezier(.2, .72, .2, 1) both;
+        }
+
+        .photo-cell img.photo-exit-flip-y {
+            animation: photo-flip-y-out 900ms cubic-bezier(.4, 0, .65, .3) both;
+        }
+
+        .photo-cell img.photo-enter-zoom {
+            animation: photo-zoom-in 850ms cubic-bezier(.16, .84, .3, 1) both;
+        }
+
+        .photo-cell img.photo-exit-zoom {
+            animation: photo-zoom-out 850ms ease both;
+        }
+
+        .photo-cell img.photo-enter-blur {
+            animation: photo-blur-in 900ms ease both;
+        }
+
+        .photo-cell img.photo-exit-blur {
+            animation: photo-blur-out 900ms ease both;
+        }
+
+        .photo-cell img.photo-enter-tilt {
+            animation: photo-tilt-in 900ms cubic-bezier(.16, .84, .3, 1) both;
+        }
+
+        .photo-cell img.photo-exit-tilt {
+            animation: photo-tilt-out 900ms ease both;
+        }
+
+        @keyframes photo-fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes photo-fade-out {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        @keyframes photo-flip-x-in {
+            from { opacity: 0; transform: perspective(700px) rotateY(-82deg) scale(.9); }
+            to { opacity: 1; transform: perspective(700px) rotateY(0) scale(1); }
+        }
+
+        @keyframes photo-flip-x-out {
+            from { opacity: 1; transform: perspective(700px) rotateY(0) scale(1); }
+            to { opacity: 0; transform: perspective(700px) rotateY(82deg) scale(.9); }
+        }
+
+        @keyframes photo-flip-y-in {
+            from { opacity: 0; transform: perspective(700px) rotateX(82deg) scale(.9); }
+            to { opacity: 1; transform: perspective(700px) rotateX(0) scale(1); }
+        }
+
+        @keyframes photo-flip-y-out {
+            from { opacity: 1; transform: perspective(700px) rotateX(0) scale(1); }
+            to { opacity: 0; transform: perspective(700px) rotateX(-82deg) scale(.9); }
+        }
+
+        @keyframes photo-zoom-in {
+            from { opacity: 0; transform: scale(.72); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        @keyframes photo-zoom-out {
+            from { opacity: 1; transform: scale(1); }
+            to { opacity: 0; transform: scale(1.22); }
+        }
+
+        @keyframes photo-blur-in {
+            from { opacity: 0; filter: blur(18px) brightness(1.35); transform: scale(.92); }
+            to { opacity: 1; filter: blur(0) brightness(1); transform: scale(1); }
+        }
+
+        @keyframes photo-blur-out {
+            from { opacity: 1; filter: blur(0) brightness(1); transform: scale(1); }
+            to { opacity: 0; filter: blur(18px) brightness(.65); transform: scale(1.08); }
+        }
+
+        @keyframes photo-tilt-in {
+            from { opacity: 0; transform: rotate(-9deg) scale(.78); }
+            to { opacity: 1; transform: rotate(0) scale(1); }
+        }
+
+        @keyframes photo-tilt-out {
+            from { opacity: 1; transform: rotate(0) scale(1); }
+            to { opacity: 0; transform: rotate(9deg) scale(.78); }
         }
 
         .overlay {
@@ -149,16 +259,19 @@
         }
 
         @media (prefers-reduced-motion: reduce) {
-            .photo-cell img,
             .overlay {
                 transition-duration: 1ms;
+            }
+
+            .photo-cell img {
+                animation-duration: 1ms !important;
             }
         }
     </style>
 </head>
 <body>
 <main id="photo-wall" aria-label="隨機圖片牆"></main>
-<div id="gesture-hint" class="overlay">左右拉改欄數・上下拉改列數・斜向同時調整</div>
+<div id="gesture-hint" class="overlay">上滑 +1 列・下滑 -1 列・左滑 +1 欄・右滑 -1 欄</div>
 <div id="grid-size" class="overlay" aria-live="polite">3 × 4</div>
 <div id="connection-status" class="overlay" aria-live="polite"></div>
 
@@ -171,6 +284,14 @@
     const gestureHint = document.getElementById('gesture-hint');
     const gridSize = document.getElementById('grid-size');
     const connectionStatus = document.getElementById('connection-status');
+    const transitionNames = ['fade', 'flip-x', 'flip-y', 'zoom', 'blur', 'tilt'];
+    const transitionClasses = transitionNames.flatMap(name => [
+        `photo-enter-${name}`,
+        `photo-exit-${name}`,
+    ]);
+    const transitionDurationMs = 950;
+    const swipeThresholdPx = 44;
+    const swipeAxisToleranceRatio = 0.35;
     const state = {
         columns: clamp(Number(config.initial_columns) || 3, 1, Number(config.max_columns) || 6),
         rows: clamp(Number(config.initial_rows) || 4, 1, Number(config.max_rows) || 8),
@@ -189,9 +310,17 @@
     }
 
     function randomDelay() {
-        const min = Number(config.display_min_ms) || 3000;
-        const max = Math.max(min, Number(config.display_max_ms) || 5000);
+        const min = Number(config.display_min_ms) || 7000;
+        const max = Math.max(min, Number(config.display_max_ms) || 12000);
         return Math.round(min + Math.random() * (max - min));
+    }
+
+    function clearTransitionClasses(layer) {
+        layer.classList.remove(...transitionClasses);
+    }
+
+    function randomTransitionName() {
+        return transitionNames[Math.floor(Math.random() * transitionNames.length)];
     }
 
     function showConnectionStatus(message) {
@@ -301,19 +430,36 @@
             const nextLayer = slot.layers[nextLayerIndex];
             const oldLayer = slot.layers[slot.activeLayer];
 
+            clearTimeout(slot.transitionTimer);
+            clearTransitionClasses(nextLayer);
             nextLayer.classList.remove('is-visible');
             nextLayer.onload = () => {
                 if (token !== slot.token || !slot.element.isConnected) {
                     return;
                 }
 
+                const transitionName = randomTransitionName();
                 slot.currentId = photo.id;
-                nextLayer.classList.add('is-visible');
-                oldLayer.classList.remove('is-visible');
+                clearTransitionClasses(nextLayer);
+                clearTransitionClasses(oldLayer);
+                void nextLayer.offsetWidth;
+                nextLayer.classList.add('is-visible', `photo-enter-${transitionName}`);
+                if (oldLayer.classList.contains('is-visible')) {
+                    oldLayer.classList.add(`photo-exit-${transitionName}`);
+                }
                 slot.activeLayer = nextLayerIndex;
                 nextLayer.onload = null;
                 nextLayer.onerror = null;
-                scheduleReplacement(slot);
+                slot.transitionTimer = setTimeout(() => {
+                    if (token !== slot.token || !slot.element.isConnected) {
+                        return;
+                    }
+
+                    oldLayer.classList.remove('is-visible');
+                    clearTransitionClasses(oldLayer);
+                    clearTransitionClasses(nextLayer);
+                    scheduleReplacement(slot);
+                }, transitionDurationMs);
             };
             nextLayer.onerror = () => {
                 nextLayer.onload = null;
@@ -345,6 +491,7 @@
             activeLayer: 0,
             currentId: null,
             timer: null,
+            transitionTimer: null,
             token: 0,
         };
         state.slots.push(slot);
@@ -353,10 +500,12 @@
 
     function removeSlot(slot) {
         clearTimeout(slot.timer);
+        clearTimeout(slot.transitionTimer);
         slot.token += 1;
         slot.layers.forEach(layer => {
             layer.onload = null;
             layer.onerror = null;
+            clearTransitionClasses(layer);
             layer.src = '';
         });
         slot.element.remove();
@@ -388,104 +537,89 @@
         }
     }
 
-    function touchDistance(touches) {
-        return {
-            x: Math.abs(touches[0].clientX - touches[1].clientX),
-            y: Math.abs(touches[0].clientY - touches[1].clientY),
+    function applySwipe(startX, startY, endX, endY) {
+        const deltaX = endX - startX;
+        const deltaY = endY - startY;
+        const absoluteX = Math.abs(deltaX);
+        const absoluteY = Math.abs(deltaY);
+
+        if (absoluteX < swipeThresholdPx && absoluteY < swipeThresholdPx) {
+            return;
+        }
+
+        if (absoluteX >= swipeThresholdPx && absoluteY <= Math.max(28, absoluteX * swipeAxisToleranceRatio)) {
+            setGrid(state.columns + (deltaX < 0 ? 1 : -1), state.rows);
+            return;
+        }
+
+        if (absoluteY >= swipeThresholdPx && absoluteX <= Math.max(28, absoluteY * swipeAxisToleranceRatio)) {
+            setGrid(state.columns, state.rows + (deltaY < 0 ? 1 : -1));
+        }
+    }
+
+    function beginGesture(x, y) {
+        state.gesture = {
+            startX: x,
+            startY: y,
+            endX: x,
+            endY: y,
         };
+        wall.classList.add('is-resizing');
+        gestureHint.classList.add('is-hidden');
+    }
+
+    function finishGesture() {
+        if (state.gesture) {
+            applySwipe(
+                state.gesture.startX,
+                state.gesture.startY,
+                state.gesture.endX,
+                state.gesture.endY
+            );
+        }
+        state.gesture = null;
+        wall.classList.remove('is-resizing');
     }
 
     wall.addEventListener('touchstart', event => {
         event.preventDefault();
-        gestureHint.classList.add('is-hidden');
-        wall.classList.add('is-resizing');
-
-        if (event.touches.length >= 2) {
-            const distance = touchDistance(event.touches);
-            state.gesture = {
-                mode: 'pinch',
-                columns: state.columns,
-                rows: state.rows,
-                distanceX: Math.max(24, distance.x),
-                distanceY: Math.max(24, distance.y),
-            };
+        if (event.touches.length !== 1) {
+            state.gesture = null;
             return;
         }
 
         const touch = event.touches[0];
-        state.gesture = {
-            mode: 'drag',
-            columns: state.columns,
-            rows: state.rows,
-            x: touch.clientX,
-            y: touch.clientY,
-        };
+        beginGesture(touch.clientX, touch.clientY);
     }, {passive: false});
 
     wall.addEventListener('touchmove', event => {
         event.preventDefault();
-        if (!state.gesture) {
-            return;
-        }
-
-        if (event.touches.length >= 2) {
-            if (state.gesture.mode !== 'pinch') {
-                const distance = touchDistance(event.touches);
-                state.gesture = {
-                    mode: 'pinch',
-                    columns: state.columns,
-                    rows: state.rows,
-                    distanceX: Math.max(24, distance.x),
-                    distanceY: Math.max(24, distance.y),
-                };
-                return;
-            }
-
-            const distance = touchDistance(event.touches);
-            const scaleX = Math.max(.25, distance.x / state.gesture.distanceX);
-            const scaleY = Math.max(.25, distance.y / state.gesture.distanceY);
-            setGrid(state.gesture.columns / scaleX, state.gesture.rows / scaleY);
-            return;
-        }
-
-        if (state.gesture.mode !== 'drag' || event.touches.length !== 1) {
+        if (!state.gesture || event.touches.length !== 1) {
+            state.gesture = null;
             return;
         }
 
         const touch = event.touches[0];
-        const horizontalStep = Math.max(54, window.innerWidth / 5);
-        const verticalStep = Math.max(54, window.innerHeight / 7);
-        const columns = state.gesture.columns + Math.round((touch.clientX - state.gesture.x) / horizontalStep);
-        const rows = state.gesture.rows + Math.round((touch.clientY - state.gesture.y) / verticalStep);
-        setGrid(columns, rows);
+        state.gesture.endX = touch.clientX;
+        state.gesture.endY = touch.clientY;
     }, {passive: false});
 
     wall.addEventListener('touchend', event => {
         event.preventDefault();
-        if (event.touches.length === 1) {
-            const touch = event.touches[0];
-            state.gesture = {
-                mode: 'drag',
-                columns: state.columns,
-                rows: state.rows,
-                x: touch.clientX,
-                y: touch.clientY,
-            };
-            return;
+        if (event.touches.length === 0) {
+            const touch = event.changedTouches[0];
+            if (state.gesture && touch) {
+                state.gesture.endX = touch.clientX;
+                state.gesture.endY = touch.clientY;
+            }
+            finishGesture();
         }
+    }, {passive: false});
 
+    wall.addEventListener('touchcancel', () => {
         state.gesture = null;
         wall.classList.remove('is-resizing');
-    }, {passive: false});
-
-    wall.addEventListener('wheel', event => {
-        event.preventDefault();
-        const direction = event.deltaY > 0 ? 1 : -1;
-        const columns = event.altKey ? state.columns : state.columns + direction;
-        const rows = event.shiftKey ? state.rows : state.rows + direction;
-        setGrid(columns, rows);
-        gestureHint.classList.add('is-hidden');
-    }, {passive: false});
+    });
 
     wall.addEventListener('mousedown', event => {
         if (event.button !== 0) {
@@ -493,15 +627,7 @@
         }
         event.preventDefault();
         state.mouseActive = true;
-        state.gesture = {
-            mode: 'drag',
-            columns: state.columns,
-            rows: state.rows,
-            x: event.clientX,
-            y: event.clientY,
-        };
-        wall.classList.add('is-resizing');
-        gestureHint.classList.add('is-hidden');
+        beginGesture(event.clientX, event.clientY);
     });
 
     window.addEventListener('mousemove', event => {
@@ -509,18 +635,16 @@
             return;
         }
         event.preventDefault();
-        const horizontalStep = Math.max(54, window.innerWidth / 5);
-        const verticalStep = Math.max(54, window.innerHeight / 7);
-        setGrid(
-            state.gesture.columns + Math.round((event.clientX - state.gesture.x) / horizontalStep),
-            state.gesture.rows + Math.round((event.clientY - state.gesture.y) / verticalStep)
-        );
+        state.gesture.endX = event.clientX;
+        state.gesture.endY = event.clientY;
     });
 
     window.addEventListener('mouseup', () => {
+        if (!state.mouseActive) {
+            return;
+        }
         state.mouseActive = false;
-        state.gesture = null;
-        wall.classList.remove('is-resizing');
+        finishGesture();
     });
 
     window.addEventListener('resize', () => setGrid(state.columns, state.rows, false));

@@ -16,8 +16,8 @@ class FolderPhotoService
      */
     public function appConfig(): array
     {
-        $minSeconds = max(1, (int) config('folder_photo.display_min_seconds', 3));
-        $maxSeconds = max($minSeconds, (int) config('folder_photo.display_max_seconds', 5));
+        $minSeconds = max(1, (int) config('folder_photo.display_min_seconds', 7));
+        $maxSeconds = max($minSeconds, (int) config('folder_photo.display_max_seconds', 12));
 
         return [
             'version' => (string) config('folder_photo.app_version'),

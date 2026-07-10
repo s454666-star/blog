@@ -38,8 +38,8 @@ class FolderPhotoControllerTest extends TestCase
         config()->set('folder_photo.initial_rows', 4);
         config()->set('folder_photo.max_columns', 6);
         config()->set('folder_photo.max_rows', 8);
-        config()->set('folder_photo.display_min_seconds', 3);
-        config()->set('folder_photo.display_max_seconds', 5);
+        config()->set('folder_photo.display_min_seconds', 7);
+        config()->set('folder_photo.display_max_seconds', 12);
         config()->set('folder_photo.app_version', 'test-photo-version');
         config()->set('folder_photo.android_apk_version_code', 7);
         config()->set('folder_photo.android_apk_version_name', 'test-photo-apk');
@@ -97,8 +97,8 @@ class FolderPhotoControllerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.initial_columns', 3)
             ->assertJsonPath('data.initial_rows', 4)
-            ->assertJsonPath('data.display_min_ms', 3000)
-            ->assertJsonPath('data.display_max_ms', 5000);
+            ->assertJsonPath('data.display_min_ms', 7000)
+            ->assertJsonPath('data.display_max_ms', 12000);
 
         $this->getJson('/folder-photo-app/version.json')
             ->assertOk()
@@ -121,7 +121,10 @@ class FolderPhotoControllerTest extends TestCase
             ->assertOk()
             ->assertSee('id="photo-wall"', false)
             ->assertSee('object-fit: contain', false)
-            ->assertSee('display_min_ms', false);
+            ->assertSee('display_min_ms', false)
+            ->assertSee('上滑 +1 列', false)
+            ->assertSee('photo-enter-flip-x', false)
+            ->assertDontSee('touchDistance', false);
 
         $this->get('/folder-photo-app/folder-photo-app.apk')
             ->assertOk()

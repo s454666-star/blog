@@ -57,7 +57,7 @@ class RouteServiceProvider extends ServiceProvider
     protected function configureRateLimiting()
     {
         RateLimiter::for('api', function (Request $request) {
-            if ($request->routeIs('folder-videos.*')) {
+            if ($request->routeIs('folder-videos.*') || $request->routeIs('folder-photos.*')) {
                 return Limit::none();
             }
 

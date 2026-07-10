@@ -13,8 +13,9 @@ use App\Http\Controllers\ExternalVideoDuplicateController;
 use App\Http\Controllers\ExtractController;
 use App\Http\Controllers\FaceIdentityController;
 use App\Http\Controllers\FetchController;
-use App\Http\Controllers\GalleryController;
+use App\Http\Controllers\FolderPhotoAppController;
 use App\Http\Controllers\FolderVideoAppController;
+use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\IgGrabController;
 use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
@@ -90,6 +91,11 @@ Route::get('/folder-video-app/android-version.json', [FolderVideoAppController::
 Route::get('/folder-video-app/folder-video-app.apk', [FolderVideoAppController::class, 'androidApk'])->name('folder-video-app.android-apk');
 Route::get('/folder-video-app/manifest.webmanifest', [FolderVideoAppController::class, 'manifest'])->name('folder-video-app.manifest');
 Route::get('/folder-video-app/sw.js', [FolderVideoAppController::class, 'serviceWorker'])->name('folder-video-app.service-worker');
+
+Route::get('/folder-photo-app', [FolderPhotoAppController::class, 'index'])->name('folder-photo-app.index');
+Route::get('/folder-photo-app/version.json', [FolderPhotoAppController::class, 'version'])->name('folder-photo-app.version');
+Route::get('/folder-photo-app/android-version.json', [FolderPhotoAppController::class, 'androidVersion'])->name('folder-photo-app.android-version');
+Route::get('/folder-photo-app/folder-photo-app.apk', [FolderPhotoAppController::class, 'androidApk'])->name('folder-photo-app.android-apk');
 
 Route::get('/command-runner', [CommandRunnerController::class, 'index'])->name('command-runner.index');
 Route::post('/command-runner/run', [CommandRunnerController::class, 'run'])->name('command-runner.run');

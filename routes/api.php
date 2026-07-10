@@ -7,6 +7,7 @@
     use App\Http\Controllers\CreditCardController;
     use App\Http\Controllers\DeliveryAddressController;
     use App\Http\Controllers\FileScreenshotController;
+    use App\Http\Controllers\FolderPhotoController;
     use App\Http\Controllers\FolderVideoController;
     use App\Http\Controllers\LineWebhookController;
     use App\Http\Controllers\MemberController;
@@ -127,3 +128,6 @@
     Route::post('/folder-videos/{id}/like', [FolderVideoController::class, 'like'])->name('folder-videos.like');
     Route::delete('/folder-videos/{id}/like', [FolderVideoController::class, 'unlike'])->name('folder-videos.unlike');
     Route::delete('/folder-videos/{id}', [FolderVideoController::class, 'destroy'])->name('folder-videos.destroy');
+    Route::get('/folder-photos/app-config', [FolderPhotoController::class, 'appConfig'])->name('folder-photos.app-config');
+    Route::get('/folder-photos/random', [FolderPhotoController::class, 'random'])->name('folder-photos.random');
+    Route::get('/folder-photos/{id}', [FolderPhotoController::class, 'show'])->name('folder-photos.show');

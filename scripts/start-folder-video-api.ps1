@@ -9,6 +9,7 @@ param(
     [string]$BindAddress = "0.0.0.0",
     [string]$MediaRoot = "",
     [string]$MediaShare = "",
+    [string]$PhotoRoot = "",
     [int]$MediaWaitSeconds = 120
 )
 
@@ -133,6 +134,14 @@ function Test-MediaRoot {
     }
 }
 
+function Test-PhotoRoot {
+    try {
+        return [bool](Test-Path -LiteralPath $PhotoRoot -PathType Container -ErrorAction Stop)
+    } catch {
+        return $false
+    }
+}
+
 function Restore-MediaDrive {
     if ([string]::IsNullOrWhiteSpace($MediaShare)) {
         return
@@ -224,6 +233,15 @@ if ([string]::IsNullOrWhiteSpace($MediaShare)) {
 if (-not (Wait-ForMediaRoot)) {
     throw "Folder video media root is not available: $MediaRoot"
 }
+if ([string]::IsNullOrWhiteSpace($PhotoRoot)) {
+    $PhotoRoot = Get-EnvFileValue -Name "FOLDER_PHOTO_ROOT"
+}
+if ([string]::IsNullOrWhiteSpace($PhotoRoot)) {
+    $PhotoRoot = "\\mc\photo"
+}
+if (-not (Test-PhotoRoot)) {
+    throw "Folder photo media root is not available: $PhotoRoot"
+}
 
 $phpExe = (Get-Command php -ErrorAction Stop).Source
 
@@ -288,13 +306,35 @@ $configText = @"
         }
     }
 
-    @media path /folder-video-media/*
-    handle @media {
+    @folderPhotoApp path /folder-photo-app /folder-photo-app/version.json /folder-photo-app/android-version.json /folder-photo-app/folder-photo-app.apk
+    handle @folderPhotoApp {
+        rewrite * /index.php{path}
+        reverse_proxy 127.0.0.1:$LaravelPort {
+            header_up Host {host}
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Port $Port
+        }
+    }
+
+    @videoMedia path /folder-video-media/*
+    handle @videoMedia {
         uri strip_prefix /folder-video-media
         root * "$MediaRoot"
         header {
             Cache-Control "private, max-age=600"
             Accept-Ranges "bytes"
+            X-Content-Type-Options "nosniff"
+        }
+        file_server
+    }
+
+    @photoMedia path /folder-photo-media/*
+    handle @photoMedia {
+        uri strip_prefix /folder-photo-media
+        root * "$PhotoRoot"
+        header {
+            Cache-Control "public, max-age=86400"
             X-Content-Type-Options "nosniff"
         }
         file_server
@@ -337,7 +377,9 @@ $lanIps = Get-LanIps
     laravel_port = $LaravelPort
     bind_address = $BindAddress
     media_root = $MediaRoot
+    photo_root = $PhotoRoot
     static_stream_path = "/folder-video-media"
+    static_photo_path = "/folder-photo-media"
     caddy_config = $caddyConfig
     caddy_stdout_log = $caddyStdoutLog
     caddy_stderr_log = $caddyStderrLog
@@ -351,5 +393,6 @@ foreach ($ip in $lanIps) {
     Write-Host "URL: http://$ip`:$Port/folder-video-app"
 }
 Write-Host "Media root: $MediaRoot"
+Write-Host "Photo root: $PhotoRoot"
 Write-Host "Caddy PID: $($caddyProcess.Id)"
 Write-Host "Laravel PID: $($laravelProcess.Id)"

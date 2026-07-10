@@ -1128,6 +1128,11 @@
 
             const normalize = value => value.toLocaleLowerCase('zh-Hant').trim();
 
+            const activateFilter = filter => {
+                activeFilter = filter;
+                filters.forEach(item => item.classList.toggle('active', item.dataset.filter === filter));
+            };
+
             const applyFilters = () => {
                 const query = normalize(search.value);
                 let visibleCount = 0;
@@ -1157,13 +1162,18 @@
 
             filters.forEach(button => {
                 button.addEventListener('click', () => {
-                    activeFilter = button.dataset.filter;
-                    filters.forEach(item => item.classList.toggle('active', item === button));
+                    activateFilter(button.dataset.filter);
                     applyFilters();
                 });
             });
 
-            search.addEventListener('input', applyFilters);
+            search.addEventListener('input', () => {
+                if (normalize(search.value) !== '' && activeFilter !== 'all') {
+                    activateFilter('all');
+                }
+
+                applyFilters();
+            });
 
             document.addEventListener('keydown', event => {
                 const tag = document.activeElement?.tagName?.toLowerCase();

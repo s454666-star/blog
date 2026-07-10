@@ -34,6 +34,8 @@ class NavigationHubTest extends TestCase
             ->assertSee('data-filter="production"', false)
             ->assertSee('data-filter="staging"', false)
             ->assertSee('data-filter="alpha"', false)
+            ->assertSee("activateFilter('all')", false)
+            ->assertSee("normalize(search.value) !== ''", false)
             ->assertSee('https://polar.worldvision.org.tw', false)
             ->assertSee('https://staging-polar-api.worldvision.org.tw', false)
             ->assertSee('https://alpha-polar-api-internal.worldvision.org.tw', false)

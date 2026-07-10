@@ -434,6 +434,7 @@
         .toolbar {
             display: flex;
             align-items: center;
+            flex-wrap: wrap;
             gap: 12px;
             padding: 11px;
             border: 1px solid var(--line);
@@ -444,8 +445,9 @@
 
         .search-box {
             position: relative;
-            flex: 1 1 360px;
+            flex: 1 1 340px;
             min-width: 220px;
+            max-width: 520px;
         }
 
         .search-box svg {
@@ -491,7 +493,9 @@
 
         .filters {
             display: flex;
-            flex: 0 0 auto;
+            flex: 1 1 680px;
+            flex-wrap: wrap;
+            justify-content: flex-start;
             gap: 7px;
         }
 
@@ -844,8 +848,15 @@
             .hero { padding-top: 34px; }
             .topline { margin-bottom: 44px; }
             .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .toolbar { flex-wrap: wrap; }
-            .filters { order: 3; width: 100%; overflow-x: auto; }
+            .search-box { max-width: none; }
+            .filters {
+                order: 3;
+                width: 100%;
+                flex-wrap: nowrap;
+                justify-content: flex-start;
+                overflow-x: auto;
+                scrollbar-width: thin;
+            }
             .filter-button { flex: 1 0 auto; }
             .result-count { min-width: 58px; }
             .group-heading { align-items: flex-start; flex-direction: column; gap: 10px; }
@@ -931,11 +942,17 @@
                 <input id="resource-search" type="search" autocomplete="off" placeholder="搜尋頁面、工具或網址…" aria-label="搜尋頁面、工具或網址">
                 <span class="shortcut" aria-hidden="true">/</span>
             </label>
-            <div class="filters" aria-label="入口類型">
+            <div class="filters" aria-label="頁面區塊">
                 <button class="filter-button active" type="button" data-filter="all">全部</button>
-                <button class="filter-button" type="button" data-filter="aws">AWS 前端</button>
-                <button class="filter-button" type="button" data-filter="work">工作系統</button>
-                <button class="filter-button" type="button" data-filter="k8s">K8S 環境</button>
+                @foreach ($awsSections as $section)
+                    <button class="filter-button" type="button" data-filter="{{ $section['id'] }}">{{ $section['title'] }}</button>
+                @endforeach
+                <button class="filter-button" type="button" data-filter="workspace">日常工作系統</button>
+                @foreach ($environments as $environment)
+                    <button class="filter-button" type="button" data-filter="{{ $environment['id'] }}">
+                        {{ $environment['name'] }}{{ $environment['english'] === 'Production' ? '' : ' ' . $environment['english'] }}
+                    </button>
+                @endforeach
             </div>
             <div class="result-count" id="result-count" aria-live="polite">{{ $awsCount + count($workLinks) + $k8sCount }} LINKS</div>
         </div>
@@ -950,6 +967,7 @@
                 class="group-shell"
                 data-resource-group
                 data-kind="aws"
+                data-section="{{ $section['id'] }}"
                 style="--accent: {{ $section['accent'] }}; --accent-rgb: {{ $section['accentRgb'] }}; --order: {{ $sectionIndex }};"
             >
                 <div class="group-heading">
@@ -969,6 +987,7 @@
                             rel="noopener noreferrer"
                             data-resource-card
                             data-kind="aws"
+                            data-section="{{ $section['id'] }}"
                             data-search="{{ $link['title'] }} {{ $link['description'] }} {{ $link['url'] }}"
                         >
                             <span class="card-inner">
@@ -995,6 +1014,7 @@
             class="group-shell"
             data-resource-group
             data-kind="work"
+            data-section="workspace"
             style="--accent: #22d3ee; --accent-rgb: 34, 211, 238; --order: 4;"
         >
             <div class="group-heading">
@@ -1014,6 +1034,7 @@
                         rel="noopener noreferrer"
                         data-resource-card
                         data-kind="work"
+                        data-section="workspace"
                         data-search="{{ $link['title'] }} {{ $link['description'] }} {{ $link['meta'] }} {{ $link['url'] }}"
                     >
                         <span class="card-inner">
@@ -1040,6 +1061,7 @@
                 class="group-shell environment-shell"
                 data-resource-group
                 data-kind="k8s"
+                data-section="{{ $environment['id'] }}"
                 style="--tone: {{ $environment['tone'] }}; --tone-rgb: {{ $environment['toneRgb'] }}; --order: {{ $environmentIndex + 5 }};"
             >
                 <div class="group-heading">
@@ -1062,6 +1084,7 @@
                             rel="noopener noreferrer"
                             data-resource-card
                             data-kind="k8s"
+                            data-section="{{ $environment['id'] }}"
                             data-search="{{ $environment['name'] }} {{ $environment['english'] }} {{ $link['title'] }} {{ $link['description'] }} {{ $link['meta'] }} {{ $link['url'] }}"
                         >
                             <span class="card-inner">
@@ -1110,9 +1133,9 @@
                 let visibleCount = 0;
 
                 cards.forEach(card => {
-                    const matchesKind = activeFilter === 'all' || card.dataset.kind === activeFilter;
+                    const matchesSection = activeFilter === 'all' || card.dataset.section === activeFilter;
                     const matchesQuery = !query || normalize(card.dataset.search || card.textContent).includes(query);
-                    const visible = matchesKind && matchesQuery;
+                    const visible = matchesSection && matchesQuery;
                     card.hidden = !visible;
                     if (visible) visibleCount += 1;
                 });

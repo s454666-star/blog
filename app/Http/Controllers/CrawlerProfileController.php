@@ -7,6 +7,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use SplFileInfo;
 
 class CrawlerProfileController extends Controller
@@ -77,7 +78,7 @@ class CrawlerProfileController extends Controller
             'areas' => $areas,
             'source' => $source,
             'perPage' => $perPage,
-            'localLoginUrl' => config('crawler.85sugarbaby.local_login_url'),
+            'localLoginUrl' => route('crawler.profiles.login-session', [], false),
             'crawlerEnabled' => (bool) config('crawler.85sugarbaby.enabled', true),
             'crawlerRuntime' => $this->crawlerRuntimeStatus(),
         ]);
@@ -91,16 +92,21 @@ class CrawlerProfileController extends Controller
                 ->with('crawler_status', '測試模式已略過啟動 Chrome。');
         }
 
-        if (PHP_OS_FAMILY !== 'Windows') {
+        $manualRefreshLock = 'crawler:85sugarbaby:manual-session-refresh';
+        if (! Cache::add($manualRefreshLock, true, now()->addMinute())) {
             return redirect()
                 ->route('crawler.profiles')
-                ->with('crawler_error', '這個登入按鈕需要在本機 Windows 的 blog.test 執行；AWS 主機沒有可互動 Chrome 視窗。');
+                ->with('crawler_status', 'AWS Session 驗證與抓取已在執行，請稍後重新整理。');
         }
 
-        $command = $this->crawlerLoginLauncherCommand();
+        $command = PHP_OS_FAMILY === 'Windows'
+            ? $this->crawlerLoginLauncherCommand()
+            : $this->crawlerAwsRefreshCommand();
 
         $handle = popen($command, 'r');
         if ($handle === false) {
+            Cache::forget($manualRefreshLock);
+
             return redirect()
                 ->route('crawler.profiles')
                 ->with('crawler_error', '無法啟動登入用 Chrome，請改用 php artisan crawler:85sugarbaby-login。');
@@ -108,9 +114,13 @@ class CrawlerProfileController extends Controller
 
         pclose($handle);
 
+        $message = PHP_OS_FAMILY === 'Windows'
+            ? '已啟動登入用 Chrome。完成 Google 登入後，排程會用更新後的 Session 繼續抓資料。'
+            : '已在 AWS 啟動 Session 驗證與抓取，完成後排程會延續使用更新後的 Session。';
+
         return redirect()
             ->route('crawler.profiles')
-            ->with('crawler_status', '已啟動登入用 Chrome。完成 Google 登入後，排程會用更新後的 session 繼續抓資料。');
+            ->with('crawler_status', $message);
     }
 
     private function crawlerLoginLauncherCommand(): string
@@ -133,6 +143,17 @@ class CrawlerProfileController extends Controller
     private function cmdQuote(string $value): string
     {
         return '"' . str_replace('"', '\"', $value) . '"';
+    }
+
+    private function crawlerAwsRefreshCommand(): string
+    {
+        return sprintf(
+            'cd %s && nohup %s artisan crawler:85sugarbaby-import --headless --source=85sugarbaby_active_flow --limit=20 --age-min=18 --age-max=22 --areas=%s --timeout=90 >> %s 2>&1 &',
+            escapeshellarg(base_path()),
+            escapeshellarg('/usr/bin/php'),
+            escapeshellarg('台北,新北'),
+            escapeshellarg(storage_path('logs/crawler_85sugarbaby_manual.log'))
+        );
     }
 
     private function resolveDefaultSource(): string

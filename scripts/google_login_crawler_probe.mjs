@@ -82,19 +82,10 @@ async function main() {
   await cdp.send('Page.navigate', { url: targetUrl });
   await waitForDocumentReady(cdp, timeoutAt);
 
-  if (clickGoogle) {
-    const clicked = await clickGoogleLoginButton(cdp);
-    if (clicked?.clicked) {
-      log(`Clicked Google login button: ${clicked.text || '(matched element)'}`);
-      await sleep(1500);
-    } else {
-      log('No visible Google login button was found on the target page.');
-    }
-  }
-
   let status = 'captured';
   let reason = 'page-ready';
   let emailPrefillAttempted = false;
+  let googleLoginClickAttempted = false;
   let lastProgressAt = 0;
   let snapshot = null;
 
@@ -105,6 +96,29 @@ async function main() {
       status = 'selector_matched';
       reason = `wait selector matched: ${waitSelector}`;
       break;
+    }
+
+    if (detectCloudflareVerification(snapshot)) {
+      status = 'cloudflare_verification_needed';
+      reason = 'waiting for 85sugarbaby Cloudflare security verification';
+      if (Date.now() - lastProgressAt > 5000) {
+        lastProgressAt = Date.now();
+        log(`Waiting for Cloudflare verification... currentUrl=${snapshot.url} title=${JSON.stringify(snapshot.title)}`);
+      }
+      await sleep(1000);
+      continue;
+    }
+
+    if (clickGoogle && !isGoogleLoginUrl(snapshot.url) && detect85SugarbabyLogin(snapshot) && !googleLoginClickAttempted) {
+      googleLoginClickAttempted = true;
+      const clicked = await clickGoogleLoginButton(cdp);
+      if (clicked?.clicked) {
+        log(`Clicked Google login button: ${clicked.text || '(matched element)'}`);
+        await sleep(1500);
+        continue;
+      }
+
+      log('No visible Google login button was found on the target page.');
     }
 
     if (isGoogleLoginUrl(snapshot.url) && email !== '' && !emailPrefillAttempted) {

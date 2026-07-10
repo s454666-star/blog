@@ -78,6 +78,7 @@ class Crawler85SugarbabyImportCommandTest extends TestCase
         $this->crawlerLoginStatusTempDir = storage_path('framework/testing/85sugarbaby-login-status-' . uniqid('', true));
         config()->set('crawler.85sugarbaby.import_output_dir', $this->crawlerStatusTempDir);
         config()->set('crawler.85sugarbaby.login_output_dir', $this->crawlerLoginStatusTempDir);
+        config()->set('crawler.85sugarbaby.enabled', true);
     }
 
     protected function tearDown(): void
@@ -184,6 +185,16 @@ class Crawler85SugarbabyImportCommandTest extends TestCase
             ->assertSee('第一次建檔時間新到舊')
             ->assertSee('重新登入 Session')
             ->assertSee('2026-06-28 15:21:56');
+    }
+
+    public function test_dashboard_session_link_always_targets_the_current_application(): void
+    {
+        config()->set('crawler.85sugarbaby.local_login_url', 'https://blog.test/crawler/85sugarbaby/session/login');
+
+        $this->get('/crawler/85sugarbaby')
+            ->assertOk()
+            ->assertSee('href="/crawler/85sugarbaby/session/login"', false)
+            ->assertDontSee('https://blog.test/crawler/85sugarbaby/session/login', false);
     }
 
     public function test_dashboard_shows_session_expired_when_latest_probe_requires_login(): void

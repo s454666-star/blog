@@ -31,9 +31,11 @@ class GoogleLoginCrawlerTestCommandTest extends TestCase
     {
         $exitCode = $this->artisan('crawler:85sugarbaby-test', [
             '--timeout' => 5,
+            '--proxy-server' => 'socks5://127.0.0.1:10885',
             '--dry-run' => true,
         ])
             ->expectsOutputToContain('--cookie-state=')
+            ->expectsOutputToContain('--proxy-server=socks5://127.0.0.1:10885')
             ->run();
 
         $this->assertSame(0, $exitCode);

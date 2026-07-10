@@ -13,6 +13,7 @@ class SugarbabyCrawlerTestCommand extends Command
                             {url=https://85sugarbaby.com.tw/home : Target page URL}
                             {--profile= : Chrome profile directory that stores the reusable login session}
                             {--output-dir= : Directory for crawler output files}
+                            {--proxy-server= : Browser proxy override}
                             {--timeout=90 : Seconds to wait for page load and API responses}
                             {--active-clicks=0 : Click/test the active member stream this many times and save only anonymous summary}
                             {--raw-api-probe : Save raw API endpoint responses for local debugging}
@@ -78,8 +79,12 @@ class SugarbabyCrawlerTestCommand extends Command
             }
         }
 
+        $this->appendConfiguredProxy($args);
+
         if ((bool) $this->option('dry-run')) {
-            $this->line(json_encode($args, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            foreach ($args as $argument) {
+                $this->line($argument);
+            }
 
             return self::SUCCESS;
         }
@@ -131,5 +136,13 @@ class SugarbabyCrawlerTestCommand extends Command
             'crawler.85sugarbaby.cookie_state_path',
             storage_path('app/google-login-crawler/85sugarbaby-session-cookies.json')
         );
+    }
+
+    private function appendConfiguredProxy(array &$args): void
+    {
+        $proxyServer = trim((string) ($this->option('proxy-server') ?: config('crawler.85sugarbaby.proxy_server', '')));
+        if ($proxyServer !== '') {
+            $args[] = '--proxy-server=' . $proxyServer;
+        }
     }
 }

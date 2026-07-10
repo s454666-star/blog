@@ -24,6 +24,7 @@ class Crawler85SugarbabyImportCommand extends Command
                              {--active-clicks=1 : Number of times to click the active button for pagination-like refresh}
                              {--source=85sugarbaby_active_flow : Deduplication source label}
                              {--output-dir= : Directory for crawler output files}
+                             {--proxy-server= : Browser proxy override}
                              {--headless : Run without a visible browser window}
                              {--clear-source : Deprecated no-op; imports are append-only}
                              {--backfill-only : Only backfill missing chat links using existing rows of source}
@@ -138,6 +139,8 @@ class Crawler85SugarbabyImportCommand extends Command
         if ((bool) $this->option('headless')) {
             $args[] = '--headless';
         }
+
+        $this->appendConfiguredProxy($args);
 
         $this->info('Running 85sugarbaby crawler probe and import flow...');
         $process = new Process($args, base_path(), null, null, max(30, (int) $this->option('timeout') + 25));
@@ -627,5 +630,13 @@ class Crawler85SugarbabyImportCommand extends Command
             'crawler.85sugarbaby.cookie_state_path',
             storage_path('app/google-login-crawler/85sugarbaby-session-cookies.json')
         );
+    }
+
+    private function appendConfiguredProxy(array &$args): void
+    {
+        $proxyServer = trim((string) ($this->option('proxy-server') ?: config('crawler.85sugarbaby.proxy_server', '')));
+        if ($proxyServer !== '') {
+            $args[] = '--proxy-server=' . $proxyServer;
+        }
     }
 }

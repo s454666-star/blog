@@ -30,6 +30,7 @@ const clickGoogle = Boolean(options['click-google']);
 const headless = Boolean(options.headless);
 const keepOpen = Boolean(options['keep-open']);
 const probe85Sugarbaby = Boolean(options['probe-85sugarbaby']);
+const proxyServer = String(options['proxy-server'] || '').trim();
 
 let chromeProcess = null;
 let cdp = null;
@@ -63,11 +64,14 @@ async function main() {
   }
 
   const chromePath = resolveChromePath(String(options.chrome || '').trim());
-  const { port, target: initialTarget } = await startChromeWithRetry(chromePath, profileDir, headless);
+  const { port, target: initialTarget } = await startChromeWithRetry(chromePath, profileDir, headless, proxyServer);
 
   log(`Chrome: ${chromePath}`);
   log(`Profile: ${profileDir}`);
   log(`Opening: ${targetUrl}`);
+  if (proxyServer !== '') {
+    log('Proxy: configured');
+  }
   log('If Google asks for password, passkey, or 2-step verification, complete it in the visible Chrome window.');
 
   const version = await waitForJson(`http://127.0.0.1:${port}/json/version`, 12000);
@@ -202,6 +206,7 @@ async function main() {
     meta_output: metaOutput,
     api_output: apiOutput || null,
     api_probe_enabled: probe85Sugarbaby,
+    proxy_server_configured: proxyServer !== '',
     api_probe_summary: summarizeApiProbe(apiProbe),
     cookie_state_path: cookieStatePath || null,
     cookie_state_loaded: cookieStateLoad,
@@ -329,7 +334,7 @@ async function findOpenPort() {
   });
 }
 
-function spawnChrome(chromePath, port, userDataDir, shouldRunHeadless) {
+function spawnChrome(chromePath, port, userDataDir, shouldRunHeadless, configuredProxyServer) {
   const args = [
     `--remote-debugging-port=${port}`,
     '--remote-debugging-address=127.0.0.1',
@@ -345,6 +350,10 @@ function spawnChrome(chromePath, port, userDataDir, shouldRunHeadless) {
 
   if (shouldRunHeadless) {
     args.splice(args.length - 1, 0, '--headless=new', '--disable-gpu');
+  }
+
+  if (configuredProxyServer) {
+    args.splice(args.length - 1, 0, `--proxy-server=${configuredProxyServer}`);
   }
 
   return spawn(chromePath, args, {
@@ -404,7 +413,7 @@ function requestJson(url) {
   });
 }
 
-async function startChromeWithRetry(chromePath, userDataDir, shouldRunHeadless) {
+async function startChromeWithRetry(chromePath, userDataDir, shouldRunHeadless, configuredProxyServer) {
   const maxAttempts = 4;
   let lastError = null;
 
@@ -412,7 +421,7 @@ async function startChromeWithRetry(chromePath, userDataDir, shouldRunHeadless) 
     const port = await findOpenPort();
     log(`Launching Chrome attempt ${attempt}/${maxAttempts} on port ${port}`);
     try {
-      chromeProcess = spawnChrome(chromePath, port, userDataDir, shouldRunHeadless);
+      chromeProcess = spawnChrome(chromePath, port, userDataDir, shouldRunHeadless, configuredProxyServer);
       const target = await firstPageTarget(port);
       return { port, target };
     } catch (error) {

@@ -13,6 +13,7 @@ class Crawler85SugarbabyLoginCommand extends Command
     protected $signature = 'crawler:85sugarbaby-login
                             {--url=https://85sugarbaby.com.tw/home : Target page URL}
                             {--profile= : Chrome user data directory that stores the reusable login session}
+                            {--proxy-server= : Browser proxy override}
                             {--timeout=1200 : Seconds to keep the login browser flow alive}';
 
     protected $description = 'Open a visible browser for refreshing the reusable 85sugarbaby crawler login session.';
@@ -65,6 +66,8 @@ class Crawler85SugarbabyLoginCommand extends Command
                 '--click-google',
             ];
 
+            $this->appendConfiguredProxy($args);
+
             $this->info('Opening visible Chrome for 85sugarbaby login session refresh...');
             $process = new Process($args, base_path(), null, null, max(60, (int) $this->option('timeout') + 30));
             $process->run(function (string $type, string $buffer): void {
@@ -98,5 +101,13 @@ class Crawler85SugarbabyLoginCommand extends Command
             'crawler.85sugarbaby.cookie_state_path',
             storage_path('app/google-login-crawler/85sugarbaby-session-cookies.json')
         );
+    }
+
+    private function appendConfiguredProxy(array &$args): void
+    {
+        $proxyServer = trim((string) ($this->option('proxy-server') ?: config('crawler.85sugarbaby.proxy_server', '')));
+        if ($proxyServer !== '') {
+            $args[] = '--proxy-server=' . $proxyServer;
+        }
     }
 }

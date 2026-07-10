@@ -301,6 +301,16 @@
             display: grid;
         }
 
+        .viewer.video-mode {
+            grid-template-rows: minmax(0, 1fr);
+            padding-bottom: 0;
+            background: #000;
+        }
+
+        .viewer.video-mode .viewer-header {
+            display: none;
+        }
+
         .viewer-header {
             min-height: 58px;
             display: grid;
@@ -322,11 +332,17 @@
         }
 
         .viewer-content {
+            position: relative;
             min-height: 0;
             display: grid;
             place-items: center;
             overflow: hidden;
             background: #02050a;
+        }
+
+        .viewer.video-mode .viewer-content {
+            touch-action: none;
+            background: #000;
         }
 
         .viewer-content video,
@@ -343,6 +359,92 @@
         .viewer-content video.active,
         .viewer-content img.active {
             display: block;
+        }
+
+        .video-overlay-controls {
+            position: absolute;
+            inset: 0;
+            z-index: 4;
+            display: none;
+            pointer-events: none;
+        }
+
+        .viewer.video-mode .video-overlay-controls {
+            display: block;
+        }
+
+        .video-back-button,
+        .video-skip-button {
+            position: absolute;
+            display: grid;
+            place-items: center;
+            border: 1px solid rgba(255, 255, 255, .22);
+            border-radius: 999px;
+            color: #fff;
+            background: rgba(0, 0, 0, .42);
+            box-shadow: 0 8px 26px rgba(0, 0, 0, .35);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            pointer-events: auto;
+        }
+
+        .video-back-button {
+            top: calc(env(safe-area-inset-top) + 10px);
+            left: 10px;
+            width: 46px;
+            height: 46px;
+            font-size: 34px;
+            line-height: 1;
+        }
+
+        .video-skip-button {
+            top: 50%;
+            width: 70px;
+            height: 70px;
+            padding: 0;
+            transform: translateY(-50%);
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .video-skip-button.rewind {
+            left: max(18px, 10vw);
+        }
+
+        .video-skip-button.forward {
+            right: max(18px, 10vw);
+        }
+
+        .video-skip-button span {
+            display: block;
+            font-size: 23px;
+            line-height: .9;
+        }
+
+        .video-seek-flash {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            z-index: 6;
+            display: grid;
+            min-width: 94px;
+            min-height: 94px;
+            padding: 12px;
+            place-items: center;
+            border-radius: 999px;
+            color: #fff;
+            background: rgba(0, 0, 0, .6);
+            font-size: 21px;
+            font-weight: 850;
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(.92);
+            transition: opacity .14s ease, transform .14s ease;
+            pointer-events: none;
+        }
+
+        .video-seek-flash.visible {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
         }
 
         .text-viewer {
@@ -409,6 +511,12 @@
         <img id="image-viewer" alt="">
         <pre id="text-viewer" class="text-viewer"></pre>
         <div id="viewer-message" class="viewer-message"></div>
+        <div id="video-overlay-controls" class="video-overlay-controls" aria-hidden="true">
+            <button id="video-back" class="video-back-button" type="button" aria-label="回清單">‹</button>
+            <button id="video-rewind" class="video-skip-button rewind" type="button" aria-label="倒退 10 秒"><span>↶</span>10 秒</button>
+            <button id="video-forward" class="video-skip-button forward" type="button" aria-label="快進 10 秒"><span>↷</span>10 秒</button>
+        </div>
+        <div id="video-seek-flash" class="video-seek-flash"></div>
     </div>
 </div>
 
@@ -419,6 +527,9 @@
     'use strict';
 
     const config = @json($appConfig);
+    const VIDEO_HOLD_SEEK_MS = 260;
+    const VIDEO_DRAG_SEEK_STEP_PX = 42;
+    const VIDEO_DRAG_SEEK_RATIO = .05;
     const elements = {
         back: document.getElementById('back-button'),
         refresh: document.getElementById('refresh-button'),
@@ -437,6 +548,12 @@
         image: document.getElementById('image-viewer'),
         text: document.getElementById('text-viewer'),
         viewerMessage: document.getElementById('viewer-message'),
+        viewerContent: document.querySelector('.viewer-content'),
+        videoOverlayControls: document.getElementById('video-overlay-controls'),
+        videoBack: document.getElementById('video-back'),
+        videoRewind: document.getElementById('video-rewind'),
+        videoForward: document.getElementById('video-forward'),
+        videoSeekFlash: document.getElementById('video-seek-flash'),
         toast: document.getElementById('toast'),
     };
     const state = {
@@ -449,7 +566,14 @@
         viewerEntry: null,
         requestToken: 0,
         toastTimer: null,
+        videoSeekFlashTimer: null,
     };
+
+    let stopVideoDragSeek = () => {};
+
+    function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+    }
 
     function iconFor(entry) {
         if (entry.kind === 'directory') return entry.available === false ? '☁' : '📁';
@@ -673,8 +797,112 @@
         }
     }
 
+    function setVideoFullscreen(enabled) {
+        elements.viewer.classList.toggle('video-mode', enabled);
+        elements.videoOverlayControls.setAttribute('aria-hidden', enabled ? 'false' : 'true');
+        try {
+            if (
+                window.NasViewerAndroid
+                && typeof window.NasViewerAndroid.setVideoFullscreenEnabled === 'function'
+            ) {
+                window.NasViewerAndroid.setVideoFullscreenEnabled(Boolean(enabled));
+            }
+        } catch (error) {
+        }
+    }
+
+    function showVideoSeekFlash(label) {
+        elements.videoSeekFlash.textContent = label;
+        elements.videoSeekFlash.classList.add('visible');
+        clearTimeout(state.videoSeekFlashTimer);
+        state.videoSeekFlashTimer = setTimeout(
+            () => elements.videoSeekFlash.classList.remove('visible'),
+            650
+        );
+    }
+
+    function seekVideo(seconds, label = null) {
+        const duration = Number(elements.video.duration || 0);
+        if (!duration || !Number.isFinite(duration)) return;
+        elements.video.currentTime = clamp(Number(elements.video.currentTime || 0) + seconds, 0, duration);
+        showVideoSeekFlash(label || (seconds > 0 ? `+${seconds} 秒` : `${seconds} 秒`));
+    }
+
+    function seekVideoByRatio(stepCount) {
+        const duration = Number(elements.video.duration || 0);
+        if (!duration || !Number.isFinite(duration) || !stepCount) return;
+        const percent = stepCount * VIDEO_DRAG_SEEK_RATIO;
+        const labelPercent = Math.round(percent * 100);
+        seekVideo(duration * percent, `${labelPercent > 0 ? '+' : ''}${labelPercent}%`);
+    }
+
+    function bindVideoSeekGestures() {
+        let startX = 0;
+        let startY = 0;
+        let holdSeekTimer = null;
+        let holdSeekArmed = false;
+        let dragSeekApplied = false;
+        let dragSeekStepIndex = 0;
+
+        const clearDragSeek = () => {
+            clearTimeout(holdSeekTimer);
+            holdSeekTimer = null;
+            holdSeekArmed = false;
+            dragSeekApplied = false;
+            dragSeekStepIndex = 0;
+        };
+        stopVideoDragSeek = clearDragSeek;
+
+        elements.viewerContent.addEventListener('pointerdown', event => {
+            if (!state.viewerEntry || state.viewerEntry.kind !== 'video' || event.target.closest('button')) return;
+            startX = event.clientX;
+            startY = event.clientY;
+            holdSeekArmed = false;
+            dragSeekApplied = false;
+            dragSeekStepIndex = 0;
+            clearTimeout(holdSeekTimer);
+            holdSeekTimer = setTimeout(() => {
+                holdSeekArmed = true;
+            }, VIDEO_HOLD_SEEK_MS);
+        });
+
+        elements.viewerContent.addEventListener('pointermove', event => {
+            if (!state.viewerEntry || state.viewerEntry.kind !== 'video') return;
+            const dx = event.clientX - startX;
+            const dy = event.clientY - startY;
+            const absX = Math.abs(dx);
+            const absY = Math.abs(dy);
+
+            if (!holdSeekArmed && (absX > 16 || absY > 16)) {
+                clearTimeout(holdSeekTimer);
+                holdSeekTimer = null;
+            }
+
+            if (holdSeekArmed && ((absX > 28 && absX > absY * 1.15) || dragSeekApplied)) {
+                const nextStepIndex = Math.round(dx / VIDEO_DRAG_SEEK_STEP_PX);
+                const stepDelta = nextStepIndex - dragSeekStepIndex;
+                if (stepDelta !== 0) {
+                    seekVideoByRatio(stepDelta);
+                    dragSeekStepIndex = nextStepIndex;
+                    dragSeekApplied = true;
+                }
+                event.preventDefault();
+            }
+        });
+
+        elements.viewerContent.addEventListener('pointerup', event => {
+            clearTimeout(holdSeekTimer);
+            const hadDragSeek = dragSeekApplied;
+            clearDragSeek();
+            if (hadDragSeek) event.preventDefault();
+        });
+        elements.viewerContent.addEventListener('pointercancel', clearDragSeek);
+        elements.viewerContent.addEventListener('pointerleave', clearDragSeek);
+    }
+
     async function openViewer(entry) {
         setMediaAutoOrientation(['video', 'image'].includes(entry.kind));
+        setVideoFullscreen(entry.kind === 'video');
         state.viewerEntry = entry;
         state.selectedId = null;
         resetViewerElements();
@@ -710,6 +938,8 @@
 
     function closeViewer(render = true) {
         if (!state.viewerEntry && !elements.viewer.classList.contains('open')) return;
+        stopVideoDragSeek();
+        setVideoFullscreen(false);
         setMediaAutoOrientation(false);
         if (document.fullscreenElement && document.exitFullscreen) {
             document.exitFullscreen().catch(() => {});
@@ -747,6 +977,9 @@
     ));
     elements.viewerBack.addEventListener('click', () => closeViewer());
     elements.viewerClose.addEventListener('click', () => closeViewer());
+    elements.videoBack.addEventListener('click', () => closeViewer());
+    elements.videoRewind.addEventListener('click', () => seekVideo(-10, '-10 秒'));
+    elements.videoForward.addEventListener('click', () => seekVideo(10, '+10 秒'));
     elements.video.addEventListener('ended', () => closeViewer());
     elements.video.addEventListener('error', () => {
         if (!state.viewerEntry || state.viewerEntry.kind !== 'video') return;
@@ -773,6 +1006,8 @@
         }
     };
 
+    bindVideoSeekGestures();
+    setVideoFullscreen(false);
     setMediaAutoOrientation(false);
     fetchDirectory(null);
 })();

@@ -48,8 +48,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 2;
-    private static final String APP_VERSION_NAME = "2026.07.10.2";
+    private static final int APP_VERSION_CODE = 3;
+    private static final String APP_VERSION_NAME = "2026.07.10.3";
     private static final String ANDROID_VERSION_PATH = "/nas-viewer-app/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/nas-viewer-app",
@@ -72,6 +72,7 @@ public class MainActivity extends Activity {
     private boolean updateDownloadReceiverRegistered = false;
     private int systemBarTopInset = 0;
     private int systemBarBottomInset = 0;
+    private boolean videoFullscreenEnabled = false;
 
     private final BroadcastReceiver updateDownloadReceiver = new BroadcastReceiver() {
         @Override
@@ -239,6 +240,32 @@ public class MainActivity extends Activity {
         public void setMediaOrientationEnabled(boolean enabled) {
             runOnUiThread(() -> MainActivity.this.setMediaOrientationEnabled(enabled));
         }
+
+        @JavascriptInterface
+        public void setVideoFullscreenEnabled(boolean enabled) {
+            runOnUiThread(() -> MainActivity.this.setVideoFullscreenEnabled(enabled));
+        }
+    }
+
+    private void setVideoFullscreenEnabled(boolean enabled) {
+        videoFullscreenEnabled = enabled;
+        updateImmersiveMode();
+    }
+
+    private void updateImmersiveMode() {
+        if (videoFullscreenEnabled || customView != null) {
+            root.setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            );
+        } else {
+            root.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+        }
+        root.requestApplyInsets();
     }
 
     @Override
@@ -387,14 +414,7 @@ public class MainActivity extends Activity {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ));
-        root.setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        );
+        updateImmersiveMode();
     }
 
     private void hideCustomView() {
@@ -405,7 +425,7 @@ public class MainActivity extends Activity {
         root.removeView(customView);
         customView = null;
         webView.setVisibility(View.VISIBLE);
-        root.setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+        updateImmersiveMode();
 
         if (customViewCallback != null) {
             customViewCallback.onCustomViewHidden();

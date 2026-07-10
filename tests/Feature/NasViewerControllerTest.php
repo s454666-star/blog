@@ -166,7 +166,11 @@ class NasViewerControllerTest extends TestCase
             ->assertSee('第一次選取，第二次開啟')
             ->assertSee('window.nasViewerHandleBack', false)
             ->assertSee('window.NasViewerAndroid.setMediaOrientationEnabled', false)
+            ->assertSee('window.NasViewerAndroid.setVideoFullscreenEnabled', false)
             ->assertSee("setMediaAutoOrientation(['video', 'image'].includes(entry.kind))", false)
+            ->assertSee("elements.videoRewind.addEventListener('click', () => seekVideo(-10, '-10 秒'))", false)
+            ->assertSee('VIDEO_DRAG_SEEK_RATIO = .05', false)
+            ->assertSee('.viewer.video-mode .viewer-header', false)
             ->assertSee("elements.video.addEventListener('ended', () => closeViewer())", false);
 
         $this->getJson('/nas-viewer-app/version.json')

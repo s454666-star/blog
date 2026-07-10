@@ -2,8 +2,8 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $projectRoot '..\..')
-$versionCode = 2
-$versionName = '2026.07.10.2'
+$versionCode = 3
+$versionName = '2026.07.10.3'
 $sdkRoot = $env:ANDROID_SDK_ROOT
 if (-not $sdkRoot) {
     $sdkRoot = $env:ANDROID_HOME

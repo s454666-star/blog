@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
     <meta name="theme-color" content="#050812">
     <title>Folder Photo</title>
-    <link rel="icon" href="/folder-photo-app/icon-192.png">
+    <link rel="icon" href="/folder-photo-assets/icon-192.png">
     <style>
         :root {
             color-scheme: dark;

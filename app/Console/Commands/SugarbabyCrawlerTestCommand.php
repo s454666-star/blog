@@ -17,6 +17,7 @@ class SugarbabyCrawlerTestCommand extends Command
                             {--timeout=90 : Seconds to wait for page load and API responses}
                             {--active-clicks=0 : Click/test the active member stream this many times and save only anonymous summary}
                             {--raw-api-probe : Save raw API endpoint responses for local debugging}
+                            {--auto-login : Click Google login when the site Session has expired}
                             {--headless : Run without a visible browser window}
                             {--keep-open : Leave Chrome open after the run}
                             {--dry-run : Print the Node command without launching Chrome}';
@@ -77,6 +78,10 @@ class SugarbabyCrawlerTestCommand extends Command
             if ((bool) $this->option($flag)) {
                 $args[] = '--' . $flag;
             }
+        }
+
+        if ((bool) $this->option('auto-login')) {
+            $args[] = '--click-google';
         }
 
         $this->appendConfiguredProxy($args);

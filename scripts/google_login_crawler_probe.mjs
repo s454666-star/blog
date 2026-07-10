@@ -89,6 +89,7 @@ async function main() {
   let status = 'captured';
   let reason = 'page-ready';
   let emailPrefillAttempted = false;
+  let googleAccountSelectAttempted = false;
   let googleLoginClickAttempted = false;
   let lastProgressAt = 0;
   let snapshot = null;
@@ -107,7 +108,7 @@ async function main() {
       reason = 'waiting for 85sugarbaby Cloudflare security verification';
       if (Date.now() - lastProgressAt > 5000) {
         lastProgressAt = Date.now();
-        log(`Waiting for Cloudflare verification... currentUrl=${snapshot.url} title=${JSON.stringify(snapshot.title)}`);
+        log(`Waiting for Cloudflare verification... currentUrl=${formatProgressUrl(snapshot.url)} title=${JSON.stringify(snapshot.title)}`);
       }
       await sleep(1000);
       continue;
@@ -126,6 +127,16 @@ async function main() {
     }
 
     if (isGoogleLoginUrl(snapshot.url) && email !== '' && !emailPrefillAttempted) {
+      if (!googleAccountSelectAttempted) {
+        googleAccountSelectAttempted = true;
+        const selected = await selectGoogleAccount(cdp, email);
+        if (selected?.selected) {
+          log(`Selected existing Google account: ${email}`);
+          await sleep(1500);
+          continue;
+        }
+      }
+
       const filled = await prefillGoogleEmail(cdp, email);
       emailPrefillAttempted = true;
       if (filled?.filled) {
@@ -145,7 +156,7 @@ async function main() {
 
     if (Date.now() - lastProgressAt > 5000) {
       lastProgressAt = Date.now();
-      log(`Waiting... currentUrl=${snapshot.url} title=${JSON.stringify(snapshot.title)}`);
+      log(`Waiting... currentUrl=${formatProgressUrl(snapshot.url)} title=${JSON.stringify(snapshot.title)}`);
     }
 
     await sleep(1000);
@@ -584,6 +595,38 @@ async function prefillGoogleEmail(client, googleEmail) {
   return { filled: true };
 })()
 `, true);
+}
+
+async function selectGoogleAccount(client, googleEmail) {
+  return await evaluate(client, `
+(() => {
+  const email = ${JSON.stringify(googleEmail)};
+  const candidates = Array.from(document.querySelectorAll('[data-identifier], [data-email], [role="link"], [role="button"]'));
+  for (const el of candidates) {
+    const values = [
+      el.getAttribute('data-identifier'),
+      el.getAttribute('data-email'),
+      el.innerText,
+      el.textContent
+    ].filter(Boolean).map((value) => String(value).trim());
+    if (values.some((value) => value === email || value.includes(email))) {
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+      el.click();
+      return { selected: true };
+    }
+  }
+  return { selected: false };
+})()
+`, true);
+}
+
+function formatProgressUrl(value) {
+  try {
+    const parsed = new URL(String(value || ''));
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return String(value || '');
+  }
 }
 
 async function captureSnapshot(client, selector) {

@@ -140,6 +140,10 @@ class Crawler85SugarbabyImportCommand extends Command
             $args[] = '--headless';
         }
 
+        if ((bool) config('crawler.85sugarbaby.auto_login', true)) {
+            $args[] = '--click-google';
+        }
+
         $this->appendConfiguredProxy($args);
 
         $this->info('Running 85sugarbaby crawler probe and import flow...');

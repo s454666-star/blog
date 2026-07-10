@@ -11,6 +11,7 @@
     use App\Http\Controllers\FolderVideoController;
     use App\Http\Controllers\LineWebhookController;
     use App\Http\Controllers\MemberController;
+    use App\Http\Controllers\NasViewerController;
     use App\Http\Controllers\OrderController;
     use App\Http\Controllers\ProductCategoryController;
     use App\Http\Controllers\ProductController;
@@ -131,3 +132,7 @@
     Route::get('/folder-photos/app-config', [FolderPhotoController::class, 'appConfig'])->name('folder-photos.app-config');
     Route::get('/folder-photos/random', [FolderPhotoController::class, 'random'])->name('folder-photos.random');
     Route::get('/folder-photos/{id}', [FolderPhotoController::class, 'show'])->name('folder-photos.show');
+    Route::get('/nas-browser/app-config', [NasViewerController::class, 'appConfig'])->name('nas-browser.app-config');
+    Route::get('/nas-browser', [NasViewerController::class, 'index'])->name('nas-browser.index');
+    Route::get('/nas-browser/text', [NasViewerController::class, 'text'])->name('nas-browser.text');
+    Route::get('/nas-browser/stream', [NasViewerController::class, 'stream'])->name('nas-browser.stream');

@@ -21,6 +21,7 @@ use App\Http\Controllers\ImageController;
 use App\Http\Controllers\ImageFullController;
 use App\Http\Controllers\LibraryController;
 use App\Http\Controllers\MemberController;
+use App\Http\Controllers\NasViewerAppController;
 use App\Http\Controllers\OCRController;
 use App\Http\Controllers\CrawlerProfileController;
 use App\Http\Controllers\PageFaviconController;
@@ -96,6 +97,11 @@ Route::get('/folder-photo-app', [FolderPhotoAppController::class, 'index'])->nam
 Route::get('/folder-photo-app/version.json', [FolderPhotoAppController::class, 'version'])->name('folder-photo-app.version');
 Route::get('/folder-photo-app/android-version.json', [FolderPhotoAppController::class, 'androidVersion'])->name('folder-photo-app.android-version');
 Route::get('/folder-photo-app/folder-photo-app.apk', [FolderPhotoAppController::class, 'androidApk'])->name('folder-photo-app.android-apk');
+
+Route::get('/nas-viewer-app', [NasViewerAppController::class, 'index'])->name('nas-viewer-app.index');
+Route::get('/nas-viewer-app/version.json', [NasViewerAppController::class, 'version'])->name('nas-viewer-app.version');
+Route::get('/nas-viewer-app/android-version.json', [NasViewerAppController::class, 'androidVersion'])->name('nas-viewer-app.android-version');
+Route::get('/nas-viewer-app/nas-viewer-app.apk', [NasViewerAppController::class, 'androidApk'])->name('nas-viewer-app.android-apk');
 
 Route::get('/command-runner', [CommandRunnerController::class, 'index'])->name('command-runner.index');
 Route::post('/command-runner/run', [CommandRunnerController::class, 'run'])->name('command-runner.run');

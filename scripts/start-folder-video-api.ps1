@@ -72,6 +72,20 @@ function Get-EnvFileValue {
     return ""
 }
 
+function Get-EnvFileValueOrDefault {
+    param(
+        [string]$Name,
+        [string]$DefaultValue
+    )
+
+    $value = Get-EnvFileValue -Name $Name
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        return $DefaultValue
+    }
+
+    return $value
+}
+
 function Stop-ProcessByIdIfRunning {
     param([int]$ProcessId)
 
@@ -243,6 +257,16 @@ if (-not (Test-PhotoRoot)) {
     throw "Folder photo media root is not available: $PhotoRoot"
 }
 
+$NasRoot30TA = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_30T_A" -DefaultValue "\\mc\30T-A"
+$NasRoot30TB = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_30T_B" -DefaultValue "\\mc\30T-B"
+$NasRootFhd = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_FHD" -DefaultValue "\\mc\FHD"
+$NasRootFhdBack = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_FHD_BACK" -DefaultValue "\\mc\FHD_BACK"
+$NasRootHome = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_HOME" -DefaultValue "\\mc\home"
+$NasRootHomes = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_HOMES" -DefaultValue "\\mc\homes"
+$NasRootPhoto = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_PHOTO" -DefaultValue "\\mc\photo"
+$NasRootPlexMediaServer = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_PLEX_MEDIA_SERVER" -DefaultValue "\\mc\PlexMediaServer"
+$NasRootVideo = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_VIDEO" -DefaultValue "\\mc\video"
+
 $phpExe = (Get-Command php -ErrorAction Stop).Source
 
 php artisan config:clear | Out-Null
@@ -291,6 +315,15 @@ $configText = @"
     persist_config off
 }
 
+(nasViewerFiles) {
+    header {
+        Cache-Control "private, max-age=600"
+        Accept-Ranges "bytes"
+        X-Content-Type-Options "nosniff"
+    }
+    file_server
+}
+
 :$Port {
     bind $BindAddress
     encode zstd gzip
@@ -308,6 +341,17 @@ $configText = @"
 
     @folderPhotoApp path /folder-photo-app /folder-photo-app/version.json /folder-photo-app/android-version.json /folder-photo-app/folder-photo-app.apk
     handle @folderPhotoApp {
+        rewrite * /index.php{path}
+        reverse_proxy 127.0.0.1:$LaravelPort {
+            header_up Host {host}
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Port $Port
+        }
+    }
+
+    @nasViewerApp path /nas-viewer-app /nas-viewer-app/version.json /nas-viewer-app/android-version.json /nas-viewer-app/nas-viewer-app.apk
+    handle @nasViewerApp {
         rewrite * /index.php{path}
         reverse_proxy 127.0.0.1:$LaravelPort {
             header_up Host {host}
@@ -338,6 +382,69 @@ $configText = @"
             X-Content-Type-Options "nosniff"
         }
         file_server
+    }
+
+    @nasMedia30TA path /nas-viewer-media/30t-a/*
+    handle @nasMedia30TA {
+        uri strip_prefix /nas-viewer-media/30t-a
+        root * "$NasRoot30TA"
+        import nasViewerFiles
+    }
+
+    @nasMedia30TB path /nas-viewer-media/30t-b/*
+    handle @nasMedia30TB {
+        uri strip_prefix /nas-viewer-media/30t-b
+        root * "$NasRoot30TB"
+        import nasViewerFiles
+    }
+
+    @nasMediaFhd path /nas-viewer-media/fhd/*
+    handle @nasMediaFhd {
+        uri strip_prefix /nas-viewer-media/fhd
+        root * "$NasRootFhd"
+        import nasViewerFiles
+    }
+
+    @nasMediaFhdBack path /nas-viewer-media/fhd-back/*
+    handle @nasMediaFhdBack {
+        uri strip_prefix /nas-viewer-media/fhd-back
+        root * "$NasRootFhdBack"
+        import nasViewerFiles
+    }
+
+    @nasMediaHome path /nas-viewer-media/home/*
+    handle @nasMediaHome {
+        uri strip_prefix /nas-viewer-media/home
+        root * "$NasRootHome"
+        import nasViewerFiles
+    }
+
+    @nasMediaHomes path /nas-viewer-media/homes/*
+    handle @nasMediaHomes {
+        uri strip_prefix /nas-viewer-media/homes
+        root * "$NasRootHomes"
+        import nasViewerFiles
+    }
+
+    @nasMediaPhoto path /nas-viewer-media/photo/*
+    handle @nasMediaPhoto {
+        uri strip_prefix /nas-viewer-media/photo
+        root * "$NasRootPhoto"
+        import nasViewerFiles
+    }
+
+    @nasMediaPlex path /nas-viewer-media/plex-media-server/*
+    handle @nasMediaPlex {
+        uri strip_prefix /nas-viewer-media/plex-media-server
+        root * "$NasRootPlexMediaServer"
+        import nasViewerFiles
+    }
+
+    @nasMediaVideo path /nas-viewer-media/video/*
+    handle @nasMediaVideo {
+        uri strip_prefix /nas-viewer-media/video
+        root * "$NasRootVideo"
+        import nasViewerFiles
     }
 
     handle {
@@ -380,6 +487,17 @@ $lanIps = Get-LanIps
     photo_root = $PhotoRoot
     static_stream_path = "/folder-video-media"
     static_photo_path = "/folder-photo-media"
+    nas_viewer_roots = @{
+        "30t-a" = $NasRoot30TA
+        "30t-b" = $NasRoot30TB
+        "fhd" = $NasRootFhd
+        "fhd-back" = $NasRootFhdBack
+        "home" = $NasRootHome
+        "homes" = $NasRootHomes
+        "photo" = $NasRootPhoto
+        "plex-media-server" = $NasRootPlexMediaServer
+        "video" = $NasRootVideo
+    }
     caddy_config = $caddyConfig
     caddy_stdout_log = $caddyStdoutLog
     caddy_stderr_log = $caddyStderrLog
@@ -394,5 +512,6 @@ foreach ($ip in $lanIps) {
 }
 Write-Host "Media root: $MediaRoot"
 Write-Host "Photo root: $PhotoRoot"
+Write-Host "NAS Viewer URL: http://127.0.0.1`:$Port/nas-viewer-app"
 Write-Host "Caddy PID: $($caddyProcess.Id)"
 Write-Host "Laravel PID: $($laravelProcess.Id)"

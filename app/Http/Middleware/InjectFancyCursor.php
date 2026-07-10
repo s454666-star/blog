@@ -80,6 +80,7 @@ class InjectFancyCursor
         return strtolower($request->getHost()) === 'stock.mystar.monster'
             || $request->routeIs('folder-video-app.*')
             || $request->routeIs('folder-photo-app.*')
+            || $request->routeIs('nas-viewer-app.*')
             || $request->routeIs('tw-stock.esun-portfolio.index')
             || $request->routeIs('tw-stock.yuanta-portfolio.index');
     }

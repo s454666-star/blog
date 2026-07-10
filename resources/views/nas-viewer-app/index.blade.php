@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+    <meta name="theme-color" content="#07111f">
+    <title>NAS Viewer</title>
+    <link rel="icon" href="/nas-viewer-assets/icon-192.png">
+    <style>
+        :root {
+            color-scheme: dark;
+            --top-inset: 0px;
+            --bottom-inset: 0px;
+            --bg: #06101d;
+            --panel: #0c1929;
+            --panel-strong: #12253a;
+            --line: rgba(148, 184, 226, .14);
+            --text: #eef7ff;
+            --muted: #8fa8bf;
+            --accent: #36d7ff;
+            --accent-2: #7c6cff;
+            --danger: #ff758f;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: var(--bg);
+            color: var(--text);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        body {
+            position: fixed;
+            inset: 0;
+            overscroll-behavior: none;
+        }
+
+        button {
+            color: inherit;
+            font: inherit;
+        }
+
+        #app {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            grid-template-rows: auto auto minmax(0, 1fr);
+            padding-bottom: var(--bottom-inset);
+            background:
+                radial-gradient(circle at 16% 0%, rgba(52, 211, 255, .13), transparent 32%),
+                radial-gradient(circle at 100% 4%, rgba(124, 108, 255, .14), transparent 35%),
+                var(--bg);
+        }
+
+        .app-header {
+            display: grid;
+            grid-template-columns: 44px minmax(0, 1fr) 44px;
+            align-items: center;
+            min-height: 62px;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--line);
+            background: rgba(6, 16, 29, .82);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            z-index: 3;
+        }
+
+        .icon-button {
+            width: 42px;
+            height: 42px;
+            border: 0;
+            border-radius: 13px;
+            background: rgba(147, 186, 227, .08);
+            display: grid;
+            place-items: center;
+            font-size: 23px;
+            cursor: pointer;
+        }
+
+        .icon-button:disabled {
+            opacity: .24;
+            cursor: default;
+        }
+
+        .title-block {
+            min-width: 0;
+            padding: 0 10px;
+            text-align: center;
+        }
+
+        .title-block h1 {
+            margin: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 19px;
+            line-height: 1.25;
+        }
+
+        .title-block p {
+            margin: 3px 0 0;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .breadcrumbs {
+            display: flex;
+            gap: 6px;
+            min-height: 43px;
+            padding: 7px 12px;
+            overflow-x: auto;
+            border-bottom: 1px solid var(--line);
+            scrollbar-width: none;
+        }
+
+        .breadcrumbs::-webkit-scrollbar {
+            display: none;
+        }
+
+        .crumb {
+            flex: 0 0 auto;
+            max-width: 190px;
+            height: 28px;
+            padding: 0 11px;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            color: var(--muted);
+            background: rgba(113, 158, 204, .06);
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .crumb.current {
+            color: #07111f;
+            border-color: transparent;
+            background: linear-gradient(135deg, var(--accent), #80ecff);
+            font-weight: 750;
+        }
+
+        .list-shell {
+            position: relative;
+            min-height: 0;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            padding: 10px 10px calc(86px + var(--bottom-inset));
+        }
+
+        .entry-list {
+            display: grid;
+            gap: 7px;
+        }
+
+        .entry {
+            width: 100%;
+            min-height: 67px;
+            display: grid;
+            grid-template-columns: 49px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 11px;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            color: var(--text);
+            background: linear-gradient(145deg, rgba(18, 37, 58, .93), rgba(9, 24, 40, .93));
+            box-shadow: 0 9px 28px rgba(0, 0, 0, .13);
+            text-align: left;
+            cursor: pointer;
+            transition: border-color 150ms ease, transform 150ms ease, background 150ms ease;
+        }
+
+        .entry:active {
+            transform: scale(.988);
+        }
+
+        .entry.selected {
+            border-color: rgba(54, 215, 255, .92);
+            background: linear-gradient(145deg, rgba(23, 61, 84, .98), rgba(13, 38, 64, .98));
+            box-shadow: 0 0 0 2px rgba(54, 215, 255, .12), 0 12px 34px rgba(0, 0, 0, .2);
+        }
+
+        .entry.offline {
+            opacity: .48;
+        }
+
+        .entry-icon {
+            width: 46px;
+            height: 46px;
+            border-radius: 14px;
+            display: grid;
+            place-items: center;
+            background: rgba(72, 124, 177, .12);
+            font-size: 26px;
+        }
+
+        .entry.selected .entry-icon {
+            background: rgba(54, 215, 255, .14);
+        }
+
+        .entry-copy {
+            min-width: 0;
+        }
+
+        .entry-name {
+            display: block;
+            overflow: hidden;
+            color: #f4f9ff;
+            font-size: 15px;
+            font-weight: 670;
+            line-height: 1.32;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .entry-meta {
+            display: block;
+            margin-top: 5px;
+            overflow: hidden;
+            color: var(--muted);
+            font-size: 12px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .entry-action {
+            min-width: 24px;
+            color: rgba(205, 231, 255, .62);
+            font-size: 21px;
+            text-align: center;
+        }
+
+        .empty-state,
+        .loading-state {
+            min-height: 52vh;
+            display: grid;
+            place-items: center;
+            padding: 28px;
+            color: var(--muted);
+            text-align: center;
+            line-height: 1.7;
+        }
+
+        .load-more {
+            width: 100%;
+            height: 48px;
+            margin-top: 9px;
+            border: 1px solid rgba(54, 215, 255, .26);
+            border-radius: 14px;
+            color: var(--accent);
+            background: rgba(54, 215, 255, .07);
+            cursor: pointer;
+        }
+
+        .toast {
+            position: fixed;
+            left: 50%;
+            bottom: calc(20px + var(--bottom-inset));
+            z-index: 20;
+            max-width: calc(100vw - 30px);
+            padding: 10px 15px;
+            border: 1px solid rgba(159, 205, 242, .18);
+            border-radius: 999px;
+            color: #ecf8ff;
+            background: rgba(7, 19, 33, .9);
+            box-shadow: 0 12px 35px rgba(0, 0, 0, .34);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            opacity: 0;
+            transform: translate(-50%, 12px);
+            transition: opacity 180ms ease, transform 180ms ease;
+            pointer-events: none;
+            text-align: center;
+        }
+
+        .toast.visible {
+            opacity: 1;
+            transform: translate(-50%, 0);
+        }
+
+        .viewer {
+            position: fixed;
+            inset: 0;
+            z-index: 30;
+            display: none;
+            grid-template-rows: auto minmax(0, 1fr);
+            padding-bottom: var(--bottom-inset);
+            background: #03070d;
+        }
+
+        .viewer.open {
+            display: grid;
+        }
+
+        .viewer-header {
+            min-height: 58px;
+            display: grid;
+            grid-template-columns: 45px minmax(0, 1fr) 45px;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, .1);
+            background: rgba(4, 10, 18, .94);
+        }
+
+        .viewer-title {
+            overflow: hidden;
+            font-size: 15px;
+            font-weight: 700;
+            text-align: center;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .viewer-content {
+            min-height: 0;
+            display: grid;
+            place-items: center;
+            overflow: hidden;
+            background: #02050a;
+        }
+
+        .viewer-content video,
+        .viewer-content img {
+            display: none;
+            width: 100%;
+            height: 100%;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            background: #000;
+        }
+
+        .viewer-content video.active,
+        .viewer-content img.active {
+            display: block;
+        }
+
+        .text-viewer {
+            display: none;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 18px 16px calc(28px + var(--bottom-inset));
+            overflow: auto;
+            color: #dceeff;
+            background: #07111d;
+            font: 13px/1.62 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            tab-size: 4;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .text-viewer.active {
+            display: block;
+        }
+
+        .viewer-message {
+            max-width: 78%;
+            color: var(--muted);
+            line-height: 1.7;
+            text-align: center;
+        }
+
+        @media (min-width: 760px) {
+            .entry-list {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <header class="app-header">
+        <button id="back-button" class="icon-button" type="button" aria-label="上一頁">‹</button>
+        <div class="title-block">
+            <h1 id="directory-title">NAS</h1>
+            <p id="directory-summary">第一次選取，第二次開啟</p>
+        </div>
+        <button id="refresh-button" class="icon-button" type="button" aria-label="重新整理">↻</button>
+    </header>
+    <nav id="breadcrumbs" class="breadcrumbs" aria-label="目前路徑"></nav>
+    <main id="list-shell" class="list-shell">
+        <div id="entry-list" class="entry-list"></div>
+        <button id="load-more" class="load-more" type="button" hidden>載入更多</button>
+        <div id="empty-state" class="empty-state" hidden></div>
+    </main>
+</div>
+
+<div id="viewer" class="viewer" aria-hidden="true">
+    <header class="viewer-header">
+        <button id="viewer-back" class="icon-button" type="button" aria-label="回清單">‹</button>
+        <div id="viewer-title" class="viewer-title"></div>
+        <button id="viewer-close" class="icon-button" type="button" aria-label="關閉">×</button>
+    </header>
+    <div class="viewer-content">
+        <video id="video-viewer" controls playsinline preload="metadata"></video>
+        <img id="image-viewer" alt="">
+        <pre id="text-viewer" class="text-viewer"></pre>
+        <div id="viewer-message" class="viewer-message"></div>
+    </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+    'use strict';
+
+    const config = @json($appConfig);
+    const elements = {
+        back: document.getElementById('back-button'),
+        refresh: document.getElementById('refresh-button'),
+        title: document.getElementById('directory-title'),
+        summary: document.getElementById('directory-summary'),
+        breadcrumbs: document.getElementById('breadcrumbs'),
+        list: document.getElementById('entry-list'),
+        listShell: document.getElementById('list-shell'),
+        loadMore: document.getElementById('load-more'),
+        empty: document.getElementById('empty-state'),
+        viewer: document.getElementById('viewer'),
+        viewerTitle: document.getElementById('viewer-title'),
+        viewerBack: document.getElementById('viewer-back'),
+        viewerClose: document.getElementById('viewer-close'),
+        video: document.getElementById('video-viewer'),
+        image: document.getElementById('image-viewer'),
+        text: document.getElementById('text-viewer'),
+        viewerMessage: document.getElementById('viewer-message'),
+        toast: document.getElementById('toast'),
+    };
+    const state = {
+        directoryId: null,
+        entries: [],
+        meta: null,
+        selectedId: null,
+        navigationStack: [],
+        loading: false,
+        viewerEntry: null,
+        requestToken: 0,
+        toastTimer: null,
+    };
+
+    function iconFor(entry) {
+        if (entry.kind === 'directory') return entry.available === false ? '☁' : '📁';
+        if (entry.kind === 'video') return '🎬';
+        if (entry.kind === 'image') return '🖼️';
+        if (entry.kind === 'text') return '📄';
+        return '📦';
+    }
+
+    function actionFor(entry) {
+        if (entry.kind === 'directory') return '›';
+        if (entry.kind === 'video') return '▶';
+        if (entry.kind === 'image' || entry.kind === 'text') return '⌕';
+        return '—';
+    }
+
+    function formatBytes(value) {
+        if (value === null || value === undefined || value === '') return '';
+        const bytes = Number(value);
+        if (!Number.isFinite(bytes) || bytes < 0) return '';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let size = bytes;
+        let unit = 0;
+        while (size >= 1024 && unit < units.length - 1) {
+            size /= 1024;
+            unit += 1;
+        }
+        return `${size >= 100 || unit === 0 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`;
+    }
+
+    function formatDate(value) {
+        if (!value) return '';
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('zh-TW', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hour12: false,
+        });
+    }
+
+    function entryMeta(entry) {
+        if (entry.available === false) return '目前無法連線';
+        const labels = {
+            directory: '資料夾', video: '影片', image: '圖片', text: '文字', other: '不支援預覽',
+        };
+        const parts = [labels[entry.kind] || entry.kind];
+        const size = formatBytes(entry.size_bytes);
+        const date = formatDate(entry.modified_at);
+        if (size) parts.push(size);
+        if (date) parts.push(date);
+        return parts.join('・');
+    }
+
+    function showToast(message, duration = 1800) {
+        elements.toast.textContent = message;
+        elements.toast.classList.add('visible');
+        clearTimeout(state.toastTimer);
+        state.toastTimer = setTimeout(() => elements.toast.classList.remove('visible'), duration);
+    }
+
+    function setLoading(message = '正在讀取 NAS…') {
+        elements.list.innerHTML = '';
+        elements.empty.hidden = false;
+        elements.empty.className = 'loading-state';
+        elements.empty.textContent = message;
+        elements.loadMore.hidden = true;
+    }
+
+    function renderBreadcrumbs() {
+        elements.breadcrumbs.innerHTML = '';
+        const crumbs = [{id: null, label: 'NAS'}, ...(state.meta?.breadcrumbs || [])];
+        crumbs.forEach((crumb, index) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `crumb${index === crumbs.length - 1 ? ' current' : ''}`;
+            button.textContent = crumb.label;
+            button.title = crumb.label;
+            button.addEventListener('click', () => {
+                if (index === crumbs.length - 1) return;
+                navigateTo(crumb.id, true);
+            });
+            elements.breadcrumbs.appendChild(button);
+        });
+        elements.breadcrumbs.scrollLeft = elements.breadcrumbs.scrollWidth;
+    }
+
+    function renderList() {
+        elements.list.innerHTML = '';
+        elements.empty.hidden = state.entries.length > 0;
+        elements.empty.className = 'empty-state';
+        elements.empty.textContent = state.entries.length > 0 ? '' : '這個目錄目前沒有可顯示的項目。';
+
+        for (const entry of state.entries) {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = `entry${entry.id === state.selectedId ? ' selected' : ''}${entry.available === false ? ' offline' : ''}`;
+            row.dataset.entryId = entry.id;
+            row.dataset.entryKind = entry.kind;
+
+            const icon = document.createElement('span');
+            icon.className = 'entry-icon';
+            icon.textContent = iconFor(entry);
+
+            const copy = document.createElement('span');
+            copy.className = 'entry-copy';
+            const name = document.createElement('span');
+            name.className = 'entry-name';
+            name.textContent = entry.name;
+            const meta = document.createElement('span');
+            meta.className = 'entry-meta';
+            meta.textContent = entryMeta(entry);
+            copy.append(name, meta);
+
+            const action = document.createElement('span');
+            action.className = 'entry-action';
+            action.textContent = actionFor(entry);
+            row.append(icon, copy, action);
+            row.addEventListener('click', () => handleEntryClick(entry));
+            elements.list.appendChild(row);
+        }
+
+        elements.title.textContent = state.meta?.title || 'NAS';
+        const total = Number(state.meta?.total || state.entries.length);
+        elements.summary.textContent = `${total} 個項目・第一次選取，第二次開啟`;
+        elements.loadMore.hidden = !state.meta?.has_more;
+        elements.back.disabled = state.navigationStack.length === 0 && state.directoryId === null;
+        renderBreadcrumbs();
+    }
+
+    async function fetchDirectory(directoryId, offset = 0, append = false) {
+        if (state.loading) return;
+        state.loading = true;
+        const token = ++state.requestToken;
+        if (!append) setLoading();
+
+        const params = new URLSearchParams({
+            offset: String(offset),
+            limit: String(Number(config.page_limit) || 300),
+            t: String(Date.now()),
+        });
+        if (directoryId) params.set('directory', directoryId);
+
+        try {
+            const response = await fetch(`/api/nas-browser?${params}`, {
+                cache: 'no-store', headers: {'Accept': 'application/json'},
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const payload = await response.json();
+            if (token !== state.requestToken) return;
+            state.directoryId = directoryId || null;
+            state.entries = append
+                ? [...state.entries, ...(Array.isArray(payload.data) ? payload.data : [])]
+                : (Array.isArray(payload.data) ? payload.data : []);
+            state.meta = payload.meta || null;
+            state.selectedId = null;
+            renderList();
+            if (!append) elements.listShell.scrollTop = 0;
+        } catch (error) {
+            if (token !== state.requestToken) return;
+            elements.list.innerHTML = '';
+            elements.empty.hidden = false;
+            elements.empty.className = 'empty-state';
+            elements.empty.textContent = '無法讀取這個 NAS 目錄。請確認 NAS 連線後再重新整理。';
+            elements.loadMore.hidden = true;
+        } finally {
+            if (token === state.requestToken) state.loading = false;
+        }
+    }
+
+    function navigateTo(directoryId, pushCurrent) {
+        if (pushCurrent) {
+            state.navigationStack.push(state.directoryId);
+        }
+        closeViewer(false);
+        fetchDirectory(directoryId || null);
+    }
+
+    function handleEntryClick(entry) {
+        if (state.selectedId !== entry.id) {
+            state.selectedId = entry.id;
+            renderList();
+            showToast(entry.kind === 'directory' ? '再點一下進入目錄' : '再點一下開啟檔案');
+            return;
+        }
+
+        if (entry.available === false) {
+            showToast('這個 NAS 分享目前無法連線');
+            return;
+        }
+        if (entry.kind === 'directory') {
+            navigateTo(entry.id, true);
+            return;
+        }
+        if (['video', 'image', 'text'].includes(entry.kind)) {
+            openViewer(entry);
+            return;
+        }
+        showToast('這個檔案格式目前不支援預覽');
+    }
+
+    function resetViewerElements() {
+        elements.video.pause();
+        elements.video.removeAttribute('src');
+        elements.video.load();
+        elements.image.removeAttribute('src');
+        elements.text.textContent = '';
+        elements.video.classList.remove('active');
+        elements.image.classList.remove('active');
+        elements.text.classList.remove('active');
+        elements.viewerMessage.textContent = '';
+    }
+
+    async function openViewer(entry) {
+        state.viewerEntry = entry;
+        state.selectedId = null;
+        resetViewerElements();
+        elements.viewerTitle.textContent = entry.name;
+        elements.viewer.classList.add('open');
+        elements.viewer.setAttribute('aria-hidden', 'false');
+
+        if (entry.kind === 'video') {
+            elements.video.classList.add('active');
+            elements.video.src = entry.media_url;
+            elements.video.play().catch(() => {});
+            return;
+        }
+        if (entry.kind === 'image') {
+            elements.image.classList.add('active');
+            elements.image.src = entry.media_url;
+            return;
+        }
+
+        elements.viewerMessage.textContent = '正在讀取文字…';
+        try {
+            const response = await fetch(entry.text_url, {cache: 'no-store', headers: {'Accept': 'application/json'}});
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const payload = await response.json();
+            if (state.viewerEntry?.id !== entry.id) return;
+            elements.viewerMessage.textContent = '';
+            elements.text.textContent = payload.data?.content || '';
+            elements.text.classList.add('active');
+        } catch (error) {
+            elements.viewerMessage.textContent = '這個文字檔無法讀取，或檔案超過顯示大小限制。';
+        }
+    }
+
+    function closeViewer(render = true) {
+        if (!state.viewerEntry && !elements.viewer.classList.contains('open')) return;
+        if (document.fullscreenElement && document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+        }
+        state.viewerEntry = null;
+        resetViewerElements();
+        elements.viewer.classList.remove('open');
+        elements.viewer.setAttribute('aria-hidden', 'true');
+        if (render) renderList();
+    }
+
+    function handleBack() {
+        if (state.viewerEntry || elements.viewer.classList.contains('open')) {
+            closeViewer();
+            return true;
+        }
+        if (state.navigationStack.length > 0) {
+            const previous = state.navigationStack.pop();
+            fetchDirectory(previous || null);
+            return true;
+        }
+        if (state.directoryId !== null) {
+            fetchDirectory(null);
+            return true;
+        }
+        return false;
+    }
+
+    elements.back.addEventListener('click', () => handleBack());
+    elements.refresh.addEventListener('click', () => fetchDirectory(state.directoryId));
+    elements.loadMore.addEventListener('click', () => fetchDirectory(
+        state.directoryId,
+        Number(state.meta?.next_offset || state.entries.length),
+        true
+    ));
+    elements.viewerBack.addEventListener('click', () => closeViewer());
+    elements.viewerClose.addEventListener('click', () => closeViewer());
+    elements.video.addEventListener('ended', () => closeViewer());
+    elements.video.addEventListener('error', () => {
+        if (!state.viewerEntry || state.viewerEntry.kind !== 'video') return;
+        elements.video.classList.remove('active');
+        elements.viewerMessage.textContent = '這個影片格式無法在目前的 Android 播放器中播放。';
+    });
+    elements.image.addEventListener('error', () => {
+        if (!state.viewerEntry || state.viewerEntry.kind !== 'image') return;
+        elements.image.classList.remove('active');
+        elements.viewerMessage.textContent = '這張圖片無法顯示。';
+    });
+
+    window.nasViewerHandleBack = handleBack;
+    window.nasViewerSetAndroidInsets = insets => {
+        const bottom = Math.max(0, Number(insets?.bottom || 0));
+        document.documentElement.style.setProperty('--bottom-inset', `${bottom}px`);
+    };
+    window.nasViewerCheckUpdates = async () => {
+        try {
+            const response = await fetch(`/nas-viewer-app/version.json?t=${Date.now()}`, {cache: 'no-store'});
+            const payload = await response.json();
+            if (payload.data?.version && payload.data.version !== config.version) location.reload();
+        } catch (error) {
+        }
+    };
+
+    fetchDirectory(null);
+})();
+</script>
+</body>
+</html>

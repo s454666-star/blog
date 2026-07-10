@@ -65,8 +65,8 @@ return [
     'page_limit' => (int) env('NAS_VIEWER_PAGE_LIMIT', 300),
     'max_page_limit' => (int) env('NAS_VIEWER_MAX_PAGE_LIMIT', 1000),
     'text_max_bytes' => (int) env('NAS_VIEWER_TEXT_MAX_BYTES', 5 * 1024 * 1024),
-    'app_version' => env('NAS_VIEWER_APP_VERSION', '2026.07.10.1'),
-    'android_apk_version_code' => (int) env('NAS_VIEWER_ANDROID_APK_VERSION_CODE', 1),
-    'android_apk_version_name' => env('NAS_VIEWER_ANDROID_APK_VERSION_NAME', '2026.07.10.1'),
+    'app_version' => env('NAS_VIEWER_APP_VERSION', '2026.07.10.2'),
+    'android_apk_version_code' => (int) env('NAS_VIEWER_ANDROID_APK_VERSION_CODE', 2),
+    'android_apk_version_name' => env('NAS_VIEWER_ANDROID_APK_VERSION_NAME', '2026.07.10.2'),
     'android_apk_path' => env('NAS_VIEWER_ANDROID_APK_PATH', storage_path('app/nas-viewer-app.apk')),
 ];

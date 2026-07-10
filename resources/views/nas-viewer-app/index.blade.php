@@ -661,7 +661,20 @@
         elements.viewerMessage.textContent = '';
     }
 
+    function setMediaAutoOrientation(enabled) {
+        try {
+            if (
+                window.NasViewerAndroid
+                && typeof window.NasViewerAndroid.setMediaOrientationEnabled === 'function'
+            ) {
+                window.NasViewerAndroid.setMediaOrientationEnabled(Boolean(enabled));
+            }
+        } catch (error) {
+        }
+    }
+
     async function openViewer(entry) {
+        setMediaAutoOrientation(['video', 'image'].includes(entry.kind));
         state.viewerEntry = entry;
         state.selectedId = null;
         resetViewerElements();
@@ -697,6 +710,7 @@
 
     function closeViewer(render = true) {
         if (!state.viewerEntry && !elements.viewer.classList.contains('open')) return;
+        setMediaAutoOrientation(false);
         if (document.fullscreenElement && document.exitFullscreen) {
             document.exitFullscreen().catch(() => {});
         }
@@ -759,6 +773,7 @@
         }
     };
 
+    setMediaAutoOrientation(false);
     fetchDirectory(null);
 })();
 </script>

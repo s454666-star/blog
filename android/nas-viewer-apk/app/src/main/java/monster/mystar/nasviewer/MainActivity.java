@@ -8,6 +8,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ActivityInfo;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Insets;
@@ -24,6 +25,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.webkit.DownloadListener;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -46,8 +48,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 1;
-    private static final String APP_VERSION_NAME = "2026.07.10.1";
+    private static final int APP_VERSION_CODE = 2;
+    private static final String APP_VERSION_NAME = "2026.07.10.2";
     private static final String ANDROID_VERSION_PATH = "/nas-viewer-app/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/nas-viewer-app",
@@ -110,7 +112,7 @@ public class MainActivity extends Activity {
         checkForApkUpdate(true);
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     private void configureWebView() {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -126,6 +128,7 @@ public class MainActivity extends Activity {
         settings.setUserAgentString(settings.getUserAgentString() + " NasViewerApp/" + APP_VERSION_NAME);
 
         webView.setBackgroundColor(Color.BLACK);
+        webView.addJavascriptInterface(new NasViewerAndroidBridge(), "NasViewerAndroid");
         webView.setWebViewClient(new NasViewerWebViewClient());
         webView.setWebChromeClient(new FullscreenChromeClient());
         webView.setDownloadListener(new NasViewerDownloadListener());
@@ -220,6 +223,22 @@ public class MainActivity extends Activity {
         }
 
         super.onBackPressed();
+    }
+
+    private void setMediaOrientationEnabled(boolean enabled) {
+        int requestedOrientation = enabled
+            ? ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            : ActivityInfo.SCREEN_ORIENTATION_USER;
+        if (getRequestedOrientation() != requestedOrientation) {
+            setRequestedOrientation(requestedOrientation);
+        }
+    }
+
+    private class NasViewerAndroidBridge {
+        @JavascriptInterface
+        public void setMediaOrientationEnabled(boolean enabled) {
+            runOnUiThread(() -> MainActivity.this.setMediaOrientationEnabled(enabled));
+        }
     }
 
     @Override

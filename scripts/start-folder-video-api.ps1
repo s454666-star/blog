@@ -1,8 +1,15 @@
 param(
     [switch]$WarmCache,
+    [switch]$ForceWarmCache,
+    [switch]$WarmPreviews,
+    [switch]$WarmThumbnails,
+    [int]$PreviewLimit = 60,
     [int]$Port = 8090,
+    [int]$LaravelPort = 8091,
     [string]$BindAddress = "0.0.0.0",
-    [string]$UpstreamHost = "blog.test"
+    [string]$MediaRoot = "",
+    [string]$MediaShare = "",
+    [int]$MediaWaitSeconds = 120
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,8 +20,10 @@ $stateFile = Join-Path $stateDir "state.json"
 $caddyDir = Join-Path $projectRoot "storage\bin\caddy"
 $caddyExe = Join-Path $caddyDir "caddy.exe"
 $caddyConfig = Join-Path $stateDir "Caddyfile"
-$stdoutLog = Join-Path $stateDir "caddy-stdout.log"
-$stderrLog = Join-Path $stateDir "caddy-stderr.log"
+$caddyStdoutLog = Join-Path $stateDir "caddy-stdout.log"
+$caddyStderrLog = Join-Path $stateDir "caddy-stderr.log"
+$laravelStdoutLog = Join-Path $stateDir "laravel-stdout.log"
+$laravelStderrLog = Join-Path $stateDir "laravel-stderr.log"
 
 function Ensure-CaddyBinary {
     if (Test-Path $caddyExe) {
@@ -36,17 +45,43 @@ function Ensure-CaddyBinary {
     Remove-Item $zipPath -Force
 }
 
-function Stop-LegacyArtisanServer {
-    $artisanProcesses = Get-CimInstance Win32_Process | Where-Object {
-        $_.CommandLine -match "artisan serve" -and $_.CommandLine -match "--port=$Port"
+function Get-EnvFileValue {
+    param([string]$Name)
+
+    $envPath = Join-Path $projectRoot ".env"
+    if (-not (Test-Path -LiteralPath $envPath)) {
+        return ""
     }
 
-    foreach ($process in $artisanProcesses) {
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    $pattern = "^\s*$([regex]::Escape($Name))\s*=\s*(.*)\s*$"
+    foreach ($line in Get-Content -LiteralPath $envPath -Encoding UTF8) {
+        if ($line -match $pattern) {
+            $value = $Matches[1].Trim()
+            if (
+                ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+                ($value.StartsWith("'") -and $value.EndsWith("'"))
+            ) {
+                $value = $value.Substring(1, $value.Length - 2)
+            }
+
+            return $value
+        }
     }
+
+    return ""
 }
 
-function Stop-ManagedCaddy {
+function Stop-ProcessByIdIfRunning {
+    param([int]$ProcessId)
+
+    if ($ProcessId -le 0) {
+        return
+    }
+
+    Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
+}
+
+function Stop-ManagedProcesses {
     if (-not (Test-Path $stateFile)) {
         return
     }
@@ -54,12 +89,85 @@ function Stop-ManagedCaddy {
     try {
         $state = Get-Content $stateFile -Raw | ConvertFrom-Json
         if ($state.caddy_pid) {
-            Stop-Process -Id $state.caddy_pid -Force -ErrorAction SilentlyContinue
+            Stop-ProcessByIdIfRunning -ProcessId ([int]$state.caddy_pid)
+        }
+        if ($state.laravel_pid) {
+            Stop-ProcessByIdIfRunning -ProcessId ([int]$state.laravel_pid)
         }
     } catch {
     }
 
     Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
+}
+
+function Stop-LegacyArtisanServer {
+    param([int[]]$Ports)
+
+    $artisanProcesses = Get-CimInstance Win32_Process | Where-Object {
+        $commandLine = $_.CommandLine
+        $commandLine -match "artisan serve" -and [bool](
+            $Ports | Where-Object { $PSItem -gt 0 -and $commandLine -match "--port=$PSItem" }
+        )
+    }
+
+    foreach ($process in $artisanProcesses) {
+        Stop-ProcessByIdIfRunning -ProcessId $process.ProcessId
+    }
+}
+
+function Stop-ProjectCaddy {
+    $caddyProcesses = Get-CimInstance Win32_Process | Where-Object {
+        $_.Name -eq "caddy.exe" -and $_.CommandLine -match [regex]::Escape($projectRoot)
+    }
+
+    foreach ($process in $caddyProcesses) {
+        Stop-ProcessByIdIfRunning -ProcessId $process.ProcessId
+    }
+}
+
+function Test-MediaRoot {
+    try {
+        return [bool](Test-Path -LiteralPath $MediaRoot -PathType Container -ErrorAction Stop)
+    } catch {
+        return $false
+    }
+}
+
+function Restore-MediaDrive {
+    if ([string]::IsNullOrWhiteSpace($MediaShare)) {
+        return
+    }
+
+    $driveRoot = [System.IO.Path]::GetPathRoot($MediaRoot)
+    if ([string]::IsNullOrWhiteSpace($driveRoot) -or $driveRoot -notmatch "^[A-Za-z]:\\$") {
+        return
+    }
+
+    $driveName = $driveRoot.TrimEnd("\")
+    & net.exe use $driveName $MediaShare /persistent:yes 2>&1 | Out-Null
+}
+
+function Wait-ForMediaRoot {
+    $deadline = (Get-Date).AddSeconds([Math]::Max(0, $MediaWaitSeconds))
+
+    do {
+        if (Test-MediaRoot) {
+            return $true
+        }
+
+        Restore-MediaDrive
+        if (Test-MediaRoot) {
+            return $true
+        }
+
+        if ((Get-Date) -ge $deadline) {
+            break
+        }
+
+        Start-Sleep -Seconds 5
+    } while ($true)
+
+    return $false
 }
 
 function Wait-ForTcpPort {
@@ -91,16 +199,72 @@ function Wait-ForTcpPort {
     return $false
 }
 
+function Get-LanIps {
+    try {
+        return @(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+            $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*"
+        } | Select-Object -ExpandProperty IPAddress)
+    } catch {
+        return @()
+    }
+}
+
 Set-Location $projectRoot
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
+if ([string]::IsNullOrWhiteSpace($MediaRoot)) {
+    $MediaRoot = Get-EnvFileValue -Name "FOLDER_VIDEO_ROOT"
+}
+if ([string]::IsNullOrWhiteSpace($MediaRoot)) {
+    $MediaRoot = "M:\video(重跑)"
+}
+if ([string]::IsNullOrWhiteSpace($MediaShare)) {
+    $MediaShare = Get-EnvFileValue -Name "FOLDER_VIDEO_DRIVE_SHARE"
+}
+if (-not (Wait-ForMediaRoot)) {
+    throw "Folder video media root is not available: $MediaRoot"
+}
+
+$phpExe = (Get-Command php -ErrorAction Stop).Source
+
+php artisan config:clear | Out-Null
+
 if ($WarmCache) {
-    php artisan folder-video:warm-cache --force
+    $warmArgs = @("artisan", "folder-video:warm-cache")
+    if ($ForceWarmCache) {
+        $warmArgs += "--force"
+    }
+    if ($WarmPreviews) {
+        $warmArgs += "--previews"
+        $warmArgs += "--preview-limit=$PreviewLimit"
+    }
+    if ($WarmThumbnails) {
+        $warmArgs += "--thumbnails"
+        if (-not $WarmPreviews) {
+            $warmArgs += "--preview-limit=$PreviewLimit"
+        }
+    }
+
+    & $phpExe $warmArgs
 }
 
 Ensure-CaddyBinary
-Stop-LegacyArtisanServer
-Stop-ManagedCaddy
+Stop-ManagedProcesses
+Stop-LegacyArtisanServer -Ports @($Port, $LaravelPort)
+Stop-ProjectCaddy
+
+$laravelProcess = Start-Process -FilePath $phpExe `
+    -ArgumentList @("artisan", "serve", "--host=127.0.0.1", "--port=$LaravelPort") `
+    -WorkingDirectory $projectRoot `
+    -RedirectStandardOutput $laravelStdoutLog `
+    -RedirectStandardError $laravelStderrLog `
+    -WindowStyle Hidden `
+    -PassThru
+
+if (-not (Wait-ForTcpPort -TargetHost "127.0.0.1" -Port $LaravelPort -TimeoutSeconds 30)) {
+    Stop-ProcessByIdIfRunning -ProcessId $laravelProcess.Id
+    throw "Laravel did not start listening on port $LaravelPort."
+}
 
 $configText = @"
 {
@@ -111,16 +275,37 @@ $configText = @"
 
 :$Port {
     bind $BindAddress
+    encode zstd gzip
 
-    reverse_proxy https://127.0.0.1:443 {
-        header_up Host $UpstreamHost
-        header_up X-Forwarded-Host {host}
-        header_up X-Forwarded-Proto {scheme}
-        header_up X-Forwarded-Port $Port
+    @folderApp path /folder-video-app
+    handle @folderApp {
+        rewrite * /index.php/folder-video-app
+        reverse_proxy 127.0.0.1:$LaravelPort {
+            header_up Host {host}
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Port $Port
+        }
+    }
 
-        transport http {
-            tls_insecure_skip_verify
-            tls_server_name $UpstreamHost
+    @media path /folder-video-media/*
+    handle @media {
+        uri strip_prefix /folder-video-media
+        root * "$MediaRoot"
+        header {
+            Cache-Control "private, max-age=600"
+            Accept-Ranges "bytes"
+            X-Content-Type-Options "nosniff"
+        }
+        file_server
+    }
+
+    handle {
+        reverse_proxy 127.0.0.1:$LaravelPort {
+            header_up Host {host}
+            header_up X-Forwarded-Host {host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Port $Port
         }
     }
 }
@@ -131,27 +316,40 @@ Set-Content -Path $caddyConfig -Value $configText -Encoding UTF8
 $caddyProcess = Start-Process -FilePath $caddyExe `
     -ArgumentList @("run", "--config", $caddyConfig, "--adapter", "caddyfile") `
     -WorkingDirectory $projectRoot `
-    -RedirectStandardOutput $stdoutLog `
-    -RedirectStandardError $stderrLog `
+    -RedirectStandardOutput $caddyStdoutLog `
+    -RedirectStandardError $caddyStderrLog `
     -WindowStyle Hidden `
     -PassThru
 
 if (-not (Wait-ForTcpPort -TargetHost "127.0.0.1" -Port $Port)) {
+    Stop-ProcessByIdIfRunning -ProcessId $caddyProcess.Id
+    Stop-ProcessByIdIfRunning -ProcessId $laravelProcess.Id
     throw "Caddy did not start listening on port $Port."
 }
+
+$lanIps = Get-LanIps
 
 @{
     started_at = (Get-Date).ToString("o")
     caddy_pid = $caddyProcess.Id
+    laravel_pid = $laravelProcess.Id
     port = $Port
+    laravel_port = $LaravelPort
     bind_address = $BindAddress
-    upstream_host = $UpstreamHost
+    media_root = $MediaRoot
+    static_stream_path = "/folder-video-media"
     caddy_config = $caddyConfig
-    stdout_log = $stdoutLog
-    stderr_log = $stderrLog
+    caddy_stdout_log = $caddyStdoutLog
+    caddy_stderr_log = $caddyStderrLog
+    laravel_stdout_log = $laravelStdoutLog
+    laravel_stderr_log = $laravelStderrLog
+    lan_urls = @($lanIps | ForEach-Object { "http://$PSItem`:$Port/folder-video-app" })
 } | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
 
-Write-Host "Folder video API is now served by Caddy."
-Write-Host "URL: http://10.0.0.19:$Port/api/folder-videos?limit=1"
+Write-Host "Folder Video is running on this computer."
+foreach ($ip in $lanIps) {
+    Write-Host "URL: http://$ip`:$Port/folder-video-app"
+}
+Write-Host "Media root: $MediaRoot"
 Write-Host "Caddy PID: $($caddyProcess.Id)"
-Write-Host "Config: $caddyConfig"
+Write-Host "Laravel PID: $($laravelProcess.Id)"

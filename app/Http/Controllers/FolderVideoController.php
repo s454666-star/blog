@@ -70,9 +70,32 @@ class FolderVideoController extends Controller
         ]);
     }
 
-    public function preview(string $id): BinaryFileResponse
+    public function thumbnail(string $id): BinaryFileResponse|JsonResponse
+    {
+        $path = $this->folderVideoService->resolveThumbnailPath($id);
+
+        if ($path === null) {
+            return response()->json([
+                'message' => 'Thumbnail is not available.',
+            ], 404)->header('Cache-Control', 'no-store, max-age=0');
+        }
+
+        return response()->file($path, [
+            'Content-Type' => 'image/jpeg',
+            'Cache-Control' => 'public, max-age=86400',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    public function preview(string $id): BinaryFileResponse|JsonResponse
     {
         $path = $this->folderVideoService->resolvePreviewPath($id);
+
+        if ($path === null) {
+            return response()->json([
+                'message' => 'Preview is not available.',
+            ], 404)->header('Cache-Control', 'no-store, max-age=0');
+        }
 
         return response()->file($path, [
             'Content-Type' => mime_content_type($path) ?: 'video/mp4',

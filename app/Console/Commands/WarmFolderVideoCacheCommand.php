@@ -10,6 +10,7 @@ class WarmFolderVideoCacheCommand extends Command
     protected $signature = 'folder-video:warm-cache
         {--force : Re-probe every video even if an index entry already exists}
         {--previews : Also build low-resolution preview clips}
+        {--thumbnails : Also build static thumbnail images}
         {--preview-limit=0 : Maximum preview clips to build; 0 means no limit}';
 
     protected $description = 'Scan the folder, write duration metadata into the folder index file, refresh ordering data, and optionally build preview clips.';
@@ -33,6 +34,16 @@ class WarmFolderVideoCacheCommand extends Command
 
             $this->info("Preview cache ready for {$previewCount} videos.");
             $this->line('Preview cache: '.$folderVideoService->previewCachePath());
+        }
+
+        if ((bool) $this->option('thumbnails')) {
+            $this->newLine();
+            $this->info('Building thumbnails...');
+
+            $thumbnailCount = $folderVideoService->warmThumbnailCache((int) $this->option('preview-limit'));
+
+            $this->info("Thumbnail cache ready for {$thumbnailCount} videos.");
+            $this->line('Thumbnail cache: '.$folderVideoService->thumbnailCachePath());
         }
 
         return self::SUCCESS;

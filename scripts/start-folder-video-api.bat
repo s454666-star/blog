@@ -1,4 +1,5 @@
 @echo off
 setlocal
-cd /d C:\www\blog
-powershell -ExecutionPolicy Bypass -File C:\www\blog\scripts\start-folder-video-api.ps1
+set "SCRIPT_DIR=%~dp0"
+cd /d "%SCRIPT_DIR%.."
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%start-folder-video-api.ps1"

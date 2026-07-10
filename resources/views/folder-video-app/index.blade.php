@@ -437,6 +437,7 @@
     </div>
     <div class="player-actions">
         <button class="icon-button" id="playerPrevButton" type="button" title="上一支">↑</button>
+        <button class="icon-button" id="playerRateButton" type="button" title="播放速度">1x</button>
         <button class="icon-button" id="playerNextButton" type="button" title="下一支">↓</button>
     </div>
     <div class="player-progress"><span id="playerProgress"></span></div>
@@ -457,8 +458,12 @@
     const DEFAULT_GRID_COLUMNS = 3;
     const MAX_GRID_COLUMNS = 5;
     const GRID_PRESET_VERSION = '3x3-20260707-11';
+    const DOUBLE_TAP_MS = 280;
+    const DOUBLE_TAP_DISTANCE = 30;
+    const PLAYER_HOLD_SEEK_MS = 260;
     const PLAYER_DRAG_SEEK_STEP_PX = 42;
     const PLAYER_DRAG_SEEK_RATIO = .05;
+    const PLAYBACK_RATES = [1, 1.25, 1.5, 1.75, 2];
     const MODE_ALL = 'all';
     const MODE_WATCHED = 'watched';
     const MODE_LIKED = 'liked';
@@ -483,6 +488,7 @@
         closePlayer: document.getElementById('closePlayerButton'),
         playerLike: document.getElementById('playerLikeButton'),
         playerPrev: document.getElementById('playerPrevButton'),
+        playerRate: document.getElementById('playerRateButton'),
         playerNext: document.getElementById('playerNextButton'),
         toast: document.getElementById('toast'),
         flash: document.getElementById('gestureFlash'),
@@ -491,7 +497,7 @@
     let appConfig = Object.assign({
         version: '2026.07.07.16',
         page_limit: 36,
-        preview_max_connections: 12,
+        preview_max_connections: 36,
     }, BOOT_CONFIG || {});
     const sessionSeed = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     const freshVideoIds = new Set();
@@ -511,6 +517,7 @@
     let gridMetricsRefreshQueued = false;
     let loadMoreQueued = false;
     let stopPlayerDragSeek = () => {};
+    const likeInFlight = new Set();
 
     const observer = new IntersectionObserver(handlePreviewIntersections, {
         root: null,
@@ -528,12 +535,14 @@
                 progress: {},
                 completed: {},
                 liked: {},
+                pendingLikeActions: {},
                 viewMode: parsed.showLikedOnly ? MODE_LIKED : MODE_ALL,
                 showLikedOnly: false,
                 known: {},
                 lastLibraryScanAt: 0,
                 currentId: null,
                 currentVideo: null,
+                playbackRate: 1,
             }, parsed);
         } catch (error) {
             return {
@@ -542,12 +551,14 @@
                 progress: {},
                 completed: {},
                 liked: {},
+                pendingLikeActions: {},
                 viewMode: MODE_ALL,
                 showLikedOnly: false,
                 known: {},
                 lastLibraryScanAt: 0,
                 currentId: null,
                 currentVideo: null,
+                playbackRate: 1,
             };
         }
     }
@@ -580,6 +591,40 @@
 
     function clamp(value, min, max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    function sleep(ms) {
+        return new Promise((resolve) => window.setTimeout(resolve, ms));
+    }
+
+    function normalizePlaybackRate(value) {
+        const numeric = Number(value || 1);
+        const closest = PLAYBACK_RATES.reduce((best, rate) => (
+            Math.abs(rate - numeric) < Math.abs(best - numeric) ? rate : best
+        ), 1);
+
+        return PLAYBACK_RATES.includes(closest) ? closest : 1;
+    }
+
+    function playbackRateLabel(rate = normalizePlaybackRate(state.playbackRate)) {
+        return `${Number(rate).toFixed(rate % 1 === 0 ? 0 : 2).replace(/0$/, '')}x`;
+    }
+
+    function applyPlaybackRate() {
+        const rate = normalizePlaybackRate(state.playbackRate);
+        state.playbackRate = rate;
+        elements.playerVideo.playbackRate = rate;
+        elements.playerRate.textContent = playbackRateLabel(rate);
+        elements.playerRate.title = `播放速度 ${playbackRateLabel(rate)}`;
+    }
+
+    function cyclePlaybackRate() {
+        const current = normalizePlaybackRate(state.playbackRate);
+        const index = PLAYBACK_RATES.indexOf(current);
+        state.playbackRate = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length];
+        saveState();
+        applyPlaybackRate();
+        showFlash(playbackRateLabel(state.playbackRate));
     }
 
     function escapeHtml(value) {
@@ -628,6 +673,9 @@
             created_at: Number(video.created_at || 0),
             stream_url: toPlayableUrl(video.stream_url || `${API_BASE}/${video.id}/stream`),
             preview_url: toPlayableUrl(video.preview_url || `${API_BASE}/${video.id}/preview`),
+            thumbnail_url: toPlayableUrl(video.thumbnail_url || `${API_BASE}/${video.id}/thumbnail`),
+            preview_cached: Boolean(video.preview_cached),
+            thumbnail_cached: Boolean(video.thumbnail_cached),
             liked: Boolean(video.liked),
         };
     }
@@ -649,6 +697,9 @@
             created_at: stored.created_at || 0,
             stream_url: stored.stream_url || `${API_BASE}/${id}/stream`,
             preview_url: stored.preview_url || `${API_BASE}/${id}/preview`,
+            thumbnail_url: stored.thumbnail_url || `${API_BASE}/${id}/thumbnail`,
+            preview_cached: Boolean(stored.preview_cached),
+            thumbnail_cached: Boolean(stored.thumbnail_cached),
             liked: fallbackLiked || Boolean(stored.liked),
         });
     }
@@ -688,6 +739,33 @@
         }
 
         delete state.liked[id];
+    }
+
+    function pendingLikeAction(id) {
+        return state.pendingLikeActions?.[id] || null;
+    }
+
+    function rememberPendingLikeAction(video, liked) {
+        const normalized = normalizeVideo(video);
+        if (!normalized.id) {
+            return;
+        }
+
+        state.pendingLikeActions = state.pendingLikeActions || {};
+        state.pendingLikeActions[normalized.id] = {
+            action: liked ? 'like' : 'unlike',
+            queuedAt: Date.now(),
+            mode: currentMode(),
+            video: Object.assign({}, normalized, {liked}),
+        };
+    }
+
+    function forgetPendingLikeAction(id) {
+        if (!state.pendingLikeActions) {
+            return;
+        }
+
+        delete state.pendingLikeActions[id];
     }
 
     function upsertVideo(video, placeFirst = false) {
@@ -944,8 +1022,10 @@
             const card = document.createElement('article');
             card.className = 'video-card';
             card.dataset.id = video.id;
+            const previewSrc = video.preview_cached ? video.preview_url : video.stream_url;
+            const posterSrc = video.thumbnail_cached ? video.thumbnail_url : '';
             card.innerHTML = `
-                <video class="preview-video" muted loop playsinline preload="none" data-src="${escapeHtml(video.preview_url || video.stream_url)}" data-fallback-src="${escapeHtml(video.stream_url)}"></video>
+                <video class="preview-video" muted loop playsinline preload="none" poster="${escapeHtml(posterSrc)}" data-src="${escapeHtml(previewSrc)}" data-preview-src="${escapeHtml(video.preview_url || '')}" data-stream-src="${escapeHtml(video.stream_url || '')}" data-fallback-src="${escapeHtml(video.stream_url || '')}"></video>
                 <div class="card-meta">
                     <div class="card-name">${escapeHtml(video.filename)}</div>
                     <div class="card-row">
@@ -1032,7 +1112,7 @@
             return;
         }
 
-        const delay = Math.min(420, Math.max(0, order) * 40);
+        const delay = Math.min(120, Math.max(0, order) * 12);
         if (delay <= 0) {
             startPreview(card);
             return;
@@ -1197,7 +1277,7 @@
         }
 
         const desiredActive = desiredVisibleCount();
-        const maxActive = clamp(Math.min(Number(appConfig.preview_max_connections || 12), desiredActive), 1, 24);
+        const maxActive = clamp(Math.min(Number(appConfig.preview_max_connections || 36), desiredActive, cards.length), 1, 36);
         const activeCards = new Set();
 
         for (let offset = 0; offset < Math.min(maxActive, cards.length); offset++) {
@@ -1359,7 +1439,9 @@
         elements.playerVideo.disableRemotePlayback = true;
         elements.playerVideo.src = normalized.stream_url;
         elements.playerVideo.loop = false;
+        applyPlaybackRate();
         elements.playerVideo.onloadedmetadata = () => {
+            applyPlaybackRate();
             const saved = Number(state.progress?.[normalized.id]?.time || 0);
             const duration = Number(elements.playerVideo.duration || normalized.duration_seconds || 0);
             if (saved > 0 && (!duration || saved < duration - 2)) {
@@ -1370,7 +1452,8 @@
         elements.playerVideo.load();
     }
 
-    function closePlayer() {
+    async function closePlayer() {
+        const closingId = playerItem?.id || null;
         recordPlayerProgress();
         stopPlayerDragSeek();
         elements.player.classList.remove('open');
@@ -1378,6 +1461,9 @@
         elements.playerVideo.pause();
         elements.playerVideo.removeAttribute('src');
         elements.playerVideo.load();
+        if (closingId) {
+            await flushPendingLikeAction(closingId);
+        }
         previewPaused = false;
         schedulePreviewRefresh();
     }
@@ -1457,6 +1543,7 @@
     }
 
     async function playAdjacent(delta) {
+        const leavingId = playerItem?.id || null;
         recordPlayerProgress();
         const next = await findNextPlayable(delta);
         if (!next) {
@@ -1464,6 +1551,9 @@
             return;
         }
 
+        if (leavingId) {
+            await flushPendingLikeAction(leavingId);
+        }
         openPlayer(next);
     }
 
@@ -1480,9 +1570,196 @@
         }
     }
 
+    async function releaseVideoBeforeMove(id) {
+        const card = elements.grid.querySelector(`.video-card[data-id="${CSS.escape(id)}"]`);
+        if (card) {
+            stopPreview(card);
+        }
+
+        if (!playerItem || playerItem.id !== id) {
+            await sleep(180);
+            return null;
+        }
+
+        const snapshot = {
+            time: Number(elements.playerVideo.currentTime || 0),
+            shouldResume: !elements.playerVideo.paused,
+            wasOpen: elements.player.classList.contains('open'),
+        };
+
+        try {
+            elements.playerVideo.pause();
+            elements.playerVideo.removeAttribute('src');
+            elements.playerVideo.load();
+        } catch (error) {
+        }
+
+        await sleep(320);
+
+        return snapshot;
+    }
+
+    function mergeMovedVideoRecords(originalId, returned) {
+        if (state.completed?.[originalId]) {
+            const completedRecord = state.completed[originalId];
+            delete state.completed[originalId];
+            state.completed[returned.id] = Object.assign({}, completedRecord, {
+                filename: returned.filename,
+                video: returned,
+            });
+        }
+
+        if (state.progress?.[originalId] && originalId !== returned.id) {
+            const progressRecord = state.progress[originalId];
+            delete state.progress[originalId];
+            state.progress[returned.id] = progressRecord;
+        }
+    }
+
+    function syncCollectionAfterLike(target, returned, liked, modeAtStart, previousPlayerIndex) {
+        const shouldKeep = (
+            (modeAtStart === MODE_WATCHED && isCompleted(returned.id))
+            || (modeAtStart === MODE_LIKED && liked)
+            || (modeAtStart === MODE_ALL && !liked)
+        );
+
+        videos = videos.filter((item) => item.id !== target.id && item.id !== returned.id);
+        videoById.delete(target.id);
+        videoById.delete(returned.id);
+
+        if (shouldKeep) {
+            videos.push(returned);
+            videoById.set(returned.id, returned);
+        }
+
+        const removedFromCurrentQueue = (modeAtStart === MODE_ALL && liked) || (modeAtStart === MODE_LIKED && !liked);
+        if (removedFromCurrentQueue && playerItem && (playerItem.id === target.id || playerItem.id === returned.id)) {
+            playerIndex = previousPlayerIndex - 1;
+        }
+    }
+
+    function updateCurrentPlayerRecord(target, returned, liked) {
+        if (!playerItem || playerItem.id !== target.id) {
+            return;
+        }
+
+        playerItem = Object.assign({}, playerItem, returned, {liked});
+        state.currentId = playerItem.id;
+        state.currentVideo = playerItem;
+        elements.playerTitle.textContent = playerItem.filename;
+    }
+
+    function applyDeferredLikeVisualState(target, liked) {
+        const optimistic = Object.assign({}, target, {liked});
+        if (liked) {
+            rememberLikedVideo(optimistic);
+        } else {
+            forgetLikedVideo(target.id);
+        }
+
+        rememberPendingLikeAction(optimistic, liked);
+
+        if (playerItem && playerItem.id === target.id) {
+            playerItem = Object.assign({}, playerItem, {liked});
+            state.currentVideo = playerItem;
+        }
+
+        if (videoById.has(target.id)) {
+            Object.assign(videoById.get(target.id), {liked});
+        }
+
+        saveState();
+        updateLikeVisuals(target.id);
+        updateStatus();
+        showFlash(liked ? '♥' : '♡');
+        showToast(liked ? '已加入 LIKE' : '已取消 LIKE');
+    }
+
+    function togglePlayerLikeDeferred(video) {
+        const target = normalizeVideo(video || playerItem);
+        if (!target.id || likeInFlight.has(target.id)) {
+            return;
+        }
+
+        applyDeferredLikeVisualState(target, !isLiked(target.id));
+    }
+
+    async function flushPendingLikeAction(id) {
+        const pending = pendingLikeAction(id);
+        if (!pending || likeInFlight.has(id)) {
+            return null;
+        }
+
+        const liked = pending.action !== 'unlike';
+        const target = normalizeVideo(pending.video || videoById.get(id) || playerItem || {id});
+        const modeAtStart = currentMode();
+        const previousPlayerIndex = playerIndex;
+        const endpoint = `${API_BASE}/${encodeURIComponent(id)}/like`;
+
+        try {
+            likeInFlight.add(id);
+            await releaseVideoBeforeMove(id);
+            const response = await fetch(endpoint, {method: liked ? 'POST' : 'DELETE'});
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const payload = await response.json();
+            const returned = normalizeVideo(Object.assign({}, target, payload.data || {}, {
+                liked,
+                duration_seconds: target.duration_seconds,
+                duration_label: target.duration_label,
+            }));
+
+            mergeMovedVideoRecords(id, returned);
+            if (liked) {
+                forgetLikedVideo(id);
+                rememberLikedVideo(returned, pending.queuedAt || Date.now());
+            } else {
+                forgetLikedVideo(id);
+                forgetLikedVideo(returned.id);
+            }
+
+            updateCurrentPlayerRecord(target, returned, liked);
+            syncCollectionAfterLike(target, returned, liked, modeAtStart, previousPlayerIndex);
+            forgetPendingLikeAction(id);
+            if (returned.id !== id) {
+                forgetPendingLikeAction(returned.id);
+            }
+
+            saveState();
+            renderGrid();
+            updateLikeVisuals(id);
+            updateLikeVisuals(returned.id);
+
+            return returned;
+        } catch (error) {
+            showToast(liked ? 'LIKE 儲存失敗' : '取消 LIKE 儲存失敗');
+            return null;
+        } finally {
+            likeInFlight.delete(id);
+        }
+    }
+
+    async function flushPendingLikeActions() {
+        const ids = Object.keys(state.pendingLikeActions || {});
+        for (const id of ids) {
+            await flushPendingLikeAction(id);
+        }
+    }
+
     async function toggleLike(video) {
         const target = normalizeVideo(video || playerItem);
         if (!target.id) {
+            return;
+        }
+
+        if (playerItem && playerItem.id === target.id && elements.player.classList.contains('open')) {
+            togglePlayerLikeDeferred(target);
+            return;
+        }
+
+        if (likeInFlight.has(target.id)) {
             return;
         }
 
@@ -1491,8 +1768,11 @@
         const modeAtStart = currentMode();
         const removedFromCurrentQueue = (modeAtStart === MODE_ALL && !wasLiked) || (modeAtStart === MODE_LIKED && wasLiked);
         const endpoint = `${API_BASE}/${encodeURIComponent(target.id)}/like`;
+        let releasedPlayer = null;
 
         try {
+            likeInFlight.add(target.id);
+            releasedPlayer = await releaseVideoBeforeMove(target.id);
             const response = await fetch(endpoint, {method: wasLiked ? 'DELETE' : 'POST'});
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
@@ -1525,15 +1805,17 @@
 
             if (playerItem && playerItem.id === target.id) {
                 const previousStreamUrl = playerItem.stream_url;
-                const previousTime = Number(elements.playerVideo.currentTime || 0);
-                const shouldResume = !elements.playerVideo.paused;
+                const previousTime = Number(releasedPlayer?.time || elements.playerVideo.currentTime || 0);
+                const shouldResume = Boolean(releasedPlayer?.shouldResume);
                 playerItem = Object.assign({}, playerItem, returned, {liked: !wasLiked});
                 state.currentId = playerItem.id;
                 state.currentVideo = playerItem;
                 elements.playerTitle.textContent = playerItem.filename;
-                if (returned.stream_url && returned.stream_url !== previousStreamUrl) {
+                if (releasedPlayer?.wasOpen || (returned.stream_url && returned.stream_url !== previousStreamUrl)) {
                     elements.playerVideo.src = returned.stream_url;
+                    applyPlaybackRate();
                     elements.playerVideo.onloadedmetadata = () => {
+                        applyPlaybackRate();
                         if (previousTime > 0 && elements.playerVideo.duration && previousTime < elements.playerVideo.duration - 1) {
                             elements.playerVideo.currentTime = previousTime;
                         }
@@ -1571,6 +1853,22 @@
             updateLikeVisuals(returned.id);
         } catch (error) {
             showToast(wasLiked ? '取消 LIKE 失敗' : '按讚失敗');
+            if (releasedPlayer?.wasOpen && playerItem && playerItem.id === target.id && target.stream_url) {
+                elements.playerVideo.src = target.stream_url;
+                applyPlaybackRate();
+                elements.playerVideo.onloadedmetadata = () => {
+                    applyPlaybackRate();
+                    if (releasedPlayer.time > 0 && elements.playerVideo.duration && releasedPlayer.time < elements.playerVideo.duration - 1) {
+                        elements.playerVideo.currentTime = releasedPlayer.time;
+                    }
+                    if (releasedPlayer.shouldResume) {
+                        elements.playerVideo.play().catch(() => {});
+                    }
+                };
+                elements.playerVideo.load();
+            }
+        } finally {
+            likeInFlight.delete(target.id);
         }
     }
 
@@ -1647,12 +1945,12 @@
         let startY = 0;
         let startTime = 0;
         let moved = false;
-        let longPressTimer = null;
-        let longPressFired = false;
+        let singleTapTimer = null;
+        let lastTap = {time: 0, x: 0, y: 0};
 
-        const clearLongPress = () => {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
+        const clearSingleTap = () => {
+            clearTimeout(singleTapTimer);
+            singleTapTimer = null;
         };
 
         card.addEventListener('pointerdown', (event) => {
@@ -1664,14 +1962,6 @@
             startY = event.clientY;
             startTime = Date.now();
             moved = false;
-            longPressFired = false;
-            clearLongPress();
-            longPressTimer = setTimeout(() => {
-                if (!moved) {
-                    longPressFired = true;
-                    toggleLike(video);
-                }
-            }, 1000);
         });
 
         card.addEventListener('pointermove', (event) => {
@@ -1682,20 +1972,37 @@
         });
 
         card.addEventListener('pointerup', (event) => {
-            clearLongPress();
-            if (longPressFired || Date.now() - startTime > 950) {
+            if (Date.now() - startTime > 950) {
+                clearSingleTap();
                 event.preventDefault();
                 event.stopPropagation();
                 return;
             }
 
             if (!moved) {
-                openPlayer(video);
+                const now = Date.now();
+                const distance = Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y);
+                if (now - lastTap.time <= DOUBLE_TAP_MS && distance <= DOUBLE_TAP_DISTANCE) {
+                    clearSingleTap();
+                    lastTap = {time: 0, x: 0, y: 0};
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleLike(video);
+                    return;
+                }
+
+                lastTap = {time: now, x: event.clientX, y: event.clientY};
+                clearSingleTap();
+                singleTapTimer = window.setTimeout(() => {
+                    singleTapTimer = null;
+                    openPlayer(video);
+                }, DOUBLE_TAP_MS);
             }
         });
 
-        card.addEventListener('pointercancel', clearLongPress);
-        card.addEventListener('pointerleave', clearLongPress);
+        card.addEventListener('pointercancel', () => {
+            clearSingleTap();
+        });
     }
 
     function bindPlayerGestures() {
@@ -1703,12 +2010,16 @@
         let startY = 0;
         let startTime = 0;
         let moved = false;
-        let longPressTimer = null;
-        let longPressFired = false;
+        let holdSeekTimer = null;
+        let holdSeekArmed = false;
         let dragSeekApplied = false;
         let dragSeekStepIndex = 0;
+        let lastTap = {time: 0, x: 0, y: 0};
 
         const clearDragSeek = () => {
+            clearTimeout(holdSeekTimer);
+            holdSeekTimer = null;
+            holdSeekArmed = false;
             dragSeekApplied = false;
             dragSeekStepIndex = 0;
         };
@@ -1724,16 +2035,15 @@
             startY = event.clientY;
             startTime = Date.now();
             moved = false;
-            longPressFired = false;
+            holdSeekArmed = false;
             dragSeekApplied = false;
             dragSeekStepIndex = 0;
-            clearTimeout(longPressTimer);
-            longPressTimer = setTimeout(() => {
+            clearTimeout(holdSeekTimer);
+            holdSeekTimer = setTimeout(() => {
                 if (!moved) {
-                    longPressFired = true;
-                    toggleCurrentLike();
+                    holdSeekArmed = true;
                 }
-            }, 1000);
+            }, PLAYER_HOLD_SEEK_MS);
         });
 
         elements.player.addEventListener('pointermove', (event) => {
@@ -1744,10 +2054,13 @@
 
             if (absX > 16 || absY > 16) {
                 moved = true;
-                clearTimeout(longPressTimer);
+                if (!holdSeekArmed) {
+                    clearTimeout(holdSeekTimer);
+                    holdSeekTimer = null;
+                }
             }
 
-            if ((absX > 28 && absX > absY * 1.15) || dragSeekApplied) {
+            if (holdSeekArmed && ((absX > 28 && absX > absY * 1.15) || dragSeekApplied)) {
                 const nextStepIndex = Math.round(dx / PLAYER_DRAG_SEEK_STEP_PX);
                 const stepDelta = nextStepIndex - dragSeekStepIndex;
                 if (stepDelta !== 0) {
@@ -1766,7 +2079,7 @@
         });
 
         elements.player.addEventListener('pointerup', (event) => {
-            clearTimeout(longPressTimer);
+            clearTimeout(holdSeekTimer);
             const hadDragSeek = dragSeekApplied;
             clearDragSeek();
             if (hadDragSeek) {
@@ -1774,17 +2087,12 @@
                 return;
             }
 
-            if (longPressFired || Date.now() - startTime > 900) {
+            if (Date.now() - startTime > 900) {
                 return;
             }
 
             const dx = event.clientX - startX;
             const dy = event.clientY - startY;
-
-            if (Math.abs(dx) > 56 && Math.abs(dx) > Math.abs(dy)) {
-                seekPlayerByRatio(dx > 0 ? 1 : -1);
-                return;
-            }
 
             if (Math.abs(dy) > 56 && Math.abs(dy) > Math.abs(dx)) {
                 playAdjacent(dy < 0 ? 1 : -1);
@@ -1792,27 +2100,23 @@
             }
 
             if (Math.abs(dx) <= 18 && Math.abs(dy) <= 18) {
-                const rect = elements.player.getBoundingClientRect();
-                const tapX = event.clientX - rect.left;
-                if (tapX < rect.width * .45) {
-                    seekPlayer(-10);
+                const now = Date.now();
+                const distance = Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y);
+                if (now - lastTap.time <= DOUBLE_TAP_MS && distance <= DOUBLE_TAP_DISTANCE) {
+                    lastTap = {time: 0, x: 0, y: 0};
+                    toggleCurrentLike();
                     return;
                 }
 
-                if (tapX > rect.width * .55) {
-                    seekPlayer(10);
-                    return;
-                }
+                lastTap = {time: now, x: event.clientX, y: event.clientY};
             }
         });
 
         elements.player.addEventListener('pointercancel', () => {
-            clearTimeout(longPressTimer);
             clearDragSeek();
         });
 
         elements.player.addEventListener('pointerleave', () => {
-            clearTimeout(longPressTimer);
             clearDragSeek();
         });
     }
@@ -1950,6 +2254,7 @@
     elements.playerLike.addEventListener('click', toggleCurrentLike);
     elements.playerNext.addEventListener('click', () => playAdjacent(1));
     elements.playerPrev.addEventListener('click', () => playAdjacent(-1));
+    elements.playerRate.addEventListener('click', cyclePlaybackRate);
 
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
@@ -2050,6 +2355,7 @@
         }
         await fetchAppConfig();
         await loadMoreVideos(true);
+        flushPendingLikeActions().catch(() => {});
         registerServiceWorker();
     }
 

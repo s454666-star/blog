@@ -40,6 +40,9 @@ class FolderVideoControllerTest extends TestCase
         config()->set('folder_video.ffmpeg_bin', '');
         config()->set('folder_video.ffprobe_bin', $this->fakeFfprobe);
         config()->set('folder_video.preview_cache_path', $this->tempRoot.DIRECTORY_SEPARATOR.'previews');
+        config()->set('folder_video.thumbnail_cache_path', $this->tempRoot.DIRECTORY_SEPARATOR.'thumbnails');
+        config()->set('folder_video.stream_base_path', '');
+        config()->set('folder_video.preview_fallback_to_source', true);
         config()->set('folder_video.index_filename', 'folder-video-index.json');
         config()->set('folder_video.index_path', null);
         config()->set('folder_video.probe_on_request', true);
@@ -230,7 +233,30 @@ class FolderVideoControllerTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.0.stream_url', '/api/folder-videos/c2hvcnQubXA0/stream')
-            ->assertJsonPath('data.0.preview_url', '/api/folder-videos/c2hvcnQubXA0/preview');
+            ->assertJsonPath('data.0.preview_url', '/api/folder-videos/c2hvcnQubXA0/preview')
+            ->assertJsonPath('data.0.thumbnail_url', '/api/folder-videos/c2hvcnQubXA0/thumbnail')
+            ->assertJsonPath('data.0.preview_cached', false)
+            ->assertJsonPath('data.0.thumbnail_cached', false);
+    }
+
+    public function test_video_payload_can_use_direct_static_stream_urls(): void
+    {
+        config()->set('folder_video.stream_base_path', '/folder-video-media');
+
+        $response = $this->getJson('/api/folder-videos?limit=1');
+
+        $response->assertOk()
+            ->assertJsonPath('data.0.stream_url', '/folder-video-media/short.mp4')
+            ->assertJsonPath('data.0.preview_url', '/api/folder-videos/c2hvcnQubXA0/preview')
+            ->assertJsonPath('data.0.thumbnail_url', '/api/folder-videos/c2hvcnQubXA0/thumbnail')
+            ->assertJsonPath('data.0.preview_cached', false)
+            ->assertJsonPath('data.0.thumbnail_cached', false);
+
+        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
+
+        $this->postJson("/api/folder-videos/{$id}/like")
+            ->assertOk()
+            ->assertJsonPath('data.stream_url', '/folder-video-media/good/short.mp4');
     }
 
     public function test_preview_endpoint_falls_back_to_source_when_cache_is_unavailable(): void
@@ -246,6 +272,26 @@ class FolderVideoControllerTest extends TestCase
             realpath($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4'),
             realpath($response->baseResponse->getFile()->getPathname())
         );
+    }
+
+    public function test_preview_endpoint_can_disable_source_fallback(): void
+    {
+        config()->set('folder_video.preview_fallback_to_source', false);
+
+        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
+
+        $this->get("/api/folder-videos/{$id}/preview")
+            ->assertNotFound()
+            ->assertJsonPath('message', 'Preview is not available.');
+    }
+
+    public function test_thumbnail_endpoint_returns_not_found_without_ffmpeg(): void
+    {
+        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
+
+        $this->get("/api/folder-videos/{$id}/thumbnail")
+            ->assertNotFound()
+            ->assertJsonPath('message', 'Thumbnail is not available.');
     }
 
     public function test_random_order_is_seeded_and_pageable(): void

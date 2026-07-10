@@ -2,14 +2,20 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $projectRoot '..\..')
-$versionCode = 10
-$versionName = '2026.07.07.11'
+$versionCode = 11
+$versionName = '2026.07.08.1'
 $sdkRoot = $env:ANDROID_SDK_ROOT
 if (-not $sdkRoot) {
     $sdkRoot = $env:ANDROID_HOME
 }
 if (-not $sdkRoot) {
     $sdkRoot = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
+}
+if (-not $env:JAVA_HOME) {
+    $jbrRoot = 'C:\Program Files\JetBrains\PhpStorm 2026.1.4\jbr'
+    if (Test-Path (Join-Path $jbrRoot 'bin\javac.exe')) {
+        $env:JAVA_HOME = $jbrRoot
+    }
 }
 
 $buildTools = $null
@@ -29,10 +35,9 @@ $d8 = Join-Path $buildTools 'd8.bat'
 $zipalign = Join-Path $buildTools 'zipalign.exe'
 $apksigner = Join-Path $buildTools 'apksigner.bat'
 $javac = Join-Path $env:JAVA_HOME 'bin\javac.exe'
-$jar = Join-Path $env:JAVA_HOME 'bin\jar.exe'
 $keytool = Join-Path $env:JAVA_HOME 'bin\keytool.exe'
 
-foreach ($tool in @($aapt2, $d8, $zipalign, $apksigner, $javac, $jar, $keytool, $platformJar)) {
+foreach ($tool in @($aapt2, $d8, $zipalign, $apksigner, $javac, $keytool, $platformJar)) {
     if (-not (Test-Path $tool)) {
         throw "Missing required build tool: $tool"
     }
@@ -42,7 +47,6 @@ $buildDir = Join-Path $projectRoot 'build'
 $compiledResources = Join-Path $buildDir 'compiled-resources.zip'
 $generatedDir = Join-Path $buildDir 'generated'
 $classesDir = Join-Path $buildDir 'classes'
-$classesJar = Join-Path $buildDir 'classes.jar'
 $dexDir = Join-Path $buildDir 'dex'
 $unsignedApk = Join-Path $buildDir 'folder-video-unsigned.apk'
 $dexApk = Join-Path $buildDir 'folder-video-with-dex.apk'
@@ -90,15 +94,12 @@ $javaFiles = @(
 & $javac -encoding UTF-8 -source 8 -target 8 -classpath $platformJar -d $classesDir $javaFiles
 if ($LASTEXITCODE -ne 0) { throw 'javac failed' }
 
-Push-Location $classesDir
-try {
-    & $jar cf $classesJar .
-    if ($LASTEXITCODE -ne 0) { throw 'jar classes failed' }
-} finally {
-    Pop-Location
+$classFiles = Get-ChildItem -LiteralPath $classesDir -Recurse -Filter '*.class' | Select-Object -ExpandProperty FullName
+if (-not $classFiles) {
+    throw 'No compiled Java classes found'
 }
 
-& $d8 --release --min-api 23 --lib $platformJar --output $dexDir $classesJar
+& $d8 --release --min-api 23 --lib $platformJar --output $dexDir $classFiles
 if ($LASTEXITCODE -ne 0) { throw 'd8 failed' }
 
 Copy-Item -LiteralPath $unsignedApk -Destination $dexApk -Force

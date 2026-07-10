@@ -2,6 +2,7 @@
 <network-security-config>
     <base-config cleartextTrafficPermitted="true" />
     <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.0.25</domain>
         <domain includeSubdomains="true">10.0.0.19</domain>
         <domain includeSubdomains="true">10.147.18.155</domain>
         <domain includeSubdomains="true">blog.test</domain>

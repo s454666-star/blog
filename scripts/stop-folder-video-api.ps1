@@ -24,6 +24,9 @@ if (Test-Path $stateFile) {
         if ($state.caddy_pid) {
             Stop-ProcessByIdIfRunning -ProcessId ([int]$state.caddy_pid)
         }
+        if ($state.laravel_pid) {
+            Stop-ProcessByIdIfRunning -ProcessId ([int]$state.laravel_pid)
+        }
     } catch {
     }
 
@@ -31,7 +34,10 @@ if (Test-Path $stateFile) {
 }
 
 $artisanProcesses = Get-CimInstance Win32_Process | Where-Object {
-    $_.CommandLine -match "artisan serve" -and $_.CommandLine -match "--port=$Port"
+    $_.CommandLine -match "artisan serve" -and (
+        $_.CommandLine -match "--port=$Port" -or
+        $_.CommandLine -match "--port=8091"
+    )
 }
 
 foreach ($process in $artisanProcesses) {

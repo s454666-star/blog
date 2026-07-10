@@ -117,8 +117,11 @@ class FolderVideoService
                     'size_bytes' => $stat['size'],
                     'mtime' => $stat['mtime'],
                     'ctime' => $stat['ctime'],
-                    'stream_url' => route('folder-videos.stream', ['id' => $id], false),
-                    'preview_url' => route('folder-videos.preview', ['id' => $id], false),
+                    'stream_url' => $this->streamUrlForFilename($filename),
+                    'preview_url' => $this->previewUrlForFilename($filename),
+                    'thumbnail_url' => $this->thumbnailUrlForFilename($filename),
+                    'preview_cached' => $this->previewCachedForPath($path),
+                    'thumbnail_cached' => $this->thumbnailCachedForPath($path),
                     'liked' => false,
                 ];
             })
@@ -170,7 +173,19 @@ class FolderVideoService
         abort(404, 'Video not found.');
     }
 
-    public function resolvePreviewPath(string $id): string
+    public function resolveThumbnailPath(string $id): ?string
+    {
+        $sourcePath = $this->resolveVideoPath($id);
+        $thumbnailPath = $this->thumbnailPathForSource($sourcePath);
+
+        if (is_file($thumbnailPath) || $this->ensureThumbnailImage($sourcePath, $thumbnailPath)) {
+            return $thumbnailPath;
+        }
+
+        return null;
+    }
+
+    public function resolvePreviewPath(string $id): ?string
     {
         $sourcePath = $this->resolveVideoPath($id);
         $previewPath = $this->previewPathForSource($sourcePath);
@@ -179,12 +194,17 @@ class FolderVideoService
             return $previewPath;
         }
 
-        return $sourcePath;
+        return (bool) config('folder_video.preview_fallback_to_source', true) ? $sourcePath : null;
     }
 
     public function previewCachePath(): string
     {
         return rtrim((string) config('folder_video.preview_cache_path'), DIRECTORY_SEPARATOR);
+    }
+
+    public function thumbnailCachePath(): string
+    {
+        return rtrim((string) config('folder_video.thumbnail_cache_path'), DIRECTORY_SEPARATOR);
     }
 
     public function warmPreviewCache(int $limit = 0): int
@@ -219,6 +239,38 @@ class FolderVideoService
         return $count;
     }
 
+    public function warmThumbnailCache(int $limit = 0): int
+    {
+        $limit = max(0, $limit);
+        $count = 0;
+
+        $records = collect($this->collectLightweightFileStats())
+            ->sortByDesc(fn (array $record) => max((int) ($record['mtime'] ?? 0), (int) ($record['ctime'] ?? 0)))
+            ->values();
+
+        foreach ($records as $record) {
+            if ($limit > 0 && $count >= $limit) {
+                break;
+            }
+
+            $filename = (string) ($record['filename'] ?? '');
+            if ($filename === '') {
+                continue;
+            }
+
+            $sourcePath = $this->safeVideoPathInDirectory($this->rootPath(), $filename);
+            if ($sourcePath === null) {
+                continue;
+            }
+
+            if ($this->ensureThumbnailImage($sourcePath, $this->thumbnailPathForSource($sourcePath))) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
     public function moveToGood(string $id): array
     {
         $filename = $this->decodeId($id);
@@ -236,8 +288,11 @@ class FolderVideoService
                     'filename' => basename($likedPath),
                     'destination' => $likedPath,
                     'liked' => true,
-                    'stream_url' => route('folder-videos.stream', ['id' => $likedId], false),
-                    'preview_url' => route('folder-videos.preview', ['id' => $likedId], false),
+                    'stream_url' => $this->streamUrlForFilename(basename($likedPath), true),
+                    'preview_url' => $this->previewUrlForFilename(basename($likedPath)),
+                    'thumbnail_url' => $this->thumbnailUrlForFilename(basename($likedPath)),
+                    'preview_cached' => $this->previewCachedForPath($likedPath),
+                    'thumbnail_cached' => $this->thumbnailCachedForPath($likedPath),
                 ];
             }
 
@@ -246,9 +301,7 @@ class FolderVideoService
 
         $destinationPath = $this->uniqueDestinationPath($goodDirectory, basename($sourcePath));
 
-        if (! @rename($sourcePath, $destinationPath)) {
-            throw new FileException('Unable to move video to good folder.');
-        }
+        $this->moveVideoFile($sourcePath, $destinationPath, 'Unable to move video to good folder.');
 
         $this->forgetIndexEntry(basename($sourcePath));
         $destinationId = $this->encodeId(basename($destinationPath));
@@ -258,8 +311,11 @@ class FolderVideoService
             'filename' => basename($destinationPath),
             'destination' => $destinationPath,
             'liked' => true,
-            'stream_url' => route('folder-videos.stream', ['id' => $destinationId], false),
-            'preview_url' => route('folder-videos.preview', ['id' => $destinationId], false),
+            'stream_url' => $this->streamUrlForFilename(basename($destinationPath), true),
+            'preview_url' => $this->previewUrlForFilename(basename($destinationPath)),
+            'thumbnail_url' => $this->thumbnailUrlForFilename(basename($destinationPath)),
+            'preview_cached' => $this->previewCachedForPath($destinationPath),
+            'thumbnail_cached' => $this->thumbnailCachedForPath($destinationPath),
         ];
     }
 
@@ -278,8 +334,11 @@ class FolderVideoService
                     'filename' => basename($rootPath),
                     'destination' => $rootPath,
                     'liked' => false,
-                    'stream_url' => route('folder-videos.stream', ['id' => $rootId], false),
-                    'preview_url' => route('folder-videos.preview', ['id' => $rootId], false),
+                    'stream_url' => $this->streamUrlForFilename(basename($rootPath)),
+                    'preview_url' => $this->previewUrlForFilename(basename($rootPath)),
+                    'thumbnail_url' => $this->thumbnailUrlForFilename(basename($rootPath)),
+                    'preview_cached' => $this->previewCachedForPath($rootPath),
+                    'thumbnail_cached' => $this->thumbnailCachedForPath($rootPath),
                 ];
             }
 
@@ -289,9 +348,7 @@ class FolderVideoService
         File::ensureDirectoryExists($this->rootPath());
         $destinationPath = $this->uniqueDestinationPath($this->rootPath(), basename($sourcePath));
 
-        if (! @rename($sourcePath, $destinationPath)) {
-            throw new FileException('Unable to move video back to video folder.');
-        }
+        $this->moveVideoFile($sourcePath, $destinationPath, 'Unable to move video back to video folder.');
 
         $destinationId = $this->encodeId(basename($destinationPath));
 
@@ -300,8 +357,11 @@ class FolderVideoService
             'filename' => basename($destinationPath),
             'destination' => $destinationPath,
             'liked' => false,
-            'stream_url' => route('folder-videos.stream', ['id' => $destinationId], false),
-            'preview_url' => route('folder-videos.preview', ['id' => $destinationId], false),
+            'stream_url' => $this->streamUrlForFilename(basename($destinationPath)),
+            'preview_url' => $this->previewUrlForFilename(basename($destinationPath)),
+            'thumbnail_url' => $this->thumbnailUrlForFilename(basename($destinationPath)),
+            'preview_cached' => $this->previewCachedForPath($destinationPath),
+            'thumbnail_cached' => $this->thumbnailCachedForPath($destinationPath),
         ];
     }
 
@@ -329,7 +389,7 @@ class FolderVideoService
         return [
             'version' => (string) config('folder_video.app_version', '2026.07.07.1'),
             'page_limit' => max(6, min((int) config('folder_video.app_page_limit', 36), 100)),
-            'preview_max_connections' => max(1, min((int) config('folder_video.app_preview_max_connections', 6), 12)),
+            'preview_max_connections' => max(1, min((int) config('folder_video.app_preview_max_connections', 36), 36)),
             'probe_on_request' => (bool) config('folder_video.probe_on_request', false),
             'root' => $this->rootPath(),
             'extensions' => array_values(config('folder_video.extensions', [])),
@@ -507,8 +567,11 @@ class FolderVideoService
             'size_bytes' => $file->getSize(),
             'modified_at' => $file->getMTime(),
             'created_at' => $file->getCTime(),
-            'stream_url' => route('folder-videos.stream', ['id' => $id], false),
-            'preview_url' => route('folder-videos.preview', ['id' => $id], false),
+            'stream_url' => $this->streamUrlForFilename($file->getFilename(), $liked),
+            'preview_url' => $this->previewUrlForFilename($file->getFilename()),
+            'thumbnail_url' => $this->thumbnailUrlForFilename($file->getFilename()),
+            'preview_cached' => $this->previewCachedForPath($file->getPathname()),
+            'thumbnail_cached' => $this->thumbnailCachedForPath($file->getPathname()),
             'liked' => $liked,
         ];
     }
@@ -527,8 +590,11 @@ class FolderVideoService
             'size_bytes' => (int) ($entry['size_bytes'] ?? 0),
             'modified_at' => (int) ($entry['mtime'] ?? 0),
             'created_at' => (int) ($entry['ctime'] ?? 0),
-            'stream_url' => route('folder-videos.stream', ['id' => $id], false),
-            'preview_url' => route('folder-videos.preview', ['id' => $id], false),
+            'stream_url' => $this->streamUrlForFilename($filename),
+            'preview_url' => $this->previewUrlForFilename($filename),
+            'thumbnail_url' => $this->thumbnailUrlForFilename($filename),
+            'preview_cached' => $this->previewCachedForFilename($filename),
+            'thumbnail_cached' => $this->thumbnailCachedForFilename($filename),
             'liked' => false,
         ];
     }
@@ -725,6 +791,127 @@ POWERSHELL;
         ]));
 
         return $this->previewCachePath().DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.mp4';
+    }
+
+    protected function thumbnailPathForSource(string $sourcePath): string
+    {
+        $stat = @stat($sourcePath) ?: [];
+        $key = hash('sha256', implode('|', [
+            basename($sourcePath),
+            (string) ($stat['size'] ?? 0),
+            (string) ($stat['mtime'] ?? 0),
+            'jpg',
+        ]));
+
+        return $this->thumbnailCachePath().DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.jpg';
+    }
+
+    protected function previewCachedForFilename(string $filename): bool
+    {
+        $path = $this->safeVideoPathInDirectory($this->rootPath(), $filename);
+
+        return $path !== null && $this->previewCachedForPath($path);
+    }
+
+    protected function thumbnailCachedForFilename(string $filename): bool
+    {
+        $path = $this->safeVideoPathInDirectory($this->rootPath(), $filename);
+
+        return $path !== null && $this->thumbnailCachedForPath($path);
+    }
+
+    protected function previewCachedForPath(string $sourcePath): bool
+    {
+        $path = $this->previewPathForSource($sourcePath);
+
+        return is_file($path) && filesize($path) > 0;
+    }
+
+    protected function thumbnailCachedForPath(string $sourcePath): bool
+    {
+        $path = $this->thumbnailPathForSource($sourcePath);
+
+        return is_file($path) && filesize($path) > 0;
+    }
+
+    protected function ensureThumbnailImage(string $sourcePath, string $thumbnailPath): bool
+    {
+        if (is_file($thumbnailPath) && filesize($thumbnailPath) > 0) {
+            return true;
+        }
+
+        $ffmpeg = $this->ffmpegBinary();
+        if ($ffmpeg === '') {
+            return false;
+        }
+
+        File::ensureDirectoryExists(dirname($thumbnailPath));
+
+        $lockPath = $thumbnailPath.'.lock';
+        $lock = @fopen($lockPath, 'c');
+        if (! $lock) {
+            return false;
+        }
+
+        try {
+            if (! flock($lock, LOCK_EX)) {
+                return false;
+            }
+
+            if (is_file($thumbnailPath) && filesize($thumbnailPath) > 0) {
+                return true;
+            }
+
+            return $this->runThumbnailExtract($ffmpeg, $sourcePath, $thumbnailPath);
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    protected function runThumbnailExtract(string $ffmpeg, string $sourcePath, string $thumbnailPath): bool
+    {
+        $second = max(0, min((int) config('folder_video.thumbnail_second', 2), 120));
+        $width = max(160, min((int) config('folder_video.thumbnail_width', 480), 1280));
+        $timeout = max(10, min((int) config('folder_video.thumbnail_timeout', 45), 180));
+        $temporaryPath = $thumbnailPath.'.tmp.'.getmypid().'.jpg';
+
+        @unlink($temporaryPath);
+
+        $process = new Process([
+            $ffmpeg,
+            '-hide_banner',
+            '-loglevel',
+            'error',
+            '-y',
+            '-ss',
+            (string) $second,
+            '-i',
+            $sourcePath,
+            '-frames:v',
+            '1',
+            '-vf',
+            'scale='.$width.':-2',
+            '-q:v',
+            '5',
+            $temporaryPath,
+        ], null, null, null, $timeout);
+
+        $process->run();
+
+        if (! $process->isSuccessful() || ! is_file($temporaryPath) || filesize($temporaryPath) <= 0) {
+            @unlink($temporaryPath);
+
+            return false;
+        }
+
+        if (! @rename($temporaryPath, $thumbnailPath)) {
+            @unlink($temporaryPath);
+
+            return false;
+        }
+
+        return true;
     }
 
     protected function ensurePreviewClip(string $sourcePath, string $previewPath): bool
@@ -945,6 +1132,63 @@ POWERSHELL;
         }
 
         return $candidate;
+    }
+
+    protected function streamUrlForFilename(string $filename, bool $liked = false): string
+    {
+        $basePath = trim((string) config('folder_video.stream_base_path', ''));
+        if ($basePath !== '') {
+            $goodSubdirectory = trim((string) config('folder_video.good_subdirectory', 'good'), '\\/');
+            $relativePath = $liked && $goodSubdirectory !== ''
+                ? $goodSubdirectory.'/'.$filename
+                : $filename;
+
+            return rtrim($basePath, '/').'/'.$this->encodeUrlPath($relativePath);
+        }
+
+        return route('folder-videos.stream', ['id' => $this->encodeId($filename)], false);
+    }
+
+    protected function previewUrlForFilename(string $filename): string
+    {
+        return route('folder-videos.preview', ['id' => $this->encodeId($filename)], false);
+    }
+
+    protected function thumbnailUrlForFilename(string $filename): string
+    {
+        return route('folder-videos.thumbnail', ['id' => $this->encodeId($filename)], false);
+    }
+
+    protected function moveVideoFile(string $sourcePath, string $destinationPath, string $message): void
+    {
+        $lastError = null;
+
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            if (@rename($sourcePath, $destinationPath)) {
+                return;
+            }
+
+            $lastError = error_get_last();
+            clearstatcache(true, $sourcePath);
+            clearstatcache(true, $destinationPath);
+            usleep(150000 * $attempt);
+        }
+
+        $detail = is_array($lastError) && isset($lastError['message'])
+            ? ' '.$lastError['message']
+            : '';
+
+        throw new FileException($message.' Source: '.$sourcePath.' Destination: '.$destinationPath.'.'.$detail);
+    }
+
+    protected function encodeUrlPath(string $path): string
+    {
+        $segments = preg_split('#[\\\\/]#', $path) ?: [];
+
+        return implode('/', array_map(
+            fn (string $segment): string => rawurlencode($segment),
+            array_values(array_filter($segments, fn (string $segment): bool => $segment !== ''))
+        ));
     }
 
     protected function encodeId(string $filename): string

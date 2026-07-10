@@ -6,6 +6,7 @@
 .env
 .env.backup
 .env.*
+.phpunit.cache/
 .phpunit.result.cache
 docker-compose.override.yml
 Homestead.json
@@ -15,6 +16,7 @@ yarn-error.log
 /.idea
 /.vscode
 storage/certs/
+/storage/
 /storage/app/esun/
 /storage/app/esun-venv/
 /storage/app/yuanta/

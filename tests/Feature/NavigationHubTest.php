@@ -6,9 +6,18 @@ use Tests\TestCase;
 
 class NavigationHubTest extends TestCase
 {
-    public function test_navigation_hub_lists_aws_work_and_k8s_destinations(): void
+    public function test_home_page_is_blank(): void
     {
         $response = $this->get(route('home'));
+
+        $response
+            ->assertOk()
+            ->assertContent('');
+    }
+
+    public function test_navigation_hub_lists_aws_work_and_k8s_destinations(): void
+    {
+        $response = $this->get(route('web.portal'));
 
         $response
             ->assertOk()

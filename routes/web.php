@@ -98,8 +98,10 @@ Route::post('/command-runner/stop', [CommandRunnerController::class, 'stop'])->n
 
 // 靜態頁面和身份驗證頁面
 Route::get('/', function () {
-    return view('welcome');
+    return response('', 200);
 })->name('home');
+
+Route::view('/web', 'welcome')->name('web.portal');
 
 Route::get('/dashboard', function () {
     return view('dashboard');

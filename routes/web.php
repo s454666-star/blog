@@ -90,6 +90,8 @@ Route::get('/folder-video-app', [FolderVideoAppController::class, 'index'])->nam
 Route::get('/folder-video-app/version.json', [FolderVideoAppController::class, 'version'])->name('folder-video-app.version');
 Route::get('/folder-video-app/android-version.json', [FolderVideoAppController::class, 'androidVersion'])->name('folder-video-app.android-version');
 Route::get('/folder-video-app/folder-video-app.apk', [FolderVideoAppController::class, 'androidApk'])->name('folder-video-app.android-apk');
+Route::get('/folder-video-app/tv/android-version.json', [FolderVideoAppController::class, 'tvAndroidVersion'])->name('folder-video-app.tv-android-version');
+Route::get('/folder-video-app/tv/folder-video-tv.apk', [FolderVideoAppController::class, 'tvAndroidApk'])->name('folder-video-app.tv-android-apk');
 Route::get('/folder-video-app/manifest.webmanifest', [FolderVideoAppController::class, 'manifest'])->name('folder-video-app.manifest');
 Route::get('/folder-video-app/sw.js', [FolderVideoAppController::class, 'serviceWorker'])->name('folder-video-app.service-worker');
 
@@ -97,11 +99,15 @@ Route::get('/folder-photo-app', [FolderPhotoAppController::class, 'index'])->nam
 Route::get('/folder-photo-app/version.json', [FolderPhotoAppController::class, 'version'])->name('folder-photo-app.version');
 Route::get('/folder-photo-app/android-version.json', [FolderPhotoAppController::class, 'androidVersion'])->name('folder-photo-app.android-version');
 Route::get('/folder-photo-app/folder-photo-app.apk', [FolderPhotoAppController::class, 'androidApk'])->name('folder-photo-app.android-apk');
+Route::get('/folder-photo-app/tv/android-version.json', [FolderPhotoAppController::class, 'tvAndroidVersion'])->name('folder-photo-app.tv-android-version');
+Route::get('/folder-photo-app/tv/folder-photo-tv.apk', [FolderPhotoAppController::class, 'tvAndroidApk'])->name('folder-photo-app.tv-android-apk');
 
 Route::get('/nas-viewer-app', [NasViewerAppController::class, 'index'])->name('nas-viewer-app.index');
 Route::get('/nas-viewer-app/version.json', [NasViewerAppController::class, 'version'])->name('nas-viewer-app.version');
 Route::get('/nas-viewer-app/android-version.json', [NasViewerAppController::class, 'androidVersion'])->name('nas-viewer-app.android-version');
 Route::get('/nas-viewer-app/nas-viewer-app.apk', [NasViewerAppController::class, 'androidApk'])->name('nas-viewer-app.android-apk');
+Route::get('/nas-viewer-app/tv/android-version.json', [NasViewerAppController::class, 'tvAndroidVersion'])->name('nas-viewer-app.tv-android-version');
+Route::get('/nas-viewer-app/tv/nas-viewer-tv.apk', [NasViewerAppController::class, 'tvAndroidApk'])->name('nas-viewer-app.tv-android-apk');
 
 Route::get('/command-runner', [CommandRunnerController::class, 'index'])->name('command-runner.index');
 Route::post('/command-runner/run', [CommandRunnerController::class, 'run'])->name('command-runner.run');

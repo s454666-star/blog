@@ -70,4 +70,7 @@ return [
     'android_apk_version_code' => (int) env('NAS_VIEWER_ANDROID_APK_VERSION_CODE', 5),
     'android_apk_version_name' => env('NAS_VIEWER_ANDROID_APK_VERSION_NAME', '2026.07.11.2'),
     'android_apk_path' => env('NAS_VIEWER_ANDROID_APK_PATH', storage_path('app/nas-viewer-app.apk')),
+    'tv_android_apk_version_code' => (int) env('NAS_VIEWER_TV_ANDROID_APK_VERSION_CODE', 2),
+    'tv_android_apk_version_name' => env('NAS_VIEWER_TV_ANDROID_APK_VERSION_NAME', '2026.07.11.2-tv'),
+    'tv_android_apk_path' => env('NAS_VIEWER_TV_ANDROID_APK_PATH', storage_path('app/nas-viewer-tv.apk')),
 ];

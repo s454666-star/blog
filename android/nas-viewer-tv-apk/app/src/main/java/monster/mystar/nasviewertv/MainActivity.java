@@ -39,6 +39,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.VideoView;
 
 import org.json.JSONObject;
 
@@ -49,9 +50,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 1;
-    private static final String APP_VERSION_NAME = "2026.07.11.1-tv";
-    private static final String ANDROID_VERSION_PATH = "/nas-viewer-app/android-version.json";
+    private static final int APP_VERSION_CODE = 2;
+    private static final String APP_VERSION_NAME = "2026.07.11.2-tv";
+    private static final String ANDROID_VERSION_PATH = "/nas-viewer-app/tv/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/nas-viewer-app",
         "http://10.0.0.19:8090/nas-viewer-app",
@@ -77,6 +78,10 @@ public class MainActivity extends Activity {
     private boolean videoFullscreenEnabled = false;
     private volatile boolean tvViewerOpen = false;
     private volatile boolean tvViewerVideo = false;
+    private FrameLayout nativeVideoOverlay;
+    private VideoView nativeVideoView;
+    private TextView nativeVideoStatus;
+    private boolean nativeVideoOpen = false;
 
     private final BroadcastReceiver updateDownloadReceiver = new BroadcastReceiver() {
         @Override
@@ -102,6 +107,7 @@ public class MainActivity extends Activity {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ));
+        createNativeVideoOverlay();
         applySystemBarInsets();
 
         errorView = createErrorView();
@@ -125,13 +131,14 @@ public class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setUserAgentString(settings.getUserAgentString() + " NasViewerTvApp/" + APP_VERSION_NAME);
 
         webView.setBackgroundColor(Color.BLACK);
+        webView.clearCache(true);
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         webView.addJavascriptInterface(new NasViewerAndroidBridge(), "NasViewerAndroid");
@@ -189,6 +196,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        checkForApkUpdate(false);
         if (
             pendingInstallPermission
             && updateDownloadId > 0
@@ -208,32 +216,153 @@ public class MainActivity extends Activity {
             tvViewerOpen = open;
             tvViewerVideo = open && "video".equals(kind);
         }
+
+        @JavascriptInterface
+        public void playVideo(String mediaUrl) {
+            runOnUiThread(() -> startNativeVideo(mediaUrl));
+        }
+
+        @JavascriptInterface
+        public void stopVideo() {
+            runOnUiThread(() -> stopNativeVideo(false));
+        }
     }
 
     @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (tvViewerOpen && webView != null) {
-            String key = null;
-            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) key = "up";
-            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) key = "down";
-            if (tvViewerVideo && (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND)) key = "left";
-            if (tvViewerVideo && (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)) key = "right";
-            if (tvViewerVideo && (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)) key = "center";
-            if (key != null) {
-                final String remoteKey = key;
-                webView.evaluateJavascript(
-                    "if (window.nasViewerTvHandleKey) { window.nasViewerTvHandleKey('" + remoteKey + "'); }",
-                    null
-                );
-                return true;
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        String key = remoteKeyName(event.getKeyCode());
+        if (key != null) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                if (nativeVideoOpen && ("left".equals(key) || "right".equals(key))) {
+                    seekNativeVideo("left".equals(key) ? -5000 : 5000);
+                } else if (nativeVideoOpen && "center".equals(key)) {
+                    toggleNativeVideo();
+                } else {
+                    dispatchTvKey(key);
+                }
             }
+            return true;
         }
+        return super.dispatchKeyEvent(event);
+    }
 
-        return super.onKeyDown(keyCode, event);
+    private String remoteKeyName(int keyCode) {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) return "left";
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD) return "right";
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return "up";
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) return "down";
+        if (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) return "center";
+        return null;
+    }
+
+    private void dispatchTvKey(String key) {
+        if (webView == null) return;
+        webView.post(() -> webView.evaluateJavascript(
+            "if (window.nasViewerTvHandleKey) { window.nasViewerTvHandleKey('" + key + "'); }",
+            null
+        ));
+    }
+
+    private void createNativeVideoOverlay() {
+        nativeVideoOverlay = new FrameLayout(this);
+        nativeVideoOverlay.setBackgroundColor(Color.BLACK);
+        nativeVideoOverlay.setVisibility(View.GONE);
+        nativeVideoView = new VideoView(this);
+        nativeVideoOverlay.addView(nativeVideoView, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            Gravity.CENTER
+        ));
+        nativeVideoStatus = new TextView(this);
+        nativeVideoStatus.setTextColor(Color.WHITE);
+        nativeVideoStatus.setTextSize(24f);
+        nativeVideoStatus.setGravity(Gravity.CENTER);
+        nativeVideoStatus.setBackgroundColor(0x88000000);
+        nativeVideoStatus.setPadding(28, 18, 28, 18);
+        nativeVideoOverlay.addView(nativeVideoStatus, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER
+        ));
+        root.addView(nativeVideoOverlay, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+    }
+
+    private String resolveMediaUrl(String mediaUrl) {
+        try {
+            String base = webView != null && webView.getUrl() != null ? webView.getUrl() : currentAppUrl;
+            return new URL(new URL(base), mediaUrl).toString();
+        } catch (Exception ignored) {
+            return mediaUrl;
+        }
+    }
+
+    private void startNativeVideo(String mediaUrl) {
+        if (mediaUrl == null || mediaUrl.trim().isEmpty()) return;
+        nativeVideoOpen = true;
+        tvViewerOpen = true;
+        tvViewerVideo = true;
+        nativeVideoStatus.setText("影片載入中…");
+        nativeVideoStatus.setVisibility(View.VISIBLE);
+        nativeVideoOverlay.setVisibility(View.VISIBLE);
+        nativeVideoOverlay.bringToFront();
+        updateImmersiveMode();
+        nativeVideoView.setOnPreparedListener(player -> {
+            nativeVideoStatus.setVisibility(View.GONE);
+            nativeVideoView.start();
+        });
+        nativeVideoView.setOnCompletionListener(player -> {
+            stopNativeVideo(false);
+            evaluateTvJavascript("if (window.nasViewerTvNativeEnded) { window.nasViewerTvNativeEnded(); }");
+        });
+        nativeVideoView.setOnErrorListener((player, what, extra) -> {
+            nativeVideoStatus.setText("影片無法播放");
+            nativeVideoStatus.setVisibility(View.VISIBLE);
+            evaluateTvJavascript("if (window.nasViewerTvNativeError) { window.nasViewerTvNativeError(); }");
+            return true;
+        });
+        nativeVideoView.setVideoURI(Uri.parse(resolveMediaUrl(mediaUrl)));
+        nativeVideoView.requestFocus();
+    }
+
+    private void seekNativeVideo(int deltaMs) {
+        if (!nativeVideoOpen || nativeVideoView == null) return;
+        int duration = nativeVideoView.getDuration();
+        int target = Math.max(0, nativeVideoView.getCurrentPosition() + deltaMs);
+        if (duration > 0) target = Math.min(duration, target);
+        nativeVideoView.seekTo(target);
+        nativeVideoStatus.setText(deltaMs > 0 ? "+5 秒" : "-5 秒");
+        nativeVideoStatus.setVisibility(View.VISIBLE);
+        nativeVideoStatus.postDelayed(() -> {
+            if (nativeVideoOpen) nativeVideoStatus.setVisibility(View.GONE);
+        }, 500);
+    }
+
+    private void toggleNativeVideo() {
+        if (!nativeVideoOpen || nativeVideoView == null) return;
+        if (nativeVideoView.isPlaying()) nativeVideoView.pause(); else nativeVideoView.start();
+    }
+
+    private void stopNativeVideo(boolean notifyWeb) {
+        if (nativeVideoView != null) nativeVideoView.stopPlayback();
+        nativeVideoOpen = false;
+        nativeVideoOverlay.setVisibility(View.GONE);
+        updateImmersiveMode();
+        if (notifyWeb) evaluateTvJavascript("if (window.nasViewerTvNativeClosed) { window.nasViewerTvNativeClosed(); }");
+    }
+
+    private void evaluateTvJavascript(String script) {
+        if (webView != null) webView.post(() -> webView.evaluateJavascript(script, null));
     }
 
     @Override
     public void onBackPressed() {
+        if (nativeVideoOpen) {
+            stopNativeVideo(true);
+            return;
+        }
         if (customView != null) {
             hideCustomView();
             return;
@@ -295,7 +424,7 @@ public class MainActivity extends Activity {
     }
 
     private void updateImmersiveMode() {
-        if (videoFullscreenEnabled || customView != null) {
+        if (videoFullscreenEnabled || nativeVideoOpen || customView != null) {
             root.setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN
                     | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
@@ -312,6 +441,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        stopNativeVideo(false);
         if (updateDownloadReceiverRegistered) {
             unregisterReceiver(updateDownloadReceiver);
             updateDownloadReceiverRegistered = false;

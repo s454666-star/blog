@@ -26,4 +26,7 @@ return [
     'android_apk_version_code' => (int) env('FOLDER_VIDEO_ANDROID_APK_VERSION_CODE', 10),
     'android_apk_version_name' => env('FOLDER_VIDEO_ANDROID_APK_VERSION_NAME', '2026.07.07.11'),
     'android_apk_path' => env('FOLDER_VIDEO_ANDROID_APK_PATH', storage_path('app/folder-video-app.apk')),
+    'tv_android_apk_version_code' => (int) env('FOLDER_VIDEO_TV_ANDROID_APK_VERSION_CODE', 2),
+    'tv_android_apk_version_name' => env('FOLDER_VIDEO_TV_ANDROID_APK_VERSION_NAME', '2026.07.11.2-tv'),
+    'tv_android_apk_path' => env('FOLDER_VIDEO_TV_ANDROID_APK_PATH', storage_path('app/folder-video-tv.apk')),
 ];

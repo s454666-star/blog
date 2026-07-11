@@ -63,6 +63,35 @@ class FolderPhotoAppController extends Controller
         ]);
     }
 
+    public function tvAndroidVersion(Request $request): JsonResponse
+    {
+        $apkPath = (string) config('folder_photo.tv_android_apk_path');
+        $exists = is_file($apkPath);
+
+        return response()->json(['data' => [
+            'version_code' => (int) config('folder_photo.tv_android_apk_version_code'),
+            'version_name' => (string) config('folder_photo.tv_android_apk_version_name'),
+            'apk_url' => $this->publicUrl($request, route('folder-photo-app.tv-android-apk', [], false)),
+            'sha256' => $exists ? hash_file('sha256', $apkPath) : null,
+            'size_bytes' => $exists ? filesize($apkPath) : null,
+            'checked_at' => now()->toIso8601String(),
+        ]])->header('Cache-Control', 'no-store, max-age=0');
+    }
+
+    public function tvAndroidApk(): BinaryFileResponse|JsonResponse
+    {
+        $apkPath = (string) config('folder_photo.tv_android_apk_path');
+        if (! is_file($apkPath)) {
+            return response()->json(['message' => 'TV APK file is not available.'], 404)
+                ->header('Cache-Control', 'no-store, max-age=0');
+        }
+
+        return response()->download($apkPath, 'folder-photo-tv.apk', [
+            'Content-Type' => 'application/vnd.android.package-archive',
+            'Cache-Control' => 'no-store, max-age=0',
+        ]);
+    }
+
     private function publicUrl(Request $request, string $path): string
     {
         $host = $request->headers->get('x-forwarded-host') ?: $request->getHttpHost();

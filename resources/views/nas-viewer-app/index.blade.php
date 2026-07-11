@@ -578,6 +578,7 @@
         requestToken: 0,
         toastTimer: null,
         videoSeekFlashTimer: null,
+        tvFocusIndex: 0,
     };
 
     let stopVideoDragSeek = () => {};
@@ -704,6 +705,10 @@
             action.textContent = actionFor(entry);
             row.append(icon, copy, action);
             row.addEventListener('click', () => handleEntryClick(entry));
+            row.addEventListener('focus', () => {
+                const rows = Array.from(elements.list.querySelectorAll('.entry'));
+                state.tvFocusIndex = Math.max(0, rows.indexOf(row));
+            });
             elements.list.appendChild(row);
         }
 
@@ -713,6 +718,17 @@
         elements.loadMore.hidden = !state.meta?.has_more;
         elements.back.disabled = state.navigationStack.length === 0 && state.directoryId === null;
         renderBreadcrumbs();
+        requestAnimationFrame(() => focusTvEntry(state.tvFocusIndex));
+    }
+
+    function focusTvEntry(index = state.tvFocusIndex) {
+        const rows = Array.from(elements.list.querySelectorAll('.entry'));
+        if (rows.length === 0) return false;
+        state.tvFocusIndex = clamp(Number(index) || 0, 0, rows.length - 1);
+        const row = rows[state.tvFocusIndex];
+        row.focus({preventScroll: true});
+        row.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'smooth'});
+        return true;
     }
 
     async function fetchDirectory(directoryId, offset = 0, append = false) {
@@ -741,8 +757,11 @@
                 : (Array.isArray(payload.data) ? payload.data : []);
             state.meta = payload.meta || null;
             state.selectedId = null;
+            if (!append) state.tvFocusIndex = 0;
             renderList();
-            if (!append) elements.listShell.scrollTop = 0;
+            if (!append) {
+                elements.listShell.scrollTop = 0;
+            }
         } catch (error) {
             if (token !== state.requestToken) return;
             elements.list.innerHTML = '';
@@ -766,7 +785,9 @@
     function handleEntryClick(entry) {
         if (state.selectedId !== entry.id) {
             state.selectedId = entry.id;
-            renderList();
+            elements.list.querySelectorAll('.entry').forEach(row => {
+                row.classList.toggle('selected', row.dataset.entryId === entry.id);
+            });
             showToast(
                 entry.kind === 'directory'
                     ? '再點一下進入目錄'
@@ -1046,6 +1067,16 @@
 
         if (entry.kind === 'video') {
             elements.video.classList.add('active');
+            try {
+                if (
+                    window.NasViewerTvAndroid
+                    && typeof window.NasViewerTvAndroid.playVideo === 'function'
+                ) {
+                    window.NasViewerTvAndroid.playVideo(entry.media_url);
+                    return;
+                }
+            } catch (error) {
+            }
             elements.video.src = entry.media_url;
             elements.video.play().catch(() => {});
             return;
@@ -1081,6 +1112,15 @@
         }
         state.viewerEntry = null;
         notifyNasViewerTv(false, '');
+        try {
+            if (
+                window.NasViewerTvAndroid
+                && typeof window.NasViewerTvAndroid.stopVideo === 'function'
+            ) {
+                window.NasViewerTvAndroid.stopVideo();
+            }
+        } catch (error) {
+        }
         resetViewerElements();
         elements.viewer.classList.remove('open');
         elements.viewer.setAttribute('aria-hidden', 'true');
@@ -1129,7 +1169,18 @@
     });
 
     window.nasViewerTvHandleKey = key => {
-        if (!state.viewerEntry || !elements.viewer.classList.contains('open')) return false;
+        if (!state.viewerEntry || !elements.viewer.classList.contains('open')) {
+            if (key === 'center') {
+                const rows = Array.from(elements.list.querySelectorAll('.entry'));
+                const row = rows[clamp(state.tvFocusIndex, 0, Math.max(0, rows.length - 1))];
+                const entry = row ? state.entries.find(item => item.id === row.dataset.entryId) : null;
+                if (entry) handleEntryClick(entry);
+                return Boolean(entry);
+            }
+            if (key === 'up' || key === 'left') return focusTvEntry(state.tvFocusIndex - 1);
+            if (key === 'down' || key === 'right') return focusTvEntry(state.tvFocusIndex + 1);
+            return false;
+        }
         if (key === 'up') {
             switchViewerEntry(1);
             return true;
@@ -1158,6 +1209,12 @@
         }
         return false;
     };
+
+    window.nasViewerTvNativeEnded = () => closeViewer();
+    window.nasViewerTvNativeClosed = () => {
+        if (state.viewerEntry || elements.viewer.classList.contains('open')) closeViewer();
+    };
+    window.nasViewerTvNativeError = () => showToast('原生播放器無法播放這支影片');
 
     window.nasViewerHandleBack = handleBack;
     window.nasViewerSetAndroidInsets = insets => {

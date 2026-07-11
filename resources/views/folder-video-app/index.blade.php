@@ -516,6 +516,7 @@
     let isLoading = false;
     let playerItem = null;
     let playerIndex = -1;
+    let tvFocusIndex = 0;
     let saveProgressTimer = null;
     let toastTimer = null;
     let flashTimer = null;
@@ -1059,6 +1060,10 @@
                 event.preventDefault();
                 openPlayer(video);
             });
+            card.addEventListener('focus', () => {
+                const cards = Array.from(elements.grid.querySelectorAll('.video-card'));
+                tvFocusIndex = Math.max(0, cards.indexOf(card));
+            });
             observer.observe(card);
             fragment.appendChild(card);
         });
@@ -1465,12 +1470,22 @@
         elements.playerVideo.load();
         elements.playerVideo.preload = 'auto';
         elements.playerVideo.disableRemotePlayback = true;
+        const saved = Number(state.progress?.[normalized.id]?.time || 0);
+        try {
+            if (
+                window.FolderVideoTvAndroid
+                && typeof window.FolderVideoTvAndroid.playVideo === 'function'
+            ) {
+                window.FolderVideoTvAndroid.playVideo(normalized.stream_url, saved);
+                return;
+            }
+        } catch (error) {
+        }
         elements.playerVideo.src = normalized.stream_url;
         elements.playerVideo.loop = false;
         applyPlaybackRate();
         elements.playerVideo.onloadedmetadata = () => {
             applyPlaybackRate();
-            const saved = Number(state.progress?.[normalized.id]?.time || 0);
             const duration = Number(elements.playerVideo.duration || normalized.duration_seconds || 0);
             if (saved > 0 && (!duration || saved < duration - 2)) {
                 elements.playerVideo.currentTime = saved;
@@ -1487,6 +1502,15 @@
         elements.player.classList.remove('open');
         elements.player.setAttribute('aria-hidden', 'true');
         notifyFolderVideoTvPlayer(false);
+        try {
+            if (
+                window.FolderVideoTvAndroid
+                && typeof window.FolderVideoTvAndroid.stopVideo === 'function'
+            ) {
+                window.FolderVideoTvAndroid.stopVideo();
+            }
+        } catch (error) {
+        }
         elements.playerVideo.pause();
         elements.playerVideo.removeAttribute('src');
         elements.playerVideo.load();
@@ -1506,8 +1530,39 @@
         return false;
     };
 
+    function focusTvVideoCard(index = tvFocusIndex) {
+        const cards = Array.from(elements.grid.querySelectorAll('.video-card'));
+        if (cards.length === 0) return false;
+        tvFocusIndex = clamp(Number(index) || 0, 0, cards.length - 1);
+        const card = cards[tvFocusIndex];
+        card.focus({preventScroll: true});
+        card.scrollIntoView({block: 'center', inline: 'center', behavior: 'smooth'});
+        return true;
+    }
+
+    function tvGridColumnCount() {
+        const columns = getComputedStyle(elements.grid).gridTemplateColumns
+            .split(' ')
+            .filter(Boolean).length;
+        return Math.max(1, columns || 1);
+    }
+
     window.folderVideoTvHandleKey = key => {
-        if (!elements.player.classList.contains('open')) return false;
+        if (!elements.player.classList.contains('open')) {
+            if (key === 'center') {
+                const cards = Array.from(elements.grid.querySelectorAll('.video-card'));
+                const card = cards[clamp(tvFocusIndex, 0, Math.max(0, cards.length - 1))];
+                const video = card ? videoById.get(card.dataset.id) : null;
+                if (video) openPlayer(video);
+                return Boolean(video);
+            }
+            const columns = tvGridColumnCount();
+            if (key === 'left') return focusTvVideoCard(tvFocusIndex - 1);
+            if (key === 'right') return focusTvVideoCard(tvFocusIndex + 1);
+            if (key === 'up') return focusTvVideoCard(tvFocusIndex - columns);
+            if (key === 'down') return focusTvVideoCard(tvFocusIndex + columns);
+            return false;
+        }
         if (key === 'left') {
             seekPlayer(-5, '-5s');
             return true;
@@ -1535,6 +1590,32 @@
             return true;
         }
         return false;
+    };
+
+    window.folderVideoTvNativeEnded = async () => {
+        if (!playerItem) return;
+        markCompleted(playerItem);
+        renderGrid();
+        await playAdjacent(1);
+    };
+
+    window.folderVideoTvNativeClosed = () => {
+        if (elements.player.classList.contains('open')) closePlayer();
+    };
+
+    window.folderVideoTvNativeError = () => showToast('原生播放器無法播放這支影片');
+
+    window.folderVideoTvNativeProgress = (seconds, duration) => {
+        if (!playerItem) return;
+        const safeSeconds = Math.max(0, Number(seconds) || 0);
+        const safeDuration = Math.max(0, Number(duration) || Number(playerItem.duration_seconds) || 0);
+        state.progress[playerItem.id] = {
+            time: safeSeconds,
+            duration: safeDuration,
+            updatedAt: Date.now(),
+        };
+        saveState();
+        updateCardProgress(playerItem.id);
     };
 
     function recordPlayerProgress() {

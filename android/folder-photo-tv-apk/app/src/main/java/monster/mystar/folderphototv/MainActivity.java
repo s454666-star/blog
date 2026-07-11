@@ -47,9 +47,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 1;
-    private static final String APP_VERSION_NAME = "2026.07.11.1-tv";
-    private static final String ANDROID_VERSION_PATH = "/folder-photo-app/android-version.json";
+    private static final int APP_VERSION_CODE = 2;
+    private static final String APP_VERSION_NAME = "2026.07.11.2-tv";
+    private static final String ANDROID_VERSION_PATH = "/folder-photo-app/tv/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/folder-photo-app",
         "http://10.0.0.19:8090/folder-photo-app",
@@ -119,13 +119,14 @@ public class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setUserAgentString(settings.getUserAgentString() + " FolderPhotoTvApp/" + APP_VERSION_NAME);
 
         webView.setBackgroundColor(Color.BLACK);
+        webView.clearCache(true);
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         webView.setWebViewClient(new FolderPhotoWebViewClient());
@@ -181,30 +182,34 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        checkForApkUpdate(false);
         if (webView != null) {
             webView.evaluateJavascript("if (window.folderPhotoCheckUpdates) { window.folderPhotoCheckUpdates(); }", null);
         }
     }
 
     @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (webView != null) {
-            String key = null;
-            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) key = "left";
-            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) key = "right";
-            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) key = "up";
-            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) key = "down";
-            if (key != null) {
-                final String remoteKey = key;
-                webView.evaluateJavascript(
-                    "if (window.folderPhotoTvHandleKey) { window.folderPhotoTvHandleKey('" + remoteKey + "'); }",
-                    null
-                );
-                return true;
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        String key = null;
+        int keyCode = event.getKeyCode();
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) key = "left";
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) key = "right";
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP) key = "up";
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) key = "down";
+        if (key != null) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0 && webView != null) {
+                dispatchTvKey(key);
             }
+            return true;
         }
+        return super.dispatchKeyEvent(event);
+    }
 
-        return super.onKeyDown(keyCode, event);
+    private void dispatchTvKey(String key) {
+        webView.post(() -> webView.evaluateJavascript(
+            "if (window.folderPhotoTvHandleKey) { window.folderPhotoTvHandleKey('" + key + "'); }",
+            null
+        ));
     }
 
     @Override

@@ -134,6 +134,24 @@ class FolderPhotoControllerTest extends TestCase
             ->assertDownload('folder-photo-app.apk');
     }
 
+    public function test_it_serves_the_folder_photo_tv_update_channel(): void
+    {
+        config()->set('folder_photo.tv_android_apk_version_code', 2);
+        config()->set('folder_photo.tv_android_apk_version_name', '2026.07.11.2-tv');
+        config()->set('folder_photo.tv_android_apk_path', storage_path('app/folder-photo-tv.apk'));
+
+        $this->withHeaders(['X-Forwarded-Host' => '10.0.0.25:8090', 'X-Forwarded-Proto' => 'http'])
+            ->getJson('/folder-photo-app/tv/android-version.json')
+            ->assertOk()
+            ->assertJsonPath('data.version_code', 2)
+            ->assertJsonPath('data.version_name', '2026.07.11.2-tv')
+            ->assertJsonPath('data.apk_url', 'http://10.0.0.25:8090/folder-photo-app/tv/folder-photo-tv.apk');
+
+        $this->get('/folder-photo-app/tv/folder-photo-tv.apk')
+            ->assertOk()
+            ->assertDownload('folder-photo-tv.apk');
+    }
+
     private function onePixelPng(): string
     {
         return (string) base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2n0sAAAAASUVORK5CYII=');

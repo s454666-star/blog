@@ -328,9 +328,9 @@ $configText = @"
     bind $BindAddress
     encode zstd gzip
 
-    @folderApp path /folder-video-app
+    @folderApp path /folder-video-app /folder-video-app/tv/android-version.json /folder-video-app/tv/folder-video-tv.apk
     handle @folderApp {
-        rewrite * /index.php/folder-video-app
+        rewrite * /index.php{path}
         reverse_proxy 127.0.0.1:$LaravelPort {
             header_up Host {host}
             header_up X-Forwarded-Host {host}
@@ -339,7 +339,7 @@ $configText = @"
         }
     }
 
-    @folderPhotoApp path /folder-photo-app /folder-photo-app/version.json /folder-photo-app/android-version.json /folder-photo-app/folder-photo-app.apk
+    @folderPhotoApp path /folder-photo-app /folder-photo-app/version.json /folder-photo-app/android-version.json /folder-photo-app/folder-photo-app.apk /folder-photo-app/tv/android-version.json /folder-photo-app/tv/folder-photo-tv.apk
     handle @folderPhotoApp {
         rewrite * /index.php{path}
         reverse_proxy 127.0.0.1:$LaravelPort {
@@ -350,7 +350,7 @@ $configText = @"
         }
     }
 
-    @nasViewerApp path /nas-viewer-app /nas-viewer-app/version.json /nas-viewer-app/android-version.json /nas-viewer-app/nas-viewer-app.apk
+    @nasViewerApp path /nas-viewer-app /nas-viewer-app/version.json /nas-viewer-app/android-version.json /nas-viewer-app/nas-viewer-app.apk /nas-viewer-app/tv/android-version.json /nas-viewer-app/tv/nas-viewer-tv.apk
     handle @nasViewerApp {
         rewrite * /index.php{path}
         reverse_proxy 127.0.0.1:$LaravelPort {

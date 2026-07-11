@@ -301,7 +301,9 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         $retryAt = $earliestCooldown !== null
             ? now()->setTimestamp(max(time() + 1, $earliestCooldown))
-            : now()->addSeconds($transportFailures >= count($this->baseUris) ? 30 : 60);
+            : now()->addSeconds($transportFailures >= count($this->baseUris)
+                ? 30
+                : min(3600, 60 * (2 ** min(6, max(0, (int) $row->attempts)))));
 
         DB::table('telegram_resource_codes')->where('id', $row->id)->update([
             'status' => TelegramResourceCode::STATUS_PENDING,

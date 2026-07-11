@@ -1428,6 +1428,7 @@ def _is_bot_verification_success_message(msg: Optional[Dict[str, Any]]) -> bool:
 
 
 BOT_NOT_FOUND_KEYWORDS = [
+    "不存在或已被删除",
     "💔抱歉，未找到可解析内容。",
     "抱歉，未找到可解析内容。",
     "抱歉，未找到可解析内容",
@@ -3443,7 +3444,7 @@ async def _resource_code_bot_media(
     wait_timeout_seconds: int,
     poll_interval_seconds: float,
     settle_seconds: float,
-) -> Tuple[List[Any], List[int]]:
+) -> Tuple[List[Any], List[int], str]:
     deadline = asyncio.get_running_loop().time() + float(wait_timeout_seconds)
     stable_since: Optional[float] = None
     last_media_ids: Tuple[int, ...] = tuple()
@@ -3457,8 +3458,11 @@ async def _resource_code_bot_media(
             if mid <= int(sent_message_id):
                 continue
             all_reply_ids.add(mid)
-            if not bool(getattr(msg, "out", False)) and _resource_code_media_kind(msg) is not None:
-                media_by_id[mid] = msg
+            if not bool(getattr(msg, "out", False)):
+                if _resource_code_media_kind(msg) is not None:
+                    media_by_id[mid] = msg
+                elif _match_bot_not_found_keyword(str(getattr(msg, "message", None) or "")):
+                    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "not_found"
 
         current_ids = tuple(sorted(media_by_id.keys()))
         now_value = asyncio.get_running_loop().time()
@@ -3467,11 +3471,11 @@ async def _resource_code_bot_media(
                 last_media_ids = current_ids
                 stable_since = now_value
             elif stable_since is not None and now_value - stable_since >= float(settle_seconds):
-                return [media_by_id[mid] for mid in current_ids], sorted(all_reply_ids)
+                return [media_by_id[mid] for mid in current_ids], sorted(all_reply_ids), "settled"
 
         await asyncio.sleep(float(poll_interval_seconds))
 
-    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids)
+    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "timeout"
 
 
 @app.post("/resource-codes/process")
@@ -3509,13 +3513,36 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                 return {"status": "error", "reason": "send_message_id_missing"}
 
             phase = "wait_media"
-            media_messages, bot_reply_ids = await _resource_code_bot_media(
-                peer=bot_peer,
-                sent_message_id=sent_message_id,
-                wait_timeout_seconds=max(30, min(1800, int(payload.wait_timeout_seconds or 240))),
-                poll_interval_seconds=max(0.5, min(10.0, float(payload.poll_interval_seconds or 1.5))),
-                settle_seconds=max(1.0, min(30.0, float(payload.settle_seconds or 5.0))),
-            )
+            wait_timeout_seconds = max(30, min(1800, int(payload.wait_timeout_seconds or 240)))
+            try:
+                media_messages, bot_reply_ids, media_outcome = await asyncio.wait_for(
+                    _resource_code_bot_media(
+                        peer=bot_peer,
+                        sent_message_id=sent_message_id,
+                        wait_timeout_seconds=wait_timeout_seconds,
+                        poll_interval_seconds=max(0.5, min(10.0, float(payload.poll_interval_seconds or 1.5))),
+                        settle_seconds=max(1.0, min(30.0, float(payload.settle_seconds or 5.0))),
+                    ),
+                    timeout=float(wait_timeout_seconds) + 20.0,
+                )
+            except asyncio.TimeoutError:
+                media_messages = []
+                bot_reply_ids = []
+                media_outcome = "hard_timeout"
+                try:
+                    final_messages = await asyncio.wait_for(
+                        client.get_messages(bot_peer, limit=240, min_id=int(sent_message_id)),
+                        timeout=20.0,
+                    )
+                    for msg in final_messages or []:
+                        mid = int(getattr(msg, "id", 0) or 0)
+                        if mid <= sent_message_id:
+                            continue
+                        bot_reply_ids.append(mid)
+                        if not bool(getattr(msg, "out", False)) and _resource_code_media_kind(msg) is not None:
+                            media_messages.append(msg)
+                except Exception:
+                    pass
             bot_media_ids = [int(getattr(msg, "id", 0) or 0) for msg in media_messages]
             bot_media_ids = [mid for mid in bot_media_ids if mid > 0]
 
@@ -3524,7 +3551,7 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                 remaining = await _cleanup_resource_code_bot_messages(bot_peer, [sent_message_id] + bot_reply_ids)
                 return {
                     "status": "error",
-                    "reason": "media_timeout",
+                    "reason": "not_found" if media_outcome == "not_found" else "media_timeout",
                     "cleanup_complete": len(remaining) == 0,
                     "undeleted_count": len(remaining),
                 }

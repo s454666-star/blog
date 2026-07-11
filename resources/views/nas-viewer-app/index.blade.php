@@ -265,7 +265,7 @@
             position: fixed;
             left: 50%;
             bottom: calc(20px + var(--bottom-inset));
-            z-index: 20;
+            z-index: 80;
             max-width: calc(100vw - 30px);
             padding: 10px 15px;
             border: 1px solid rgba(159, 205, 242, .18);
@@ -343,6 +343,10 @@
         .viewer.video-mode .viewer-content {
             touch-action: none;
             background: #000;
+        }
+
+        .viewer.image-mode .viewer-content {
+            touch-action: none;
         }
 
         .viewer-content video,
@@ -564,6 +568,7 @@
         navigationStack: [],
         loading: false,
         viewerEntry: null,
+        viewerSwitching: false,
         requestToken: 0,
         toastTimer: null,
         videoSeekFlashTimer: null,
@@ -836,6 +841,92 @@
         seekVideo(duration * percent, `${labelPercent > 0 ? '+' : ''}${labelPercent}%`);
     }
 
+    function previewableEntries() {
+        return state.entries.filter(entry => ['video', 'image', 'text'].includes(entry.kind));
+    }
+
+    async function findAdjacentEntry(delta) {
+        let queue = previewableEntries();
+        let currentIndex = queue.findIndex(entry => entry.id === state.viewerEntry?.id);
+        if (currentIndex < 0) return null;
+
+        let adjacent = queue[currentIndex + delta] || null;
+        while (!adjacent && delta > 0 && state.meta?.has_more) {
+            const previousEntryCount = state.entries.length;
+            await fetchDirectory(
+                state.directoryId,
+                Number(state.meta?.next_offset || previousEntryCount),
+                true
+            );
+            if (state.entries.length <= previousEntryCount) break;
+
+            queue = previewableEntries();
+            currentIndex = queue.findIndex(entry => entry.id === state.viewerEntry?.id);
+            adjacent = currentIndex >= 0 ? (queue[currentIndex + 1] || null) : null;
+        }
+
+        return adjacent;
+    }
+
+    async function switchViewerEntry(delta) {
+        if (state.viewerSwitching || !state.viewerEntry || ![-1, 1].includes(delta)) return;
+        state.viewerSwitching = true;
+        try {
+            const adjacent = await findAdjacentEntry(delta);
+            if (!adjacent) {
+                showToast(delta > 0 ? '已經是最後一個檔案' : '已經是第一個檔案');
+                return;
+            }
+
+            await openViewer(adjacent, true);
+            showToast(`${delta > 0 ? '下一個' : '上一個'}：${adjacent.name}`);
+        } finally {
+            state.viewerSwitching = false;
+        }
+    }
+
+    function bindViewerFileSwipes() {
+        let startX = 0;
+        let startY = 0;
+        let startTime = 0;
+        let tracking = false;
+
+        const stopTracking = () => {
+            tracking = false;
+        };
+
+        elements.viewerContent.addEventListener('pointerdown', event => {
+            if (!state.viewerEntry || event.target.closest('button')) return;
+            startX = event.clientX;
+            startY = event.clientY;
+            startTime = Date.now();
+            tracking = true;
+        });
+
+        elements.viewerContent.addEventListener('pointerup', event => {
+            if (!tracking || !state.viewerEntry) return;
+            tracking = false;
+            const dx = event.clientX - startX;
+            const dy = event.clientY - startY;
+            const absX = Math.abs(dx);
+            const absY = Math.abs(dy);
+            if (Date.now() - startTime > 900 || absY < 56 || absY <= absX * 1.15) return;
+
+            const delta = dy < 0 ? 1 : -1;
+            if (state.viewerEntry.kind === 'text') {
+                const atTop = elements.text.scrollTop <= 2;
+                const atBottom = elements.text.scrollTop + elements.text.clientHeight >= elements.text.scrollHeight - 2;
+                if ((delta < 0 && !atTop) || (delta > 0 && !atBottom)) return;
+            }
+
+            event.preventDefault();
+            switchViewerEntry(delta);
+        });
+
+        elements.viewerContent.addEventListener('pointercancel', stopTracking);
+        elements.viewerContent.addEventListener('pointerleave', stopTracking);
+    }
+
     function bindVideoSeekGestures() {
         let startX = 0;
         let startY = 0;
@@ -900,15 +991,20 @@
         elements.viewerContent.addEventListener('pointerleave', clearDragSeek);
     }
 
-    async function openViewer(entry) {
+    async function openViewer(entry, switched = false) {
         setMediaAutoOrientation(['video', 'image'].includes(entry.kind));
         setVideoFullscreen(entry.kind === 'video');
+        elements.viewer.classList.toggle('image-mode', entry.kind === 'image');
         state.viewerEntry = entry;
         state.selectedId = null;
         resetViewerElements();
         elements.viewerTitle.textContent = entry.name;
         elements.viewer.classList.add('open');
         elements.viewer.setAttribute('aria-hidden', 'false');
+
+        if (!switched) {
+            showToast('上滑下一個・下滑上一個');
+        }
 
         if (entry.kind === 'video') {
             elements.video.classList.add('active');
@@ -940,6 +1036,7 @@
         if (!state.viewerEntry && !elements.viewer.classList.contains('open')) return;
         stopVideoDragSeek();
         setVideoFullscreen(false);
+        elements.viewer.classList.remove('image-mode');
         setMediaAutoOrientation(false);
         if (document.fullscreenElement && document.exitFullscreen) {
             document.exitFullscreen().catch(() => {});
@@ -1007,6 +1104,7 @@
     };
 
     bindVideoSeekGestures();
+    bindViewerFileSwipes();
     setVideoFullscreen(false);
     setMediaAutoOrientation(false);
     fetchDirectory(null);

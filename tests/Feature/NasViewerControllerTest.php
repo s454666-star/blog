@@ -170,6 +170,9 @@ class NasViewerControllerTest extends TestCase
             ->assertSee("setMediaAutoOrientation(['video', 'image'].includes(entry.kind))", false)
             ->assertSee("elements.videoRewind.addEventListener('click', () => seekVideo(-10, '-10 秒'))", false)
             ->assertSee('VIDEO_DRAG_SEEK_RATIO = .05', false)
+            ->assertSee("const delta = dy < 0 ? 1 : -1", false)
+            ->assertSee("showToast('上滑下一個・下滑上一個')", false)
+            ->assertSee("state.entries.filter(entry => ['video', 'image', 'text'].includes(entry.kind))", false)
             ->assertSee('.viewer.video-mode .viewer-header', false)
             ->assertSee("elements.video.addEventListener('ended', () => closeViewer())", false);
 

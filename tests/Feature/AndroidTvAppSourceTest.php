@@ -117,12 +117,26 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('showImage(String mediaUrl, String entryId)', $activity);
         $this->assertStringContainsString('ExifInterface.TAG_ORIENTATION', $activity);
         $this->assertStringContainsString('applyExifOrientation', $activity);
+        $this->assertStringContainsString('nativeVideoPrepareTimeout', $activity);
+        $this->assertStringContainsString('postDelayed(nativeVideoPrepareTimeout, 6000L)', $activity);
         $this->assertStringContainsString('點一下即可開啟', $view);
         $this->assertStringNotContainsString('再點一下開啟檔案', $view);
 
         $rangeServer = file_get_contents(base_path('scripts/folder_video_range_server.py'));
         $this->assertStringContainsString('scale=-2:720,fps=30', $rangeServer);
         $this->assertStringContainsString('no-store, no-cache, must-revalidate', $rangeServer);
+        $this->assertStringContainsString('parser.add_argument("--hls-source-root", action="append"', $rangeServer);
+        $this->assertStringContainsString('any(is_within(source, root) for root in source_roots)', $rangeServer);
+        $this->assertStringContainsString('"-hls_flags", "independent_segments"', $rangeServer);
+        $this->assertStringNotContainsString('independent_segments+temp_file', $rangeServer);
+        $this->assertStringContainsString('def publish_hls_playlist(hls_path: Path)', $rangeServer);
+        $this->assertStringContainsString('os.replace(temporary, public)', $rangeServer);
+        $this->assertStringContainsString('index.working.m3u8', $rangeServer);
+        $this->assertStringContainsString('#EXT-X-START:TIME-OFFSET=0,PRECISE=YES', $rangeServer);
+        $this->assertStringContainsString('startPosition: 0', $view);
+
+        $startup = file_get_contents(base_path('scripts/start-folder-video-api.ps1'));
+        $this->assertStringContainsString('$mediaArguments += "--hls-source-root=$hlsSourceRoot"', $startup);
     }
 
     public function test_all_six_android_apps_include_secure_nas_direct_support(): void

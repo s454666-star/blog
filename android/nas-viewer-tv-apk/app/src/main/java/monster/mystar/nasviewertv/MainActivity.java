@@ -64,8 +64,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 11;
-    private static final String APP_VERSION_NAME = "2026.07.11.11-tv";
+    private static final int APP_VERSION_CODE = 12;
+    private static final String APP_VERSION_NAME = "2026.07.11.12-tv";
     private static final String ANDROID_VERSION_PATH = "/nas-viewer-app/tv/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/nas-viewer-app",
@@ -101,6 +101,7 @@ public class MainActivity extends Activity {
     private ProgressBar nativeSeekProgress;
     private TextView nativeSeekTime;
     private boolean nativeVideoOpen = false;
+    private Runnable nativeVideoPrepareTimeout = null;
     private FrameLayout nativeImageOverlay;
     private ImageView nativeImageView;
     private TextView nativeImageStatus;
@@ -430,6 +431,10 @@ public class MainActivity extends Activity {
         updateImmersiveMode();
         nativeVideoView.setOnPreparedListener(player -> {
             if (generation != nativeVideoGeneration || !nativeVideoOpen) return;
+            if (nativeVideoPrepareTimeout != null) {
+                nativeVideoView.removeCallbacks(nativeVideoPrepareTimeout);
+                nativeVideoPrepareTimeout = null;
+            }
             nativeVideoStatus.setVisibility(View.GONE);
             nativeVideoView.start();
             evaluateTvJavascript(
@@ -464,6 +469,15 @@ public class MainActivity extends Activity {
             nativeVideoView.setVideoURI(playbackUri);
         }
         nativeVideoView.requestFocus();
+        nativeVideoPrepareTimeout = () -> {
+            if (generation != nativeVideoGeneration || !nativeVideoOpen || nativeVideoView.isPlaying()) return;
+            stopNativeVideo(false);
+            evaluateTvJavascript(
+                "if (window.nasViewerTvNativeError) { window.nasViewerTvNativeError(" +
+                    JSONObject.quote(playbackEntryId) + "); }"
+            );
+        };
+        nativeVideoView.postDelayed(nativeVideoPrepareTimeout, 6000L);
     }
 
     private void startNativeImage(String mediaUrl, String entryId) {
@@ -628,6 +642,10 @@ public class MainActivity extends Activity {
     private void stopNativeVideo(boolean notifyWeb) {
         nativeVideoGeneration++;
         if (nativeVideoView != null) {
+            if (nativeVideoPrepareTimeout != null) {
+                nativeVideoView.removeCallbacks(nativeVideoPrepareTimeout);
+                nativeVideoPrepareTimeout = null;
+            }
             nativeVideoView.setOnPreparedListener(null);
             nativeVideoView.setOnCompletionListener(null);
             nativeVideoView.setOnErrorListener(null);

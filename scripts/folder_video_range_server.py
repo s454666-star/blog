@@ -254,8 +254,38 @@ def transcode_animated_preview(ffmpeg: str, source: Path, destination: Path) -> 
 def cleanup_hls_output(hls_path: Path) -> None:
     for stale in hls_path.glob("segment_*.ts*"):
         stale.unlink(missing_ok=True)
-    for stale_name in ("index.m3u8", "index.m3u8.tmp", ".complete"):
+    for stale_name in (
+        "index.m3u8", "index.m3u8.publish", "index.working.m3u8",
+        "index.working.m3u8.tmp", ".complete",
+    ):
         (hls_path / stale_name).unlink(missing_ok=True)
+
+
+def publish_hls_playlist(hls_path: Path) -> bool:
+    working = hls_path / "index.working.m3u8"
+    public = hls_path / "index.m3u8"
+    temporary = hls_path / "index.m3u8.publish"
+    try:
+        first = working.read_bytes()
+        if not first.startswith(b"#EXTM3U") or b"#EXTINF:" not in first:
+            return False
+        time.sleep(0.01)
+        second = working.read_bytes()
+        if first != second:
+            return False
+        if b"#EXT-X-START:" not in second:
+            newline = b"\r\n" if b"\r\n" in second[:32] else b"\n"
+            marker = b"#EXT-X-START:TIME-OFFSET=0,PRECISE=YES" + newline
+            first_line_end = second.find(newline)
+            if first_line_end >= 0:
+                first_line_end += len(newline)
+                second = second[:first_line_end] + marker + second[first_line_end:]
+        temporary.write_bytes(second)
+        os.replace(temporary, public)
+        return True
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        return False
 
 
 def stop_process(process: subprocess.Popen[bytes]) -> None:
@@ -288,8 +318,8 @@ def transcode_hls(
     hls = [
         "-force_key_frames", f"expr:gte(t,n_forced*{segment_seconds})",
         "-f", "hls", "-hls_time", str(segment_seconds), "-hls_list_size", "0",
-        "-hls_playlist_type", "event", "-hls_flags", "independent_segments+temp_file",
-        "-hls_segment_filename", str(hls_path / "segment_%05d.ts"), str(hls_path / "index.m3u8"),
+        "-hls_playlist_type", "event", "-hls_flags", "independent_segments",
+        "-hls_segment_filename", str(hls_path / "segment_%05d.ts"), str(hls_path / "index.working.m3u8"),
     ]
     commands = [
         common + [
@@ -313,6 +343,7 @@ def transcode_hls(
             )
             deadline = time.monotonic() + 14400
             while process.poll() is None:
+                publish_hls_playlist(hls_path)
                 if cancel_check():
                     stop_process(process)
                     cleanup_hls_output(hls_path)
@@ -321,7 +352,9 @@ def transcode_hls(
                     stop_process(process)
                     break
                 time.sleep(0.2)
+            publish_hls_playlist(hls_path)
             if process.returncode == 0 and (hls_path / "index.m3u8").is_file():
+                (hls_path / "index.working.m3u8").unlink(missing_ok=True)
                 (hls_path / ".complete").write_text("ok", encoding="ascii")
                 return True
         except OSError:
@@ -380,7 +413,7 @@ def preview_worker(
 
 def hls_worker(
     stop_event: threading.Event,
-    media_root: Path,
+    source_roots: list[Path],
     queue_root: Path,
     hls_root: Path,
     ffmpeg: str,
@@ -405,7 +438,7 @@ def hls_worker(
             payload = json.loads(working_path.read_text(encoding="utf-8"))
             source = Path(str(payload.get("source_path", ""))).resolve()
             hls_path = Path(str(payload.get("hls_path", ""))).resolve()
-            if not is_within(source, media_root) or not source.is_file():
+            if not any(is_within(source, root) for root in source_roots) or not source.is_file():
                 continue
             if not is_within(hls_path, hls_root):
                 continue
@@ -436,6 +469,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hls-queue", required=True)
     parser.add_argument("--hls-root", required=True)
     parser.add_argument("--hls-segment-seconds", type=int, default=2)
+    parser.add_argument("--hls-source-root", action="append", default=[])
     parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument("--preview-seconds", type=int, default=18)
     parser.add_argument("--preview-height", type=int, default=360)
@@ -449,6 +483,9 @@ def main() -> None:
     preview_root = Path(args.preview_root).resolve()
     hls_queue_root = Path(args.hls_queue).resolve()
     hls_root = Path(args.hls_root).resolve()
+    hls_source_roots = [Path(path).resolve() for path in args.hls_source_root]
+    if not hls_source_roots:
+        hls_source_roots = [media_root]
     stop_event = threading.Event()
     for worker_index in range(2):
         worker = threading.Thread(
@@ -470,7 +507,7 @@ def main() -> None:
         target=hls_worker,
         args=(
             stop_event,
-            media_root,
+            hls_source_roots,
             hls_queue_root,
             hls_root,
             args.ffmpeg,

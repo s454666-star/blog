@@ -993,7 +993,7 @@ POWERSHELL;
     protected function tvHlsPathForSource(string $sourcePath): string
     {
         $stat = @stat($sourcePath) ?: [];
-        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-hls-v3']));
+        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-hls-v6']));
 
         return $this->tvHlsCachePath().DIRECTORY_SEPARATOR.$key;
     }

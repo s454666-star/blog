@@ -1193,6 +1193,7 @@
             const hls = new window.Hls({
                 enableWorker: true,
                 startFragPrefetch: true,
+                startPosition: 0,
                 maxBufferLength: 12,
                 maxMaxBufferLength: 30,
                 backBufferLength: 30,

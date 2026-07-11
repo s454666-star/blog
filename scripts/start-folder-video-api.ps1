@@ -158,6 +158,16 @@ function Stop-ProjectMediaServer {
     foreach ($process in $mediaProcesses) {
         Stop-ProcessByIdIfRunning -ProcessId $process.ProcessId
     }
+
+    if (-not [string]::IsNullOrWhiteSpace($hlsCachePath)) {
+        $hlsTranscoders = Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -eq "ffmpeg.exe" -and
+            $_.CommandLine -match [regex]::Escape($hlsCachePath)
+        }
+        foreach ($process in $hlsTranscoders) {
+            Stop-ProcessByIdIfRunning -ProcessId $process.ProcessId
+        }
+    }
 }
 
 function Test-MediaRoot {
@@ -325,8 +335,7 @@ Stop-LegacyArtisanServer -Ports @($Port, $LaravelPort, $MediaStreamPort)
 Stop-ProjectCaddy
 Stop-ProjectMediaServer
 
-$mediaProcess = Start-Process -FilePath $pythonExe `
-    -ArgumentList @(
+$mediaArguments = @(
         "-u",
         $mediaServerScript,
         "--host=127.0.0.1",
@@ -340,7 +349,26 @@ $mediaProcess = Start-Process -FilePath $pythonExe `
         "--ffmpeg=$ffmpegBin",
         "--preview-seconds=$previewSeconds",
         "--preview-height=$previewHeight"
-    ) `
+    )
+foreach ($hlsSourceRoot in @(
+    $MediaRoot,
+    $NasRoot30TA,
+    $NasRoot30TB,
+    $NasRootFhd,
+    $NasRootFhdBack,
+    $NasRootHome,
+    $NasRootHomes,
+    $NasRootPhoto,
+    $NasRootPlexMediaServer,
+    $NasRootVideo
+)) {
+    if (-not [string]::IsNullOrWhiteSpace($hlsSourceRoot)) {
+        $mediaArguments += "--hls-source-root=$hlsSourceRoot"
+    }
+}
+
+$mediaProcess = Start-Process -FilePath $pythonExe `
+    -ArgumentList $mediaArguments `
     -WorkingDirectory $projectRoot `
     -RedirectStandardOutput $mediaStdoutLog `
     -RedirectStandardError $mediaStderrLog `

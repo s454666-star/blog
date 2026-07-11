@@ -223,7 +223,11 @@ class FolderVideoService
     {
         $sourcePath = $this->resolveVideoPath($id);
         $previewPath = $this->previewPathForSource($sourcePath);
-        $status = $this->previewCacheStatus($id);
+        $status = [
+            'id' => $id,
+            'ready' => is_file($previewPath) && filesize($previewPath) > 0,
+            'preview_url' => $this->previewUrlForFilename(basename($sourcePath)),
+        ];
         if ($status['ready']) {
             return $status + ['queued' => false];
         }
@@ -265,7 +269,11 @@ class FolderVideoService
     {
         $sourcePath = $this->resolveVideoPath($id);
         $previewPath = $this->tvPreviewPathForSource($sourcePath);
-        $status = $this->tvPreviewCacheStatus($id);
+        $status = [
+            'id' => $id,
+            'ready' => is_file($previewPath) && filesize($previewPath) > 0,
+            'preview_url' => $this->staticCacheUrl('/folder-video-preview-cache/', $previewPath, $this->previewCachePath()),
+        ];
         if ($status['ready']) {
             return $status + ['queued' => false];
         }

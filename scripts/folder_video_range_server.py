@@ -148,49 +148,82 @@ def transcode_preview(
 ) -> bool:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(destination.name + f".tmp.{uuid.uuid4().hex}.mp4")
+    # A portrait clip scaled only by height can become narrower than NVENC's
+    # minimum accepted frame width.  Keep a fixed 16:9 canvas and letterbox the
+    # source so hardware encoding remains available for portrait media too.
+    canvas_width = max(256, int(round((height * 16 / 9) / 2) * 2))
+    preview_filter = (
+        f"scale={canvas_width}:{height}:force_original_aspect_ratio=decrease,"
+        f"pad={canvas_width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
+    )
+    cuda_preview_filter = (
+        f"scale_cuda={canvas_width}:{height}:force_original_aspect_ratio=decrease,"
+        f"pad_cuda={canvas_width}:{height}:-1:-1:black"
+    )
     common = [
         ffmpeg,
         "-hide_banner",
         "-loglevel",
         "error",
         "-y",
-        "-ss",
-        "0",
+        "-probesize",
+        "256K",
+        "-analyzeduration",
+        "250000",
         "-i",
         str(source),
         "-t",
         str(seconds),
         "-vf",
-        f"scale=-2:{height}",
+        preview_filter,
+        "-an",
+    ]
+    nvenc_options = [
+        "-c:v",
+        "h264_nvenc",
+        "-preset",
+        "p1",
+        "-tune",
+        "ull",
+        "-b:v",
+        "700k",
+        "-maxrate",
+        "1000k",
+        "-bufsize",
+        "2000k",
+    ]
+    mp4_output = ["-movflags", "+faststart", str(temporary)]
+    cuda_common = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-hwaccel",
+        "cuda",
+        "-hwaccel_output_format",
+        "cuda",
+        "-probesize",
+        "256K",
+        "-analyzeduration",
+        "250000",
+        "-i",
+        str(source),
+        "-t",
+        str(seconds),
+        "-vf",
+        cuda_preview_filter,
         "-an",
     ]
     commands = [
-        common
-        + [
-            "-c:v",
-            "h264_nvenc",
-            "-preset",
-            "p2",
-            "-tune",
-            "ll",
-            "-b:v",
-            "900k",
-            "-maxrate",
-            "1400k",
-            "-bufsize",
-            "2800k",
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
-            str(temporary),
-        ],
+        cuda_common + nvenc_options + mp4_output,
+        common + nvenc_options + ["-pix_fmt", "yuv420p"] + mp4_output,
         common
         + [
             "-c:v",
             "libx264",
             "-preset",
-            "veryfast",
+            "ultrafast",
             "-tune",
             "fastdecode",
             "-crf",
@@ -471,8 +504,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hls-segment-seconds", type=int, default=2)
     parser.add_argument("--hls-source-root", action="append", default=[])
     parser.add_argument("--ffmpeg", default="ffmpeg")
-    parser.add_argument("--preview-seconds", type=int, default=18)
+    parser.add_argument("--preview-seconds", type=int, default=4)
     parser.add_argument("--preview-height", type=int, default=360)
+    parser.add_argument("--preview-workers", type=int, default=2)
     return parser.parse_args()
 
 
@@ -487,7 +521,7 @@ def main() -> None:
     if not hls_source_roots:
         hls_source_roots = [media_root]
     stop_event = threading.Event()
-    for worker_index in range(2):
+    for worker_index in range(max(1, min(args.preview_workers, 8))):
         worker = threading.Thread(
             target=preview_worker,
             args=(

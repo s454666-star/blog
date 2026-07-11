@@ -1186,7 +1186,12 @@
             card.setAttribute('role', 'button');
             card.setAttribute('aria-label', `播放 ${video.filename}`);
             const previewSrc = video.preview_cached ? video.preview_url : '';
-            const posterSrc = video.thumbnail_url || '';
+            // Missing thumbnails are expensive synchronous FFmpeg jobs.  Let
+            // the lightweight preview worker have priority and only request a
+            // poster that is already cached.
+            const posterSrc = video.thumbnail_cached
+                ? (video.thumbnail_url || '')
+                : 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
             card.innerHTML = `
                 <img class="preview-poster" src="${escapeHtml(posterSrc)}" alt="" loading="lazy" decoding="async">
                 <div class="preview-motion" aria-hidden="true"></div>
@@ -1372,18 +1377,20 @@
             headers: {'Accept': 'application/json'},
         });
         if (!queueResponse.ok) return false;
-        let payload = await queueResponse.json();
+        const payload = await queueResponse.json();
         if (payload.data?.ready) return true;
 
-        for (let attempt = 0; attempt < 90; attempt++) {
-            await sleep(1500);
-            const statusResponse = await fetch(`${API_BASE}/${encodedId}/preview-status?t=${Date.now()}`, {
-                cache: 'no-store',
-                headers: {'Accept': 'application/json'},
+        const previewUrl = payload.data?.preview_url;
+        if (!previewUrl) return false;
+        // The static cache is served directly by the Python range server.  A
+        // short HEAD poll avoids both the old 1.5 second blind wait and repeated
+        // Laravel/NAS path resolution while the preview is being produced.
+        for (let attempt = 0; attempt < 300; attempt++) {
+            await sleep(100);
+            const response = await fetch(`${previewUrl}?t=${Date.now()}`, {
+                method: 'HEAD', cache: 'no-store',
             });
-            if (!statusResponse.ok) continue;
-            payload = await statusResponse.json();
-            if (payload.data?.ready) return true;
+            if (response.ok) return true;
         }
         return false;
     }

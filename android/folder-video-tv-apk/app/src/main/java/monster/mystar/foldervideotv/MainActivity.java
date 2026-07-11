@@ -71,8 +71,8 @@ import javax.crypto.spec.GCMParameterSpec;
 import monster.mystar.shared.NasDirectBridge;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 11;
-    private static final String APP_VERSION_NAME = "2026.07.11.11-tv";
+    private static final int APP_VERSION_CODE = 12;
+    private static final String APP_VERSION_NAME = "2026.07.11.12-tv";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/tv/android-version.json";
     private static final String NAS_NGINX_BASE_URL = "http://10.0.0.2:8095/";
     private static final String NAS_KEY_ALIAS = "folder-video-tv-nas-credentials";

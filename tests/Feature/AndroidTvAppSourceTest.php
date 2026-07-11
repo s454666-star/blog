@@ -47,6 +47,10 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('class="preview-poster"', $contents);
         $this->assertStringContainsString("video.addEventListener('loadeddata', () => video.classList.add('has-frame'))", $contents);
         $this->assertStringContainsString('/preview-queue', $contents);
+        $this->assertStringContainsString('const posterSrc = video.thumbnail_cached', $contents);
+        $this->assertStringContainsString('data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', $contents);
+        $this->assertStringContainsString("method: 'HEAD', cache: 'no-store'", $contents);
+        $this->assertStringContainsString('await sleep(100);', $contents);
         $this->assertStringContainsString('const decoderLimit = isFolderVideoTvApp() ? 4 : 8;', $contents);
 
         $server = file_get_contents(base_path('scripts/folder_video_range_server.py'));
@@ -56,8 +60,12 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('transcode_animated_preview', $server);
         $this->assertStringContainsString('transcode_hls', $server);
         $this->assertStringContainsString('libwebp_anim', $server);
+        $this->assertStringContainsString('force_original_aspect_ratio=decrease', $server);
+        $this->assertStringContainsString('pad={canvas_width}:{height}', $server);
+        $this->assertStringContainsString('parser.add_argument("--preview-workers", type=int, default=2)', $server);
         $this->assertStringContainsString('scale=320:180', $server);
-        $this->assertStringContainsString('range(2)', $server);
+        $this->assertStringContainsString('range(max(1, min(args.preview_workers, 8)))', $server);
+        $this->assertStringContainsString('scale_cuda={canvas_width}:{height}', $server);
         $this->assertStringContainsString('has_newer_request', $server);
 
         $this->assertStringContainsString("method: 'HEAD'", $contents);

@@ -31,6 +31,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const LOCK_NAME = 'blog:telegram-resource-code-worker';
     private const CODE_REGEX = '/(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])/i';
     private const STALE_PROCESSING_MINUTES = 30;
+    private const MAX_PROCESSING_ATTEMPTS = 3;
 
     /** @var array<int, string> */
     private array $baseUris = [];
@@ -233,6 +234,8 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         $earliestCooldown = null;
         $transportFailures = 0;
+        $processingFailure = false;
+        $processingFailureReason = 'unknown';
 
         foreach ($this->baseUris as $accountIndex => $baseUri) {
             $cooldownUntil = $this->cooldownUntil($baseUri);
@@ -325,7 +328,25 @@ class ProcessTelegramResourceCodesCommand extends Command
                 'http_status' => $response->status(),
                 'reason' => (string) ($payload['reason'] ?? $payload['status'] ?? 'unknown'),
             ]);
+            $processingFailure = true;
+            $processingFailureReason = (string) ($payload['reason'] ?? $payload['status'] ?? 'unknown');
             break;
+        }
+
+        $attemptNumber = (int) $row->attempts + 1;
+        if ($processingFailure && $attemptNumber >= self::MAX_PROCESSING_ATTEMPTS) {
+            DB::table('telegram_resource_codes')->where('id', $row->id)->update([
+                'status' => TelegramResourceCode::STATUS_SKIPPED,
+                'skip_reason' => TelegramResourceCode::SKIP_REASON_RETRY_LIMIT,
+                'processing_started_at' => null,
+                'available_at' => null,
+                'completed_at' => null,
+                'skipped_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            $this->warn("code_id={$row->id} skipped reason=retry_limit attempts={$attemptNumber} last_failure={$processingFailureReason}");
+            return true;
         }
 
         $retryAt = $earliestCooldown !== null

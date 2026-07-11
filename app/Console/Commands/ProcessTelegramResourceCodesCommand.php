@@ -208,6 +208,7 @@ class ProcessTelegramResourceCodesCommand extends Command
             ->where(function ($query): void {
                 $query->whereNull('available_at')->orWhere('available_at', '<=', now());
             })
+            ->orderBy('attempts')
             ->orderBy('id')
             ->first();
 

@@ -164,4 +164,60 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'forwarded_message_count' => 2,
         ]);
     }
+
+    public function test_untried_code_is_processed_before_an_older_retry(): void
+    {
+        DB::table('telegram_resource_codes')->insert([
+            [
+                'code' => '1111111111111111111111111111111111111111',
+                'code_type' => 1,
+                'status' => TelegramResourceCode::STATUS_PENDING,
+                'attempts' => 2,
+                'forwarded_message_count' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'code' => '2222222222222222222222222222222222222222',
+                'code_type' => 1,
+                'status' => TelegramResourceCode::STATUS_PENDING,
+                'attempts' => 0,
+                'forwarded_message_count' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+
+        Http::fake(function ($request) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+
+            if ($request->method() === 'GET' && str_starts_with($path, '/groups/')) {
+                return Http::response(['status' => 'ok', 'items' => []]);
+            }
+
+            $this->assertSame('2222222222222222222222222222222222222222', $request['code']);
+
+            return Http::response([
+                'status' => 'ok',
+                'forwarded_count' => 1,
+                'cleanup_complete' => true,
+            ]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--process-limit' => 1,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => '1111111111111111111111111111111111111111',
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 2,
+        ]);
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => '2222222222222222222222222222222222222222',
+            'status' => TelegramResourceCode::STATUS_COMPLETED,
+            'attempts' => 1,
+        ]);
+    }
 }

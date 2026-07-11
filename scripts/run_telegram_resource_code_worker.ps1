@@ -27,7 +27,9 @@ try {
     while ($true) {
         Add-Content -LiteralPath $logPath -Value ("{0} worker-start" -f (Get-Date -Format o)) -Encoding UTF8
 
-        & $phpCommand.Source $artisanPath telegram:process-resource-codes *>> $logPath
+        & $phpCommand.Source $artisanPath telegram:process-resource-codes 2>&1 | ForEach-Object {
+            Add-Content -LiteralPath $logPath -Value ([string] $_) -Encoding UTF8
+        }
         $exitCode = $LASTEXITCODE
 
         Add-Content -LiteralPath $logPath -Value ("{0} worker-exit code={1} restart_in={2}s" -f (Get-Date -Format o), $exitCode, $RestartDelaySeconds) -Encoding UTF8

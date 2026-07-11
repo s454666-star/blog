@@ -71,10 +71,10 @@ import javax.crypto.spec.GCMParameterSpec;
 import monster.mystar.shared.NasDirectBridge;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 10;
-    private static final String APP_VERSION_NAME = "2026.07.11.10-tv";
+    private static final int APP_VERSION_CODE = 11;
+    private static final String APP_VERSION_NAME = "2026.07.11.11-tv";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/tv/android-version.json";
-    private static final String NAS_WEB_DAV_BASE_URL = "https://nas:5006/30T-A/video(重跑)/";
+    private static final String NAS_NGINX_BASE_URL = "http://10.0.0.2:8095/";
     private static final String NAS_KEY_ALIAS = "folder-video-tv-nas-credentials";
     private static final String NAS_PREFERENCES = "nas-direct-settings";
     private static final String[] APP_URLS = new String[] {
@@ -390,22 +390,16 @@ public class MainActivity extends Activity {
             return;
         }
 
-        String[] credentials = loadNasCredentials();
-        if (credentials == null) {
-            showNasCredentialDialog(filename, startPositionMs);
-            return;
+        Uri.Builder directBuilder = Uri.parse(NAS_NGINX_BASE_URL).buildUpon();
+        for (String segment : filename.replace('\\', '/').split("/")) {
+            if (!segment.isEmpty() && !".".equals(segment) && !"..".equals(segment)) {
+                directBuilder.appendPath(segment);
+            }
         }
-
-        Uri directUri = Uri.parse(NAS_WEB_DAV_BASE_URL).buildUpon().appendPath(filename).build();
-        String rawCredentials = credentials[0] + ":" + credentials[1];
-        Map<String, String> headers = new HashMap<>();
-        headers.put(
-            "Authorization",
-            "Basic " + Base64.encodeToString(rawCredentials.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP)
-        );
+        Uri directUri = directBuilder.build();
         nativeDirectNasAttempt = true;
         nativeStartPositionMs = startPositionMs;
-        startNativeVideoUri(directUri, headers, startPositionMs, true);
+        startNativeVideoUri(directUri, null, startPositionMs, true);
     }
 
     private void startNativeVideoUri(
@@ -417,7 +411,7 @@ public class MainActivity extends Activity {
         nativeVideoOpen = true;
         tvPlayerOpen = true;
         nativeSeekOverlay.setVisibility(View.GONE);
-        nativeVideoStatus.setText(directNas ? "NAS 直連中…" : "影片載入中…");
+        nativeVideoStatus.setText(directNas ? "NAS 高速直連中…" : "影片載入中…");
         nativeVideoStatus.setVisibility(View.VISIBLE);
         nativeVideoOverlay.setVisibility(View.VISIBLE);
         nativeVideoOverlay.bringToFront();

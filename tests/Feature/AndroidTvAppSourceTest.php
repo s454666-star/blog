@@ -65,11 +65,16 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('queueTvPlaybackWarm', $contents);
         $this->assertStringContainsString('playVideoDirectFirst', $contents);
         $this->assertStringContainsString('folderVideoTvDirectError', $contents);
+        $this->assertStringContainsString('vendor/hls.js/hls.min.js', $contents);
+        $this->assertStringContainsString("script.src = '/vendor/hls.js/hls.min.js';", $contents);
+        $this->assertStringContainsString('function ensureHlsLibrary()', $contents);
+        $this->assertStringContainsString('needsOptimizedPlayback', $contents);
+        $this->assertStringContainsString('http://10.0.0.2:8095/', $contents);
 
         $activity = file_get_contents(base_path(
             'android/folder-video-tv-apk/app/src/main/java/monster/mystar/foldervideotv/MainActivity.java'
         ));
-        $this->assertStringContainsString('NAS_WEB_DAV_BASE_URL', $activity);
+        $this->assertStringContainsString('NAS_NGINX_BASE_URL', $activity);
         $this->assertStringContainsString('AndroidKeyStore', $activity);
         $this->assertStringContainsString('setVideoURI(mediaUri, headers)', $activity);
 
@@ -93,6 +98,12 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('stopNativeTvVideo();', $view);
         $this->assertStringContainsString('window.NasViewerTvAndroid.playVideo(directUrl || entry.media_url, entry.id)', $view);
         $this->assertStringContainsString('prepareViewerHls(entry)', $view);
+        $this->assertStringContainsString('vendor/hls.js/hls.min.js', $view);
+        $this->assertStringContainsString("script.src = '/vendor/hls.js/hls.min.js';", $view);
+        $this->assertStringContainsString('watchViewerPlaybackStart(entry)', $view);
+        $this->assertStringContainsString('fallbackViewerVideoToHls(entry', $view);
+        $this->assertStringContainsString('playViewerHls', $view);
+        $this->assertStringContainsString('skipFailedViewerVideo', $view);
         $this->assertStringContainsString('window.nasViewerTvNativeError = async entryId =>', $view);
         $this->assertStringContainsString("document.documentElement.classList.toggle('nas-viewer-tv', isNasViewerTvApp)", $view);
         $this->assertStringContainsString('html.nas-viewer-tv .viewer.image-mode .image-viewer.active', $view);
@@ -104,6 +115,10 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('applyExifOrientation', $activity);
         $this->assertStringContainsString('點一下即可開啟', $view);
         $this->assertStringNotContainsString('再點一下開啟檔案', $view);
+
+        $rangeServer = file_get_contents(base_path('scripts/folder_video_range_server.py'));
+        $this->assertStringContainsString('scale=-2:720,fps=30', $rangeServer);
+        $this->assertStringContainsString('no-store, no-cache, must-revalidate', $rangeServer);
     }
 
     public function test_all_six_android_apps_include_secure_nas_direct_support(): void

@@ -43,25 +43,49 @@ class NasViewerService
 
         $identity = $this->decodeId($directoryId);
         $directory = $this->resolvePath($identity['root_id'], $identity['relative_path'], true);
-        $entries = [];
-
         try {
-            foreach (new DirectoryIterator($directory['path']) as $file) {
-                if ($file->isDot() || $this->isHidden($file->getFilename())) {
-                    continue;
-                }
+            $names = scandir($directory['path'], SCANDIR_SORT_NONE);
+        } catch (Throwable $error) {
+            throw new NotFoundHttpException('Unable to read this NAS directory.', $error);
+        }
+        if (! is_array($names)) {
+            throw new NotFoundHttpException('Unable to read this NAS directory.');
+        }
 
+        $names = array_values(array_filter(
+            $names,
+            fn (string $name): bool => $name !== '.' && $name !== '..' && ! $this->isHidden($name)
+        ));
+        $largeDirectory = count($names) > 500;
+
+        if ($largeDirectory) {
+            usort($names, 'strnatcasecmp');
+            $total = count($names);
+            $entries = [];
+            foreach (array_slice($names, $offset, $limit) as $name) {
                 $entry = $this->entryPayload(
                     $directory['root_id'],
                     $directory['relative_path'],
-                    $file
+                    new SplFileInfo($directory['path'].DIRECTORY_SEPARATOR.$name),
+                    true
                 );
                 if ($entry !== null) {
                     $entries[] = $entry;
                 }
             }
-        } catch (Throwable $error) {
-            throw new NotFoundHttpException('Unable to read this NAS directory.', $error);
+        } else {
+            $entries = [];
+            foreach ($names as $name) {
+                $entry = $this->entryPayload(
+                    $directory['root_id'],
+                    $directory['relative_path'],
+                    new SplFileInfo($directory['path'].DIRECTORY_SEPARATOR.$name)
+                );
+                if ($entry !== null) {
+                    $entries[] = $entry;
+                }
+            }
+            $total = count($entries);
         }
 
         usort($entries, static function (array $left, array $right): int {
@@ -74,10 +98,8 @@ class NasViewerService
             return strnatcasecmp((string) $left['name'], (string) $right['name']);
         });
 
-        $total = count($entries);
-
         return [
-            'entries' => array_slice($entries, $offset, $limit),
+            'entries' => $largeDirectory ? $entries : array_slice($entries, $offset, $limit),
             'meta' => [
                 'directory_id' => $directoryId,
                 'title' => $this->directoryTitle($directory['root_id'], $directory['relative_path']),
@@ -175,7 +197,12 @@ class NasViewerService
     /**
      * @return array<string, mixed>|null
      */
-    private function entryPayload(string $rootId, string $directoryRelativePath, SplFileInfo $file): ?array
+    private function entryPayload(
+        string $rootId,
+        string $directoryRelativePath,
+        SplFileInfo $file,
+        bool $fastListing = false
+    ): ?array
     {
         $name = $this->validUtf8($file->getFilename());
         $relativePath = ltrim(
@@ -183,24 +210,29 @@ class NasViewerService
             '/'
         );
 
-        if ($file->isDir()) {
+        $fastKind = $fastListing ? $this->kindForPath($file->getPathname()) : null;
+        $isDirectory = ! $fastListing || $fastKind === 'other'
+            ? $file->isDir()
+            : false;
+
+        if ($isDirectory) {
             return [
                 'id' => $this->encodeId($rootId, $relativePath),
                 'name' => $name,
                 'kind' => 'directory',
                 'available' => true,
                 'size_bytes' => null,
-                'modified_at' => $this->safeModifiedAt($file->getPathname()),
+                'modified_at' => $fastListing ? null : $this->safeModifiedAt($file->getPathname()),
                 'media_url' => null,
                 'download_url' => null,
             ];
         }
 
-        if (! $file->isFile()) {
+        if (! $fastListing && ! $file->isFile()) {
             return null;
         }
 
-        $kind = $this->kindForPath($file->getPathname());
+        $kind = $fastKind ?? $this->kindForPath($file->getPathname());
 
         return [
             'id' => $this->encodeId($rootId, $relativePath),
@@ -209,8 +241,8 @@ class NasViewerService
             'nas_share' => (string) (($this->roots()[$rootId]['label'] ?? $rootId)),
             'relative_path' => $relativePath,
             'available' => true,
-            'size_bytes' => $this->safeSize($file),
-            'modified_at' => $this->safeModifiedAt($file->getPathname()),
+            'size_bytes' => $fastListing ? null : $this->safeSize($file),
+            'modified_at' => $fastListing ? null : $this->safeModifiedAt($file->getPathname()),
             'media_url' => in_array($kind, ['video', 'image'], true)
                 ? $this->mediaUrl($rootId, $relativePath)
                 : null,

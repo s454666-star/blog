@@ -28,6 +28,8 @@ $laravelStdoutLog = Join-Path $stateDir "laravel-stdout.log"
 $laravelStderrLog = Join-Path $stateDir "laravel-stderr.log"
 $mediaStdoutLog = Join-Path $stateDir "media-stdout.log"
 $mediaStderrLog = Join-Path $stateDir "media-stderr.log"
+$indexWarmStdoutLog = Join-Path $stateDir "index-warm-stdout.log"
+$indexWarmStderrLog = Join-Path $stateDir "index-warm-stderr.log"
 $mediaServerScript = Join-Path $projectRoot "scripts\folder_video_range_server.py"
 
 function Ensure-CaddyBinary {
@@ -384,6 +386,16 @@ $configText = @"
     bind $BindAddress
     encode zstd gzip
 
+    @hlsLibrary path /vendor/hls.js/hls.min.js
+    handle @hlsLibrary {
+        root * "$projectRoot\public"
+        header {
+            Cache-Control "public, max-age=31536000, immutable"
+            X-Content-Type-Options "nosniff"
+        }
+        file_server
+    }
+
     @folderApp path /folder-video-app /folder-video-app/tv/android-version.json /folder-video-app/tv/folder-video-tv.apk
     handle @folderApp {
         rewrite * /index.php{path}
@@ -541,6 +553,17 @@ if (-not (Wait-ForTcpPort -TargetHost "127.0.0.1" -Port $Port)) {
     throw "Caddy did not start listening on port $Port."
 }
 
+# Keep the HTTP first page fast: refresh the NAS index after the service is
+# already reachable instead of blocking the first app request on thousands of
+# remote file stats.
+$indexWarmProcess = Start-Process -FilePath $phpExe `
+    -ArgumentList @("artisan", "folder-video:warm-cache") `
+    -WorkingDirectory $projectRoot `
+    -RedirectStandardOutput $indexWarmStdoutLog `
+    -RedirectStandardError $indexWarmStderrLog `
+    -WindowStyle Hidden `
+    -PassThru
+
 $lanIps = Get-LanIps
 
 @{
@@ -548,6 +571,7 @@ $lanIps = Get-LanIps
     caddy_pid = $caddyProcess.Id
     laravel_pid = $laravelProcess.Id
     media_stream_pid = $mediaProcess.Id
+    index_warm_pid = $indexWarmProcess.Id
     port = $Port
     laravel_port = $LaravelPort
     media_stream_port = $MediaStreamPort
@@ -574,6 +598,8 @@ $lanIps = Get-LanIps
     laravel_stderr_log = $laravelStderrLog
     media_stdout_log = $mediaStdoutLog
     media_stderr_log = $mediaStderrLog
+    index_warm_stdout_log = $indexWarmStdoutLog
+    index_warm_stderr_log = $indexWarmStderrLog
     lan_urls = @($lanIps | ForEach-Object { "http://$PSItem`:$Port/folder-video-app" })
 } | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
 

@@ -102,6 +102,28 @@ class NasViewerControllerTest extends TestCase
             ->assertJsonPath('meta.next_offset', 2);
     }
 
+    public function test_it_pages_large_directories_without_statting_every_nas_file(): void
+    {
+        $large = $this->rootA.DIRECTORY_SEPARATOR.'Large';
+        File::ensureDirectoryExists($large);
+        for ($index = 0; $index < 501; $index++) {
+            file_put_contents($large.DIRECTORY_SEPARATOR.sprintf('clip-%04d.mp4', $index), 'x');
+        }
+
+        $rootId = $this->getJson('/api/nas-browser')->json('data.0.id');
+        $largeId = collect($this->getJson('/api/nas-browser?directory='.urlencode($rootId))->json('data'))
+            ->firstWhere('name', 'Large')['id'];
+
+        $this->getJson('/api/nas-browser?directory='.urlencode($largeId).'&limit=25')
+            ->assertOk()
+            ->assertJsonCount(25, 'data')
+            ->assertJsonPath('data.0.kind', 'video')
+            ->assertJsonPath('data.0.size_bytes', null)
+            ->assertJsonPath('meta.total', 501)
+            ->assertJsonPath('meta.has_more', true)
+            ->assertJsonPath('meta.next_offset', 25);
+    }
+
     public function test_it_streams_images_and_videos_through_the_fallback_route(): void
     {
         $rootId = $this->getJson('/api/nas-browser')->json('data.0.id');

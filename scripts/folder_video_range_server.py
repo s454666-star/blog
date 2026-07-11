@@ -86,7 +86,12 @@ class RangeRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(length))
         self.send_header("Accept-Ranges", "bytes")
-        self.send_header("Cache-Control", "private, max-age=600")
+        if candidate.suffix.lower() == ".m3u8":
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        elif candidate.suffix.lower() == ".ts":
+            self.send_header("Cache-Control", "private, max-age=31536000, immutable")
+        else:
+            self.send_header("Cache-Control", "private, max-age=600")
         self.send_header("Last-Modified", email.utils.formatdate(stat.st_mtime, usegmt=True))
         self.send_header("X-Content-Type-Options", "nosniff")
         if partial:
@@ -278,7 +283,7 @@ def transcode_hls(
     common = [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
         "-probesize", "1M", "-analyzeduration", "1000000", "-i", str(source),
-        "-vf", "scale=-2:720", "-c:a", "aac", "-b:a", "160k", "-ac", "2",
+        "-vf", "scale=-2:720,fps=30", "-c:a", "aac", "-b:a", "128k", "-ac", "2",
     ]
     hls = [
         "-force_key_frames", f"expr:gte(t,n_forced*{segment_seconds})",
@@ -288,13 +293,13 @@ def transcode_hls(
     ]
     commands = [
         common + [
-            "-c:v", "h264_nvenc", "-preset", "p2", "-tune", "ll",
-            "-b:v", "4500k", "-maxrate", "6000k", "-bufsize", "12000k",
+            "-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ll",
+            "-b:v", "2800k", "-maxrate", "3500k", "-bufsize", "7000k",
             "-g", "60", "-bf", "0", "-pix_fmt", "yuv420p",
         ] + hls,
         common + [
             "-c:v", "libx264", "-preset", "veryfast", "-tune", "fastdecode",
-            "-b:v", "4000k", "-maxrate", "6000k", "-bufsize", "12000k",
+            "-b:v", "2800k", "-maxrate", "3500k", "-bufsize", "7000k",
             "-g", "60", "-bf", "0", "-pix_fmt", "yuv420p",
         ] + hls,
     ]

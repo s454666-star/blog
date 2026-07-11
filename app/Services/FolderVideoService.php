@@ -590,7 +590,7 @@ class FolderVideoService
     {
         $index = $this->readIndex();
 
-        if (($offset === 0 || $index === []) && $this->shouldRefreshIndex($index)) {
+        if ($index === []) {
             $index = $this->refreshLightweightIndex($index);
         }
 
@@ -741,21 +741,25 @@ class FolderVideoService
     {
         $filename = (string) ($entry['filename'] ?? '');
         $durationSeconds = (float) ($entry['duration_seconds'] ?? 0.0);
+        $size = (int) ($entry['size_bytes'] ?? 0);
+        $mtime = (int) ($entry['mtime'] ?? 0);
         $id = $this->encodeId($filename);
+        $previewPath = $this->previewPathForStat($filename, $size, $mtime);
+        $thumbnailPath = $this->thumbnailPathForStat($filename, $size, $mtime);
 
         return [
             'id' => $id,
             'filename' => $filename,
             'duration_seconds' => $durationSeconds,
             'duration_label' => (string) ($entry['duration_label'] ?? $this->formatDuration($durationSeconds)),
-            'size_bytes' => (int) ($entry['size_bytes'] ?? 0),
-            'modified_at' => (int) ($entry['mtime'] ?? 0),
+            'size_bytes' => $size,
+            'modified_at' => $mtime,
             'created_at' => (int) ($entry['ctime'] ?? 0),
             'stream_url' => $this->streamUrlForFilename($filename),
-            'preview_url' => $this->previewUrlForFilename($filename),
+            'preview_url' => $this->staticCacheUrl('/folder-video-preview-cache/', $previewPath, $this->previewCachePath()),
             'thumbnail_url' => $this->thumbnailUrlForFilename($filename),
-            'preview_cached' => $this->previewCachedForFilename($filename),
-            'thumbnail_cached' => $this->thumbnailCachedForFilename($filename),
+            'preview_cached' => is_file($previewPath) && filesize($previewPath) > 0,
+            'thumbnail_cached' => is_file($thumbnailPath) && filesize($thumbnailPath) > 0,
             'liked' => false,
         ];
     }
@@ -945,24 +949,35 @@ POWERSHELL;
     protected function previewPathForSource(string $sourcePath): string
     {
         $stat = @stat($sourcePath) ?: [];
-        $key = hash('sha256', implode('|', [
-            basename($sourcePath),
-            (string) ($stat['size'] ?? 0),
-            (string) ($stat['mtime'] ?? 0),
-        ]));
 
-        return $this->previewCachePath().DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.mp4';
+        return $this->previewPathForStat(
+            basename($sourcePath),
+            (int) ($stat['size'] ?? 0),
+            (int) ($stat['mtime'] ?? 0)
+        );
     }
 
     protected function thumbnailPathForSource(string $sourcePath): string
     {
         $stat = @stat($sourcePath) ?: [];
-        $key = hash('sha256', implode('|', [
+
+        return $this->thumbnailPathForStat(
             basename($sourcePath),
-            (string) ($stat['size'] ?? 0),
-            (string) ($stat['mtime'] ?? 0),
-            'jpg',
-        ]));
+            (int) ($stat['size'] ?? 0),
+            (int) ($stat['mtime'] ?? 0)
+        );
+    }
+
+    protected function previewPathForStat(string $filename, int $size, int $mtime): string
+    {
+        $key = hash('sha256', implode('|', [$filename, (string) $size, (string) $mtime]));
+
+        return $this->previewCachePath().DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.mp4';
+    }
+
+    protected function thumbnailPathForStat(string $filename, int $size, int $mtime): string
+    {
+        $key = hash('sha256', implode('|', [$filename, (string) $size, (string) $mtime, 'jpg']));
 
         return $this->thumbnailCachePath().DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.jpg';
     }
@@ -978,7 +993,7 @@ POWERSHELL;
     protected function tvHlsPathForSource(string $sourcePath): string
     {
         $stat = @stat($sourcePath) ?: [];
-        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-hls-v2']));
+        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-hls-v3']));
 
         return $this->tvHlsCachePath().DIRECTORY_SEPARATOR.$key;
     }

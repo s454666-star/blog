@@ -64,8 +64,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 8;
-    private static final String APP_VERSION_NAME = "2026.07.11.8-tv";
+    private static final int APP_VERSION_CODE = 10;
+    private static final String APP_VERSION_NAME = "2026.07.11.10-tv";
     private static final String ANDROID_VERSION_PATH = "/nas-viewer-app/tv/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/nas-viewer-app",

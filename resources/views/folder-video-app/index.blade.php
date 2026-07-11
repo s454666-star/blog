@@ -559,6 +559,9 @@
     let tvPlaybackWarmTimer = null;
     let playerLoadGeneration = 0;
     let playerSwitching = false;
+    let activePlayerHls = null;
+    let hlsLibraryPromise = null;
+    let playerFallbackPending = false;
     let stopPlayerDragSeek = () => {};
     const likeInFlight = new Set();
     const previewPreparation = new Map();
@@ -661,6 +664,82 @@
         elements.playerVideo.playbackRate = rate;
         elements.playerRate.textContent = playbackRateLabel(rate);
         elements.playerRate.title = `播放速度 ${playbackRateLabel(rate)}`;
+    }
+
+    function destroyPlayerHls() {
+        if (!activePlayerHls) return;
+        try {
+            activePlayerHls.destroy();
+        } catch (error) {
+        }
+        activePlayerHls = null;
+    }
+
+    function playPlayerHls(hlsUrl, saved, loadGeneration) {
+        if (!hlsUrl || playerLoadGeneration !== loadGeneration) return false;
+        destroyPlayerHls();
+        const video = elements.playerVideo;
+        playerFallbackPending = true;
+        video.pause();
+        video.onerror = null;
+        video.removeAttribute('src');
+        video.load();
+        applyPlaybackRate();
+
+        const startPlayback = () => {
+            if (playerLoadGeneration !== loadGeneration) return;
+            const duration = Number(video.duration || playerItem?.duration_seconds || 0);
+            if (saved > 0 && (!duration || saved < duration - 2)) video.currentTime = saved;
+            applyPlaybackRate();
+            video.play().then(() => {
+                if (playerLoadGeneration === loadGeneration) playerFallbackPending = false;
+            }).catch(() => {
+                playerFallbackPending = false;
+                showToast('影片無法播放');
+            });
+        };
+
+        if (window.Hls?.isSupported?.()) {
+            const hls = new window.Hls({
+                enableWorker: true,
+                startFragPrefetch: true,
+                maxBufferLength: 12,
+                maxMaxBufferLength: 30,
+                backBufferLength: 30,
+            });
+            let recoveryAttempts = 0;
+            activePlayerHls = hls;
+            hls.on(window.Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(hlsUrl));
+            hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+                if (video.readyState >= 2) startPlayback();
+                else video.addEventListener('canplay', startPlayback, {once: true});
+            });
+            hls.on(window.Hls.Events.ERROR, (event, data) => {
+                if (!data?.fatal || playerLoadGeneration !== loadGeneration) return;
+                if (data.type === window.Hls.ErrorTypes.NETWORK_ERROR && recoveryAttempts++ < 1) {
+                    hls.startLoad();
+                    return;
+                }
+                if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR && recoveryAttempts++ < 2) {
+                    hls.recoverMediaError();
+                    return;
+                }
+                destroyPlayerHls();
+                playerFallbackPending = false;
+                showToast('影片無法播放');
+            });
+            hls.attachMedia(video);
+            return true;
+        }
+
+        video.onerror = () => {
+            playerFallbackPending = false;
+            showToast('影片無法播放');
+        };
+        video.onloadedmetadata = startPlayback;
+        video.src = hlsUrl;
+        video.load();
+        return true;
     }
 
     function cyclePlaybackRate() {
@@ -945,6 +1024,37 @@
 
     function isFolderVideoTvApp() {
         return /Android/i.test(navigator.userAgent || '') && /FolderVideoTvApp\//.test(navigator.userAgent || '');
+    }
+
+    function nasNginxVideoUrl(video) {
+        const relative = `${video?.liked ? 'good/' : ''}${String(video?.filename || '')}`;
+        if (!relative) return '';
+        return `http://10.0.0.2:8095/${relative.split('/').map(encodeURIComponent).join('/')}`;
+    }
+
+    function estimatedVideoBitrateMbps(video) {
+        const duration = Number(video?.duration_seconds || 0);
+        const size = Number(video?.size_bytes || 0);
+        return duration > 0 && size > 0 ? (size * 8) / duration / 1000000 : 0;
+    }
+
+    function needsOptimizedPlayback(video) {
+        const extension = String(video?.filename || '').split('.').pop().toLowerCase();
+        return !['mp4', 'm4v', 'mov'].includes(extension) || estimatedVideoBitrateMbps(video) >= 12;
+    }
+
+    function ensureHlsLibrary() {
+        if (window.Hls) return Promise.resolve(true);
+        if (hlsLibraryPromise) return hlsLibraryPromise;
+        hlsLibraryPromise = new Promise(resolve => {
+            const script = document.createElement('script');
+            script.src = '/vendor/hls.js/hls.min.js';
+            script.async = true;
+            script.onload = () => resolve(Boolean(window.Hls));
+            script.onerror = () => resolve(false);
+            document.head.appendChild(script);
+        });
+        return hlsLibraryPromise;
     }
 
     function rawViewportHeight() {
@@ -1638,6 +1748,9 @@
         elements.playerLike.classList.toggle('is-active', isLiked(normalized.id));
         elements.playerLike.title = isLiked(normalized.id) ? '取消 LIKE' : '喜歡';
         elements.playerVideo.pause();
+        destroyPlayerHls();
+        playerFallbackPending = false;
+        elements.playerVideo.onerror = null;
         elements.playerVideo.removeAttribute('src');
         elements.playerVideo.load();
         elements.playerVideo.preload = 'auto';
@@ -1651,7 +1764,10 @@
                 if (isFolderVideoTvApp()) {
                     window.FolderVideoTvAndroid.stopVideo();
                     if (typeof window.FolderVideoTvAndroid.playVideoDirectFirst === 'function') {
-                        window.FolderVideoTvAndroid.playVideoDirectFirst(normalized.filename, saved);
+                        window.FolderVideoTvAndroid.playVideoDirectFirst(
+                            `${normalized.liked ? 'good/' : ''}${normalized.filename}`,
+                            saved
+                        );
                     } else {
                         await playTvOptimizedStream(normalized, saved, loadGeneration);
                     }
@@ -1662,21 +1778,27 @@
             }
         } catch (error) {
         }
-        let directPhoneUrl = '';
-        try {
-            if (isFolderVideoAndroidApp() && window.DirectNas?.ready?.()) {
-                directPhoneUrl = window.DirectNas.directUrl('30T-A', `video(重跑)/${normalized.filename}`) || '';
-            }
-        } catch (error) {
+        if (isFolderVideoAndroidApp() && needsOptimizedPlayback(normalized)) {
+            playerFallbackPending = true;
+            showToast('高規格影片，正在準備流暢播放…', 5000);
+            const hlsUrl = await prepareAndroidHlsUrl(normalized, loadGeneration);
+            if (playerLoadGeneration !== loadGeneration || playerItem?.id !== normalized.id) return;
+            if (hlsUrl && playPlayerHls(hlsUrl, saved, loadGeneration)) return;
+            playerFallbackPending = false;
         }
+        const directPhoneUrl = isFolderVideoAndroidApp() ? nasNginxVideoUrl(normalized) : '';
         if (directPhoneUrl) {
             let fallingBack = false;
             elements.playerVideo.onerror = async () => {
                 if (fallingBack || playerLoadGeneration !== loadGeneration) return;
                 fallingBack = true;
+                playerFallbackPending = true;
+                showToast('原檔不相容，切換流暢播放…', 5000);
                 const hlsUrl = await prepareAndroidHlsUrl(normalized, loadGeneration);
                 if (playerLoadGeneration !== loadGeneration || playerItem?.id !== normalized.id) return;
                 elements.playerVideo.onerror = null;
+                if (hlsUrl && playPlayerHls(hlsUrl, saved, loadGeneration)) return;
+                playerFallbackPending = false;
                 elements.playerVideo.src = hlsUrl || normalized.stream_url;
                 elements.playerVideo.load();
                 elements.playerVideo.play().catch(() => {});
@@ -1742,6 +1864,7 @@
     }
 
     async function prepareAndroidHlsUrl(video, loadGeneration) {
+        const libraryReady = ensureHlsLibrary();
         try {
             const encodedId = encodeURIComponent(video.id);
             const queued = await fetch(`${API_BASE}/${encodedId}/tv-hls-queue`, {
@@ -1750,14 +1873,20 @@
             const payload = queued.ok ? await queued.json() : null;
             const streamUrl = payload?.data?.stream_url;
             if (!streamUrl) return '';
-            if (payload?.data?.ready) return streamUrl;
+            if (payload?.data?.ready) {
+                await libraryReady;
+                return streamUrl;
+            }
             for (let attempt = 0; attempt < 240; attempt++) {
                 await sleep(250);
                 if (playerLoadGeneration !== loadGeneration || playerItem?.id !== video.id) return '';
                 const response = await fetch(`${streamUrl}?t=${Date.now()}`, {cache: 'no-store'});
                 if (!response.ok) continue;
                 const playlist = await response.text();
-                if (Array.from(playlist.matchAll(/#EXTINF:([0-9.]+)/g)).length >= 2) return streamUrl;
+                if (Array.from(playlist.matchAll(/#EXTINF:([0-9.]+)/g)).length >= 2) {
+                    await libraryReady;
+                    return streamUrl;
+                }
             }
         } catch (error) {
         }
@@ -1773,6 +1902,8 @@
 
     async function closePlayer() {
         playerLoadGeneration++;
+        destroyPlayerHls();
+        playerFallbackPending = false;
         const closingId = playerItem?.id || null;
         recordPlayerProgress();
         stopPlayerDragSeek();
@@ -2349,14 +2480,15 @@
     });
 
     elements.playerVideo.addEventListener('error', () => {
+        if (playerFallbackPending || activePlayerHls) return;
         showToast('影片無法播放');
     });
 
-    function showToast(text) {
+    function showToast(text, duration = 1800) {
         elements.toast.textContent = text;
         elements.toast.classList.add('show');
         clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => elements.toast.classList.remove('show'), 1800);
+        toastTimer = setTimeout(() => elements.toast.classList.remove('show'), Math.max(500, duration));
     }
 
     function showFlash(text) {

@@ -621,6 +621,9 @@
     };
 
     let stopVideoDragSeek = () => {};
+    let activeViewerHls = null;
+    let hlsLibraryPromise = null;
+    let viewerPlaybackTimer = null;
     const failedViewerEntryIds = new Set();
 
     function clamp(value, min, max) {
@@ -860,6 +863,9 @@
     }
 
     function resetViewerElements() {
+        clearTimeout(viewerPlaybackTimer);
+        viewerPlaybackTimer = null;
+        destroyViewerHls();
         elements.video.pause();
         elements.video.removeAttribute('src');
         elements.video.load();
@@ -1111,6 +1117,11 @@
     }
 
     function directNasUrl(entry) {
+        const relative = String(entry?.relative_path || '').replace(/\\/g, '/');
+        if (entry?.nas_share === '30T-A' && relative.toLowerCase().startsWith('video(重跑)/')) {
+            const fastPath = relative.slice('video(重跑)/'.length);
+            return `http://10.0.0.2:8095/${fastPath.split('/').map(encodeURIComponent).join('/')}`;
+        }
         try {
             if (window.DirectNas?.ready?.() && entry?.nas_share && entry?.relative_path) {
                 return window.DirectNas.directUrl(entry.nas_share, entry.relative_path) || '';
@@ -1120,7 +1131,90 @@
         return '';
     }
 
+    function ensureHlsLibrary() {
+        if (window.Hls) return Promise.resolve(true);
+        if (hlsLibraryPromise) return hlsLibraryPromise;
+        hlsLibraryPromise = new Promise(resolve => {
+            const script = document.createElement('script');
+            script.src = '/vendor/hls.js/hls.min.js';
+            script.async = true;
+            script.onload = () => resolve(Boolean(window.Hls));
+            script.onerror = () => resolve(false);
+            document.head.appendChild(script);
+        });
+        return hlsLibraryPromise;
+    }
+
+    function destroyViewerHls() {
+        if (!activeViewerHls) return;
+        try {
+            activeViewerHls.destroy();
+        } catch (error) {
+        }
+        activeViewerHls = null;
+    }
+
+    async function skipFailedViewerVideo(entry) {
+        if (!entry || state.viewerEntry?.id !== entry.id) return;
+        failedViewerEntryIds.add(entry.id);
+        showToast('這支影片無法播放，正在尋找下一支…', 2600);
+        const moved = await switchViewerEntry(state.lastViewerSwitchDelta || 1);
+        if (!moved && state.viewerEntry?.id === entry.id) closeViewer();
+    }
+
+    function playViewerHls(hlsUrl, entry) {
+        if (!hlsUrl || state.viewerEntry?.id !== entry.id) return false;
+        clearTimeout(viewerPlaybackTimer);
+        viewerPlaybackTimer = null;
+        destroyViewerHls();
+        const video = elements.video;
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+
+        const startPlayback = () => {
+            if (state.viewerEntry?.id !== entry.id) return;
+            video.play().catch(() => skipFailedViewerVideo(entry));
+        };
+        if (window.Hls?.isSupported?.()) {
+            const hls = new window.Hls({
+                enableWorker: true,
+                startFragPrefetch: true,
+                maxBufferLength: 12,
+                maxMaxBufferLength: 30,
+                backBufferLength: 30,
+            });
+            let recoveryAttempts = 0;
+            activeViewerHls = hls;
+            hls.on(window.Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(hlsUrl));
+            hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+                if (video.readyState >= 2) startPlayback();
+                else video.addEventListener('canplay', startPlayback, {once: true});
+            });
+            hls.on(window.Hls.Events.ERROR, (event, data) => {
+                if (!data?.fatal || state.viewerEntry?.id !== entry.id) return;
+                if (data.type === window.Hls.ErrorTypes.NETWORK_ERROR && recoveryAttempts++ < 1) {
+                    hls.startLoad();
+                    return;
+                }
+                if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR && recoveryAttempts++ < 2) {
+                    hls.recoverMediaError();
+                    return;
+                }
+                destroyViewerHls();
+                skipFailedViewerVideo(entry);
+            });
+            hls.attachMedia(video);
+            return true;
+        }
+
+        video.src = hlsUrl;
+        video.play().catch(() => skipFailedViewerVideo(entry));
+        return true;
+    }
+
     async function prepareViewerHls(entry) {
+        const libraryReady = ensureHlsLibrary();
         try {
             const queued = await fetch(`/api/nas-browser/${encodeURIComponent(entry.id)}/hls-queue`, {
                 method: 'POST', cache: 'no-store', headers: {'Accept': 'application/json'},
@@ -1128,18 +1222,56 @@
             const payload = queued.ok ? await queued.json() : null;
             const streamUrl = payload?.data?.stream_url;
             if (!streamUrl) return '';
-            if (payload?.data?.ready) return streamUrl;
+            if (payload?.data?.ready) {
+                await libraryReady;
+                return streamUrl;
+            }
             for (let attempt = 0; attempt < 240; attempt++) {
                 await new Promise(resolve => setTimeout(resolve, 250));
                 if (state.viewerEntry?.id !== entry.id) return '';
                 const response = await fetch(`${streamUrl}?t=${Date.now()}`, {cache: 'no-store'});
                 if (!response.ok) continue;
                 const playlist = await response.text();
-                if (Array.from(playlist.matchAll(/#EXTINF:([0-9.]+)/g)).length >= 2) return streamUrl;
+                if (Array.from(playlist.matchAll(/#EXTINF:([0-9.]+)/g)).length >= 2) {
+                    await libraryReady;
+                    return streamUrl;
+                }
             }
         } catch (error) {
         }
         return '';
+    }
+
+    function watchViewerPlaybackStart(entry) {
+        clearTimeout(viewerPlaybackTimer);
+        viewerPlaybackTimer = setTimeout(() => {
+            viewerPlaybackTimer = null;
+            if (
+                state.viewerEntry?.id === entry.id
+                && !entry._hlsAttempt
+                && (elements.video.paused || elements.video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)
+            ) {
+                fallbackViewerVideoToHls(entry, '原檔載入過慢，切換流暢播放…');
+            }
+        }, 4000);
+    }
+
+    async function fallbackViewerVideoToHls(entry, message = '原檔不相容，切換流暢播放…') {
+        if (!entry || state.viewerEntry?.id !== entry.id) return false;
+        if (entry._hlsAttempt) return true;
+        entry._hlsAttempt = true;
+        clearTimeout(viewerPlaybackTimer);
+        viewerPlaybackTimer = null;
+        elements.video.pause();
+        elements.video.removeAttribute('src');
+        elements.video.load();
+        showToast(message, 5000);
+        const hlsUrl = await prepareViewerHls(entry);
+        if (state.viewerEntry?.id !== entry.id) return true;
+        entry._directAttempt = false;
+        if (hlsUrl && playViewerHls(hlsUrl, entry)) return true;
+        await skipFailedViewerVideo(entry);
+        return true;
     }
 
     async function openViewer(entry, switched = false) {
@@ -1175,7 +1307,8 @@
             } catch (error) {
             }
             elements.video.src = directUrl || entry.media_url;
-            elements.video.play().catch(() => {});
+            elements.video.play().catch(() => fallbackViewerVideoToHls(entry));
+            watchViewerPlaybackStart(entry);
             return;
         }
         if (entry.kind === 'image') {
@@ -1258,19 +1391,17 @@
     elements.videoRewind.addEventListener('click', () => seekVideo(-10, '-10 秒'));
     elements.videoForward.addEventListener('click', () => seekVideo(10, '+10 秒'));
     elements.video.addEventListener('ended', () => closeViewer());
+    elements.video.addEventListener('playing', () => {
+        clearTimeout(viewerPlaybackTimer);
+        viewerPlaybackTimer = null;
+        if (state.viewerEntry?.id) failedViewerEntryIds.delete(state.viewerEntry.id);
+    });
     elements.video.addEventListener('error', async () => {
         if (!state.viewerEntry || state.viewerEntry.kind !== 'video') return;
+        if (activeViewerHls) return;
         const entry = state.viewerEntry;
-        if (entry._directAttempt && !entry._hlsAttempt) {
-            entry._hlsAttempt = true;
-            const hlsUrl = await prepareViewerHls(entry);
-            if (state.viewerEntry?.id !== entry.id) return;
-            elements.video.src = hlsUrl || entry.media_url;
-            elements.video.play().catch(() => {});
-            return;
-        }
-        elements.video.classList.remove('active');
-        elements.viewerMessage.textContent = '這個影片格式無法在目前的 Android 播放器中播放。';
+        if (await fallbackViewerVideoToHls(entry)) return;
+        await skipFailedViewerVideo(entry);
     });
     elements.image.addEventListener('error', () => {
         if (!state.viewerEntry || state.viewerEntry.kind !== 'image') return;

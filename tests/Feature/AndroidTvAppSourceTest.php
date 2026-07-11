@@ -53,8 +53,10 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('BUFFER_SIZE = 1024 * 1024', $server);
         $this->assertStringContainsString('self.send_response(206 if partial else 200)', $server);
         $this->assertStringContainsString('h264_nvenc', $server);
-        $this->assertStringContainsString('transcode_sprite', $server);
+        $this->assertStringContainsString('transcode_animated_preview', $server);
         $this->assertStringContainsString('transcode_hls', $server);
+        $this->assertStringContainsString('libwebp_anim', $server);
+        $this->assertStringContainsString('has_newer_request', $server);
 
         $startup = file_get_contents(base_path('scripts/start-folder-video-api.ps1'));
         $this->assertStringContainsString('[int]$MediaStreamPort = 8092', $startup);
@@ -82,5 +84,9 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('new ImageView(this)', $activity);
         $this->assertStringContainsString('ImageView.ScaleType.FIT_CENTER', $activity);
         $this->assertStringContainsString('showImage(String mediaUrl, String entryId)', $activity);
+        $this->assertStringContainsString('ExifInterface.TAG_ORIENTATION', $activity);
+        $this->assertStringContainsString('applyExifOrientation', $activity);
+        $this->assertStringContainsString('點一下即可開啟', $view);
+        $this->assertStringNotContainsString('再點一下開啟檔案', $view);
     }
 }

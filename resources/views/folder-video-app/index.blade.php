@@ -209,19 +209,13 @@
             inset: 0;
             z-index: 1;
             display: none;
-            background-position: 0 50%;
+            background-position: center;
             background-repeat: no-repeat;
-            background-size: 800% 100%;
+            background-size: cover;
         }
 
         .preview-motion.active {
             display: block;
-            animation: tv-preview-strip 8s steps(7, end) infinite;
-        }
-
-        @keyframes tv-preview-strip {
-            from { background-position: 0 50%; }
-            to { background-position: 100% 50%; }
         }
 
         .video-card.is-current {
@@ -562,6 +556,9 @@
     let gridMetricsRefreshQueued = false;
     let loadMoreQueued = false;
     let tvPreviewOffset = 0;
+    let tvPlaybackWarmTimer = null;
+    let playerLoadGeneration = 0;
+    let playerSwitching = false;
     let stopPlayerDragSeek = () => {};
     const likeInFlight = new Set();
     const previewPreparation = new Map();
@@ -1109,12 +1106,14 @@
             card.addEventListener('focus', () => {
                 const cards = Array.from(elements.grid.querySelectorAll('.video-card'));
                 tvFocusIndex = Math.max(0, cards.indexOf(card));
+                scheduleTvPlaybackWarm(video);
             });
             observer.observe(card);
             fragment.appendChild(card);
         });
 
         elements.grid.appendChild(fragment);
+        if (isFolderVideoTvApp() && items.length > 0) scheduleTvPlaybackWarm(items[clamp(tvFocusIndex, 0, items.length - 1)]);
         elements.empty.textContent = emptyMessage();
         elements.empty.classList.toggle('show', items.length === 0 && !cursor.hasMore && !isLoading);
         updateStatus();
@@ -1140,7 +1139,7 @@
         }
 
         if (isFolderVideoTvApp()) {
-            ensureTvSpritePreview(card);
+            ensureTvAnimatedPreview(card);
             return;
         }
 
@@ -1170,7 +1169,7 @@
         video.play().catch(() => {});
     }
 
-    async function ensureTvSpritePreview(card) {
+    async function ensureTvAnimatedPreview(card) {
         const id = String(card?.dataset?.id || '');
         const motion = card?.querySelector('.preview-motion');
         if (!id || !motion || motion.dataset.preparing === '1') return;
@@ -1213,6 +1212,16 @@
             if (payload.data?.ready) return payload.data;
         }
         return null;
+    }
+
+    function scheduleTvPlaybackWarm(video) {
+        if (!isFolderVideoTvApp() || !video?.id || elements.player.classList.contains('open')) return;
+        window.clearTimeout(tvPlaybackWarmTimer);
+        tvPlaybackWarmTimer = window.setTimeout(() => {
+            fetch(`${API_BASE}/${encodeURIComponent(video.id)}/tv-hls-queue`, {
+                method: 'POST', cache: 'no-store', headers: {'Accept': 'application/json'},
+            }).catch(() => {});
+        }, 650);
     }
 
     async function ensureCardPreview(card) {
@@ -1604,7 +1613,9 @@
         }
     }
 
-    function openPlayer(video) {
+    async function openPlayer(video) {
+        const loadGeneration = ++playerLoadGeneration;
+        window.clearTimeout(tvPlaybackWarmTimer);
         const normalized = normalizeVideo(video);
         upsertVideo(normalized);
         playerItem = normalized;
@@ -1631,7 +1642,8 @@
                 && typeof window.FolderVideoTvAndroid.playVideo === 'function'
             ) {
                 if (isFolderVideoTvApp()) {
-                    playTvOptimizedStream(normalized, saved);
+                    window.FolderVideoTvAndroid.stopVideo();
+                    await playTvOptimizedStream(normalized, saved, loadGeneration);
                 } else {
                     window.FolderVideoTvAndroid.playVideo(normalized.stream_url, saved);
                 }
@@ -1653,7 +1665,7 @@
         elements.playerVideo.load();
     }
 
-    async function playTvOptimizedStream(video, saved) {
+    async function playTvOptimizedStream(video, saved, loadGeneration) {
         showToast('正在準備流暢播放…', 5000);
         const encodedId = encodeURIComponent(video.id);
         try {
@@ -1661,27 +1673,28 @@
                 method: 'POST', cache: 'no-store', headers: {'Accept': 'application/json'},
             });
             let payload = response.ok ? await response.json() : null;
-            for (let attempt = 0; !payload?.data?.ready && attempt < 120; attempt++) {
-                await sleep(1000);
-                if (playerItem?.id !== video.id) return;
+            for (let attempt = 0; !payload?.data?.ready && attempt < 200; attempt++) {
+                await sleep(400);
+                if (playerLoadGeneration !== loadGeneration || playerItem?.id !== video.id) return;
                 response = await fetch(`${API_BASE}/${encodedId}/tv-hls-status?t=${Date.now()}`, {
                     cache: 'no-store', headers: {'Accept': 'application/json'},
                 });
                 if (response.ok) payload = await response.json();
             }
-            if (playerItem?.id !== video.id) return;
+            if (playerLoadGeneration !== loadGeneration || playerItem?.id !== video.id) return;
             const streamUrl = payload?.data?.ready ? payload.data.stream_url : video.stream_url;
             const available = Number(payload?.data?.available_seconds || 0);
-            const startAt = available > 8 ? Math.min(saved, available - 8) : 0;
+            const startAt = available > 4 ? Math.min(saved, available - 4) : 0;
             window.FolderVideoTvAndroid.playVideo(streamUrl, startAt);
         } catch (error) {
-            if (playerItem?.id === video.id) {
+            if (playerLoadGeneration === loadGeneration && playerItem?.id === video.id) {
                 window.FolderVideoTvAndroid.playVideo(video.stream_url, saved);
             }
         }
     }
 
     async function closePlayer() {
+        playerLoadGeneration++;
         const closingId = playerItem?.id || null;
         recordPlayerProgress();
         stopPlayerDragSeek();
@@ -1870,18 +1883,26 @@
     }
 
     async function playAdjacent(delta) {
+        if (playerSwitching) return;
+        playerSwitching = true;
         const leavingId = playerItem?.id || null;
-        recordPlayerProgress();
-        const next = await findNextPlayable(delta);
-        if (!next) {
-            showToast(delta > 0 ? '已經到底' : '已經到最前面');
-            return;
+        try {
+            recordPlayerProgress();
+            const next = await findNextPlayable(delta);
+            if (!next) {
+                showToast(delta > 0 ? '已經到底' : '已經到最前面');
+                return;
+            }
+            showToast(delta > 0 ? '正在切換下一部…' : '正在切換上一部…', 4000);
+            try {
+                window.FolderVideoTvAndroid?.stopVideo?.();
+            } catch (error) {
+            }
+            if (leavingId) await flushPendingLikeAction(leavingId);
+            await openPlayer(next);
+        } finally {
+            playerSwitching = false;
         }
-
-        if (leavingId) {
-            await flushPendingLikeAction(leavingId);
-        }
-        openPlayer(next);
     }
 
     function updateLikeVisuals(id) {

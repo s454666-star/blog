@@ -271,7 +271,7 @@ class FolderVideoService
         }
 
         $this->writeMediaQueueRequest($this->previewQueuePath(), hash('sha256', $previewPath), [
-            'kind' => 'sprite',
+            'kind' => 'animated_webp',
             'source_path' => $sourcePath,
             'preview_path' => $previewPath,
             'queued_at' => now()->toIso8601String(),
@@ -291,7 +291,7 @@ class FolderVideoService
             'id' => $id,
             'ready' => is_file($playlist) && count($segments) >= 2,
             'complete' => is_file($hlsPath.DIRECTORY_SEPARATOR.'.complete'),
-            'available_seconds' => count($segments) * 4,
+            'available_seconds' => count($segments) * max(1, (int) config('folder_video.tv_hls_segment_seconds', 2)),
             'stream_url' => $this->staticCacheUrl('/folder-video-tv-hls-cache/', $playlist, $this->tvHlsCachePath()),
         ];
     }
@@ -947,15 +947,15 @@ POWERSHELL;
     protected function tvPreviewPathForSource(string $sourcePath): string
     {
         $stat = @stat($sourcePath) ?: [];
-        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-sprite-v1']));
+        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-webp-v2']));
 
-        return $this->previewCachePath().DIRECTORY_SEPARATOR.'tv-sprites'.DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.jpg';
+        return $this->previewCachePath().DIRECTORY_SEPARATOR.'tv-animated'.DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.webp';
     }
 
     protected function tvHlsPathForSource(string $sourcePath): string
     {
         $stat = @stat($sourcePath) ?: [];
-        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-hls-v1']));
+        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-hls-v2']));
 
         return $this->tvHlsCachePath().DIRECTORY_SEPARATOR.$key;
     }

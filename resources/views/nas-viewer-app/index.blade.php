@@ -532,7 +532,7 @@
         <button id="back-button" class="icon-button" type="button" aria-label="上一頁">‹</button>
         <div class="title-block">
             <h1 id="directory-title">NAS</h1>
-            <p id="directory-summary">第一次選取，第二次開啟</p>
+            <p id="directory-summary">點一下即可開啟</p>
         </div>
         <button id="refresh-button" class="icon-button" type="button" aria-label="重新整理">↻</button>
     </header>
@@ -754,7 +754,7 @@
 
         elements.title.textContent = state.meta?.title || 'NAS';
         const total = Number(state.meta?.total || state.entries.length);
-        elements.summary.textContent = `${total} 個項目・第一次選取，第二次開啟`;
+        elements.summary.textContent = `${total} 個項目・點一下即可開啟`;
         elements.loadMore.hidden = !state.meta?.has_more;
         elements.back.disabled = state.navigationStack.length === 0 && state.directoryId === null;
         renderBreadcrumbs();
@@ -826,18 +826,10 @@
     }
 
     function handleEntryClick(entry) {
-        if (state.selectedId !== entry.id) {
-            state.selectedId = entry.id;
-            elements.list.querySelectorAll('.entry').forEach(row => {
-                row.classList.toggle('selected', row.dataset.entryId === entry.id);
-            });
-            showToast(
-                entry.kind === 'directory'
-                    ? '再點一下進入目錄'
-                    : (entry.kind === 'apk' ? '再點一下開啟安裝檔' : '再點一下開啟檔案')
-            );
-            return;
-        }
+        state.selectedId = entry.id;
+        elements.list.querySelectorAll('.entry').forEach(row => {
+            row.classList.toggle('selected', row.dataset.entryId === entry.id);
+        });
 
         if (entry.available === false) {
             showToast('這個 NAS 分享目前無法連線');

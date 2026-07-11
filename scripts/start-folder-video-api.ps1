@@ -292,6 +292,7 @@ $previewQueuePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_QUEUE_
 $previewCachePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_CACHE_PATH" -DefaultValue (Join-Path $projectRoot "storage\app\folder-video-previews")
 $hlsQueuePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_TV_HLS_QUEUE_PATH" -DefaultValue (Join-Path $projectRoot "storage\app\folder-video-tv-hls-queue")
 $hlsCachePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_TV_HLS_CACHE_PATH" -DefaultValue (Join-Path $projectRoot "storage\app\folder-video-tv-hls")
+$hlsSegmentSeconds = [int](Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_TV_HLS_SEGMENT_SECONDS" -DefaultValue "2")
 $previewSeconds = [int](Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_SECONDS" -DefaultValue "18")
 $previewHeight = [int](Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_HEIGHT" -DefaultValue "360")
 
@@ -333,6 +334,7 @@ $mediaProcess = Start-Process -FilePath $pythonExe `
         "--preview-root=$previewCachePath",
         "--hls-queue=$hlsQueuePath",
         "--hls-root=$hlsCachePath",
+        "--hls-segment-seconds=$hlsSegmentSeconds",
         "--ffmpeg=$ffmpegBin",
         "--preview-seconds=$previewSeconds",
         "--preview-height=$previewHeight"

@@ -173,7 +173,7 @@ class NasViewerControllerTest extends TestCase
     {
         $this->get('/nas-viewer-app')
             ->assertOk()
-            ->assertSee('第一次選取，第二次開啟')
+            ->assertSee('點一下即可開啟')
             ->assertSee('window.nasViewerHandleBack', false)
             ->assertSee('window.NasViewerAndroid.setMediaOrientationEnabled', false)
             ->assertSee('window.NasViewerAndroid.setVideoFullscreenEnabled', false)
@@ -184,7 +184,7 @@ class NasViewerControllerTest extends TestCase
             ->assertSee("showToast('上滑下一個・下滑上一個')", false)
             ->assertSee("state.entries.filter(entry => ['video', 'image', 'text'].includes(entry.kind))", false)
             ->assertSee("window.location.assign(entry.download_url)", false)
-            ->assertSee('再點一下開啟安裝檔')
+            ->assertDontSee('再點一下開啟安裝檔')
             ->assertSee('.viewer.video-mode .viewer-header', false)
             ->assertSee('window.nasViewerTvHandleKey', false)
             ->assertSee("if (state.viewerEntry.kind === 'video' && key === 'left')", false)
@@ -212,15 +212,15 @@ class NasViewerControllerTest extends TestCase
 
     public function test_it_serves_the_nas_viewer_tv_update_channel(): void
     {
-        config()->set('nas_viewer.tv_android_apk_version_code', 5);
-        config()->set('nas_viewer.tv_android_apk_version_name', '2026.07.11.5-tv');
+        config()->set('nas_viewer.tv_android_apk_version_code', 6);
+        config()->set('nas_viewer.tv_android_apk_version_name', '2026.07.11.6-tv');
         config()->set('nas_viewer.tv_android_apk_path', storage_path('app/nas-viewer-tv.apk'));
 
         $this->withHeaders(['X-Forwarded-Host' => '10.0.0.25:8090', 'X-Forwarded-Proto' => 'http'])
             ->getJson('/nas-viewer-app/tv/android-version.json')
             ->assertOk()
-            ->assertJsonPath('data.version_code', 5)
-            ->assertJsonPath('data.version_name', '2026.07.11.5-tv')
+            ->assertJsonPath('data.version_code', 6)
+            ->assertJsonPath('data.version_name', '2026.07.11.6-tv')
             ->assertJsonPath('data.apk_url', 'http://10.0.0.25:8090/nas-viewer-app/tv/nas-viewer-tv.apk');
 
         $this->get('/nas-viewer-app/tv/nas-viewer-tv.apk')

@@ -15,6 +15,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Insets;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
@@ -49,14 +51,16 @@ import android.widget.VideoView;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 5;
-    private static final String APP_VERSION_NAME = "2026.07.11.5-tv";
+    private static final int APP_VERSION_CODE = 6;
+    private static final String APP_VERSION_NAME = "2026.07.11.6-tv";
     private static final String ANDROID_VERSION_PATH = "/nas-viewer-app/tv/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/nas-viewer-app",
@@ -485,37 +489,91 @@ public class MainActivity extends Activity {
     }
 
     private Bitmap decodeFittedBitmap(String requestUrl) {
+        File cachedImage = null;
         try {
+            cachedImage = File.createTempFile("nas-viewer-image-", ".bin", getCacheDir());
+            HttpURLConnection download = (HttpURLConnection) new URL(requestUrl).openConnection();
+            download.setConnectTimeout(8000);
+            download.setReadTimeout(30000);
+            download.setInstanceFollowRedirects(true);
+            try (InputStream input = download.getInputStream(); FileOutputStream output = new FileOutputStream(cachedImage)) {
+                byte[] buffer = new byte[256 * 1024];
+                int read;
+                while ((read = input.read(buffer)) >= 0) {
+                    if (read > 0) output.write(buffer, 0, read);
+                }
+            } finally {
+                download.disconnect();
+            }
+
+            int orientation = ExifInterface.ORIENTATION_NORMAL;
+            try {
+                ExifInterface exif = new ExifInterface(cachedImage.getAbsolutePath());
+                orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+            } catch (Exception ignored) {
+            }
+
             BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
-            HttpURLConnection first = (HttpURLConnection) new URL(requestUrl).openConnection();
-            first.setConnectTimeout(8000);
-            first.setReadTimeout(20000);
-            try (InputStream input = first.getInputStream()) {
-                BitmapFactory.decodeStream(input, null, bounds);
-            } finally {
-                first.disconnect();
-            }
+            BitmapFactory.decodeFile(cachedImage.getAbsolutePath(), bounds);
             int screenWidth = Math.max(1, getResources().getDisplayMetrics().widthPixels);
             int screenHeight = Math.max(1, getResources().getDisplayMetrics().heightPixels);
+            boolean swapsAxes = orientation >= ExifInterface.ORIENTATION_TRANSPOSE
+                && orientation <= ExifInterface.ORIENTATION_ROTATE_270;
+            int orientedWidth = swapsAxes ? bounds.outHeight : bounds.outWidth;
+            int orientedHeight = swapsAxes ? bounds.outWidth : bounds.outHeight;
             int sample = 1;
-            while (bounds.outWidth / sample > screenWidth * 2 || bounds.outHeight / sample > screenHeight * 2) {
+            while (orientedWidth / sample > screenWidth * 2 || orientedHeight / sample > screenHeight * 2) {
                 sample *= 2;
             }
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inSampleSize = Math.max(1, sample);
             options.inPreferredConfig = Bitmap.Config.ARGB_8888;
-            HttpURLConnection second = (HttpURLConnection) new URL(requestUrl).openConnection();
-            second.setConnectTimeout(8000);
-            second.setReadTimeout(30000);
-            try (InputStream input = second.getInputStream()) {
-                return BitmapFactory.decodeStream(input, null, options);
-            } finally {
-                second.disconnect();
-            }
+            Bitmap decoded = BitmapFactory.decodeFile(cachedImage.getAbsolutePath(), options);
+            return applyExifOrientation(decoded, orientation);
         } catch (Exception ignored) {
             return null;
+        } finally {
+            if (cachedImage != null) cachedImage.delete();
         }
+    }
+
+    private Bitmap applyExifOrientation(Bitmap bitmap, int orientation) {
+        if (bitmap == null || orientation == ExifInterface.ORIENTATION_NORMAL || orientation == ExifInterface.ORIENTATION_UNDEFINED) {
+            return bitmap;
+        }
+        Matrix matrix = new Matrix();
+        switch (orientation) {
+            case ExifInterface.ORIENTATION_FLIP_HORIZONTAL:
+                matrix.setScale(-1f, 1f);
+                break;
+            case ExifInterface.ORIENTATION_ROTATE_180:
+                matrix.setRotate(180f);
+                break;
+            case ExifInterface.ORIENTATION_FLIP_VERTICAL:
+                matrix.setRotate(180f);
+                matrix.postScale(-1f, 1f);
+                break;
+            case ExifInterface.ORIENTATION_TRANSPOSE:
+                matrix.setRotate(90f);
+                matrix.postScale(-1f, 1f);
+                break;
+            case ExifInterface.ORIENTATION_ROTATE_90:
+                matrix.setRotate(90f);
+                break;
+            case ExifInterface.ORIENTATION_TRANSVERSE:
+                matrix.setRotate(-90f);
+                matrix.postScale(-1f, 1f);
+                break;
+            case ExifInterface.ORIENTATION_ROTATE_270:
+                matrix.setRotate(-90f);
+                break;
+            default:
+                return bitmap;
+        }
+        Bitmap oriented = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+        if (oriented != bitmap) bitmap.recycle();
+        return oriented;
     }
 
     private void stopNativeImage(boolean notifyWeb) {

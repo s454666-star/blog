@@ -221,13 +221,14 @@ def transcode_preview(
     return False
 
 
-def transcode_sprite(ffmpeg: str, source: Path, destination: Path) -> bool:
+def transcode_animated_preview(ffmpeg: str, source: Path, destination: Path) -> bool:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + f".tmp.{uuid.uuid4().hex}.jpg")
+    temporary = destination.with_name(destination.stem + f".tmp.{uuid.uuid4().hex}.webp")
     command = [
-        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
-        "-vf", "fps=1,scale=426:240:force_original_aspect_ratio=increase,crop=426:240,tile=8x1",
-        "-frames:v", "1", "-q:v", "5", str(temporary),
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-t", "6", "-i", str(source),
+        "-vf", "fps=5,scale=384:216:force_original_aspect_ratio=increase,crop=384:216",
+        "-an", "-c:v", "libwebp_anim", "-lossless", "0", "-quality", "52",
+        "-compression_level", "4", "-loop", "0", str(temporary),
     ]
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
@@ -245,19 +246,42 @@ def transcode_sprite(ffmpeg: str, source: Path, destination: Path) -> bool:
     return False
 
 
-def transcode_hls(ffmpeg: str, source: Path, hls_path: Path) -> bool:
-    hls_path.mkdir(parents=True, exist_ok=True)
+def cleanup_hls_output(hls_path: Path) -> None:
     for stale in hls_path.glob("segment_*.ts*"):
         stale.unlink(missing_ok=True)
     for stale_name in ("index.m3u8", "index.m3u8.tmp", ".complete"):
         (hls_path / stale_name).unlink(missing_ok=True)
+
+
+def stop_process(process: subprocess.Popen[bytes]) -> None:
+    try:
+        process.terminate()
+        process.wait(timeout=3)
+    except (OSError, subprocess.TimeoutExpired):
+        try:
+            process.kill()
+            process.wait(timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+
+def transcode_hls(
+    ffmpeg: str,
+    source: Path,
+    hls_path: Path,
+    segment_seconds: int,
+    cancel_check,
+) -> bool:
+    hls_path.mkdir(parents=True, exist_ok=True)
+    cleanup_hls_output(hls_path)
 
     common = [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
         "-vf", "scale=-2:720", "-c:a", "aac", "-b:a", "160k", "-ac", "2",
     ]
     hls = [
-        "-f", "hls", "-hls_time", "4", "-hls_list_size", "0",
+        "-force_key_frames", f"expr:gte(t,n_forced*{segment_seconds})",
+        "-f", "hls", "-hls_time", str(segment_seconds), "-hls_list_size", "0",
         "-hls_playlist_type", "event", "-hls_flags", "independent_segments+temp_file",
         "-hls_segment_filename", str(hls_path / "segment_%05d.ts"), str(hls_path / "index.m3u8"),
     ]
@@ -265,26 +289,40 @@ def transcode_hls(ffmpeg: str, source: Path, hls_path: Path) -> bool:
         common + [
             "-c:v", "h264_nvenc", "-preset", "p2", "-tune", "ll",
             "-b:v", "4500k", "-maxrate", "6000k", "-bufsize", "12000k",
-            "-g", "120", "-bf", "0", "-pix_fmt", "yuv420p",
+            "-g", "60", "-bf", "0", "-pix_fmt", "yuv420p",
         ] + hls,
         common + [
             "-c:v", "libx264", "-preset", "veryfast", "-tune", "fastdecode",
             "-b:v", "4000k", "-maxrate", "6000k", "-bufsize", "12000k",
-            "-g", "120", "-bf", "0", "-pix_fmt", "yuv420p",
+            "-g", "60", "-bf", "0", "-pix_fmt", "yuv420p",
         ] + hls,
     ]
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     for command in commands:
+        process = None
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, timeout=14400, check=False, creationflags=creation_flags,
+                stderr=subprocess.DEVNULL, creationflags=creation_flags,
             )
-            if result.returncode == 0 and (hls_path / "index.m3u8").is_file():
+            deadline = time.monotonic() + 14400
+            while process.poll() is None:
+                if cancel_check():
+                    stop_process(process)
+                    cleanup_hls_output(hls_path)
+                    return False
+                if time.monotonic() >= deadline:
+                    stop_process(process)
+                    break
+                time.sleep(0.2)
+            if process.returncode == 0 and (hls_path / "index.m3u8").is_file():
                 (hls_path / ".complete").write_text("ok", encoding="ascii")
                 return True
-        except (OSError, subprocess.TimeoutExpired):
+        except OSError:
+            if process is not None and process.poll() is None:
+                stop_process(process)
             pass
+    cleanup_hls_output(hls_path)
     return False
 
 
@@ -321,8 +359,8 @@ def preview_worker(
                 continue
             if destination.is_file() and destination.stat().st_size > 0:
                 continue
-            if payload.get("kind") == "sprite":
-                transcode_sprite(ffmpeg, source, destination)
+            if payload.get("kind") == "animated_webp":
+                transcode_animated_preview(ffmpeg, source, destination)
             else:
                 transcode_preview(ffmpeg, source, destination, seconds, height)
         except (OSError, ValueError, json.JSONDecodeError):
@@ -337,19 +375,23 @@ def hls_worker(
     queue_root: Path,
     hls_root: Path,
     ffmpeg: str,
+    segment_seconds: int,
 ) -> None:
     queue_root.mkdir(parents=True, exist_ok=True)
     hls_root.mkdir(parents=True, exist_ok=True)
     for stale in queue_root.glob("*.working"):
         stale.rename(stale.with_suffix(".json"))
     while not stop_event.is_set():
-        queued = sorted(queue_root.glob("*.json"), key=lambda path: path.stat().st_mtime)
+        queued = sorted(queue_root.glob("*.json"), key=lambda path: path.stat().st_mtime_ns, reverse=True)
         if not queued:
             stop_event.wait(0.25)
             continue
         request_path = queued[0]
+        for obsolete in queued[1:]:
+            obsolete.unlink(missing_ok=True)
         working_path = request_path.with_suffix(".working")
         try:
+            request_mtime = request_path.stat().st_mtime_ns
             os.replace(request_path, working_path)
             payload = json.loads(working_path.read_text(encoding="utf-8"))
             source = Path(str(payload.get("source_path", ""))).resolve()
@@ -360,7 +402,15 @@ def hls_worker(
                 continue
             if (hls_path / ".complete").is_file():
                 continue
-            transcode_hls(ffmpeg, source, hls_path)
+            def has_newer_request() -> bool:
+                if stop_event.is_set():
+                    return True
+                try:
+                    return any(path.stat().st_mtime_ns > request_mtime for path in queue_root.glob("*.json"))
+                except OSError:
+                    return False
+
+            transcode_hls(ffmpeg, source, hls_path, segment_seconds, has_newer_request)
         except (OSError, ValueError, json.JSONDecodeError):
             pass
         finally:
@@ -376,6 +426,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--preview-root", required=True)
     parser.add_argument("--hls-queue", required=True)
     parser.add_argument("--hls-root", required=True)
+    parser.add_argument("--hls-segment-seconds", type=int, default=2)
     parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument("--preview-seconds", type=int, default=18)
     parser.add_argument("--preview-height", type=int, default=360)
@@ -407,7 +458,14 @@ def main() -> None:
     worker.start()
     hls_thread = threading.Thread(
         target=hls_worker,
-        args=(stop_event, media_root, hls_queue_root, hls_root, args.ffmpeg),
+        args=(
+            stop_event,
+            media_root,
+            hls_queue_root,
+            hls_root,
+            args.ffmpeg,
+            max(1, min(args.hls_segment_seconds, 10)),
+        ),
         daemon=True,
         name="folder-video-hls-worker",
     )

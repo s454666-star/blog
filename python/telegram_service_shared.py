@@ -1442,6 +1442,15 @@ RESOURCE_CODE_DORMANT_KEYWORDS = [
     "處於休眠狀態",
 ]
 
+RESOURCE_CODE_COMPLETION_PATTERN = re.compile(
+    r"(?:成功发送|成功發送)\s*(\d+)\s*(?:个|個)",
+    re.IGNORECASE,
+)
+RESOURCE_CODE_PAGE_PATTERN = re.compile(
+    r"(?:第)?\s*(\d+)\s*/\s*(\d+)\s*(?:页|頁).*?(?:文件总数|文件總數)\s*[:：]\s*(\d+)",
+    re.IGNORECASE | re.DOTALL,
+)
+
 
 def _match_bot_not_found_keyword(text: str) -> Optional[str]:
     normalized = str(text or "").strip().lower()
@@ -3449,27 +3458,36 @@ async def _resource_code_bot_media(
     wait_timeout_seconds: int,
     poll_interval_seconds: float,
     settle_seconds: float,
-) -> Tuple[List[Any], List[int], str]:
+) -> Tuple[List[Any], List[int], str, Optional[int], Optional[int]]:
     deadline = asyncio.get_running_loop().time() + float(wait_timeout_seconds)
     stable_since: Optional[float] = None
     last_media_ids: Tuple[int, ...] = tuple()
     all_reply_ids: Set[int] = set()
     media_by_id: Dict[int, Any] = {}
+    expected_media_count: Optional[int] = None
+    declared_file_count: Optional[int] = None
 
     while asyncio.get_running_loop().time() < deadline:
-        messages = await client.get_messages(peer, limit=240, min_id=int(sent_message_id))
+        messages = await client.get_messages(peer, limit=1000, min_id=int(sent_message_id))
         for msg in messages or []:
             mid = int(getattr(msg, "id", 0) or 0)
             if mid <= int(sent_message_id):
                 continue
             all_reply_ids.add(mid)
             if not bool(getattr(msg, "out", False)):
+                message_text = str(getattr(msg, "message", None) or "")
+                completion_match = RESOURCE_CODE_COMPLETION_PATTERN.search(message_text)
+                if completion_match is not None:
+                    expected_media_count = max(0, int(completion_match.group(1)))
+                page_match = RESOURCE_CODE_PAGE_PATTERN.search(message_text)
+                if page_match is not None:
+                    declared_file_count = max(0, int(page_match.group(3)))
                 if _resource_code_media_kind(msg) is not None:
                     media_by_id[mid] = msg
-                elif any(keyword in str(getattr(msg, "message", None) or "") for keyword in RESOURCE_CODE_DORMANT_KEYWORDS):
-                    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "dormant"
-                elif _match_bot_not_found_keyword(str(getattr(msg, "message", None) or "")):
-                    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "not_found"
+                elif any(keyword in message_text for keyword in RESOURCE_CODE_DORMANT_KEYWORDS):
+                    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "dormant", expected_media_count, declared_file_count
+                elif _match_bot_not_found_keyword(message_text):
+                    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "not_found", expected_media_count, declared_file_count
 
         current_ids = tuple(sorted(media_by_id.keys()))
         now_value = asyncio.get_running_loop().time()
@@ -3478,11 +3496,14 @@ async def _resource_code_bot_media(
                 last_media_ids = current_ids
                 stable_since = now_value
             elif stable_since is not None and now_value - stable_since >= float(settle_seconds):
-                return [media_by_id[mid] for mid in current_ids], sorted(all_reply_ids), "settled"
+                if expected_media_count is not None and len(current_ids) >= expected_media_count:
+                    return [media_by_id[mid] for mid in current_ids], sorted(all_reply_ids), "settled", expected_media_count, declared_file_count
+                if expected_media_count is None and declared_file_count is None:
+                    return [media_by_id[mid] for mid in current_ids], sorted(all_reply_ids), "settled", expected_media_count, declared_file_count
 
         await asyncio.sleep(float(poll_interval_seconds))
 
-    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "timeout"
+    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "timeout", expected_media_count, declared_file_count
 
 
 @app.post("/resource-codes/process")
@@ -3522,7 +3543,7 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
             phase = "wait_media"
             wait_timeout_seconds = max(30, min(1800, int(payload.wait_timeout_seconds or 240)))
             try:
-                media_messages, bot_reply_ids, media_outcome = await asyncio.wait_for(
+                media_messages, bot_reply_ids, media_outcome, expected_media_count, declared_file_count = await asyncio.wait_for(
                     _resource_code_bot_media(
                         peer=bot_peer,
                         sent_message_id=sent_message_id,
@@ -3536,6 +3557,8 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                 media_messages = []
                 bot_reply_ids = []
                 media_outcome = "hard_timeout"
+                expected_media_count = None
+                declared_file_count = None
                 try:
                     final_messages = await asyncio.wait_for(
                         client.get_messages(bot_peer, limit=240, min_id=int(sent_message_id)),
@@ -3553,14 +3576,29 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
             bot_media_ids = [int(getattr(msg, "id", 0) or 0) for msg in media_messages]
             bot_media_ids = [mid for mid in bot_media_ids if mid > 0]
 
-            if not media_messages:
+            if media_outcome != "settled" or not media_messages:
                 phase = "cleanup_no_media"
-                remaining = await _cleanup_resource_code_bot_messages(bot_peer, [sent_message_id] + bot_reply_ids)
+                remaining = await _cleanup_resource_code_bot_messages(bot_peer, [sent_message_id] + bot_reply_ids + bot_media_ids)
                 return {
                     "status": "skip" if media_outcome == "dormant" else "error",
                     "reason": "dormant" if media_outcome == "dormant" else ("not_found" if media_outcome == "not_found" else "media_timeout"),
                     "cleanup_complete": len(remaining) == 0,
                     "undeleted_count": len(remaining),
+                    "received_media_count": len(bot_media_ids),
+                    "expected_media_count": expected_media_count,
+                    "declared_file_count": declared_file_count,
+                }
+
+            if expected_media_count is not None and len(bot_media_ids) != int(expected_media_count):
+                phase = "cleanup_count_mismatch"
+                remaining = await _cleanup_resource_code_bot_messages(bot_peer, [sent_message_id] + bot_reply_ids + bot_media_ids)
+                return {
+                    "status": "error",
+                    "reason": "media_count_mismatch",
+                    "cleanup_complete": len(remaining) == 0,
+                    "received_media_count": len(bot_media_ids),
+                    "expected_media_count": int(expected_media_count),
+                    "declared_file_count": declared_file_count,
                 }
 
             phase = "forward_media"
@@ -3591,6 +3629,8 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                     "status": "error",
                     "reason": "delete_incomplete",
                     "forwarded_count": len(forwarded_message_ids),
+                    "expected_media_count": expected_media_count or len(bot_media_ids),
+                    "declared_file_count": declared_file_count or expected_media_count or len(bot_media_ids),
                     "cleanup_complete": False,
                     "undeleted_count": len(remaining),
                 }
@@ -3606,6 +3646,8 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
             return {
                 "status": "ok",
                 "forwarded_count": len(forwarded_message_ids),
+                "expected_media_count": expected_media_count or len(bot_media_ids),
+                "declared_file_count": declared_file_count or expected_media_count or len(bot_media_ids),
                 "cleanup_complete": True,
                 "target_message_ids": forwarded_message_ids,
             }

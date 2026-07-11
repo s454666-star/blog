@@ -63,6 +63,8 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             $table->unsignedSmallInteger('attempts')->default(0);
             $table->unsignedTinyInteger('processing_account')->nullable();
             $table->unsignedSmallInteger('forwarded_message_count')->default(0);
+            $table->unsignedSmallInteger('decoder_sent_count')->nullable();
+            $table->unsignedSmallInteger('decoder_total_count')->nullable();
             $table->dateTime('available_at')->nullable();
             $table->dateTime('processing_started_at')->nullable();
             $table->dateTime('completed_at')->nullable();
@@ -147,6 +149,8 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
                 return Http::response([
                     'status' => 'ok',
                     'forwarded_count' => 2,
+                    'expected_media_count' => 2,
+                    'declared_file_count' => 2,
                     'cleanup_complete' => true,
                 ], 200);
             }
@@ -164,6 +168,8 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'status' => TelegramResourceCode::STATUS_COMPLETED,
             'processing_account' => 2,
             'forwarded_message_count' => 2,
+            'decoder_sent_count' => 2,
+            'decoder_total_count' => 2,
         ]);
     }
 
@@ -202,6 +208,8 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             return Http::response([
                 'status' => 'ok',
                 'forwarded_count' => 1,
+                'expected_media_count' => 1,
+                'declared_file_count' => 1,
                 'cleanup_complete' => true,
             ]);
         });
@@ -261,5 +269,45 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'forwarded_message_count' => 0,
         ]);
         $this->assertNotNull(DB::table('telegram_resource_codes')->where('code', 'f2d32d20fd97cc0f7a40d0a7ab4e282d479c14d5')->value('skipped_at'));
+    }
+
+    public function test_partial_forward_count_is_not_marked_completed(): void
+    {
+        DB::table('telegram_resource_codes')->insert([
+            'code' => '3333333333333333333333333333333333333333',
+            'code_type' => 1,
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 0,
+            'forwarded_message_count' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Http::fake(function ($request) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            if ($request->method() === 'GET' && str_starts_with($path, '/groups/')) {
+                return Http::response(['status' => 'ok', 'items' => []]);
+            }
+
+            return Http::response([
+                'status' => 'ok',
+                'forwarded_count' => 90,
+                'expected_media_count' => 109,
+                'declared_file_count' => 124,
+                'cleanup_complete' => true,
+            ]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--process-limit' => 1,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => '3333333333333333333333333333333333333333',
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 1,
+            'forwarded_message_count' => 0,
+        ]);
     }
 }

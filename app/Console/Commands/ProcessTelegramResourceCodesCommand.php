@@ -264,6 +264,9 @@ class ProcessTelegramResourceCodesCommand extends Command
 
             $payload = $response->json();
             $payload = is_array($payload) ? $payload : [];
+            $forwardedCount = max(0, (int) ($payload['forwarded_count'] ?? 0));
+            $decoderSentCount = max(0, (int) ($payload['expected_media_count'] ?? $forwardedCount));
+            $decoderTotalCount = max(0, (int) ($payload['declared_file_count'] ?? $decoderSentCount));
 
             if ($response->status() === 429 || $this->isFloodWait($payload)) {
                 $waitSeconds = $this->floodWaitSeconds($response, $payload);
@@ -276,18 +279,21 @@ class ProcessTelegramResourceCodesCommand extends Command
             if ($response->successful()
                 && (string) ($payload['status'] ?? '') === 'ok'
                 && (bool) ($payload['cleanup_complete'] ?? false)
-                && (int) ($payload['forwarded_count'] ?? 0) > 0) {
+                && $forwardedCount > 0
+                && $forwardedCount === $decoderSentCount) {
                 DB::table('telegram_resource_codes')->where('id', $row->id)->update([
                     'status' => TelegramResourceCode::STATUS_COMPLETED,
                     'processing_account' => $accountIndex + 1,
-                    'forwarded_message_count' => (int) $payload['forwarded_count'],
+                    'forwarded_message_count' => $forwardedCount,
+                    'decoder_sent_count' => $decoderSentCount,
+                    'decoder_total_count' => $decoderTotalCount,
                     'processing_started_at' => null,
                     'available_at' => null,
                     'completed_at' => now(),
                     'updated_at' => now(),
                 ]);
 
-                $this->info("code_id={$row->id} completed account=" . ($accountIndex + 1) . ' forwarded=' . (int) $payload['forwarded_count']);
+                $this->info("code_id={$row->id} completed account=" . ($accountIndex + 1) . " forwarded={$forwardedCount} decoder_sent={$decoderSentCount} decoder_total={$decoderTotalCount}");
                 return true;
             }
 
@@ -300,6 +306,8 @@ class ProcessTelegramResourceCodesCommand extends Command
                     'skip_reason' => TelegramResourceCode::SKIP_REASON_DORMANT,
                     'processing_account' => $accountIndex + 1,
                     'forwarded_message_count' => 0,
+                    'decoder_sent_count' => 0,
+                    'decoder_total_count' => 0,
                     'processing_started_at' => null,
                     'available_at' => null,
                     'completed_at' => null,

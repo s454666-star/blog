@@ -572,6 +572,8 @@
 
     const isNasViewerTvApp = /Android/i.test(navigator.userAgent || '')
         && /NasViewerTvApp\//.test(navigator.userAgent || '');
+    const isNasViewerAndroidApp = /Android/i.test(navigator.userAgent || '')
+        && /NasViewer(?:Tv)?App\//.test(navigator.userAgent || '');
     document.documentElement.classList.toggle('nas-viewer-tv', isNasViewerTvApp);
 
     const config = @json($appConfig);
@@ -624,6 +626,7 @@
     let activeViewerHls = null;
     let hlsLibraryPromise = null;
     let viewerPlaybackTimer = null;
+    let viewerFallbackNoticeShown = false;
     const failedViewerEntryIds = new Set();
 
     function clamp(value, min, max) {
@@ -1131,6 +1134,14 @@
         return '';
     }
 
+    function shouldStartViewerWithHls(entry) {
+        const relative = String(entry?.relative_path || '').replace(/\\/g, '/').toLowerCase();
+        return isNasViewerAndroidApp
+            && entry?.kind === 'video'
+            && entry?.nas_share === '30T-A'
+            && relative.startsWith('video(重跑)/');
+    }
+
     function ensureHlsLibrary() {
         if (window.Hls) return Promise.resolve(true);
         if (hlsLibraryPromise) return hlsLibraryPromise;
@@ -1156,6 +1167,8 @@
 
     async function skipFailedViewerVideo(entry) {
         if (!entry || state.viewerEntry?.id !== entry.id) return;
+        if (entry._failureHandled) return;
+        entry._failureHandled = true;
         failedViewerEntryIds.add(entry.id);
         showToast('這支影片無法播放，正在尋找下一支…', 2600);
         const moved = await switchViewerEntry(state.lastViewerSwitchDelta || 1);
@@ -1251,22 +1264,27 @@
                 && !entry._hlsAttempt
                 && (elements.video.paused || elements.video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA)
             ) {
-                fallbackViewerVideoToHls(entry, '原檔載入過慢，切換流暢播放…');
+                fallbackViewerVideoToHls(entry, '正在切換流暢播放…');
             }
         }, 4000);
     }
 
-    async function fallbackViewerVideoToHls(entry, message = '原檔不相容，切換流暢播放…') {
+    async function fallbackViewerVideoToHls(entry, message = '正在切換流暢播放…') {
         if (!entry || state.viewerEntry?.id !== entry.id) return false;
-        if (entry._hlsAttempt) return true;
+        if (entry._hlsAttempt || entry._fallbackInFlight) return true;
         entry._hlsAttempt = true;
+        entry._fallbackInFlight = true;
         clearTimeout(viewerPlaybackTimer);
         viewerPlaybackTimer = null;
         elements.video.pause();
         elements.video.removeAttribute('src');
         elements.video.load();
-        showToast(message, 5000);
+        if (!viewerFallbackNoticeShown) {
+            viewerFallbackNoticeShown = true;
+            showToast(message, 2600);
+        }
         const hlsUrl = await prepareViewerHls(entry);
+        entry._fallbackInFlight = false;
         if (state.viewerEntry?.id !== entry.id) return true;
         entry._directAttempt = false;
         if (hlsUrl && playViewerHls(hlsUrl, entry)) return true;
@@ -1293,9 +1311,31 @@
 
         if (entry.kind === 'video') {
             elements.video.classList.add('active');
+            entry._failureHandled = false;
+            entry._fallbackInFlight = false;
+            entry._directAttempt = false;
+            entry._hlsAttempt = false;
+
+            if (shouldStartViewerWithHls(entry)) {
+                entry._hlsAttempt = true;
+                entry._fallbackInFlight = true;
+                const hlsUrl = await prepareViewerHls(entry);
+                entry._fallbackInFlight = false;
+                if (state.viewerEntry?.id !== entry.id) return;
+                if (
+                    window.NasViewerTvAndroid
+                    && typeof window.NasViewerTvAndroid.playVideo === 'function'
+                ) {
+                    window.NasViewerTvAndroid.playVideo(hlsUrl || entry.media_url, entry.id);
+                    return;
+                }
+                if (hlsUrl && playViewerHls(hlsUrl, entry)) return;
+                await skipFailedViewerVideo(entry);
+                return;
+            }
+
             const directUrl = directNasUrl(entry);
             entry._directAttempt = Boolean(directUrl);
-            entry._hlsAttempt = false;
             try {
                 if (
                     window.NasViewerTvAndroid
@@ -1394,7 +1434,11 @@
     elements.video.addEventListener('playing', () => {
         clearTimeout(viewerPlaybackTimer);
         viewerPlaybackTimer = null;
-        if (state.viewerEntry?.id) failedViewerEntryIds.delete(state.viewerEntry.id);
+        if (state.viewerEntry?.id) {
+            state.viewerEntry._fallbackInFlight = false;
+            state.viewerEntry._failureHandled = false;
+            failedViewerEntryIds.delete(state.viewerEntry.id);
+        }
     });
     elements.video.addEventListener('error', async () => {
         if (!state.viewerEntry || state.viewerEntry.kind !== 'video') return;
@@ -1458,6 +1502,8 @@
 
     window.nasViewerTvNativePlaying = entryId => {
         if (state.viewerEntry?.id !== entryId) return;
+        state.viewerEntry._fallbackInFlight = false;
+        state.viewerEntry._failureHandled = false;
         failedViewerEntryIds.delete(entryId);
     };
     window.nasViewerTvNativeEnded = entryId => {
@@ -1470,17 +1516,17 @@
     window.nasViewerTvNativeError = async entryId => {
         if (!state.viewerEntry || state.viewerEntry.id !== entryId) return;
         const entry = state.viewerEntry;
+        if (entry._fallbackInFlight || entry._failureHandled) return;
         if (entry._directAttempt && !entry._hlsAttempt) {
             entry._hlsAttempt = true;
+            entry._fallbackInFlight = true;
             const hlsUrl = await prepareViewerHls(entry);
+            entry._fallbackInFlight = false;
             if (state.viewerEntry?.id !== entryId) return;
             window.NasViewerTvAndroid?.playVideo?.(hlsUrl || entry.media_url, entry.id);
             return;
         }
-        failedViewerEntryIds.add(entryId);
-        showToast('這支影片無法播放，正在尋找下一支…', 2600);
-        const moved = await switchViewerEntry(state.lastViewerSwitchDelta || 1);
-        if (!moved && state.viewerEntry?.id === entryId) closeViewer();
+        await skipFailedViewerVideo(entry);
     };
     window.nasViewerTvNativeImageError = entryId => {
         if (state.viewerEntry?.id !== entryId) return;

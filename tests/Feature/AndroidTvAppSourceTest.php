@@ -102,6 +102,10 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString("script.src = '/vendor/hls.js/hls.min.js';", $view);
         $this->assertStringContainsString('watchViewerPlaybackStart(entry)', $view);
         $this->assertStringContainsString('fallbackViewerVideoToHls(entry', $view);
+        $this->assertStringContainsString('shouldStartViewerWithHls(entry)', $view);
+        $this->assertStringContainsString('entry._fallbackInFlight', $view);
+        $this->assertStringContainsString('entry._failureHandled', $view);
+        $this->assertStringNotContainsString('原檔不相容', $view);
         $this->assertStringContainsString('playViewerHls', $view);
         $this->assertStringContainsString('skipFailedViewerVideo', $view);
         $this->assertStringContainsString('window.nasViewerTvNativeError = async entryId =>', $view);

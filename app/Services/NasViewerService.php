@@ -206,6 +206,8 @@ class NasViewerService
             'id' => $this->encodeId($rootId, $relativePath),
             'name' => $name,
             'kind' => $kind,
+            'nas_share' => (string) (($this->roots()[$rootId]['label'] ?? $rootId)),
+            'relative_path' => $relativePath,
             'available' => true,
             'size_bytes' => $this->safeSize($file),
             'modified_at' => $this->safeModifiedAt($file->getPathname()),

@@ -142,3 +142,4 @@
     Route::get('/nas-browser', [NasViewerController::class, 'index'])->name('nas-browser.index');
     Route::get('/nas-browser/text', [NasViewerController::class, 'text'])->name('nas-browser.text');
     Route::get('/nas-browser/stream', [NasViewerController::class, 'stream'])->name('nas-browser.stream');
+    Route::post('/nas-browser/{id}/hls-queue', [NasViewerController::class, 'queueHls'])->name('nas-browser.hls-queue');

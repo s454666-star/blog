@@ -3,13 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Services\NasViewerService;
+use App\Services\FolderVideoService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class NasViewerController extends Controller
 {
-    public function __construct(private readonly NasViewerService $nasViewerService)
+    public function __construct(
+        private readonly NasViewerService $nasViewerService,
+        private readonly FolderVideoService $folderVideoService,
+    )
     {
     }
 
@@ -65,5 +69,14 @@ class NasViewerController extends Controller
         $response->setMaxAge(600);
 
         return $response;
+    }
+
+    public function queueHls(string $id): JsonResponse
+    {
+        $path = $this->nasViewerService->resolveFilePath($id);
+        $data = $this->folderVideoService->queueExternalHls($path, $id);
+
+        return response()->json(['data' => $data], $data['ready'] ? 200 : 202)
+            ->header('Cache-Control', 'no-store, max-age=0');
     }
 }

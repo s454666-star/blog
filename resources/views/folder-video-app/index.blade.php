@@ -1662,6 +1662,37 @@
             }
         } catch (error) {
         }
+        let directPhoneUrl = '';
+        try {
+            if (isFolderVideoAndroidApp() && window.DirectNas?.ready?.()) {
+                directPhoneUrl = window.DirectNas.directUrl('30T-A', `video(重跑)/${normalized.filename}`) || '';
+            }
+        } catch (error) {
+        }
+        if (directPhoneUrl) {
+            let fallingBack = false;
+            elements.playerVideo.onerror = async () => {
+                if (fallingBack || playerLoadGeneration !== loadGeneration) return;
+                fallingBack = true;
+                const hlsUrl = await prepareAndroidHlsUrl(normalized, loadGeneration);
+                if (playerLoadGeneration !== loadGeneration || playerItem?.id !== normalized.id) return;
+                elements.playerVideo.onerror = null;
+                elements.playerVideo.src = hlsUrl || normalized.stream_url;
+                elements.playerVideo.load();
+                elements.playerVideo.play().catch(() => {});
+            };
+            elements.playerVideo.src = directPhoneUrl;
+            elements.playerVideo.loop = false;
+            applyPlaybackRate();
+            elements.playerVideo.onloadedmetadata = () => {
+                applyPlaybackRate();
+                const duration = Number(elements.playerVideo.duration || normalized.duration_seconds || 0);
+                if (saved > 0 && (!duration || saved < duration - 2)) elements.playerVideo.currentTime = saved;
+                elements.playerVideo.play().catch(() => {});
+            };
+            elements.playerVideo.load();
+            return;
+        }
         elements.playerVideo.src = normalized.stream_url;
         elements.playerVideo.loop = false;
         applyPlaybackRate();
@@ -1708,6 +1739,29 @@
                 window.FolderVideoTvAndroid.playVideo(video.stream_url, saved);
             }
         }
+    }
+
+    async function prepareAndroidHlsUrl(video, loadGeneration) {
+        try {
+            const encodedId = encodeURIComponent(video.id);
+            const queued = await fetch(`${API_BASE}/${encodedId}/tv-hls-queue`, {
+                method: 'POST', cache: 'no-store', headers: {'Accept': 'application/json'},
+            });
+            const payload = queued.ok ? await queued.json() : null;
+            const streamUrl = payload?.data?.stream_url;
+            if (!streamUrl) return '';
+            if (payload?.data?.ready) return streamUrl;
+            for (let attempt = 0; attempt < 240; attempt++) {
+                await sleep(250);
+                if (playerLoadGeneration !== loadGeneration || playerItem?.id !== video.id) return '';
+                const response = await fetch(`${streamUrl}?t=${Date.now()}`, {cache: 'no-store'});
+                if (!response.ok) continue;
+                const playlist = await response.text();
+                if (Array.from(playlist.matchAll(/#EXTINF:([0-9.]+)/g)).length >= 2) return streamUrl;
+            }
+        } catch (error) {
+        }
+        return '';
     }
 
     window.folderVideoTvDirectError = async (startAt = 0) => {

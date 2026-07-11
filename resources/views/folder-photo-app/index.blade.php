@@ -416,6 +416,16 @@
         slot.timer = setTimeout(() => replacePhoto(slot), delay);
     }
 
+    function directPhotoUrl(photo) {
+        try {
+            if (window.DirectNas?.ready?.() && photo?.relative_path) {
+                return window.DirectNas.directUrl('photo', photo.relative_path) || '';
+            }
+        } catch (error) {
+        }
+        return '';
+    }
+
     async function replacePhoto(slot) {
         const token = ++slot.token;
 
@@ -461,12 +471,19 @@
                     scheduleReplacement(slot);
                 }, transitionDurationMs);
             };
+            const directUrl = directPhotoUrl(photo);
+            let fellBackToCaddy = false;
             nextLayer.onerror = () => {
+                if (directUrl && !fellBackToCaddy) {
+                    fellBackToCaddy = true;
+                    nextLayer.src = photo.url;
+                    return;
+                }
                 nextLayer.onload = null;
                 nextLayer.onerror = null;
                 scheduleReplacement(slot, 700);
             };
-            nextLayer.src = photo.url;
+            nextLayer.src = directUrl || photo.url;
         } catch (error) {
             scheduleReplacement(slot, 1600);
         }

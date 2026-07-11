@@ -91,7 +91,8 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('stopNativeMedia(true)', $activity);
         $this->assertStringContainsString('const failedViewerEntryIds = new Set()', $view);
         $this->assertStringContainsString('stopNativeTvVideo();', $view);
-        $this->assertStringContainsString('window.NasViewerTvAndroid.playVideo(entry.media_url, entry.id)', $view);
+        $this->assertStringContainsString('window.NasViewerTvAndroid.playVideo(directUrl || entry.media_url, entry.id)', $view);
+        $this->assertStringContainsString('prepareViewerHls(entry)', $view);
         $this->assertStringContainsString('window.nasViewerTvNativeError = async entryId =>', $view);
         $this->assertStringContainsString("document.documentElement.classList.toggle('nas-viewer-tv', isNasViewerTvApp)", $view);
         $this->assertStringContainsString('html.nas-viewer-tv .viewer.image-mode .image-viewer.active', $view);
@@ -103,5 +104,26 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('applyExifOrientation', $activity);
         $this->assertStringContainsString('點一下即可開啟', $view);
         $this->assertStringNotContainsString('再點一下開啟檔案', $view);
+    }
+
+    public function test_all_six_android_apps_include_secure_nas_direct_support(): void
+    {
+        $activities = glob(base_path('android/*-apk/app/src/main/java/*/*/*/MainActivity.java')) ?: [];
+        $this->assertCount(6, $activities);
+        foreach ($activities as $activity) {
+            $contents = file_get_contents($activity);
+            $this->assertIsString($contents);
+            $normalizedActivity = str_replace('\\', '/', $activity);
+            $apkRoot = strstr($normalizedActivity, '/app/src', true);
+            $this->assertIsString($apkRoot);
+            $this->assertStringContainsString('home_root_ca', file_get_contents(
+                $apkRoot.'/app/src/main/res/xml/network_security_config.xml'
+            ));
+        }
+
+        $bridge = file_get_contents(base_path('android/shared-nas-direct/java/monster/mystar/shared/NasDirectBridge.java'));
+        $this->assertStringContainsString('AndroidKeyStore', $bridge);
+        $this->assertStringContainsString('AES/GCM/NoPadding', $bridge);
+        $this->assertStringContainsString('directUrl(String share, String relativePath)', $bridge);
     }
 }

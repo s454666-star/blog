@@ -29,6 +29,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
+import android.webkit.HttpAuthHandler;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -40,6 +41,8 @@ import android.widget.Toast;
 
 import org.json.JSONObject;
 
+import monster.mystar.shared.NasDirectBridge;
+
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -47,8 +50,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 2;
-    private static final String APP_VERSION_NAME = "2026.07.11.2-tv";
+    private static final int APP_VERSION_CODE = 3;
+    private static final String APP_VERSION_NAME = "2026.07.11.3-tv";
     private static final String ANDROID_VERSION_PATH = "/folder-photo-app/tv/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/folder-photo-app",
@@ -58,6 +61,7 @@ public class MainActivity extends Activity {
 
     private FrameLayout root;
     private WebView webView;
+    private NasDirectBridge directNas;
     private View errorView;
     private TextView errorMessageView;
     private TextView errorUrlView;
@@ -126,6 +130,8 @@ public class MainActivity extends Activity {
         settings.setUserAgentString(settings.getUserAgentString() + " FolderPhotoTvApp/" + APP_VERSION_NAME);
 
         webView.setBackgroundColor(Color.BLACK);
+        directNas = new NasDirectBridge(this, "folder-photo-tv");
+        webView.addJavascriptInterface(directNas, "DirectNas");
         webView.clearCache(true);
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
@@ -446,8 +452,15 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public void onReceivedHttpAuthRequest(WebView view, HttpAuthHandler handler, String host, String realm) {
+            if (directNas != null && directNas.handleHttpAuth(handler, host)) return;
+            super.onReceivedHttpAuthRequest(view, handler, host, realm);
+        }
+
+        @Override
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
+            if (directNas != null) directNas.promptIfNeeded(() -> view.reload());
             hideErrorView();
             injectSystemBarInsets();
         }

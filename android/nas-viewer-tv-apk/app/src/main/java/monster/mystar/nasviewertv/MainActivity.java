@@ -36,6 +36,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
+import android.webkit.HttpAuthHandler;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -50,6 +51,8 @@ import android.widget.VideoView;
 
 import org.json.JSONObject;
 
+import monster.mystar.shared.NasDirectBridge;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -57,10 +60,12 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 6;
-    private static final String APP_VERSION_NAME = "2026.07.11.6-tv";
+    private static final int APP_VERSION_CODE = 7;
+    private static final String APP_VERSION_NAME = "2026.07.11.7-tv";
     private static final String ANDROID_VERSION_PATH = "/nas-viewer-app/tv/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/nas-viewer-app",
@@ -70,6 +75,7 @@ public class MainActivity extends Activity {
 
     private FrameLayout root;
     private WebView webView;
+    private NasDirectBridge directNas;
     private View errorView;
     private TextView errorMessageView;
     private TextView errorUrlView;
@@ -161,6 +167,8 @@ public class MainActivity extends Activity {
         settings.setUserAgentString(settings.getUserAgentString() + " NasViewerTvApp/" + APP_VERSION_NAME);
 
         webView.setBackgroundColor(Color.BLACK);
+        directNas = new NasDirectBridge(this, "nas-viewer-tv");
+        webView.addJavascriptInterface(directNas, "DirectNas");
         webView.clearCache(true);
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
@@ -446,7 +454,15 @@ public class MainActivity extends Activity {
             );
             return true;
         });
-        nativeVideoView.setVideoURI(Uri.parse(resolveMediaUrl(mediaUrl)));
+        Uri playbackUri = Uri.parse(resolveMediaUrl(mediaUrl));
+        String authorization = directNas == null ? "" : directNas.authorizationHeader();
+        if ("nas".equalsIgnoreCase(playbackUri.getHost()) && !authorization.isEmpty()) {
+            Map<String, String> headers = new HashMap<>();
+            headers.put("Authorization", authorization);
+            nativeVideoView.setVideoURI(playbackUri, headers);
+        } else {
+            nativeVideoView.setVideoURI(playbackUri);
+        }
         nativeVideoView.requestFocus();
     }
 
@@ -496,6 +512,10 @@ public class MainActivity extends Activity {
             download.setConnectTimeout(8000);
             download.setReadTimeout(30000);
             download.setInstanceFollowRedirects(true);
+            if ("nas".equalsIgnoreCase(download.getURL().getHost()) && directNas != null) {
+                String authorization = directNas.authorizationHeader();
+                if (!authorization.isEmpty()) download.setRequestProperty("Authorization", authorization);
+            }
             try (InputStream input = download.getInputStream(); FileOutputStream output = new FileOutputStream(cachedImage)) {
                 byte[] buffer = new byte[256 * 1024];
                 int read;
@@ -931,8 +951,15 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public void onReceivedHttpAuthRequest(WebView view, HttpAuthHandler handler, String host, String realm) {
+            if (directNas != null && directNas.handleHttpAuth(handler, host)) return;
+            super.onReceivedHttpAuthRequest(view, handler, host, realm);
+        }
+
+        @Override
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
+            if (directNas != null) directNas.promptIfNeeded(() -> view.reload());
             hideErrorView();
             injectSystemBarInsets();
         }

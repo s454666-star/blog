@@ -59,6 +59,7 @@ class FolderPhotoService
             $selected[] = [
                 'id' => $this->encodeId($relativePath),
                 'url' => $this->photoUrl($relativePath),
+                'relative_path' => $relativePath,
             ];
         }
 

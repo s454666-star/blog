@@ -1110,6 +1110,38 @@
         elements.viewerContent.addEventListener('pointerleave', clearDragSeek);
     }
 
+    function directNasUrl(entry) {
+        try {
+            if (window.DirectNas?.ready?.() && entry?.nas_share && entry?.relative_path) {
+                return window.DirectNas.directUrl(entry.nas_share, entry.relative_path) || '';
+            }
+        } catch (error) {
+        }
+        return '';
+    }
+
+    async function prepareViewerHls(entry) {
+        try {
+            const queued = await fetch(`/api/nas-browser/${encodeURIComponent(entry.id)}/hls-queue`, {
+                method: 'POST', cache: 'no-store', headers: {'Accept': 'application/json'},
+            });
+            const payload = queued.ok ? await queued.json() : null;
+            const streamUrl = payload?.data?.stream_url;
+            if (!streamUrl) return '';
+            if (payload?.data?.ready) return streamUrl;
+            for (let attempt = 0; attempt < 240; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 250));
+                if (state.viewerEntry?.id !== entry.id) return '';
+                const response = await fetch(`${streamUrl}?t=${Date.now()}`, {cache: 'no-store'});
+                if (!response.ok) continue;
+                const playlist = await response.text();
+                if (Array.from(playlist.matchAll(/#EXTINF:([0-9.]+)/g)).length >= 2) return streamUrl;
+            }
+        } catch (error) {
+        }
+        return '';
+    }
+
     async function openViewer(entry, switched = false) {
         stopNativeTvVideo();
         setMediaAutoOrientation(['video', 'image'].includes(entry.kind));
@@ -1129,33 +1161,38 @@
 
         if (entry.kind === 'video') {
             elements.video.classList.add('active');
+            const directUrl = directNasUrl(entry);
+            entry._directAttempt = Boolean(directUrl);
+            entry._hlsAttempt = false;
             try {
                 if (
                     window.NasViewerTvAndroid
                     && typeof window.NasViewerTvAndroid.playVideo === 'function'
                 ) {
-                    window.NasViewerTvAndroid.playVideo(entry.media_url, entry.id);
+                    window.NasViewerTvAndroid.playVideo(directUrl || entry.media_url, entry.id);
                     return;
                 }
             } catch (error) {
             }
-            elements.video.src = entry.media_url;
+            elements.video.src = directUrl || entry.media_url;
             elements.video.play().catch(() => {});
             return;
         }
         if (entry.kind === 'image') {
+            const directUrl = directNasUrl(entry);
+            entry._directAttempt = Boolean(directUrl);
             try {
                 if (
                     window.NasViewerTvAndroid
                     && typeof window.NasViewerTvAndroid.showImage === 'function'
                 ) {
-                    window.NasViewerTvAndroid.showImage(entry.media_url, entry.id);
+                    window.NasViewerTvAndroid.showImage(directUrl || entry.media_url, entry.id);
                     return;
                 }
             } catch (error) {
             }
             elements.image.classList.add('active');
-            elements.image.src = entry.media_url;
+            elements.image.src = directUrl || entry.media_url;
             return;
         }
 
@@ -1221,13 +1258,27 @@
     elements.videoRewind.addEventListener('click', () => seekVideo(-10, '-10 秒'));
     elements.videoForward.addEventListener('click', () => seekVideo(10, '+10 秒'));
     elements.video.addEventListener('ended', () => closeViewer());
-    elements.video.addEventListener('error', () => {
+    elements.video.addEventListener('error', async () => {
         if (!state.viewerEntry || state.viewerEntry.kind !== 'video') return;
+        const entry = state.viewerEntry;
+        if (entry._directAttempt && !entry._hlsAttempt) {
+            entry._hlsAttempt = true;
+            const hlsUrl = await prepareViewerHls(entry);
+            if (state.viewerEntry?.id !== entry.id) return;
+            elements.video.src = hlsUrl || entry.media_url;
+            elements.video.play().catch(() => {});
+            return;
+        }
         elements.video.classList.remove('active');
         elements.viewerMessage.textContent = '這個影片格式無法在目前的 Android 播放器中播放。';
     });
     elements.image.addEventListener('error', () => {
         if (!state.viewerEntry || state.viewerEntry.kind !== 'image') return;
+        if (state.viewerEntry._directAttempt) {
+            state.viewerEntry._directAttempt = false;
+            elements.image.src = state.viewerEntry.media_url;
+            return;
+        }
         elements.image.classList.remove('active');
         elements.viewerMessage.textContent = '這張圖片無法顯示。';
     });
@@ -1287,13 +1338,27 @@
     };
     window.nasViewerTvNativeError = async entryId => {
         if (!state.viewerEntry || state.viewerEntry.id !== entryId) return;
+        const entry = state.viewerEntry;
+        if (entry._directAttempt && !entry._hlsAttempt) {
+            entry._hlsAttempt = true;
+            const hlsUrl = await prepareViewerHls(entry);
+            if (state.viewerEntry?.id !== entryId) return;
+            window.NasViewerTvAndroid?.playVideo?.(hlsUrl || entry.media_url, entry.id);
+            return;
+        }
         failedViewerEntryIds.add(entryId);
         showToast('這支影片無法播放，正在尋找下一支…', 2600);
         const moved = await switchViewerEntry(state.lastViewerSwitchDelta || 1);
         if (!moved && state.viewerEntry?.id === entryId) closeViewer();
     };
     window.nasViewerTvNativeImageError = entryId => {
-        if (state.viewerEntry?.id === entryId) showToast('這張圖片無法顯示');
+        if (state.viewerEntry?.id !== entryId) return;
+        if (state.viewerEntry._directAttempt) {
+            state.viewerEntry._directAttempt = false;
+            window.NasViewerTvAndroid?.showImage?.(state.viewerEntry.media_url, entryId);
+            return;
+        }
+        showToast('這張圖片無法顯示');
     };
 
     window.nasViewerHandleBack = handleBack;

@@ -69,8 +69,8 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 8;
-    private static final String APP_VERSION_NAME = "2026.07.11.8-tv";
+    private static final int APP_VERSION_CODE = 9;
+    private static final String APP_VERSION_NAME = "2026.07.11.9-tv";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/tv/android-version.json";
     private static final String NAS_WEB_DAV_BASE_URL = "https://nas:5006/30T-A/video(重跑)/";
     private static final String NAS_KEY_ALIAS = "folder-video-tv-nas-credentials";

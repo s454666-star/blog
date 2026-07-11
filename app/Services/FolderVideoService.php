@@ -314,6 +314,29 @@ class FolderVideoService
         return $status + ['queued' => true];
     }
 
+    public function queueExternalHls(string $sourcePath, string $id): array
+    {
+        $hlsPath = $this->tvHlsPathForSource($sourcePath);
+        $segments = glob($hlsPath.DIRECTORY_SEPARATOR.'segment_*.ts') ?: [];
+        $playlist = $hlsPath.DIRECTORY_SEPARATOR.'index.m3u8';
+        $status = [
+            'id' => $id,
+            'ready' => is_file($playlist) && count($segments) >= 2,
+            'complete' => is_file($hlsPath.DIRECTORY_SEPARATOR.'.complete'),
+            'available_seconds' => count($segments) * max(1, (int) config('folder_video.tv_hls_segment_seconds', 2)),
+            'stream_url' => $this->staticCacheUrl('/folder-video-tv-hls-cache/', $playlist, $this->tvHlsCachePath()),
+        ];
+        if ($status['ready']) return $status + ['queued' => false];
+
+        $this->writeMediaQueueRequest($this->tvHlsQueuePath(), hash('sha256', $hlsPath), [
+            'source_path' => $sourcePath,
+            'hls_path' => $hlsPath,
+            'queued_at' => now()->toIso8601String(),
+        ]);
+
+        return $status + ['queued' => true];
+    }
+
     public function tvHlsCachePath(): string
     {
         return rtrim((string) config('folder_video.tv_hls_cache_path'), DIRECTORY_SEPARATOR);

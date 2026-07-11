@@ -1152,6 +1152,16 @@
             return;
         }
         if (entry.kind === 'image') {
+            try {
+                if (
+                    window.NasViewerTvAndroid
+                    && typeof window.NasViewerTvAndroid.showImage === 'function'
+                ) {
+                    window.NasViewerTvAndroid.showImage(entry.media_url, entry.id);
+                    return;
+                }
+            } catch (error) {
+            }
             elements.image.classList.add('active');
             elements.image.src = entry.media_url;
             return;
@@ -1289,6 +1299,9 @@
         showToast('這支影片無法播放，正在尋找下一支…', 2600);
         const moved = await switchViewerEntry(state.lastViewerSwitchDelta || 1);
         if (!moved && state.viewerEntry?.id === entryId) closeViewer();
+    };
+    window.nasViewerTvNativeImageError = entryId => {
+        if (state.viewerEntry?.id === entryId) showToast('這張圖片無法顯示');
     };
 
     window.nasViewerHandleBack = handleBack;

@@ -12,6 +12,7 @@ import android.content.pm.ActivityInfo;
 import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Insets;
 import android.net.ConnectivityManager;
@@ -38,6 +39,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -53,8 +55,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 4;
-    private static final String APP_VERSION_NAME = "2026.07.11.4-tv";
+    private static final int APP_VERSION_CODE = 5;
+    private static final String APP_VERSION_NAME = "2026.07.11.5-tv";
     private static final String ANDROID_VERSION_PATH = "/nas-viewer-app/tv/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/nas-viewer-app",
@@ -89,6 +91,11 @@ public class MainActivity extends Activity {
     private ProgressBar nativeSeekProgress;
     private TextView nativeSeekTime;
     private boolean nativeVideoOpen = false;
+    private FrameLayout nativeImageOverlay;
+    private ImageView nativeImageView;
+    private TextView nativeImageStatus;
+    private boolean nativeImageOpen = false;
+    private long nativeImageGeneration = 0L;
     private long nativeVideoGeneration = 0L;
     private final Runnable hideNativeSeekOverlay = () -> {
         if (nativeSeekOverlay != null) nativeSeekOverlay.setVisibility(View.GONE);
@@ -119,6 +126,7 @@ public class MainActivity extends Activity {
             ViewGroup.LayoutParams.MATCH_PARENT
         ));
         createNativeVideoOverlay();
+        createNativeImageOverlay();
         applySystemBarInsets();
 
         errorView = createErrorView();
@@ -235,13 +243,18 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void stopVideo() {
-            runOnUiThread(() -> stopNativeVideo(false));
+            runOnUiThread(() -> stopNativeMedia(false));
+        }
+
+        @JavascriptInterface
+        public void showImage(String mediaUrl, String entryId) {
+            runOnUiThread(() -> startNativeImage(mediaUrl, entryId));
         }
     }
 
     @Override
     protected void onPause() {
-        if (nativeVideoOpen) stopNativeVideo(true);
+        if (nativeVideoOpen || nativeImageOpen) stopNativeMedia(true);
         super.onPause();
     }
 
@@ -350,6 +363,35 @@ public class MainActivity extends Activity {
         ));
     }
 
+    private void createNativeImageOverlay() {
+        nativeImageOverlay = new FrameLayout(this);
+        nativeImageOverlay.setBackgroundColor(Color.BLACK);
+        nativeImageOverlay.setVisibility(View.GONE);
+        nativeImageView = new ImageView(this);
+        nativeImageView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        nativeImageView.setAdjustViewBounds(false);
+        nativeImageOverlay.addView(nativeImageView, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            Gravity.CENTER
+        ));
+        nativeImageStatus = new TextView(this);
+        nativeImageStatus.setTextColor(Color.WHITE);
+        nativeImageStatus.setTextSize(24f);
+        nativeImageStatus.setGravity(Gravity.CENTER);
+        nativeImageStatus.setBackgroundColor(0x88000000);
+        nativeImageStatus.setPadding(28, 18, 28, 18);
+        nativeImageOverlay.addView(nativeImageStatus, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.CENTER
+        ));
+        root.addView(nativeImageOverlay, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+    }
+
     private String resolveMediaUrl(String mediaUrl) {
         try {
             String base = webView != null && webView.getUrl() != null ? webView.getUrl() : currentAppUrl;
@@ -361,6 +403,7 @@ public class MainActivity extends Activity {
 
     private void startNativeVideo(String mediaUrl, String entryId) {
         if (mediaUrl == null || mediaUrl.trim().isEmpty()) return;
+        stopNativeImage(false);
         stopNativeVideo(false);
         final long generation = ++nativeVideoGeneration;
         final String playbackEntryId = entryId == null ? "" : entryId;
@@ -401,6 +444,93 @@ public class MainActivity extends Activity {
         });
         nativeVideoView.setVideoURI(Uri.parse(resolveMediaUrl(mediaUrl)));
         nativeVideoView.requestFocus();
+    }
+
+    private void startNativeImage(String mediaUrl, String entryId) {
+        if (mediaUrl == null || mediaUrl.trim().isEmpty()) return;
+        stopNativeVideo(false);
+        stopNativeImage(false);
+        final long generation = ++nativeImageGeneration;
+        final String imageEntryId = entryId == null ? "" : entryId;
+        final String resolvedUrl = resolveMediaUrl(mediaUrl);
+        nativeImageOpen = true;
+        tvViewerOpen = true;
+        tvViewerVideo = false;
+        nativeImageView.setImageDrawable(null);
+        nativeImageStatus.setText("圖片載入中…");
+        nativeImageStatus.setVisibility(View.VISIBLE);
+        nativeImageOverlay.setVisibility(View.VISIBLE);
+        nativeImageOverlay.bringToFront();
+        updateImmersiveMode();
+
+        new Thread(() -> {
+            Bitmap bitmap = decodeFittedBitmap(resolvedUrl);
+            runOnUiThread(() -> {
+                if (generation != nativeImageGeneration || !nativeImageOpen) {
+                    if (bitmap != null) bitmap.recycle();
+                    return;
+                }
+                if (bitmap == null) {
+                    nativeImageStatus.setText("圖片無法顯示");
+                    evaluateTvJavascript(
+                        "if (window.nasViewerTvNativeImageError) { window.nasViewerTvNativeImageError(" +
+                            JSONObject.quote(imageEntryId) + "); }"
+                    );
+                    return;
+                }
+                nativeImageView.setImageBitmap(bitmap);
+                nativeImageStatus.setVisibility(View.GONE);
+            });
+        }, "nas-viewer-image-loader").start();
+    }
+
+    private Bitmap decodeFittedBitmap(String requestUrl) {
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            HttpURLConnection first = (HttpURLConnection) new URL(requestUrl).openConnection();
+            first.setConnectTimeout(8000);
+            first.setReadTimeout(20000);
+            try (InputStream input = first.getInputStream()) {
+                BitmapFactory.decodeStream(input, null, bounds);
+            } finally {
+                first.disconnect();
+            }
+            int screenWidth = Math.max(1, getResources().getDisplayMetrics().widthPixels);
+            int screenHeight = Math.max(1, getResources().getDisplayMetrics().heightPixels);
+            int sample = 1;
+            while (bounds.outWidth / sample > screenWidth * 2 || bounds.outHeight / sample > screenHeight * 2) {
+                sample *= 2;
+            }
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = Math.max(1, sample);
+            options.inPreferredConfig = Bitmap.Config.ARGB_8888;
+            HttpURLConnection second = (HttpURLConnection) new URL(requestUrl).openConnection();
+            second.setConnectTimeout(8000);
+            second.setReadTimeout(30000);
+            try (InputStream input = second.getInputStream()) {
+                return BitmapFactory.decodeStream(input, null, options);
+            } finally {
+                second.disconnect();
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void stopNativeImage(boolean notifyWeb) {
+        nativeImageGeneration++;
+        nativeImageOpen = false;
+        if (nativeImageView != null) nativeImageView.setImageDrawable(null);
+        if (nativeImageOverlay != null) nativeImageOverlay.setVisibility(View.GONE);
+        updateImmersiveMode();
+        if (notifyWeb) evaluateTvJavascript("if (window.nasViewerTvNativeClosed) { window.nasViewerTvNativeClosed(); }");
+    }
+
+    private void stopNativeMedia(boolean notifyWeb) {
+        stopNativeVideo(false);
+        stopNativeImage(false);
+        if (notifyWeb) evaluateTvJavascript("if (window.nasViewerTvNativeClosed) { window.nasViewerTvNativeClosed(); }");
     }
 
     private void seekNativeVideo(int deltaMs) {
@@ -467,8 +597,8 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (nativeVideoOpen) {
-            stopNativeVideo(true);
+        if (nativeVideoOpen || nativeImageOpen) {
+            stopNativeMedia(true);
             return;
         }
         if (customView != null) {
@@ -532,7 +662,7 @@ public class MainActivity extends Activity {
     }
 
     private void updateImmersiveMode() {
-        if (videoFullscreenEnabled || nativeVideoOpen || customView != null) {
+        if (videoFullscreenEnabled || nativeVideoOpen || nativeImageOpen || customView != null) {
             root.setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN
                     | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
@@ -549,7 +679,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        stopNativeVideo(false);
+        stopNativeMedia(false);
         if (updateDownloadReceiverRegistered) {
             unregisterReceiver(updateDownloadReceiver);
             updateDownloadReceiverRegistered = false;
@@ -715,7 +845,7 @@ public class MainActivity extends Activity {
     private class NasViewerWebViewClient extends WebViewClient {
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
-            if (nativeVideoOpen) stopNativeVideo(false);
+            if (nativeVideoOpen || nativeImageOpen) stopNativeMedia(false);
             super.onPageStarted(view, url, favicon);
         }
 

@@ -120,6 +120,32 @@ class FolderVideoController extends Controller
             ->header('Cache-Control', 'no-store, max-age=0');
     }
 
+    public function tvPreviewStatus(string $id): JsonResponse
+    {
+        return response()->json(['data' => $this->folderVideoService->tvPreviewCacheStatus($id)])
+            ->header('Cache-Control', 'no-store, max-age=0');
+    }
+
+    public function queueTvPreview(string $id): JsonResponse
+    {
+        $data = $this->folderVideoService->queueTvPreview($id);
+        return response()->json(['data' => $data], $data['ready'] ? 200 : 202)
+            ->header('Cache-Control', 'no-store, max-age=0');
+    }
+
+    public function tvHlsStatus(string $id): JsonResponse
+    {
+        return response()->json(['data' => $this->folderVideoService->tvHlsStatus($id)])
+            ->header('Cache-Control', 'no-store, max-age=0');
+    }
+
+    public function queueTvHls(string $id): JsonResponse
+    {
+        $data = $this->folderVideoService->queueTvHls($id);
+        return response()->json(['data' => $data], $data['ready'] ? 200 : 202)
+            ->header('Cache-Control', 'no-store, max-age=0');
+    }
+
     public function like(string $id): JsonResponse
     {
         $result = $this->folderVideoService->moveToGood($id);

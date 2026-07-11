@@ -204,6 +204,26 @@
             opacity: 1;
         }
 
+        .preview-motion {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            display: none;
+            background-position: 0 50%;
+            background-repeat: no-repeat;
+            background-size: 800% 100%;
+        }
+
+        .preview-motion.active {
+            display: block;
+            animation: tv-preview-strip 8s steps(7, end) infinite;
+        }
+
+        @keyframes tv-preview-strip {
+            from { background-position: 0 50%; }
+            to { background-position: 100% 50%; }
+        }
+
         .video-card.is-current {
             outline: 2px solid var(--teal);
             outline-offset: -2px;
@@ -545,6 +565,7 @@
     let stopPlayerDragSeek = () => {};
     const likeInFlight = new Set();
     const previewPreparation = new Map();
+    const tvPreviewPreparation = new Map();
 
     const observer = new IntersectionObserver(handlePreviewIntersections, {
         root: null,
@@ -1060,6 +1081,7 @@
             const posterSrc = video.thumbnail_url || '';
             card.innerHTML = `
                 <img class="preview-poster" src="${escapeHtml(posterSrc)}" alt="" loading="lazy" decoding="async">
+                <div class="preview-motion" aria-hidden="true"></div>
                 <video class="preview-video" muted loop playsinline preload="none" poster="${escapeHtml(posterSrc)}" data-src="${escapeHtml(previewSrc)}" data-preview-src="${escapeHtml(video.preview_url || '')}" data-stream-src="${escapeHtml(video.stream_url || '')}"></video>
                 <div class="card-meta">
                     <div class="card-name">${escapeHtml(video.filename)}</div>
@@ -1117,6 +1139,11 @@
             return;
         }
 
+        if (isFolderVideoTvApp()) {
+            ensureTvSpritePreview(card);
+            return;
+        }
+
         const video = card.querySelector('video');
         if (!video) {
             return;
@@ -1141,6 +1168,51 @@
         video.defaultMuted = true;
         video.disableRemotePlayback = true;
         video.play().catch(() => {});
+    }
+
+    async function ensureTvSpritePreview(card) {
+        const id = String(card?.dataset?.id || '');
+        const motion = card?.querySelector('.preview-motion');
+        if (!id || !motion || motion.dataset.preparing === '1') return;
+        if (motion.dataset.src) {
+            motion.style.backgroundImage = `url("${motion.dataset.src}")`;
+            motion.classList.add('active');
+            return;
+        }
+        motion.dataset.preparing = '1';
+        let preparation = tvPreviewPreparation.get(id);
+        if (!preparation) {
+            preparation = prepareTvPreview(id);
+            tvPreviewPreparation.set(id, preparation);
+        }
+        const result = await preparation.catch(() => null);
+        if (!result) tvPreviewPreparation.delete(id);
+        if (!card.isConnected) return;
+        delete motion.dataset.preparing;
+        if (!result?.preview_url) return;
+        motion.dataset.src = result.preview_url;
+        motion.style.backgroundImage = `url("${result.preview_url}")`;
+        if (visiblePreviewCards.has(card)) motion.classList.add('active');
+    }
+
+    async function prepareTvPreview(id) {
+        const encodedId = encodeURIComponent(id);
+        let response = await fetch(`${API_BASE}/${encodedId}/tv-preview-queue`, {
+            method: 'POST', cache: 'no-store', headers: {'Accept': 'application/json'},
+        });
+        if (!response.ok) return null;
+        let payload = await response.json();
+        if (payload.data?.ready) return payload.data;
+        for (let attempt = 0; attempt < 90; attempt++) {
+            await sleep(1000);
+            response = await fetch(`${API_BASE}/${encodedId}/tv-preview-status?t=${Date.now()}`, {
+                cache: 'no-store', headers: {'Accept': 'application/json'},
+            });
+            if (!response.ok) continue;
+            payload = await response.json();
+            if (payload.data?.ready) return payload.data;
+        }
+        return null;
     }
 
     async function ensureCardPreview(card) {
@@ -1284,6 +1356,7 @@
     }
 
     function pausePreview(card) {
+        card.querySelector('.preview-motion')?.classList.remove('active');
         const video = card.querySelector('video');
         if (!video) {
             return;
@@ -1298,6 +1371,7 @@
     }
 
     function stopPreview(card) {
+        card.querySelector('.preview-motion')?.classList.remove('active');
         const video = card.querySelector('video');
         if (!video) {
             return;
@@ -1556,7 +1630,11 @@
                 window.FolderVideoTvAndroid
                 && typeof window.FolderVideoTvAndroid.playVideo === 'function'
             ) {
-                window.FolderVideoTvAndroid.playVideo(normalized.stream_url, saved);
+                if (isFolderVideoTvApp()) {
+                    playTvOptimizedStream(normalized, saved);
+                } else {
+                    window.FolderVideoTvAndroid.playVideo(normalized.stream_url, saved);
+                }
                 return;
             }
         } catch (error) {
@@ -1573,6 +1651,34 @@
             elements.playerVideo.play().catch(() => {});
         };
         elements.playerVideo.load();
+    }
+
+    async function playTvOptimizedStream(video, saved) {
+        showToast('正在準備流暢播放…', 5000);
+        const encodedId = encodeURIComponent(video.id);
+        try {
+            let response = await fetch(`${API_BASE}/${encodedId}/tv-hls-queue`, {
+                method: 'POST', cache: 'no-store', headers: {'Accept': 'application/json'},
+            });
+            let payload = response.ok ? await response.json() : null;
+            for (let attempt = 0; !payload?.data?.ready && attempt < 120; attempt++) {
+                await sleep(1000);
+                if (playerItem?.id !== video.id) return;
+                response = await fetch(`${API_BASE}/${encodedId}/tv-hls-status?t=${Date.now()}`, {
+                    cache: 'no-store', headers: {'Accept': 'application/json'},
+                });
+                if (response.ok) payload = await response.json();
+            }
+            if (playerItem?.id !== video.id) return;
+            const streamUrl = payload?.data?.ready ? payload.data.stream_url : video.stream_url;
+            const available = Number(payload?.data?.available_seconds || 0);
+            const startAt = available > 8 ? Math.min(saved, available - 8) : 0;
+            window.FolderVideoTvAndroid.playVideo(streamUrl, startAt);
+        } catch (error) {
+            if (playerItem?.id === video.id) {
+                window.FolderVideoTvAndroid.playVideo(video.stream_url, saved);
+            }
+        }
     }
 
     async function closePlayer() {

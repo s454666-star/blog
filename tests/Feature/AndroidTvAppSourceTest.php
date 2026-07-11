@@ -53,6 +53,8 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('BUFFER_SIZE = 1024 * 1024', $server);
         $this->assertStringContainsString('self.send_response(206 if partial else 200)', $server);
         $this->assertStringContainsString('h264_nvenc', $server);
+        $this->assertStringContainsString('transcode_sprite', $server);
+        $this->assertStringContainsString('transcode_hls', $server);
 
         $startup = file_get_contents(base_path('scripts/start-folder-video-api.ps1'));
         $this->assertStringContainsString('[int]$MediaStreamPort = 8092', $startup);
@@ -69,7 +71,7 @@ class AndroidTvAppSourceTest extends TestCase
 
         $this->assertStringContainsString('nativeVideoGeneration', $activity);
         $this->assertStringContainsString('playVideo(String mediaUrl, String entryId)', $activity);
-        $this->assertStringContainsString('stopNativeVideo(true)', $activity);
+        $this->assertStringContainsString('stopNativeMedia(true)', $activity);
         $this->assertStringContainsString('const failedViewerEntryIds = new Set()', $view);
         $this->assertStringContainsString('stopNativeTvVideo();', $view);
         $this->assertStringContainsString('window.NasViewerTvAndroid.playVideo(entry.media_url, entry.id)', $view);
@@ -77,5 +79,8 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString("document.documentElement.classList.toggle('nas-viewer-tv', isNasViewerTvApp)", $view);
         $this->assertStringContainsString('html.nas-viewer-tv .viewer.image-mode .image-viewer.active', $view);
         $this->assertStringContainsString('object-fit: contain;', $view);
+        $this->assertStringContainsString('new ImageView(this)', $activity);
+        $this->assertStringContainsString('ImageView.ScaleType.FIT_CENTER', $activity);
+        $this->assertStringContainsString('showImage(String mediaUrl, String entryId)', $activity);
     }
 }

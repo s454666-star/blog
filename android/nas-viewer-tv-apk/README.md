@@ -4,7 +4,7 @@ Android TV WebView wrapper for the local read-only NAS Viewer.
 
 - Package: `monster.mystar.nasviewertv`
 - Label: `NAS Viewer TV`
-- Version: `2026.07.11.4-tv` / code `4`
+- Version: `2026.07.11.5-tv` / code `5`
 - Default URL: `http://10.0.0.25:8090/nas-viewer-app`
 - Android TV: Leanback launcher, landscape, touchscreen not required
 - Viewer remote: up next file, down previous file; unplayable videos are skipped in the requested direction

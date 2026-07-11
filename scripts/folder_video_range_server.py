@@ -45,7 +45,11 @@ class RangeRequestHandler(BaseHTTPRequestHandler):
     def _serve_file(self, send_body: bool) -> None:
         raw_path = unquote(urlsplit(self.path).path)
         preview_prefix = "/folder-video-preview-cache/"
-        if raw_path.startswith(preview_prefix):
+        hls_prefix = "/folder-video-tv-hls-cache/"
+        if raw_path.startswith(hls_prefix):
+            root: Path = self.server.hls_root  # type: ignore[attr-defined]
+            relative = raw_path[len(hls_prefix) :].replace("/", os.sep)
+        elif raw_path.startswith(preview_prefix):
             root: Path = self.server.preview_root  # type: ignore[attr-defined]
             relative = raw_path[len(preview_prefix) :].replace("/", os.sep)
         else:
@@ -74,7 +78,10 @@ class RangeRequestHandler(BaseHTTPRequestHandler):
             return
 
         length = end - start + 1
-        content_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+        content_type = {
+            ".m3u8": "application/vnd.apple.mpegurl",
+            ".ts": "video/mp2t",
+        }.get(candidate.suffix.lower()) or mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
         self.send_response(206 if partial else 200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(length))
@@ -214,6 +221,73 @@ def transcode_preview(
     return False
 
 
+def transcode_sprite(ffmpeg: str, source: Path, destination: Path) -> bool:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + f".tmp.{uuid.uuid4().hex}.jpg")
+    command = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+        "-vf", "fps=1,scale=426:240:force_original_aspect_ratio=increase,crop=426:240,tile=8x1",
+        "-frames:v", "1", "-q:v", "5", str(temporary),
+    ]
+    creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        result = subprocess.run(
+            command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=180, check=False, creationflags=creation_flags,
+        )
+        if result.returncode == 0 and temporary.is_file() and temporary.stat().st_size > 0:
+            os.replace(temporary, destination)
+            return True
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    finally:
+        temporary.unlink(missing_ok=True)
+    return False
+
+
+def transcode_hls(ffmpeg: str, source: Path, hls_path: Path) -> bool:
+    hls_path.mkdir(parents=True, exist_ok=True)
+    for stale in hls_path.glob("segment_*.ts*"):
+        stale.unlink(missing_ok=True)
+    for stale_name in ("index.m3u8", "index.m3u8.tmp", ".complete"):
+        (hls_path / stale_name).unlink(missing_ok=True)
+
+    common = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+        "-vf", "scale=-2:720", "-c:a", "aac", "-b:a", "160k", "-ac", "2",
+    ]
+    hls = [
+        "-f", "hls", "-hls_time", "4", "-hls_list_size", "0",
+        "-hls_playlist_type", "event", "-hls_flags", "independent_segments+temp_file",
+        "-hls_segment_filename", str(hls_path / "segment_%05d.ts"), str(hls_path / "index.m3u8"),
+    ]
+    commands = [
+        common + [
+            "-c:v", "h264_nvenc", "-preset", "p2", "-tune", "ll",
+            "-b:v", "4500k", "-maxrate", "6000k", "-bufsize", "12000k",
+            "-g", "120", "-bf", "0", "-pix_fmt", "yuv420p",
+        ] + hls,
+        common + [
+            "-c:v", "libx264", "-preset", "veryfast", "-tune", "fastdecode",
+            "-b:v", "4000k", "-maxrate", "6000k", "-bufsize", "12000k",
+            "-g", "120", "-bf", "0", "-pix_fmt", "yuv420p",
+        ] + hls,
+    ]
+    creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    for command in commands:
+        try:
+            result = subprocess.run(
+                command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=14400, check=False, creationflags=creation_flags,
+            )
+            if result.returncode == 0 and (hls_path / "index.m3u8").is_file():
+                (hls_path / ".complete").write_text("ok", encoding="ascii")
+                return True
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return False
+
+
 def preview_worker(
     stop_event: threading.Event,
     media_root: Path,
@@ -247,7 +321,46 @@ def preview_worker(
                 continue
             if destination.is_file() and destination.stat().st_size > 0:
                 continue
-            transcode_preview(ffmpeg, source, destination, seconds, height)
+            if payload.get("kind") == "sprite":
+                transcode_sprite(ffmpeg, source, destination)
+            else:
+                transcode_preview(ffmpeg, source, destination, seconds, height)
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        finally:
+            working_path.unlink(missing_ok=True)
+
+
+def hls_worker(
+    stop_event: threading.Event,
+    media_root: Path,
+    queue_root: Path,
+    hls_root: Path,
+    ffmpeg: str,
+) -> None:
+    queue_root.mkdir(parents=True, exist_ok=True)
+    hls_root.mkdir(parents=True, exist_ok=True)
+    for stale in queue_root.glob("*.working"):
+        stale.rename(stale.with_suffix(".json"))
+    while not stop_event.is_set():
+        queued = sorted(queue_root.glob("*.json"), key=lambda path: path.stat().st_mtime)
+        if not queued:
+            stop_event.wait(0.25)
+            continue
+        request_path = queued[0]
+        working_path = request_path.with_suffix(".working")
+        try:
+            os.replace(request_path, working_path)
+            payload = json.loads(working_path.read_text(encoding="utf-8"))
+            source = Path(str(payload.get("source_path", ""))).resolve()
+            hls_path = Path(str(payload.get("hls_path", ""))).resolve()
+            if not is_within(source, media_root) or not source.is_file():
+                continue
+            if not is_within(hls_path, hls_root):
+                continue
+            if (hls_path / ".complete").is_file():
+                continue
+            transcode_hls(ffmpeg, source, hls_path)
         except (OSError, ValueError, json.JSONDecodeError):
             pass
         finally:
@@ -261,6 +374,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--root", required=True)
     parser.add_argument("--preview-queue", required=True)
     parser.add_argument("--preview-root", required=True)
+    parser.add_argument("--hls-queue", required=True)
+    parser.add_argument("--hls-root", required=True)
     parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument("--preview-seconds", type=int, default=18)
     parser.add_argument("--preview-height", type=int, default=360)
@@ -272,6 +387,8 @@ def main() -> None:
     media_root = Path(args.root).resolve()
     queue_root = Path(args.preview_queue).resolve()
     preview_root = Path(args.preview_root).resolve()
+    hls_queue_root = Path(args.hls_queue).resolve()
+    hls_root = Path(args.hls_root).resolve()
     stop_event = threading.Event()
     worker = threading.Thread(
         target=preview_worker,
@@ -288,11 +405,19 @@ def main() -> None:
         name="folder-video-preview-worker",
     )
     worker.start()
+    hls_thread = threading.Thread(
+        target=hls_worker,
+        args=(stop_event, media_root, hls_queue_root, hls_root, args.ffmpeg),
+        daemon=True,
+        name="folder-video-hls-worker",
+    )
+    hls_thread.start()
 
     server = ThreadingHTTPServer((args.host, args.port), RangeRequestHandler)
     server.daemon_threads = True
     server.media_root = media_root  # type: ignore[attr-defined]
     server.preview_root = preview_root  # type: ignore[attr-defined]
+    server.hls_root = hls_root  # type: ignore[attr-defined]
     try:
         server.serve_forever(poll_interval=0.25)
     finally:

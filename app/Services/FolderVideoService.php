@@ -249,6 +249,97 @@ class FolderVideoService
         return $status + ['queued' => true];
     }
 
+    public function tvPreviewCacheStatus(string $id): array
+    {
+        $sourcePath = $this->resolveVideoPath($id);
+        $path = $this->tvPreviewPathForSource($sourcePath);
+
+        return [
+            'id' => $id,
+            'ready' => is_file($path) && filesize($path) > 0,
+            'preview_url' => $this->staticCacheUrl('/folder-video-preview-cache/', $path, $this->previewCachePath()),
+        ];
+    }
+
+    public function queueTvPreview(string $id): array
+    {
+        $sourcePath = $this->resolveVideoPath($id);
+        $previewPath = $this->tvPreviewPathForSource($sourcePath);
+        $status = $this->tvPreviewCacheStatus($id);
+        if ($status['ready']) {
+            return $status + ['queued' => false];
+        }
+
+        $this->writeMediaQueueRequest($this->previewQueuePath(), hash('sha256', $previewPath), [
+            'kind' => 'sprite',
+            'source_path' => $sourcePath,
+            'preview_path' => $previewPath,
+            'queued_at' => now()->toIso8601String(),
+        ]);
+
+        return $status + ['queued' => true];
+    }
+
+    public function tvHlsStatus(string $id): array
+    {
+        $sourcePath = $this->resolveVideoPath($id);
+        $hlsPath = $this->tvHlsPathForSource($sourcePath);
+        $segments = glob($hlsPath.DIRECTORY_SEPARATOR.'segment_*.ts') ?: [];
+        $playlist = $hlsPath.DIRECTORY_SEPARATOR.'index.m3u8';
+
+        return [
+            'id' => $id,
+            'ready' => is_file($playlist) && count($segments) >= 2,
+            'complete' => is_file($hlsPath.DIRECTORY_SEPARATOR.'.complete'),
+            'available_seconds' => count($segments) * 4,
+            'stream_url' => $this->staticCacheUrl('/folder-video-tv-hls-cache/', $playlist, $this->tvHlsCachePath()),
+        ];
+    }
+
+    public function queueTvHls(string $id): array
+    {
+        $sourcePath = $this->resolveVideoPath($id);
+        $hlsPath = $this->tvHlsPathForSource($sourcePath);
+        $status = $this->tvHlsStatus($id);
+        if ($status['ready']) {
+            return $status + ['queued' => false];
+        }
+
+        $this->writeMediaQueueRequest($this->tvHlsQueuePath(), hash('sha256', $hlsPath), [
+            'source_path' => $sourcePath,
+            'hls_path' => $hlsPath,
+            'queued_at' => now()->toIso8601String(),
+        ]);
+
+        return $status + ['queued' => true];
+    }
+
+    public function tvHlsCachePath(): string
+    {
+        return rtrim((string) config('folder_video.tv_hls_cache_path'), DIRECTORY_SEPARATOR);
+    }
+
+    public function tvHlsQueuePath(): string
+    {
+        return rtrim((string) config('folder_video.tv_hls_queue_path'), DIRECTORY_SEPARATOR);
+    }
+
+    protected function writeMediaQueueRequest(string $queuePath, string $key, array $payload): void
+    {
+        File::ensureDirectoryExists($queuePath);
+        $requestPath = $queuePath.DIRECTORY_SEPARATOR.$key.'.json';
+        if (is_file($requestPath) || is_file($queuePath.DIRECTORY_SEPARATOR.$key.'.working')) {
+            return;
+        }
+        $temporaryPath = $requestPath.'.tmp.'.getmypid().'.'.bin2hex(random_bytes(4));
+        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if (is_string($encoded) && file_put_contents($temporaryPath, $encoded, LOCK_EX) !== false) {
+            if (! @rename($temporaryPath, $requestPath)) {
+                @unlink($temporaryPath);
+            }
+        }
+    }
+
     public function thumbnailCachePath(): string
     {
         return rtrim((string) config('folder_video.thumbnail_cache_path'), DIRECTORY_SEPARATOR);
@@ -851,6 +942,28 @@ POWERSHELL;
         ]));
 
         return $this->thumbnailCachePath().DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.jpg';
+    }
+
+    protected function tvPreviewPathForSource(string $sourcePath): string
+    {
+        $stat = @stat($sourcePath) ?: [];
+        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-sprite-v1']));
+
+        return $this->previewCachePath().DIRECTORY_SEPARATOR.'tv-sprites'.DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.jpg';
+    }
+
+    protected function tvHlsPathForSource(string $sourcePath): string
+    {
+        $stat = @stat($sourcePath) ?: [];
+        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-hls-v1']));
+
+        return $this->tvHlsCachePath().DIRECTORY_SEPARATOR.$key;
+    }
+
+    protected function staticCacheUrl(string $prefix, string $path, string $root): string
+    {
+        $relative = str_replace('\\', '/', substr($path, strlen($root) + 1));
+        return $prefix.implode('/', array_map('rawurlencode', explode('/', $relative)));
     }
 
     protected function previewCachedForFilename(string $filename): bool

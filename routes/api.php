@@ -126,6 +126,10 @@
     Route::get('/folder-videos/{id}/thumbnail', [FolderVideoController::class, 'thumbnail'])->name('folder-videos.thumbnail');
     Route::get('/folder-videos/{id}/preview-status', [FolderVideoController::class, 'previewStatus'])->name('folder-videos.preview-status');
     Route::post('/folder-videos/{id}/preview-queue', [FolderVideoController::class, 'queuePreview'])->name('folder-videos.preview-queue');
+    Route::get('/folder-videos/{id}/tv-preview-status', [FolderVideoController::class, 'tvPreviewStatus'])->name('folder-videos.tv-preview-status');
+    Route::post('/folder-videos/{id}/tv-preview-queue', [FolderVideoController::class, 'queueTvPreview'])->name('folder-videos.tv-preview-queue');
+    Route::get('/folder-videos/{id}/tv-hls-status', [FolderVideoController::class, 'tvHlsStatus'])->name('folder-videos.tv-hls-status');
+    Route::post('/folder-videos/{id}/tv-hls-queue', [FolderVideoController::class, 'queueTvHls'])->name('folder-videos.tv-hls-queue');
     Route::get('/folder-videos/{id}/preview', [FolderVideoController::class, 'preview'])->name('folder-videos.preview');
     Route::get('/folder-videos/{id}/stream', [FolderVideoController::class, 'stream'])->name('folder-videos.stream');
     Route::post('/folder-videos/{id}/like', [FolderVideoController::class, 'like'])->name('folder-videos.like');

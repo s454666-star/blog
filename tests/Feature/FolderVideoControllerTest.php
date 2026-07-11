@@ -41,6 +41,8 @@ class FolderVideoControllerTest extends TestCase
         config()->set('folder_video.ffprobe_bin', $this->fakeFfprobe);
         config()->set('folder_video.preview_cache_path', $this->tempRoot.DIRECTORY_SEPARATOR.'previews');
         config()->set('folder_video.preview_queue_path', $this->tempRoot.DIRECTORY_SEPARATOR.'preview-queue');
+        config()->set('folder_video.tv_hls_cache_path', $this->tempRoot.DIRECTORY_SEPARATOR.'tv-hls');
+        config()->set('folder_video.tv_hls_queue_path', $this->tempRoot.DIRECTORY_SEPARATOR.'tv-hls-queue');
         config()->set('folder_video.thumbnail_cache_path', $this->tempRoot.DIRECTORY_SEPARATOR.'thumbnails');
         config()->set('folder_video.stream_base_path', '');
         config()->set('folder_video.preview_fallback_to_source', true);
@@ -399,17 +401,40 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'));
     }
 
+    public function test_it_queues_tv_sprites_and_hls_playback(): void
+    {
+        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
+        $this->postJson("/api/folder-videos/{$id}/tv-preview-queue")
+            ->assertStatus(202)->assertJsonPath('data.ready', false);
+
+        $this->postJson("/api/folder-videos/{$id}/tv-hls-queue")
+            ->assertStatus(202)->assertJsonPath('data.ready', false);
+        $requests = glob($this->tempRoot.DIRECTORY_SEPARATOR.'tv-hls-queue'.DIRECTORY_SEPARATOR.'*.json');
+        $this->assertCount(1, $requests);
+        $payload = json_decode((string) file_get_contents($requests[0]), true);
+        File::ensureDirectoryExists($payload['hls_path']);
+        file_put_contents($payload['hls_path'].DIRECTORY_SEPARATOR.'index.m3u8', "#EXTM3U\n");
+        file_put_contents($payload['hls_path'].DIRECTORY_SEPARATOR.'segment_00000.ts', 'one');
+        file_put_contents($payload['hls_path'].DIRECTORY_SEPARATOR.'segment_00001.ts', 'two');
+
+        $this->getJson("/api/folder-videos/{$id}/tv-hls-status")
+            ->assertOk()
+            ->assertJsonPath('data.ready', true)
+            ->assertJsonPath('data.available_seconds', 8)
+            ->assertJsonPath('data.stream_url', fn (string $url): bool => str_starts_with($url, '/folder-video-tv-hls-cache/'));
+    }
+
     public function test_folder_video_tv_update_channel_serves_only_the_tv_apk(): void
     {
-        config()->set('folder_video.tv_android_apk_version_code', 4);
-        config()->set('folder_video.tv_android_apk_version_name', '2026.07.11.4-tv');
+        config()->set('folder_video.tv_android_apk_version_code', 5);
+        config()->set('folder_video.tv_android_apk_version_name', '2026.07.11.5-tv');
         config()->set('folder_video.tv_android_apk_path', storage_path('app/folder-video-tv.apk'));
 
         $this->withHeaders(['X-Forwarded-Host' => '10.0.0.25:8090', 'X-Forwarded-Proto' => 'http'])
             ->getJson('/folder-video-app/tv/android-version.json')
             ->assertOk()
-            ->assertJsonPath('data.version_code', 4)
-            ->assertJsonPath('data.version_name', '2026.07.11.4-tv')
+            ->assertJsonPath('data.version_code', 5)
+            ->assertJsonPath('data.version_name', '2026.07.11.5-tv')
             ->assertJsonPath('data.apk_url', 'http://10.0.0.25:8090/folder-video-app/tv/folder-video-tv.apk');
 
         $this->get('/folder-video-app/tv/folder-video-tv.apk')

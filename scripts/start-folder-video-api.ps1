@@ -290,6 +290,8 @@ $pythonExe = (Get-Command python -ErrorAction Stop).Source
 $ffmpegBin = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_FFMPEG_BIN" -DefaultValue "C:\ffmpeg\bin\ffmpeg.exe"
 $previewQueuePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_QUEUE_PATH" -DefaultValue (Join-Path $projectRoot "storage\app\folder-video-preview-queue")
 $previewCachePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_CACHE_PATH" -DefaultValue (Join-Path $projectRoot "storage\app\folder-video-previews")
+$hlsQueuePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_TV_HLS_QUEUE_PATH" -DefaultValue (Join-Path $projectRoot "storage\app\folder-video-tv-hls-queue")
+$hlsCachePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_TV_HLS_CACHE_PATH" -DefaultValue (Join-Path $projectRoot "storage\app\folder-video-tv-hls")
 $previewSeconds = [int](Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_SECONDS" -DefaultValue "18")
 $previewHeight = [int](Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_HEIGHT" -DefaultValue "360")
 
@@ -329,6 +331,8 @@ $mediaProcess = Start-Process -FilePath $pythonExe `
         "--root=$MediaRoot",
         "--preview-queue=$previewQueuePath",
         "--preview-root=$previewCachePath",
+        "--hls-queue=$hlsQueuePath",
+        "--hls-root=$hlsCachePath",
         "--ffmpeg=$ffmpegBin",
         "--preview-seconds=$previewSeconds",
         "--preview-height=$previewHeight"
@@ -421,6 +425,13 @@ $configText = @"
 
     @videoPreviewCache path /folder-video-preview-cache/*
     handle @videoPreviewCache {
+        reverse_proxy 127.0.0.1:$MediaStreamPort {
+            flush_interval -1
+        }
+    }
+
+    @videoHlsCache path /folder-video-tv-hls-cache/*
+    handle @videoHlsCache {
         reverse_proxy 127.0.0.1:$MediaStreamPort {
             flush_interval -1
         }

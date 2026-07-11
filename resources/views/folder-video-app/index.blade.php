@@ -55,6 +55,13 @@
             font: inherit;
         }
 
+        button:focus-visible,
+        .video-card:focus-visible {
+            outline: 4px solid #5fe7ff;
+            outline-offset: 3px;
+            box-shadow: 0 0 0 7px rgba(95, 231, 255, .24);
+        }
+
         .app-shell {
             min-height: 100svh;
             background:
@@ -1022,6 +1029,9 @@
             const card = document.createElement('article');
             card.className = 'video-card';
             card.dataset.id = video.id;
+            card.tabIndex = 0;
+            card.setAttribute('role', 'button');
+            card.setAttribute('aria-label', `播放 ${video.filename}`);
             const previewSrc = video.preview_cached ? video.preview_url : video.stream_url;
             const posterSrc = video.thumbnail_cached ? video.thumbnail_url : '';
             card.innerHTML = `
@@ -1044,6 +1054,11 @@
             }
 
             bindCardGestures(card, video);
+            card.addEventListener('keydown', event => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                openPlayer(video);
+            });
             observer.observe(card);
             fragment.appendChild(card);
         });
@@ -1418,6 +1433,18 @@
         });
     }
 
+    function notifyFolderVideoTvPlayer(open) {
+        try {
+            if (
+                window.FolderVideoTvAndroid
+                && typeof window.FolderVideoTvAndroid.setPlayerOpen === 'function'
+            ) {
+                window.FolderVideoTvAndroid.setPlayerOpen(Boolean(open));
+            }
+        } catch (error) {
+        }
+    }
+
     function openPlayer(video) {
         const normalized = normalizeVideo(video);
         upsertVideo(normalized);
@@ -1429,6 +1456,7 @@
 
         elements.player.classList.add('open');
         elements.player.setAttribute('aria-hidden', 'false');
+        notifyFolderVideoTvPlayer(true);
         elements.playerTitle.textContent = normalized.filename;
         elements.playerLike.classList.toggle('is-active', isLiked(normalized.id));
         elements.playerLike.title = isLiked(normalized.id) ? '取消 LIKE' : '喜歡';
@@ -1458,6 +1486,7 @@
         stopPlayerDragSeek();
         elements.player.classList.remove('open');
         elements.player.setAttribute('aria-hidden', 'true');
+        notifyFolderVideoTvPlayer(false);
         elements.playerVideo.pause();
         elements.playerVideo.removeAttribute('src');
         elements.playerVideo.load();
@@ -1474,6 +1503,37 @@
             return true;
         }
 
+        return false;
+    };
+
+    window.folderVideoTvHandleKey = key => {
+        if (!elements.player.classList.contains('open')) return false;
+        if (key === 'left') {
+            seekPlayer(-5, '-5s');
+            return true;
+        }
+        if (key === 'right') {
+            seekPlayer(5, '+5s');
+            return true;
+        }
+        if (key === 'up') {
+            playAdjacent(1);
+            return true;
+        }
+        if (key === 'down') {
+            playAdjacent(-1);
+            return true;
+        }
+        if (key === 'center') {
+            if (elements.playerVideo.paused) {
+                elements.playerVideo.play().catch(() => {});
+                showFlash('播放');
+            } else {
+                elements.playerVideo.pause();
+                showFlash('暫停');
+            }
+            return true;
+        }
         return false;
     };
 
@@ -2338,6 +2398,7 @@
     }, {rootMargin: '1800px 0px'}).observe(elements.sentinel);
 
     async function boot() {
+        notifyFolderVideoTvPlayer(false);
         if (isFolderVideoAndroidApp() && cssPxVariable('--android-nav-inset') === 0) {
             setCssPxVariable('--android-nav-inset', androidNavigationFallbackInset(0));
         }

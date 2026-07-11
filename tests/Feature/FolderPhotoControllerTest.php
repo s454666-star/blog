@@ -124,6 +124,9 @@ class FolderPhotoControllerTest extends TestCase
             ->assertSee('display_min_ms', false)
             ->assertSee('上滑 +1 列', false)
             ->assertSee('photo-enter-flip-x', false)
+            ->assertSee('window.folderPhotoTvHandleKey', false)
+            ->assertSee("if (key === 'left')", false)
+            ->assertSee('setGrid(state.columns + 1, state.rows)', false)
             ->assertDontSee('touchDistance', false);
 
         $this->get('/folder-photo-app/folder-photo-app.apk')

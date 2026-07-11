@@ -357,6 +357,9 @@ class FolderVideoControllerTest extends TestCase
             ->assertSee('watchedOnlyButton')
             ->assertSee('likedOnlyButton')
             ->assertSee('/api/folder-videos', false)
+            ->assertSee('window.folderVideoTvHandleKey', false)
+            ->assertSee("seekPlayer(-5, '-5s')", false)
+            ->assertSee('window.FolderVideoTvAndroid.setPlayerOpen', false)
             ->assertSee('folder-video-app/sw.js', false);
     }
 

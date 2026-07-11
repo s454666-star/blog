@@ -186,6 +186,10 @@ class NasViewerControllerTest extends TestCase
             ->assertSee("window.location.assign(entry.download_url)", false)
             ->assertSee('再點一下開啟安裝檔')
             ->assertSee('.viewer.video-mode .viewer-header', false)
+            ->assertSee('window.nasViewerTvHandleKey', false)
+            ->assertSee("if (state.viewerEntry.kind === 'video' && key === 'left')", false)
+            ->assertSee("seekVideo(-5, '-5 秒')", false)
+            ->assertSee('window.NasViewerTvAndroid.setViewerState', false)
             ->assertSee("elements.video.addEventListener('ended', () => closeViewer())", false);
 
         $this->getJson('/nas-viewer-app/version.json')

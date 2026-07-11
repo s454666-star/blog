@@ -647,6 +647,26 @@
         finishGesture();
     });
 
+    window.folderPhotoTvHandleKey = key => {
+        if (key === 'up') {
+            setGrid(state.columns, state.rows + 1);
+            return true;
+        }
+        if (key === 'down') {
+            setGrid(state.columns, state.rows - 1);
+            return true;
+        }
+        if (key === 'left') {
+            setGrid(state.columns + 1, state.rows);
+            return true;
+        }
+        if (key === 'right') {
+            setGrid(state.columns - 1, state.rows);
+            return true;
+        }
+        return false;
+    };
+
     window.addEventListener('resize', () => setGrid(state.columns, state.rows, false));
     setTimeout(() => gestureHint.classList.add('is-hidden'), 6000);
     setGrid(state.columns, state.rows, false);

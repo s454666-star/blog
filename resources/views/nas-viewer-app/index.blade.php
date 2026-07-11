@@ -49,6 +49,12 @@
             font: inherit;
         }
 
+        button:focus-visible {
+            outline: 4px solid #54e8ff;
+            outline-offset: 3px;
+            box-shadow: 0 0 0 7px rgba(84, 232, 255, .22);
+        }
+
         #app {
             position: absolute;
             inset: 0;
@@ -835,6 +841,18 @@
         }
     }
 
+    function notifyNasViewerTv(open, kind = '') {
+        try {
+            if (
+                window.NasViewerTvAndroid
+                && typeof window.NasViewerTvAndroid.setViewerState === 'function'
+            ) {
+                window.NasViewerTvAndroid.setViewerState(Boolean(open), String(kind || ''));
+            }
+        } catch (error) {
+        }
+    }
+
     function showVideoSeekFlash(label) {
         elements.videoSeekFlash.textContent = label;
         elements.videoSeekFlash.classList.add('visible');
@@ -1020,6 +1038,7 @@
         elements.viewerTitle.textContent = entry.name;
         elements.viewer.classList.add('open');
         elements.viewer.setAttribute('aria-hidden', 'false');
+        notifyNasViewerTv(true, entry.kind);
 
         if (!switched) {
             showToast('上滑下一個・下滑上一個');
@@ -1061,6 +1080,7 @@
             document.exitFullscreen().catch(() => {});
         }
         state.viewerEntry = null;
+        notifyNasViewerTv(false, '');
         resetViewerElements();
         elements.viewer.classList.remove('open');
         elements.viewer.setAttribute('aria-hidden', 'true');
@@ -1108,6 +1128,37 @@
         elements.viewerMessage.textContent = '這張圖片無法顯示。';
     });
 
+    window.nasViewerTvHandleKey = key => {
+        if (!state.viewerEntry || !elements.viewer.classList.contains('open')) return false;
+        if (key === 'up') {
+            switchViewerEntry(1);
+            return true;
+        }
+        if (key === 'down') {
+            switchViewerEntry(-1);
+            return true;
+        }
+        if (state.viewerEntry.kind === 'video' && key === 'left') {
+            seekVideo(-5, '-5 秒');
+            return true;
+        }
+        if (state.viewerEntry.kind === 'video' && key === 'right') {
+            seekVideo(5, '+5 秒');
+            return true;
+        }
+        if (state.viewerEntry.kind === 'video' && key === 'center') {
+            if (elements.video.paused) {
+                elements.video.play().catch(() => {});
+                showVideoSeekFlash('播放');
+            } else {
+                elements.video.pause();
+                showVideoSeekFlash('暫停');
+            }
+            return true;
+        }
+        return false;
+    };
+
     window.nasViewerHandleBack = handleBack;
     window.nasViewerSetAndroidInsets = insets => {
         const bottom = Math.max(0, Number(insets?.bottom || 0));
@@ -1124,6 +1175,7 @@
 
     bindVideoSeekGestures();
     bindViewerFileSwipes();
+    notifyNasViewerTv(false, '');
     setVideoFullscreen(false);
     setMediaAutoOrientation(false);
     fetchDirectory(null);

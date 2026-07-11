@@ -8,6 +8,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Insets;
@@ -38,6 +39,7 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.VideoView;
@@ -51,8 +53,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 2;
-    private static final String APP_VERSION_NAME = "2026.07.11.2-tv";
+    private static final int APP_VERSION_CODE = 3;
+    private static final String APP_VERSION_NAME = "2026.07.11.3-tv";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/tv/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/folder-video-app",
@@ -79,6 +81,10 @@ public class MainActivity extends Activity {
     private FrameLayout nativeVideoOverlay;
     private VideoView nativeVideoView;
     private TextView nativeVideoStatus;
+    private LinearLayout nativeSeekOverlay;
+    private TextView nativeSeekLabel;
+    private ProgressBar nativeSeekProgress;
+    private TextView nativeSeekTime;
     private boolean nativeVideoOpen = false;
     private final Handler nativeVideoProgressHandler = new Handler(Looper.getMainLooper());
     private final Runnable nativeVideoProgressReporter = new Runnable() {
@@ -282,6 +288,49 @@ public class MainActivity extends Activity {
             Gravity.CENTER
         );
         nativeVideoOverlay.addView(nativeVideoStatus, statusParams);
+
+        nativeSeekOverlay = new LinearLayout(this);
+        nativeSeekOverlay.setOrientation(LinearLayout.VERTICAL);
+        nativeSeekOverlay.setGravity(Gravity.CENTER_HORIZONTAL);
+        nativeSeekOverlay.setPadding(dp(24), dp(14), dp(24), dp(14));
+        nativeSeekOverlay.setBackgroundColor(0xCC101820);
+        nativeSeekOverlay.setVisibility(View.GONE);
+
+        nativeSeekLabel = new TextView(this);
+        nativeSeekLabel.setTextColor(Color.WHITE);
+        nativeSeekLabel.setTextSize(20f);
+        nativeSeekLabel.setGravity(Gravity.CENTER);
+        nativeSeekOverlay.addView(nativeSeekLabel, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        nativeSeekProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        nativeSeekProgress.setMax(1000);
+        nativeSeekProgress.setProgressTintList(ColorStateList.valueOf(Color.rgb(95, 231, 255)));
+        LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(12)
+        );
+        progressParams.setMargins(0, dp(8), 0, dp(6));
+        nativeSeekOverlay.addView(nativeSeekProgress, progressParams);
+
+        nativeSeekTime = new TextView(this);
+        nativeSeekTime.setTextColor(Color.WHITE);
+        nativeSeekTime.setTextSize(16f);
+        nativeSeekTime.setGravity(Gravity.CENTER);
+        nativeSeekOverlay.addView(nativeSeekTime, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        FrameLayout.LayoutParams seekParams = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM
+        );
+        seekParams.setMargins(dp(48), 0, dp(48), dp(42));
+        nativeVideoOverlay.addView(nativeSeekOverlay, seekParams);
         root.addView(nativeVideoOverlay, new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -301,6 +350,7 @@ public class MainActivity extends Activity {
         if (mediaUrl == null || mediaUrl.trim().isEmpty()) return;
         nativeVideoOpen = true;
         tvPlayerOpen = true;
+        nativeSeekOverlay.setVisibility(View.GONE);
         nativeVideoStatus.setText("影片載入中…");
         nativeVideoStatus.setVisibility(View.VISIBLE);
         nativeVideoOverlay.setVisibility(View.VISIBLE);
@@ -333,11 +383,7 @@ public class MainActivity extends Activity {
         if (duration > 0) target = Math.min(duration, target);
         nativeVideoView.seekTo(target);
         reportNativeVideoProgress();
-        nativeVideoStatus.setText(deltaMs > 0 ? "+5 秒" : "-5 秒");
-        nativeVideoStatus.setVisibility(View.VISIBLE);
-        nativeVideoStatus.postDelayed(() -> {
-            if (nativeVideoOpen) nativeVideoStatus.setVisibility(View.GONE);
-        }, 500);
+        showNativeSeekProgress(target, duration, deltaMs > 0 ? "+5 秒" : "-5 秒");
     }
 
     private void toggleNativeVideo() {
@@ -348,10 +394,43 @@ public class MainActivity extends Activity {
     private void stopNativeVideo(boolean notifyWeb) {
         reportNativeVideoProgress();
         nativeVideoProgressHandler.removeCallbacks(nativeVideoProgressReporter);
+        if (nativeSeekOverlay != null) {
+            nativeSeekOverlay.removeCallbacks(hideNativeSeekOverlay);
+            nativeSeekOverlay.setVisibility(View.GONE);
+        }
         if (nativeVideoView != null) nativeVideoView.stopPlayback();
         nativeVideoOpen = false;
         nativeVideoOverlay.setVisibility(View.GONE);
         if (notifyWeb) evaluateTvJavascript("if (window.folderVideoTvNativeClosed) { window.folderVideoTvNativeClosed(); }");
+    }
+
+    private void showNativeSeekProgress(int positionMs, int durationMs, String label) {
+        if (nativeSeekOverlay == null) return;
+        nativeSeekLabel.setText(label);
+        int safeDuration = Math.max(0, durationMs);
+        int safePosition = Math.max(0, positionMs);
+        int progress = safeDuration > 0
+            ? Math.min(1000, Math.round((safePosition * 1000f) / safeDuration))
+            : 0;
+        nativeSeekProgress.setProgress(progress);
+        nativeSeekTime.setText(formatPlaybackTime(safePosition) + " / " + formatPlaybackTime(safeDuration));
+        nativeSeekOverlay.setVisibility(View.VISIBLE);
+        nativeSeekOverlay.removeCallbacks(hideNativeSeekOverlay);
+        nativeSeekOverlay.postDelayed(hideNativeSeekOverlay, 500L);
+    }
+
+    private final Runnable hideNativeSeekOverlay = () -> {
+        if (nativeSeekOverlay != null) nativeSeekOverlay.setVisibility(View.GONE);
+    };
+
+    private String formatPlaybackTime(int milliseconds) {
+        int totalSeconds = Math.max(0, milliseconds / 1000);
+        int hours = totalSeconds / 3600;
+        int minutes = (totalSeconds % 3600) / 60;
+        int seconds = totalSeconds % 60;
+        return hours > 0
+            ? String.format(java.util.Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+            : String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds);
     }
 
     private void reportNativeVideoProgress() {

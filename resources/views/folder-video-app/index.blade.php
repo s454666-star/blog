@@ -179,12 +179,29 @@
             isolation: isolate;
         }
 
+        .video-card .preview-poster,
         .video-card video {
+            position: absolute;
+            inset: 0;
             display: block;
             width: 100%;
             height: 100%;
             background: #080a0d;
             object-fit: cover;
+        }
+
+        .video-card .preview-poster {
+            z-index: 0;
+        }
+
+        .video-card video {
+            z-index: 1;
+            opacity: 0;
+            transition: opacity 120ms ease;
+        }
+
+        .video-card video.has-frame {
+            opacity: 1;
         }
 
         .video-card.is-current {
@@ -1033,10 +1050,11 @@
             card.tabIndex = 0;
             card.setAttribute('role', 'button');
             card.setAttribute('aria-label', `播放 ${video.filename}`);
-            const previewSrc = video.preview_cached ? video.preview_url : video.stream_url;
-            const posterSrc = video.thumbnail_cached ? video.thumbnail_url : '';
+            const previewSrc = video.preview_cached ? video.preview_url : '';
+            const posterSrc = video.thumbnail_url || '';
             card.innerHTML = `
-                <video class="preview-video" muted loop playsinline preload="none" poster="${escapeHtml(posterSrc)}" data-src="${escapeHtml(previewSrc)}" data-preview-src="${escapeHtml(video.preview_url || '')}" data-stream-src="${escapeHtml(video.stream_url || '')}" data-fallback-src="${escapeHtml(video.stream_url || '')}"></video>
+                <img class="preview-poster" src="${escapeHtml(posterSrc)}" alt="" loading="lazy" decoding="async">
+                <video class="preview-video" muted loop playsinline preload="none" poster="${escapeHtml(posterSrc)}" data-src="${escapeHtml(previewSrc)}" data-preview-src="${escapeHtml(video.preview_url || '')}" data-stream-src="${escapeHtml(video.stream_url || '')}"></video>
                 <div class="card-meta">
                     <div class="card-name">${escapeHtml(video.filename)}</div>
                     <div class="card-row">
@@ -1094,7 +1112,7 @@
         }
 
         const video = card.querySelector('video');
-        if (!video || video.dataset.activePreview === '1') {
+        if (!video || !video.dataset.src || video.dataset.activePreview === '1') {
             return;
         }
 
@@ -1149,7 +1167,7 @@
 
     function warmPreview(card) {
         const video = card.querySelector('video');
-        if (!video || video.getAttribute('src')) {
+        if (!video || !video.dataset.src || video.getAttribute('src')) {
             return;
         }
 
@@ -1169,22 +1187,18 @@
 
         video.dataset.previewEventsBound = '1';
         video.addEventListener('loadedmetadata', () => updatePreviewProgress(video));
+        video.addEventListener('loadeddata', () => video.classList.add('has-frame'));
         video.addEventListener('durationchange', () => updatePreviewProgress(video));
         video.addEventListener('timeupdate', () => updatePreviewProgress(video));
-        video.addEventListener('playing', () => updatePreviewProgress(video));
+        video.addEventListener('playing', () => {
+            video.classList.add('has-frame');
+            updatePreviewProgress(video);
+        });
         video.addEventListener('seeked', () => updatePreviewProgress(video));
         video.addEventListener('error', () => {
-            const fallback = video.dataset.fallbackSrc || '';
-            const current = video.getAttribute('src') || '';
-
-            if (!fallback || current === fallback || video.dataset.previewFallback === '1') {
-                return;
-            }
-
-            video.dataset.previewFallback = '1';
-            video.setAttribute('src', fallback);
+            video.classList.remove('has-frame');
+            video.removeAttribute('src');
             video.load();
-            video.play().catch(() => {});
         });
     }
 
@@ -1229,6 +1243,7 @@
         }
 
         pausePreview(card);
+        video.classList.remove('has-frame');
         video.removeAttribute('src');
         video.load();
     }

@@ -212,15 +212,15 @@ class NasViewerControllerTest extends TestCase
 
     public function test_it_serves_the_nas_viewer_tv_update_channel(): void
     {
-        config()->set('nas_viewer.tv_android_apk_version_code', 2);
-        config()->set('nas_viewer.tv_android_apk_version_name', '2026.07.11.2-tv');
+        config()->set('nas_viewer.tv_android_apk_version_code', 3);
+        config()->set('nas_viewer.tv_android_apk_version_name', '2026.07.11.3-tv');
         config()->set('nas_viewer.tv_android_apk_path', storage_path('app/nas-viewer-tv.apk'));
 
         $this->withHeaders(['X-Forwarded-Host' => '10.0.0.25:8090', 'X-Forwarded-Proto' => 'http'])
             ->getJson('/nas-viewer-app/tv/android-version.json')
             ->assertOk()
-            ->assertJsonPath('data.version_code', 2)
-            ->assertJsonPath('data.version_name', '2026.07.11.2-tv')
+            ->assertJsonPath('data.version_code', 3)
+            ->assertJsonPath('data.version_name', '2026.07.11.3-tv')
             ->assertJsonPath('data.apk_url', 'http://10.0.0.25:8090/nas-viewer-app/tv/nas-viewer-tv.apk');
 
         $this->get('/nas-viewer-app/tv/nas-viewer-tv.apk')

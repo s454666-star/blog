@@ -579,9 +579,11 @@
         toastTimer: null,
         videoSeekFlashTimer: null,
         tvFocusIndex: 0,
+        lastViewerSwitchDelta: 1,
     };
 
     let stopVideoDragSeek = () => {};
+    const failedViewerEntryIds = new Set();
 
     function clamp(value, min, max) {
         return Math.min(max, Math.max(min, value));
@@ -757,7 +759,10 @@
                 : (Array.isArray(payload.data) ? payload.data : []);
             state.meta = payload.meta || null;
             state.selectedId = null;
-            if (!append) state.tvFocusIndex = 0;
+            if (!append) {
+                state.tvFocusIndex = 0;
+                failedViewerEntryIds.clear();
+            }
             renderList();
             if (!append) {
                 elements.listShell.scrollTop = 0;
@@ -836,6 +841,18 @@
         elements.viewerMessage.textContent = '';
     }
 
+    function stopNativeTvVideo() {
+        try {
+            if (
+                window.NasViewerTvAndroid
+                && typeof window.NasViewerTvAndroid.stopVideo === 'function'
+            ) {
+                window.NasViewerTvAndroid.stopVideo();
+            }
+        } catch (error) {
+        }
+    }
+
     function setMediaAutoOrientation(enabled) {
         try {
             if (
@@ -903,12 +920,24 @@
         return state.entries.filter(entry => ['video', 'image', 'text'].includes(entry.kind));
     }
 
+    function findEligibleAdjacent(queue, currentIndex, delta) {
+        for (
+            let index = currentIndex + delta;
+            index >= 0 && index < queue.length;
+            index += delta
+        ) {
+            const entry = queue[index];
+            if (!failedViewerEntryIds.has(entry.id)) return entry;
+        }
+        return null;
+    }
+
     async function findAdjacentEntry(delta) {
         let queue = previewableEntries();
         let currentIndex = queue.findIndex(entry => entry.id === state.viewerEntry?.id);
         if (currentIndex < 0) return null;
 
-        let adjacent = queue[currentIndex + delta] || null;
+        let adjacent = findEligibleAdjacent(queue, currentIndex, delta);
         while (!adjacent && delta > 0 && state.meta?.has_more) {
             const previousEntryCount = state.entries.length;
             await fetchDirectory(
@@ -920,24 +949,26 @@
 
             queue = previewableEntries();
             currentIndex = queue.findIndex(entry => entry.id === state.viewerEntry?.id);
-            adjacent = currentIndex >= 0 ? (queue[currentIndex + 1] || null) : null;
+            adjacent = currentIndex >= 0 ? findEligibleAdjacent(queue, currentIndex, delta) : null;
         }
 
         return adjacent;
     }
 
     async function switchViewerEntry(delta) {
-        if (state.viewerSwitching || !state.viewerEntry || ![-1, 1].includes(delta)) return;
+        if (state.viewerSwitching || !state.viewerEntry || ![-1, 1].includes(delta)) return false;
+        state.lastViewerSwitchDelta = delta;
         state.viewerSwitching = true;
         try {
             const adjacent = await findAdjacentEntry(delta);
             if (!adjacent) {
                 showToast(delta > 0 ? '已經是最後一個檔案' : '已經是第一個檔案');
-                return;
+                return false;
             }
 
             await openViewer(adjacent, true);
             showToast(`${delta > 0 ? '下一個' : '上一個'}：${adjacent.name}`);
+            return true;
         } finally {
             state.viewerSwitching = false;
         }
@@ -1050,6 +1081,7 @@
     }
 
     async function openViewer(entry, switched = false) {
+        stopNativeTvVideo();
         setMediaAutoOrientation(['video', 'image'].includes(entry.kind));
         setVideoFullscreen(entry.kind === 'video');
         elements.viewer.classList.toggle('image-mode', entry.kind === 'image');
@@ -1072,7 +1104,7 @@
                     window.NasViewerTvAndroid
                     && typeof window.NasViewerTvAndroid.playVideo === 'function'
                 ) {
-                    window.NasViewerTvAndroid.playVideo(entry.media_url);
+                    window.NasViewerTvAndroid.playVideo(entry.media_url, entry.id);
                     return;
                 }
             } catch (error) {
@@ -1112,15 +1144,7 @@
         }
         state.viewerEntry = null;
         notifyNasViewerTv(false, '');
-        try {
-            if (
-                window.NasViewerTvAndroid
-                && typeof window.NasViewerTvAndroid.stopVideo === 'function'
-            ) {
-                window.NasViewerTvAndroid.stopVideo();
-            }
-        } catch (error) {
-        }
+        stopNativeTvVideo();
         resetViewerElements();
         elements.viewer.classList.remove('open');
         elements.viewer.setAttribute('aria-hidden', 'true');
@@ -1210,11 +1234,24 @@
         return false;
     };
 
-    window.nasViewerTvNativeEnded = () => closeViewer();
+    window.nasViewerTvNativePlaying = entryId => {
+        if (state.viewerEntry?.id !== entryId) return;
+        failedViewerEntryIds.delete(entryId);
+    };
+    window.nasViewerTvNativeEnded = entryId => {
+        if (state.viewerEntry?.id !== entryId) return;
+        closeViewer();
+    };
     window.nasViewerTvNativeClosed = () => {
         if (state.viewerEntry || elements.viewer.classList.contains('open')) closeViewer();
     };
-    window.nasViewerTvNativeError = () => showToast('原生播放器無法播放這支影片');
+    window.nasViewerTvNativeError = async entryId => {
+        if (!state.viewerEntry || state.viewerEntry.id !== entryId) return;
+        failedViewerEntryIds.add(entryId);
+        showToast('這支影片無法播放，正在尋找下一支…', 2600);
+        const moved = await switchViewerEntry(state.lastViewerSwitchDelta || 1);
+        if (!moved && state.viewerEntry?.id === entryId) closeViewer();
+    };
 
     window.nasViewerHandleBack = handleBack;
     window.nasViewerSetAndroidInsets = insets => {

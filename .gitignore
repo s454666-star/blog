@@ -24,3 +24,4 @@ storage/certs/
 /python/__pycache__/
 __pycache__/
 /AGENTS.md
+/android/shared-nas-direct/nas-credentials.local.xml

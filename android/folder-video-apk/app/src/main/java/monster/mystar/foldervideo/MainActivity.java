@@ -49,8 +49,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 12;
-    private static final String APP_VERSION_NAME = "2026.07.11.12";
+    private static final int APP_VERSION_CODE = 13;
+    private static final String APP_VERSION_NAME = "2026.07.11.13";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/folder-video-app",

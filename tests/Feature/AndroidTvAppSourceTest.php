@@ -125,5 +125,16 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('AndroidKeyStore', $bridge);
         $this->assertStringContainsString('AES/GCM/NoPadding', $bridge);
         $this->assertStringContainsString('directUrl(String share, String relativePath)', $bridge);
+        $this->assertStringContainsString('bundledCredentials(Activity activity)', $bridge);
+        $this->assertStringContainsString('nas_bundled_username', $bridge);
+
+        $videoTv = file_get_contents(base_path(
+            'android/folder-video-tv-apk/app/src/main/java/monster/mystar/foldervideotv/MainActivity.java'
+        ));
+        $this->assertStringContainsString('NasDirectBridge.bundledCredentials(this)', $videoTv);
+
+        $this->assertFileDoesNotExist(base_path(
+            'android/shared-nas-direct/nas-credentials.xml'
+        ));
     }
 }

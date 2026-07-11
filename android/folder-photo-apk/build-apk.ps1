@@ -2,8 +2,8 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $projectRoot '..\..')
-$versionCode = 2
-$versionName = '2026.07.11.2'
+$versionCode = 3
+$versionName = '2026.07.11.3'
 $sdkRoot = $env:ANDROID_SDK_ROOT
 if (-not $sdkRoot) {
     $sdkRoot = $env:ANDROID_HOME
@@ -65,6 +65,7 @@ if (Test-Path $buildDir) {
     Remove-Item -LiteralPath $buildDir -Recurse -Force
 }
 New-Item -ItemType Directory -Force -Path $buildDir, $generatedDir, $classesDir, $dexDir | Out-Null
+$sharedBuildResources = & (Join-Path $repoRoot 'android\shared-nas-direct\prepare-resources.ps1') -BuildDir $buildDir -RepoRoot $repoRoot
 
 $compiled = $false
 for ($attempt = 1; $attempt -le 3; $attempt++) {
@@ -78,7 +79,7 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
 }
 if (-not $compiled) { throw 'aapt2 compile failed' }
 
-& $aapt2 compile --dir (Join-Path $repoRoot 'android\shared-nas-direct\res') -o $sharedCompiledResources
+& $aapt2 compile --dir $sharedBuildResources -o $sharedCompiledResources
 if ($LASTEXITCODE -ne 0) { throw 'shared aapt2 compile failed' }
 
 & $aapt2 link `

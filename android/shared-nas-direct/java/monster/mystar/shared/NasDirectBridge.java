@@ -37,6 +37,22 @@ public final class NasDirectBridge {
         this.preferences = activity.getSharedPreferences("nas-direct-settings", Activity.MODE_PRIVATE);
     }
 
+    public static String[] bundledCredentials(Activity activity) {
+        if (activity == null) return null;
+        int usernameId = activity.getResources().getIdentifier(
+            "nas_bundled_username", "string", activity.getPackageName()
+        );
+        int passwordId = activity.getResources().getIdentifier(
+            "nas_bundled_password", "string", activity.getPackageName()
+        );
+        if (usernameId == 0 || passwordId == 0) return null;
+        String username = activity.getString(usernameId).trim();
+        String password = activity.getString(passwordId);
+        return username.isEmpty() || password.isEmpty()
+            ? null
+            : new String[] {username, password};
+    }
+
     @JavascriptInterface
     public boolean ready() {
         return load() != null;
@@ -151,6 +167,8 @@ public final class NasDirectBridge {
     }
 
     private String[] load() {
+        String[] bundled = bundledCredentials(activity);
+        if (bundled != null) return bundled;
         try {
             String iv = preferences.getString("iv", "");
             String encrypted = preferences.getString("credentials", "");

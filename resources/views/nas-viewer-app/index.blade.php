@@ -585,6 +585,7 @@
         if (entry.kind === 'video') return '🎬';
         if (entry.kind === 'image') return '🖼️';
         if (entry.kind === 'text') return '📄';
+        if (entry.kind === 'apk') return '🤖';
         return '📦';
     }
 
@@ -592,6 +593,7 @@
         if (entry.kind === 'directory') return '›';
         if (entry.kind === 'video') return '▶';
         if (entry.kind === 'image' || entry.kind === 'text') return '⌕';
+        if (entry.kind === 'apk') return '⇩';
         return '—';
     }
 
@@ -621,7 +623,7 @@
     function entryMeta(entry) {
         if (entry.available === false) return '目前無法連線';
         const labels = {
-            directory: '資料夾', video: '影片', image: '圖片', text: '文字', other: '不支援預覽',
+            directory: '資料夾', video: '影片', image: '圖片', text: '文字', apk: 'Android 安裝檔', other: '不支援預覽',
         };
         const parts = [labels[entry.kind] || entry.kind];
         const size = formatBytes(entry.size_bytes);
@@ -759,7 +761,11 @@
         if (state.selectedId !== entry.id) {
             state.selectedId = entry.id;
             renderList();
-            showToast(entry.kind === 'directory' ? '再點一下進入目錄' : '再點一下開啟檔案');
+            showToast(
+                entry.kind === 'directory'
+                    ? '再點一下進入目錄'
+                    : (entry.kind === 'apk' ? '再點一下開啟安裝檔' : '再點一下開啟檔案')
+            );
             return;
         }
 
@@ -775,7 +781,20 @@
             openViewer(entry);
             return;
         }
+        if (entry.kind === 'apk') {
+            openApkInstaller(entry);
+            return;
+        }
         showToast('這個檔案格式目前不支援預覽');
+    }
+
+    function openApkInstaller(entry) {
+        if (!entry.download_url) {
+            showToast('這個 APK 安裝檔目前無法開啟');
+            return;
+        }
+        showToast('正在開啟 APK 安裝檔…', 3000);
+        window.location.assign(entry.download_url);
     }
 
     function resetViewerElements() {

@@ -45,6 +45,16 @@ class NasViewerController extends Controller
     public function stream(Request $request): BinaryFileResponse
     {
         $path = $this->nasViewerService->resolveFilePath((string) $request->query('id', ''));
+        if (strtolower((string) pathinfo($path, PATHINFO_EXTENSION)) === 'apk') {
+            $response = response()->download($path, basename($path), [
+                'Content-Type' => 'application/vnd.android.package-archive',
+                'X-Content-Type-Options' => 'nosniff',
+            ]);
+            $response->setPrivate();
+            $response->setMaxAge(600);
+
+            return $response;
+        }
 
         $response = response()->file($path, [
             'Content-Type' => mime_content_type($path) ?: 'application/octet-stream',

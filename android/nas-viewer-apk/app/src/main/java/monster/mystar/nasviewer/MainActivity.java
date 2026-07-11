@@ -48,8 +48,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 4;
-    private static final String APP_VERSION_NAME = "2026.07.11.1";
+    private static final int APP_VERSION_CODE = 5;
+    private static final String APP_VERSION_NAME = "2026.07.11.2";
     private static final String ANDROID_VERSION_PATH = "/nas-viewer-app/android-version.json";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/nas-viewer-app",
@@ -70,6 +70,7 @@ public class MainActivity extends Activity {
     private long lastApkUpdateCheckMs = 0L;
     private boolean apkUpdateCheckRunning = false;
     private boolean updateDownloadReceiverRegistered = false;
+    private boolean pendingInstallPermission = false;
     private int systemBarTopInset = 0;
     private int systemBarBottomInset = 0;
     private boolean videoFullscreenEnabled = false;
@@ -182,6 +183,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (
+            pendingInstallPermission
+            && updateDownloadId > 0
+            && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || getPackageManager().canRequestPackageInstalls())
+        ) {
+            pendingInstallPermission = false;
+            installDownloadedApk();
+        }
         if (webView != null) {
             webView.evaluateJavascript("if (window.nasViewerCheckUpdates) { window.nasViewerCheckUpdates(); }", null);
         }
@@ -505,7 +514,11 @@ public class MainActivity extends Activity {
     private class NasViewerDownloadListener implements DownloadListener {
         @Override
         public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimeType, long contentLength) {
-            if (url != null && url.endsWith(".apk")) {
+            Uri downloadUri = url == null ? null : Uri.parse(url);
+            String downloadPath = downloadUri == null ? "" : String.valueOf(downloadUri.getPath()).toLowerCase();
+            boolean isApk = downloadPath.endsWith(".apk")
+                || "application/vnd.android.package-archive".equalsIgnoreCase(mimeType);
+            if (url != null && isApk) {
                 downloadApk(url, APP_VERSION_CODE + 1, "latest");
                 return;
             }
@@ -623,14 +636,14 @@ public class MainActivity extends Activity {
     private void downloadApk(String apkUrl, int versionCode, String versionName) {
         try {
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(apkUrl));
-            request.setTitle("NAS Viewer 更新");
-            request.setDescription("下載 " + (versionName == null || versionName.length() == 0 ? ("v" + versionCode) : versionName));
+            request.setTitle("APK 安裝檔");
+            request.setDescription("下載 APK 安裝檔 " + (versionName == null || versionName.length() == 0 ? ("v" + versionCode) : versionName));
             request.setMimeType("application/vnd.android.package-archive");
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             request.setDestinationInExternalFilesDir(
                 this,
                 Environment.DIRECTORY_DOWNLOADS,
-                "nas-viewer-app-" + versionCode + ".apk"
+                "nas-installer-" + System.currentTimeMillis() + ".apk"
             );
 
             DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
@@ -640,7 +653,7 @@ public class MainActivity extends Activity {
             }
 
             updateDownloadId = manager.enqueue(request);
-            Toast.makeText(this, "正在下載 NAS Viewer 更新", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "正在下載 APK 安裝檔", Toast.LENGTH_LONG).show();
         } catch (Exception error) {
             openExternal(Uri.parse(apkUrl));
         }
@@ -653,18 +666,19 @@ public class MainActivity extends Activity {
         }
 
         if (!downloadSucceeded(manager, updateDownloadId)) {
-            Toast.makeText(this, "更新下載失敗，請稍後再試", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "APK 下載失敗，請稍後再試", Toast.LENGTH_LONG).show();
             return;
         }
 
         Uri apkUri = manager.getUriForDownloadedFile(updateDownloadId);
         if (apkUri == null) {
-            Toast.makeText(this, "找不到已下載的更新檔", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "找不到已下載的 APK", Toast.LENGTH_LONG).show();
             return;
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getPackageManager().canRequestPackageInstalls()) {
-            Toast.makeText(this, "請允許 NAS Viewer 安裝未知來源更新", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "請允許 NAS Viewer 安裝未知來源 APK", Toast.LENGTH_LONG).show();
+            pendingInstallPermission = true;
             try {
                 Intent settingsIntent = new Intent(
                     Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
@@ -682,6 +696,8 @@ public class MainActivity extends Activity {
         installIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
 
         try {
+            pendingInstallPermission = false;
+            updateDownloadId = -1L;
             startActivity(installIntent);
         } catch (ActivityNotFoundException error) {
             Toast.makeText(this, "無法開啟 APK 安裝器", Toast.LENGTH_LONG).show();

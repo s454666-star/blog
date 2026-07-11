@@ -32,6 +32,7 @@ class NasViewerControllerTest extends TestCase
         file_put_contents($this->rootA.DIRECTORY_SEPARATOR.'Movies'.DIRECTORY_SEPARATOR.'clip.mp4', 'fake-video');
         file_put_contents($this->rootA.DIRECTORY_SEPARATOR.'Pictures'.DIRECTORY_SEPARATOR.'photo.jpg', $this->onePixelPng());
         file_put_contents($this->rootA.DIRECTORY_SEPARATOR.'Docs'.DIRECTORY_SEPARATOR.'readme.txt', 'NAS text viewer');
+        file_put_contents($this->rootA.DIRECTORY_SEPARATOR.'installer.apk', 'fake-installer-apk');
         file_put_contents($this->rootA.DIRECTORY_SEPARATOR.'archive.zip', 'unsupported');
         file_put_contents($this->rootA.DIRECTORY_SEPARATOR.'.secret.txt', 'hidden');
         file_put_contents($this->fakeApk, 'fake-nas-viewer-apk');
@@ -42,6 +43,7 @@ class NasViewerControllerTest extends TestCase
         ]);
         config()->set('nas_viewer.video_extensions', ['mp4']);
         config()->set('nas_viewer.image_extensions', ['jpg', 'png']);
+        config()->set('nas_viewer.apk_extensions', ['apk']);
         config()->set('nas_viewer.text_extensions', ['txt', 'md']);
         config()->set('nas_viewer.text_filenames', ['readme']);
         config()->set('nas_viewer.hidden_names', ['@eaDir']);
@@ -82,6 +84,8 @@ class NasViewerControllerTest extends TestCase
         $entries = collect($response->json('data'));
 
         $this->assertSame(['Docs', 'Movies', 'Pictures'], $entries->where('kind', 'directory')->pluck('name')->all());
+        $this->assertSame('apk', $entries->firstWhere('name', 'installer.apk')['kind']);
+        $this->assertNotEmpty($entries->firstWhere('name', 'installer.apk')['download_url']);
         $this->assertSame('other', $entries->firstWhere('name', 'archive.zip')['kind']);
         $this->assertFalse($entries->contains('name', '@eaDir'));
         $this->assertFalse($entries->contains('name', '.secret.txt'));
@@ -108,6 +112,12 @@ class NasViewerControllerTest extends TestCase
         $this->get($pictureEntries[0]['media_url'])
             ->assertOk()
             ->assertHeader('Cache-Control', 'max-age=600, private');
+
+        $installer = $rootEntries->firstWhere('name', 'installer.apk');
+        $this->get($installer['download_url'])
+            ->assertOk()
+            ->assertDownload('installer.apk')
+            ->assertHeader('Content-Type', 'application/vnd.android.package-archive');
 
         $archive = $rootEntries->firstWhere('name', 'archive.zip');
         $this->get('/api/nas-browser/stream?id='.urlencode($archive['id']))->assertNotFound();
@@ -173,6 +183,8 @@ class NasViewerControllerTest extends TestCase
             ->assertSee("const delta = dy < 0 ? 1 : -1", false)
             ->assertSee("showToast('上滑下一個・下滑上一個')", false)
             ->assertSee("state.entries.filter(entry => ['video', 'image', 'text'].includes(entry.kind))", false)
+            ->assertSee("window.location.assign(entry.download_url)", false)
+            ->assertSee('再點一下開啟安裝檔')
             ->assertSee('.viewer.video-mode .viewer-header', false)
             ->assertSee("elements.video.addEventListener('ended', () => closeViewer())", false);
 

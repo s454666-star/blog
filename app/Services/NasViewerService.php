@@ -21,6 +21,7 @@ class NasViewerService
             'page_limit' => max(1, (int) config('nas_viewer.page_limit', 300)),
             'video_extensions' => $this->extensions('video_extensions'),
             'image_extensions' => $this->extensions('image_extensions'),
+            'apk_extensions' => $this->extensions('apk_extensions'),
             'text_extensions' => $this->extensions('text_extensions'),
         ];
     }
@@ -126,7 +127,7 @@ class NasViewerService
     {
         $identity = $this->decodeId($id);
         $file = $this->resolvePath($identity['root_id'], $identity['relative_path'], false);
-        if (! in_array($this->kindForPath($file['path']), ['video', 'image'], true)) {
+        if (! in_array($this->kindForPath($file['path']), ['video', 'image', 'apk'], true)) {
             throw new NotFoundHttpException('This file is not supported by the media viewer.');
         }
 
@@ -150,6 +151,7 @@ class NasViewerService
                 'size_bytes' => null,
                 'modified_at' => $available ? $this->safeModifiedAt($path) : null,
                 'media_url' => null,
+                'download_url' => null,
             ];
         }
 
@@ -190,6 +192,7 @@ class NasViewerService
                 'size_bytes' => null,
                 'modified_at' => $this->safeModifiedAt($file->getPathname()),
                 'media_url' => null,
+                'download_url' => null,
             ];
         }
 
@@ -207,6 +210,9 @@ class NasViewerService
             'size_bytes' => $this->safeSize($file),
             'modified_at' => $this->safeModifiedAt($file->getPathname()),
             'media_url' => in_array($kind, ['video', 'image'], true)
+                ? $this->mediaUrl($rootId, $relativePath)
+                : null,
+            'download_url' => $kind === 'apk'
                 ? $this->mediaUrl($rootId, $relativePath)
                 : null,
             'text_url' => $kind === 'text'
@@ -319,6 +325,9 @@ class NasViewerService
         }
         if (in_array($extension, $this->extensions('image_extensions'), true)) {
             return 'image';
+        }
+        if (in_array($extension, $this->extensions('apk_extensions'), true)) {
+            return 'apk';
         }
         if (
             in_array($extension, $this->extensions('text_extensions'), true)

@@ -50,6 +50,7 @@ return [
     ],
     'video_extensions' => ['mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi', 'ts', 'm2ts'],
     'image_extensions' => ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'avif'],
+    'apk_extensions' => ['apk'],
     'text_extensions' => [
         'txt', 'md', 'markdown', 'json', 'jsonl', 'csv', 'tsv', 'log', 'xml', 'yaml', 'yml',
         'ini', 'conf', 'cfg', 'php', 'js', 'ts', 'jsx', 'tsx', 'css', 'scss', 'html', 'htm',
@@ -65,8 +66,8 @@ return [
     'page_limit' => (int) env('NAS_VIEWER_PAGE_LIMIT', 300),
     'max_page_limit' => (int) env('NAS_VIEWER_MAX_PAGE_LIMIT', 1000),
     'text_max_bytes' => (int) env('NAS_VIEWER_TEXT_MAX_BYTES', 5 * 1024 * 1024),
-    'app_version' => env('NAS_VIEWER_APP_VERSION', '2026.07.11.1'),
-    'android_apk_version_code' => (int) env('NAS_VIEWER_ANDROID_APK_VERSION_CODE', 4),
-    'android_apk_version_name' => env('NAS_VIEWER_ANDROID_APK_VERSION_NAME', '2026.07.11.1'),
+    'app_version' => env('NAS_VIEWER_APP_VERSION', '2026.07.11.2'),
+    'android_apk_version_code' => (int) env('NAS_VIEWER_ANDROID_APK_VERSION_CODE', 5),
+    'android_apk_version_name' => env('NAS_VIEWER_ANDROID_APK_VERSION_NAME', '2026.07.11.2'),
     'android_apk_path' => env('NAS_VIEWER_ANDROID_APK_PATH', storage_path('app/nas-viewer-app.apk')),
 ];

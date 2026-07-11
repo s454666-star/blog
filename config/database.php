@@ -142,6 +142,14 @@ return [
             'database' => env('REDIS_CACHE_DB', '1'),
         ],
 
+        'resource_codes' => [
+            'url' => env('TELEGRAM_RESOURCE_CODE_REDIS_URL'),
+            'host' => env('TELEGRAM_RESOURCE_CODE_REDIS_HOST', env('REDIS_HOST', '127.0.0.1')),
+            'password' => env('TELEGRAM_RESOURCE_CODE_REDIS_PASSWORD', env('REDIS_PASSWORD')),
+            'port' => env('TELEGRAM_RESOURCE_CODE_REDIS_PORT', env('REDIS_PORT', '6379')),
+            'database' => env('TELEGRAM_RESOURCE_CODE_REDIS_DB', '2'),
+        ],
+
     ],
 
 ];

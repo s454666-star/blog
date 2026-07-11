@@ -53,6 +53,12 @@ return [
             'lock_connection' => 'default',
         ],
 
+        'telegram_resource_codes' => [
+            'driver' => 'redis',
+            'connection' => 'resource_codes',
+            'lock_connection' => 'resource_codes',
+        ],
+
         'dynamodb' => [
             'driver' => 'dynamodb',
             'key' => env('AWS_ACCESS_KEY_ID'),

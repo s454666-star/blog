@@ -47,6 +47,7 @@ DOWNLOAD_RESERVED_PATHS_BY_JOB: Dict[str, Set[str]] = {}
 DOWNLOAD_JOBS: Dict[str, Dict[str, Any]] = {}
 DOWNLOAD_SEEN_KEYS: Set[str] = set()
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
+RESOURCE_CODE_LOCK = asyncio.Lock()
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
 GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180
 
@@ -3054,6 +3055,16 @@ class DeleteMessagesRequest(BaseModel):
     message_ids: List[int]
 
 
+class ProcessResourceCodeRequest(BaseModel):
+    code: str
+    bot_username: str = "zyxfids_bot"
+    target_peer_id: int
+    wait_timeout_seconds: int = 240
+    poll_interval_seconds: float = 1.5
+    settle_seconds: float = 5.0
+    drop_media_captions: bool = False
+
+
 @app.post("/bots/send")
 async def send_message_to_bot(payload: SendBotMessageRequest):
     if payload.clear_previous_replies:
@@ -3370,6 +3381,235 @@ async def delete_messages_from_chat(payload: DeleteMessagesRequest):
             "chat_peer": chat_peer,
             "message_ids": message_ids,
         }
+
+
+def _resource_code_media_kind(msg: Any) -> Optional[str]:
+    if getattr(msg, "photo", None) is not None:
+        return "photo"
+    if getattr(msg, "video", None) is not None:
+        return "video"
+
+    document = getattr(msg, "document", None)
+    mime_type = str(getattr(document, "mime_type", None) or "").lower()
+    if mime_type.startswith("image/"):
+        return "image_document"
+    if mime_type.startswith("video/"):
+        return "video_document"
+
+    file_info = getattr(msg, "file", None)
+    file_name = str(getattr(file_info, "name", None) or "").lower()
+    if file_name.endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic")):
+        return "image_document"
+    if file_name.endswith((".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v")):
+        return "video_document"
+    return None
+
+
+async def _cleanup_resource_code_bot_messages(peer: Any, message_ids: List[int]) -> List[int]:
+    remaining = sorted({int(mid) for mid in message_ids if int(mid or 0) > 0})
+    transient_attempts = 0
+
+    while remaining:
+        try:
+            await client.delete_messages(peer, remaining, revoke=True)
+            await asyncio.sleep(0.6)
+            remaining = await _find_remaining_message_ids(peer, remaining)
+            transient_attempts = 0
+        except FloodWaitError as e:
+            wait_s = max(1, int(getattr(e, "seconds", 1) or 1))
+            push_log(
+                stage="resource_code_cleanup",
+                result="flood_wait",
+                extra={"wait_seconds": wait_s, "remaining_count": len(remaining)},
+            )
+            await asyncio.sleep(float(wait_s) + 1.0)
+        except Exception as e:
+            transient_attempts += 1
+            push_log(
+                stage="resource_code_cleanup",
+                result="retry",
+                extra={"attempt": transient_attempts, "error": str(e), "remaining_count": len(remaining)},
+            )
+            if transient_attempts >= 6:
+                break
+            await asyncio.sleep(float(min(30, 2 ** transient_attempts)))
+
+    return remaining
+
+
+async def _resource_code_bot_media(
+    peer: Any,
+    sent_message_id: int,
+    wait_timeout_seconds: int,
+    poll_interval_seconds: float,
+    settle_seconds: float,
+) -> Tuple[List[Any], List[int]]:
+    deadline = asyncio.get_running_loop().time() + float(wait_timeout_seconds)
+    stable_since: Optional[float] = None
+    last_media_ids: Tuple[int, ...] = tuple()
+    all_reply_ids: Set[int] = set()
+    media_by_id: Dict[int, Any] = {}
+
+    while asyncio.get_running_loop().time() < deadline:
+        messages = await client.get_messages(peer, limit=240, min_id=int(sent_message_id))
+        for msg in messages or []:
+            mid = int(getattr(msg, "id", 0) or 0)
+            if mid <= int(sent_message_id):
+                continue
+            all_reply_ids.add(mid)
+            if not bool(getattr(msg, "out", False)) and _resource_code_media_kind(msg) is not None:
+                media_by_id[mid] = msg
+
+        current_ids = tuple(sorted(media_by_id.keys()))
+        now_value = asyncio.get_running_loop().time()
+        if current_ids:
+            if current_ids != last_media_ids:
+                last_media_ids = current_ids
+                stable_since = now_value
+            elif stable_since is not None and now_value - stable_since >= float(settle_seconds):
+                return [media_by_id[mid] for mid in current_ids], sorted(all_reply_ids)
+
+        await asyncio.sleep(float(poll_interval_seconds))
+
+    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids)
+
+
+@app.post("/resource-codes/process")
+async def process_resource_code(payload: ProcessResourceCodeRequest):
+    code = str(payload.code or "").strip().lower()
+    bot_username = str(payload.bot_username or "").strip().lstrip("@")
+    target_peer_id = int(payload.target_peer_id or 0)
+    sent_message_id = 0
+    bot_reply_ids: List[int] = []
+    bot_media_ids: List[int] = []
+    forwarded_message_ids: List[int] = []
+    phase = "validate"
+
+    if re.fullmatch(r"[0-9a-f]{40}", code) is None:
+        return {"status": "error", "reason": "invalid_code"}
+    if not bot_username or target_peer_id <= 0:
+        return {"status": "error", "reason": "invalid_target"}
+
+    async with RESOURCE_CODE_LOCK:
+        if not await _ensure_client_connected():
+            return {"status": "error", "reason": "client_not_connected"}
+
+        bot_peer = await _get_peer_for_bot(bot_username)
+        target_peer = await _resolve_any_input_entity_by_id(target_peer_id)
+        if bot_peer is None:
+            return {"status": "error", "reason": "bot_not_found"}
+        if target_peer is None:
+            return {"status": "error", "reason": "target_not_found"}
+
+        try:
+            phase = "send_code"
+            sent = await client.send_message(bot_peer, code, parse_mode=None, link_preview=False)
+            sent_message_id = int(getattr(sent, "id", 0) or 0)
+            if sent_message_id <= 0:
+                return {"status": "error", "reason": "send_message_id_missing"}
+
+            phase = "wait_media"
+            media_messages, bot_reply_ids = await _resource_code_bot_media(
+                peer=bot_peer,
+                sent_message_id=sent_message_id,
+                wait_timeout_seconds=max(30, min(1800, int(payload.wait_timeout_seconds or 240))),
+                poll_interval_seconds=max(0.5, min(10.0, float(payload.poll_interval_seconds or 1.5))),
+                settle_seconds=max(1.0, min(30.0, float(payload.settle_seconds or 5.0))),
+            )
+            bot_media_ids = [int(getattr(msg, "id", 0) or 0) for msg in media_messages]
+            bot_media_ids = [mid for mid in bot_media_ids if mid > 0]
+
+            if not media_messages:
+                phase = "cleanup_no_media"
+                remaining = await _cleanup_resource_code_bot_messages(bot_peer, [sent_message_id] + bot_reply_ids)
+                return {
+                    "status": "error",
+                    "reason": "media_timeout",
+                    "cleanup_complete": len(remaining) == 0,
+                    "undeleted_count": len(remaining),
+                }
+
+            phase = "forward_media"
+            for offset in range(0, len(media_messages), 100):
+                forwarded = await client.forward_messages(
+                    target_peer,
+                    media_messages[offset:offset + 100],
+                    drop_author=True,
+                    drop_media_captions=bool(payload.drop_media_captions),
+                )
+                if not isinstance(forwarded, list):
+                    forwarded = [forwarded] if forwarded is not None else []
+                for msg in forwarded:
+                    mid = int(getattr(msg, "id", 0) or 0)
+                    if mid > 0:
+                        forwarded_message_ids.append(mid)
+
+            if len(forwarded_message_ids) != len(bot_media_ids):
+                raise RuntimeError("forwarded message count mismatch")
+
+            phase = "cleanup_after_forward"
+            remaining = await _cleanup_resource_code_bot_messages(
+                bot_peer,
+                [sent_message_id] + bot_reply_ids + bot_media_ids,
+            )
+            if remaining:
+                return {
+                    "status": "error",
+                    "reason": "delete_incomplete",
+                    "forwarded_count": len(forwarded_message_ids),
+                    "cleanup_complete": False,
+                    "undeleted_count": len(remaining),
+                }
+
+            push_log(
+                stage="resource_code_process",
+                result="ok",
+                extra={
+                    "target_peer_id": target_peer_id,
+                    "forwarded_count": len(forwarded_message_ids),
+                },
+            )
+            return {
+                "status": "ok",
+                "forwarded_count": len(forwarded_message_ids),
+                "cleanup_complete": True,
+                "target_message_ids": forwarded_message_ids,
+            }
+        except FloodWaitError as e:
+            wait_s = max(1, int(getattr(e, "seconds", 1) or 1))
+            cleanup_ids = [sent_message_id] + bot_reply_ids + bot_media_ids
+            remaining = await _cleanup_resource_code_bot_messages(bot_peer, cleanup_ids) if cleanup_ids else []
+            push_log(
+                stage="resource_code_process",
+                result="flood_wait",
+                extra={"phase": phase, "wait_seconds": wait_s, "cleanup_complete": len(remaining) == 0},
+            )
+            return {
+                "status": "flood_wait",
+                "reason": "flood_wait",
+                "phase": phase,
+                "wait_seconds": wait_s,
+                "cleanup_complete": len(remaining) == 0,
+            }
+        except Exception as e:
+            cleanup_ids = [sent_message_id] + bot_reply_ids + bot_media_ids
+            remaining = await _cleanup_resource_code_bot_messages(bot_peer, cleanup_ids) if cleanup_ids else []
+            push_log(
+                stage="resource_code_process",
+                result="error",
+                extra={
+                    "phase": phase,
+                    "error": str(e),
+                    "cleanup_complete": len(remaining) == 0,
+                    "trace": traceback.format_exc()[:1200],
+                },
+            )
+            return {
+                "status": "error",
+                "reason": "processing_failed",
+                "phase": phase,
+                "cleanup_complete": len(remaining) == 0,
+            }
 
     try:
         try:

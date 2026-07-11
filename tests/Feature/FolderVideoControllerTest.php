@@ -40,6 +40,7 @@ class FolderVideoControllerTest extends TestCase
         config()->set('folder_video.ffmpeg_bin', '');
         config()->set('folder_video.ffprobe_bin', $this->fakeFfprobe);
         config()->set('folder_video.preview_cache_path', $this->tempRoot.DIRECTORY_SEPARATOR.'previews');
+        config()->set('folder_video.preview_queue_path', $this->tempRoot.DIRECTORY_SEPARATOR.'preview-queue');
         config()->set('folder_video.thumbnail_cache_path', $this->tempRoot.DIRECTORY_SEPARATOR.'thumbnails');
         config()->set('folder_video.stream_base_path', '');
         config()->set('folder_video.preview_fallback_to_source', true);
@@ -108,7 +109,7 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.filename', 'short.mp4')
             ->assertJsonPath('data.liked', true)
             ->assertJsonPath('data.stream_url', "/api/folder-videos/{$id}/stream")
-            ->assertJsonPath('data.preview_url', "/api/folder-videos/{$id}/preview");
+            ->assertJsonPath('data.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'));
 
         $this->assertFileDoesNotExist($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4');
         $this->assertFileExists($this->tempRoot.DIRECTORY_SEPARATOR.'good'.DIRECTORY_SEPARATOR.'short.mp4');
@@ -125,7 +126,7 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.0.filename', 'short.mp4')
             ->assertJsonPath('data.0.liked', true)
             ->assertJsonPath('data.0.stream_url', "/api/folder-videos/{$id}/stream")
-            ->assertJsonPath('data.0.preview_url', "/api/folder-videos/{$id}/preview");
+            ->assertJsonPath('data.0.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'));
 
         $this->get("/api/folder-videos/{$id}/stream")
             ->assertOk();
@@ -145,7 +146,7 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.filename', 'short.mp4')
             ->assertJsonPath('data.liked', false)
             ->assertJsonPath('data.stream_url', "/api/folder-videos/{$id}/stream")
-            ->assertJsonPath('data.preview_url', "/api/folder-videos/{$id}/preview");
+            ->assertJsonPath('data.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'));
 
         $this->assertFileExists($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4');
         $this->assertFileDoesNotExist($this->tempRoot.DIRECTORY_SEPARATOR.'good'.DIRECTORY_SEPARATOR.'short.mp4');
@@ -233,7 +234,7 @@ class FolderVideoControllerTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.0.stream_url', '/api/folder-videos/c2hvcnQubXA0/stream')
-            ->assertJsonPath('data.0.preview_url', '/api/folder-videos/c2hvcnQubXA0/preview')
+            ->assertJsonPath('data.0.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'))
             ->assertJsonPath('data.0.thumbnail_url', '/api/folder-videos/c2hvcnQubXA0/thumbnail')
             ->assertJsonPath('data.0.preview_cached', false)
             ->assertJsonPath('data.0.thumbnail_cached', false);
@@ -247,7 +248,7 @@ class FolderVideoControllerTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.0.stream_url', '/folder-video-media/short.mp4')
-            ->assertJsonPath('data.0.preview_url', '/api/folder-videos/c2hvcnQubXA0/preview')
+            ->assertJsonPath('data.0.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'))
             ->assertJsonPath('data.0.thumbnail_url', '/api/folder-videos/c2hvcnQubXA0/thumbnail')
             ->assertJsonPath('data.0.preview_cached', false)
             ->assertJsonPath('data.0.thumbnail_cached', false);
@@ -319,7 +320,7 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.1.filename', $expected[1])
             ->assertJsonPath('data.2.filename', $expected[2])
             ->assertJsonPath('data.0.stream_url', '/api/folder-videos/'.rtrim(strtr(base64_encode($expected[0]), '+/', '-_'), '=').'/stream')
-            ->assertJsonPath('data.0.preview_url', '/api/folder-videos/'.rtrim(strtr(base64_encode($expected[0]), '+/', '-_'), '=').'/preview');
+            ->assertJsonPath('data.0.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'));
 
         $this->assertSame($response->json('data'), $responseAgain->json('data'));
 
@@ -376,17 +377,39 @@ class FolderVideoControllerTest extends TestCase
             ->assertSee('folder-video-app-test-version', false);
     }
 
+    public function test_it_queues_missing_previews_and_reports_when_the_worker_finishes(): void
+    {
+        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
+
+        $this->postJson("/api/folder-videos/{$id}/preview-queue")
+            ->assertStatus(202)
+            ->assertJsonPath('data.ready', false)
+            ->assertJsonPath('data.queued', true);
+
+        $requests = glob($this->tempRoot.DIRECTORY_SEPARATOR.'preview-queue'.DIRECTORY_SEPARATOR.'*.json');
+        $this->assertCount(1, $requests);
+        $payload = json_decode((string) file_get_contents($requests[0]), true);
+        $this->assertIsArray($payload);
+        File::ensureDirectoryExists(dirname($payload['preview_path']));
+        file_put_contents($payload['preview_path'], 'cached-preview');
+
+        $this->getJson("/api/folder-videos/{$id}/preview-status")
+            ->assertOk()
+            ->assertJsonPath('data.ready', true)
+            ->assertJsonPath('data.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'));
+    }
+
     public function test_folder_video_tv_update_channel_serves_only_the_tv_apk(): void
     {
-        config()->set('folder_video.tv_android_apk_version_code', 3);
-        config()->set('folder_video.tv_android_apk_version_name', '2026.07.11.3-tv');
+        config()->set('folder_video.tv_android_apk_version_code', 4);
+        config()->set('folder_video.tv_android_apk_version_name', '2026.07.11.4-tv');
         config()->set('folder_video.tv_android_apk_path', storage_path('app/folder-video-tv.apk'));
 
         $this->withHeaders(['X-Forwarded-Host' => '10.0.0.25:8090', 'X-Forwarded-Proto' => 'http'])
             ->getJson('/folder-video-app/tv/android-version.json')
             ->assertOk()
-            ->assertJsonPath('data.version_code', 3)
-            ->assertJsonPath('data.version_name', '2026.07.11.3-tv')
+            ->assertJsonPath('data.version_code', 4)
+            ->assertJsonPath('data.version_name', '2026.07.11.4-tv')
             ->assertJsonPath('data.apk_url', 'http://10.0.0.25:8090/folder-video-app/tv/folder-video-tv.apk');
 
         $this->get('/folder-video-app/tv/folder-video-tv.apk')

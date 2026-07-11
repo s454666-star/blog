@@ -1,0 +1,304 @@
+#!/usr/bin/env python3
+"""High-throughput byte-range server plus background Folder Video preview worker."""
+
+from __future__ import annotations
+
+import argparse
+import email.utils
+import json
+import mimetypes
+import os
+from pathlib import Path
+import re
+import subprocess
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import unquote, urlsplit
+import uuid
+
+
+BUFFER_SIZE = 1024 * 1024
+RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+
+def is_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+class RangeRequestHandler(BaseHTTPRequestHandler):
+    server_version = "FolderVideoRange/1.0"
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        self._serve_file(False)
+
+    def do_GET(self) -> None:  # noqa: N802
+        self._serve_file(True)
+
+    def log_message(self, fmt: str, *args: object) -> None:
+        return
+
+    def _serve_file(self, send_body: bool) -> None:
+        raw_path = unquote(urlsplit(self.path).path)
+        preview_prefix = "/folder-video-preview-cache/"
+        if raw_path.startswith(preview_prefix):
+            root: Path = self.server.preview_root  # type: ignore[attr-defined]
+            relative = raw_path[len(preview_prefix) :].replace("/", os.sep)
+        else:
+            root = self.server.media_root  # type: ignore[attr-defined]
+            relative = raw_path.lstrip("/").replace("/", os.sep)
+        if not relative or "\x00" in relative:
+            self.send_error(404)
+            return
+
+        candidate = (root / relative).resolve()
+        if not is_within(candidate, root) or not candidate.is_file():
+            self.send_error(404)
+            return
+
+        try:
+            stat = candidate.stat()
+            start, end, partial = self._requested_range(stat.st_size)
+        except ValueError:
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{candidate.stat().st_size}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        except OSError:
+            self.send_error(404)
+            return
+
+        length = end - start + 1
+        content_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+        self.send_response(206 if partial else 200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(length))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "private, max-age=600")
+        self.send_header("Last-Modified", email.utils.formatdate(stat.st_mtime, usegmt=True))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if partial:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{stat.st_size}")
+        self.end_headers()
+
+        if not send_body:
+            return
+
+        remaining = length
+        try:
+            with candidate.open("rb", buffering=BUFFER_SIZE) as source:
+                source.seek(start)
+                while remaining > 0:
+                    chunk = source.read(min(BUFFER_SIZE, remaining))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remaining -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
+
+    def _requested_range(self, size: int) -> tuple[int, int, bool]:
+        header = self.headers.get("Range", "").strip()
+        if not header:
+            return 0, max(0, size - 1), False
+
+        match = RANGE_PATTERN.match(header)
+        if not match or size <= 0:
+            raise ValueError("Unsupported range")
+
+        start_text, end_text = match.groups()
+        if start_text == "":
+            suffix = int(end_text or "0")
+            if suffix <= 0:
+                raise ValueError("Invalid suffix")
+            start = max(0, size - suffix)
+            end = size - 1
+        else:
+            start = int(start_text)
+            end = int(end_text) if end_text else size - 1
+
+        if start < 0 or start >= size or end < start:
+            raise ValueError("Out of range")
+        return start, min(end, size - 1), True
+
+
+def transcode_preview(
+    ffmpeg: str,
+    source: Path,
+    destination: Path,
+    seconds: int,
+    height: int,
+) -> bool:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + f".tmp.{uuid.uuid4().hex}.mp4")
+    common = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        "0",
+        "-i",
+        str(source),
+        "-t",
+        str(seconds),
+        "-vf",
+        f"scale=-2:{height}",
+        "-an",
+    ]
+    commands = [
+        common
+        + [
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p2",
+            "-tune",
+            "ll",
+            "-b:v",
+            "900k",
+            "-maxrate",
+            "1400k",
+            "-bufsize",
+            "2800k",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(temporary),
+        ],
+        common
+        + [
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "fastdecode",
+            "-crf",
+            "32",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(temporary),
+        ],
+    ]
+
+    creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        for command in commands:
+            temporary.unlink(missing_ok=True)
+            result = subprocess.run(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=240,
+                check=False,
+                creationflags=creation_flags,
+            )
+            if result.returncode == 0 and temporary.is_file() and temporary.stat().st_size > 0:
+                os.replace(temporary, destination)
+                return True
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    finally:
+        temporary.unlink(missing_ok=True)
+    return False
+
+
+def preview_worker(
+    stop_event: threading.Event,
+    media_root: Path,
+    queue_root: Path,
+    preview_root: Path,
+    ffmpeg: str,
+    seconds: int,
+    height: int,
+) -> None:
+    queue_root.mkdir(parents=True, exist_ok=True)
+    preview_root.mkdir(parents=True, exist_ok=True)
+    for stale in queue_root.glob("*.working"):
+        stale.rename(stale.with_suffix(".json"))
+
+    while not stop_event.is_set():
+        queued = sorted(queue_root.glob("*.json"), key=lambda path: path.stat().st_mtime)
+        if not queued:
+            stop_event.wait(0.25)
+            continue
+
+        request_path = queued[0]
+        working_path = request_path.with_suffix(".working")
+        try:
+            os.replace(request_path, working_path)
+            payload = json.loads(working_path.read_text(encoding="utf-8"))
+            source = Path(str(payload.get("source_path", ""))).resolve()
+            destination = Path(str(payload.get("preview_path", ""))).resolve()
+            if not is_within(source, media_root) or not source.is_file():
+                continue
+            if not is_within(destination, preview_root):
+                continue
+            if destination.is_file() and destination.stat().st_size > 0:
+                continue
+            transcode_preview(ffmpeg, source, destination, seconds, height)
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        finally:
+            working_path.unlink(missing_ok=True)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8092)
+    parser.add_argument("--root", required=True)
+    parser.add_argument("--preview-queue", required=True)
+    parser.add_argument("--preview-root", required=True)
+    parser.add_argument("--ffmpeg", default="ffmpeg")
+    parser.add_argument("--preview-seconds", type=int, default=18)
+    parser.add_argument("--preview-height", type=int, default=360)
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    media_root = Path(args.root).resolve()
+    queue_root = Path(args.preview_queue).resolve()
+    preview_root = Path(args.preview_root).resolve()
+    stop_event = threading.Event()
+    worker = threading.Thread(
+        target=preview_worker,
+        args=(
+            stop_event,
+            media_root,
+            queue_root,
+            preview_root,
+            args.ffmpeg,
+            max(4, min(args.preview_seconds, 120)),
+            max(144, min(args.preview_height, 720)),
+        ),
+        daemon=True,
+        name="folder-video-preview-worker",
+    )
+    worker.start()
+
+    server = ThreadingHTTPServer((args.host, args.port), RangeRequestHandler)
+    server.daemon_threads = True
+    server.media_root = media_root  # type: ignore[attr-defined]
+    server.preview_root = preview_root  # type: ignore[attr-defined]
+    try:
+        server.serve_forever(poll_interval=0.25)
+    finally:
+        stop_event.set()
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()

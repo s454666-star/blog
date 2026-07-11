@@ -202,6 +202,53 @@ class FolderVideoService
         return rtrim((string) config('folder_video.preview_cache_path'), DIRECTORY_SEPARATOR);
     }
 
+    public function previewQueuePath(): string
+    {
+        return rtrim((string) config('folder_video.preview_queue_path'), DIRECTORY_SEPARATOR);
+    }
+
+    public function previewCacheStatus(string $id): array
+    {
+        $sourcePath = $this->resolveVideoPath($id);
+        $previewPath = $this->previewPathForSource($sourcePath);
+
+        return [
+            'id' => $id,
+            'ready' => is_file($previewPath) && filesize($previewPath) > 0,
+            'preview_url' => $this->previewUrlForFilename(basename($sourcePath)),
+        ];
+    }
+
+    public function queuePreview(string $id): array
+    {
+        $sourcePath = $this->resolveVideoPath($id);
+        $previewPath = $this->previewPathForSource($sourcePath);
+        $status = $this->previewCacheStatus($id);
+        if ($status['ready']) {
+            return $status + ['queued' => false];
+        }
+
+        $queuePath = $this->previewQueuePath();
+        File::ensureDirectoryExists($queuePath);
+        $key = hash('sha256', $previewPath);
+        $requestPath = $queuePath.DIRECTORY_SEPARATOR.$key.'.json';
+        if (! is_file($requestPath) && ! is_file($queuePath.DIRECTORY_SEPARATOR.$key.'.working')) {
+            $temporaryPath = $requestPath.'.tmp.'.getmypid().'.'.bin2hex(random_bytes(4));
+            $payload = json_encode([
+                'source_path' => $sourcePath,
+                'preview_path' => $previewPath,
+                'queued_at' => now()->toIso8601String(),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (is_string($payload) && file_put_contents($temporaryPath, $payload, LOCK_EX) !== false) {
+                if (! @rename($temporaryPath, $requestPath)) {
+                    @unlink($temporaryPath);
+                }
+            }
+        }
+
+        return $status + ['queued' => true];
+    }
+
     public function thumbnailCachePath(): string
     {
         return rtrim((string) config('folder_video.thumbnail_cache_path'), DIRECTORY_SEPARATOR);
@@ -1151,6 +1198,24 @@ POWERSHELL;
 
     protected function previewUrlForFilename(string $filename): string
     {
+        $sourcePath = null;
+        foreach ([$this->rootPath(), $this->goodDirectoryPath()] as $directory) {
+            $sourcePath = $this->safeVideoPathInDirectory($directory, $filename);
+            if ($sourcePath !== null) {
+                break;
+            }
+        }
+
+        if ($sourcePath !== null) {
+            $relative = str_replace('\\', '/', substr(
+                $this->previewPathForSource($sourcePath),
+                strlen($this->previewCachePath()) + 1
+            ));
+            $encoded = implode('/', array_map('rawurlencode', explode('/', $relative)));
+
+            return '/folder-video-preview-cache/'.$encoded;
+        }
+
         return route('folder-videos.preview', ['id' => $this->encodeId($filename)], false);
     }
 

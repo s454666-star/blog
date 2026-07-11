@@ -541,8 +541,10 @@
     let previewRefreshQueued = false;
     let gridMetricsRefreshQueued = false;
     let loadMoreQueued = false;
+    let tvPreviewOffset = 0;
     let stopPlayerDragSeek = () => {};
     const likeInFlight = new Set();
+    const previewPreparation = new Map();
 
     const observer = new IntersectionObserver(handlePreviewIntersections, {
         root: null,
@@ -923,6 +925,10 @@
         return /Android/i.test(userAgent) && /FolderVideoApp\//.test(userAgent);
     }
 
+    function isFolderVideoTvApp() {
+        return /Android/i.test(navigator.userAgent || '') && /FolderVideoTvApp\//.test(navigator.userAgent || '');
+    }
+
     function rawViewportHeight() {
         return Number(window.visualViewport?.height || window.innerHeight || 0);
     }
@@ -1112,7 +1118,14 @@
         }
 
         const video = card.querySelector('video');
-        if (!video || !video.dataset.src || video.dataset.activePreview === '1') {
+        if (!video) {
+            return;
+        }
+        if (!video.dataset.src) {
+            ensureCardPreview(card);
+            return;
+        }
+        if (video.dataset.activePreview === '1') {
             return;
         }
 
@@ -1128,6 +1141,54 @@
         video.defaultMuted = true;
         video.disableRemotePlayback = true;
         video.play().catch(() => {});
+    }
+
+    async function ensureCardPreview(card) {
+        const id = String(card?.dataset?.id || '');
+        const video = card?.querySelector('video');
+        if (!id || !video || video.dataset.previewPreparing === '1') return;
+        video.dataset.previewPreparing = '1';
+
+        let preparation = previewPreparation.get(id);
+        if (!preparation) {
+            preparation = preparePreview(id);
+            previewPreparation.set(id, preparation);
+        }
+
+        const ready = await preparation.catch(() => false);
+        if (!ready) previewPreparation.delete(id);
+        if (!card.isConnected) return;
+        delete video.dataset.previewPreparing;
+        if (!ready) return;
+
+        video.dataset.src = video.dataset.previewSrc || `${API_BASE}/${encodeURIComponent(id)}/preview`;
+        if (video.dataset.previewWanted === '1' && visiblePreviewCards.has(card)) {
+            startPreview(card);
+        }
+    }
+
+    async function preparePreview(id) {
+        const encodedId = encodeURIComponent(id);
+        const queueResponse = await fetch(`${API_BASE}/${encodedId}/preview-queue`, {
+            method: 'POST',
+            cache: 'no-store',
+            headers: {'Accept': 'application/json'},
+        });
+        if (!queueResponse.ok) return false;
+        let payload = await queueResponse.json();
+        if (payload.data?.ready) return true;
+
+        for (let attempt = 0; attempt < 90; attempt++) {
+            await sleep(1500);
+            const statusResponse = await fetch(`${API_BASE}/${encodedId}/preview-status?t=${Date.now()}`, {
+                cache: 'no-store',
+                headers: {'Accept': 'application/json'},
+            });
+            if (!statusResponse.ok) continue;
+            payload = await statusResponse.json();
+            if (payload.data?.ready) return true;
+        }
+        return false;
     }
 
     function scheduleStartPreview(card, order = 0) {
@@ -1312,11 +1373,15 @@
         }
 
         const desiredActive = desiredVisibleCount();
-        const maxActive = clamp(Math.min(Number(appConfig.preview_max_connections || 36), desiredActive, cards.length), 1, 36);
+        const decoderLimit = isFolderVideoTvApp() ? 4 : 8;
+        const maxActive = clamp(Math.min(Number(appConfig.preview_max_connections || 36), desiredActive, cards.length, decoderLimit), 1, decoderLimit);
         const activeCards = new Set();
 
         for (let offset = 0; offset < Math.min(maxActive, cards.length); offset++) {
-            activeCards.add(cards[offset]);
+            const index = isFolderVideoTvApp()
+                ? (tvPreviewOffset + offset) % cards.length
+                : offset;
+            activeCards.add(cards[index]);
         }
 
         document.querySelectorAll('.video-card').forEach((card) => {
@@ -2513,7 +2578,26 @@
         await fetchAppConfig();
         await loadMoreVideos(true);
         flushPendingLikeActions().catch(() => {});
-        registerServiceWorker();
+        if (isFolderVideoTvApp()) {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations()
+                    .then(registrations => Promise.all(registrations.map(registration => registration.unregister())))
+                    .catch(() => {});
+            }
+            if ('caches' in window) {
+                caches.keys()
+                    .then(keys => Promise.all(keys.filter(key => key.startsWith('folder-video-app-')).map(key => caches.delete(key))))
+                    .catch(() => {});
+            }
+        } else {
+            registerServiceWorker();
+        }
+        if (isFolderVideoTvApp()) {
+            window.setInterval(() => {
+                tvPreviewOffset += 4;
+                schedulePreviewRefresh();
+            }, 6000);
+        }
     }
 
     boot();

@@ -355,6 +355,40 @@
             touch-action: none;
         }
 
+        html.nas-viewer-tv .viewer.image-mode {
+            grid-template-rows: minmax(0, 1fr);
+            width: 100vw;
+            height: 100vh;
+            padding: 0;
+        }
+
+        html.nas-viewer-tv .viewer.image-mode .viewer-header {
+            display: none;
+        }
+
+        html.nas-viewer-tv .viewer.image-mode .viewer-content {
+            width: 100vw;
+            height: 100vh;
+            min-width: 0;
+            min-height: 0;
+            max-width: 100vw;
+            max-height: 100vh;
+        }
+
+        html.nas-viewer-tv .viewer.image-mode .image-viewer.active {
+            position: absolute;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            min-width: 0;
+            min-height: 0;
+            max-width: 100vw;
+            max-height: 100vh;
+            margin: auto;
+            object-fit: contain;
+            object-position: center;
+        }
+
         .viewer-content video,
         .viewer-content img {
             display: none;
@@ -535,6 +569,10 @@
 <script>
 (() => {
     'use strict';
+
+    const isNasViewerTvApp = /Android/i.test(navigator.userAgent || '')
+        && /NasViewerTvApp\//.test(navigator.userAgent || '');
+    document.documentElement.classList.toggle('nas-viewer-tv', isNasViewerTvApp);
 
     const config = @json($appConfig);
     const VIDEO_HOLD_SEEK_MS = 260;

@@ -124,6 +124,8 @@
     Route::get('/folder-videos/app-config', [FolderVideoController::class, 'appConfig'])->name('folder-videos.app-config');
     Route::get('/folder-videos', [FolderVideoController::class, 'index'])->name('folder-videos.index');
     Route::get('/folder-videos/{id}/thumbnail', [FolderVideoController::class, 'thumbnail'])->name('folder-videos.thumbnail');
+    Route::get('/folder-videos/{id}/preview-status', [FolderVideoController::class, 'previewStatus'])->name('folder-videos.preview-status');
+    Route::post('/folder-videos/{id}/preview-queue', [FolderVideoController::class, 'queuePreview'])->name('folder-videos.preview-queue');
     Route::get('/folder-videos/{id}/preview', [FolderVideoController::class, 'preview'])->name('folder-videos.preview');
     Route::get('/folder-videos/{id}/stream', [FolderVideoController::class, 'stream'])->name('folder-videos.stream');
     Route::post('/folder-videos/{id}/like', [FolderVideoController::class, 'like'])->name('folder-videos.like');

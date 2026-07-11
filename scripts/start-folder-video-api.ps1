@@ -6,6 +6,7 @@ param(
     [int]$PreviewLimit = 60,
     [int]$Port = 8090,
     [int]$LaravelPort = 8091,
+    [int]$MediaStreamPort = 8092,
     [string]$BindAddress = "0.0.0.0",
     [string]$MediaRoot = "",
     [string]$MediaShare = "",
@@ -25,6 +26,9 @@ $caddyStdoutLog = Join-Path $stateDir "caddy-stdout.log"
 $caddyStderrLog = Join-Path $stateDir "caddy-stderr.log"
 $laravelStdoutLog = Join-Path $stateDir "laravel-stdout.log"
 $laravelStderrLog = Join-Path $stateDir "laravel-stderr.log"
+$mediaStdoutLog = Join-Path $stateDir "media-stdout.log"
+$mediaStderrLog = Join-Path $stateDir "media-stderr.log"
+$mediaServerScript = Join-Path $projectRoot "scripts\folder_video_range_server.py"
 
 function Ensure-CaddyBinary {
     if (Test-Path $caddyExe) {
@@ -109,6 +113,9 @@ function Stop-ManagedProcesses {
         if ($state.laravel_pid) {
             Stop-ProcessByIdIfRunning -ProcessId ([int]$state.laravel_pid)
         }
+        if ($state.media_stream_pid) {
+            Stop-ProcessByIdIfRunning -ProcessId ([int]$state.media_stream_pid)
+        }
     } catch {
     }
 
@@ -136,6 +143,17 @@ function Stop-ProjectCaddy {
     }
 
     foreach ($process in $caddyProcesses) {
+        Stop-ProcessByIdIfRunning -ProcessId $process.ProcessId
+    }
+}
+
+function Stop-ProjectMediaServer {
+    $mediaProcesses = Get-CimInstance Win32_Process | Where-Object {
+        $_.Name -in @("python.exe", "pythonw.exe") -and
+        $_.CommandLine -match [regex]::Escape($mediaServerScript)
+    }
+
+    foreach ($process in $mediaProcesses) {
         Stop-ProcessByIdIfRunning -ProcessId $process.ProcessId
     }
 }
@@ -268,6 +286,12 @@ $NasRootPlexMediaServer = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_PLEX_
 $NasRootVideo = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_VIDEO" -DefaultValue "\\mc\video"
 
 $phpExe = (Get-Command php -ErrorAction Stop).Source
+$pythonExe = (Get-Command python -ErrorAction Stop).Source
+$ffmpegBin = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_FFMPEG_BIN" -DefaultValue "C:\ffmpeg\bin\ffmpeg.exe"
+$previewQueuePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_QUEUE_PATH" -DefaultValue (Join-Path $projectRoot "storage\app\folder-video-preview-queue")
+$previewCachePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_CACHE_PATH" -DefaultValue (Join-Path $projectRoot "storage\app\folder-video-previews")
+$previewSeconds = [int](Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_SECONDS" -DefaultValue "18")
+$previewHeight = [int](Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_HEIGHT" -DefaultValue "360")
 
 php artisan config:clear | Out-Null
 
@@ -292,8 +316,33 @@ if ($WarmCache) {
 
 Ensure-CaddyBinary
 Stop-ManagedProcesses
-Stop-LegacyArtisanServer -Ports @($Port, $LaravelPort)
+Stop-LegacyArtisanServer -Ports @($Port, $LaravelPort, $MediaStreamPort)
 Stop-ProjectCaddy
+Stop-ProjectMediaServer
+
+$mediaProcess = Start-Process -FilePath $pythonExe `
+    -ArgumentList @(
+        "-u",
+        $mediaServerScript,
+        "--host=127.0.0.1",
+        "--port=$MediaStreamPort",
+        "--root=$MediaRoot",
+        "--preview-queue=$previewQueuePath",
+        "--preview-root=$previewCachePath",
+        "--ffmpeg=$ffmpegBin",
+        "--preview-seconds=$previewSeconds",
+        "--preview-height=$previewHeight"
+    ) `
+    -WorkingDirectory $projectRoot `
+    -RedirectStandardOutput $mediaStdoutLog `
+    -RedirectStandardError $mediaStderrLog `
+    -WindowStyle Hidden `
+    -PassThru
+
+if (-not (Wait-ForTcpPort -TargetHost "127.0.0.1" -Port $MediaStreamPort -TimeoutSeconds 30)) {
+    Stop-ProcessByIdIfRunning -ProcessId $mediaProcess.Id
+    throw "Folder Video media range server did not start listening on port $MediaStreamPort."
+}
 
 $laravelProcess = Start-Process -FilePath $phpExe `
     -ArgumentList @("artisan", "serve", "--host=127.0.0.1", "--port=$LaravelPort") `
@@ -305,6 +354,7 @@ $laravelProcess = Start-Process -FilePath $phpExe `
 
 if (-not (Wait-ForTcpPort -TargetHost "127.0.0.1" -Port $LaravelPort -TimeoutSeconds 30)) {
     Stop-ProcessByIdIfRunning -ProcessId $laravelProcess.Id
+    Stop-ProcessByIdIfRunning -ProcessId $mediaProcess.Id
     throw "Laravel did not start listening on port $LaravelPort."
 }
 
@@ -364,13 +414,16 @@ $configText = @"
     @videoMedia path /folder-video-media/*
     handle @videoMedia {
         uri strip_prefix /folder-video-media
-        root * "$MediaRoot"
-        header {
-            Cache-Control "private, max-age=600"
-            Accept-Ranges "bytes"
-            X-Content-Type-Options "nosniff"
+        reverse_proxy 127.0.0.1:$MediaStreamPort {
+            flush_interval -1
         }
-        file_server
+    }
+
+    @videoPreviewCache path /folder-video-preview-cache/*
+    handle @videoPreviewCache {
+        reverse_proxy 127.0.0.1:$MediaStreamPort {
+            flush_interval -1
+        }
     }
 
     @photoMedia path /folder-photo-media/*
@@ -471,6 +524,7 @@ $caddyProcess = Start-Process -FilePath $caddyExe `
 if (-not (Wait-ForTcpPort -TargetHost "127.0.0.1" -Port $Port)) {
     Stop-ProcessByIdIfRunning -ProcessId $caddyProcess.Id
     Stop-ProcessByIdIfRunning -ProcessId $laravelProcess.Id
+    Stop-ProcessByIdIfRunning -ProcessId $mediaProcess.Id
     throw "Caddy did not start listening on port $Port."
 }
 
@@ -480,8 +534,10 @@ $lanIps = Get-LanIps
     started_at = (Get-Date).ToString("o")
     caddy_pid = $caddyProcess.Id
     laravel_pid = $laravelProcess.Id
+    media_stream_pid = $mediaProcess.Id
     port = $Port
     laravel_port = $LaravelPort
+    media_stream_port = $MediaStreamPort
     bind_address = $BindAddress
     media_root = $MediaRoot
     photo_root = $PhotoRoot
@@ -503,6 +559,8 @@ $lanIps = Get-LanIps
     caddy_stderr_log = $caddyStderrLog
     laravel_stdout_log = $laravelStdoutLog
     laravel_stderr_log = $laravelStderrLog
+    media_stdout_log = $mediaStdoutLog
+    media_stderr_log = $mediaStderrLog
     lan_urls = @($lanIps | ForEach-Object { "http://$PSItem`:$Port/folder-video-app" })
 } | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
 
@@ -515,3 +573,4 @@ Write-Host "Photo root: $PhotoRoot"
 Write-Host "NAS Viewer URL: http://127.0.0.1`:$Port/nas-viewer-app"
 Write-Host "Caddy PID: $($caddyProcess.Id)"
 Write-Host "Laravel PID: $($laravelProcess.Id)"
+Write-Host "Media stream PID: $($mediaProcess.Id)"

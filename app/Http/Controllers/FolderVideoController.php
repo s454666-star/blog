@@ -105,6 +105,21 @@ class FolderVideoController extends Controller
         ]);
     }
 
+    public function previewStatus(string $id): JsonResponse
+    {
+        return response()->json([
+            'data' => $this->folderVideoService->previewCacheStatus($id),
+        ])->header('Cache-Control', 'no-store, max-age=0');
+    }
+
+    public function queuePreview(string $id): JsonResponse
+    {
+        $data = $this->folderVideoService->queuePreview($id);
+
+        return response()->json(['data' => $data], $data['ready'] ? 200 : 202)
+            ->header('Cache-Control', 'no-store, max-age=0');
+    }
+
     public function like(string $id): JsonResponse
     {
         $result = $this->folderVideoService->moveToGood($id);

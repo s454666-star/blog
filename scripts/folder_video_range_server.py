@@ -225,10 +225,10 @@ def transcode_animated_preview(ffmpeg: str, source: Path, destination: Path) -> 
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(destination.stem + f".tmp.{uuid.uuid4().hex}.webp")
     command = [
-        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-t", "6", "-i", str(source),
-        "-vf", "fps=5,scale=384:216:force_original_aspect_ratio=increase,crop=384:216",
-        "-an", "-c:v", "libwebp_anim", "-lossless", "0", "-quality", "52",
-        "-compression_level", "4", "-loop", "0", str(temporary),
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-t", "3", "-i", str(source),
+        "-vf", "fps=5,scale=320:180:force_original_aspect_ratio=increase,crop=320:180",
+        "-an", "-c:v", "libwebp_anim", "-lossless", "0", "-quality", "48",
+        "-compression_level", "3", "-loop", "0", str(temporary),
     ]
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
@@ -276,7 +276,8 @@ def transcode_hls(
     cleanup_hls_output(hls_path)
 
     common = [
-        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+        "-probesize", "1M", "-analyzeduration", "1000000", "-i", str(source),
         "-vf", "scale=-2:720", "-c:a", "aac", "-b:a", "160k", "-ac", "2",
     ]
     hls = [
@@ -338,7 +339,10 @@ def preview_worker(
     queue_root.mkdir(parents=True, exist_ok=True)
     preview_root.mkdir(parents=True, exist_ok=True)
     for stale in queue_root.glob("*.working"):
-        stale.rename(stale.with_suffix(".json"))
+        try:
+            stale.rename(stale.with_suffix(".json"))
+        except OSError:
+            pass
 
     while not stop_event.is_set():
         queued = sorted(queue_root.glob("*.json"), key=lambda path: path.stat().st_mtime)
@@ -441,21 +445,22 @@ def main() -> None:
     hls_queue_root = Path(args.hls_queue).resolve()
     hls_root = Path(args.hls_root).resolve()
     stop_event = threading.Event()
-    worker = threading.Thread(
-        target=preview_worker,
-        args=(
-            stop_event,
-            media_root,
-            queue_root,
-            preview_root,
-            args.ffmpeg,
-            max(4, min(args.preview_seconds, 120)),
-            max(144, min(args.preview_height, 720)),
-        ),
-        daemon=True,
-        name="folder-video-preview-worker",
-    )
-    worker.start()
+    for worker_index in range(2):
+        worker = threading.Thread(
+            target=preview_worker,
+            args=(
+                stop_event,
+                media_root,
+                queue_root,
+                preview_root,
+                args.ffmpeg,
+                max(4, min(args.preview_seconds, 120)),
+                max(144, min(args.preview_height, 720)),
+            ),
+            daemon=True,
+            name=f"folder-video-preview-worker-{worker_index + 1}",
+        )
+        worker.start()
     hls_thread = threading.Thread(
         target=hls_worker,
         args=(

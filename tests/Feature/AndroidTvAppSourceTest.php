@@ -56,7 +56,22 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('transcode_animated_preview', $server);
         $this->assertStringContainsString('transcode_hls', $server);
         $this->assertStringContainsString('libwebp_anim', $server);
+        $this->assertStringContainsString('scale=320:180', $server);
+        $this->assertStringContainsString('range(2)', $server);
         $this->assertStringContainsString('has_newer_request', $server);
+
+        $this->assertStringContainsString("method: 'HEAD'", $contents);
+        $this->assertStringContainsString("playlist.matchAll(/#EXTINF:", $contents);
+        $this->assertStringContainsString('queueTvPlaybackWarm', $contents);
+        $this->assertStringContainsString('playVideoDirectFirst', $contents);
+        $this->assertStringContainsString('folderVideoTvDirectError', $contents);
+
+        $activity = file_get_contents(base_path(
+            'android/folder-video-tv-apk/app/src/main/java/monster/mystar/foldervideotv/MainActivity.java'
+        ));
+        $this->assertStringContainsString('NAS_WEB_DAV_BASE_URL', $activity);
+        $this->assertStringContainsString('AndroidKeyStore', $activity);
+        $this->assertStringContainsString('setVideoURI(mediaUri, headers)', $activity);
 
         $startup = file_get_contents(base_path('scripts/start-folder-video-api.ps1'));
         $this->assertStringContainsString('[int]$MediaStreamPort = 8092', $startup);

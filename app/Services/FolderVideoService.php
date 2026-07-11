@@ -947,7 +947,7 @@ POWERSHELL;
     protected function tvPreviewPathForSource(string $sourcePath): string
     {
         $stat = @stat($sourcePath) ?: [];
-        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-webp-v2']));
+        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-webp-v3']));
 
         return $this->previewCachePath().DIRECTORY_SEPARATOR.'tv-animated'.DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.webp';
     }

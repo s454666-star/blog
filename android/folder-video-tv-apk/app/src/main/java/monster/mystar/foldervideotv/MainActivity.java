@@ -2,12 +2,14 @@ package monster.mystar.foldervideotv;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.graphics.Color;
@@ -21,6 +23,10 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
+import android.text.InputType;
+import android.util.Base64;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -37,6 +43,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -51,11 +58,23 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.util.HashMap;
+import java.util.Map;
+
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 6;
-    private static final String APP_VERSION_NAME = "2026.07.11.6-tv";
+    private static final int APP_VERSION_CODE = 8;
+    private static final String APP_VERSION_NAME = "2026.07.11.8-tv";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/tv/android-version.json";
+    private static final String NAS_WEB_DAV_BASE_URL = "https://nas:5006/30T-A/video(重跑)/";
+    private static final String NAS_KEY_ALIAS = "folder-video-tv-nas-credentials";
+    private static final String NAS_PREFERENCES = "nas-direct-settings";
     private static final String[] APP_URLS = new String[] {
         "http://10.0.0.25:8090/folder-video-app",
         "http://10.0.0.19:8090/folder-video-app",
@@ -86,6 +105,8 @@ public class MainActivity extends Activity {
     private ProgressBar nativeSeekProgress;
     private TextView nativeSeekTime;
     private boolean nativeVideoOpen = false;
+    private boolean nativeDirectNasAttempt = false;
+    private int nativeStartPositionMs = 0;
     private final Handler nativeVideoProgressHandler = new Handler(Looper.getMainLooper());
     private final Runnable nativeVideoProgressReporter = new Runnable() {
         @Override
@@ -226,6 +247,14 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void playVideoDirectFirst(String filename, double startSeconds) {
+            runOnUiThread(() -> startDirectNasVideo(
+                filename,
+                Math.max(0, (int) Math.round(startSeconds * 1000))
+            ));
+        }
+
+        @JavascriptInterface
         public void stopVideo() {
             runOnUiThread(() -> stopNativeVideo(false));
         }
@@ -348,10 +377,45 @@ public class MainActivity extends Activity {
 
     private void startNativeVideo(String mediaUrl, int startPositionMs) {
         if (mediaUrl == null || mediaUrl.trim().isEmpty()) return;
+        nativeDirectNasAttempt = false;
+        nativeStartPositionMs = startPositionMs;
+        startNativeVideoUri(Uri.parse(resolveMediaUrl(mediaUrl)), null, startPositionMs, false);
+    }
+
+    private void startDirectNasVideo(String filename, int startPositionMs) {
+        if (filename == null || filename.trim().isEmpty()) {
+            evaluateTvJavascript("if (window.folderVideoTvDirectError) { window.folderVideoTvDirectError(); }");
+            return;
+        }
+
+        String[] credentials = loadNasCredentials();
+        if (credentials == null) {
+            showNasCredentialDialog(filename, startPositionMs);
+            return;
+        }
+
+        Uri directUri = Uri.parse(NAS_WEB_DAV_BASE_URL).buildUpon().appendPath(filename).build();
+        String rawCredentials = credentials[0] + ":" + credentials[1];
+        Map<String, String> headers = new HashMap<>();
+        headers.put(
+            "Authorization",
+            "Basic " + Base64.encodeToString(rawCredentials.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP)
+        );
+        nativeDirectNasAttempt = true;
+        nativeStartPositionMs = startPositionMs;
+        startNativeVideoUri(directUri, headers, startPositionMs, true);
+    }
+
+    private void startNativeVideoUri(
+        Uri mediaUri,
+        Map<String, String> headers,
+        int startPositionMs,
+        boolean directNas
+    ) {
         nativeVideoOpen = true;
         tvPlayerOpen = true;
         nativeSeekOverlay.setVisibility(View.GONE);
-        nativeVideoStatus.setText("影片載入中…");
+        nativeVideoStatus.setText(directNas ? "NAS 直連中…" : "影片載入中…");
         nativeVideoStatus.setVisibility(View.VISIBLE);
         nativeVideoOverlay.setVisibility(View.VISIBLE);
         nativeVideoOverlay.bringToFront();
@@ -367,13 +431,140 @@ public class MainActivity extends Activity {
             evaluateTvJavascript("if (window.folderVideoTvNativeEnded) { window.folderVideoTvNativeEnded(); }");
         });
         nativeVideoView.setOnErrorListener((player, what, extra) -> {
+            if (nativeDirectNasAttempt) {
+                nativeDirectNasAttempt = false;
+                nativeVideoView.stopPlayback();
+                nativeVideoStatus.setText("直連失敗，切換流暢播放…");
+                nativeVideoStatus.setVisibility(View.VISIBLE);
+                evaluateTvJavascript(
+                    "if (window.folderVideoTvDirectError) { window.folderVideoTvDirectError(" +
+                        (nativeStartPositionMs / 1000.0) + "); }"
+                );
+                return true;
+            }
             nativeVideoStatus.setText("影片無法播放");
             nativeVideoStatus.setVisibility(View.VISIBLE);
             evaluateTvJavascript("if (window.folderVideoTvNativeError) { window.folderVideoTvNativeError(); }");
             return true;
         });
-        nativeVideoView.setVideoURI(Uri.parse(resolveMediaUrl(mediaUrl)));
+        if (headers == null || headers.isEmpty()) {
+            nativeVideoView.setVideoURI(mediaUri);
+        } else {
+            nativeVideoView.setVideoURI(mediaUri, headers);
+        }
         nativeVideoView.requestFocus();
+    }
+
+    private void showNasCredentialDialog(String filename, int startPositionMs) {
+        LinearLayout fields = new LinearLayout(this);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        fields.setPadding(dp(28), dp(12), dp(28), 0);
+
+        EditText username = new EditText(this);
+        username.setHint("NAS 帳號");
+        username.setSingleLine(true);
+        username.setInputType(InputType.TYPE_CLASS_TEXT);
+        fields.addView(username, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        EditText password = new EditText(this);
+        password.setHint("NAS 密碼");
+        password.setSingleLine(true);
+        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        fields.addView(password, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("設定 NAS 直連")
+            .setMessage("只需輸入一次。帳密會由 Android 系統金鑰加密保存在這台電視盒，不會寫入 APK。")
+            .setView(fields)
+            .setPositiveButton("儲存並播放", null)
+            .setNegativeButton("改用流暢播放", (ignored, which) -> evaluateTvJavascript(
+                "if (window.folderVideoTvDirectError) { window.folderVideoTvDirectError(" +
+                    (startPositionMs / 1000.0) + "); }"
+            ))
+            .create();
+
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
+                String enteredUsername = username.getText().toString().trim();
+                String enteredPassword = password.getText().toString();
+                if (enteredUsername.isEmpty() || enteredPassword.isEmpty()) {
+                    Toast.makeText(this, "請輸入 NAS 帳號與密碼", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (!saveNasCredentials(enteredUsername, enteredPassword)) {
+                    Toast.makeText(this, "無法安全儲存 NAS 帳密", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                dialog.dismiss();
+                startDirectNasVideo(filename, startPositionMs);
+            });
+            username.requestFocus();
+        });
+        dialog.show();
+    }
+
+    private SecretKey getOrCreateNasCredentialKey() throws Exception {
+        KeyStore keyStore = KeyStore.getInstance("AndroidKeyStore");
+        keyStore.load(null);
+        if (keyStore.containsAlias(NAS_KEY_ALIAS)) {
+            return ((KeyStore.SecretKeyEntry) keyStore.getEntry(NAS_KEY_ALIAS, null)).getSecretKey();
+        }
+
+        KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+        generator.init(new KeyGenParameterSpec.Builder(
+            NAS_KEY_ALIAS,
+            KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT
+        )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .build());
+        return generator.generateKey();
+    }
+
+    private boolean saveNasCredentials(String username, String password) {
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateNasCredentialKey());
+            byte[] encrypted = cipher.doFinal((username + "\n" + password).getBytes(StandardCharsets.UTF_8));
+            getSharedPreferences(NAS_PREFERENCES, MODE_PRIVATE).edit()
+                .putString("iv", Base64.encodeToString(cipher.getIV(), Base64.NO_WRAP))
+                .putString("credentials", Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                .apply();
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private String[] loadNasCredentials() {
+        try {
+            SharedPreferences preferences = getSharedPreferences(NAS_PREFERENCES, MODE_PRIVATE);
+            String iv = preferences.getString("iv", "");
+            String encrypted = preferences.getString("credentials", "");
+            if (iv.isEmpty() || encrypted.isEmpty()) return null;
+
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                getOrCreateNasCredentialKey(),
+                new GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP))
+            );
+            String decoded = new String(
+                cipher.doFinal(Base64.decode(encrypted, Base64.NO_WRAP)),
+                StandardCharsets.UTF_8
+            );
+            int separator = decoded.indexOf('\n');
+            if (separator <= 0) return null;
+            return new String[] {decoded.substring(0, separator), decoded.substring(separator + 1)};
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private void seekNativeVideo(int deltaMs) {
@@ -400,6 +591,7 @@ public class MainActivity extends Activity {
         }
         if (nativeVideoView != null) nativeVideoView.stopPlayback();
         nativeVideoOpen = false;
+        nativeDirectNasAttempt = false;
         nativeVideoOverlay.setVisibility(View.GONE);
         if (notifyWeb) evaluateTvJavascript("if (window.folderVideoTvNativeClosed) { window.folderVideoTvNativeClosed(); }");
     }

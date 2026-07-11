@@ -1113,7 +1113,7 @@
         });
 
         elements.grid.appendChild(fragment);
-        if (isFolderVideoTvApp() && items.length > 0) scheduleTvPlaybackWarm(items[clamp(tvFocusIndex, 0, items.length - 1)]);
+        if (isFolderVideoTvApp() && items.length > 0) queueTvPlaybackWarm(items[clamp(tvFocusIndex, 0, items.length - 1)]);
         elements.empty.textContent = emptyMessage();
         elements.empty.classList.toggle('show', items.length === 0 && !cursor.hasMore && !isLoading);
         updateStatus();
@@ -1139,6 +1139,8 @@
         }
 
         if (isFolderVideoTvApp()) {
+            const motion = card.querySelector('.preview-motion');
+            if (motion) motion.dataset.wanted = '1';
             ensureTvAnimatedPreview(card);
             return;
         }
@@ -1175,7 +1177,7 @@
         if (!id || !motion || motion.dataset.preparing === '1') return;
         if (motion.dataset.src) {
             motion.style.backgroundImage = `url("${motion.dataset.src}")`;
-            motion.classList.add('active');
+            if (motion.dataset.wanted === '1') motion.classList.add('active');
             return;
         }
         motion.dataset.preparing = '1';
@@ -1191,7 +1193,7 @@
         if (!result?.preview_url) return;
         motion.dataset.src = result.preview_url;
         motion.style.backgroundImage = `url("${result.preview_url}")`;
-        if (visiblePreviewCards.has(card)) motion.classList.add('active');
+        if (motion.dataset.wanted === '1' && visiblePreviewCards.has(card)) motion.classList.add('active');
     }
 
     async function prepareTvPreview(id) {
@@ -1202,26 +1204,29 @@
         if (!response.ok) return null;
         let payload = await response.json();
         if (payload.data?.ready) return payload.data;
-        for (let attempt = 0; attempt < 90; attempt++) {
-            await sleep(1000);
-            response = await fetch(`${API_BASE}/${encodedId}/tv-preview-status?t=${Date.now()}`, {
-                cache: 'no-store', headers: {'Accept': 'application/json'},
+        const previewUrl = payload.data?.preview_url;
+        if (!previewUrl) return null;
+        for (let attempt = 0; attempt < 160; attempt++) {
+            await sleep(200);
+            response = await fetch(`${previewUrl}?t=${Date.now()}`, {
+                method: 'HEAD', cache: 'no-store',
             });
-            if (!response.ok) continue;
-            payload = await response.json();
-            if (payload.data?.ready) return payload.data;
+            if (response.ok) return payload.data;
         }
         return null;
     }
 
-    function scheduleTvPlaybackWarm(video) {
+    function queueTvPlaybackWarm(video) {
+        if (!isFolderVideoTvApp() || !video?.id || elements.player.classList.contains('open')) return;
+        fetch(`${API_BASE}/${encodeURIComponent(video.id)}/tv-hls-queue`, {
+            method: 'POST', cache: 'no-store', headers: {'Accept': 'application/json'},
+        }).catch(() => {});
+    }
+
+    function scheduleTvPlaybackWarm(video, delay = 120) {
         if (!isFolderVideoTvApp() || !video?.id || elements.player.classList.contains('open')) return;
         window.clearTimeout(tvPlaybackWarmTimer);
-        tvPlaybackWarmTimer = window.setTimeout(() => {
-            fetch(`${API_BASE}/${encodeURIComponent(video.id)}/tv-hls-queue`, {
-                method: 'POST', cache: 'no-store', headers: {'Accept': 'application/json'},
-            }).catch(() => {});
-        }, 650);
+        tvPlaybackWarmTimer = window.setTimeout(() => queueTvPlaybackWarm(video), Math.max(0, delay));
     }
 
     async function ensureCardPreview(card) {
@@ -1365,7 +1370,9 @@
     }
 
     function pausePreview(card) {
-        card.querySelector('.preview-motion')?.classList.remove('active');
+        const motion = card.querySelector('.preview-motion');
+        motion?.classList.remove('active');
+        if (motion) motion.dataset.wanted = '0';
         const video = card.querySelector('video');
         if (!video) {
             return;
@@ -1643,7 +1650,11 @@
             ) {
                 if (isFolderVideoTvApp()) {
                     window.FolderVideoTvAndroid.stopVideo();
-                    await playTvOptimizedStream(normalized, saved, loadGeneration);
+                    if (typeof window.FolderVideoTvAndroid.playVideoDirectFirst === 'function') {
+                        window.FolderVideoTvAndroid.playVideoDirectFirst(normalized.filename, saved);
+                    } else {
+                        await playTvOptimizedStream(normalized, saved, loadGeneration);
+                    }
                 } else {
                     window.FolderVideoTvAndroid.playVideo(normalized.stream_url, saved);
                 }
@@ -1673,25 +1684,38 @@
                 method: 'POST', cache: 'no-store', headers: {'Accept': 'application/json'},
             });
             let payload = response.ok ? await response.json() : null;
-            for (let attempt = 0; !payload?.data?.ready && attempt < 200; attempt++) {
-                await sleep(400);
+            const streamUrl = payload?.data?.stream_url;
+            for (let attempt = 0; !payload?.data?.ready && streamUrl && attempt < 240; attempt++) {
+                await sleep(250);
                 if (playerLoadGeneration !== loadGeneration || playerItem?.id !== video.id) return;
-                response = await fetch(`${API_BASE}/${encodedId}/tv-hls-status?t=${Date.now()}`, {
-                    cache: 'no-store', headers: {'Accept': 'application/json'},
-                });
-                if (response.ok) payload = await response.json();
+                response = await fetch(`${streamUrl}?t=${Date.now()}`, {cache: 'no-store'});
+                if (!response.ok) continue;
+                const playlist = await response.text();
+                const durations = Array.from(playlist.matchAll(/#EXTINF:([0-9.]+)/g))
+                    .map(match => Number(match[1]) || 0);
+                if (durations.length >= 2) {
+                    payload.data.ready = true;
+                    payload.data.available_seconds = durations.reduce((sum, duration) => sum + duration, 0);
+                }
             }
             if (playerLoadGeneration !== loadGeneration || playerItem?.id !== video.id) return;
-            const streamUrl = payload?.data?.ready ? payload.data.stream_url : video.stream_url;
+            const playableUrl = payload?.data?.ready ? payload.data.stream_url : video.stream_url;
             const available = Number(payload?.data?.available_seconds || 0);
             const startAt = available > 4 ? Math.min(saved, available - 4) : 0;
-            window.FolderVideoTvAndroid.playVideo(streamUrl, startAt);
+            window.FolderVideoTvAndroid.playVideo(playableUrl, startAt);
         } catch (error) {
             if (playerLoadGeneration === loadGeneration && playerItem?.id === video.id) {
                 window.FolderVideoTvAndroid.playVideo(video.stream_url, saved);
             }
         }
     }
+
+    window.folderVideoTvDirectError = async (startAt = 0) => {
+        if (!isFolderVideoTvApp() || !playerItem) return;
+        const video = playerItem;
+        const generation = playerLoadGeneration;
+        await playTvOptimizedStream(video, Math.max(0, Number(startAt) || 0), generation);
+    };
 
     async function closePlayer() {
         playerLoadGeneration++;

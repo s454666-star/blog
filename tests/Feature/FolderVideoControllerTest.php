@@ -426,15 +426,15 @@ class FolderVideoControllerTest extends TestCase
 
     public function test_folder_video_tv_update_channel_serves_only_the_tv_apk(): void
     {
-        config()->set('folder_video.tv_android_apk_version_code', 6);
-        config()->set('folder_video.tv_android_apk_version_name', '2026.07.11.6-tv');
+        config()->set('folder_video.tv_android_apk_version_code', 8);
+        config()->set('folder_video.tv_android_apk_version_name', '2026.07.11.8-tv');
         config()->set('folder_video.tv_android_apk_path', storage_path('app/folder-video-tv.apk'));
 
         $this->withHeaders(['X-Forwarded-Host' => '10.0.0.25:8090', 'X-Forwarded-Proto' => 'http'])
             ->getJson('/folder-video-app/tv/android-version.json')
             ->assertOk()
-            ->assertJsonPath('data.version_code', 6)
-            ->assertJsonPath('data.version_name', '2026.07.11.6-tv')
+            ->assertJsonPath('data.version_code', 8)
+            ->assertJsonPath('data.version_name', '2026.07.11.8-tv')
             ->assertJsonPath('data.apk_url', 'http://10.0.0.25:8090/folder-video-app/tv/folder-video-tv.apk');
 
         $this->get('/folder-video-app/tv/folder-video-tv.apk')

@@ -1437,6 +1437,11 @@ BOT_NOT_FOUND_KEYWORDS = [
     "已加入缓存列表，稍后进行请求。",
 ]
 
+RESOURCE_CODE_DORMANT_KEYWORDS = [
+    "处于休眠状态",
+    "處於休眠狀態",
+]
+
 
 def _match_bot_not_found_keyword(text: str) -> Optional[str]:
     normalized = str(text or "").strip().lower()
@@ -3461,6 +3466,8 @@ async def _resource_code_bot_media(
             if not bool(getattr(msg, "out", False)):
                 if _resource_code_media_kind(msg) is not None:
                     media_by_id[mid] = msg
+                elif any(keyword in str(getattr(msg, "message", None) or "") for keyword in RESOURCE_CODE_DORMANT_KEYWORDS):
+                    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "dormant"
                 elif _match_bot_not_found_keyword(str(getattr(msg, "message", None) or "")):
                     return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "not_found"
 
@@ -3550,8 +3557,8 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                 phase = "cleanup_no_media"
                 remaining = await _cleanup_resource_code_bot_messages(bot_peer, [sent_message_id] + bot_reply_ids)
                 return {
-                    "status": "error",
-                    "reason": "not_found" if media_outcome == "not_found" else "media_timeout",
+                    "status": "skip" if media_outcome == "dormant" else "error",
+                    "reason": "dormant" if media_outcome == "dormant" else ("not_found" if media_outcome == "not_found" else "media_timeout"),
                     "cleanup_complete": len(remaining) == 0,
                     "undeleted_count": len(remaining),
                 }

@@ -291,6 +291,26 @@ class ProcessTelegramResourceCodesCommand extends Command
                 return true;
             }
 
+            if ($response->successful()
+                && (string) ($payload['status'] ?? '') === 'skip'
+                && (string) ($payload['reason'] ?? '') === 'dormant'
+                && (bool) ($payload['cleanup_complete'] ?? false)) {
+                DB::table('telegram_resource_codes')->where('id', $row->id)->update([
+                    'status' => TelegramResourceCode::STATUS_SKIPPED,
+                    'skip_reason' => TelegramResourceCode::SKIP_REASON_DORMANT,
+                    'processing_account' => $accountIndex + 1,
+                    'forwarded_message_count' => 0,
+                    'processing_started_at' => null,
+                    'available_at' => null,
+                    'completed_at' => null,
+                    'skipped_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $this->warn("code_id={$row->id} skipped reason=dormant account=" . ($accountIndex + 1));
+                return true;
+            }
+
             Log::warning('Telegram resource-code processing failed', [
                 'code_id' => (int) $row->id,
                 'account_index' => $accountIndex + 1,

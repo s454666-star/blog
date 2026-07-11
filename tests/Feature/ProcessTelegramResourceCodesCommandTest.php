@@ -57,6 +57,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             $table->char('code', 40)->unique();
             $table->unsignedTinyInteger('code_type')->default(1);
             $table->unsignedTinyInteger('status')->default(0);
+            $table->unsignedTinyInteger('skip_reason')->nullable();
             $table->unsignedBigInteger('source_peer_id')->nullable();
             $table->unsignedBigInteger('source_message_id')->nullable();
             $table->unsignedSmallInteger('attempts')->default(0);
@@ -65,6 +66,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             $table->dateTime('available_at')->nullable();
             $table->dateTime('processing_started_at')->nullable();
             $table->dateTime('completed_at')->nullable();
+            $table->dateTime('skipped_at')->nullable();
             $table->timestamps();
         });
     }
@@ -219,5 +221,45 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'status' => TelegramResourceCode::STATUS_COMPLETED,
             'attempts' => 1,
         ]);
+    }
+
+    public function test_dormant_code_is_marked_skipped_and_never_left_pending(): void
+    {
+        DB::table('telegram_resource_codes')->insert([
+            'code' => 'f2d32d20fd97cc0f7a40d0a7ab4e282d479c14d5',
+            'code_type' => 1,
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 0,
+            'forwarded_message_count' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Http::fake(function ($request) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            if ($request->method() === 'GET' && str_starts_with($path, '/groups/')) {
+                return Http::response(['status' => 'ok', 'items' => []]);
+            }
+
+            return Http::response([
+                'status' => 'skip',
+                'reason' => 'dormant',
+                'cleanup_complete' => true,
+                'forwarded_count' => 0,
+            ]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--process-limit' => 1,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => 'f2d32d20fd97cc0f7a40d0a7ab4e282d479c14d5',
+            'status' => TelegramResourceCode::STATUS_SKIPPED,
+            'skip_reason' => TelegramResourceCode::SKIP_REASON_DORMANT,
+            'forwarded_message_count' => 0,
+        ]);
+        $this->assertNotNull(DB::table('telegram_resource_codes')->where('code', 'f2d32d20fd97cc0f7a40d0a7ab4e282d479c14d5')->value('skipped_at'));
     }
 }

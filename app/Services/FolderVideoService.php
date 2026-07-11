@@ -978,7 +978,7 @@ POWERSHELL;
 
     protected function previewPathForStat(string $filename, int $size, int $mtime): string
     {
-        $key = hash('sha256', implode('|', [$filename, (string) $size, (string) $mtime]));
+        $key = hash('sha256', implode('|', [$filename, (string) $size, (string) $mtime, 'preview-mp4-v2-aspect-safe']));
 
         return $this->previewCachePath().DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.mp4';
     }

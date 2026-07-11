@@ -148,18 +148,11 @@ def transcode_preview(
 ) -> bool:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(destination.name + f".tmp.{uuid.uuid4().hex}.mp4")
-    # A portrait clip scaled only by height can become narrower than NVENC's
-    # minimum accepted frame width.  Keep a fixed 16:9 canvas and letterbox the
-    # source so hardware encoding remains available for portrait media too.
-    canvas_width = max(256, int(round((height * 16 / 9) / 2) * 2))
-    preview_filter = (
-        f"scale={canvas_width}:{height}:force_original_aspect_ratio=decrease,"
-        f"pad={canvas_width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
-    )
-    cuda_preview_filter = (
-        f"scale_cuda={canvas_width}:{height}:force_original_aspect_ratio=decrease,"
-        f"pad_cuda={canvas_width}:{height}:-1:-1:black"
-    )
+    # Preserve the source display aspect ratio. Landscape clips target the
+    # configured height; portrait clips target a safe NVENC width and derive
+    # their height automatically. Never force previews into a 16:9 canvas.
+    preview_filter = f"scale=w='if(gte(iw,ih),-2,256)':h='if(gte(iw,ih),{height},-2)'"
+    cuda_preview_filter = f"scale_cuda=w='if(gte(iw,ih),-2,256)':h='if(gte(iw,ih),{height},-2)'"
     common = [
         ffmpeg,
         "-hide_banner",

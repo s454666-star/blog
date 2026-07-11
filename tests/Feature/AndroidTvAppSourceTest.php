@@ -60,13 +60,17 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('transcode_animated_preview', $server);
         $this->assertStringContainsString('transcode_hls', $server);
         $this->assertStringContainsString('libwebp_anim', $server);
-        $this->assertStringContainsString('force_original_aspect_ratio=decrease', $server);
-        $this->assertStringContainsString('pad={canvas_width}:{height}', $server);
+        $this->assertStringContainsString("scale=w='if(gte(iw,ih),-2,256)'", $server);
+        $this->assertStringContainsString("scale_cuda=w='if(gte(iw,ih),-2,256)'", $server);
+        $this->assertStringNotContainsString('pad_cuda=', $server);
+        $this->assertStringNotContainsString('pad={canvas_width}', $server);
         $this->assertStringContainsString('parser.add_argument("--preview-workers", type=int, default=2)', $server);
         $this->assertStringContainsString('scale=320:180', $server);
         $this->assertStringContainsString('range(max(1, min(args.preview_workers, 8)))', $server);
-        $this->assertStringContainsString('scale_cuda={canvas_width}:{height}', $server);
         $this->assertStringContainsString('has_newer_request', $server);
+
+        $service = file_get_contents(base_path('app/Services/FolderVideoService.php'));
+        $this->assertStringContainsString('preview-mp4-v2-aspect-safe', $service);
 
         $this->assertStringContainsString("method: 'HEAD'", $contents);
         $this->assertStringContainsString("playlist.matchAll(/#EXTINF:", $contents);

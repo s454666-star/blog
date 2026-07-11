@@ -234,7 +234,7 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         $earliestCooldown = null;
         $transportFailures = 0;
-        $processingFailure = false;
+        $processingFailureCountsTowardLimit = false;
         $processingFailureReason = 'unknown';
 
         foreach ($this->baseUris as $accountIndex => $baseUri) {
@@ -276,6 +276,19 @@ class ProcessTelegramResourceCodesCommand extends Command
                 $until = $this->markCooldown($baseUri, $waitSeconds);
                 $earliestCooldown = $earliestCooldown === null ? $until : min($earliestCooldown, $until);
                 $this->warn("code_id={$row->id} account=" . ($accountIndex + 1) . " flood_wait={$waitSeconds}s; switching account");
+                continue;
+            }
+
+            if ($this->isAccountScopedFailure($payload)) {
+                $transportFailures++;
+                $until = $this->markCooldown($baseUri, 30);
+                $earliestCooldown = $earliestCooldown === null ? $until : min($earliestCooldown, $until);
+                Log::warning('Telegram resource-code account could not send to decoder', [
+                    'code_id' => (int) $row->id,
+                    'account_index' => $accountIndex + 1,
+                    'reason' => (string) ($payload['reason'] ?? $payload['status'] ?? 'unknown'),
+                    'phase' => (string) ($payload['phase'] ?? ''),
+                ]);
                 continue;
             }
 
@@ -322,19 +335,26 @@ class ProcessTelegramResourceCodesCommand extends Command
                 return true;
             }
 
+            $failureReason = (string) ($payload['reason'] ?? $payload['status'] ?? 'unknown');
+            if ($response->successful()
+                && (string) ($payload['status'] ?? '') === 'ok'
+                && $forwardedCount !== $decoderSentCount) {
+                $failureReason = 'media_count_mismatch';
+            }
+
             Log::warning('Telegram resource-code processing failed', [
                 'code_id' => (int) $row->id,
                 'account_index' => $accountIndex + 1,
                 'http_status' => $response->status(),
-                'reason' => (string) ($payload['reason'] ?? $payload['status'] ?? 'unknown'),
+                'reason' => $failureReason,
             ]);
-            $processingFailure = true;
-            $processingFailureReason = (string) ($payload['reason'] ?? $payload['status'] ?? 'unknown');
+            $processingFailureReason = $failureReason;
+            $processingFailureCountsTowardLimit = $this->countsTowardRetryLimit($processingFailureReason);
             break;
         }
 
         $attemptNumber = (int) $row->attempts + 1;
-        if ($processingFailure && $attemptNumber >= self::MAX_PROCESSING_ATTEMPTS) {
+        if ($processingFailureCountsTowardLimit && $attemptNumber >= self::MAX_PROCESSING_ATTEMPTS) {
             DB::table('telegram_resource_codes')->where('id', $row->id)->update([
                 'status' => TelegramResourceCode::STATUS_SKIPPED,
                 'skip_reason' => TelegramResourceCode::SKIP_REASON_RETRY_LIMIT,
@@ -357,12 +377,30 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         DB::table('telegram_resource_codes')->where('id', $row->id)->update([
             'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => $processingFailureCountsTowardLimit
+                ? DB::raw('attempts')
+                : DB::raw('CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END'),
             'processing_started_at' => null,
             'available_at' => $retryAt,
             'updated_at' => now(),
         ]);
 
         return false;
+    }
+
+    private function countsTowardRetryLimit(string $reason): bool
+    {
+        return in_array($reason, ['not_found', 'media_timeout', 'media_count_mismatch'], true);
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function isAccountScopedFailure(array $payload): bool
+    {
+        $reason = (string) ($payload['reason'] ?? '');
+        $phase = (string) ($payload['phase'] ?? '');
+
+        return in_array($reason, ['client_not_connected', 'bot_not_found'], true)
+            || ($reason === 'processing_failed' && $phase === 'send_code');
     }
 
     /** @return array<string, mixed>|null */

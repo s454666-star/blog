@@ -392,4 +392,44 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ]);
         $this->assertNotNull(DB::table('telegram_resource_codes')->where('code', '5555555555555555555555555555555555555555')->value('available_at'));
     }
+
+    public function test_account_send_failure_does_not_consume_attempt_or_permanently_skip(): void
+    {
+        DB::table('telegram_resource_codes')->insert([
+            'code' => '6666666666666666666666666666666666666666',
+            'code_type' => 1,
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 2,
+            'forwarded_message_count' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Http::fake(function ($request) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            if ($request->method() === 'GET' && str_starts_with($path, '/groups/')) {
+                return Http::response(['status' => 'ok', 'items' => []]);
+            }
+
+            return Http::response([
+                'status' => 'error',
+                'reason' => 'processing_failed',
+                'phase' => 'send_code',
+                'cleanup_complete' => true,
+                'forwarded_count' => 0,
+            ]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--process-limit' => 1,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => '6666666666666666666666666666666666666666',
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'skip_reason' => null,
+            'attempts' => 2,
+        ]);
+    }
 }

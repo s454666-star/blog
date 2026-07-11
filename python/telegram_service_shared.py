@@ -3,9 +3,10 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from telethon import TelegramClient, events
 from telethon.tl.functions.messages import GetBotCallbackAnswerRequest, DeleteHistoryRequest
+from telethon.tl.functions.contacts import ResolveUsernameRequest
 from telethon.tl.types import Message, DocumentAttributeFilename, DocumentAttributeVideo
 from telethon.errors.rpcerrorlist import MessageIdInvalidError
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, InputUserDeactivatedError
 
 import uuid
 import re
@@ -1963,6 +1964,26 @@ async def _get_peer_for_bot(bot_username: str):
         return None
 
 
+async def _refresh_peer_for_bot(bot_username: str):
+    key = str(bot_username or "").strip().lstrip("@")
+    if not key or not await _ensure_client_connected():
+        return None
+
+    _PEER_CACHE.pop(key, None)
+    _PEER_CACHE.pop("@" + key, None)
+    try:
+        resolved = await client(ResolveUsernameRequest(username=key))
+        users = list(getattr(resolved, "users", None) or [])
+        if not users:
+            return None
+        peer = await client.get_input_entity(users[0])
+        _PEER_CACHE[key] = peer
+        return peer
+    except Exception as e:
+        push_log(stage="peer_resolve", result="force_refresh_error", extra={"bot_username": key, "error": str(e), "trace": traceback.format_exc()[:1200]})
+        return None
+
+
 async def backfill_latest_from_bot(
     bot_username: str,
     limit: int = 120,
@@ -3535,7 +3556,14 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
 
         try:
             phase = "send_code"
-            sent = await client.send_message(bot_peer, code, parse_mode=None, link_preview=False)
+            try:
+                sent = await client.send_message(bot_peer, code, parse_mode=None, link_preview=False)
+            except InputUserDeactivatedError:
+                refreshed_bot_peer = await _refresh_peer_for_bot(bot_username)
+                if refreshed_bot_peer is None:
+                    raise
+                bot_peer = refreshed_bot_peer
+                sent = await client.send_message(bot_peer, code, parse_mode=None, link_preview=False)
             sent_message_id = int(getattr(sent, "id", 0) or 0)
             if sent_message_id <= 0:
                 return {"status": "error", "reason": "send_message_id_missing"}

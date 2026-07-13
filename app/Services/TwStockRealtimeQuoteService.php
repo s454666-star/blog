@@ -473,7 +473,10 @@ class TwStockRealtimeQuoteService
                 'low' => null,
                 'volumeLots' => $this->numberOrNull($data[5] ?? null),
                 'exchange' => str_contains($symbol, ':') ? strstr($symbol, ':', true) : '',
-                'quotedAt' => $this->now()->toIso8601String(),
+                // TradingView's scanner response does not include the quote timestamp.
+                // Do not stamp it with the current request time: that makes a previous
+                // trading day's close look fresher than timestamped primary quotes.
+                'quotedAt' => null,
                 'source' => 'tradingview',
                 'sourceLabel' => $this->providerLabel('tradingview'),
                 'updateMode' => (string) ($data[6] ?? ''),
@@ -652,6 +655,10 @@ class TwStockRealtimeQuoteService
                 continue;
             }
 
+            if (!$this->canConfirmMatches($matches, $candidates)) {
+                continue;
+            }
+
             $base = $this->latestCandidate($matches);
             $labels = collect($matches)
                 ->map(fn (array $quote): string => (string) ($quote['sourceLabel'] ?? $quote['source'] ?? ''))
@@ -797,6 +804,10 @@ class TwStockRealtimeQuoteService
                 continue;
             }
 
+            if (!$this->canConfirmMatches($window, $valid)) {
+                continue;
+            }
+
             $timestamp = max(array_map(
                 fn (array $candidate): int => $this->timestampScore($candidate['quotedAt'] ?? null),
                 $window,
@@ -836,6 +847,48 @@ class TwStockRealtimeQuoteService
             'confirmationTickTolerance' => $this->quoteToleranceTicks(),
             'candidatePrices' => $this->summarizeCandidates($best),
         ], $best, $required);
+    }
+
+    /**
+     * A fallback-only agreement must not override an available primary quote.
+     *
+     * TradingView and Yahoo chart can agree on the previous trading day's close
+     * while CNYES or Yahoo Taiwan already has today's price. In that situation,
+     * keeping the primary quote provisional is safer than promoting two stale
+     * fallback values to a confirmed realtime price.
+     *
+     * @param list<array<string, mixed>> $matches
+     * @param list<array<string, mixed>> $candidates
+     */
+    private function canConfirmMatches(array $matches, array $candidates): bool
+    {
+        $primaryProviders = $this->configuredProviders(
+            (string) config('esun.quote_providers', 'twse,cnyes,yahoo_tw'),
+        );
+        if ($primaryProviders === []) {
+            return true;
+        }
+
+        $matchesContainPrimary = collect($matches)->contains(
+            fn (array $candidate): bool => in_array(
+                (string) ($candidate['source'] ?? ''),
+                $primaryProviders,
+                true,
+            ),
+        );
+        if ($matchesContainPrimary) {
+            return true;
+        }
+
+        $hasPrimaryCandidate = collect($candidates)->contains(
+            fn (array $candidate): bool => in_array(
+                (string) ($candidate['source'] ?? ''),
+                $primaryProviders,
+                true,
+            ),
+        );
+
+        return !$hasPrimaryCandidate;
     }
 
     /**

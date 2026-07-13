@@ -226,6 +226,71 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         $this->assertSame([288.35, 306.0], $candidatePreviousCloses);
     }
 
+    public function test_fallback_only_agreement_does_not_override_available_primary_quotes(): void
+    {
+        config()->set('esun.quote_providers', 'cnyes,yahoo_tw');
+        config()->set('esun.quote_fallback_providers', 'tradingview,yahoo_chart');
+        config()->set('esun.quote_confirmation_required', 2);
+
+        Http::fake([
+            'https://ws.api.cnyes.com/ws/api/v1/quote/quotes/*' => Http::response([
+                'statusCode' => 200,
+                'data' => [
+                    [
+                        '200010' => '00631L',
+                        '200009' => '元大台灣50正2',
+                        '6' => 37.80,
+                        '11' => 1.02,
+                        '56' => 2.77,
+                        '200007' => 1783904400,
+                    ],
+                ],
+            ]),
+            'https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.stockList*' => Http::response([
+                [
+                    'systexId' => '00631L',
+                    'symbol' => '00631L.TW',
+                    'symbolName' => '元大台灣50正2',
+                    'price' => ['raw' => '38.00'],
+                    'regularMarketPreviousClose' => ['raw' => '36.78'],
+                    'change' => ['raw' => '1.22'],
+                    'changePercent' => '3.32%',
+                    'regularMarketTime' => '2026-07-13T01:00:00Z',
+                ],
+            ]),
+            'https://scanner.tradingview.com/taiwan/scan' => Http::response([
+                'totalCount' => 1,
+                'data' => [
+                    [
+                        's' => 'TWSE:00631L',
+                        'd' => ['00631L', 'Yuanta/P-shares Taiwan Top 50 ETF', 36.78, -0.97, -0.36, 10000, 'delayed_streaming_900'],
+                    ],
+                ],
+            ]),
+            'https://query1.finance.yahoo.com/v8/finance/chart/00631L.TW*' => Http::response([
+                'chart' => [
+                    'result' => [
+                        [
+                            'meta' => [
+                                'regularMarketPrice' => 36.78,
+                                'previousClose' => 37.14,
+                                'regularMarketTime' => 1783589401,
+                                'shortName' => 'Yuanta/P-shares Taiwan Top 50 ETF',
+                            ],
+                        ],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $payload = app(TwStockRealtimeQuoteService::class)->quotes(['00631L']);
+
+        $this->assertSame('partial', $payload['source']['status']);
+        $this->assertSame('provisional', $payload['quotes']['00631L']['source']);
+        $this->assertSame(38.0, $payload['quotes']['00631L']['price']);
+        $this->assertNotSame(36.78, $payload['quotes']['00631L']['price']);
+    }
+
     public function test_it_confirms_quotes_when_two_sources_are_within_one_tick(): void
     {
         config()->set('esun.quote_providers', 'cnyes,yahoo_tw');

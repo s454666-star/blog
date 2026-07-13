@@ -1846,6 +1846,13 @@ function applyQuotePayloadToRows(rows, payload) {
             return row;
         }
 
+        // A provisional price can carry a previousClose from only one source.
+        // Do not let it seed the row: a later confirmed price would otherwise
+        // reuse that unconfirmed close and create a large false today PnL jump.
+        if (!quoteCanUpdatePnl(quote)) {
+            return row;
+        }
+
         if (!quoteCanRepriceRow(row, quote)) {
             if (!quotePreviousCloseMatchesRow(row, quote)) {
                 return row;

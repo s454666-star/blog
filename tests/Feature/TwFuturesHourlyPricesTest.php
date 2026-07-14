@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Console\Commands\BackfillTwFuturesContinuousPricesCommand;
 use App\Console\Commands\NotifyTaiexFuturesLineAlertsCommand;
+use App\Http\Controllers\TwFuturesHourlyPriceController;
 use App\Services\TwFuturesDailyPriceFetcher;
 use App\Services\TwFuturesHourlyPriceFetcher;
 use App\Services\TwFuturesYahooMinutePriceFetcher;
@@ -456,6 +457,8 @@ class TwFuturesHourlyPricesTest extends TestCase
     public function test_taiex_futures_line_alert_command_sends_four_hour_ma5_notification(): void
     {
         $this->seedHourlyRows();
+        $currentGap = app(TwFuturesHourlyPriceController::class)->lineAlertPayload()['stats']['latestGap'];
+        $currentGapText = ($currentGap >= 0 ? '+' : '') . number_format((float) $currentGap, 0) . '點';
         Cache::flush();
         Carbon::setTestNow('2026-01-07 23:00:00');
         CarbonImmutable::setTestNow('2026-01-07 23:00:00');
@@ -487,7 +490,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             '--max-alerts' => 50,
         ])->assertExitCode(0);
 
-        Http::assertSent(function ($request): bool {
+        Http::assertSent(function ($request) use ($currentGapText): bool {
             $body = $request->data();
             $message = (string) data_get($body, 'messages.0.text', '');
 
@@ -498,6 +501,7 @@ class TwFuturesHourlyPricesTest extends TestCase
                 && str_contains($message, '23:00')
                 && str_contains($message, '目前價格')
                 && str_contains($message, '價差')
+                && str_contains($message, '目前差值 ' . $currentGapText)
                 && str_contains($message, 'https://stock.mystar.monster/tw-stock/taiex-futures-kline');
         });
     }

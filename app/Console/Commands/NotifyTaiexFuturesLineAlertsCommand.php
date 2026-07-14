@@ -166,7 +166,11 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
                 continue;
             }
 
-            $alert = $this->fourHourMa5Alert($row, $minTimestamp);
+            $alert = $this->fourHourMa5Alert(
+                $row,
+                $minTimestamp,
+                $payload['stats']['latestGap'] ?? null,
+            );
             if ($alert !== null) {
                 $alerts[] = $alert;
             }
@@ -283,7 +287,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
      * @param array<string, mixed> $row
      * @return array{key: string, time: int, message: string}|null
      */
-    private function fourHourMa5Alert(array $row, int $minTimestamp): ?array
+    private function fourHourMa5Alert(array $row, int $minTimestamp, mixed $currentGap = null): ?array
     {
         $time = (int) ($row['time'] ?? 0);
         if ($time < $minTimestamp) {
@@ -304,7 +308,11 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
                 $direction,
                 $this->formatOptionalNumber($row['fourHourMa5'] ?? null, 0),
             ),
-            '價差 ' . $this->formatNumber($diff, 0, true) . '點',
+            sprintf(
+                '價差 %s點　目前差值 %s',
+                $this->formatNumber($diff, 0, true),
+                $this->formatOptionalPointDifference($currentGap),
+            ),
             $this->dashboardUrl(),
         ];
 
@@ -337,6 +345,13 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         $number = $this->numeric($value);
 
         return $number === null ? '--' : $this->formatNumber($number, $decimals);
+    }
+
+    private function formatOptionalPointDifference(mixed $value): string
+    {
+        $number = $this->numeric($value);
+
+        return $number === null ? '--' : $this->formatNumber($number, 0, true) . '點';
     }
 
     private function formatNumber(float $value, int $decimals = 0, bool $signed = false): string

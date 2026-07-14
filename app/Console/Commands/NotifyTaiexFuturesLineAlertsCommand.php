@@ -4,9 +4,11 @@ namespace App\Console\Commands;
 
 use App\Http\Controllers\TwFuturesHourlyPriceController;
 use App\Services\LinePushService;
+use App\Services\TwFuturesHourlyPriceFetcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 class NotifyTaiexFuturesLineAlertsCommand extends Command
 {
@@ -31,6 +33,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
     public function handle(
         TwFuturesHourlyPriceController $controller,
         LinePushService $linePush,
+        TwFuturesHourlyPriceFetcher $fetcher,
     ): int {
         if (! $this->notificationsEnabled()) {
             $this->line('台指期 LINE 通知未啟用。');
@@ -42,6 +45,9 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         $lookbackMinutes = max(1, min(1440, (int) $this->option('lookback-minutes')));
         $maxAlerts = max(1, min(50, (int) $this->option('max-alerts')));
         $now = CarbonImmutable::now($timezone);
+        if (! $this->option('dry-run') && $this->isFourHourMa5NotifyTime($now)) {
+            $this->refreshFourHourMa5SourceRows($fetcher, $now);
+        }
         $payload = $controller->lineAlertPayload();
         $alerts = $this->alertsFromPayload($payload, $now, $lookbackMinutes);
         $alerts = array_slice($alerts, -$maxAlerts);
@@ -82,6 +88,52 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         ));
 
         return self::SUCCESS;
+    }
+
+    private function isFourHourMa5NotifyTime(CarbonImmutable $now): bool
+    {
+        $notifyTimes = config('tw_stock.taiex_futures_four_hour_ma5_notify_times', [
+            '08:45',
+            '12:45',
+            '13:45',
+            '15:00',
+            '19:00',
+            '23:00',
+        ]);
+
+        return in_array($now->format('H:i'), $notifyTimes, true);
+    }
+
+    private function refreshFourHourMa5SourceRows(
+        TwFuturesHourlyPriceFetcher $fetcher,
+        CarbonImmutable $now,
+    ): void {
+        $from = $now->subDays(3)->toDateString();
+        $to = $now->addDay()->toDateString();
+        $storedByInterval = [];
+
+        foreach (['60' => 200, '15' => 600] as $interval => $bars) {
+            try {
+                $rows = $fetcher->fetchRows(
+                    from: $from,
+                    to: $to,
+                    bars: $bars,
+                    interval: $interval,
+                );
+                $storedByInterval[$interval] = $fetcher->upsertRows($rows);
+            } catch (Throwable $exception) {
+                report($exception);
+                $storedByInterval[$interval] = 'failed';
+            }
+        }
+
+        $this->line(sprintf(
+            '4H MA5 即時資料刷新：notify_at=%s 60K=%s 15K=%s completed_at=%s',
+            $now->format('Y-m-d H:i:s'),
+            (string) ($storedByInterval['60'] ?? 'failed'),
+            (string) ($storedByInterval['15'] ?? 'failed'),
+            CarbonImmutable::now((string) config('app.timezone', 'Asia/Taipei'))->format('Y-m-d H:i:s'),
+        ));
     }
 
     private function notificationsEnabled(): bool

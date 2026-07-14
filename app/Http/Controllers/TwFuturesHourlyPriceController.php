@@ -23,8 +23,6 @@ class TwFuturesHourlyPriceController extends Controller
 
     private const FOUR_HOUR_MA5_BOUNDARY_TIMES = ['03:00', '05:00', '12:45', '13:45', '19:00', '23:00'];
 
-    private const FOUR_HOUR_MA5_NOTIFY_TIMES = ['08:45', '12:45', '15:00', '19:00', '23:00'];
-
     private const FOUR_HOUR_MA5_WINDOW = 5;
 
     public function index(): View
@@ -505,13 +503,12 @@ class TwFuturesHourlyPriceController extends Controller
         $snapshotCount = count($snapshots);
 
         foreach ($primaryRows as $row) {
-            $alertTime = $this->primaryAlertTime($row);
-            $alertLocalTime = $this->primaryAlertLocalTime($row);
-            $clock = substr($alertLocalTime, -5);
-
-            if ($alertTime <= 0 || ! in_array($clock, self::FOUR_HOUR_MA5_NOTIFY_TIMES, true)) {
+            $alertPoint = $this->fourHourMa5AlertPoint($row);
+            if ($alertPoint === null) {
                 continue;
             }
+            $alertTime = $alertPoint['time'];
+            $alertLocalTime = $alertPoint['localTime'];
 
             while ($snapshotIndex + 1 < $snapshotCount && $snapshots[$snapshotIndex + 1]['time'] <= $alertTime) {
                 $snapshotIndex++;
@@ -540,27 +537,41 @@ class TwFuturesHourlyPriceController extends Controller
     /**
      * @param array<string, mixed> $row
      */
-    private function primaryAlertTime(array $row): int
+    private function fourHourMa5AlertPoint(array $row): ?array
     {
-        $time = (int) ($row['time'] ?? 0);
-        if ($time <= 0) {
-            return 0;
+        $displayTime = (int) ($row['time'] ?? 0);
+        if ($displayTime <= 0) {
+            return null;
         }
 
-        return $time - ($this->intervalMinutes(self::PRIMARY_INTERVAL) * 60);
-    }
-
-    /**
-     * @param array<string, mixed> $row
-     */
-    private function primaryAlertLocalTime(array $row): string
-    {
-        $alertTime = $this->primaryAlertTime($row);
-        if ($alertTime <= 0) {
-            return (string) ($row['localTime'] ?? '');
+        $timezone = (string) config('app.timezone', 'Asia/Taipei');
+        $startedTime = $displayTime - ($this->intervalMinutes(self::PRIMARY_INTERVAL) * 60);
+        $startedLocalTime = CarbonImmutable::createFromTimestamp($startedTime, $timezone)->format('Y-m-d H:i');
+        $openingNotifyTimes = config('tw_stock.taiex_futures_four_hour_ma5_opening_notify_times', ['08:45', '15:00']);
+        if (in_array(substr($startedLocalTime, -5), $openingNotifyTimes, true)) {
+            return [
+                'time' => $startedTime,
+                'localTime' => $startedLocalTime,
+            ];
         }
 
-        return CarbonImmutable::createFromTimestamp($alertTime, 'Asia/Taipei')->format('Y-m-d H:i');
+        $displayLocalTime = (string) ($row['localTime'] ?? '');
+        $notifyTimes = config('tw_stock.taiex_futures_four_hour_ma5_notify_times', [
+            '08:45',
+            '12:45',
+            '13:45',
+            '15:00',
+            '19:00',
+            '23:00',
+        ]);
+        if (! in_array(substr($displayLocalTime, -5), $notifyTimes, true)) {
+            return null;
+        }
+
+        return [
+            'time' => $displayTime,
+            'localTime' => $displayLocalTime,
+        ];
     }
 
     /**

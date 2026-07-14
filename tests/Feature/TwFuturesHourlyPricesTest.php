@@ -375,8 +375,29 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->unique()
             ->values()
             ->all();
-        foreach (['08:45', '12:45', '15:00', '19:00', '23:00'] as $clock) {
+        foreach (['08:45', '12:45', '13:45', '15:00', '19:00', '23:00'] as $clock) {
             $this->assertContains($clock, $fourHourNotifyTimes);
+        }
+
+        $januarySevenRows = collect($response->json('fourHourMa5Rows'))
+            ->filter(fn (array $row): bool => str_starts_with((string) $row['localTime'], '2026-01-07 '))
+            ->keyBy(fn (array $row): string => substr((string) $row['localTime'], -5));
+        foreach ([
+            '08:45' => '2026-01-07 08:45:00',
+            '12:45' => '2026-01-07 12:30:00',
+            '13:45' => '2026-01-07 13:30:00',
+            '15:00' => '2026-01-07 15:00:00',
+            '19:00' => '2026-01-07 18:45:00',
+            '23:00' => '2026-01-07 22:45:00',
+        ] as $clock => $sourceStartedAt) {
+            $this->assertTrue($januarySevenRows->has($clock));
+            $this->assertSame(
+                (float) DB::table('tw_futures_hourly_prices')
+                    ->where('interval', '15')
+                    ->where('started_at', $sourceStartedAt)
+                    ->value('close_price'),
+                (float) $januarySevenRows->get($clock)['close'],
+            );
         }
 
         $revision = (string) $response->json('dataRevision');

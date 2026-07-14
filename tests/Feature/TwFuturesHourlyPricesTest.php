@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use Mockery\MockInterface;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -456,8 +457,18 @@ class TwFuturesHourlyPricesTest extends TestCase
     {
         $this->seedHourlyRows();
         Cache::flush();
-        Carbon::setTestNow('2026-01-07 23:30:00');
-        CarbonImmutable::setTestNow('2026-01-07 23:30:00');
+        Carbon::setTestNow('2026-01-07 23:00:00');
+        CarbonImmutable::setTestNow('2026-01-07 23:00:00');
+
+        $this->mock(TwFuturesHourlyPriceFetcher::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('fetchRows')
+                ->twice()
+                ->andReturn([]);
+            $mock->shouldReceive('upsertRows')
+                ->twice()
+                ->with([])
+                ->andReturn(0);
+        });
 
         config()->set('app.url', 'https://stock.mystar.monster');
         config()->set('line.channel_access_token', 'stock-line-token');

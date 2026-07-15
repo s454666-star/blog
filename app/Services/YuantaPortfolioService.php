@@ -234,8 +234,12 @@ class YuantaPortfolioService
             ->filter()
             ->unique()
             ->values();
-        $history = $this->historicalPrices($stockCodes);
         $exchanges = $this->exchangeMetadata($stockCodes);
+        $emergingCodes = collect($exchanges)
+            ->filter(fn (array $exchange): bool => ($exchange['class'] ?? null) === 'emerging')
+            ->keys()
+            ->values();
+        $history = $this->historicalPrices($stockCodes, $emergingCodes);
 
         $rows = $inventories
             ->map(function (array $row) use ($history, $exchanges): array {
@@ -525,7 +529,7 @@ class YuantaPortfolioService
      * @param Collection<int, string> $stockCodes
      * @return array<string, array<string, float|null>>
      */
-    private function historicalPrices(Collection $stockCodes): array
+    private function historicalPrices(Collection $stockCodes, ?Collection $emergingCodes = null): array
     {
         if ($stockCodes->isEmpty()) {
             return [];
@@ -543,6 +547,26 @@ class YuantaPortfolioService
             ->groupBy('stock_code')
             ->map(fn (Collection $prices): array => $this->historicalPriceSummary($prices->values(), $today, $startOfYear))
             ->all();
+
+        foreach (($emergingCodes ?? collect()) as $stockCode) {
+            $stockCode = (string) $stockCode;
+            $fallback = app(TwStockEmergingHistoryService::class)->summary(
+                $stockCode,
+                $today,
+                (string) config('yuanta.timezone', 'Asia/Taipei'),
+            );
+            if ($fallback === null) {
+                continue;
+            }
+
+            $base = $history[$stockCode] ?? [];
+            foreach (['previousClose', 'fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $key) {
+                if (($fallback[$key] ?? null) !== null) {
+                    $base[$key] = $fallback[$key];
+                }
+            }
+            $history[$stockCode] = $base;
+        }
 
         foreach ($this->twseMisPreviousCloses($stockCodes) as $stockCode => $official) {
             $history[(string) $stockCode] = $this->mergeOfficialPreviousClose(

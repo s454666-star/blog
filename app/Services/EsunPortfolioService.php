@@ -617,8 +617,12 @@ class EsunPortfolioService
             ->filter()
             ->unique()
             ->values();
-        $history = $this->historicalPrices($stockCodes);
         $exchanges = $this->exchangeMetadata($stockCodes);
+        $emergingCodes = collect($exchanges)
+            ->filter(fn (array $exchange): bool => ($exchange['class'] ?? null) === 'emerging')
+            ->keys()
+            ->values();
+        $history = $this->historicalPrices($stockCodes, $emergingCodes);
 
         $rows = $inventories
             ->map(function (array $row) use ($history, $exchanges): array {
@@ -1327,7 +1331,7 @@ class EsunPortfolioService
      * @param Collection<int, string> $stockCodes
      * @return array<string, array<string, float|string|null>>
      */
-    private function historicalPrices(Collection $stockCodes): array
+    private function historicalPrices(Collection $stockCodes, ?Collection $emergingCodes = null): array
     {
         if ($stockCodes->isEmpty()) {
             return [];
@@ -1351,6 +1355,20 @@ class EsunPortfolioService
         foreach ($stockCodes->unique()->values() as $stockCode) {
             $stockCode = (string) $stockCode;
             $fallback = $this->yahooHistoricalPriceSummary($stockCode, $today, $startOfYear);
+            if ($fallback === null) {
+                continue;
+            }
+
+            $history[$stockCode] = $this->mergeHistoricalSummary($history[$stockCode] ?? [], $fallback);
+        }
+
+        foreach (($emergingCodes ?? collect()) as $stockCode) {
+            $stockCode = (string) $stockCode;
+            $fallback = app(TwStockEmergingHistoryService::class)->summary(
+                $stockCode,
+                $today,
+                (string) config('esun.timezone', 'Asia/Taipei'),
+            );
             if ($fallback === null) {
                 continue;
             }

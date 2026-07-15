@@ -13,7 +13,15 @@ class TwStockTaiexIndexService
 {
     private const TWSE_CHART_URL = 'https://mis.twse.com.tw/stock/api/getChartOhlcStatis.jsp';
 
+    private const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ETWII';
+
     private const FEED_CACHE_SECONDS = 10;
+
+    private const HISTORY_CACHE_MINUTES = 10;
+
+    private const HISTORY_START_MONTH = 7;
+
+    private const HISTORY_START_DAY = 1;
 
     private const DAILY_BAR_LIMIT = 180;
 
@@ -57,10 +65,12 @@ class TwStockTaiexIndexService
                 default => '日 K',
             },
             'refreshSeconds' => 15,
-            'source' => '臺灣證券交易所（TWSE）',
+            'source' => $interval === '1d'
+                ? '臺灣證券交易所（TWSE）'
+                : 'TWSE 即時指數／Yahoo Finance 歷史分 K',
             'sourceNote' => $interval === '1d'
                 ? '日 K 使用 TWSE 每日開高低收；當日資料以即時指數更新。'
-                : '分 K 由 TWSE 每分鐘指數點位聚合；最新指數每 15 秒更新。',
+                : '7/1 起歷史分 K 使用 Yahoo Finance 的 TAIEX 分鐘 OHLC；當日以 TWSE 分時指數補齊，最新指數每 15 秒更新。',
             'refreshedAt' => now('Asia/Taipei')->format('Y-m-d H:i:s'),
             'market' => $this->marketState($quote),
             'quote' => $quote,
@@ -170,6 +180,46 @@ class TwStockTaiexIndexService
      */
     private function intradayBars(array $feed, array $quote, int $intervalMinutes): array
     {
+        $samples = $this->historicalMinuteSamples();
+        foreach ($this->currentMinuteSamples($feed, $quote) as $timestamp => $sample) {
+            $samples[$timestamp] = $sample;
+        }
+
+        ksort($samples);
+
+        $seconds = max(1, $intervalMinutes) * 60;
+        $bars = [];
+        foreach ($samples as $sample) {
+            $bucketTime = intdiv((int) $sample['time'], $seconds) * $seconds;
+            if (! isset($bars[$bucketTime])) {
+                $bars[$bucketTime] = [
+                    'time' => $bucketTime,
+                    'localTime' => CarbonImmutable::createFromTimestamp($bucketTime, 'Asia/Taipei')->format('Y-m-d H:i'),
+                    'open' => (float) $sample['open'],
+                    'high' => (float) $sample['high'],
+                    'low' => (float) $sample['low'],
+                    'close' => (float) $sample['close'],
+                    'volume' => (int) $sample['volume'],
+                ];
+                continue;
+            }
+
+            $bars[$bucketTime]['high'] = max((float) $bars[$bucketTime]['high'], (float) $sample['high']);
+            $bars[$bucketTime]['low'] = min((float) $bars[$bucketTime]['low'], (float) $sample['low']);
+            $bars[$bucketTime]['close'] = (float) $sample['close'];
+            $bars[$bucketTime]['volume'] += (int) $sample['volume'];
+        }
+
+        return array_values(array_map(fn (array $bar): array => $this->roundBar($bar), $bars));
+    }
+
+    /**
+     * @param array<string, mixed> $feed
+     * @param array<string, mixed> $quote
+     * @return array<int, array<string, int|float>>
+     */
+    private function currentMinuteSamples(array $feed, array $quote): array
+    {
         $samples = [];
         $previousClose = $this->number($quote['open'] ?? null);
 
@@ -224,30 +274,115 @@ class TwStockTaiexIndexService
 
         ksort($samples);
 
-        $seconds = max(1, $intervalMinutes) * 60;
-        $bars = [];
-        foreach ($samples as $sample) {
-            $bucketTime = intdiv((int) $sample['time'], $seconds) * $seconds;
-            if (! isset($bars[$bucketTime])) {
-                $bars[$bucketTime] = [
-                    'time' => $bucketTime,
-                    'localTime' => CarbonImmutable::createFromTimestamp($bucketTime, 'Asia/Taipei')->format('Y-m-d H:i'),
-                    'open' => (float) $sample['open'],
-                    'high' => (float) $sample['high'],
-                    'low' => (float) $sample['low'],
-                    'close' => (float) $sample['close'],
-                    'volume' => (int) $sample['volume'],
-                ];
+        return $samples;
+    }
+
+    /**
+     * @return array<int, array<string, int|float>>
+     */
+    private function historicalMinuteSamples(): array
+    {
+        $now = CarbonImmutable::now('Asia/Taipei');
+        $start = CarbonImmutable::create(
+            $now->year,
+            self::HISTORY_START_MONTH,
+            self::HISTORY_START_DAY,
+            0,
+            0,
+            0,
+            'Asia/Taipei',
+        );
+        $end = $now->startOfDay();
+        if ($end->lessThanOrEqualTo($start)) {
+            return [];
+        }
+
+        $cacheKey = sprintf(
+            'tw-stock:taiex-index:yahoo-minute:%s:%s:v1',
+            $start->toDateString(),
+            $end->subDay()->toDateString(),
+        );
+
+        return Cache::store('file')->remember(
+            $cacheKey,
+            now()->addMinutes(self::HISTORY_CACHE_MINUTES),
+            fn (): array => $this->downloadHistoricalMinuteSamples($start, $end),
+        );
+    }
+
+    /**
+     * @return array<int, array<string, int|float>>
+     */
+    private function downloadHistoricalMinuteSamples(CarbonImmutable $start, CarbonImmutable $end): array
+    {
+        $samples = [];
+        $cursor = $start;
+
+        while ($cursor->lessThan($end)) {
+            $chunkEnd = $cursor->addDays(7);
+            if ($chunkEnd->greaterThan($end)) {
+                $chunkEnd = $end;
+            }
+
+            try {
+                $payload = Http::withHeaders([
+                    'Accept' => 'application/json,text/plain,*/*',
+                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                ])
+                    ->timeout(20)
+                    ->retry(1, 250)
+                    ->get(self::YAHOO_CHART_URL, [
+                        'period1' => $cursor->utc()->timestamp,
+                        'period2' => $chunkEnd->utc()->timestamp,
+                        'interval' => '1m',
+                        'includePrePost' => 'false',
+                        'events' => 'div,splits',
+                    ])
+                    ->throw()
+                    ->json();
+            } catch (Throwable) {
+                $cursor = $chunkEnd;
                 continue;
             }
 
-            $bars[$bucketTime]['high'] = max((float) $bars[$bucketTime]['high'], (float) $sample['high']);
-            $bars[$bucketTime]['low'] = min((float) $bars[$bucketTime]['low'], (float) $sample['low']);
-            $bars[$bucketTime]['close'] = (float) $sample['close'];
-            $bars[$bucketTime]['volume'] += (int) $sample['volume'];
+            $result = is_array($payload['chart']['result'][0] ?? null)
+                ? $payload['chart']['result'][0]
+                : [];
+            $timestamps = is_array($result['timestamp'] ?? null) ? $result['timestamp'] : [];
+            $quote = is_array($result['indicators']['quote'][0] ?? null)
+                ? $result['indicators']['quote'][0]
+                : [];
+
+            foreach ($timestamps as $index => $rawTimestamp) {
+                if (! is_numeric($rawTimestamp)) {
+                    continue;
+                }
+
+                $timestamp = (int) $rawTimestamp;
+                $open = $this->number($quote['open'][$index] ?? null);
+                $high = $this->number($quote['high'][$index] ?? null);
+                $low = $this->number($quote['low'][$index] ?? null);
+                $close = $this->number($quote['close'][$index] ?? null);
+                if ($open === null || $high === null || $low === null || $close === null) {
+                    continue;
+                }
+
+                $samples[$timestamp] = [
+                    'time' => $timestamp,
+                    'open' => $open,
+                    'high' => $high,
+                    'low' => $low,
+                    'close' => $close,
+                    'volume' => max(0, (int) ($quote['volume'][$index] ?? 0)),
+                ];
+            }
+
+            $cursor = $chunkEnd;
         }
 
-        return array_values(array_map(fn (array $bar): array => $this->roundBar($bar), $bars));
+        ksort($samples);
+
+        return $samples;
     }
 
     /**

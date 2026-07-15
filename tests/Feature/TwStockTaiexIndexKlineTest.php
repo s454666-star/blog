@@ -18,6 +18,8 @@ class TwStockTaiexIndexKlineTest extends TestCase
     {
         parent::setUp();
 
+        Carbon::setTestNow(Carbon::parse('2026-07-15 10:00:00', 'Asia/Taipei'));
+
         if (! extension_loaded('pdo_sqlite')) {
             $this->markTestSkipped('pdo_sqlite is required for this feature test.');
         }
@@ -37,14 +39,17 @@ class TwStockTaiexIndexKlineTest extends TestCase
         Schema::dropAllTables();
         $this->createInstitutionalFlowsTable();
         Cache::store('file')->forget('tw-stock:taiex-index:twse-feed:v1');
+        Cache::store('file')->forget('tw-stock:taiex-index:yahoo-minute:2026-07-01:2026-07-14:v1');
     }
 
     protected function tearDown(): void
     {
         Cache::store('file')->forget('tw-stock:taiex-index:twse-feed:v1');
+        Cache::store('file')->forget('tw-stock:taiex-index:yahoo-minute:2026-07-01:2026-07-14:v1');
         Schema::dropIfExists('tw_stock_institutional_flows');
         DB::disconnect('sqlite');
         config()->set('database.default', $this->originalDatabaseDefault);
+        Carbon::setTestNow();
 
         parent::tearDown();
     }
@@ -80,6 +85,7 @@ class TwStockTaiexIndexKlineTest extends TestCase
     {
         Http::fake([
             'https://mis.twse.com.tw/stock/api/getChartOhlcStatis.jsp*' => Http::response($this->twseFeed()),
+            'https://query1.finance.yahoo.com/v8/finance/chart/*' => Http::response($this->emptyYahooHistory()),
         ]);
 
         $response = $this->getJson(route('tw-stock.taiex-index.kline.data', ['interval' => '5m']))
@@ -88,6 +94,7 @@ class TwStockTaiexIndexKlineTest extends TestCase
             ->assertJsonPath('interval', '5m')
             ->assertJsonPath('intervalLabel', '5 分 K')
             ->assertJsonPath('refreshSeconds', 15)
+            ->assertJsonPath('sourceNote', '7/1 起歷史分 K 使用 Yahoo Finance 的 TAIEX 分鐘 OHLC；當日以 TWSE 分時指數補齊，最新指數每 15 秒更新。')
             ->assertJsonPath('quote.latest', 103)
             ->assertJsonPath('quote.previousClose', 95)
             ->assertJsonCount(2, 'bars');
@@ -105,6 +112,25 @@ class TwStockTaiexIndexKlineTest extends TestCase
         $this->assertSame(99.0, (float) $bars[1]['low']);
         $this->assertSame(103.0, (float) $bars[1]['close']);
         $this->assertSame(40, $bars[1]['volume']);
+    }
+
+    public function test_intraday_endpoint_includes_historical_minute_ohlc_from_july_first(): void
+    {
+        Http::fake([
+            'https://mis.twse.com.tw/stock/api/getChartOhlcStatis.jsp*' => Http::response($this->twseFeed()),
+            'https://query1.finance.yahoo.com/v8/finance/chart/*' => Http::response($this->yahooHistory()),
+        ]);
+
+        $response = $this->getJson(route('tw-stock.taiex-index.kline.data', ['interval' => '1m']))
+            ->assertOk();
+
+        $bars = $response->json('bars');
+        $this->assertGreaterThan(4, count($bars));
+        $this->assertSame('2026-07-01 09:00', $bars[0]['localTime']);
+        $this->assertSame(44000.0, (float) $bars[0]['open']);
+        $this->assertSame(44025.0, (float) $bars[0]['high']);
+        $this->assertSame(43990.0, (float) $bars[0]['low']);
+        $this->assertSame(44020.0, (float) $bars[0]['close']);
     }
 
     public function test_daily_interval_uses_stored_twse_ohlc_and_appends_live_day(): void
@@ -131,6 +157,7 @@ class TwStockTaiexIndexKlineTest extends TestCase
         ]);
         Http::fake([
             'https://mis.twse.com.tw/stock/api/getChartOhlcStatis.jsp*' => Http::response($this->twseFeed()),
+            'https://query1.finance.yahoo.com/v8/finance/chart/*' => Http::response($this->emptyYahooHistory()),
         ]);
 
         $response = $this->getJson(route('tw-stock.taiex-index.kline.data', ['interval' => '1d']))
@@ -182,6 +209,51 @@ class TwStockTaiexIndexKlineTest extends TestCase
                 'l' => '97.00',
                 'y' => '95.00',
             ]],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function emptyYahooHistory(): array
+    {
+        return [
+            'chart' => [
+                'result' => [[
+                    'timestamp' => [],
+                    'indicators' => ['quote' => [[]]],
+                ]],
+                'error' => null,
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function yahooHistory(): array
+    {
+        $timestamp = static fn (string $time): int => Carbon::parse('2026-07-01 ' . $time, 'Asia/Taipei')->timestamp;
+
+        return [
+            'chart' => [
+                'result' => [[
+                    'timestamp' => [
+                        $timestamp('09:00:00'),
+                        $timestamp('09:01:00'),
+                    ],
+                    'indicators' => [
+                        'quote' => [[
+                            'open' => [44000, 44020],
+                            'high' => [44025, 44040],
+                            'low' => [43990, 44010],
+                            'close' => [44020, 44035],
+                            'volume' => [100, 120],
+                        ]],
+                    ],
+                ]],
+                'error' => null,
+            ],
         ];
     }
 

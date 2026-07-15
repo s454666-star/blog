@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\EsunPortfolioDailySnapshot;
 use App\Models\TwStockCompanyProfile;
 use App\Models\TwStockDailyPrice;
+use App\Services\Concerns\AnnotatesPortfolioTodayAddedQuantity;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -14,6 +15,8 @@ use Symfony\Component\Process\Process;
 
 class EsunPortfolioService
 {
+    use AnnotatesPortfolioTodayAddedQuantity;
+
     private const TWSE_MIS_URL = 'https://mis.twse.com.tw/stock/api/getStockInfo.jsp';
 
     public function snapshot(bool $force = false): array
@@ -633,6 +636,10 @@ class EsunPortfolioService
             ->sortBy('stockNo')
             ->values()
             ->all();
+        $rows = $this->annotateTodayAddedQuantities(
+            $rows,
+            $this->previousDailySnapshotRows(EsunPortfolioDailySnapshot::class, $now),
+        );
 
         $totalMarketValue = array_sum(array_column($rows, 'marketValue'));
         $totalCostBasis = array_sum(array_column($rows, 'costBasis'));

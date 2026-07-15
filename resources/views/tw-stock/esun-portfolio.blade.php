@@ -1175,6 +1175,16 @@ function formatInteger(value) {
     return Math.round(number(value)).toLocaleString('zh-TW');
 }
 
+function formatQuantity(row) {
+    const quantity = formatInteger(row.quantity);
+    const todayAddedQuantity = finiteNumber(row.todayAddedQuantity);
+    if (state.historyMode || todayAddedQuantity === null || todayAddedQuantity <= 0) {
+        return quantity;
+    }
+
+    return `${quantity}(${formatInteger(todayAddedQuantity)})`;
+}
+
 function formatMoney(value) {
     const numeric = number(value);
     const prefix = numeric > 0 ? '+' : '';
@@ -1583,7 +1593,7 @@ function renderPositions() {
                 <strong>${formatMoney(row.unrealizedPnl)}</strong>
             </td>
             <td class="${toneClass(row.unrealizedPnlRate)}">${formatPercent(row.unrealizedPnlRate)}</td>
-            <td>${formatInteger(row.quantity)}</td>
+            <td>${formatQuantity(row)}</td>
             <td>${formatPrice(row.averagePrice)}</td>
             <td>${formatInteger(row.costBasis)}</td>
             <td>

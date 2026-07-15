@@ -103,6 +103,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('stopLossRowClass', false)
             ->assertSee('stop-loss-row-warning', false)
             ->assertSee('stop-loss-row-danger', false)
+            ->assertSee('formatQuantity', false)
+            ->assertSee('todayAddedQuantity', false)
             ->assertSee("numeric <= -40) return 'stop-loss-row-danger'", false)
             ->assertSee("numeric <= -30) return 'stop-loss-row-warning'", false)
             ->assertSee("label: '市'", false)

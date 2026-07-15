@@ -102,6 +102,41 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertEqualsWithDelta(10.0, $row['dayChangeRate'], 0.0001);
     }
 
+    public function test_it_marks_only_the_quantity_added_since_the_previous_daily_snapshot(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'annotateTodayAddedQuantities');
+
+        $rows = $method->invoke($service, [
+            ['stockNo' => '1111', 'tradeType' => '0', 'quantity' => 9000],
+            ['stockNo' => '2222', 'tradeType' => '0', 'quantity' => 9000],
+            ['stockNo' => '3333', 'tradeType' => '3', 'quantity' => 9000],
+            ['stockNo' => '4444', 'tradeType' => '0', 'quantity' => 7000],
+        ], [
+            ['stockNo' => '1111', 'tradeType' => '0', 'quantity' => 7000],
+            ['stockNo' => '2222', 'tradeType' => '0', 'quantity' => 9000],
+            ['stockNo' => '3333', 'tradeType' => '0', 'quantity' => 9000],
+            ['stockNo' => '4444', 'tradeType' => '0', 'quantity' => 9000],
+        ]);
+
+        $this->assertSame(2000.0, $rows[0]['todayAddedQuantity']);
+        $this->assertNull($rows[1]['todayAddedQuantity']);
+        $this->assertSame(9000.0, $rows[2]['todayAddedQuantity']);
+        $this->assertNull($rows[3]['todayAddedQuantity']);
+    }
+
+    public function test_it_does_not_mark_holdings_when_no_previous_daily_snapshot_exists(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'annotateTodayAddedQuantities');
+
+        $rows = $method->invoke($service, [
+            ['stockNo' => '1111', 'tradeType' => '0', 'quantity' => 9000],
+        ], null);
+
+        $this->assertNull($rows[0]['todayAddedQuantity']);
+    }
+
     public function test_it_maps_cash_inventory_from_trade_type_even_when_position_type_is_h(): void
     {
         $service = new EsunPortfolioService();

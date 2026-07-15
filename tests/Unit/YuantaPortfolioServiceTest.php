@@ -175,6 +175,23 @@ class YuantaPortfolioServiceTest extends TestCase
         $this->assertSame(7664.0, $row['unrealizedPnl']);
     }
 
+    public function test_it_marks_only_the_yuanta_quantity_added_since_the_previous_daily_snapshot(): void
+    {
+        $service = new YuantaPortfolioService();
+        $method = new ReflectionMethod($service, 'annotateTodayAddedQuantities');
+
+        $rows = $method->invoke($service, [
+            ['stockNo' => '2303', 'tradeType' => '0', 'quantity' => 9000],
+            ['stockNo' => '2330', 'tradeType' => '0', 'quantity' => 9000],
+        ], [
+            ['stockNo' => '2303', 'tradeType' => '0', 'quantity' => 7000],
+            ['stockNo' => '2330', 'tradeType' => '0', 'quantity' => 9000],
+        ]);
+
+        $this->assertSame(2000.0, $rows[0]['todayAddedQuantity']);
+        $this->assertNull($rows[1]['todayAddedQuantity']);
+    }
+
     public function test_it_recognizes_emerging_market_from_yuanta_inventory(): void
     {
         $service = new YuantaPortfolioService();

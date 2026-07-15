@@ -3519,6 +3519,27 @@ def _resource_code_media_key(msg: Any) -> str:
     return f"message:{int(getattr(msg, 'id', 0) or 0)}"
 
 
+def _resource_code_media_occurrence_key(
+    msg: Any,
+    first_grouped_id_by_media_key: Dict[str, int],
+) -> Optional[str]:
+    """Keep intentional duplicates in the first album, but ignore retry albums."""
+    media_key = _resource_code_media_key(msg)
+    grouped_id = int(getattr(msg, "grouped_id", 0) or 0)
+
+    if media_key not in first_grouped_id_by_media_key:
+        first_grouped_id_by_media_key[media_key] = grouped_id
+
+    first_grouped_id = first_grouped_id_by_media_key[media_key]
+    if grouped_id > 0 and first_grouped_id > 0:
+        if grouped_id != first_grouped_id:
+            return None
+        message_id = int(getattr(msg, "id", 0) or 0)
+        return f"{media_key}:group:{grouped_id}:message:{message_id}"
+
+    return media_key
+
+
 async def _cleanup_resource_code_bot_messages(peer: Any, message_ids: List[int]) -> List[int]:
     remaining = sorted({int(mid) for mid in message_ids if int(mid or 0) > 0})
     transient_attempts = 0
@@ -3602,6 +3623,7 @@ async def _resource_code_bot_media(
     last_media_ids: Tuple[int, ...] = tuple()
     all_reply_ids: Set[int] = set()
     media_by_key: Dict[str, Any] = {}
+    first_grouped_id_by_media_key: Dict[str, int] = {}
     expected_media_count: Optional[int] = None
     declared_file_count: Optional[int] = None
     clicked_callback_state: Dict[str, Tuple[float, int]] = {}
@@ -3614,6 +3636,24 @@ async def _resource_code_bot_media(
 
     while asyncio.get_running_loop().time() < deadline:
         messages = await client.get_messages(peer, limit=1000, min_id=int(sent_message_id))
+        media_candidates = [
+            msg
+            for msg in (messages or [])
+            if int(getattr(msg, "id", 0) or 0) > int(sent_message_id)
+            and not bool(getattr(msg, "out", False))
+            and _resource_code_media_kind(msg) is not None
+        ]
+        for media_message in sorted(
+            media_candidates,
+            key=lambda item: int(getattr(item, "id", 0) or 0),
+        ):
+            occurrence_key = _resource_code_media_occurrence_key(
+                media_message,
+                first_grouped_id_by_media_key,
+            )
+            if occurrence_key is not None:
+                media_by_key.setdefault(occurrence_key, media_message)
+
         callback_candidates: List[Tuple[Any, int, Any, bool]] = []
         for msg in messages or []:
             mid = int(getattr(msg, "id", 0) or 0)
@@ -3638,12 +3678,11 @@ async def _resource_code_bot_media(
                 page_match = RESOURCE_CODE_PAGE_PATTERN.search(message_text)
                 if page_match is not None:
                     declared_file_count = max(0, int(page_match.group(3)))
-                if _resource_code_media_kind(msg) is not None:
-                    media_by_key.setdefault(_resource_code_media_key(msg), msg)
-                elif any(keyword in message_text for keyword in RESOURCE_CODE_DORMANT_KEYWORDS):
-                    return collected_media(), sorted(all_reply_ids), "dormant", expected_media_count, declared_file_count
-                elif _match_bot_not_found_keyword(message_text):
-                    return collected_media(), sorted(all_reply_ids), "not_found", expected_media_count, declared_file_count
+                if _resource_code_media_kind(msg) is None:
+                    if any(keyword in message_text for keyword in RESOURCE_CODE_DORMANT_KEYWORDS):
+                        return collected_media(), sorted(all_reply_ids), "dormant", expected_media_count, declared_file_count
+                    if _match_bot_not_found_keyword(message_text):
+                        return collected_media(), sorted(all_reply_ids), "not_found", expected_media_count, declared_file_count
 
                 reply_markup = getattr(msg, "reply_markup", None)
                 for row in list(getattr(reply_markup, "rows", None) or []):

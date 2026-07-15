@@ -135,7 +135,16 @@ class ProcessTelegramResourceCodesCommand extends Command
     private function scanSources(): void
     {
         foreach ($this->sourcePeerIds as $peerId) {
-            $this->scanSource($peerId);
+            try {
+                $this->scanSource($peerId);
+            } catch (\Throwable $e) {
+                Log::warning('Telegram resource-code source scan failed', [
+                    'source_peer_id' => $peerId,
+                    'code_type' => $this->codeType,
+                    'error' => $e->getMessage(),
+                ]);
+                $this->warn("source_peer_id={$peerId} scan unavailable; queued codes will continue");
+            }
         }
     }
 

@@ -49,6 +49,11 @@ DOWNLOAD_JOBS: Dict[str, Dict[str, Any]] = {}
 DOWNLOAD_SEEN_KEYS: Set[str] = set()
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
 RESOURCE_CODE_LOCK = asyncio.Lock()
+RESOURCE_CODE_HEX_PATTERN = re.compile(r"[0-9a-f]{40}", re.IGNORECASE)
+RESOURCE_CODE_WENJIANJI_PATTERN = re.compile(
+    r"wenjianjibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}",
+    re.IGNORECASE,
+)
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
 GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180
 
@@ -169,6 +174,15 @@ def _now_ms() -> int:
 
 def _now_s() -> float:
     return time.time()
+
+
+def _normalize_resource_code(raw_code: Any) -> Optional[str]:
+    code = str(raw_code or "").strip()
+    if RESOURCE_CODE_HEX_PATTERN.fullmatch(code):
+        return code.lower()
+    if RESOURCE_CODE_WENJIANJI_PATTERN.fullmatch(code):
+        return "wenjianjibot_" + code.split("_", 1)[1]
+    return None
 
 
 def push_log(
@@ -3529,7 +3543,7 @@ async def _resource_code_bot_media(
 
 @app.post("/resource-codes/process")
 async def process_resource_code(payload: ProcessResourceCodeRequest):
-    code = str(payload.code or "").strip().lower()
+    code = _normalize_resource_code(payload.code)
     bot_username = str(payload.bot_username or "").strip().lstrip("@")
     target_peer_id = int(payload.target_peer_id or 0)
     sent_message_id = 0
@@ -3538,7 +3552,7 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
     forwarded_message_ids: List[int] = []
     phase = "validate"
 
-    if re.fullmatch(r"[0-9a-f]{40}", code) is None:
+    if code is None:
         return {"status": "error", "reason": "invalid_code"}
     if not bot_username or target_peer_id <= 0:
         return {"status": "error", "reason": "invalid_target"}

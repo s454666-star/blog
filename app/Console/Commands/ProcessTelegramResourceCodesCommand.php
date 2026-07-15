@@ -26,10 +26,11 @@ class ProcessTelegramResourceCodesCommand extends Command
         {--bot-username= : Decoder bot username}
         {--code-type= : Numeric code type stored with new codes}';
 
-    protected $description = 'Scan Telegram groups for 40-character codes and serially forward decoded media to the resource group.';
+    protected $description = 'Scan Telegram groups for configured resource codes and serially forward decoded media to the resource group.';
 
     private const LOCK_NAME = 'blog:telegram-resource-code-worker';
-    private const CODE_REGEX = '/(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])/i';
+    private const HEX_CODE_REGEX = '/(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])/i';
+    private const WENJIANJI_CODE_REGEX = '/(?<![A-Za-z0-9_])wenjianjibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}(?![A-Za-z0-9_])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
 
@@ -140,7 +141,7 @@ class ProcessTelegramResourceCodesCommand extends Command
 
     private function scanSource(int $peerId): void
     {
-        $cursorKey = "telegram_resource_codes:scan_cursor:{$peerId}";
+        $cursorKey = "telegram_resource_codes:scan_cursor:{$this->codeType}:{$peerId}";
         $cursor = max(0, (int) Cache::store('telegram_resource_codes')->get($cursorKey, 0));
         $isInitial = $cursor === 0;
         $pages = 0;
@@ -172,10 +173,10 @@ class ProcessTelegramResourceCodesCommand extends Command
                 $messageId = max(0, (int) ($item['id'] ?? 0));
                 $maxMessageId = max($maxMessageId, $messageId);
                 $text = (string) ($item['text'] ?? '');
-                preg_match_all(self::CODE_REGEX, $text, $matches);
+                preg_match_all($this->codeRegex(), $text, $matches);
 
                 foreach (array_unique($matches[0] ?? []) as $rawCode) {
-                    $code = strtolower((string) $rawCode);
+                    $code = $this->normalizeCode((string) $rawCode);
                     $found++;
                     $inserted += (int) DB::table('telegram_resource_codes')->insertOrIgnore([
                         'code' => $code,
@@ -206,6 +207,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     {
         $row = DB::table('telegram_resource_codes')
             ->where('status', TelegramResourceCode::STATUS_PENDING)
+            ->where('code_type', $this->codeType)
             ->where(function ($query): void {
                 $query->whereNull('available_at')->orWhere('available_at', '<=', now());
             })
@@ -220,6 +222,7 @@ class ProcessTelegramResourceCodesCommand extends Command
         $claimed = DB::table('telegram_resource_codes')
             ->where('id', $row->id)
             ->where('status', TelegramResourceCode::STATUS_PENDING)
+            ->where('code_type', $this->codeType)
             ->update([
                 'status' => TelegramResourceCode::STATUS_PROCESSING,
                 'attempts' => DB::raw('attempts + 1'),
@@ -393,6 +396,22 @@ class ProcessTelegramResourceCodesCommand extends Command
         return in_array($reason, ['not_found', 'media_timeout', 'media_count_mismatch'], true);
     }
 
+    private function codeRegex(): string
+    {
+        return $this->codeType === 2
+            ? self::WENJIANJI_CODE_REGEX
+            : self::HEX_CODE_REGEX;
+    }
+
+    private function normalizeCode(string $code): string
+    {
+        if ($this->codeType === 1) {
+            return strtolower($code);
+        }
+
+        return (string) preg_replace('/^wenjianjibot_/i', 'wenjianjibot_', $code);
+    }
+
     /** @param array<string, mixed> $payload */
     private function isAccountScopedFailure(array $payload): bool
     {
@@ -464,6 +483,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     {
         DB::table('telegram_resource_codes')
             ->where('status', TelegramResourceCode::STATUS_PROCESSING)
+            ->where('code_type', $this->codeType)
             ->where('processing_started_at', '<=', now()->subMinutes(self::STALE_PROCESSING_MINUTES))
             ->update([
                 'status' => TelegramResourceCode::STATUS_PENDING,

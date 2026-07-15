@@ -385,19 +385,19 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->filter(fn (array $row): bool => str_starts_with((string) $row['localTime'], '2026-01-07 '))
             ->keyBy(fn (array $row): string => substr((string) $row['localTime'], -5));
         foreach ([
-            '08:45' => '2026-01-07 08:45:00',
-            '12:45' => '2026-01-07 12:30:00',
-            '13:45' => '2026-01-07 13:30:00',
-            '15:00' => '2026-01-07 15:00:00',
-            '19:00' => '2026-01-07 18:45:00',
-            '23:00' => '2026-01-07 22:45:00',
-        ] as $clock => $sourceStartedAt) {
+            '08:45' => ['startedAt' => '2026-01-07 08:45:00', 'priceColumn' => 'open_price'],
+            '12:45' => ['startedAt' => '2026-01-07 12:30:00', 'priceColumn' => 'close_price'],
+            '13:45' => ['startedAt' => '2026-01-07 13:30:00', 'priceColumn' => 'close_price'],
+            '15:00' => ['startedAt' => '2026-01-07 15:00:00', 'priceColumn' => 'open_price'],
+            '19:00' => ['startedAt' => '2026-01-07 18:45:00', 'priceColumn' => 'close_price'],
+            '23:00' => ['startedAt' => '2026-01-07 22:45:00', 'priceColumn' => 'close_price'],
+        ] as $clock => $source) {
             $this->assertTrue($januarySevenRows->has($clock));
             $this->assertSame(
                 (float) DB::table('tw_futures_hourly_prices')
                     ->where('interval', '15')
-                    ->where('started_at', $sourceStartedAt)
-                    ->value('close_price'),
+                    ->where('started_at', $source['startedAt'])
+                    ->value($source['priceColumn']),
                 (float) $januarySevenRows->get($clock)['close'],
             );
         }
@@ -503,6 +503,32 @@ class TwFuturesHourlyPricesTest extends TestCase
                 && str_contains($message, '價差')
                 && str_contains($message, '目前差值 ' . $currentGapText)
                 && str_contains($message, 'https://stock.mystar.monster/tw-stock/taiex-futures-kline');
+        });
+    }
+
+    public function test_taiex_futures_line_alert_command_does_not_backfill_four_hour_notification_at_ten(): void
+    {
+        $this->seedHourlyRows();
+        Cache::flush();
+        Carbon::setTestNow('2026-01-07 10:00:00');
+        CarbonImmutable::setTestNow('2026-01-07 10:00:00');
+
+        config()->set('app.url', 'https://stock.mystar.monster');
+        config()->set('line.channel_access_token', 'stock-line-token');
+        config()->set('line.dashboard_notify_target_id', 'Cstocktarget');
+        config()->set('line.yuanta_channel_access_token', 'yuanta-line-token');
+        config()->set('line.yuanta_dashboard_notify_target_id', 'Cyuantatarget');
+
+        Http::fake([
+            'https://api.line.me/v2/bot/message/push' => Http::response([], 200),
+        ]);
+
+        $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
+
+        Http::assertNotSent(function ($request): bool {
+            $message = (string) data_get($request->data(), 'messages.0.text', '');
+
+            return str_contains($message, '台指期 4H MA5 通知');
         });
     }
 

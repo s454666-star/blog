@@ -518,14 +518,14 @@ class TwFuturesHourlyPriceController extends Controller
                 continue;
             }
 
-            $close = (float) $row['close'];
+            $price = (float) $alertPoint['price'];
             $ma5 = (float) $snapshots[$snapshotIndex]['fourHourMa5'];
-            $diff = $close - $ma5;
+            $diff = $price - $ma5;
 
             $rows[] = [
                 'time' => $alertTime,
                 'localTime' => $alertLocalTime,
-                'close' => round($close, 4),
+                'close' => round($price, 4),
                 'fourHourMa5' => round($ma5, 4),
                 'fourHourMa5Diff' => round($diff, 4),
             ];
@@ -552,6 +552,7 @@ class TwFuturesHourlyPriceController extends Controller
             return [
                 'time' => $startedTime,
                 'localTime' => $startedLocalTime,
+                'price' => (float) ($row['open'] ?? $row['close']),
             ];
         }
 
@@ -571,6 +572,7 @@ class TwFuturesHourlyPriceController extends Controller
         return [
             'time' => $displayTime,
             'localTime' => $displayLocalTime,
+            'price' => (float) $row['close'],
         ];
     }
 

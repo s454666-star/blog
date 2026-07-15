@@ -170,6 +170,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
                 $row,
                 $minTimestamp,
                 $payload['stats']['latestGap'] ?? null,
+                $this->option('dry-run') ? null : $now->format('Y-m-d H:i'),
             );
             if ($alert !== null) {
                 $alerts[] = $alert;
@@ -287,10 +288,19 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
      * @param array<string, mixed> $row
      * @return array{key: string, time: int, message: string}|null
      */
-    private function fourHourMa5Alert(array $row, int $minTimestamp, mixed $currentGap = null): ?array
+    private function fourHourMa5Alert(
+        array $row,
+        int $minTimestamp,
+        mixed $currentGap = null,
+        ?string $requiredLocalTime = null,
+    ): ?array
     {
         $time = (int) ($row['time'] ?? 0);
         if ($time < $minTimestamp) {
+            return null;
+        }
+
+        if ($requiredLocalTime !== null && (string) ($row['localTime'] ?? '') !== $requiredLocalTime) {
             return null;
         }
 

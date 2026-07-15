@@ -57,6 +57,7 @@ RESOURCE_CODE_WENJIANJI_PATTERN = re.compile(
 RESOURCE_CODE_IMAGE_COUNT_PATTERN = re.compile(r"(?:图片|圖片)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_VIDEO_COUNT_PATTERN = re.compile(r"(?:视频|視頻|影片)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS = ("全部获取", "全部獲取")
+RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS = ("获取下一组", "獲取下一組")
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
 GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180
 
@@ -3515,7 +3516,7 @@ async def _resource_code_bot_media(
     media_by_id: Dict[int, Any] = {}
     expected_media_count: Optional[int] = None
     declared_file_count: Optional[int] = None
-    get_all_clicked = False
+    clicked_callback_keys: Set[str] = set()
 
     while asyncio.get_running_loop().time() < deadline:
         messages = await client.get_messages(peer, limit=1000, min_id=int(sent_message_id))
@@ -3543,29 +3544,36 @@ async def _resource_code_bot_media(
                 elif _match_bot_not_found_keyword(message_text):
                     return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "not_found", expected_media_count, declared_file_count
 
-                if not get_all_clicked:
-                    reply_markup = getattr(msg, "reply_markup", None)
-                    for row in list(getattr(reply_markup, "rows", None) or []):
-                        for button in list(getattr(row, "buttons", None) or []):
-                            button_text = str(getattr(button, "text", None) or "")
-                            if not any(keyword in button_text for keyword in RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS):
-                                continue
-                            button_data = getattr(button, "data", None)
-                            if button_data is None:
-                                continue
-                            await msg.click(data=button_data)
-                            get_all_clicked = True
-                            push_log(
-                                stage="resource_code_process",
-                                result="clicked_get_all",
-                                extra={
-                                    "message_id": mid,
-                                    "expected_media_count": expected_media_count,
-                                },
-                            )
-                            break
-                        if get_all_clicked:
-                            break
+                reply_markup = getattr(msg, "reply_markup", None)
+                callback_clicked = False
+                for row in list(getattr(reply_markup, "rows", None) or []):
+                    for button in list(getattr(row, "buttons", None) or []):
+                        button_text = str(getattr(button, "text", None) or "")
+                        is_get_all = any(keyword in button_text for keyword in RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS)
+                        is_next_group = any(keyword in button_text for keyword in RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS)
+                        if not is_get_all and not is_next_group:
+                            continue
+                        button_data = getattr(button, "data", None)
+                        if button_data is None:
+                            continue
+                        callback_key = f"{mid}:{bytes(button_data).hex()}"
+                        if callback_key in clicked_callback_keys:
+                            continue
+                        clicked_callback_keys.add(callback_key)
+                        await msg.click(data=button_data)
+                        callback_clicked = True
+                        push_log(
+                            stage="resource_code_process",
+                            result="clicked_get_all" if is_get_all else "clicked_next_group",
+                            extra={
+                                "message_id": mid,
+                                "expected_media_count": expected_media_count,
+                                "received_media_count": len(media_by_id),
+                            },
+                        )
+                        break
+                    if callback_clicked:
+                        break
 
         current_ids = tuple(sorted(media_by_id.keys()))
         now_value = asyncio.get_running_loop().time()

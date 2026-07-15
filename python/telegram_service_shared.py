@@ -3492,6 +3492,20 @@ def _resource_code_media_kind(msg: Any) -> Optional[str]:
     return None
 
 
+def _resource_code_media_key(msg: Any) -> str:
+    photo = getattr(msg, "photo", None)
+    photo_id = int(getattr(photo, "id", 0) or 0)
+    if photo_id > 0:
+        return f"photo:{photo_id}"
+
+    document = getattr(msg, "document", None)
+    document_id = int(getattr(document, "id", 0) or 0)
+    if document_id > 0:
+        return f"document:{document_id}"
+
+    return f"message:{int(getattr(msg, 'id', 0) or 0)}"
+
+
 async def _cleanup_resource_code_bot_messages(peer: Any, message_ids: List[int]) -> List[int]:
     remaining = sorted({int(mid) for mid in message_ids if int(mid or 0) > 0})
     transient_attempts = 0
@@ -3574,10 +3588,16 @@ async def _resource_code_bot_media(
     stable_since: Optional[float] = None
     last_media_ids: Tuple[int, ...] = tuple()
     all_reply_ids: Set[int] = set()
-    media_by_id: Dict[int, Any] = {}
+    media_by_key: Dict[str, Any] = {}
     expected_media_count: Optional[int] = None
     declared_file_count: Optional[int] = None
     clicked_callback_state: Dict[str, Tuple[float, int]] = {}
+
+    def collected_media() -> List[Any]:
+        return sorted(
+            media_by_key.values(),
+            key=lambda item: int(getattr(item, "id", 0) or 0),
+        )
 
     while asyncio.get_running_loop().time() < deadline:
         messages = await client.get_messages(peer, limit=1000, min_id=int(sent_message_id))
@@ -3606,11 +3626,11 @@ async def _resource_code_bot_media(
                 if page_match is not None:
                     declared_file_count = max(0, int(page_match.group(3)))
                 if _resource_code_media_kind(msg) is not None:
-                    media_by_id[mid] = msg
+                    media_by_key.setdefault(_resource_code_media_key(msg), msg)
                 elif any(keyword in message_text for keyword in RESOURCE_CODE_DORMANT_KEYWORDS):
-                    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "dormant", expected_media_count, declared_file_count
+                    return collected_media(), sorted(all_reply_ids), "dormant", expected_media_count, declared_file_count
                 elif _match_bot_not_found_keyword(message_text):
-                    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "not_found", expected_media_count, declared_file_count
+                    return collected_media(), sorted(all_reply_ids), "not_found", expected_media_count, declared_file_count
 
                 reply_markup = getattr(msg, "reply_markup", None)
                 for row in list(getattr(reply_markup, "rows", None) or []):
@@ -3630,14 +3650,14 @@ async def _resource_code_bot_media(
 
         callback_clicked = False
         callback_now = asyncio.get_running_loop().time()
-        for callback_message, callback_mid, callback_data, is_get_all in callback_candidates:
+        for callback_message, callback_mid, callback_data, is_get_all in callback_candidates[:1]:
             callback_key = f"{callback_mid}:{bytes(callback_data).hex()}"
             previous_click = clicked_callback_state.get(callback_key)
             if previous_click is not None:
-                clicked_at, media_count_at_click = previous_click
-                if len(media_by_id) > media_count_at_click or callback_now - clicked_at < 12.0:
+                clicked_at, _media_count_at_click = previous_click
+                if callback_now - clicked_at < 12.0:
                     continue
-            clicked_callback_state[callback_key] = (callback_now, len(media_by_id))
+            clicked_callback_state[callback_key] = (callback_now, len(media_by_key))
             await callback_message.click(data=callback_data)
             callback_clicked = True
             push_log(
@@ -3646,14 +3666,17 @@ async def _resource_code_bot_media(
                 extra={
                     "message_id": callback_mid,
                     "expected_media_count": expected_media_count,
-                    "received_media_count": len(media_by_id),
+                    "received_media_count": len(media_by_key),
                     "retry": previous_click is not None,
                 },
             )
             await asyncio.sleep(2.0)
             break
 
-        current_ids = tuple(sorted(media_by_id.keys()))
+        current_ids = tuple(sorted(
+            int(getattr(item, "id", 0) or 0)
+            for item in media_by_key.values()
+        ))
         now_value = asyncio.get_running_loop().time()
         if current_ids:
             if current_ids != last_media_ids:
@@ -3661,14 +3684,14 @@ async def _resource_code_bot_media(
                 stable_since = now_value
             elif stable_since is not None and now_value - stable_since >= float(settle_seconds):
                 if expected_media_count is not None and len(current_ids) >= expected_media_count:
-                    return [media_by_id[mid] for mid in current_ids], sorted(all_reply_ids), "settled", expected_media_count, declared_file_count
+                    return collected_media(), sorted(all_reply_ids), "settled", expected_media_count, declared_file_count
                 if expected_media_count is None and declared_file_count is None:
-                    return [media_by_id[mid] for mid in current_ids], sorted(all_reply_ids), "settled", expected_media_count, declared_file_count
+                    return collected_media(), sorted(all_reply_ids), "settled", expected_media_count, declared_file_count
 
         if not callback_clicked:
             await asyncio.sleep(float(poll_interval_seconds))
 
-    return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "timeout", expected_media_count, declared_file_count
+    return collected_media(), sorted(all_reply_ids), "timeout", expected_media_count, declared_file_count
 
 
 @app.post("/resource-codes/process")

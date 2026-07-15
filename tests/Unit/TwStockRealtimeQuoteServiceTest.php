@@ -458,6 +458,61 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         $this->assertSame(11467.0, $payload['quotes']['5285']['volumeLots']);
     }
 
+    public function test_it_validates_sparse_stock_previous_close_with_yahoo_taiwan_page(): void
+    {
+        config()->set('esun.quote_providers', 'yahoo_tw');
+        config()->set('esun.quote_confirmation_required', 2);
+
+        $chart = [
+            'meta' => [
+                'symbol' => '7861.TWO',
+                'shortName' => '貝爾威勒',
+                'regularMarketPrice' => 1160,
+                'previousClose' => 1123.31,
+                'chartPreviousClose' => 1123,
+                'regularMarketTime' => 1784088060,
+            ],
+            'timestamp' => [],
+            'indicators' => ['quote' => [[]]],
+        ];
+        $html = '<script>root.App.main = '
+            . json_encode([
+                'MarketChartStore' => [
+                    'libra' => ['7861.TWO' => $chart],
+                    'spark' => [],
+                ],
+            ], JSON_THROW_ON_ERROR)
+            . ';</script>';
+
+        Http::fake([
+            'https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.stockList*' => Http::response([
+                [
+                    'systexId' => '7861',
+                    'symbol' => '7861.TWO',
+                    'symbolName' => '貝爾威勒',
+                    'price' => ['raw' => '1160'],
+                    'regularMarketPreviousClose' => ['raw' => '1123.31'],
+                    'change' => ['raw' => '36.69'],
+                    'changePercent' => '3.27%',
+                    'regularMarketTime' => '2026-07-15T04:00:12Z',
+                ],
+            ]),
+            'https://tw.stock.yahoo.com/quote/7861.TWO*' => Http::response($html),
+        ]);
+
+        $payload = app(TwStockRealtimeQuoteService::class)->quotes(['7861']);
+        $quote = $payload['quotes']['7861'];
+
+        $this->assertSame('live', $payload['source']['status']);
+        $this->assertSame('confirmed', $quote['priceType']);
+        $this->assertSame(1160.0, $quote['price']);
+        $this->assertSame(1123.31, $quote['previousClose']);
+        $this->assertEqualsWithDelta(36.69, $quote['dayChange'], 0.0001);
+        $this->assertEqualsWithDelta(3.2662, $quote['dayChangeRate'], 0.0001);
+        $this->assertSame(['Yahoo 台股', 'Yahoo 台股頁面'], $quote['confirmedBy']);
+        Http::assertSentCount(2);
+    }
+
     public function test_it_keeps_quotes_after_the_thirtieth_holding(): void
     {
         config()->set('esun.quote_providers', 'yahoo_tw');

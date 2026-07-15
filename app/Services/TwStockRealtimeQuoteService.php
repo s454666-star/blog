@@ -139,6 +139,7 @@ class TwStockRealtimeQuoteService
                 'twse' => $this->fetchTwseQuotes($chunk),
                 'cnyes' => $this->fetchCnyesQuotes($chunk),
                 'yahoo_tw' => $this->fetchYahooTwQuotes($chunk),
+                'yahoo_tw_page' => $this->fetchYahooTwPageQuotes($chunk),
                 'tradingview' => $this->fetchTradingViewQuotes($chunk),
                 'yahoo_chart' => $this->fetchYahooChartQuotes($chunk),
                 default => [],
@@ -156,6 +157,7 @@ class TwStockRealtimeQuoteService
     {
         return match ($provider) {
             'twse', 'yahoo_tw' => 25,
+            'yahoo_tw_page' => 10,
             'cnyes', 'tradingview' => 40,
             'yahoo_chart' => 30,
             default => 30,
@@ -403,6 +405,89 @@ class TwStockRealtimeQuoteService
     }
 
     /**
+     * Yahoo Taiwan's quote page embeds a second current-day chart payload. Use
+     * it only for symbols that still lack a confirmed quote after the batched
+     * primary providers, so sparse or emerging stocks can validate both their
+     * current price and previous close without trusting TradingView's baseline.
+     *
+     * @param list<string> $codes
+     * @return array<string, array<string, mixed>>
+     */
+    private function fetchYahooTwPageQuotes(array $codes): array
+    {
+        $quotes = [];
+
+        foreach (['TWO', 'TW'] as $suffix) {
+            $pending = array_values(array_diff($codes, array_keys($quotes)));
+            if ($pending === []) {
+                break;
+            }
+
+            $responses = Http::pool(fn (Pool $pool): array => collect($pending)
+                ->mapWithKeys(function (string $code) use ($pool, $suffix): array {
+                    $key = $code . ':' . $suffix;
+
+                    return [
+                        $key => $pool->as($key)
+                            ->withHeaders([
+                                'Accept' => 'text/html,application/xhtml+xml',
+                                'Referer' => 'https://tw.stock.yahoo.com/',
+                                'User-Agent' => 'Mozilla/5.0',
+                            ])
+                            ->timeout($this->timeout())
+                            ->get(sprintf(self::YAHOO_TW_QUOTE_URL, rawurlencode($code . '.' . $suffix))),
+                    ];
+                })
+                ->all());
+
+            foreach ($pending as $code) {
+                $key = $code . ':' . $suffix;
+                $response = $responses[$key] ?? null;
+                if (!$response instanceof HttpResponse || !$response->successful()) {
+                    continue;
+                }
+
+                $chart = $this->yahooTwPageChart($response->body(), $code . '.' . $suffix);
+                $meta = is_array($chart['meta'] ?? null) ? $chart['meta'] : [];
+                $price = $this->priceOrNull($meta['regularMarketPrice'] ?? null);
+                if ($price === null) {
+                    continue;
+                }
+
+                $previousClose = $this->numberOrNull(
+                    $meta['previousClose'] ?? $meta['chartPreviousClose'] ?? null,
+                );
+                $change = $previousClose === null ? null : $price - $previousClose;
+
+                $quotes[$code] = [
+                    'code' => $code,
+                    'name' => (string) ($meta['shortName'] ?? $meta['longName'] ?? ''),
+                    'price' => $price,
+                    'priceType' => 'last',
+                    'lastPrice' => $price,
+                    'previousClose' => $previousClose,
+                    'dayChange' => $change,
+                    'dayChangeRate' => $previousClose > 0 && $change !== null
+                        ? $change / $previousClose * 100
+                        : null,
+                    'bestBid' => null,
+                    'bestAsk' => null,
+                    'open' => $this->numberOrNull($meta['regularMarketOpen'] ?? null),
+                    'high' => $this->numberOrNull($meta['regularMarketDayHigh'] ?? null),
+                    'low' => $this->numberOrNull($meta['regularMarketDayLow'] ?? null),
+                    'volumeLots' => $this->volumeSharesToLots($meta['regularMarketVolume'] ?? null),
+                    'exchange' => (string) ($meta['exchangeName'] ?? ''),
+                    'quotedAt' => $this->yahooTimestamp($meta['regularMarketTime'] ?? null),
+                    'source' => 'yahoo_tw_page',
+                    'sourceLabel' => $this->providerLabel('yahoo_tw_page'),
+                ];
+            }
+        }
+
+        return $quotes;
+    }
+
+    /**
      * @param list<string> $codes
      * @return array<string, array<string, mixed>>
      */
@@ -594,10 +679,20 @@ class TwStockRealtimeQuoteService
             $primary = array_merge(array_slice($primary, $offset), array_slice($primary, 0, $offset));
         }
 
-        return collect([...$primary, ...$fallback])
+        $ordered = collect([...$primary, ...$fallback])
             ->unique()
             ->values()
-            ->all() ?: ['twse', 'cnyes', 'yahoo_tw', 'tradingview', 'yahoo_chart'];
+            ->all();
+
+        if ($ordered === []) {
+            return ['twse', 'cnyes', 'yahoo_tw', 'yahoo_tw_page', 'tradingview', 'yahoo_chart'];
+        }
+
+        if (in_array('yahoo_tw', $primary, true) && !in_array('yahoo_tw_page', $ordered, true)) {
+            array_splice($ordered, count($primary), 0, ['yahoo_tw_page']);
+        }
+
+        return $ordered;
     }
 
     /**
@@ -605,7 +700,7 @@ class TwStockRealtimeQuoteService
      */
     private function configuredProviders(string $value): array
     {
-        $allowed = ['twse', 'cnyes', 'yahoo_tw', 'tradingview', 'yahoo_chart'];
+        $allowed = ['twse', 'cnyes', 'yahoo_tw', 'yahoo_tw_page', 'tradingview', 'yahoo_chart'];
 
         return collect(explode(',', $value))
             ->map(fn (string $provider): string => strtolower(trim($provider)))
@@ -621,6 +716,7 @@ class TwStockRealtimeQuoteService
             'twse' => 'TWSE MIS',
             'cnyes' => 'CNYES',
             'yahoo_tw' => 'Yahoo 台股',
+            'yahoo_tw_page' => 'Yahoo 台股頁面',
             'tradingview' => 'TradingView',
             'yahoo_chart' => 'Yahoo Finance chart',
             default => strtoupper($provider),
@@ -758,6 +854,7 @@ class TwStockRealtimeQuoteService
     {
         return match ($source) {
             'yahoo_tw' => 50,
+            'yahoo_tw_page' => 48,
             'cnyes' => 45,
             'twse' => 40,
             'tradingview' => 30,
@@ -1061,30 +1158,8 @@ class TwStockRealtimeQuoteService
         string $date,
         string $timezone,
     ): array {
-        $storePosition = strpos($html, '"MarketChartStore":');
-        if ($storePosition === false) {
-            return [];
-        }
-
-        $libraPosition = strpos($html, '"libra":{', $storePosition);
-        $sparkPosition = $libraPosition === false ? false : strpos($html, ',"spark":', $libraPosition);
-        if ($libraPosition === false || $sparkPosition === false) {
-            return [];
-        }
-
-        $symbolPosition = strpos($html, '"' . $symbol . '":', $libraPosition);
-        if ($symbolPosition === false || $symbolPosition >= $sparkPosition) {
-            return [];
-        }
-
-        $objectStart = strpos($html, '{', $symbolPosition + strlen($symbol) + 3);
-        if ($objectStart === false || $objectStart >= $sparkPosition) {
-            return [];
-        }
-
-        $json = $this->extractJsonObject($html, $objectStart);
-        $chart = $json === null ? null : json_decode($json, true);
-        if (!is_array($chart)) {
+        $chart = $this->yahooTwPageChart($html, $symbol);
+        if ($chart === null) {
             return [];
         }
 
@@ -1096,6 +1171,38 @@ class TwStockRealtimeQuoteService
             $chart['indicators']['quote'][0]['low'] ?? [],
             $chart['indicators']['quote'][0]['high'] ?? [],
         );
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function yahooTwPageChart(string $html, string $symbol): ?array
+    {
+        $storePosition = strpos($html, '"MarketChartStore":');
+        if ($storePosition === false) {
+            return null;
+        }
+
+        $libraPosition = strpos($html, '"libra":{', $storePosition);
+        $sparkPosition = $libraPosition === false ? false : strpos($html, ',"spark":', $libraPosition);
+        if ($libraPosition === false || $sparkPosition === false) {
+            return null;
+        }
+
+        $symbolPosition = strpos($html, '"' . $symbol . '":', $libraPosition);
+        if ($symbolPosition === false || $symbolPosition >= $sparkPosition) {
+            return null;
+        }
+
+        $objectStart = strpos($html, '{', $symbolPosition + strlen($symbol) + 3);
+        if ($objectStart === false || $objectStart >= $sparkPosition) {
+            return null;
+        }
+
+        $json = $this->extractJsonObject($html, $objectStart);
+        $chart = $json === null ? null : json_decode($json, true);
+
+        return is_array($chart) ? $chart : null;
     }
 
     private function extractJsonObject(string $source, int $start): ?string

@@ -62,6 +62,11 @@ RESOURCE_CODE_TOTAL_COUNT_PATTERN = re.compile(
 )
 RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS = ("全部获取", "全部獲取")
 RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS = ("获取下一组", "獲取下一組")
+RESOURCE_CODE_ALL_FILES_COMPLETE_KEYWORDS = (
+    "文件全部取完啦",
+    "文件全部取完了",
+    "文件全部取完",
+)
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
 GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180
 
@@ -3626,6 +3631,7 @@ async def _resource_code_bot_media(
     first_grouped_id_by_media_key: Dict[str, int] = {}
     expected_media_count: Optional[int] = None
     declared_file_count: Optional[int] = None
+    all_files_complete = False
     clicked_callback_state: Dict[str, Tuple[float, int]] = {}
 
     def collected_media() -> List[Any]:
@@ -3675,6 +3681,8 @@ async def _resource_code_bot_media(
                 completion_match = RESOURCE_CODE_COMPLETION_PATTERN.search(message_text)
                 if completion_match is not None:
                     expected_media_count = max(0, int(completion_match.group(1)))
+                if any(keyword in message_text for keyword in RESOURCE_CODE_ALL_FILES_COMPLETE_KEYWORDS):
+                    all_files_complete = True
                 page_match = RESOURCE_CODE_PAGE_PATTERN.search(message_text)
                 if page_match is not None:
                     declared_file_count = max(0, int(page_match.group(3)))
@@ -3699,6 +3707,16 @@ async def _resource_code_bot_media(
                         break
                     if callback_candidates and callback_candidates[-1][1] == mid:
                         break
+
+        if all_files_complete and media_by_key:
+            actual_media_count = len(media_by_key)
+            return (
+                collected_media(),
+                sorted(all_reply_ids),
+                "settled",
+                actual_media_count,
+                actual_media_count,
+            )
 
         callback_clicked = False
         callback_now = asyncio.get_running_loop().time()

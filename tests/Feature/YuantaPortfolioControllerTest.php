@@ -51,6 +51,8 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertSee('brokerName', false)
             ->assertSee('A provisional price can carry a previousClose from only one source.', false)
             ->assertSee('if (!quoteCanUpdatePnl(quote)) {', false)
+            ->assertSee("numeric <= -40) return 'stop-loss-row-danger'", false)
+            ->assertSee("numeric <= -30) return 'stop-loss-row-warning'", false)
             ->assertDontSee('fancy-cursor.css', false)
             ->assertDontSee('data-fancy-cursor=', false)
             ->assertDontSee('更新玉山API')

@@ -1142,8 +1142,8 @@ function toneClass(value) {
 
 function stopLossRowClass(value) {
     const numeric = Number(value);
-    if (Number.isFinite(numeric) && numeric <= -10) return 'stop-loss-row-danger';
-    if (Number.isFinite(numeric) && numeric <= -5) return 'stop-loss-row-warning';
+    if (Number.isFinite(numeric) && numeric <= -40) return 'stop-loss-row-danger';
+    if (Number.isFinite(numeric) && numeric <= -30) return 'stop-loss-row-warning';
     return '';
 }
 

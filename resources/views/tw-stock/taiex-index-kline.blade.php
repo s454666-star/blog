@@ -397,7 +397,7 @@
             <div class="hover-cell"><span>低</span><strong data-hover="low">--</strong></div>
             <div class="hover-cell"><span>收</span><strong data-hover="close">--</strong></div>
             <div class="hover-cell"><span>K 棒漲跌</span><strong data-hover="change">--</strong></div>
-            <div class="hover-cell"><span>成交額</span><strong data-hover="volume">--</strong></div>
+            <div class="hover-cell"><span>量</span><strong data-hover="volume">--</strong></div>
         </div>
 
         <div class="chart-wrap">
@@ -480,21 +480,7 @@
 
     function formatVolume(value) {
         const parsed = numeric(value);
-        if (parsed === null) return '--';
-
-        return `${(parsed / 100000000).toLocaleString('zh-TW', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        })} 億`;
-    }
-
-    function formatVolumeAxis(value) {
-        const parsed = numeric(value);
-        if (parsed === null) return '';
-
-        return `${(parsed / 100000000).toLocaleString('zh-TW', {
-            maximumFractionDigits: 1,
-        })}億`;
+        return parsed === null ? '--' : Math.round(parsed).toLocaleString('zh-TW');
     }
 
     function formatTime(timestamp) {
@@ -585,11 +571,7 @@
     });
     const volumeSeries = chart.addHistogramSeries({
         priceScaleId: 'volume',
-        priceFormat: {
-            type: 'custom',
-            minMove: 1000000,
-            formatter: formatVolumeAxis,
-        },
+        priceFormat: { type: 'volume' },
         priceLineVisible: false,
         lastValueVisible: false,
     });

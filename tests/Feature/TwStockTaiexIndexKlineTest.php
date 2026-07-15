@@ -64,7 +64,7 @@ class TwStockTaiexIndexKlineTest extends TestCase
             ->assertSee('高點趨勢線')
             ->assertSee('低點趨勢線')
             ->assertSee('水平頸線')
-            ->assertSee('成交額')
+            ->assertSee('data-hover="volume"', false)
             ->assertSee('const refreshEveryMs = 15000;', false)
             ->assertSee('computeTrendLine', false)
             ->assertSee('computeHorizontalNeckline', false)
@@ -85,8 +85,7 @@ class TwStockTaiexIndexKlineTest extends TestCase
         Http::fake([
             'https://mis.twse.com.tw/stock/api/getChartOhlcStatis.jsp*' => Http::response($this->twseFeed()),
             'https://query1.finance.yahoo.com/v8/finance/chart/*' => Http::response($this->emptyYahooHistory()),
-            'https://api.finmindtrade.com/api/v4/data*' => Http::response($this->emptyFinMindTurnover()),
-            'https://ws.api.cnyes.com/ws/api/v1/charting/history*' => Http::response($this->cnyesTurnover()),
+            'https://api.finmindtrade.com/api/v4/data*' => Http::response($this->emptyFinMindVolume()),
         ]);
 
         $response = $this->getJson(route('tw-stock.taiex-index.kline.data', ['interval' => '5m']))
@@ -95,9 +94,9 @@ class TwStockTaiexIndexKlineTest extends TestCase
             ->assertJsonPath('interval', '5m')
             ->assertJsonPath('intervalLabel', '5 分 K')
             ->assertJsonPath('refreshSeconds', 15)
-            ->assertJsonPath('sourceNote', '7/1 起歷史分 K 使用 Yahoo Finance 分鐘 OHLC，成交額由 FinMind 提供的 TWSE 5 秒統計換算；當日以 TWSE 即時指數及鉅亨網分鐘成交額補齊，每 15 秒更新。')
-            ->assertJsonPath('volumeLabel', '成交額')
-            ->assertJsonPath('volumeUnit', 'TWD')
+            ->assertJsonPath('sourceNote', '7/1 起歷史分 K 使用 Yahoo Finance 分鐘 OHLC，成交量由 FinMind 提供的 TWSE 5 秒統計換算；當日使用 TWSE 分鐘成交量，每 15 秒更新。')
+            ->assertJsonPath('volumeLabel', '量')
+            ->assertJsonPath('volumeUnit', '張')
             ->assertJsonPath('quote.latest', 103)
             ->assertJsonPath('quote.previousClose', 95)
             ->assertJsonCount(2, 'bars');
@@ -109,12 +108,12 @@ class TwStockTaiexIndexKlineTest extends TestCase
         $this->assertSame(102.0, (float) $bars[0]['high']);
         $this->assertSame(98.0, (float) $bars[0]['low']);
         $this->assertSame(99.0, (float) $bars[0]['close']);
-        $this->assertSame(600000000, $bars[0]['volume']);
+        $this->assertSame(60, $bars[0]['volume']);
         $this->assertSame(99.0, (float) $bars[1]['open']);
         $this->assertSame(103.0, (float) $bars[1]['high']);
         $this->assertSame(99.0, (float) $bars[1]['low']);
         $this->assertSame(103.0, (float) $bars[1]['close']);
-        $this->assertSame(400000000, $bars[1]['volume']);
+        $this->assertSame(40, $bars[1]['volume']);
     }
 
     public function test_intraday_endpoint_includes_historical_minute_ohlc_from_july_first(): void
@@ -122,8 +121,7 @@ class TwStockTaiexIndexKlineTest extends TestCase
         Http::fake([
             'https://mis.twse.com.tw/stock/api/getChartOhlcStatis.jsp*' => Http::response($this->twseFeed()),
             'https://query1.finance.yahoo.com/v8/finance/chart/*' => Http::response($this->yahooHistory()),
-            'https://api.finmindtrade.com/api/v4/data*' => Http::response($this->finMindTurnover()),
-            'https://ws.api.cnyes.com/ws/api/v1/charting/history*' => Http::response($this->cnyesTurnover()),
+            'https://api.finmindtrade.com/api/v4/data*' => Http::response($this->finMindVolume()),
         ]);
 
         $response = $this->getJson(route('tw-stock.taiex-index.kline.data', ['interval' => '1m']))
@@ -136,11 +134,11 @@ class TwStockTaiexIndexKlineTest extends TestCase
         $this->assertSame(44025.0, (float) $bars[0]['high']);
         $this->assertSame(43990.0, (float) $bars[0]['low']);
         $this->assertSame(44020.0, (float) $bars[0]['close']);
-        $this->assertSame(100000000, $bars[0]['volume']);
-        $this->assertSame(150000000, $bars[1]['volume']);
+        $this->assertSame(100, $bars[0]['volume']);
+        $this->assertSame(150, $bars[1]['volume']);
         $closingBar = collect($bars)->firstWhere('localTime', '2026-07-01 13:29');
         $this->assertNotNull($closingBar);
-        $this->assertSame(250000000, $closingBar['volume']);
+        $this->assertSame(250, $closingBar['volume']);
     }
 
     public function test_daily_interval_uses_stored_twse_ohlc_and_appends_live_day(): void
@@ -167,8 +165,7 @@ class TwStockTaiexIndexKlineTest extends TestCase
         ]);
         Http::fake([
             'https://mis.twse.com.tw/stock/api/getChartOhlcStatis.jsp*' => Http::response($this->twseFeed()),
-            'https://www.twse.com.tw/exchangeReport/FMTQIK*' => Http::response($this->twseDailyTurnover()),
-            'https://ws.api.cnyes.com/ws/api/v1/charting/history*' => Http::response($this->cnyesTurnover()),
+            'https://www.twse.com.tw/exchangeReport/FMTQIK*' => Http::response($this->twseDailyVolume()),
         ]);
 
         $response = $this->getJson(route('tw-stock.taiex-index.kline.data', ['interval' => '1d']))
@@ -182,9 +179,9 @@ class TwStockTaiexIndexKlineTest extends TestCase
         $this->assertSame(104.0, (float) $latest['high']);
         $this->assertSame(97.0, (float) $latest['low']);
         $this->assertSame(103.0, (float) $latest['close']);
-        $this->assertSame(1000000000, $response->json('bars.0.volume'));
-        $this->assertSame(1200000000, $response->json('bars.1.volume'));
-        $this->assertSame(1000000000, $latest['volume']);
+        $this->assertSame(1000, $response->json('bars.0.volume'));
+        $this->assertSame(1200, $response->json('bars.1.volume'));
+        $this->assertSame(100, $latest['volume']);
     }
 
     public function test_data_endpoint_rejects_unknown_interval(): void
@@ -275,7 +272,7 @@ class TwStockTaiexIndexKlineTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function emptyFinMindTurnover(): array
+    private function emptyFinMindVolume(): array
     {
         return [
             'msg' => 'success',
@@ -287,16 +284,16 @@ class TwStockTaiexIndexKlineTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function finMindTurnover(): array
+    private function finMindVolume(): array
     {
         return [
             'msg' => 'success',
             'status' => 200,
             'data' => [
-                ['Time' => '09:00:00', 'TotalDealMoney' => 0],
-                ['Time' => '09:00:55', 'TotalDealMoney' => 100],
-                ['Time' => '09:01:55', 'TotalDealMoney' => 250],
-                ['Time' => '13:30:00', 'TotalDealMoney' => 500],
+                ['Time' => '09:00:00', 'TotalDealVolume' => 0],
+                ['Time' => '09:00:55', 'TotalDealVolume' => 100],
+                ['Time' => '09:01:55', 'TotalDealVolume' => 250],
+                ['Time' => '13:30:00', 'TotalDealVolume' => 500],
             ],
         ];
     }
@@ -304,35 +301,13 @@ class TwStockTaiexIndexKlineTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function cnyesTurnover(): array
-    {
-        $timestamp = static fn (string $time): int => Carbon::parse('2026-07-15 ' . $time, 'Asia/Taipei')->timestamp;
-
-        return [
-            'data' => [
-                's' => 'ok',
-                't' => [
-                    $timestamp('09:01:00'),
-                    $timestamp('09:02:00'),
-                    $timestamp('09:03:00'),
-                    $timestamp('09:05:00'),
-                ],
-                'v' => [100000000, 200000000, 300000000, 400000000],
-                'quote' => ['800001' => 1000000000],
-            ],
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function twseDailyTurnover(): array
+    private function twseDailyVolume(): array
     {
         return [
             'stat' => 'OK',
             'data' => [
-                ['115/07/13', '1', '1,000,000,000', '1', '94.00', '1.00'],
-                ['115/07/14', '1', '1,200,000,000', '1', '95.00', '1.00'],
+                ['115/07/13', '1,000,000', '1,000,000,000', '1', '94.00', '1.00'],
+                ['115/07/14', '1,200,000', '1,200,000,000', '1', '95.00', '1.00'],
             ],
         ];
     }
@@ -342,11 +317,10 @@ class TwStockTaiexIndexKlineTest extends TestCase
         $cache = Cache::store('file');
         $cache->forget('tw-stock:taiex-index:twse-feed:v1');
         $cache->forget('tw-stock:taiex-index:yahoo-minute:2026-07-01:2026-07-14:v1');
-        $cache->forget('tw-stock:taiex-index:cnyes-turnover:2026-07-15:v1');
-        $cache->forget('tw-stock:taiex-index:twse-daily-turnover:2026-07:v1');
+        $cache->forget('tw-stock:taiex-index:twse-daily-volume:2026-07:v1');
 
         foreach (range(1, 14) as $day) {
-            $cache->forget(sprintf('tw-stock:taiex-index:finmind-turnover:2026-07-%02d:v1', $day));
+            $cache->forget(sprintf('tw-stock:taiex-index:finmind-volume:2026-07-%02d:v1', $day));
         }
     }
 

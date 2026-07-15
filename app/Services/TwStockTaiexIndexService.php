@@ -17,8 +17,6 @@ class TwStockTaiexIndexService
 
     private const FINMIND_DATA_URL = 'https://api.finmindtrade.com/api/v4/data';
 
-    private const CNYES_CHART_URL = 'https://ws.api.cnyes.com/ws/api/v1/charting/history';
-
     private const TWSE_DAILY_MARKET_URL = 'https://www.twse.com.tw/exchangeReport/FMTQIK';
 
     private const FEED_CACHE_SECONDS = 10;
@@ -57,7 +55,7 @@ class TwStockTaiexIndexService
         $feed = $this->fetchTwseFeed();
         $quote = $this->quoteFromFeed($feed);
         $bars = $interval === '1d'
-            ? $this->dailyBars($quote)
+            ? $this->dailyBars($feed, $quote)
             : $this->intradayBars($feed, $quote, (int) $intervals[$interval]);
 
         return [
@@ -72,13 +70,13 @@ class TwStockTaiexIndexService
             },
             'refreshSeconds' => 15,
             'source' => $interval === '1d'
-                ? '臺灣證券交易所（TWSE）／鉅亨網即時成交額'
-                : 'TWSE 即時指數／Yahoo Finance 歷史分 K／FinMind TWSE 成交額',
+                ? '臺灣證券交易所（TWSE）'
+                : 'TWSE 即時指數／Yahoo Finance 歷史分 K／FinMind TWSE 成交量',
             'sourceNote' => $interval === '1d'
-                ? '日 K 使用 TWSE 每日開高低收與成交金額；當日價格及成交額以即時資料更新。'
-                : '7/1 起歷史分 K 使用 Yahoo Finance 分鐘 OHLC，成交額由 FinMind 提供的 TWSE 5 秒統計換算；當日以 TWSE 即時指數及鉅亨網分鐘成交額補齊，每 15 秒更新。',
-            'volumeLabel' => '成交額',
-            'volumeUnit' => 'TWD',
+                ? '日 K 使用 TWSE 每日開高低收與成交量；當日價格及成交量以即時資料更新。'
+                : '7/1 起歷史分 K 使用 Yahoo Finance 分鐘 OHLC，成交量由 FinMind 提供的 TWSE 5 秒統計換算；當日使用 TWSE 分鐘成交量，每 15 秒更新。',
+            'volumeLabel' => '量',
+            'volumeUnit' => '張',
             'refreshedAt' => now('Asia/Taipei')->format('Y-m-d H:i:s'),
             'market' => $this->marketState($quote),
             'quote' => $quote,
@@ -189,13 +187,7 @@ class TwStockTaiexIndexService
     private function intradayBars(array $feed, array $quote, int $intervalMinutes): array
     {
         $samples = $this->historicalMinuteSamples();
-        $currentSamples = $this->currentMinuteSamples($feed, $quote);
-        $currentTurnover = $this->currentTurnoverSnapshot((string) ($quote['date'] ?? ''));
-        foreach ($currentSamples as $timestamp => $sample) {
-            if (isset($currentTurnover['minutes'][$timestamp])) {
-                $sample['volume'] = $currentTurnover['minutes'][$timestamp];
-            }
-
+        foreach ($this->currentMinuteSamples($feed, $quote) as $timestamp => $sample) {
             $samples[$timestamp] = $sample;
         }
 
@@ -260,9 +252,7 @@ class TwStockTaiexIndexService
                 'high' => max($open, $close),
                 'low' => min($open, $close),
                 'close' => $close,
-                // TWSE's `s` field is not market turnover and cannot be mixed
-                // with the TWD figures used by the histogram.
-                'volume' => 0,
+                'volume' => max(0, (int) ($row['s'] ?? 0)),
             ];
             $previousClose = $close;
         }
@@ -325,24 +315,24 @@ class TwStockTaiexIndexService
             fn (): array => $this->downloadHistoricalMinuteSamples($start, $end),
         );
 
-        $turnoverByMinute = $this->historicalMinuteTurnover($start, $end);
+        $volumeByMinute = $this->historicalMinuteVolume($start, $end);
         foreach ($samples as $timestamp => &$sample) {
-            $sample['volume'] = $turnoverByMinute[$timestamp] ?? 0;
+            $sample['volume'] = $volumeByMinute[$timestamp] ?? 0;
         }
         unset($sample);
 
         // TWSE books the closing auction at 13:30, while Yahoo's last
         // historical index candle is normally stamped 13:29. Preserve that
-        // real closing turnover on the final visible candle.
-        foreach ($turnoverByMinute as $timestamp => $turnover) {
-            if ($turnover <= 0 || isset($samples[$timestamp])) {
+        // real closing volume on the final visible candle.
+        foreach ($volumeByMinute as $timestamp => $volume) {
+            if ($volume <= 0 || isset($samples[$timestamp])) {
                 continue;
             }
 
             $time = CarbonImmutable::createFromTimestamp($timestamp, 'Asia/Taipei');
             $previousMinute = $timestamp - 60;
             if ($time->format('H:i') === '13:30' && isset($samples[$previousMinute])) {
-                $samples[$previousMinute]['volume'] += $turnover;
+                $samples[$previousMinute]['volume'] += $volume;
             }
         }
 
@@ -413,7 +403,7 @@ class TwStockTaiexIndexService
                     'low' => $low,
                     'close' => $close,
                     // Yahoo does not provide TAIEX historical minute volume.
-                    // It is filled from TWSE market turnover after OHLC download.
+                    // It is filled from TWSE market volume after OHLC download.
                     'volume' => 0,
                 ];
             }
@@ -427,14 +417,14 @@ class TwStockTaiexIndexService
     }
 
     /**
-     * Convert TWSE's cumulative 5-second market turnover into per-minute TWD.
+     * Convert TWSE's cumulative 5-second market volume into per-minute lots.
      * FinMind republishes this TWSE historical dataset and accepts date queries.
      *
      * @return array<int, int>
      */
-    private function historicalMinuteTurnover(CarbonImmutable $start, CarbonImmutable $end): array
+    private function historicalMinuteVolume(CarbonImmutable $start, CarbonImmutable $end): array
     {
-        $turnover = [];
+        $volumes = [];
 
         for ($date = $start; $date->lessThan($end); $date = $date->addDay()) {
             if ($date->isWeekend()) {
@@ -444,31 +434,31 @@ class TwStockTaiexIndexService
             $dateString = $date->toDateString();
             try {
                 $daily = Cache::store('file')->remember(
-                    'tw-stock:taiex-index:finmind-turnover:' . $dateString . ':v1',
+                    'tw-stock:taiex-index:finmind-volume:' . $dateString . ':v1',
                     now()->addDays(30),
-                    fn (): array => $this->downloadHistoricalMinuteTurnover($dateString),
+                    fn (): array => $this->downloadHistoricalMinuteVolume($dateString),
                 );
             } catch (Throwable) {
-                // Price candles remain available when the secondary turnover
+                // Price candles remain available when the secondary volume
                 // source is temporarily unavailable. A failed response is not
                 // cached, so the next 15-second refresh can retry.
                 $daily = [];
             }
 
             foreach ($daily as $timestamp => $value) {
-                $turnover[(int) $timestamp] = (int) $value;
+                $volumes[(int) $timestamp] = (int) $value;
             }
         }
 
-        ksort($turnover);
+        ksort($volumes);
 
-        return $turnover;
+        return $volumes;
     }
 
     /**
      * @return array<int, int>
      */
-    private function downloadHistoricalMinuteTurnover(string $date): array
+    private function downloadHistoricalMinuteVolume(string $date): array
     {
         $payload = Http::withHeaders([
             'Accept' => 'application/json',
@@ -485,7 +475,7 @@ class TwStockTaiexIndexService
             ->json();
 
         if (! is_array($payload) || (int) ($payload['status'] ?? 0) !== 200) {
-            throw new RuntimeException('FinMind TWSE 成交額回應異常。');
+            throw new RuntimeException('FinMind TWSE 成交量回應異常。');
         }
 
         $cumulativeByMinute = [];
@@ -495,7 +485,7 @@ class TwStockTaiexIndexService
             }
 
             $time = substr((string) ($row['Time'] ?? ''), 0, 5);
-            $cumulative = $this->number($row['TotalDealMoney'] ?? null);
+            $cumulative = $this->number($row['TotalDealVolume'] ?? null);
             if (strlen($time) !== 5 || $cumulative === null) {
                 continue;
             }
@@ -513,92 +503,22 @@ class TwStockTaiexIndexService
         }
 
         ksort($cumulativeByMinute);
-        $turnover = [];
+        $volumes = [];
         $previous = 0.0;
         foreach ($cumulativeByMinute as $timestamp => $cumulative) {
-            // TotalDealMoney is published in NT$ millions.
-            $turnover[$timestamp] = (int) round(max(0, $cumulative - $previous) * 1_000_000);
+            $volumes[$timestamp] = (int) round(max(0, $cumulative - $previous));
             $previous = max($previous, $cumulative);
         }
 
-        return $turnover;
+        return $volumes;
     }
 
     /**
-     * @return array{minutes: array<int, int>, cumulative: int}
-     */
-    private function currentTurnoverSnapshot(string $date): array
-    {
-        if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-            return ['minutes' => [], 'cumulative' => 0];
-        }
-
-        return Cache::store('file')->remember(
-            'tw-stock:taiex-index:cnyes-turnover:' . $date . ':v1',
-            now()->addSeconds(self::FEED_CACHE_SECONDS),
-            function () use ($date): array {
-                try {
-                    $start = CarbonImmutable::parse($date . ' 00:00:00', 'Asia/Taipei');
-                    $end = $start->addDay()->subSecond();
-                    if ($date === CarbonImmutable::now('Asia/Taipei')->toDateString()) {
-                        $end = CarbonImmutable::now('Asia/Taipei');
-                    }
-                    $payload = Http::withHeaders([
-                        'Accept' => 'application/json',
-                        'Referer' => 'https://invest.cnyes.com/',
-                        'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    ])
-                        ->timeout(15)
-                        ->retry(1, 250)
-                        ->get(self::CNYES_CHART_URL, [
-                            'resolution' => '1',
-                            'symbol' => 'TWS:TSE01:INDEX',
-                            'from' => $start->timestamp,
-                            'to' => $end->timestamp,
-                            'quote' => 1,
-                        ])
-                        ->throw()
-                        ->json();
-                } catch (Throwable) {
-                    return ['minutes' => [], 'cumulative' => 0];
-                }
-
-                $data = is_array($payload['data'] ?? null) ? $payload['data'] : [];
-                $timestamps = is_array($data['t'] ?? null) ? $data['t'] : [];
-                $volumes = is_array($data['v'] ?? null) ? $data['v'] : [];
-                $minutes = [];
-
-                foreach ($timestamps as $index => $rawTimestamp) {
-                    $volume = $this->number($volumes[$index] ?? null);
-                    if (! is_numeric($rawTimestamp) || $volume === null) {
-                        continue;
-                    }
-
-                    $timestamp = intdiv((int) $rawTimestamp, 60) * 60;
-                    if (CarbonImmutable::createFromTimestamp($timestamp, 'Asia/Taipei')->toDateString() !== $date) {
-                        continue;
-                    }
-                    $minutes[$timestamp] = (int) round(max(0, $volume));
-                }
-
-                ksort($minutes);
-                $cumulative = $minutes === []
-                    ? 0
-                    : $this->number($data['quote']['800001'] ?? null);
-
-                return [
-                    'minutes' => $minutes,
-                    'cumulative' => (int) round(max(0, $cumulative ?? array_sum($minutes))),
-                ];
-            },
-        );
-    }
-
-    /**
+     * @param array<string, mixed> $feed
      * @param array<string, mixed> $quote
      * @return list<array<string, mixed>>
      */
-    private function dailyBars(array $quote): array
+    private function dailyBars(array $feed, array $quote): array
     {
         $bars = TwStockInstitutionalFlow::query()
             ->whereNotNull('taiex_open_index')
@@ -633,19 +553,18 @@ class TwStockTaiexIndexService
 
         if ($bars !== []) {
             $lastBar = $bars[array_key_last($bars)];
-            $turnoverByDate = $this->dailyTurnoverByDate(
+            $volumeByDate = $this->dailyVolumeByDate(
                 (string) $bars[0]['localTime'],
                 (string) ($quote['date'] ?? $lastBar['localTime']),
             );
             foreach ($bars as &$bar) {
-                $bar['volume'] = $turnoverByDate[(string) $bar['localTime']] ?? 0;
+                $bar['volume'] = $volumeByDate[(string) $bar['localTime']] ?? 0;
             }
             unset($bar);
         }
 
         $quoteDate = (string) ($quote['date'] ?? '');
-        $currentTurnover = $this->currentTurnoverSnapshot($quoteDate);
-        $liveBar = $this->liveDailyBar($quoteDate, $quote, $currentTurnover['cumulative']);
+        $liveBar = $this->liveDailyBar($quoteDate, $quote, $this->currentDailyVolume($feed));
         if ($liveBar !== null) {
             $existingIndex = null;
             foreach ($bars as $index => $bar) {
@@ -668,7 +587,7 @@ class TwStockTaiexIndexService
     /**
      * @return array<string, int>
      */
-    private function dailyTurnoverByDate(string $startDate, string $endDate): array
+    private function dailyVolumeByDate(string $startDate, string $endDate): array
     {
         try {
             $start = CarbonImmutable::parse($startDate, 'Asia/Taipei')->startOfMonth();
@@ -677,9 +596,9 @@ class TwStockTaiexIndexService
             return [];
         }
 
-        $turnover = [];
+        $volumes = [];
         for ($month = $start; $month->lessThanOrEqualTo($end); $month = $month->addMonth()) {
-            $cacheKey = 'tw-stock:taiex-index:twse-daily-turnover:' . $month->format('Y-m') . ':v1';
+            $cacheKey = 'tw-stock:taiex-index:twse-daily-volume:' . $month->format('Y-m') . ':v1';
             $expiresAt = $month->isSameMonth(CarbonImmutable::now('Asia/Taipei'))
                 ? now()->addHour()
                 : now()->addDays(30);
@@ -687,22 +606,22 @@ class TwStockTaiexIndexService
                 $monthly = Cache::store('file')->remember(
                     $cacheKey,
                     $expiresAt,
-                    fn (): array => $this->downloadDailyTurnover($month),
+                    fn (): array => $this->downloadDailyVolume($month),
                 );
             } catch (Throwable) {
                 $monthly = [];
             }
 
-            $turnover = array_replace($turnover, $monthly);
+            $volumes = array_replace($volumes, $monthly);
         }
 
-        return $turnover;
+        return $volumes;
     }
 
     /**
      * @return array<string, int>
      */
-    private function downloadDailyTurnover(CarbonImmutable $month): array
+    private function downloadDailyVolume(CarbonImmutable $month): array
     {
         $payload = Http::withHeaders([
             'Accept' => 'application/json',
@@ -719,12 +638,12 @@ class TwStockTaiexIndexService
             ->json();
 
         if (! is_array($payload) || (string) ($payload['stat'] ?? '') !== 'OK') {
-            throw new RuntimeException('TWSE 每日成交額回應異常。');
+            throw new RuntimeException('TWSE 每日成交量回應異常。');
         }
 
-        $turnover = [];
+        $volumes = [];
         foreach (($payload['data'] ?? []) as $row) {
-            if (! is_array($row) || count($row) < 3) {
+            if (! is_array($row) || count($row) < 2) {
                 continue;
             }
 
@@ -734,22 +653,38 @@ class TwStockTaiexIndexService
             }
 
             $date = sprintf('%04d-%02d-%02d', (int) $parts[0] + 1911, (int) $parts[1], (int) $parts[2]);
-            $value = str_replace(',', '', (string) $row[2]);
+            $value = str_replace(',', '', (string) $row[1]);
             if (! is_numeric($value)) {
                 continue;
             }
 
-            $turnover[$date] = max(0, (int) $value);
+            // FMTQIK publishes shares; minute volume uses trading lots.
+            $volumes[$date] = max(0, (int) round((float) $value / 1000));
         }
 
-        return $turnover;
+        return $volumes;
+    }
+
+    /**
+     * @param array<string, mixed> $feed
+     */
+    private function currentDailyVolume(array $feed): int
+    {
+        $volume = 0;
+        foreach (($feed['ohlcArray'] ?? []) as $row) {
+            if (is_array($row) && is_numeric($row['s'] ?? null)) {
+                $volume += max(0, (int) $row['s']);
+            }
+        }
+
+        return $volume;
     }
 
     /**
      * @param array<string, mixed> $quote
      * @return array<string, mixed>|null
      */
-    private function liveDailyBar(string $date, array $quote, int $turnover): ?array
+    private function liveDailyBar(string $date, array $quote, int $volume): ?array
     {
         $open = $this->number($quote['open'] ?? null);
         $high = $this->number($quote['high'] ?? null);
@@ -772,7 +707,7 @@ class TwStockTaiexIndexService
             'high' => $high,
             'low' => $low,
             'close' => $close,
-            'volume' => max(0, $turnover),
+            'volume' => max(0, $volume),
         ];
     }
 

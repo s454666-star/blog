@@ -559,4 +559,59 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
             CarbonImmutable::setTestNow();
         }
     }
+
+    public function test_it_falls_back_to_yahoo_taiwan_page_when_cnyes_has_no_intraday_history(): void
+    {
+        $now = CarbonImmutable::parse('2026-07-15 11:34:00', 'Asia/Taipei');
+        CarbonImmutable::setTestNow($now);
+
+        try {
+            $chart = [
+                'meta' => ['symbol' => '7861.TWO', 'regularMarketPrice' => 1150],
+                'timestamp' => [
+                    $now->setTime(9, 1)->getTimestamp(),
+                    $now->setTime(9, 2)->getTimestamp(),
+                    $now->setTime(10, 6)->getTimestamp(),
+                    $now->subDay()->setTime(13, 30)->getTimestamp(),
+                ],
+                'indicators' => [
+                    'quote' => [[
+                        'close' => [1170, 1125, 1150, 999],
+                        'low' => [1170, 1120, 1145, 999],
+                        'high' => [1170, 1130, 1155, 999],
+                    ]],
+                ],
+            ];
+            $html = '<script>root.App.main = '
+                . json_encode([
+                    'MarketChartStore' => [
+                        'libra' => ['7861.TWO' => $chart],
+                        'spark' => [],
+                    ],
+                ], JSON_THROW_ON_ERROR)
+                . ';</script>';
+
+            Http::fake([
+                'https://ws.api.cnyes.com/ws/api/v1/charting/history*' => Http::response([
+                    'data' => ['s' => 'ok', 't' => [], 'c' => []],
+                ]),
+                'https://tw.stock.yahoo.com/quote/7861.TWO*' => Http::response($html),
+            ]);
+
+            $payload = app(TwStockRealtimeQuoteService::class)->intradayPrices(['7861']);
+
+            $this->assertSame('live', $payload['source']['status']);
+            $this->assertSame('Yahoo 台股分時', $payload['source']['label']);
+            $this->assertSame(['yahoo_tw_page'], $payload['source']['providers']);
+            $this->assertCount(3, $payload['series']['7861']);
+            $this->assertSame(1170.0, $payload['series']['7861'][0]['price']);
+            $this->assertSame(1125.0, $payload['series']['7861'][1]['price']);
+            $this->assertSame(1120.0, $payload['series']['7861'][1]['low']);
+            $this->assertSame(1150.0, $payload['series']['7861'][2]['price']);
+            $this->assertSame([], $payload['missing']);
+            Http::assertSentCount(2);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
 }

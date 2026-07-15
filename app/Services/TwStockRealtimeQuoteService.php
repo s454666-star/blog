@@ -17,6 +17,7 @@ class TwStockRealtimeQuoteService
     private const TWSE_MIS_URL = 'https://mis.twse.com.tw/stock/api/getStockInfo.jsp';
     private const YAHOO_TW_STOCK_LIST_URL = 'https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.stockList;symbols=';
     private const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/%s';
+    private const YAHOO_TW_QUOTE_URL = 'https://tw.stock.yahoo.com/quote/%s';
 
     public function quotes(array $codes): array
     {
@@ -864,24 +865,27 @@ class TwStockRealtimeQuoteService
                 'servedAt' => $now->toIso8601String(),
                 'date' => $date,
                 'cacheSeconds' => $ttl,
-                'source' => ['status' => 'empty', 'label' => 'CNYES 分時'],
+                'source' => ['status' => 'empty', 'label' => '台股分時'],
                 'series' => [],
                 'missing' => [],
             ];
         }
 
         $series = [];
+        $providerByCode = [];
         $uncached = [];
         foreach ($codes as $code) {
             $cached = Cache::get($this->intradayCacheKey($date, $code));
-            if (is_array($cached)) {
-                $series[$code] = $cached;
+            if (is_array($cached) && isset($cached['points']) && is_array($cached['points'])) {
+                $series[$code] = $cached['points'];
+                $providerByCode[$code] = (string) ($cached['provider'] ?? 'cnyes');
             } else {
                 $uncached[] = $code;
             }
         }
 
         $errors = [];
+        $needsYahoo = [];
         if ($uncached !== []) {
             $timezone = (string) config('esun.timezone', 'Asia/Taipei');
             $responses = Http::pool(fn (Pool $pool): array => collect($uncached)
@@ -915,10 +919,38 @@ class TwStockRealtimeQuoteService
                     $payload = $response->throw()->json();
                     $points = $this->cnyesIntradayPoints(is_array($payload) ? $payload : [], $date, $timezone);
                     $series[$code] = $points;
-                    Cache::put($this->intradayCacheKey($date, $code), $points, now()->addSeconds($ttl));
+                    $providerByCode[$code] = 'cnyes';
+                    if (count($points) < 2) {
+                        $needsYahoo[] = $code;
+                    }
                 } catch (Throwable $exception) {
-                    $errors[$code] = $exception->getMessage();
+                    $errors['cnyes:' . $code] = $exception->getMessage();
+                    $needsYahoo[] = $code;
                 }
+            }
+
+            if ($needsYahoo !== []) {
+                $fallback = $this->fetchYahooTwIntradayFallback(
+                    array_values(array_unique($needsYahoo)),
+                    $date,
+                    $timezone,
+                );
+                $errors = [...$errors, ...$fallback['errors']];
+                foreach ($fallback['series'] as $code => $points) {
+                    if (count($points) < 2) {
+                        continue;
+                    }
+
+                    $series[$code] = $points;
+                    $providerByCode[$code] = 'yahoo_tw_page';
+                }
+            }
+
+            foreach ($uncached as $code) {
+                Cache::put($this->intradayCacheKey($date, $code), [
+                    'points' => $series[$code] ?? [],
+                    'provider' => $providerByCode[$code] ?? 'unavailable',
+                ], now()->addSeconds($ttl));
             }
         }
 
@@ -929,6 +961,16 @@ class TwStockRealtimeQuoteService
             }
         }
         $missing = array_values(array_diff($codes, array_keys($orderedSeries)));
+        $providers = collect(array_keys($orderedSeries))
+            ->map(fn (string|int $code): string => $providerByCode[$code] ?? 'cnyes')
+            ->unique()
+            ->values()
+            ->all();
+        $sourceLabel = match (true) {
+            $providers === ['yahoo_tw_page'] => 'Yahoo 台股分時',
+            in_array('yahoo_tw_page', $providers, true) => 'CNYES + Yahoo 台股分時',
+            default => 'CNYES 分時',
+        };
 
         return [
             'servedAt' => $now->toIso8601String(),
@@ -936,7 +978,8 @@ class TwStockRealtimeQuoteService
             'cacheSeconds' => $ttl,
             'source' => [
                 'status' => $orderedSeries === [] ? 'unavailable' : ($missing === [] ? 'live' : 'partial'),
-                'label' => 'CNYES 分時',
+                'label' => $sourceLabel,
+                'providers' => $providers,
                 'errors' => $errors,
             ],
             'series' => $orderedSeries,
@@ -946,7 +989,151 @@ class TwStockRealtimeQuoteService
 
     private function intradayCacheKey(string $date, string $code): string
     {
-        return "tw-stock:intraday:v1:{$date}:{$code}";
+        return "tw-stock:intraday:v2:{$date}:{$code}";
+    }
+
+    /**
+     * @param list<string> $codes
+     * @return array{series: array<string, list<array{time: int, price: float}>>, errors: array<string, string>}
+     */
+    private function fetchYahooTwIntradayFallback(array $codes, string $date, string $timezone): array
+    {
+        $series = [];
+        $errors = [];
+
+        foreach (['TWO', 'TW'] as $suffix) {
+            $pending = array_values(array_diff($codes, array_keys($series)));
+            if ($pending === []) {
+                break;
+            }
+
+            $responses = Http::pool(fn (Pool $pool): array => collect($pending)
+                ->mapWithKeys(function (string $code) use ($pool, $suffix): array {
+                    $key = $code . ':' . $suffix;
+
+                    return [
+                        $key => $pool->as($key)
+                            ->withHeaders([
+                                'Accept' => 'text/html,application/xhtml+xml',
+                                'Referer' => 'https://tw.stock.yahoo.com/',
+                                'User-Agent' => 'Mozilla/5.0',
+                            ])
+                            ->timeout($this->timeout())
+                            ->get(sprintf(self::YAHOO_TW_QUOTE_URL, rawurlencode($code . '.' . $suffix))),
+                    ];
+                })
+                ->all());
+
+            foreach ($pending as $code) {
+                $key = $code . ':' . $suffix;
+                try {
+                    $response = $responses[$key] ?? null;
+                    if (!$response instanceof HttpResponse) {
+                        throw $response instanceof Throwable
+                            ? $response
+                            : new \RuntimeException('Yahoo Taiwan quote page is unavailable.');
+                    }
+
+                    $points = $this->yahooTwPageIntradayPoints(
+                        $response->throw()->body(),
+                        $code . '.' . $suffix,
+                        $date,
+                        $timezone,
+                    );
+                    if ($points !== []) {
+                        $series[$code] = $points;
+                    }
+                } catch (Throwable $exception) {
+                    $errors['yahoo_tw:' . $key] = $exception->getMessage();
+                }
+            }
+        }
+
+        return ['series' => $series, 'errors' => $errors];
+    }
+
+    /**
+     * @return list<array{time: int, price: float}>
+     */
+    private function yahooTwPageIntradayPoints(
+        string $html,
+        string $symbol,
+        string $date,
+        string $timezone,
+    ): array {
+        $storePosition = strpos($html, '"MarketChartStore":');
+        if ($storePosition === false) {
+            return [];
+        }
+
+        $libraPosition = strpos($html, '"libra":{', $storePosition);
+        $sparkPosition = $libraPosition === false ? false : strpos($html, ',"spark":', $libraPosition);
+        if ($libraPosition === false || $sparkPosition === false) {
+            return [];
+        }
+
+        $symbolPosition = strpos($html, '"' . $symbol . '":', $libraPosition);
+        if ($symbolPosition === false || $symbolPosition >= $sparkPosition) {
+            return [];
+        }
+
+        $objectStart = strpos($html, '{', $symbolPosition + strlen($symbol) + 3);
+        if ($objectStart === false || $objectStart >= $sparkPosition) {
+            return [];
+        }
+
+        $json = $this->extractJsonObject($html, $objectStart);
+        $chart = $json === null ? null : json_decode($json, true);
+        if (!is_array($chart)) {
+            return [];
+        }
+
+        return $this->intradayPointsFromArrays(
+            $chart['timestamp'] ?? [],
+            $chart['indicators']['quote'][0]['close'] ?? [],
+            $date,
+            $timezone,
+            $chart['indicators']['quote'][0]['low'] ?? [],
+            $chart['indicators']['quote'][0]['high'] ?? [],
+        );
+    }
+
+    private function extractJsonObject(string $source, int $start): ?string
+    {
+        if (($source[$start] ?? null) !== '{') {
+            return null;
+        }
+
+        $depth = 0;
+        $inString = false;
+        $escaped = false;
+        $length = strlen($source);
+        for ($index = $start; $index < $length; $index++) {
+            $character = $source[$index];
+            if ($inString) {
+                if ($escaped) {
+                    $escaped = false;
+                } elseif ($character === '\\') {
+                    $escaped = true;
+                } elseif ($character === '"') {
+                    $inString = false;
+                }
+                continue;
+            }
+
+            if ($character === '"') {
+                $inString = true;
+            } elseif ($character === '{') {
+                $depth++;
+            } elseif ($character === '}') {
+                $depth--;
+                if ($depth === 0) {
+                    return substr($source, $start, $index - $start + 1);
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -955,8 +1142,25 @@ class TwStockRealtimeQuoteService
      */
     private function cnyesIntradayPoints(array $payload, string $date, string $timezone): array
     {
-        $timestamps = $payload['data']['t'] ?? [];
-        $closes = $payload['data']['c'] ?? [];
+        return $this->intradayPointsFromArrays(
+            $payload['data']['t'] ?? [],
+            $payload['data']['c'] ?? [],
+            $date,
+            $timezone,
+        );
+    }
+
+    /**
+     * @return list<array{time: int, price: float}>
+     */
+    private function intradayPointsFromArrays(
+        mixed $timestamps,
+        mixed $closes,
+        string $date,
+        string $timezone,
+        mixed $lows = [],
+        mixed $highs = [],
+    ): array {
         if (!is_array($timestamps) || !is_array($closes)) {
             return [];
         }
@@ -973,7 +1177,17 @@ class TwStockRealtimeQuoteService
                 continue;
             }
 
-            $points[$timestamp] = ['time' => $timestamp, 'price' => $price];
+            $point = ['time' => $timestamp, 'price' => $price];
+            $low = is_array($lows) ? $this->priceOrNull($lows[$index] ?? null) : null;
+            $high = is_array($highs) ? $this->priceOrNull($highs[$index] ?? null) : null;
+            if ($low !== null) {
+                $point['low'] = $low;
+            }
+            if ($high !== null) {
+                $point['high'] = $high;
+            }
+
+            $points[$timestamp] = $point;
         }
 
         ksort($points, SORT_NUMERIC);

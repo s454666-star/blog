@@ -1411,9 +1411,14 @@ function waveTimeLabel(timestamp) {
 }
 
 function waveValueRange(points, formatter) {
-    const values = (points || []).map(point => finiteNumber(point.value ?? point.price)).filter(value => value !== null);
-    if (!values.length) return '--';
-    return `低 ${formatter(Math.min(...values))} · 高 ${formatter(Math.max(...values))}`;
+    const lows = (points || [])
+        .map(point => finiteNumber(point.low ?? point.value ?? point.price))
+        .filter(value => value !== null);
+    const highs = (points || [])
+        .map(point => finiteNumber(point.high ?? point.value ?? point.price))
+        .filter(value => value !== null);
+    if (!lows.length || !highs.length) return '--';
+    return `低 ${formatter(Math.min(...lows))} · 高 ${formatter(Math.max(...highs))}`;
 }
 
 function renderPnlWaves() {
@@ -1435,12 +1440,19 @@ function renderPnlWaves() {
 function stockWaveHtml(row) {
     const code = String(row.stockNo || '');
     const series = state.historyMode ? [] : (state.intradaySeries[code] || []);
-    const points = series.map(point => ({ time: point.time, value: point.price }));
+    const points = series.map(point => ({
+        time: point.time,
+        value: point.price,
+        low: point.low,
+        high: point.high,
+    }));
     const emptyText = state.historyMode ? '僅即時' : (state.intradayLoading ? '讀取中' : '暫無資料');
     const meta = points.length ? waveValueRange(points, value => formatPrice(value)) : emptyText;
+    const lows = points.map(point => finiteNumber(point.low ?? point.value)).filter(value => value !== null);
+    const highs = points.map(point => finiteNumber(point.high ?? point.value)).filter(value => value !== null);
     const values = points.map(point => point.value);
     const title = points.length
-        ? `${row.stockName || code} 當日走勢：低 ${formatPrice(Math.min(...values))}、高 ${formatPrice(Math.max(...values))}、最新 ${formatPrice(values[values.length - 1])}`
+        ? `${row.stockName || code} 當日走勢：低 ${formatPrice(Math.min(...lows))}、高 ${formatPrice(Math.max(...highs))}、最新 ${formatPrice(values[values.length - 1])}`
         : `${row.stockName || code} ${emptyText}`;
 
     return `
@@ -1913,7 +1925,12 @@ function normalizeIntradaySeries(series) {
             const time = Number(point?.time);
             const price = finiteNumber(point?.price);
             if (!Number.isFinite(time) || price === null) return;
-            byMinute.set(Math.floor(time / 60) * 60, { time: Math.floor(time / 60) * 60, price });
+            byMinute.set(Math.floor(time / 60) * 60, {
+                time: Math.floor(time / 60) * 60,
+                price,
+                low: finiteNumber(point?.low),
+                high: finiteNumber(point?.high),
+            });
         });
         normalized[String(code)] = [...byMinute.values()].sort((a, b) => a.time - b.time).slice(-500);
     });

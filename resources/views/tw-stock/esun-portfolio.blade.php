@@ -1385,7 +1385,8 @@ function waveSvgMarkup(points, width, height, options = {}) {
 
     const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point[0].toFixed(2)} ${point[1].toFixed(2)}`).join(' ');
     const areaPath = `${linePath} L ${coords[coords.length - 1][0].toFixed(2)} ${(height - padY).toFixed(2)} L ${coords[0][0].toFixed(2)} ${(height - padY).toFixed(2)} Z`;
-    const baseline = options.compareZero ? 0 : normalized[0].value;
+    const configuredBaseline = finiteNumber(options.baselineValue);
+    const baseline = options.compareZero ? 0 : (configuredBaseline ?? normalized[0].value);
     const latest = normalized[normalized.length - 1].value;
     const color = latest > baseline ? '#ff3b5c' : (latest < baseline ? '#22c55e' : '#38bdf8');
     const guide = options.compareZero && min <= 0 && max >= 0
@@ -1451,13 +1452,14 @@ function stockWaveHtml(row) {
     const lows = points.map(point => finiteNumber(point.low ?? point.value)).filter(value => value !== null);
     const highs = points.map(point => finiteNumber(point.high ?? point.value)).filter(value => value !== null);
     const values = points.map(point => point.value);
+    const previousClose = finiteNumber(row.realtimePreviousClose) ?? finiteNumber(row.previousClose);
     const title = points.length
         ? `${row.stockName || code} 當日走勢：低 ${formatPrice(Math.min(...lows))}、高 ${formatPrice(Math.max(...highs))}、最新 ${formatPrice(values[values.length - 1])}`
         : `${row.stockName || code} ${emptyText}`;
 
     return `
         <div class="stock-wave" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">
-            <svg class="stock-wave-svg" viewBox="0 0 142 36" preserveAspectRatio="none" role="img">${waveSvgMarkup(points, 142, 36, { compact: true, emptyText })}</svg>
+            <svg class="stock-wave-svg" viewBox="0 0 142 36" preserveAspectRatio="none" role="img">${waveSvgMarkup(points, 142, 36, { compact: true, emptyText, baselineValue: previousClose })}</svg>
             <span class="stock-wave-meta">${escapeHtml(meta)}</span>
         </div>
     `;

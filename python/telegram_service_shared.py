@@ -3493,6 +3493,8 @@ def _resource_code_media_kind(msg: Any) -> Optional[str]:
         return "image_document"
     if mime_type.startswith("video/"):
         return "video_document"
+    if document is not None:
+        return "document"
 
     file_info = getattr(msg, "file", None)
     file_name = str(getattr(file_info, "name", None) or "").lower()

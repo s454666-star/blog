@@ -260,7 +260,9 @@ class TwStockTaiexIndexService
                 'high' => max($open, $close),
                 'low' => min($open, $close),
                 'close' => $close,
-                'volume' => max(0, (int) ($row['s'] ?? 0)),
+                // TWSE's `s` field is not market turnover and cannot be mixed
+                // with the TWD figures used by the histogram.
+                'volume' => 0,
             ];
             $previousClose = $close;
         }

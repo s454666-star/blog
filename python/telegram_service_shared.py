@@ -54,6 +54,9 @@ RESOURCE_CODE_WENJIANJI_PATTERN = re.compile(
     r"wenjianjibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}",
     re.IGNORECASE,
 )
+RESOURCE_CODE_IMAGE_COUNT_PATTERN = re.compile(r"(?:图片|圖片)\s*(\d+)\s*(?:个|個)")
+RESOURCE_CODE_VIDEO_COUNT_PATTERN = re.compile(r"(?:视频|視頻|影片)\s*(\d+)\s*(?:个|個)")
+RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS = ("全部获取", "全部獲取")
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
 GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180
 
@@ -183,6 +186,17 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
     if RESOURCE_CODE_WENJIANJI_PATTERN.fullmatch(code):
         return "wenjianjibot_" + code.split("_", 1)[1]
     return None
+
+
+def _resource_code_expected_media_from_text(text: str) -> Optional[int]:
+    image_match = RESOURCE_CODE_IMAGE_COUNT_PATTERN.search(str(text or ""))
+    video_match = RESOURCE_CODE_VIDEO_COUNT_PATTERN.search(str(text or ""))
+    if image_match is None and video_match is None:
+        return None
+
+    image_count = int(image_match.group(1)) if image_match is not None else 0
+    video_count = int(video_match.group(1)) if video_match is not None else 0
+    return max(0, image_count) + max(0, video_count)
 
 
 def push_log(
@@ -3501,6 +3515,7 @@ async def _resource_code_bot_media(
     media_by_id: Dict[int, Any] = {}
     expected_media_count: Optional[int] = None
     declared_file_count: Optional[int] = None
+    get_all_clicked = False
 
     while asyncio.get_running_loop().time() < deadline:
         messages = await client.get_messages(peer, limit=1000, min_id=int(sent_message_id))
@@ -3511,6 +3526,10 @@ async def _resource_code_bot_media(
             all_reply_ids.add(mid)
             if not bool(getattr(msg, "out", False)):
                 message_text = str(getattr(msg, "message", None) or "")
+                wenjianji_media_count = _resource_code_expected_media_from_text(message_text)
+                if wenjianji_media_count is not None:
+                    expected_media_count = wenjianji_media_count
+                    declared_file_count = wenjianji_media_count
                 completion_match = RESOURCE_CODE_COMPLETION_PATTERN.search(message_text)
                 if completion_match is not None:
                     expected_media_count = max(0, int(completion_match.group(1)))
@@ -3523,6 +3542,30 @@ async def _resource_code_bot_media(
                     return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "dormant", expected_media_count, declared_file_count
                 elif _match_bot_not_found_keyword(message_text):
                     return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "not_found", expected_media_count, declared_file_count
+
+                if not get_all_clicked:
+                    reply_markup = getattr(msg, "reply_markup", None)
+                    for row in list(getattr(reply_markup, "rows", None) or []):
+                        for button in list(getattr(row, "buttons", None) or []):
+                            button_text = str(getattr(button, "text", None) or "")
+                            if not any(keyword in button_text for keyword in RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS):
+                                continue
+                            button_data = getattr(button, "data", None)
+                            if button_data is None:
+                                continue
+                            await msg.click(data=button_data)
+                            get_all_clicked = True
+                            push_log(
+                                stage="resource_code_process",
+                                result="clicked_get_all",
+                                extra={
+                                    "message_id": mid,
+                                    "expected_media_count": expected_media_count,
+                                },
+                            )
+                            break
+                        if get_all_clicked:
+                            break
 
         current_ids = tuple(sorted(media_by_id.keys()))
         now_value = asyncio.get_running_loop().time()
@@ -3645,12 +3688,23 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
 
             phase = "forward_media"
             for offset in range(0, len(media_messages), 100):
-                forwarded = await client.forward_messages(
-                    target_peer,
-                    media_messages[offset:offset + 100],
-                    drop_author=True,
-                    drop_media_captions=bool(payload.drop_media_captions),
-                )
+                while True:
+                    try:
+                        forwarded = await client.forward_messages(
+                            target_peer,
+                            media_messages[offset:offset + 100],
+                            drop_author=True,
+                            drop_media_captions=bool(payload.drop_media_captions),
+                        )
+                        break
+                    except FloodWaitError as e:
+                        wait_s = max(1, int(getattr(e, "seconds", 1) or 1))
+                        push_log(
+                            stage="resource_code_process",
+                            result="forward_flood_wait",
+                            extra={"offset": offset, "wait_seconds": wait_s},
+                        )
+                        await asyncio.sleep(float(wait_s) + 1.0)
                 if not isinstance(forwarded, list):
                     forwarded = [forwarded] if forwarded is not None else []
                 for msg in forwarded:

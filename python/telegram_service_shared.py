@@ -3516,10 +3516,11 @@ async def _resource_code_bot_media(
     media_by_id: Dict[int, Any] = {}
     expected_media_count: Optional[int] = None
     declared_file_count: Optional[int] = None
-    clicked_callback_keys: Set[str] = set()
+    clicked_callback_state: Dict[str, Tuple[float, int]] = {}
 
     while asyncio.get_running_loop().time() < deadline:
         messages = await client.get_messages(peer, limit=1000, min_id=int(sent_message_id))
+        callback_candidates: List[Tuple[Any, int, Any, bool]] = []
         for msg in messages or []:
             mid = int(getattr(msg, "id", 0) or 0)
             if mid <= int(sent_message_id):
@@ -3545,7 +3546,6 @@ async def _resource_code_bot_media(
                     return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "not_found", expected_media_count, declared_file_count
 
                 reply_markup = getattr(msg, "reply_markup", None)
-                callback_clicked = False
                 for row in list(getattr(reply_markup, "rows", None) or []):
                     for button in list(getattr(row, "buttons", None) or []):
                         button_text = str(getattr(button, "text", None) or "")
@@ -3556,24 +3556,35 @@ async def _resource_code_bot_media(
                         button_data = getattr(button, "data", None)
                         if button_data is None:
                             continue
-                        callback_key = f"{mid}:{bytes(button_data).hex()}"
-                        if callback_key in clicked_callback_keys:
-                            continue
-                        clicked_callback_keys.add(callback_key)
-                        await msg.click(data=button_data)
-                        callback_clicked = True
-                        push_log(
-                            stage="resource_code_process",
-                            result="clicked_get_all" if is_get_all else "clicked_next_group",
-                            extra={
-                                "message_id": mid,
-                                "expected_media_count": expected_media_count,
-                                "received_media_count": len(media_by_id),
-                            },
-                        )
+                        callback_candidates.append((msg, mid, button_data, is_get_all))
                         break
-                    if callback_clicked:
+                    if callback_candidates and callback_candidates[-1][1] == mid:
                         break
+
+        callback_clicked = False
+        callback_now = asyncio.get_running_loop().time()
+        for callback_message, callback_mid, callback_data, is_get_all in callback_candidates:
+            callback_key = f"{callback_mid}:{bytes(callback_data).hex()}"
+            previous_click = clicked_callback_state.get(callback_key)
+            if previous_click is not None:
+                clicked_at, media_count_at_click = previous_click
+                if len(media_by_id) > media_count_at_click or callback_now - clicked_at < 12.0:
+                    continue
+            clicked_callback_state[callback_key] = (callback_now, len(media_by_id))
+            await callback_message.click(data=callback_data)
+            callback_clicked = True
+            push_log(
+                stage="resource_code_process",
+                result="clicked_get_all" if is_get_all else "clicked_next_group",
+                extra={
+                    "message_id": callback_mid,
+                    "expected_media_count": expected_media_count,
+                    "received_media_count": len(media_by_id),
+                    "retry": previous_click is not None,
+                },
+            )
+            await asyncio.sleep(2.0)
+            break
 
         current_ids = tuple(sorted(media_by_id.keys()))
         now_value = asyncio.get_running_loop().time()
@@ -3587,7 +3598,8 @@ async def _resource_code_bot_media(
                 if expected_media_count is None and declared_file_count is None:
                     return [media_by_id[mid] for mid in current_ids], sorted(all_reply_ids), "settled", expected_media_count, declared_file_count
 
-        await asyncio.sleep(float(poll_interval_seconds))
+        if not callback_clicked:
+            await asyncio.sleep(float(poll_interval_seconds))
 
     return [media_by_id[mid] for mid in sorted(media_by_id.keys())], sorted(all_reply_ids), "timeout", expected_media_count, declared_file_count
 

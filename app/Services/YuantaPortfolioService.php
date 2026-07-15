@@ -19,6 +19,10 @@ class YuantaPortfolioService
 
     private const TWSE_MIS_URL = 'https://mis.twse.com.tw/stock/api/getStockInfo.jsp';
 
+    private const BROKERAGE_FEE_RATE = 0.001425;
+
+    private const MINIMUM_BROKERAGE_FEE = 20.0;
+
     public function snapshot(bool $force = false): array
     {
         $now = CarbonImmutable::now((string) config('yuanta.timezone', 'Asia/Taipei'));
@@ -404,6 +408,9 @@ class YuantaPortfolioService
         $todayPnl = $previousClose === null ? null : ($currentPrice - $previousClose) * $quantity;
         $todayPnlRate = $previousClose > 0 ? ($currentPrice - $previousClose) / $previousClose * 100 : null;
         $tradeType = (string) $this->value($row, 'TradeKind', 'tradeKind', 'tradeType');
+        $averagePrice = $this->number($this->value($row, 'Price', 'price'));
+        $taxRatePermille = max(0.0, $this->number($this->value($row, 'TaxRate', 'taxRate')));
+        $securityType = (string) $this->value($row, 'StkType1', 'stkType1');
 
         return [
             'stockNo' => $stockNo,
@@ -415,8 +422,13 @@ class YuantaPortfolioService
             'dayChangeRate' => $todayPnlRate,
             'todayPnl' => $todayPnl,
             'esunTodayPnl' => $todayPnl,
-            'averagePrice' => $this->number($this->value($row, 'Price', 'price')),
-            'breakevenPrice' => 0,
+            'averagePrice' => $averagePrice,
+            'breakevenPrice' => $this->breakevenPrice(
+                $costBasis,
+                $quantity,
+                $taxRatePermille,
+                $securityType === '12',
+            ),
             'priceAmount' => $costBasis,
             'marketValue' => $marketValue,
             'esunCurrentPrice' => $currentPrice,
@@ -446,8 +458,86 @@ class YuantaPortfolioService
                 'buyPrice' => $this->number($this->value($row, 'BuyPrice', 'buyPrice')),
                 'sellPrice' => $this->number($this->value($row, 'SellPrice', 'sellPrice')),
                 'loan' => $this->number($this->value($row, 'Loan', 'loan')),
+                'taxRatePermille' => $taxRatePermille,
+                'securityType' => $securityType,
             ],
         ];
+    }
+
+    private function breakevenPrice(float $costBasis, float $quantity, float $taxRatePermille, bool $isEtf): ?float
+    {
+        if ($costBasis <= 0 || $quantity <= 0) {
+            return null;
+        }
+
+        $taxRate = $taxRatePermille / 1000;
+        $percentageFeeDenominator = 1 - $taxRate - self::BROKERAGE_FEE_RATE;
+        $minimumFeeDenominator = 1 - $taxRate;
+        if ($percentageFeeDenominator <= 0 || $minimumFeeDenominator <= 0) {
+            return null;
+        }
+
+        $estimatedGross = max(
+            $costBasis / $percentageFeeDenominator,
+            ($costBasis + self::MINIMUM_BROKERAGE_FEE) / $minimumFeeDenominator,
+        );
+        $candidate = $this->ceilToTradablePrice($estimatedGross / $quantity, $isEtf);
+
+        for ($attempt = 0; $attempt < 1000 && $this->netSaleProceeds($candidate, $quantity, $taxRatePermille) < $costBasis; $attempt++) {
+            $candidate = $this->nextTradablePrice($candidate, $isEtf);
+        }
+
+        for ($attempt = 0; $attempt < 1000; $attempt++) {
+            $previous = $this->previousTradablePrice($candidate, $isEtf);
+            if ($previous <= 0 || $this->netSaleProceeds($previous, $quantity, $taxRatePermille) < $costBasis) {
+                break;
+            }
+            $candidate = $previous;
+        }
+
+        return round($candidate, 4);
+    }
+
+    private function netSaleProceeds(float $price, float $quantity, float $taxRatePermille): float
+    {
+        $gross = round($price * $quantity, 0, PHP_ROUND_HALF_UP);
+        $brokerageFee = max(self::MINIMUM_BROKERAGE_FEE, floor($gross * self::BROKERAGE_FEE_RATE));
+        $transactionTax = floor($gross * max(0.0, $taxRatePermille) / 1000);
+
+        return $gross - $brokerageFee - $transactionTax;
+    }
+
+    private function ceilToTradablePrice(float $price, bool $isEtf): float
+    {
+        $tick = $this->priceTick($price, $isEtf);
+
+        return round(ceil(($price - 0.000000001) / $tick) * $tick, 4);
+    }
+
+    private function nextTradablePrice(float $price, bool $isEtf): float
+    {
+        return round($price + $this->priceTick($price + 0.000001, $isEtf), 4);
+    }
+
+    private function previousTradablePrice(float $price, bool $isEtf): float
+    {
+        return round(max(0.0, $price - $this->priceTick(max(0.0, $price - 0.000001), $isEtf)), 4);
+    }
+
+    private function priceTick(float $price, bool $isEtf): float
+    {
+        if ($isEtf) {
+            return $price < 50 ? 0.01 : 0.05;
+        }
+
+        return match (true) {
+            $price < 10 => 0.01,
+            $price < 50 => 0.05,
+            $price < 100 => 0.1,
+            $price < 500 => 0.5,
+            $price < 1000 => 1.0,
+            default => 5.0,
+        };
     }
 
     private function balanceSummary(array $raw, float $totalCostBasis, ?CarbonImmutable $now = null): array
@@ -558,6 +648,23 @@ class YuantaPortfolioService
             ->map(fn (Collection $prices): array => $this->historicalPriceSummary($prices->values(), $today, $startOfYear))
             ->all();
 
+        $emergingLookup = ($emergingCodes ?? collect())
+            ->map(fn (mixed $stockCode): string => (string) $stockCode)
+            ->flip();
+        foreach ($stockCodes->unique()->values() as $stockCode) {
+            $stockCode = (string) $stockCode;
+            if ($emergingLookup->has($stockCode) || $this->hasCompleteHistoricalReturns($history[$stockCode] ?? [])) {
+                continue;
+            }
+
+            $fallback = $this->yahooHistoricalPriceSummary($stockCode, $today, $startOfYear);
+            if ($fallback === null) {
+                continue;
+            }
+
+            $history[$stockCode] = $this->mergeHistoricalSummary($history[$stockCode] ?? [], $fallback);
+        }
+
         foreach (($emergingCodes ?? collect()) as $stockCode) {
             $stockCode = (string) $stockCode;
             $fallback = app(TwStockEmergingHistoryService::class)->summary(
@@ -569,13 +676,7 @@ class YuantaPortfolioService
                 continue;
             }
 
-            $base = $history[$stockCode] ?? [];
-            foreach (['previousClose', 'fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $key) {
-                if (($fallback[$key] ?? null) !== null) {
-                    $base[$key] = $fallback[$key];
-                }
-            }
-            $history[$stockCode] = $base;
+            $history[$stockCode] = $this->mergeHistoricalSummary($history[$stockCode] ?? [], $fallback);
         }
 
         foreach ($this->twseMisPreviousCloses($stockCodes) as $stockCode => $official) {
@@ -589,35 +690,177 @@ class YuantaPortfolioService
     }
 
     /**
-     * @param Collection<int, TwStockDailyPrice> $prices
-     * @return array<string, float|null>
+     * @param Collection<int, TwStockDailyPrice|array{tradeDate?: string, closePrice?: mixed}> $prices
+     * @return array{previousClose: float|null, previousCloseDate: string|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}
      */
     private function historicalPriceSummary(Collection $prices, string $today, string $startOfYear): array
     {
-        $previous = $prices->first(fn (TwStockDailyPrice $price): bool => (string) $price->trade_date < $today);
-        $latest = $prices->first();
-        $latestClose = $latest === null ? null : (float) $latest->close_price;
-        $priceAt = function (int $offset) use ($prices): ?float {
-            $row = $prices->get($offset);
+        $normalized = $prices
+            ->map(function (TwStockDailyPrice|array $row): array {
+                if ($row instanceof TwStockDailyPrice) {
+                    return [
+                        'tradeDate' => $row->trade_date?->toDateString(),
+                        'closePrice' => $row->close_price,
+                    ];
+                }
 
-            return $row === null ? null : (float) $row->close_price;
-        };
-        $yearStart = $prices
-            ->filter(fn (TwStockDailyPrice $price): bool => (string) $price->trade_date >= $startOfYear)
-            ->last();
+                return [
+                    'tradeDate' => $row['tradeDate'] ?? null,
+                    'closePrice' => $row['closePrice'] ?? null,
+                ];
+            })
+            ->filter(fn (array $row): bool => is_string($row['tradeDate']) && $this->numberOrNull($row['closePrice']) !== null)
+            ->sortByDesc('tradeDate')
+            ->values();
+
+        $closeList = $normalized->filter(fn (array $row): bool => $row['tradeDate'] < $today)->values();
+        $previous = $closeList->first();
+        $base5 = $closeList->get(4);
+        $base20 = $closeList->get(19);
+        $base60 = $closeList->get(59);
+        $yearBase = $normalized
+            ->filter(fn (array $row): bool => $row['tradeDate'] < $startOfYear)
+            ->first();
+        $previousClose = $previous['closePrice'] ?? null;
 
         return [
-            'previousClose' => $previous === null ? null : (float) $previous->close_price,
-            'fiveDayReturn' => $this->returnRate($latestClose, $priceAt(5)),
-            'twentyDayReturn' => $this->returnRate($latestClose, $priceAt(20)),
-            'sixtyDayReturn' => $this->returnRate($latestClose, $priceAt(60)),
-            'yearToDateReturn' => $this->returnRate($latestClose, $yearStart === null ? null : (float) $yearStart->close_price),
+            'previousClose' => $this->numberOrNull($previousClose),
+            'previousCloseDate' => $previous['tradeDate'] ?? null,
+            'fiveDayReturn' => $this->returnRate($previousClose, $base5['closePrice'] ?? null),
+            'twentyDayReturn' => $this->returnRate($previousClose, $base20['closePrice'] ?? null),
+            'sixtyDayReturn' => $this->returnRate($previousClose, $base60['closePrice'] ?? null),
+            'yearToDateReturn' => $this->returnRate($previousClose, $yearBase['closePrice'] ?? null),
         ];
     }
 
-    private function returnRate(?float $current, ?float $base): ?float
+    /**
+     * @return array{previousClose: float|null, previousCloseDate: string|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}|null
+     */
+    private function yahooHistoricalPriceSummary(string $stockCode, string $today, string $startOfYear): ?array
     {
-        return $current !== null && $base !== null && $base > 0 ? ($current - $base) / $base * 100 : null;
+        return Cache::remember(
+            'yuanta:portfolio:yahoo-history:' . $stockCode . ':' . $today . ':v1',
+            now()->addDays(10),
+            function () use ($stockCode, $today, $startOfYear): ?array {
+                foreach (['TW', 'TWO'] as $suffix) {
+                    $summary = $this->fetchYahooHistoricalPriceSummary($stockCode, $suffix, $today, $startOfYear);
+                    if ($summary !== null && $this->hasCompleteHistoricalReturns($summary)) {
+                        return $summary;
+                    }
+                }
+
+                return null;
+            },
+        );
+    }
+
+    /**
+     * @return array{previousClose: float|null, previousCloseDate: string|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: float|null}|null
+     */
+    private function fetchYahooHistoricalPriceSummary(string $stockCode, string $suffix, string $today, string $startOfYear): ?array
+    {
+        try {
+            $payload = Http::withHeaders([
+                'Accept' => 'application/json,text/plain,*/*',
+                'User-Agent' => 'Mozilla/5.0',
+            ])
+                ->timeout(6)
+                ->retry(1, 150)
+                ->get('https://query1.finance.yahoo.com/v8/finance/chart/' . rawurlencode($stockCode . '.' . $suffix), [
+                    'interval' => '1d',
+                    'range' => '1y',
+                ])
+                ->throw()
+                ->json();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $result = $payload['chart']['result'][0] ?? null;
+        $timestamps = is_array($result) ? ($result['timestamp'] ?? null) : null;
+        $closes = is_array($result) ? ($result['indicators']['quote'][0]['close'] ?? null) : null;
+        if (!is_array($timestamps) || !is_array($closes)) {
+            return null;
+        }
+
+        $timezone = (string) config('yuanta.timezone', 'Asia/Taipei');
+        $prices = collect($timestamps)
+            ->map(function (mixed $timestamp, int $index) use ($closes, $timezone): ?array {
+                $close = $this->numberOrNull($closes[$index] ?? null);
+                if ($close === null || !is_numeric($timestamp)) {
+                    return null;
+                }
+
+                return [
+                    'tradeDate' => CarbonImmutable::createFromTimestampUTC((int) $timestamp)
+                        ->setTimezone($timezone)
+                        ->toDateString(),
+                    'closePrice' => $close,
+                ];
+            })
+            ->filter()
+            ->values();
+
+        if ($prices->isEmpty()) {
+            return null;
+        }
+
+        return $this->historicalPriceSummary($prices, $today, $startOfYear);
+    }
+
+    private function hasCompleteHistoricalReturns(array $summary): bool
+    {
+        return ($summary['fiveDayReturn'] ?? null) !== null
+            && ($summary['twentyDayReturn'] ?? null) !== null
+            && ($summary['sixtyDayReturn'] ?? null) !== null;
+    }
+
+    private function mergeHistoricalSummary(array $base, array $fallback): array
+    {
+        if ($this->fallbackHasNewerPreviousClose($base, $fallback)) {
+            foreach (['previousClose', 'previousCloseDate', 'fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $key) {
+                if (($fallback[$key] ?? null) !== null) {
+                    $base[$key] = $fallback[$key];
+                }
+            }
+
+            return $base;
+        }
+
+        foreach (['previousClose', 'fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $key) {
+            if (($base[$key] ?? null) === null && ($fallback[$key] ?? null) !== null) {
+                $base[$key] = $fallback[$key];
+            }
+        }
+
+        if (($base['previousCloseDate'] ?? null) === null && ($fallback['previousCloseDate'] ?? null) !== null) {
+            $base['previousCloseDate'] = $fallback['previousCloseDate'];
+        }
+
+        return $base;
+    }
+
+    private function fallbackHasNewerPreviousClose(array $base, array $fallback): bool
+    {
+        if (($fallback['previousClose'] ?? null) === null) {
+            return false;
+        }
+
+        $baseDate = (string) ($base['previousCloseDate'] ?? '');
+        $fallbackDate = (string) ($fallback['previousCloseDate'] ?? '');
+
+        return $fallbackDate !== '' && ($baseDate === '' || $fallbackDate > $baseDate);
+    }
+
+    private function returnRate(mixed $current, mixed $base): ?float
+    {
+        $current = $this->numberOrNull($current);
+        $base = $this->numberOrNull($base);
+        if ($current === null || $base === null || $base == 0.0) {
+            return null;
+        }
+
+        return ($current - $base) / $base * 100;
     }
 
     /**

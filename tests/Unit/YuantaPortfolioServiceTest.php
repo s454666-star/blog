@@ -175,6 +175,104 @@ class YuantaPortfolioServiceTest extends TestCase
         $this->assertSame(7664.0, $row['unrealizedPnl']);
     }
 
+    public function test_it_calculates_yuanta_breakeven_prices_with_sale_costs_and_valid_ticks(): void
+    {
+        $service = new YuantaPortfolioService();
+        $method = new ReflectionMethod($service, 'formatInventoryRow');
+
+        $stock = $method->invoke($service, [
+            'StkCode' => '6669',
+            'StkName' => '緯穎',
+            'StockQty' => 25,
+            'MarketPrice' => 5095,
+            'MarketAmt' => 127375,
+            'ReturnAmt' => 5719,
+            'Cost' => 121093,
+            'Price' => 4843.72,
+            'TaxRate' => 3,
+            'StkType1' => 0,
+            'TradeKind' => '0',
+        ], []);
+        $smallEtf = $method->invoke($service, [
+            'StkCode' => '00905',
+            'StkName' => 'FT臺灣Smart',
+            'StockQty' => 1,
+            'MarketPrice' => 27.56,
+            'MarketAmt' => 28,
+            'ReturnAmt' => -10,
+            'Cost' => 18,
+            'Price' => 18,
+            'TaxRate' => 1,
+            'StkType1' => 12,
+            'TradeKind' => '0',
+        ], []);
+        $etfAboveFifty = $method->invoke($service, [
+            'StkCode' => '00631L',
+            'StkName' => '元大台灣50正2',
+            'StockQty' => 1,
+            'MarketPrice' => 37.04,
+            'MarketAmt' => 37,
+            'ReturnAmt' => -21,
+            'Cost' => 38,
+            'Price' => 38,
+            'TaxRate' => 1,
+            'StkType1' => 12,
+            'TradeKind' => '0',
+        ], []);
+
+        $this->assertSame(4870.0, $stock['breakevenPrice']);
+        $this->assertSame(37.5, $smallEtf['breakevenPrice']);
+        $this->assertSame(57.5, $etfAboveFifty['breakevenPrice']);
+    }
+
+    public function test_it_fills_missing_yuanta_etf_returns_from_yahoo_history(): void
+    {
+        Cache::flush();
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2099-07-15 18:00:00', 'Asia/Taipei'));
+
+        try {
+            $timestamps = [];
+            $closes = [];
+            $start = CarbonImmutable::parse('2099-05-15 13:30:00', 'Asia/Taipei');
+            for ($index = 0; $index <= 60; $index++) {
+                $timestamps[] = $start->addDays($index)->utc()->timestamp;
+                $closes[] = 100 + $index;
+            }
+
+            Http::fake([
+                'https://query1.finance.yahoo.com/v8/finance/chart/*' => Http::response([
+                    'chart' => [
+                        'result' => [[
+                            'timestamp' => $timestamps,
+                            'indicators' => [
+                                'quote' => [[
+                                    'close' => $closes,
+                                ]],
+                            ],
+                        ]],
+                        'error' => null,
+                    ],
+                ]),
+                'https://mis.twse.com.tw/stock/api/getStockInfo.jsp*' => Http::response([
+                    'msgArray' => [
+                        ['c' => '00905', 'y' => '160'],
+                    ],
+                ]),
+            ]);
+
+            $service = new YuantaPortfolioService();
+            $method = new ReflectionMethod($service, 'historicalPrices');
+            $history = $method->invoke($service, collect(['00905']), collect());
+
+            $this->assertSame(160.0, $history['00905']['previousClose']);
+            $this->assertEqualsWithDelta((160 - 156) / 156 * 100, $history['00905']['fiveDayReturn'], 0.000001);
+            $this->assertEqualsWithDelta((160 - 141) / 141 * 100, $history['00905']['twentyDayReturn'], 0.000001);
+            $this->assertEqualsWithDelta((160 - 101) / 101 * 100, $history['00905']['sixtyDayReturn'], 0.000001);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
     public function test_it_marks_only_the_yuanta_quantity_added_since_the_previous_daily_snapshot(): void
     {
         $service = new YuantaPortfolioService();

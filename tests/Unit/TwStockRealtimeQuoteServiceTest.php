@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\TwStockRealtimeQuoteService;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -519,5 +520,43 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         $this->assertSame(174.5, $payload['quotes']['2303']['price']);
         $this->assertSame(170.0, $payload['quotes']['2303']['previousClose']);
         $this->assertSame('tradingview', $payload['quotes']['2303']['source']);
+    }
+
+    public function test_it_returns_today_intraday_prices_in_ascending_order_and_caches_them(): void
+    {
+        $now = CarbonImmutable::parse('2026-07-15 10:30:00', 'Asia/Taipei');
+        CarbonImmutable::setTestNow($now);
+
+        try {
+            Http::fake([
+                'https://ws.api.cnyes.com/ws/api/v1/charting/history*' => Http::response([
+                    'data' => [
+                        's' => 'ok',
+                        't' => [
+                            $now->setTime(9, 2)->getTimestamp(),
+                            $now->setTime(9, 1)->getTimestamp(),
+                            $now->subDay()->setTime(13, 30)->getTimestamp(),
+                        ],
+                        'c' => [101.5, 100.0, 99.0],
+                    ],
+                ]),
+            ]);
+
+            $service = app(TwStockRealtimeQuoteService::class);
+            $payload = $service->intradayPrices(['5483', '5483', '00631L']);
+
+            $this->assertSame('2026-07-15', $payload['date']);
+            $this->assertSame('live', $payload['source']['status']);
+            $this->assertSame([5483, '00631L'], array_keys($payload['series']));
+            $this->assertSame(100.0, $payload['series']['5483'][0]['price']);
+            $this->assertSame(101.5, $payload['series']['5483'][1]['price']);
+            $this->assertSame([], $payload['missing']);
+
+            $cached = $service->intradayPrices(['5483', '00631L']);
+            $this->assertSame(101.5, $cached['series']['5483'][1]['price']);
+            Http::assertSentCount(2);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
     }
 }

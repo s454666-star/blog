@@ -274,6 +274,56 @@
             transform: translateX(140%);
         }
 
+        .pnl-summary-card {
+            min-height: 238px;
+        }
+
+        .pnl-wave-panel {
+            position: absolute;
+            right: 14px;
+            bottom: 12px;
+            left: 14px;
+            z-index: 1;
+            padding-top: 8px;
+            border-top: 1px solid rgba(148, 163, 184, 0.13);
+        }
+
+        .pnl-wave-head,
+        .pnl-wave-axis {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            color: var(--muted-2);
+            font-size: 10px;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .pnl-wave-head span:first-child {
+            color: var(--muted);
+            letter-spacing: 0.08em;
+        }
+
+        .pnl-wave-svg {
+            display: block;
+            width: 100%;
+            height: 78px;
+            margin: 4px 0 2px;
+            overflow: visible;
+        }
+
+        .pnl-wave-axis {
+            font-size: 9px;
+        }
+
+        .wave-empty {
+            fill: var(--muted-2);
+            font-size: 11px;
+            font-weight: 800;
+            text-anchor: middle;
+        }
+
         .label {
             color: var(--muted);
             font-size: 13px;
@@ -659,10 +709,12 @@
             grid-template-columns: auto 1fr;
             gap: 8px 10px;
             align-items: center;
+            min-width: 248px;
         }
 
         .badge-stack {
             display: inline-flex;
+            grid-row: 1 / span 2;
             flex-direction: column;
             align-items: center;
             gap: 6px;
@@ -744,6 +796,29 @@
             color: var(--muted);
             font-size: 12px;
             font-weight: 800;
+        }
+
+        .stock-wave {
+            grid-column: 2;
+            width: 142px;
+            margin-top: 2px;
+        }
+
+        .stock-wave-svg {
+            display: block;
+            width: 142px;
+            height: 36px;
+            overflow: visible;
+        }
+
+        .stock-wave-meta {
+            display: block;
+            margin-top: 1px;
+            color: var(--muted-2);
+            font-size: 9px;
+            font-weight: 800;
+            line-height: 1.2;
+            font-variant-numeric: tabular-nums;
         }
 
         .empty,
@@ -934,15 +1009,25 @@
     </header>
 
     <section class="summary-grid">
-        <div class="summary-card">
+        <div class="summary-card pnl-summary-card">
             <div class="label">今日損益</div>
             <div class="value" data-summary="todayPnl">--</div>
             <div class="sub" data-summary="todayPnlRate">--</div>
+            <div class="pnl-wave-panel" data-pnl-wave-panel="todayPnl">
+                <div class="pnl-wave-head"><span>當日走勢</span><span data-pnl-wave-meta>讀取中</span></div>
+                <svg class="pnl-wave-svg" data-pnl-wave="todayPnl" viewBox="0 0 320 78" preserveAspectRatio="none" role="img" aria-label="今日損益當日走勢"></svg>
+                <div class="pnl-wave-axis"><span>09:00</span><span>現在</span></div>
+            </div>
         </div>
-        <div class="summary-card">
+        <div class="summary-card pnl-summary-card">
             <div class="label">即時累積損益</div>
             <div class="value" data-summary="unrealizedPnl">--</div>
             <div class="sub" data-summary="unrealizedPnlRate">--</div>
+            <div class="pnl-wave-panel" data-pnl-wave-panel="unrealizedPnl">
+                <div class="pnl-wave-head"><span>當日走勢</span><span data-pnl-wave-meta>讀取中</span></div>
+                <svg class="pnl-wave-svg" data-pnl-wave="unrealizedPnl" viewBox="0 0 320 78" preserveAspectRatio="none" role="img" aria-label="即時累積損益當日走勢"></svg>
+                <div class="pnl-wave-axis"><span>09:00</span><span>現在</span></div>
+            </div>
         </div>
         <div class="summary-card">
             <div class="label">股票市值</div>
@@ -1040,6 +1125,7 @@
 <script>
 const apiUrl = @json($apiUrl);
 const quoteUrl = @json($quoteUrl);
+const intradayUrl = @json($intradayUrl ?? null);
 const historyUrl = @json($historyUrl ?? null);
 const historyDatesUrl = @json($historyDatesUrl ?? null);
 const dashboardToken = @json($token);
@@ -1054,6 +1140,10 @@ const state = {
     quoteLoading: false,
     historyMode: false,
     historyLoading: false,
+    intradayLoading: false,
+    intradayCodesKey: '',
+    intradaySeries: {},
+    pnlSeries: { todayPnl: [], unrealizedPnl: [] },
     lastQuotePayload: null,
     lastPayload: null,
     sort: {
@@ -1261,6 +1351,106 @@ function summaryDeltaText(prefix, label, baseline, diff) {
     return `${prefix} · ${label} ${formatMoney(baseline)} · 差 ${formatMoney(diff)}`;
 }
 
+function waveSvgMarkup(points, width, height, options = {}) {
+    const normalized = (points || [])
+        .map(point => ({ time: Number(point.time), value: finiteNumber(point.value ?? point.price) }))
+        .filter(point => Number.isFinite(point.time) && point.value !== null)
+        .sort((a, b) => a.time - b.time);
+    if (!normalized.length) {
+        const message = escapeHtml(options.emptyText || '暫無分時資料');
+        return `<text class="wave-empty" x="${width / 2}" y="${height / 2 + 4}">${message}</text>`;
+    }
+
+    const padX = options.compact ? 2 : 5;
+    const padY = options.compact ? 3 : 7;
+    const values = normalized.map(point => point.value);
+    const rawMin = Math.min(...values);
+    const rawMax = Math.max(...values);
+    const valuePadding = rawMax === rawMin
+        ? Math.max(Math.abs(rawMax) * 0.01, options.compact ? 0.1 : 1)
+        : (rawMax - rawMin) * 0.1;
+    const min = rawMin - valuePadding;
+    const max = rawMax + valuePadding;
+    const firstTime = normalized[0].time;
+    const lastTime = normalized[normalized.length - 1].time;
+    const timeRange = Math.max(1, lastTime - firstTime);
+    const x = time => padX + (time - firstTime) / timeRange * (width - padX * 2);
+    const y = value => padY + (max - value) / Math.max(0.000001, max - min) * (height - padY * 2);
+    const coords = normalized.map(point => [x(point.time), y(point.value)]);
+
+    if (coords.length === 1) {
+        coords.unshift([padX, coords[0][1]]);
+        coords.push([width - padX, coords[coords.length - 1][1]]);
+    }
+
+    const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point[0].toFixed(2)} ${point[1].toFixed(2)}`).join(' ');
+    const areaPath = `${linePath} L ${coords[coords.length - 1][0].toFixed(2)} ${(height - padY).toFixed(2)} L ${coords[0][0].toFixed(2)} ${(height - padY).toFixed(2)} Z`;
+    const baseline = options.compareZero ? 0 : normalized[0].value;
+    const latest = normalized[normalized.length - 1].value;
+    const color = latest > baseline ? '#ff3b5c' : (latest < baseline ? '#22c55e' : '#38bdf8');
+    const guide = options.compareZero && min <= 0 && max >= 0
+        ? `<line x1="${padX}" x2="${width - padX}" y1="${y(0).toFixed(2)}" y2="${y(0).toFixed(2)}" stroke="#94a3b8" stroke-opacity="0.32" stroke-dasharray="4 4" />`
+        : `<line x1="${padX}" x2="${width - padX}" y1="${(height / 2).toFixed(2)}" y2="${(height / 2).toFixed(2)}" stroke="#94a3b8" stroke-opacity="0.14" stroke-dasharray="3 4" />`;
+    const endpoint = coords[coords.length - 1];
+
+    return `${guide}
+        <path d="${areaPath}" fill="${color}" fill-opacity="0.10" />
+        <path d="${linePath}" fill="none" stroke="${color}" stroke-width="${options.compact ? 1.6 : 2.2}" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+        <circle cx="${endpoint[0].toFixed(2)}" cy="${endpoint[1].toFixed(2)}" r="${options.compact ? 2 : 2.8}" fill="${color}" />`;
+}
+
+function waveTimeLabel(timestamp) {
+    const date = new Date(Number(timestamp) * 1000);
+    if (Number.isNaN(date.getTime())) return '--';
+    return date.toLocaleTimeString('zh-TW', {
+        timeZone: 'Asia/Taipei',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    });
+}
+
+function waveValueRange(points, formatter) {
+    const values = (points || []).map(point => finiteNumber(point.value ?? point.price)).filter(value => value !== null);
+    if (!values.length) return '--';
+    return `低 ${formatter(Math.min(...values))} · 高 ${formatter(Math.max(...values))}`;
+}
+
+function renderPnlWaves() {
+    ['todayPnl', 'unrealizedPnl'].forEach(key => {
+        const svg = document.querySelector(`[data-pnl-wave="${key}"]`);
+        const panel = document.querySelector(`[data-pnl-wave-panel="${key}"]`);
+        if (!svg || !panel) return;
+
+        const points = state.historyMode ? [] : (state.pnlSeries[key] || []);
+        const emptyText = state.historyMode ? '僅顯示當日即時走勢' : (state.intradayLoading ? '分時資料讀取中' : '暫無分時資料');
+        svg.innerHTML = waveSvgMarkup(points, 320, 78, { compareZero: true, emptyText });
+        const meta = panel.querySelector('[data-pnl-wave-meta]');
+        meta.textContent = points.length ? waveValueRange(points, formatMoney) : emptyText;
+        const axis = panel.querySelector('.pnl-wave-axis span:last-child');
+        axis.textContent = points.length ? waveTimeLabel(points[points.length - 1].time) : '現在';
+    });
+}
+
+function stockWaveHtml(row) {
+    const code = String(row.stockNo || '');
+    const series = state.historyMode ? [] : (state.intradaySeries[code] || []);
+    const points = series.map(point => ({ time: point.time, value: point.price }));
+    const emptyText = state.historyMode ? '僅即時' : (state.intradayLoading ? '讀取中' : '暫無資料');
+    const meta = points.length ? waveValueRange(points, value => formatPrice(value)) : emptyText;
+    const values = points.map(point => point.value);
+    const title = points.length
+        ? `${row.stockName || code} 當日走勢：低 ${formatPrice(Math.min(...values))}、高 ${formatPrice(Math.max(...values))}、最新 ${formatPrice(values[values.length - 1])}`
+        : `${row.stockName || code} ${emptyText}`;
+
+    return `
+        <div class="stock-wave" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">
+            <svg class="stock-wave-svg" viewBox="0 0 142 36" preserveAspectRatio="none" role="img">${waveSvgMarkup(points, 142, 36, { compact: true, emptyText })}</svg>
+            <span class="stock-wave-meta">${escapeHtml(meta)}</span>
+        </div>
+    `;
+}
+
 function stockCell(row) {
     const tradeLabel = row.tradeTypeLabel || tradeTypeLabel(row.tradeType);
     const badgeClass = tradeBadgeClass(row.tradeType);
@@ -1275,6 +1465,7 @@ function stockCell(row) {
                 <div class="stock-name">${escapeHtml(row.stockName || '')}</div>
                 <div class="stock-code">${escapeHtml(row.stockNo || '')}</div>
             </div>
+            ${stockWaveHtml(row)}
         </div>
     `;
 }
@@ -1411,6 +1602,12 @@ function applyPayload(payload, options = {}) {
     }
     updateSortIndicators();
     renderPositions();
+    if (options.historical) {
+        rebuildPnlSeries();
+        renderPnlWaves();
+    } else {
+        ensureIntradaySeries();
+    }
 
     const market = payload.market || {};
     els.marketStatus.textContent = market.label || '--';
@@ -1704,6 +1901,162 @@ async function fetchQuotePayloadForRows(rows) {
     return response.json();
 }
 
+function intradayCodes() {
+    return [...new Set(state.rows.map(row => String(row.stockNo || '').trim()).filter(Boolean))].sort();
+}
+
+function normalizeIntradaySeries(series) {
+    const normalized = {};
+    Object.entries(series || {}).forEach(([code, points]) => {
+        const byMinute = new Map();
+        (Array.isArray(points) ? points : []).forEach(point => {
+            const time = Number(point?.time);
+            const price = finiteNumber(point?.price);
+            if (!Number.isFinite(time) || price === null) return;
+            byMinute.set(Math.floor(time / 60) * 60, { time: Math.floor(time / 60) * 60, price });
+        });
+        normalized[String(code)] = [...byMinute.values()].sort((a, b) => a.time - b.time).slice(-500);
+    });
+
+    return normalized;
+}
+
+function appendIntradayPoint(code, timestamp, price) {
+    const numericPrice = finiteNumber(price);
+    const numericTime = Number(timestamp);
+    if (!code || numericPrice === null || !Number.isFinite(numericTime)) return;
+
+    const minute = Math.floor(numericTime / 60) * 60;
+    const points = Array.isArray(state.intradaySeries[code]) ? [...state.intradaySeries[code]] : [];
+    const existingIndex = points.findIndex(point => Number(point.time) === minute);
+    const nextPoint = { time: minute, price: numericPrice };
+    if (existingIndex >= 0) {
+        points[existingIndex] = nextPoint;
+    } else {
+        points.push(nextPoint);
+    }
+    state.intradaySeries[code] = points.sort((a, b) => a.time - b.time).slice(-500);
+}
+
+function appendRealtimeIntraday(payload = state.lastQuotePayload) {
+    const servedAt = Date.parse(payload?.servedAt || '') / 1000;
+    const fallbackTime = Date.now() / 1000;
+    const timestamp = Number.isFinite(servedAt) ? servedAt : fallbackTime;
+    const seen = new Set();
+    state.rows.forEach(row => {
+        const code = String(row.stockNo || '');
+        if (!code || seen.has(code)) return;
+        seen.add(code);
+        appendIntradayPoint(code, timestamp, row.realtimePrice);
+    });
+}
+
+function rebuildPnlSeries() {
+    if (state.historyMode) {
+        state.pnlSeries = { todayPnl: [], unrealizedPnl: [] };
+        return;
+    }
+
+    const timestamps = [...new Set(Object.values(state.intradaySeries)
+        .flatMap(points => (Array.isArray(points) ? points : []).map(point => Number(point.time)))
+        .filter(Number.isFinite))]
+        .sort((a, b) => a - b);
+    if (!timestamps.length) {
+        state.pnlSeries = { todayPnl: [], unrealizedPnl: [] };
+        return;
+    }
+
+    const priceAt = {};
+    Object.entries(state.intradaySeries).forEach(([code, points]) => {
+        priceAt[code] = new Map((points || []).map(point => [Number(point.time), finiteNumber(point.price)]));
+    });
+    const lastPrices = {};
+    const todayPnl = [];
+    const unrealizedPnl = [];
+
+    timestamps.forEach(time => {
+        Object.entries(priceAt).forEach(([code, points]) => {
+            const price = points.get(time);
+            if (price !== null && price !== undefined) lastPrices[code] = price;
+        });
+
+        let todayValue = 0;
+        let unrealizedValue = 0;
+        state.rows.forEach(row => {
+            const code = String(row.stockNo || '');
+            const price = finiteNumber(lastPrices[code])
+                ?? finiteNumber(row.realtimePreviousClose)
+                ?? finiteNumber(row.previousClose)
+                ?? finiteNumber(row.realtimePrice)
+                ?? finiteNumber(row.currentPrice);
+            if (price === null) return;
+
+            const quantity = number(row.quantity);
+            const previousClose = finiteNumber(row.realtimePreviousClose) ?? finiteNumber(row.previousClose);
+            todayValue += previousClose === null ? number(row.todayPnl) : (price - previousClose) * quantity;
+
+            const basePrice = finiteNumber(row.realtimePnlBasePrice)
+                ?? finiteNumber(row.esunCurrentPrice)
+                ?? finiteNumber(row.currentPrice)
+                ?? price;
+            const basePnl = finiteNumber(row.esunUnrealizedPnl) ?? number(row.unrealizedPnl);
+            unrealizedValue += basePnl + (price - basePrice) * quantity;
+        });
+
+        todayPnl.push({ time, value: todayValue });
+        unrealizedPnl.push({ time, value: unrealizedValue });
+    });
+
+    state.pnlSeries = {
+        todayPnl: todayPnl.slice(-500),
+        unrealizedPnl: unrealizedPnl.slice(-500),
+    };
+}
+
+async function ensureIntradaySeries() {
+    if (state.historyMode || !intradayUrl || !state.rows.length) {
+        rebuildPnlSeries();
+        renderPnlWaves();
+        return;
+    }
+
+    const codes = intradayCodes();
+    const codesKey = codes.join(',');
+    if (state.intradayCodesKey === codesKey) {
+        appendRealtimeIntraday();
+        rebuildPnlSeries();
+        renderPnlWaves();
+        renderPositions();
+        return;
+    }
+    if (state.intradayLoading) return;
+
+    state.intradayLoading = true;
+    renderPnlWaves();
+    try {
+        const url = new URL(intradayUrl, window.location.origin);
+        if (dashboardToken) url.searchParams.set('token', dashboardToken);
+        url.searchParams.set('codes', codesKey);
+        const response = await fetch(url.toString(), {
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store',
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const payload = await response.json();
+        state.intradaySeries = normalizeIntradaySeries(payload.series || {});
+        state.intradayCodesKey = codesKey;
+        appendRealtimeIntraday();
+        rebuildPnlSeries();
+    } catch (error) {
+        state.intradayCodesKey = '';
+    } finally {
+        state.intradayLoading = false;
+        renderPnlWaves();
+        renderPositions();
+    }
+}
+
 async function loadHistoryDates() {
     if (!els.historyDate || !historyDatesUrl) {
         return;
@@ -1760,6 +2113,8 @@ function setHistoryMode(enabled) {
 
     els.esunRefresh.disabled = enabled || state.dataLoading;
     els.quoteRefresh.disabled = enabled || state.quoteLoading;
+    rebuildPnlSeries();
+    renderPnlWaves();
 }
 
 async function fetchHistorySnapshot(date) {
@@ -1811,9 +2166,12 @@ function applyQuotes(payload) {
     }
 
     recalculateWeights();
+    appendRealtimeIntraday(payload);
+    rebuildPnlSeries();
     updateSummaryCards(buildSummaryFromRows(), quoteSourceText(payload));
     updateSortIndicators();
     renderPositions();
+    renderPnlWaves();
     updateQuoteStatus(payload);
 }
 
@@ -2332,6 +2690,7 @@ els.sortButtons.forEach(button => {
 
 setupSilentCopy();
 updateSortIndicators();
+renderPnlWaves();
 loadHistoryDates();
 fetchData(true);
 </script>

@@ -21,6 +21,7 @@ class YuantaPortfolioController extends Controller
         $response = response()->view('tw-stock.esun-portfolio', [
             'apiUrl' => route('tw-stock.yuanta-portfolio.data'),
             'quoteUrl' => route('tw-stock.yuanta-portfolio.quotes'),
+            'intradayUrl' => route('tw-stock.yuanta-portfolio.intraday'),
             'historyUrl' => route('tw-stock.yuanta-portfolio.history'),
             'historyDatesUrl' => route('tw-stock.yuanta-portfolio.history-dates'),
             'token' => (string) $request->query('token', ''),
@@ -78,6 +79,14 @@ class YuantaPortfolioController extends Controller
         ]);
 
         return $this->clearRememberedAccess($response);
+    }
+
+    public function intraday(Request $request, TwStockRealtimeQuoteService $quotes): JsonResponse
+    {
+        $this->authorizePortfolio($request);
+        $codes = preg_split('/[\s,]+/', (string) $request->query('codes', ''), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return $this->clearRememberedAccess(response()->json($quotes->intradayPrices($codes)));
     }
 
     public function data(Request $request, YuantaPortfolioService $service): JsonResponse

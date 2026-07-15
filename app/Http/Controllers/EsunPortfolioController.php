@@ -21,6 +21,7 @@ class EsunPortfolioController extends Controller
         $response = response()->view('tw-stock.esun-portfolio', [
             'apiUrl' => route('tw-stock.esun-portfolio.data'),
             'quoteUrl' => route('tw-stock.esun-portfolio.quotes'),
+            'intradayUrl' => route('tw-stock.esun-portfolio.intraday'),
             'historyUrl' => route('tw-stock.esun-portfolio.history'),
             'historyDatesUrl' => route('tw-stock.esun-portfolio.history-dates'),
             'token' => (string) $request->query('token', ''),
@@ -76,6 +77,14 @@ class EsunPortfolioController extends Controller
         ]);
 
         return $this->clearRememberedAccess($response);
+    }
+
+    public function intraday(Request $request, TwStockRealtimeQuoteService $quotes): JsonResponse
+    {
+        $this->authorizePortfolio($request);
+        $codes = preg_split('/[\s,]+/', (string) $request->query('codes', ''), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return $this->clearRememberedAccess(response()->json($quotes->intradayPrices($codes)));
     }
 
     public function data(Request $request, EsunPortfolioService $service): JsonResponse

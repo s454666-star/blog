@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response as HttpResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Throwable;
@@ -10,6 +12,7 @@ use Throwable;
 class TwStockRealtimeQuoteService
 {
     private const CNYES_QUOTES_URL = 'https://ws.api.cnyes.com/ws/api/v1/quote/quotes/';
+    private const CNYES_HISTORY_URL = 'https://ws.api.cnyes.com/ws/api/v1/charting/history';
     private const TRADINGVIEW_SCAN_URL = 'https://scanner.tradingview.com/taiwan/scan';
     private const TWSE_MIS_URL = 'https://mis.twse.com.tw/stock/api/getStockInfo.jsp';
     private const YAHOO_TW_STOCK_LIST_URL = 'https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.stockList;symbols=';
@@ -847,6 +850,135 @@ class TwStockRealtimeQuoteService
             'confirmationTickTolerance' => $this->quoteToleranceTicks(),
             'candidatePrices' => $this->summarizeCandidates($best),
         ], $best, $required);
+    }
+
+    public function intradayPrices(array $codes): array
+    {
+        $codes = $this->normalizeCodes($codes);
+        $ttl = 15;
+        $now = $this->now();
+        $date = $now->toDateString();
+
+        if ($codes === []) {
+            return [
+                'servedAt' => $now->toIso8601String(),
+                'date' => $date,
+                'cacheSeconds' => $ttl,
+                'source' => ['status' => 'empty', 'label' => 'CNYES 分時'],
+                'series' => [],
+                'missing' => [],
+            ];
+        }
+
+        $series = [];
+        $uncached = [];
+        foreach ($codes as $code) {
+            $cached = Cache::get($this->intradayCacheKey($date, $code));
+            if (is_array($cached)) {
+                $series[$code] = $cached;
+            } else {
+                $uncached[] = $code;
+            }
+        }
+
+        $errors = [];
+        if ($uncached !== []) {
+            $timezone = (string) config('esun.timezone', 'Asia/Taipei');
+            $responses = Http::pool(fn (Pool $pool): array => collect($uncached)
+                ->mapWithKeys(fn (string $code): array => [
+                    $code => $pool->as($code)
+                        ->withHeaders([
+                            'Accept' => 'application/json,text/plain,*/*',
+                            'Referer' => 'https://invest.cnyes.com/',
+                            'User-Agent' => 'Mozilla/5.0',
+                        ])
+                        ->timeout($this->timeout())
+                        ->get(self::CNYES_HISTORY_URL, [
+                            'resolution' => '1',
+                            'symbol' => 'TWS:' . $code . ':STOCK',
+                            'from' => (string) $now->startOfDay()->getTimestamp(),
+                            'to' => (string) $now->getTimestamp(),
+                            'quote' => '1',
+                        ]),
+                ])
+                ->all());
+
+            foreach ($uncached as $code) {
+                try {
+                    $response = $responses[$code] ?? null;
+                    if (!$response instanceof HttpResponse) {
+                        throw $response instanceof Throwable
+                            ? $response
+                            : new \RuntimeException('CNYES intraday response is unavailable.');
+                    }
+
+                    $payload = $response->throw()->json();
+                    $points = $this->cnyesIntradayPoints(is_array($payload) ? $payload : [], $date, $timezone);
+                    $series[$code] = $points;
+                    Cache::put($this->intradayCacheKey($date, $code), $points, now()->addSeconds($ttl));
+                } catch (Throwable $exception) {
+                    $errors[$code] = $exception->getMessage();
+                }
+            }
+        }
+
+        $orderedSeries = [];
+        foreach ($codes as $code) {
+            if (isset($series[$code]) && $series[$code] !== []) {
+                $orderedSeries[$code] = $series[$code];
+            }
+        }
+        $missing = array_values(array_diff($codes, array_keys($orderedSeries)));
+
+        return [
+            'servedAt' => $now->toIso8601String(),
+            'date' => $date,
+            'cacheSeconds' => $ttl,
+            'source' => [
+                'status' => $orderedSeries === [] ? 'unavailable' : ($missing === [] ? 'live' : 'partial'),
+                'label' => 'CNYES 分時',
+                'errors' => $errors,
+            ],
+            'series' => $orderedSeries,
+            'missing' => $missing,
+        ];
+    }
+
+    private function intradayCacheKey(string $date, string $code): string
+    {
+        return "tw-stock:intraday:v1:{$date}:{$code}";
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return list<array{time: int, price: float}>
+     */
+    private function cnyesIntradayPoints(array $payload, string $date, string $timezone): array
+    {
+        $timestamps = $payload['data']['t'] ?? [];
+        $closes = $payload['data']['c'] ?? [];
+        if (!is_array($timestamps) || !is_array($closes)) {
+            return [];
+        }
+
+        $points = [];
+        foreach ($timestamps as $index => $timestamp) {
+            $timestamp = is_numeric($timestamp) ? (int) $timestamp : 0;
+            $price = $this->priceOrNull($closes[$index] ?? null);
+            if ($timestamp <= 0 || $price === null) {
+                continue;
+            }
+
+            if (CarbonImmutable::createFromTimestamp($timestamp, $timezone)->toDateString() !== $date) {
+                continue;
+            }
+
+            $points[$timestamp] = ['time' => $timestamp, 'price' => $price];
+        }
+
+        ksort($points, SORT_NUMERIC);
+
+        return array_values($points);
     }
 
     /**

@@ -37,11 +37,16 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('玉山庫存即時看板')
             ->assertSee('apiUrl', false)
             ->assertSee('quoteUrl', false)
+            ->assertSee('intradayUrl', false)
             ->assertSee('historyUrl', false)
             ->assertSee('historyDatesUrl', false)
             ->assertSee('data-history-date', false)
             ->assertSee('dashboardToken', false)
             ->assertSee('今日損益')
+            ->assertSee('當日走勢')
+            ->assertSee('data-pnl-wave="todayPnl"', false)
+            ->assertSee('stockWaveHtml', false)
+            ->assertSee('ensureIntradaySeries', false)
             ->assertSee('累積損益')
             ->assertSee('股票市值')
             ->assertSee('今年總損益')
@@ -214,6 +219,31 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertJsonPath('source.label', 'TWSE MIS')
             ->assertJsonPath('market.pollSeconds', 1)
             ->assertJsonPath('quotes.2303.price', 175);
+    }
+
+    public function test_intraday_endpoint_returns_requested_holdings_series(): void
+    {
+        $quotes = Mockery::mock(TwStockRealtimeQuoteService::class);
+        $quotes->shouldReceive('intradayPrices')->once()->with(['2303', '5285'])->andReturn([
+            'servedAt' => '2026-07-15T10:30:00+08:00',
+            'date' => '2026-07-15',
+            'cacheSeconds' => 15,
+            'source' => ['status' => 'live', 'label' => 'CNYES 分時'],
+            'series' => [
+                '2303' => [['time' => 1784080860, 'price' => 45.5]],
+            ],
+            'missing' => ['5285'],
+        ]);
+        $this->app->instance(TwStockRealtimeQuoteService::class, $quotes);
+
+        $this->getJson(route('tw-stock.esun-portfolio.intraday', [
+            'token' => 'test-token',
+            'codes' => '2303,5285',
+        ]))
+            ->assertOk()
+            ->assertJsonPath('source.label', 'CNYES 分時')
+            ->assertJsonPath('series.2303.0.price', 45.5)
+            ->assertJsonPath('missing.0', '5285');
     }
 
     public function test_history_dates_endpoint_returns_available_snapshot_dates(): void

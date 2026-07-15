@@ -45,9 +45,13 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertSee('元大已實現')
             ->assertSee('apiUrl', false)
             ->assertSee('quoteUrl', false)
+            ->assertSee('intradayUrl', false)
             ->assertSee('historyUrl', false)
             ->assertSee('historyDatesUrl', false)
             ->assertSee('data-history-date', false)
+            ->assertSee('當日走勢')
+            ->assertSee('data-pnl-wave="unrealizedPnl"', false)
+            ->assertSee('stockWaveHtml', false)
             ->assertSee('brokerName', false)
             ->assertSee('A provisional price can carry a previousClose from only one source.', false)
             ->assertSee('if (!quoteCanUpdatePnl(quote)) {', false)
@@ -128,6 +132,30 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertJsonPath('source.label', 'CNYES')
             ->assertJsonPath('market.pollSeconds', 1)
             ->assertJsonPath('quotes.2303.price', 175);
+    }
+
+    public function test_intraday_endpoint_returns_requested_holdings_series(): void
+    {
+        $quotes = Mockery::mock(TwStockRealtimeQuoteService::class);
+        $quotes->shouldReceive('intradayPrices')->once()->with(['2303'])->andReturn([
+            'servedAt' => '2026-07-15T10:30:00+08:00',
+            'date' => '2026-07-15',
+            'cacheSeconds' => 15,
+            'source' => ['status' => 'live', 'label' => 'CNYES 分時'],
+            'series' => [
+                '2303' => [['time' => 1784080860, 'price' => 45.5]],
+            ],
+            'missing' => [],
+        ]);
+        $this->app->instance(TwStockRealtimeQuoteService::class, $quotes);
+
+        $this->getJson(route('tw-stock.yuanta-portfolio.intraday', [
+            'token' => 'test-token',
+            'codes' => '2303',
+        ]))
+            ->assertOk()
+            ->assertJsonPath('source.label', 'CNYES 分時')
+            ->assertJsonPath('series.2303.0.price', 45.5);
     }
 
     public function test_history_dates_endpoint_returns_available_snapshot_dates(): void

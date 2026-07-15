@@ -56,6 +56,10 @@ RESOURCE_CODE_WENJIANJI_PATTERN = re.compile(
 )
 RESOURCE_CODE_IMAGE_COUNT_PATTERN = re.compile(r"(?:图片|圖片)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_VIDEO_COUNT_PATTERN = re.compile(r"(?:视频|視頻|影片)\s*(\d+)\s*(?:个|個)")
+RESOURCE_CODE_FILE_COUNT_PATTERN = re.compile(r"(?:文件|档案|檔案)\s*(\d+)\s*(?:个|個)")
+RESOURCE_CODE_TOTAL_COUNT_PATTERN = re.compile(
+    r"(?:文件|档案|檔案)\s*(?:总数|總數)\s*[:：]?\s*(\d+)\s*(?:个|個)?"
+)
 RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS = ("全部获取", "全部獲取")
 RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS = ("获取下一组", "獲取下一組")
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
@@ -190,14 +194,21 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
 
 
 def _resource_code_expected_media_from_text(text: str) -> Optional[int]:
-    image_match = RESOURCE_CODE_IMAGE_COUNT_PATTERN.search(str(text or ""))
-    video_match = RESOURCE_CODE_VIDEO_COUNT_PATTERN.search(str(text or ""))
-    if image_match is None and video_match is None:
+    normalized_text = str(text or "")
+    total_match = RESOURCE_CODE_TOTAL_COUNT_PATTERN.search(normalized_text)
+    if total_match is not None:
+        return max(0, int(total_match.group(1)))
+
+    image_match = RESOURCE_CODE_IMAGE_COUNT_PATTERN.search(normalized_text)
+    video_match = RESOURCE_CODE_VIDEO_COUNT_PATTERN.search(normalized_text)
+    file_match = RESOURCE_CODE_FILE_COUNT_PATTERN.search(normalized_text)
+    if image_match is None and video_match is None and file_match is None:
         return None
 
     image_count = int(image_match.group(1)) if image_match is not None else 0
     video_count = int(video_match.group(1)) if video_match is not None else 0
-    return max(0, image_count) + max(0, video_count)
+    file_count = int(file_match.group(1)) if file_match is not None else 0
+    return max(0, image_count) + max(0, video_count) + max(0, file_count)
 
 
 def push_log(

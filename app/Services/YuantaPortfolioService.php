@@ -234,7 +234,10 @@ class YuantaPortfolioService
             ->filter()
             ->unique()
             ->values();
-        $exchanges = $this->exchangeMetadata($stockCodes);
+        $exchanges = $this->mergeInventoryExchangeMetadata(
+            $inventories,
+            $this->exchangeMetadata($stockCodes),
+        );
         $emergingCodes = collect($exchanges)
             ->filter(fn (array $exchange): bool => ($exchange['class'] ?? null) === 'emerging')
             ->keys()
@@ -711,6 +714,28 @@ class YuantaPortfolioService
                 return $meta === null ? [] : [(string) $profile->stock_code => $meta];
             })
             ->all();
+    }
+
+    /**
+     * @param Collection<int, array<string, mixed>> $inventories
+     * @param array<string, array{exchange: string, label: string, shortLabel: string, class: string}> $metadata
+     * @return array<string, array{exchange: string, label: string, shortLabel: string, class: string}>
+     */
+    private function mergeInventoryExchangeMetadata(Collection $inventories, array $metadata): array
+    {
+        foreach ($inventories as $row) {
+            $stockCode = (string) $this->value($row, 'StkCode', 'stkCode', 'stockNo');
+            if ($stockCode === '' || isset($metadata[$stockCode])) {
+                continue;
+            }
+
+            $meta = $this->exchangeMeta((string) $this->value($row, 'MarketName', 'marketName'));
+            if ($meta !== null) {
+                $metadata[$stockCode] = $meta;
+            }
+        }
+
+        return $metadata;
     }
 
     /**

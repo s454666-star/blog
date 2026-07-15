@@ -175,6 +175,24 @@ class YuantaPortfolioServiceTest extends TestCase
         $this->assertSame(7664.0, $row['unrealizedPnl']);
     }
 
+    public function test_it_recognizes_emerging_market_from_yuanta_inventory(): void
+    {
+        $service = new YuantaPortfolioService();
+        $method = new ReflectionMethod($service, 'mergeInventoryExchangeMetadata');
+
+        $metadata = $method->invoke($service, collect([
+            [
+                'StkCode' => '7861',
+                'MarketName' => '興櫃',
+            ],
+        ]), []);
+
+        $this->assertSame('Emerging', $metadata['7861']['exchange']);
+        $this->assertSame('興櫃', $metadata['7861']['label']);
+        $this->assertSame('興', $metadata['7861']['shortLabel']);
+        $this->assertSame('emerging', $metadata['7861']['class']);
+    }
+
     public function test_it_stores_and_reads_daily_snapshot_payloads(): void
     {
         $this->migrateYuantaDailySnapshotsTable();

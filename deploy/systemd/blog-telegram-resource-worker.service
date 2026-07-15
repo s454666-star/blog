@@ -1,0 +1,26 @@
+[Unit]
+Description=Blog Telegram resource-code worker
+After=network-online.target blog-telegram-account@1.service blog-telegram-account@2.service blog-telegram-account@3.service
+Wants=network-online.target
+Requires=blog-telegram-account@1.service blog-telegram-account@2.service blog-telegram-account@3.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/blog
+ExecStartPre=/bin/bash /var/www/html/blog/scripts/wait_for_telegram_fastapi.sh
+ExecStart=/usr/bin/php artisan telegram:process-resource-codes
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=300
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

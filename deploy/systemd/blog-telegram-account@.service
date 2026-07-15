@@ -1,0 +1,29 @@
+[Unit]
+Description=Blog Telegram account FastAPI service %i
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/blog/python
+Environment=PYTHONUNBUFFERED=1
+Environment=TELEGRAM_SERVICE_HOME=/var/lib/blog-telegram
+EnvironmentFile=/etc/blog-telegram-account-%i.env
+ExecStart=/opt/blog-telegram/venv/bin/uvicorn telegram_service_shared:app --host 127.0.0.1 --port $PORT
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=60
+UMask=0077
+StateDirectory=blog-telegram
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/blog-telegram
+
+[Install]
+WantedBy=multi-user.target

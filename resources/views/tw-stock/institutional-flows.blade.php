@@ -454,6 +454,7 @@
                 <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
                 <a href="{{ route('tw-stock.monthly-revenues.index') }}">月營收</a>
                 <a href="{{ route('tw-stock.active-etf-operations.index') }}">主動ETF</a>
+                <a href="{{ route('tw-stock.taiex-index.kline') }}">加權指數K線</a>
                 <a href="{{ route('tw-stock.taiex-futures.kline') }}">台指期K線</a>
             </nav>
             <nav class="segments" aria-label="天數切換">

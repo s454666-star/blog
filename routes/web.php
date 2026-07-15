@@ -37,6 +37,7 @@ use App\Http\Controllers\TwFuturesHourlyPriceController;
 use App\Http\Controllers\TwStockInstitutionalFlowController;
 use App\Http\Controllers\TwStockMonthlyRevenueController;
 use App\Http\Controllers\TwStockQ1FinancialReportController;
+use App\Http\Controllers\TwStockTaiexIndexController;
 use App\Http\Controllers\TwStockUpcomingDividendController;
     use App\Http\Controllers\UploadStorageController;
 use App\Http\Controllers\UrlViewerController;
@@ -220,6 +221,8 @@ Route::get('/tw-stock/daily-price-rankings/{stockCode}', [TwStockDailyPriceContr
     ->name('tw-stock.daily-prices.show');
 Route::get('/tw-stock/taiex-futures-kline', [TwFuturesHourlyPriceController::class, 'index'])->name('tw-stock.taiex-futures.kline');
 Route::get('/tw-stock/taiex-futures-kline/data', [TwFuturesHourlyPriceController::class, 'data'])->name('tw-stock.taiex-futures.kline.data');
+Route::get('/tw-stock/taiex-index-kline', [TwStockTaiexIndexController::class, 'index'])->name('tw-stock.taiex-index.kline');
+Route::get('/tw-stock/taiex-index-kline/data', [TwStockTaiexIndexController::class, 'data'])->name('tw-stock.taiex-index.kline.data');
 Route::get('/tw-stock/upcoming-dividends', [TwStockUpcomingDividendController::class, 'index'])->name('tw-stock.upcoming-dividends.index');
 Route::get('/tw-stock/active-etf-operations', [TwActiveEtfOperationController::class, 'index'])->name('tw-stock.active-etf-operations.index');
 Route::get('/tw-stock/institutional-flows', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.institutional-flows.index');

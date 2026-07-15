@@ -23,6 +23,7 @@ class TwStockSharedLayoutTest extends TestCase
             'views/tw-stock/upcoming-dividends.blade.php',
             'views/tw-stock/monthly-revenue-rankings.blade.php',
             'views/tw-stock/active-etf-operations.blade.php',
+            'views/tw-stock/taiex-index-kline.blade.php',
             'views/tw-stock/taiex-futures-kline.blade.php',
         ];
 

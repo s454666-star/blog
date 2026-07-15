@@ -49,6 +49,9 @@ class ProcessTelegramResourceCodesCommand extends Command
     private int $requestTimeoutSeconds;
     private bool $mysqlLockAcquired = false;
 
+    /** @var array<string, int> */
+    private array $localCooldownUntil = [];
+
     public function handle(): int
     {
         if (!extension_loaded('redis')) {
@@ -477,14 +480,38 @@ class ProcessTelegramResourceCodesCommand extends Command
 
     private function cooldownUntil(string $baseUri): int
     {
-        return max(0, (int) Cache::store('telegram_resource_codes')->get($this->cooldownKey($baseUri), 0));
+        $key = $this->cooldownKey($baseUri);
+
+        try {
+            $remoteUntil = max(0, (int) Cache::store('telegram_resource_codes')->get($key, 0));
+            $this->localCooldownUntil[$key] = max($this->localCooldownUntil[$key] ?? 0, $remoteUntil);
+        } catch (\Throwable $e) {
+            Log::warning('Telegram resource-code cooldown read failed; using local fallback', [
+                'base_uri' => $baseUri,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return max(0, $this->localCooldownUntil[$key] ?? 0);
     }
 
     private function markCooldown(string $baseUri, int $seconds): int
     {
         $seconds = max(1, $seconds);
         $until = time() + $seconds;
-        Cache::store('telegram_resource_codes')->put($this->cooldownKey($baseUri), $until, now()->addSeconds($seconds + 60));
+        $key = $this->cooldownKey($baseUri);
+        $this->localCooldownUntil[$key] = $until;
+
+        try {
+            Cache::store('telegram_resource_codes')->put($key, $until, now()->addSeconds($seconds + 60));
+        } catch (\Throwable $e) {
+            Log::warning('Telegram resource-code cooldown write failed; using local fallback', [
+                'base_uri' => $baseUri,
+                'wait_seconds' => $seconds,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         return $until;
     }
 

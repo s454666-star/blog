@@ -421,6 +421,59 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'processing_account' => 2,
             'forwarded_message_count' => 16,
         ]);
+
+        $cooldownUntil = (int) Cache::store('telegram_resource_codes')->get(
+            'telegram_resource_codes:decoder_cooldown:' . sha1('http://127.0.0.1:8001'),
+            0
+        );
+        $this->assertGreaterThanOrEqual(time() + 890, $cooldownUntil);
+    }
+
+    public function test_all_decoder_accounts_cooling_does_not_claim_pending_code(): void
+    {
+        DB::table('telegram_resource_codes')->insert([
+            'code' => 'QQyptu_bot:qqcode10884fe700_9V',
+            'code_type' => 3,
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 0,
+            'forwarded_message_count' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        foreach ([8001, 8002, 8003] as $port) {
+            $baseUri = "http://127.0.0.1:{$port}";
+            Cache::store('telegram_resource_codes')->put(
+                'telegram_resource_codes:decoder_cooldown:' . sha1($baseUri),
+                time() + 900,
+                now()->addMinutes(16)
+            );
+        }
+
+        Http::fake(function ($request) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            if ($request->method() === 'GET' && str_starts_with($path, '/groups/')) {
+                return Http::response(['status' => 'ok', 'items' => []]);
+            }
+
+            return Http::response(['status' => 'unexpected_process_call'], 500);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--process-limit' => 1,
+            '--code-type' => 3,
+            '--scan-code-types' => '3',
+            '--bot-username' => 'QQyptu_bot',
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => 'QQyptu_bot:qqcode10884fe700_9V',
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 0,
+            'processing_started_at' => null,
+        ]);
+        Http::assertNotSent(fn ($request): bool => $request->method() === 'POST');
     }
 
     public function test_untried_code_is_processed_before_an_older_retry(): void

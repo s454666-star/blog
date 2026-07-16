@@ -35,6 +35,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const QQ_CODE_REGEX = '/(?<![A-Za-z0-9_])QQ[A-Za-z0-9]+_bot:qqcode[0-9a-f]+(?:_[0-9]+[A-Za-z])+(?![A-Za-z0-9_])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
+    private const ACCOUNT_LIMIT_COOLDOWN_SECONDS = 900;
 
     /** @var array<int, string> */
     private array $baseUris = [];
@@ -231,6 +232,19 @@ class ProcessTelegramResourceCodesCommand extends Command
 
     private function processNextCode(): ?bool
     {
+        $now = time();
+        $hasAvailableAccount = false;
+        foreach ($this->baseUris as $baseUri) {
+            if ($this->processCooldownUntil($baseUri) <= $now) {
+                $hasAvailableAccount = true;
+                break;
+            }
+        }
+
+        if (!$hasAvailableAccount) {
+            return null;
+        }
+
         $row = DB::table('telegram_resource_codes')
             ->where('status', TelegramResourceCode::STATUS_PENDING)
             ->where('code_type', $this->codeType)
@@ -267,7 +281,7 @@ class ProcessTelegramResourceCodesCommand extends Command
         $processingFailureReason = 'unknown';
 
         foreach ($this->baseUris as $accountIndex => $baseUri) {
-            $cooldownUntil = $this->cooldownUntil($baseUri);
+            $cooldownUntil = $this->processCooldownUntil($baseUri);
             if ($cooldownUntil > time()) {
                 $earliestCooldown = $earliestCooldown === null ? $cooldownUntil : min($earliestCooldown, $cooldownUntil);
                 continue;
@@ -310,13 +324,20 @@ class ProcessTelegramResourceCodesCommand extends Command
 
             if ($this->isAccountScopedFailure($payload)) {
                 $transportFailures++;
-                $until = $this->markCooldown($baseUri, 30);
+                $reason = (string) ($payload['reason'] ?? $payload['status'] ?? 'unknown');
+                $cooldownSeconds = $reason === 'account_limited'
+                    ? self::ACCOUNT_LIMIT_COOLDOWN_SECONDS
+                    : 30;
+                $until = $reason === 'account_limited'
+                    ? $this->markDecoderCooldown($baseUri, $cooldownSeconds)
+                    : $this->markCooldown($baseUri, $cooldownSeconds);
                 $earliestCooldown = $earliestCooldown === null ? $until : min($earliestCooldown, $until);
                 Log::warning('Telegram resource-code account could not send to decoder', [
                     'code_id' => (int) $row->id,
                     'account_index' => $accountIndex + 1,
-                    'reason' => (string) ($payload['reason'] ?? $payload['status'] ?? 'unknown'),
+                    'reason' => $reason,
                     'phase' => (string) ($payload['phase'] ?? ''),
+                    'cooldown_seconds' => $cooldownSeconds,
                 ]);
                 continue;
             }
@@ -498,6 +519,16 @@ class ProcessTelegramResourceCodesCommand extends Command
         return 'telegram_resource_codes:account_cooldown:' . sha1($baseUri);
     }
 
+    private function decoderCooldownKey(string $baseUri): string
+    {
+        return 'telegram_resource_codes:decoder_cooldown:' . sha1($baseUri);
+    }
+
+    private function processCooldownUntil(string $baseUri): int
+    {
+        return max($this->cooldownUntil($baseUri), $this->decoderCooldownUntil($baseUri));
+    }
+
     private function cooldownUntil(string $baseUri): int
     {
         $key = $this->cooldownKey($baseUri);
@@ -526,6 +557,43 @@ class ProcessTelegramResourceCodesCommand extends Command
             Cache::store('telegram_resource_codes')->put($key, $until, now()->addSeconds($seconds + 60));
         } catch (\Throwable $e) {
             Log::warning('Telegram resource-code cooldown write failed; using local fallback', [
+                'base_uri' => $baseUri,
+                'wait_seconds' => $seconds,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return $until;
+    }
+
+    private function decoderCooldownUntil(string $baseUri): int
+    {
+        $key = $this->decoderCooldownKey($baseUri);
+
+        try {
+            $remoteUntil = max(0, (int) Cache::store('telegram_resource_codes')->get($key, 0));
+            $this->localCooldownUntil[$key] = max($this->localCooldownUntil[$key] ?? 0, $remoteUntil);
+        } catch (\Throwable $e) {
+            Log::warning('Telegram resource-code decoder cooldown read failed; using local fallback', [
+                'base_uri' => $baseUri,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return max(0, $this->localCooldownUntil[$key] ?? 0);
+    }
+
+    private function markDecoderCooldown(string $baseUri, int $seconds): int
+    {
+        $seconds = max(1, $seconds);
+        $until = time() + $seconds;
+        $key = $this->decoderCooldownKey($baseUri);
+        $this->localCooldownUntil[$key] = $until;
+
+        try {
+            Cache::store('telegram_resource_codes')->put($key, $until, now()->addSeconds($seconds + 60));
+        } catch (\Throwable $e) {
+            Log::warning('Telegram resource-code decoder cooldown write failed; using local fallback', [
                 'base_uri' => $baseUri,
                 'wait_seconds' => $seconds,
                 'error' => $e->getMessage(),

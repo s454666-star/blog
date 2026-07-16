@@ -1487,6 +1487,11 @@ RESOURCE_CODE_DORMANT_KEYWORDS = [
     "处于休眠状态",
     "處於休眠狀態",
 ]
+RESOURCE_CODE_DORMANT_BATCH_PATTERN = re.compile(
+    r"(?=.*(?:成功发送|成功發送)\s*0\s*(?:个|個))"
+    r"(?=.*休眠待(?:激活|啟用|啟動)\s*[1-9]\d*\s*(?:个|個))",
+    re.IGNORECASE | re.DOTALL,
+)
 
 RESOURCE_CODE_COMPLETION_PATTERN = re.compile(
     r"(?:成功发送|成功發送)\s*(\d+)\s*(?:个|個)",
@@ -1496,6 +1501,13 @@ RESOURCE_CODE_PAGE_PATTERN = re.compile(
     r"(?:第)?\s*(\d+)\s*/\s*(\d+)\s*(?:页|頁).*?(?:文件总数|文件總數)\s*[:：]\s*(\d+)",
     re.IGNORECASE | re.DOTALL,
 )
+
+
+def _resource_code_is_dormant_text(text: str) -> bool:
+    message_text = str(text or "")
+    if any(keyword in message_text for keyword in RESOURCE_CODE_DORMANT_KEYWORDS):
+        return True
+    return RESOURCE_CODE_DORMANT_BATCH_PATTERN.search(message_text) is not None
 
 
 def _match_bot_not_found_keyword(text: str) -> Optional[str]:
@@ -3687,7 +3699,7 @@ async def _resource_code_bot_media(
                 if page_match is not None:
                     declared_file_count = max(0, int(page_match.group(3)))
                 if _resource_code_media_kind(msg) is None:
-                    if any(keyword in message_text for keyword in RESOURCE_CODE_DORMANT_KEYWORDS):
+                    if _resource_code_is_dormant_text(message_text):
                         return collected_media(), sorted(all_reply_ids), "dormant", expected_media_count, declared_file_count
                     if _match_bot_not_found_keyword(message_text):
                         return collected_media(), sorted(all_reply_ids), "not_found", expected_media_count, declared_file_count

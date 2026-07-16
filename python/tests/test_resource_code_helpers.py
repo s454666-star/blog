@@ -59,7 +59,8 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
 
     def test_qq_paging_buttons_are_supported(self) -> None:
         self.assertIn("下一页", service.RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS)
-        self.assertIn("推送剩余全部文件", service.RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS)
+        self.assertNotIn("推送剩余全部文件", service.RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS)
+        self.assertIn("请再次发送文件码", service.RESOURCE_CODE_REPEAT_CONFIRMATION_KEYWORDS)
 
 
 class DeleteVerificationTest(unittest.IsolatedAsyncioTestCase):

@@ -67,8 +67,6 @@ RESOURCE_CODE_TOTAL_COUNT_PATTERN = re.compile(
 RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS = (
     "全部获取",
     "全部獲取",
-    "推送剩余全部文件",
-    "推送剩餘全部文件",
 )
 RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS = (
     "获取下一组",
@@ -80,6 +78,10 @@ RESOURCE_CODE_ALL_FILES_COMPLETE_KEYWORDS = (
     "文件全部取完啦",
     "文件全部取完了",
     "文件全部取完",
+)
+RESOURCE_CODE_REPEAT_CONFIRMATION_KEYWORDS = (
+    "请再次发送文件码",
+    "請再次發送文件碼",
 )
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
 GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180
@@ -3649,6 +3651,7 @@ async def _cleanup_resource_code_run(peer: Any, sent_message_id: int, message_id
 
 async def _resource_code_bot_media(
     peer: Any,
+    code: str,
     sent_message_id: int,
     wait_timeout_seconds: int,
     poll_interval_seconds: float,
@@ -3664,6 +3667,7 @@ async def _resource_code_bot_media(
     expected_media_count: Optional[int] = None
     declared_file_count: Optional[int] = None
     all_files_complete = False
+    repeat_confirmation_sent = False
     clicked_callback_state: Dict[str, Tuple[float, int]] = {}
 
     def collected_media() -> List[Any]:
@@ -3700,6 +3704,19 @@ async def _resource_code_bot_media(
             all_reply_ids.add(mid)
             if not bool(getattr(msg, "out", False)):
                 message_text = str(getattr(msg, "message", None) or "")
+                if (not repeat_confirmation_sent
+                        and any(keyword in message_text for keyword in RESOURCE_CODE_REPEAT_CONFIRMATION_KEYWORDS)):
+                    confirmation = await client.send_message(peer, code, parse_mode=None, link_preview=False)
+                    confirmation_mid = int(getattr(confirmation, "id", 0) or 0)
+                    if confirmation_mid > 0:
+                        all_reply_ids.add(confirmation_mid)
+                    repeat_confirmation_sent = True
+                    push_log(
+                        stage="resource_code_process",
+                        result="repeat_confirmation_sent",
+                        extra={"message_id": confirmation_mid},
+                    )
+                    await asyncio.sleep(2.0)
                 wenjianji_media_count = _resource_code_expected_media_from_text(message_text)
                 if wenjianji_media_count is not None:
                     expected_media_count = wenjianji_media_count
@@ -3841,6 +3858,7 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                 media_messages, bot_reply_ids, media_outcome, expected_media_count, declared_file_count = await asyncio.wait_for(
                     _resource_code_bot_media(
                         peer=bot_peer,
+                        code=code,
                         sent_message_id=sent_message_id,
                         wait_timeout_seconds=wait_timeout_seconds,
                         poll_interval_seconds=max(0.5, min(10.0, float(payload.poll_interval_seconds or 1.5))),

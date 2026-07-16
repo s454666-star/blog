@@ -450,7 +450,7 @@ class ProcessTelegramResourceCodesCommand extends Command
         $reason = (string) ($payload['reason'] ?? '');
         $phase = (string) ($payload['phase'] ?? '');
 
-        return in_array($reason, ['client_not_connected', 'bot_not_found'], true)
+        return in_array($reason, ['client_not_connected', 'bot_not_found', 'account_limited'], true)
             || ($reason === 'processing_failed' && $phase === 'send_code');
     }
 

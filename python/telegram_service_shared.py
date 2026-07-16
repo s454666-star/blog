@@ -83,6 +83,13 @@ RESOURCE_CODE_REPEAT_CONFIRMATION_KEYWORDS = (
     "请再次发送文件码",
     "請再次發送文件碼",
 )
+RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS = (
+    "You need to become a VIP member",
+    "需要成为VIP",
+    "需要成為VIP",
+    "开通VIP",
+    "開通VIP",
+)
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
 GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180
 
@@ -3704,6 +3711,8 @@ async def _resource_code_bot_media(
             all_reply_ids.add(mid)
             if not bool(getattr(msg, "out", False)):
                 message_text = str(getattr(msg, "message", None) or "")
+                if any(keyword.lower() in message_text.lower() for keyword in RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS):
+                    return collected_media(), sorted(all_reply_ids), "account_limited", expected_media_count, declared_file_count
                 if (not repeat_confirmation_sent
                         and any(keyword in message_text for keyword in RESOURCE_CODE_REPEAT_CONFIRMATION_KEYWORDS)):
                     confirmation = await client.send_message(peer, code, parse_mode=None, link_preview=False)
@@ -3894,7 +3903,12 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                 remaining = await _cleanup_resource_code_run(bot_peer, sent_message_id, bot_reply_ids + bot_media_ids)
                 return {
                     "status": "skip" if media_outcome == "dormant" else "error",
-                    "reason": "dormant" if media_outcome == "dormant" else ("not_found" if media_outcome == "not_found" else "media_timeout"),
+                    "reason": (
+                        "dormant" if media_outcome == "dormant"
+                        else "not_found" if media_outcome == "not_found"
+                        else "account_limited" if media_outcome == "account_limited"
+                        else "media_timeout"
+                    ),
                     "cleanup_complete": len(remaining) == 0,
                     "undeleted_count": len(remaining),
                     "received_media_count": len(bot_media_ids),

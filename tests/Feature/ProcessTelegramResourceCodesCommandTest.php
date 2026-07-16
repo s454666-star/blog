@@ -370,6 +370,59 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ]);
     }
 
+    public function test_account_limit_switches_to_next_account_without_consuming_extra_attempt(): void
+    {
+        DB::table('telegram_resource_codes')->insert([
+            'code' => 'QQn8zw_bot:qqcode1098a0b740_16V',
+            'code_type' => 3,
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 0,
+            'forwarded_message_count' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Http::fake(function ($request) {
+            $url = $request->url();
+            $path = (string) parse_url($url, PHP_URL_PATH);
+            if ($request->method() === 'GET' && str_starts_with($path, '/groups/')) {
+                return Http::response(['status' => 'ok', 'items' => []]);
+            }
+
+            if (str_contains($url, ':8001/resource-codes/process')) {
+                return Http::response([
+                    'status' => 'error',
+                    'reason' => 'account_limited',
+                    'cleanup_complete' => true,
+                ]);
+            }
+
+            return Http::response([
+                'status' => 'ok',
+                'forwarded_count' => 16,
+                'expected_media_count' => 16,
+                'declared_file_count' => 16,
+                'cleanup_complete' => true,
+            ]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--process-limit' => 1,
+            '--code-type' => 3,
+            '--scan-code-types' => '3',
+            '--bot-username' => 'QQyptu_bot',
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => 'QQn8zw_bot:qqcode1098a0b740_16V',
+            'status' => TelegramResourceCode::STATUS_COMPLETED,
+            'attempts' => 1,
+            'processing_account' => 2,
+            'forwarded_message_count' => 16,
+        ]);
+    }
+
     public function test_untried_code_is_processed_before_an_older_retry(): void
     {
         DB::table('telegram_resource_codes')->insert([

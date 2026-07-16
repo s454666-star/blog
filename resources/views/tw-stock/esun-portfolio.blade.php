@@ -1132,6 +1132,12 @@ const dashboardToken = @json($token);
 const brokerName = @json($brokerName ?? '玉山');
 const brokerApiLabel = `${brokerName}API`;
 const calibrationSeconds = Number(@json($calibrationSeconds ?? 60)) || 60;
+const taipeiDateFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+});
 const state = {
     rows: [],
     dataLoading: false,
@@ -1141,6 +1147,7 @@ const state = {
     historyMode: false,
     historyLoading: false,
     intradayLoading: false,
+    intradayDate: '',
     intradayCodesKey: '',
     intradaySeries: {},
     pnlSeries: { todayPnl: [], unrealizedPnl: [] },
@@ -1929,7 +1936,36 @@ function intradayCodes() {
     return [...new Set(state.rows.map(row => String(row.stockNo || '').trim()).filter(Boolean))].sort();
 }
 
-function normalizeIntradaySeries(series) {
+function taipeiDateKey(value = Date.now()) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '';
+
+    const parts = Object.fromEntries(
+        taipeiDateFormatter.formatToParts(date)
+            .filter(part => part.type !== 'literal')
+            .map(part => [part.type, part.value]),
+    );
+
+    return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function resetIntradaySeriesForDate(date = taipeiDateKey()) {
+    state.intradayDate = date;
+    state.intradayCodesKey = '';
+    state.intradaySeries = {};
+    state.pnlSeries = { todayPnl: [], unrealizedPnl: [] };
+}
+
+function ensureCurrentIntradayDate() {
+    const date = taipeiDateKey();
+    if (state.intradayDate !== date) {
+        resetIntradaySeriesForDate(date);
+    }
+
+    return date;
+}
+
+function normalizeIntradaySeries(series, expectedDate = ensureCurrentIntradayDate()) {
     const normalized = {};
     Object.entries(series || {}).forEach(([code, points]) => {
         const byMinute = new Map();
@@ -1937,6 +1973,7 @@ function normalizeIntradaySeries(series) {
             const time = Number(point?.time);
             const price = finiteNumber(point?.price);
             if (!Number.isFinite(time) || price === null) return;
+            if (taipeiDateKey(time * 1000) !== expectedDate) return;
             byMinute.set(Math.floor(time / 60) * 60, {
                 time: Math.floor(time / 60) * 60,
                 price,
@@ -1954,6 +1991,7 @@ function appendIntradayPoint(code, timestamp, price) {
     const numericPrice = finiteNumber(price);
     const numericTime = Number(timestamp);
     if (!code || numericPrice === null || !Number.isFinite(numericTime)) return;
+    if (taipeiDateKey(numericTime * 1000) !== ensureCurrentIntradayDate()) return;
 
     const minute = Math.floor(numericTime / 60) * 60;
     const points = Array.isArray(state.intradaySeries[code]) ? [...state.intradaySeries[code]] : [];
@@ -1968,15 +2006,17 @@ function appendIntradayPoint(code, timestamp, price) {
 }
 
 function appendRealtimeIntraday(payload = state.lastQuotePayload) {
-    const servedAt = Date.parse(payload?.servedAt || '') / 1000;
-    const fallbackTime = Date.now() / 1000;
-    const timestamp = Number.isFinite(servedAt) ? servedAt : fallbackTime;
+    const currentDate = ensureCurrentIntradayDate();
+    const servedAt = Date.parse(payload?.servedAt || '');
+    const timestamp = Number.isFinite(servedAt) ? servedAt : Date.now();
+    if (taipeiDateKey(timestamp) !== currentDate) return;
+
     const seen = new Set();
     state.rows.forEach(row => {
         const code = String(row.stockNo || '');
         if (!code || seen.has(code)) return;
         seen.add(code);
-        appendIntradayPoint(code, timestamp, row.realtimePrice);
+        appendIntradayPoint(code, timestamp / 1000, row.realtimePrice);
     });
 }
 
@@ -2049,6 +2089,7 @@ async function ensureIntradaySeries() {
         return;
     }
 
+    const currentDate = ensureCurrentIntradayDate();
     const codes = intradayCodes();
     const codesKey = codes.join(',');
     if (state.intradayCodesKey === codesKey) {
@@ -2073,7 +2114,14 @@ async function ensureIntradaySeries() {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const payload = await response.json();
-        state.intradaySeries = normalizeIntradaySeries(payload.series || {});
+        const responseDate = taipeiDateKey();
+        if (currentDate !== responseDate || String(payload?.date || '') !== responseDate) {
+            resetIntradaySeriesForDate(responseDate);
+            return;
+        }
+
+        state.intradayDate = responseDate;
+        state.intradaySeries = normalizeIntradaySeries(payload.series || {}, responseDate);
         state.intradayCodesKey = codesKey;
         appendRealtimeIntraday();
         rebuildPnlSeries();
@@ -2190,13 +2238,13 @@ function applyQuotes(payload) {
     state.rows = quoteResult.rows;
 
     if (!quoteResult.changed) {
+        ensureIntradaySeries();
         updateQuoteStatus(payload);
         return;
     }
 
     recalculateWeights();
-    appendRealtimeIntraday(payload);
-    rebuildPnlSeries();
+    ensureIntradaySeries();
     updateSummaryCards(buildSummaryFromRows(), quoteSourceText(payload));
     updateSortIndicators();
     renderPositions();

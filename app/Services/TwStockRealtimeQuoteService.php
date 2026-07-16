@@ -956,6 +956,7 @@ class TwStockRealtimeQuoteService
         $ttl = 15;
         $now = $this->now();
         $date = $now->toDateString();
+        $timezone = (string) config('esun.timezone', 'Asia/Taipei');
 
         if ($codes === []) {
             return [
@@ -974,17 +975,20 @@ class TwStockRealtimeQuoteService
         foreach ($codes as $code) {
             $cached = Cache::get($this->intradayCacheKey($date, $code));
             if (is_array($cached) && isset($cached['points']) && is_array($cached['points'])) {
-                $series[$code] = $cached['points'];
-                $providerByCode[$code] = (string) ($cached['provider'] ?? 'cnyes');
-            } else {
-                $uncached[] = $code;
+                $cachedPoints = $this->filterIntradayPointsByDate($cached['points'], $date, $timezone);
+                if ($cachedPoints !== [] || $cached['points'] === []) {
+                    $series[$code] = $cachedPoints;
+                    $providerByCode[$code] = (string) ($cached['provider'] ?? 'cnyes');
+                    continue;
+                }
             }
+
+            $uncached[] = $code;
         }
 
         $errors = [];
         $needsYahoo = [];
         if ($uncached !== []) {
-            $timezone = (string) config('esun.timezone', 'Asia/Taipei');
             $responses = Http::pool(fn (Pool $pool): array => collect($uncached)
                 ->mapWithKeys(fn (string $code): array => [
                     $code => $pool->as($code)
@@ -1087,6 +1091,39 @@ class TwStockRealtimeQuoteService
     private function intradayCacheKey(string $date, string $code): string
     {
         return "tw-stock:intraday:v2:{$date}:{$code}";
+    }
+
+    /**
+     * @param list<array<string, mixed>> $points
+     * @return list<array<string, mixed>>
+     */
+    private function filterIntradayPointsByDate(array $points, string $date, string $timezone): array
+    {
+        $filtered = [];
+        foreach ($points as $point) {
+            $timestamp = is_numeric($point['time'] ?? null) ? (int) $point['time'] : 0;
+            $price = $this->priceOrNull($point['price'] ?? null);
+            if ($timestamp <= 0 || $price === null) {
+                continue;
+            }
+
+            if (CarbonImmutable::createFromTimestamp($timestamp, $timezone)->toDateString() !== $date) {
+                continue;
+            }
+
+            $filteredPoint = ['time' => $timestamp, 'price' => $price];
+            foreach (['low', 'high'] as $rangeKey) {
+                $rangeValue = $this->priceOrNull($point[$rangeKey] ?? null);
+                if ($rangeValue !== null) {
+                    $filteredPoint[$rangeKey] = $rangeValue;
+                }
+            }
+            $filtered[$timestamp] = $filteredPoint;
+        }
+
+        ksort($filtered, SORT_NUMERIC);
+
+        return array_values($filtered);
     }
 
     /**

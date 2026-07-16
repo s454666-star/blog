@@ -615,6 +615,34 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         }
     }
 
+    public function test_it_removes_previous_day_points_from_today_intraday_cache(): void
+    {
+        $now = CarbonImmutable::parse('2026-07-16 09:20:00', 'Asia/Taipei');
+        CarbonImmutable::setTestNow($now);
+
+        try {
+            Cache::put('tw-stock:intraday:v2:2026-07-16:5483', [
+                'provider' => 'cnyes',
+                'points' => [
+                    ['time' => $now->subDay()->setTime(9, 1)->getTimestamp(), 'price' => 98.0],
+                    ['time' => $now->setTime(9, 2)->getTimestamp(), 'price' => 100.0, 'low' => 99.5, 'high' => 100.5],
+                ],
+            ], now()->addSeconds(15));
+            Http::fake();
+
+            $payload = app(TwStockRealtimeQuoteService::class)->intradayPrices(['5483']);
+
+            $this->assertSame('2026-07-16', $payload['date']);
+            $this->assertCount(1, $payload['series']['5483']);
+            $this->assertSame($now->setTime(9, 2)->getTimestamp(), $payload['series']['5483'][0]['time']);
+            $this->assertSame(99.5, $payload['series']['5483'][0]['low']);
+            $this->assertSame(100.5, $payload['series']['5483'][0]['high']);
+            Http::assertNothingSent();
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
     public function test_it_falls_back_to_yahoo_taiwan_page_when_cnyes_has_no_intraday_history(): void
     {
         $now = CarbonImmutable::parse('2026-07-15 11:34:00', 'Asia/Taipei');

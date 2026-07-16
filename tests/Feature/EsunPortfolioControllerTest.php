@@ -46,6 +46,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('當日走勢')
             ->assertSee('data-pnl-wave="todayPnl"', false)
             ->assertSee('stockWaveHtml', false)
+            ->assertSee('ensureCurrentIntradayDate', false)
+            ->assertSee("String(payload?.date || '') !== responseDate", false)
             ->assertSee('ensureIntradaySeries', false)
             ->assertSee('累積損益')
             ->assertSee('股票市值')

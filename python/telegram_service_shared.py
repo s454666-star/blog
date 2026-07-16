@@ -2171,7 +2171,11 @@ async def _find_remaining_message_ids(peer: Any, message_ids: List[int]) -> List
         if msg is None:
             continue
 
-        if type(msg).__name__ == "MessageEmpty":
+        # Clearing a private bot chat can replace the final deleted message with
+        # a MessageService/MessageActionHistoryClear bearing the same id.  That
+        # service marker is not bot content and cannot itself be deleted, so it
+        # must not keep cleanup retrying forever.
+        if type(msg).__name__ in {"MessageEmpty", "MessageService"}:
             continue
 
         try:

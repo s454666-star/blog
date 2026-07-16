@@ -50,5 +50,24 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
         ))
 
 
+class DeleteVerificationTest(unittest.IsolatedAsyncioTestCase):
+    async def test_history_clear_service_marker_is_not_remaining_content(self) -> None:
+        class MessageService:
+            id = 184154
+
+        original_get_messages = service.client.get_messages
+
+        async def fake_get_messages(*args, **kwargs):
+            return [MessageService()]
+
+        service.client.get_messages = fake_get_messages
+        try:
+            remaining = await service._find_remaining_message_ids(object(), [184154])
+        finally:
+            service.client.get_messages = original_get_messages
+
+        self.assertEqual([], remaining)
+
+
 if __name__ == "__main__":
     unittest.main()

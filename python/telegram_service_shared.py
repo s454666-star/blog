@@ -1500,6 +1500,10 @@ def _is_bot_verification_success_message(msg: Optional[Dict[str, Any]]) -> bool:
 
 BOT_NOT_FOUND_KEYWORDS = [
     "不存在或已被删除",
+    "解码失败",
+    "解碼失敗",
+    "文件码错误或被举报删除",
+    "文件碼錯誤或被舉報刪除",
     "💔抱歉，未找到可解析内容。",
     "抱歉，未找到可解析内容。",
     "抱歉，未找到可解析内容",

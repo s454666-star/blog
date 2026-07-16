@@ -63,6 +63,10 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
         self.assertIn("请再次发送文件码", service.RESOURCE_CODE_REPEAT_CONFIRMATION_KEYWORDS)
         self.assertIn("You need to become a VIP member", service.RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS)
 
+    def test_qq_decoder_failure_is_not_found(self) -> None:
+        text = "解码失败!!\n文件码错误或被举报删除"
+        self.assertEqual("解码失败", service._match_bot_not_found_keyword(text))
+
 
 class DeleteVerificationTest(unittest.IsolatedAsyncioTestCase):
     async def test_history_clear_service_marker_is_not_remaining_content(self) -> None:

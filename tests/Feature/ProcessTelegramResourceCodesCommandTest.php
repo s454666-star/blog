@@ -36,6 +36,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'target_peer_id' => 3967395258,
             'bot_username' => 'zyxfids_bot',
             'code_type' => 1,
+            'scan_code_types' => null,
             'initial_scan_limit' => 1000,
             'scan_batch_size' => 500,
             'loop_sleep_seconds' => 1,
@@ -158,6 +159,97 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ]);
         $this->assertDatabaseMissing('telegram_resource_codes', [
             'code' => 'wenjianjibot_1v_imwscoeaumvsszgd',
+        ]);
+    }
+
+    public function test_type_three_scan_stores_qq_codes_from_multiple_prefixes(): void
+    {
+        Http::fake(Http::response([
+            'status' => 'ok',
+            'items' => [[
+                'id' => 119900,
+                'text' => implode("\n", [
+                    'QQer16_bot:qqcode1ebfce2af1_3V',
+                    'QQn8zw_bot:qqcode1099c74e81_8P_17V',
+                    'QQyptu_bot:qqcode10884fe700_9V',
+                    'QQyptu_bot:qqcode10882ee480_9V',
+                    'QQyptu_bot qqcode10882ee480_9V',
+                    'notQQyptu_bot:qqcode10882ee480_9V',
+                ]),
+            ]],
+        ]));
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--scan-only' => true,
+            '--code-type' => 3,
+            '--bot-username' => 'QQyptu_bot',
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseCount('telegram_resource_codes', 4);
+        foreach ([
+            'QQer16_bot:qqcode1ebfce2af1_3V',
+            'QQn8zw_bot:qqcode1099c74e81_8P_17V',
+            'QQyptu_bot:qqcode10884fe700_9V',
+            'QQyptu_bot:qqcode10882ee480_9V',
+        ] as $code) {
+            $this->assertDatabaseHas('telegram_resource_codes', [
+                'code' => $code,
+                'code_type' => 3,
+                'status' => TelegramResourceCode::STATUS_PENDING,
+            ]);
+        }
+    }
+
+    public function test_worker_scans_type_two_and_three_but_only_claims_type_three(): void
+    {
+        Http::fake(function ($request) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            if ($request->method() === 'GET' && str_starts_with($path, '/groups/')) {
+                return Http::response([
+                    'status' => 'ok',
+                    'items' => [[
+                        'id' => 119901,
+                        'text' => implode(' ', [
+                            'wenjianjibot_1v_imWSCOeauMVsszgd',
+                            'QQyptu_bot:qqcode10884fe700_9V',
+                        ]),
+                    ]],
+                ]);
+            }
+
+            $this->assertSame('QQyptu_bot:qqcode10884fe700_9V', $request['code']);
+            $this->assertSame('QQyptu_bot', $request['bot_username']);
+
+            return Http::response([
+                'status' => 'ok',
+                'forwarded_count' => 25,
+                'expected_media_count' => 25,
+                'declared_file_count' => 25,
+                'cleanup_complete' => true,
+            ]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--process-limit' => 1,
+            '--code-type' => 3,
+            '--scan-code-types' => '2,3',
+            '--bot-username' => 'QQyptu_bot',
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => 'wenjianjibot_1v_imWSCOeauMVsszgd',
+            'code_type' => 2,
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 0,
+        ]);
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => 'QQyptu_bot:qqcode10884fe700_9V',
+            'code_type' => 3,
+            'status' => TelegramResourceCode::STATUS_COMPLETED,
+            'attempts' => 1,
+            'forwarded_message_count' => 25,
         ]);
     }
 

@@ -54,14 +54,28 @@ RESOURCE_CODE_WENJIANJI_PATTERN = re.compile(
     r"wenjianjibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}",
     re.IGNORECASE,
 )
+RESOURCE_CODE_QQ_PATTERN = re.compile(
+    r"QQ[A-Za-z0-9]+_bot:qqcode[0-9a-f]+(?:_[0-9]+[A-Za-z])+",
+    re.IGNORECASE,
+)
 RESOURCE_CODE_IMAGE_COUNT_PATTERN = re.compile(r"(?:图片|圖片)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_VIDEO_COUNT_PATTERN = re.compile(r"(?:视频|視頻|影片)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_FILE_COUNT_PATTERN = re.compile(r"(?:文件|档案|檔案)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_TOTAL_COUNT_PATTERN = re.compile(
     r"(?:文件|档案|檔案)\s*(?:总数|總數)\s*[:：]?\s*(\d+)\s*(?:个|個)?"
 )
-RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS = ("全部获取", "全部獲取")
-RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS = ("获取下一组", "獲取下一組")
+RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS = (
+    "全部获取",
+    "全部獲取",
+    "推送剩余全部文件",
+    "推送剩餘全部文件",
+)
+RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS = (
+    "获取下一组",
+    "獲取下一組",
+    "下一页",
+    "下一頁",
+)
 RESOURCE_CODE_ALL_FILES_COMPLETE_KEYWORDS = (
     "文件全部取完啦",
     "文件全部取完了",
@@ -195,6 +209,8 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
         return code.lower()
     if RESOURCE_CODE_WENJIANJI_PATTERN.fullmatch(code):
         return "wenjianjibot_" + code.split("_", 1)[1]
+    if RESOURCE_CODE_QQ_PATTERN.fullmatch(code):
+        return code
     return None
 
 
@@ -3720,9 +3736,6 @@ async def _resource_code_bot_media(
                         if button_data is None:
                             continue
                         callback_candidates.append((msg, mid, button_data, is_get_all))
-                        break
-                    if callback_candidates and callback_candidates[-1][1] == mid:
-                        break
 
         if all_files_complete and media_by_key:
             actual_media_count = len(media_by_key)
@@ -3736,6 +3749,7 @@ async def _resource_code_bot_media(
 
         callback_clicked = False
         callback_now = asyncio.get_running_loop().time()
+        callback_candidates.sort(key=lambda item: (item[1], item[3]), reverse=True)
         for callback_message, callback_mid, callback_data, is_get_all in callback_candidates[:1]:
             callback_key = f"{callback_mid}:{bytes(callback_data).hex()}"
             previous_click = clicked_callback_state.get(callback_key)

@@ -49,6 +49,18 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
             "📥 成功发送 0 个\n💤 休眠待激活 0 个"
         ))
 
+    def test_qq_codes_are_accepted_without_changing_case(self) -> None:
+        for code in [
+            "QQer16_bot:qqcode1ebfce2af1_3V",
+            "QQn8zw_bot:qqcode1099c74e81_8P_17V",
+            "QQyptu_bot:qqcode10884fe700_9V",
+        ]:
+            self.assertEqual(code, service._normalize_resource_code(code))
+
+    def test_qq_paging_buttons_are_supported(self) -> None:
+        self.assertIn("下一页", service.RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS)
+        self.assertIn("推送剩余全部文件", service.RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS)
+
 
 class DeleteVerificationTest(unittest.IsolatedAsyncioTestCase):
     async def test_history_clear_service_marker_is_not_remaining_content(self) -> None:

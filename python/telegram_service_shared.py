@@ -3660,6 +3660,121 @@ async def _cleanup_resource_code_run(peer: Any, sent_message_id: int, message_id
     return pending
 
 
+async def _resource_code_latest_message_id(peer: Any) -> int:
+    messages = await asyncio.wait_for(client.get_messages(peer, limit=1), timeout=20.0)
+    if not messages:
+        return 0
+    latest = messages[0] if isinstance(messages, list) else messages
+    return max(0, int(getattr(latest, "id", 0) or 0))
+
+
+async def _resource_code_reconcile_forward_after_error(
+    target_peer: Any,
+    source_message: Any,
+    baseline_message_id: int,
+) -> int:
+    if baseline_message_id <= 0:
+        return 0
+
+    source_media_key = _resource_code_media_key(source_message)
+    for _ in range(6):
+        try:
+            messages = await asyncio.wait_for(
+                client.get_messages(target_peer, limit=100, min_id=baseline_message_id),
+                timeout=20.0,
+            )
+        except Exception:
+            messages = []
+
+        matching_ids = sorted(
+            int(getattr(msg, "id", 0) or 0)
+            for msg in (messages or [])
+            if int(getattr(msg, "id", 0) or 0) > baseline_message_id
+            and _resource_code_media_kind(msg) is not None
+            and _resource_code_media_key(msg) == source_media_key
+        )
+        if matching_ids:
+            return matching_ids[0]
+        await asyncio.sleep(1.0)
+
+    return 0
+
+
+async def _forward_resource_code_media(
+    target_peer: Any,
+    media_messages: List[Any],
+    drop_media_captions: bool,
+) -> List[int]:
+    forwarded_message_ids: List[int] = []
+    baseline_message_id = await _resource_code_latest_message_id(target_peer)
+
+    for index, source_message in enumerate(media_messages):
+        while True:
+            try:
+                forwarded = await client.forward_messages(
+                    target_peer,
+                    [source_message],
+                    drop_author=True,
+                    drop_media_captions=drop_media_captions,
+                )
+                if not isinstance(forwarded, list):
+                    forwarded = [forwarded] if forwarded is not None else []
+                message_ids = [
+                    int(getattr(msg, "id", 0) or 0)
+                    for msg in forwarded
+                    if int(getattr(msg, "id", 0) or 0) > 0
+                ]
+                if len(message_ids) != 1:
+                    raise RuntimeError("forwarded single-message result count mismatch")
+                forwarded_message_ids.append(message_ids[0])
+                baseline_message_id = max(baseline_message_id, message_ids[0])
+                break
+            except FloodWaitError as e:
+                reconciled_id = await _resource_code_reconcile_forward_after_error(
+                    target_peer,
+                    source_message,
+                    baseline_message_id,
+                )
+                if reconciled_id > 0:
+                    forwarded_message_ids.append(reconciled_id)
+                    baseline_message_id = max(baseline_message_id, reconciled_id)
+                    break
+                wait_s = max(1, int(getattr(e, "seconds", 1) or 1))
+                push_log(
+                    stage="resource_code_process",
+                    result="forward_flood_wait",
+                    extra={"index": index, "wait_seconds": wait_s},
+                )
+                await asyncio.sleep(float(wait_s) + 1.0)
+            except Exception as e:
+                reconciled_id = await _resource_code_reconcile_forward_after_error(
+                    target_peer,
+                    source_message,
+                    baseline_message_id,
+                )
+                if reconciled_id > 0:
+                    forwarded_message_ids.append(reconciled_id)
+                    baseline_message_id = max(baseline_message_id, reconciled_id)
+                    push_log(
+                        stage="resource_code_process",
+                        result="forward_reconciled_after_error",
+                        extra={"index": index, "target_message_id": reconciled_id, "error": str(e)},
+                    )
+                    break
+                rollback_remaining = await _cleanup_resource_code_bot_messages(
+                    target_peer,
+                    forwarded_message_ids,
+                ) if forwarded_message_ids else []
+                if rollback_remaining:
+                    raise RuntimeError(
+                        f"forward failed and target rollback left {len(rollback_remaining)} messages"
+                    ) from e
+                forwarded_message_ids.clear()
+                raise
+
+    return forwarded_message_ids
+
+
 async def _resource_code_bot_media(
     peer: Any,
     code: str,
@@ -3933,30 +4048,11 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                 }
 
             phase = "forward_media"
-            for offset in range(0, len(media_messages), 100):
-                while True:
-                    try:
-                        forwarded = await client.forward_messages(
-                            target_peer,
-                            media_messages[offset:offset + 100],
-                            drop_author=True,
-                            drop_media_captions=bool(payload.drop_media_captions),
-                        )
-                        break
-                    except FloodWaitError as e:
-                        wait_s = max(1, int(getattr(e, "seconds", 1) or 1))
-                        push_log(
-                            stage="resource_code_process",
-                            result="forward_flood_wait",
-                            extra={"offset": offset, "wait_seconds": wait_s},
-                        )
-                        await asyncio.sleep(float(wait_s) + 1.0)
-                if not isinstance(forwarded, list):
-                    forwarded = [forwarded] if forwarded is not None else []
-                for msg in forwarded:
-                    mid = int(getattr(msg, "id", 0) or 0)
-                    if mid > 0:
-                        forwarded_message_ids.append(mid)
+            forwarded_message_ids = await _forward_resource_code_media(
+                target_peer,
+                media_messages,
+                bool(payload.drop_media_captions),
+            )
 
             if len(forwarded_message_ids) != len(bot_media_ids):
                 raise RuntimeError("forwarded message count mismatch")
@@ -3968,14 +4064,16 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                 bot_reply_ids + bot_media_ids,
             )
             if remaining:
+                target_remaining = await _cleanup_resource_code_bot_messages(target_peer, forwarded_message_ids)
                 return {
                     "status": "error",
                     "reason": "delete_incomplete",
-                    "forwarded_count": len(forwarded_message_ids),
+                    "forwarded_count": 0 if not target_remaining else len(forwarded_message_ids),
                     "expected_media_count": expected_media_count or len(bot_media_ids),
                     "declared_file_count": declared_file_count or expected_media_count or len(bot_media_ids),
                     "cleanup_complete": False,
                     "undeleted_count": len(remaining),
+                    "target_rollback_complete": len(target_remaining) == 0,
                 }
 
             push_log(
@@ -3998,10 +4096,20 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
             wait_s = max(1, int(getattr(e, "seconds", 1) or 1))
             cleanup_ids = bot_reply_ids + bot_media_ids
             remaining = await _cleanup_resource_code_run(bot_peer, sent_message_id, cleanup_ids) if sent_message_id > 0 else []
+            target_remaining = (
+                await _cleanup_resource_code_bot_messages(target_peer, forwarded_message_ids)
+                if forwarded_message_ids
+                else []
+            )
             push_log(
                 stage="resource_code_process",
                 result="flood_wait",
-                extra={"phase": phase, "wait_seconds": wait_s, "cleanup_complete": len(remaining) == 0},
+                extra={
+                    "phase": phase,
+                    "wait_seconds": wait_s,
+                    "cleanup_complete": len(remaining) == 0,
+                    "target_rollback_complete": len(target_remaining) == 0,
+                },
             )
             return {
                 "status": "flood_wait",
@@ -4009,10 +4117,16 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                 "phase": phase,
                 "wait_seconds": wait_s,
                 "cleanup_complete": len(remaining) == 0,
+                "target_rollback_complete": len(target_remaining) == 0,
             }
         except Exception as e:
             cleanup_ids = bot_reply_ids + bot_media_ids
             remaining = await _cleanup_resource_code_run(bot_peer, sent_message_id, cleanup_ids) if sent_message_id > 0 else []
+            target_remaining = (
+                await _cleanup_resource_code_bot_messages(target_peer, forwarded_message_ids)
+                if forwarded_message_ids
+                else []
+            )
             push_log(
                 stage="resource_code_process",
                 result="error",
@@ -4020,6 +4134,7 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                     "phase": phase,
                     "error": str(e),
                     "cleanup_complete": len(remaining) == 0,
+                    "target_rollback_complete": len(target_remaining) == 0,
                     "trace": traceback.format_exc()[:1200],
                 },
             )
@@ -4028,6 +4143,7 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                 "reason": "processing_failed",
                 "phase": phase,
                 "cleanup_complete": len(remaining) == 0,
+                "target_rollback_complete": len(target_remaining) == 0,
             }
 
     try:

@@ -86,6 +86,97 @@ class DeleteVerificationTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([], remaining)
 
+    async def test_forward_error_is_reconciled_when_single_media_arrived(self) -> None:
+        class Document:
+            def __init__(self, document_id: int):
+                self.id = document_id
+                self.mime_type = "video/mp4"
+
+        class Item:
+            def __init__(self, message_id: int, document_id: int = 0):
+                self.id = message_id
+                self.document = Document(document_id) if document_id else None
+                self.photo = None
+                self.video = None
+
+        source = Item(1, 123)
+        target_messages = [Item(10)]
+        original_get_messages = service.client.get_messages
+        original_forward_messages = service.client.forward_messages
+
+        async def fake_get_messages(*args, **kwargs):
+            min_id = int(kwargs.get("min_id", 0) or 0)
+            if min_id > 0:
+                return [item for item in target_messages if item.id > min_id]
+            return [target_messages[-1]]
+
+        async def fake_forward_messages(*args, **kwargs):
+            target_messages.append(Item(11, 123))
+            raise ValueError("response lost after delivery")
+
+        service.client.get_messages = fake_get_messages
+        service.client.forward_messages = fake_forward_messages
+        try:
+            forwarded_ids = await service._forward_resource_code_media(object(), [source], False)
+        finally:
+            service.client.get_messages = original_get_messages
+            service.client.forward_messages = original_forward_messages
+
+        self.assertEqual([11], forwarded_ids)
+
+    async def test_unreconciled_forward_error_rolls_back_prior_items(self) -> None:
+        class Document:
+            def __init__(self, document_id: int):
+                self.id = document_id
+                self.mime_type = "video/mp4"
+
+        class Item:
+            def __init__(self, message_id: int, document_id: int = 0):
+                self.id = message_id
+                self.document = Document(document_id) if document_id else None
+                self.photo = None
+                self.video = None
+
+        sources = [Item(1, 101), Item(2, 102)]
+        target_messages = [Item(10)]
+        cleaned_ids = []
+        original_get_messages = service.client.get_messages
+        original_forward_messages = service.client.forward_messages
+        original_reconcile = service._resource_code_reconcile_forward_after_error
+        original_cleanup = service._cleanup_resource_code_bot_messages
+
+        async def fake_get_messages(*args, **kwargs):
+            return [target_messages[-1]]
+
+        async def fake_forward_messages(*args, **kwargs):
+            if len(target_messages) == 1:
+                delivered = Item(11, 101)
+                target_messages.append(delivered)
+                return [delivered]
+            raise ValueError("not delivered")
+
+        async def fake_reconcile(*args, **kwargs):
+            return 0
+
+        async def fake_cleanup(peer, message_ids):
+            cleaned_ids.extend(message_ids)
+            return []
+
+        service.client.get_messages = fake_get_messages
+        service.client.forward_messages = fake_forward_messages
+        service._resource_code_reconcile_forward_after_error = fake_reconcile
+        service._cleanup_resource_code_bot_messages = fake_cleanup
+        try:
+            with self.assertRaises(ValueError):
+                await service._forward_resource_code_media(object(), sources, False)
+        finally:
+            service.client.get_messages = original_get_messages
+            service.client.forward_messages = original_forward_messages
+            service._resource_code_reconcile_forward_after_error = original_reconcile
+            service._cleanup_resource_code_bot_messages = original_cleanup
+
+        self.assertEqual([11], cleaned_ids)
+
 
 if __name__ == "__main__":
     unittest.main()

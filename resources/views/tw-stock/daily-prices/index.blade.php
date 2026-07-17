@@ -996,6 +996,11 @@
     }
 
     function chartTimeLabel(time, daily = false, compact = false) {
+        if (typeof time === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(time)) {
+            const [year, month, day] = time.split('-');
+            return compact ? `${Number(month)}/${Number(day)}` : `${year}/${month}/${day}`;
+        }
+
         const businessDay = chartBusinessDay(time);
         if (businessDay) {
             if (compact) return `${businessDay.month}/${businessDay.day}`;

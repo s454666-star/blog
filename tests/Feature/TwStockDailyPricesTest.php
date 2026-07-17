@@ -529,6 +529,7 @@ class TwStockDailyPricesTest extends TestCase
             ->assertSee('setInterval(refreshRealtime, 15000)', false)
             ->assertSee('normalizeIntradayPoints', false)
             ->assertSee('tickMarkFormatter', false)
+            ->assertSee("typeof time === 'string'", false)
             ->assertSee("timeZone: 'Asia/Taipei'", false)
             ->assertDontSee("\n        table {", false)
             ->assertDontSee("\n        th,\n        td {", false)

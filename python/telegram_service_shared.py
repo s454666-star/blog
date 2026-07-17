@@ -3181,6 +3181,13 @@ class DeleteMessagesRequest(BaseModel):
     message_ids: List[int]
 
 
+class ForwardResourceCodeBatchRequest(BaseModel):
+    source_peer_id: int
+    message_ids: List[int]
+    target_peer_id: int
+    drop_media_captions: bool = False
+
+
 class ProcessResourceCodeRequest(BaseModel):
     code: str
     bot_username: str = "zyxfids_bot"
@@ -3529,6 +3536,74 @@ async def delete_messages_from_chat(payload: DeleteMessagesRequest):
             "error": str(e),
             "chat_peer": chat_peer,
         }
+
+
+@app.post("/resource-codes/forward-batch")
+async def forward_resource_code_batch(payload: ForwardResourceCodeBatchRequest):
+    source_peer_id = int(payload.source_peer_id or 0)
+    target_peer_id = int(payload.target_peer_id or 0)
+    message_ids = list(dict.fromkeys(
+        int(mid or 0)
+        for mid in list(payload.message_ids or [])
+        if int(mid or 0) > 0
+    ))
+
+    if source_peer_id <= 0 or target_peer_id <= 0 or not message_ids:
+        return {"status": "error", "reason": "invalid_request"}
+    if not await _ensure_client_connected():
+        return {"status": "error", "reason": "client_not_connected"}
+
+    source_peer = await _resolve_any_input_entity_by_id(source_peer_id)
+    target_peer = await _resolve_any_input_entity_by_id(target_peer_id)
+    if source_peer is None or target_peer is None:
+        return {"status": "error", "reason": "peer_not_found"}
+
+    fetched = await client.get_messages(source_peer, ids=message_ids)
+    fetched_messages = fetched if isinstance(fetched, list) else [fetched] if fetched is not None else []
+    messages_by_id = {
+        int(getattr(message, "id", 0) or 0): message
+        for message in fetched_messages
+        if int(getattr(message, "id", 0) or 0) > 0
+    }
+    ordered_messages = [messages_by_id[mid] for mid in message_ids if mid in messages_by_id]
+    if len(ordered_messages) != len(message_ids):
+        return {
+            "status": "error",
+            "reason": "source_messages_missing",
+            "requested_message_ids": message_ids,
+            "found_message_ids": [int(getattr(message, "id", 0) or 0) for message in ordered_messages],
+        }
+    if any(_resource_code_media_kind(message) is None for message in ordered_messages):
+        return {"status": "error", "reason": "non_media_message", "message_ids": message_ids}
+
+    try:
+        forwarded_message_ids = await _forward_resource_code_media(
+            target_peer,
+            ordered_messages,
+            bool(payload.drop_media_captions),
+        )
+    except Exception as e:
+        return {
+            "status": "error",
+            "reason": "forward_failed",
+            "error": str(e),
+            "message_ids": message_ids,
+        }
+
+    if len(forwarded_message_ids) != len(message_ids):
+        target_remaining = await _cleanup_resource_code_bot_messages(target_peer, forwarded_message_ids)
+        return {
+            "status": "error",
+            "reason": "forward_count_mismatch",
+            "target_rollback_complete": len(target_remaining) == 0,
+        }
+
+    return {
+        "status": "ok",
+        "source_message_ids": message_ids,
+        "target_message_ids": forwarded_message_ids,
+        "forwarded_count": len(forwarded_message_ids),
+    }
 
 
 def _resource_code_media_kind(msg: Any) -> Optional[str]:

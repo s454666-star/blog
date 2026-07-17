@@ -77,6 +77,53 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
 
 
 class DeleteVerificationTest(unittest.IsolatedAsyncioTestCase):
+    async def test_manual_resource_batch_forwards_only_requested_media(self) -> None:
+        class Item:
+            def __init__(self, message_id: int):
+                self.id = message_id
+                self.photo = object()
+                self.document = None
+                self.video = None
+
+        original_connected = service._ensure_client_connected
+        original_resolve = service._resolve_any_input_entity_by_id
+        original_get_messages = service.client.get_messages
+        original_forward = service._forward_resource_code_media
+
+        async def fake_connected(*args, **kwargs):
+            return True
+
+        async def fake_resolve(peer_id):
+            return object()
+
+        async def fake_get_messages(*args, **kwargs):
+            return [Item(mid) for mid in kwargs.get("ids", [])]
+
+        async def fake_forward(*args, **kwargs):
+            return [501, 502]
+
+        service._ensure_client_connected = fake_connected
+        service._resolve_any_input_entity_by_id = fake_resolve
+        service.client.get_messages = fake_get_messages
+        service._forward_resource_code_media = fake_forward
+        try:
+            result = await service.forward_resource_code_batch(
+                service.ForwardResourceCodeBatchRequest(
+                    source_peer_id=8901775677,
+                    message_ids=[101, 102],
+                    target_peer_id=3967395258,
+                )
+            )
+        finally:
+            service._ensure_client_connected = original_connected
+            service._resolve_any_input_entity_by_id = original_resolve
+            service.client.get_messages = original_get_messages
+            service._forward_resource_code_media = original_forward
+
+        self.assertEqual("ok", result["status"])
+        self.assertEqual(2, result["forwarded_count"])
+        self.assertEqual([101, 102], result["source_message_ids"])
+
     async def test_history_clear_service_marker_is_not_remaining_content(self) -> None:
         class MessageService:
             id = 184154

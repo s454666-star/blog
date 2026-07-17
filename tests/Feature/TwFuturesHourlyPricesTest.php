@@ -417,7 +417,7 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertStringContainsString('no-store', (string) $unchangedResponse->headers->get('Cache-Control'));
     }
 
-    public function test_taiex_futures_price_alert_uses_15k_start_time_and_5_percent_bias_threshold(): void
+    public function test_taiex_futures_price_alert_uses_15k_end_time_and_5_percent_bias_threshold(): void
     {
         config()->set('app.timezone', 'Asia/Taipei');
         config()->set('app.url', 'https://stock.mystar.monster');
@@ -447,11 +447,101 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $this->assertIsArray($alert);
         $this->assertSame(
-            CarbonImmutable::parse('2026-01-01 08:45:00', 'Asia/Taipei')->timestamp,
+            CarbonImmutable::parse('2026-01-01 09:00:00', 'Asia/Taipei')->timestamp,
             $alert['time'],
         );
-        $this->assertStringContainsString('台指期通知 2026-01-01 08:45', $alert['message']);
+        $this->assertStringContainsString('台指期通知 2026-01-01 09:00', $alert['message']);
         $this->assertStringContainsString('乖離率 +5.00% 高於 +5.00%', $alert['message']);
+
+        $this->assertNull($method->invoke(
+            $command,
+            [...$baseRow, 'biasRate' => 0.05],
+            $minTimestamp,
+            '2026-01-01 08:45',
+        ));
+        $this->assertIsArray($method->invoke(
+            $command,
+            [...$baseRow, 'biasRate' => 0.05],
+            $minTimestamp,
+            '2026-01-01 09:00',
+        ));
+    }
+
+    public function test_taiex_futures_line_alert_refreshes_and_sends_only_the_current_15k_end_time(): void
+    {
+        Cache::flush();
+        Carbon::setTestNow('2026-07-17 13:00:00');
+        CarbonImmutable::setTestNow('2026-07-17 13:00:00');
+
+        $this->mock(TwFuturesHourlyPriceFetcher::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('fetchRows')
+                ->once()
+                ->andReturn([]);
+            $mock->shouldReceive('upsertRows')
+                ->once()
+                ->with([])
+                ->andReturn(0);
+        });
+        $this->mock(TwFuturesHourlyPriceController::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('lineAlertPayload')
+                ->twice()
+                ->andReturn([
+                    'chartRows' => [
+                        [
+                            'time' => CarbonImmutable::parse('2026-07-17 12:45:00', 'Asia/Taipei')->timestamp,
+                            'localTime' => '2026-07-17 12:45',
+                            'gap' => null,
+                            'isSessionOpen' => false,
+                            'biasRate' => -0.052,
+                            'close' => 43200,
+                            'dailyMa5' => 45100,
+                            'movingAverage' => 45500,
+                        ],
+                        [
+                            'time' => CarbonImmutable::parse('2026-07-17 13:00:00', 'Asia/Taipei')->timestamp,
+                            'localTime' => '2026-07-17 13:00',
+                            'gap' => null,
+                            'isSessionOpen' => false,
+                            'biasRate' => -0.051,
+                            'close' => 43145,
+                            'dailyMa5' => 45065,
+                            'movingAverage' => 45435,
+                        ],
+                    ],
+                    'fourHourMa5Rows' => [],
+                    'stats' => ['latestGap' => -370],
+                ]);
+        });
+
+        config()->set('app.url', 'https://stock.mystar.monster');
+        config()->set('line.channel_access_token', 'stock-line-token');
+        config()->set('line.dashboard_notify_target_id', 'Cstocktarget');
+        config()->set('line.yuanta_channel_access_token', 'yuanta-line-token');
+        config()->set('line.yuanta_dashboard_notify_target_id', 'Cyuantatarget');
+
+        Http::fake([
+            'https://api.line.me/v2/bot/message/push' => Http::response([], 200),
+        ]);
+
+        $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
+
+        Http::assertSentCount(1);
+        Http::assertSent(function ($request): bool {
+            $message = (string) data_get($request->data(), 'messages.0.text', '');
+
+            return str_contains($message, '台指期通知 2026-07-17 13:00')
+                && str_contains($message, '現價 43,145')
+                && ! str_contains($message, '2026-07-17 12:45')
+                && ! str_contains($message, '現價 43,200');
+        });
+
+        Cache::flush();
+        Carbon::setTestNow('2026-07-17 13:05:00');
+        CarbonImmutable::setTestNow('2026-07-17 13:05:00');
+
+        $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
+
+        Http::assertSentCount(1);
     }
 
     public function test_taiex_futures_line_alert_command_sends_four_hour_ma5_notification(): void
@@ -512,6 +602,16 @@ class TwFuturesHourlyPricesTest extends TestCase
         Cache::flush();
         Carbon::setTestNow('2026-01-07 10:00:00');
         CarbonImmutable::setTestNow('2026-01-07 10:00:00');
+
+        $this->mock(TwFuturesHourlyPriceFetcher::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('fetchRows')
+                ->once()
+                ->andReturn([]);
+            $mock->shouldReceive('upsertRows')
+                ->once()
+                ->with([])
+                ->andReturn(0);
+        });
 
         config()->set('app.url', 'https://stock.mystar.monster');
         config()->set('line.channel_access_token', 'stock-line-token');

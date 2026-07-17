@@ -18,8 +18,6 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
 
     private const BIAS_RATE_THRESHOLD = 0.05;
 
-    private const PRICE_ALERT_DISPLAY_OFFSET_MINUTES = 15;
-
     private const CACHE_TTL_DAYS = 7;
 
     protected $signature = 'tw-stock:notify-taiex-futures-line
@@ -45,8 +43,8 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         $lookbackMinutes = max(1, min(1440, (int) $this->option('lookback-minutes')));
         $maxAlerts = max(1, min(50, (int) $this->option('max-alerts')));
         $now = CarbonImmutable::now($timezone);
-        if (! $this->option('dry-run') && $this->isFourHourMa5NotifyTime($now)) {
-            $this->refreshFourHourMa5SourceRows($fetcher, $now);
+        if (! $this->option('dry-run')) {
+            $this->refreshCurrentAlertSourceRows($fetcher, $now);
         }
         $payload = $controller->lineAlertPayload();
         $alerts = $this->alertsFromPayload($payload, $now, $lookbackMinutes);
@@ -104,15 +102,31 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         return in_array($now->format('H:i'), $notifyTimes, true);
     }
 
-    private function refreshFourHourMa5SourceRows(
+    private function isPriceAlertNotifyTime(CarbonImmutable $now): bool
+    {
+        return ((int) $now->format('i')) % 15 === 0;
+    }
+
+    private function refreshCurrentAlertSourceRows(
         TwFuturesHourlyPriceFetcher $fetcher,
         CarbonImmutable $now,
     ): void {
+        $barsByInterval = [];
+        if ($this->isFourHourMa5NotifyTime($now)) {
+            $barsByInterval['60'] = 200;
+        }
+        if ($this->isPriceAlertNotifyTime($now) || $this->isFourHourMa5NotifyTime($now)) {
+            $barsByInterval['15'] = 600;
+        }
+        if ($barsByInterval === []) {
+            return;
+        }
+
         $from = $now->subDays(3)->toDateString();
         $to = $now->addDay()->toDateString();
         $storedByInterval = [];
 
-        foreach (['60' => 200, '15' => 600] as $interval => $bars) {
+        foreach ($barsByInterval as $interval => $bars) {
             try {
                 $rows = $fetcher->fetchRows(
                     from: $from,
@@ -128,10 +142,10 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         }
 
         $this->line(sprintf(
-            '4H MA5 即時資料刷新：notify_at=%s 60K=%s 15K=%s completed_at=%s',
+            '台指期通知即時資料刷新：notify_at=%s 60K=%s 15K=%s completed_at=%s',
             $now->format('Y-m-d H:i:s'),
-            (string) ($storedByInterval['60'] ?? 'failed'),
-            (string) ($storedByInterval['15'] ?? 'failed'),
+            (string) ($storedByInterval['60'] ?? 'not-required'),
+            (string) ($storedByInterval['15'] ?? 'not-required'),
             CarbonImmutable::now((string) config('app.timezone', 'Asia/Taipei'))->format('Y-m-d H:i:s'),
         ));
     }
@@ -155,7 +169,11 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
                 continue;
             }
 
-            $alert = $this->priceAlert($row, $minTimestamp);
+            $alert = $this->priceAlert(
+                $row,
+                $minTimestamp,
+                $this->option('dry-run') ? null : $now->format('Y-m-d H:i'),
+            );
             if ($alert !== null) {
                 $alerts[] = $alert;
             }
@@ -186,10 +204,18 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
      * @param array<string, mixed> $row
      * @return array{key: string, time: int, message: string}|null
      */
-    private function priceAlert(array $row, int $minTimestamp): ?array
+    private function priceAlert(
+        array $row,
+        int $minTimestamp,
+        ?string $requiredLocalTime = null,
+    ): ?array
     {
         $time = $this->priceAlertTime($row);
         if ($time < $minTimestamp) {
+            return null;
+        }
+
+        if ($requiredLocalTime !== null && (string) ($row['localTime'] ?? '') !== $requiredLocalTime) {
             return null;
         }
 
@@ -252,16 +278,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
      */
     private function priceAlertTime(array $row): int
     {
-        if (isset($row['alertTime'])) {
-            return (int) $row['alertTime'];
-        }
-
-        $time = (int) ($row['time'] ?? 0);
-        if ($time <= 0) {
-            return 0;
-        }
-
-        return $time - (self::PRICE_ALERT_DISPLAY_OFFSET_MINUTES * 60);
+        return (int) ($row['time'] ?? 0);
     }
 
     /**
@@ -269,19 +286,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
      */
     private function priceAlertLocalTime(array $row): string
     {
-        $alertLocalTime = trim((string) ($row['alertLocalTime'] ?? ''));
-        if ($alertLocalTime !== '') {
-            return $alertLocalTime;
-        }
-
-        $time = $this->priceAlertTime($row);
-        if ($time <= 0) {
-            return (string) ($row['localTime'] ?? '');
-        }
-
-        $timezone = (string) config('app.timezone', 'Asia/Taipei');
-
-        return CarbonImmutable::createFromTimestamp($time, $timezone)->format('Y-m-d H:i');
+        return (string) ($row['localTime'] ?? '');
     }
 
     /**

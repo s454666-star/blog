@@ -175,6 +175,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
                     'QQyptu_bot:qqcode10884fe700_9V',
                     'QQyptu_bot:qqcode10882ee480_9V',
                     'QQfile_bot:10506_69799_143-42',
+                    'QQnext_gen_bot:FutureCode_AZ09-7',
                     'QQyptu_bot qqcode10882ee480_9V',
                     'notQQyptu_bot:qqcode10882ee480_9V',
                 ]),
@@ -188,13 +189,14 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             '--bot-username' => 'QQyptu_bot',
         ])->assertExitCode(0);
 
-        $this->assertDatabaseCount('telegram_resource_codes', 5);
+        $this->assertDatabaseCount('telegram_resource_codes', 6);
         foreach ([
             'QQer16_bot:qqcode1ebfce2af1_3V',
             'QQn8zw_bot:qqcode1099c74e81_8P_17V',
             'QQyptu_bot:qqcode10884fe700_9V',
             'QQyptu_bot:qqcode10882ee480_9V',
             'QQfile_bot:10506_69799_143-42',
+            'QQnext_gen_bot:FutureCode_AZ09-7',
         ] as $code) {
             $this->assertDatabaseHas('telegram_resource_codes', [
                 'code' => $code,
@@ -316,9 +318,9 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ]);
     }
 
-    public function test_multiple_profiles_process_type_one_and_two_but_not_type_three(): void
+    public function test_multiple_profiles_process_type_one_two_and_three_with_configured_bots(): void
     {
-        config()->set('telegram.resource_codes.processing_profiles', '1:zyxfidi_bot,2:WenJianJiJibot');
+        config()->set('telegram.resource_codes.processing_profiles', '1:zyxfidi_bot,2:WenJianJiJibot,3:QQ3vro_bot');
         config()->set('telegram.resource_codes.scan_code_types', '1,2,3');
 
         DB::table('telegram_resource_codes')->insert([
@@ -371,10 +373,10 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
 
         $this->artisan('telegram:process-resource-codes', [
             '--once' => true,
-            '--process-limit' => 2,
+            '--process-limit' => 3,
         ])->assertExitCode(0);
 
-        $this->assertSame(['zyxfidi_bot', 'WenJianJiJibot'], $sentBots);
+        $this->assertSame(['zyxfidi_bot', 'WenJianJiJibot', 'QQ3vro_bot'], $sentBots);
         $this->assertDatabaseHas('telegram_resource_codes', [
             'code_type' => 1,
             'status' => TelegramResourceCode::STATUS_COMPLETED,
@@ -385,8 +387,8 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ]);
         $this->assertDatabaseHas('telegram_resource_codes', [
             'code_type' => 3,
-            'status' => TelegramResourceCode::STATUS_PENDING,
-            'attempts' => 0,
+            'status' => TelegramResourceCode::STATUS_COMPLETED,
+            'attempts' => 1,
         ]);
     }
 

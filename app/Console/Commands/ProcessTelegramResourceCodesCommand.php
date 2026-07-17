@@ -33,7 +33,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const LOCK_NAME = 'blog:telegram-resource-code-worker';
     private const HEX_CODE_REGEX = '/(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])/i';
     private const WENJIANJI_CODE_REGEX = '/(?<![A-Za-z0-9_])WenJianJiJibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}(?![A-Za-z0-9_])/i';
-    private const QQ_CODE_REGEX = '/(?<![A-Za-z0-9_])(?:QQ[A-Za-z0-9]+_bot:qqcode[0-9a-f]+(?:_[0-9]+[A-Za-z])+|QQfile_bot:\d+(?:_\d+)+-\d+)(?![A-Za-z0-9_])/i';
+    private const QQ_CODE_REGEX = '/(?<![A-Za-z0-9_])QQ[A-Za-z0-9_]*_bot:[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
     private const ACCOUNT_LIMIT_COOLDOWN_SECONDS = 900;

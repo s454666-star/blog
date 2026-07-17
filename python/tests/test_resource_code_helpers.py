@@ -55,6 +55,7 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
             "QQn8zw_bot:qqcode1099c74e81_8P_17V",
             "QQyptu_bot:qqcode10884fe700_9V",
             "QQfile_bot:10506_69799_143-42",
+            "QQnext_gen_bot:FutureCode_AZ09-7",
         ]:
             self.assertEqual(code, service._normalize_resource_code(code))
 

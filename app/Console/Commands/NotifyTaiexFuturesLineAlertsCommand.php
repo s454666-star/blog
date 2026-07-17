@@ -88,9 +88,9 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         return self::SUCCESS;
     }
 
-    private function isConfiguredNotifyTime(CarbonImmutable $now): bool
+    private function isFourHourMa5NotifyTime(CarbonImmutable $now): bool
     {
-        $notifyTimes = config('tw_stock.taiex_futures_notify_times', [
+        $notifyTimes = config('tw_stock.taiex_futures_four_hour_ma5_notify_times', [
             '08:45',
             '12:45',
             '13:45',
@@ -102,13 +102,34 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         return in_array($now->format('H:i'), $notifyTimes, true);
     }
 
+    private function isPriceAlertRefreshTime(CarbonImmutable $now): bool
+    {
+        return ((int) $now->format('i')) % 15 === 0;
+    }
+
+    private function requiredPriceAlertLocalTime(CarbonImmutable $now): ?string
+    {
+        $minuteWithinQuarter = ((int) $now->format('i')) % 15;
+        if ($minuteWithinQuarter === 0) {
+            return $now->format('Y-m-d H:i');
+        }
+
+        if ($minuteWithinQuarter === 5) {
+            return $now->subMinutes(5)->format('Y-m-d H:i');
+        }
+
+        return null;
+    }
+
     private function refreshCurrentAlertSourceRows(
         TwFuturesHourlyPriceFetcher $fetcher,
         CarbonImmutable $now,
     ): void {
         $barsByInterval = [];
-        if ($this->isConfiguredNotifyTime($now)) {
+        if ($this->isFourHourMa5NotifyTime($now)) {
             $barsByInterval['60'] = 200;
+        }
+        if ($this->isPriceAlertRefreshTime($now) || $this->isFourHourMa5NotifyTime($now)) {
             $barsByInterval['15'] = 600;
         }
         if ($barsByInterval === []) {
@@ -156,8 +177,11 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
     {
         $minTimestamp = $now->subMinutes($lookbackMinutes)->timestamp;
         $alerts = [];
+        $requiredPriceAlertLocalTime = $this->option('dry-run')
+            ? null
+            : $this->requiredPriceAlertLocalTime($now);
 
-        if ($this->option('dry-run') || $this->isConfiguredNotifyTime($now)) {
+        if ($this->option('dry-run') || $requiredPriceAlertLocalTime !== null) {
             foreach ($payload['chartRows'] ?? [] as $row) {
                 if (! is_array($row)) {
                     continue;
@@ -166,7 +190,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
                 $alert = $this->priceAlert(
                     $row,
                     $minTimestamp,
-                    $this->option('dry-run') ? null : $now->format('Y-m-d H:i'),
+                    $requiredPriceAlertLocalTime,
                 );
                 if ($alert !== null) {
                     $alerts[] = $alert;

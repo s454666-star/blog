@@ -55,7 +55,7 @@ RESOURCE_CODE_WENJIANJI_PATTERN = re.compile(
     re.IGNORECASE,
 )
 RESOURCE_CODE_QQ_PATTERN = re.compile(
-    r"QQ[A-Za-z0-9]+_bot:qqcode[0-9a-f]+(?:_[0-9]+[A-Za-z])+",
+    r"(?:QQ[A-Za-z0-9]+_bot:qqcode[0-9a-f]+(?:_[0-9]+[A-Za-z])+|QQfile_bot:\d+(?:_\d+)+-\d+)",
     re.IGNORECASE,
 )
 RESOURCE_CODE_IMAGE_COUNT_PATTERN = re.compile(r"(?:图片|圖片)\s*(\d+)\s*(?:个|個)")

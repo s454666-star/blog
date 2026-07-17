@@ -25,6 +25,7 @@ class ProcessTelegramResourceCodesCommand extends Command
         {--target-peer-id= : Resource group peer id}
         {--bot-username= : Decoder bot username}
         {--code-type= : Numeric code type claimed for processing}
+        {--code-id= : Process only this exact queued code id}
         {--scan-code-types= : Comma-separated code types scanned into the table}';
 
     protected $description = 'Scan Telegram groups for configured resource codes and serially forward decoded media to the resource group.';
@@ -32,7 +33,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const LOCK_NAME = 'blog:telegram-resource-code-worker';
     private const HEX_CODE_REGEX = '/(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])/i';
     private const WENJIANJI_CODE_REGEX = '/(?<![A-Za-z0-9_])WenJianJiJibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}(?![A-Za-z0-9_])/i';
-    private const QQ_CODE_REGEX = '/(?<![A-Za-z0-9_])QQ[A-Za-z0-9]+_bot:qqcode[0-9a-f]+(?:_[0-9]+[A-Za-z])+(?![A-Za-z0-9_])/i';
+    private const QQ_CODE_REGEX = '/(?<![A-Za-z0-9_])(?:QQ[A-Za-z0-9]+_bot:qqcode[0-9a-f]+(?:_[0-9]+[A-Za-z])+|QQfile_bot:\d+(?:_\d+)+-\d+)(?![A-Za-z0-9_])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
     private const ACCOUNT_LIMIT_COOLDOWN_SECONDS = 900;
@@ -54,6 +55,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private int $scanBatchSize;
     private int $loopSleepSeconds;
     private int $requestTimeoutSeconds;
+    private int $onlyCodeId = 0;
     private bool $mysqlLockAcquired = false;
 
     /** @var array<string, int> */
@@ -157,6 +159,7 @@ class ProcessTelegramResourceCodesCommand extends Command
         $this->scanBatchSize = max(1, min(1000, (int) ($this->option('scan-batch-size') ?: ($config['scan_batch_size'] ?? 500))));
         $this->loopSleepSeconds = max(1, (int) ($this->option('loop-sleep-seconds') ?: ($config['loop_sleep_seconds'] ?? 10)));
         $this->requestTimeoutSeconds = max(30, (int) ($this->option('request-timeout-seconds') ?: ($config['request_timeout_seconds'] ?? 240)));
+        $this->onlyCodeId = max(0, (int) ($this->option('code-id') ?: 0));
     }
 
     /** @return array<int, string> */
@@ -267,6 +270,9 @@ class ProcessTelegramResourceCodesCommand extends Command
         $row = DB::table('telegram_resource_codes')
             ->where('status', TelegramResourceCode::STATUS_PENDING)
             ->whereIn('code_type', array_keys($availableProfiles))
+            ->when($this->onlyCodeId > 0, function ($query): void {
+                $query->where('id', $this->onlyCodeId);
+            })
             ->where(function ($query): void {
                 $query->whereNull('available_at')->orWhere('available_at', '<=', now());
             })

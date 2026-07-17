@@ -174,6 +174,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
                     'QQn8zw_bot:qqcode1099c74e81_8P_17V',
                     'QQyptu_bot:qqcode10884fe700_9V',
                     'QQyptu_bot:qqcode10882ee480_9V',
+                    'QQfile_bot:10506_69799_143-42',
                     'QQyptu_bot qqcode10882ee480_9V',
                     'notQQyptu_bot:qqcode10882ee480_9V',
                 ]),
@@ -187,12 +188,13 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             '--bot-username' => 'QQyptu_bot',
         ])->assertExitCode(0);
 
-        $this->assertDatabaseCount('telegram_resource_codes', 4);
+        $this->assertDatabaseCount('telegram_resource_codes', 5);
         foreach ([
             'QQer16_bot:qqcode1ebfce2af1_3V',
             'QQn8zw_bot:qqcode1099c74e81_8P_17V',
             'QQyptu_bot:qqcode10884fe700_9V',
             'QQyptu_bot:qqcode10882ee480_9V',
+            'QQfile_bot:10506_69799_143-42',
         ] as $code) {
             $this->assertDatabaseHas('telegram_resource_codes', [
                 'code' => $code,
@@ -251,6 +253,66 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'status' => TelegramResourceCode::STATUS_COMPLETED,
             'attempts' => 1,
             'forwarded_message_count' => 25,
+        ]);
+    }
+
+    public function test_specific_code_id_processes_only_the_requested_type_three_row(): void
+    {
+        $firstId = DB::table('telegram_resource_codes')->insertGetId([
+            'code' => 'QQyptu_bot:qqcode10884fe700_9V',
+            'code_type' => 3,
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 0,
+            'forwarded_message_count' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $requestedId = DB::table('telegram_resource_codes')->insertGetId([
+            'code' => 'QQfile_bot:10506_69799_143-42',
+            'code_type' => 3,
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 0,
+            'forwarded_message_count' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        Http::fake(function ($request) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            if ($request->method() === 'GET' && str_starts_with($path, '/groups/')) {
+                return Http::response(['status' => 'ok', 'items' => []]);
+            }
+
+            $this->assertSame('QQfile_bot:10506_69799_143-42', $request['code']);
+            $this->assertSame('QQ7bet_bot', $request['bot_username']);
+            return Http::response([
+                'status' => 'ok',
+                'forwarded_count' => 3,
+                'expected_media_count' => 3,
+                'declared_file_count' => 3,
+                'cleanup_complete' => true,
+            ]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--process-limit' => 1,
+            '--code-type' => 3,
+            '--code-id' => $requestedId,
+            '--scan-code-types' => '3',
+            '--bot-username' => 'QQ7bet_bot',
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'id' => $firstId,
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 0,
+        ]);
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'id' => $requestedId,
+            'status' => TelegramResourceCode::STATUS_COMPLETED,
+            'attempts' => 1,
+            'forwarded_message_count' => 3,
         ]);
     }
 

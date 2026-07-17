@@ -339,7 +339,7 @@
             scrollbar-width: thin;
         }
 
-        table {
+        .ranking-table {
             width: 100%;
             min-width: 1710px;
             border-collapse: separate;
@@ -347,8 +347,8 @@
             background: var(--panel);
         }
 
-        th,
-        td {
+        .ranking-table th,
+        .ranking-table td {
             padding: 13px 12px;
             border-right: 1px solid #d7e2ef;
             border-bottom: 1px solid #d7e2ef;
@@ -357,10 +357,10 @@
             font-size: 14px;
         }
 
-        th:last-child,
-        td:last-child { border-right: 0; }
+        .ranking-table th:last-child,
+        .ranking-table td:last-child { border-right: 0; }
 
-        th {
+        .ranking-table th {
             position: sticky;
             top: 0;
             z-index: 3;
@@ -373,35 +373,35 @@
             text-shadow: 0 1px 4px rgba(4, 16, 39, 0.45);
         }
 
-        td {
+        .ranking-table td {
             background: rgba(255, 255, 255, 0.97);
             font-weight: 750;
             font-variant-numeric: tabular-nums;
             transition: background 0.16s ease, box-shadow 0.16s ease;
         }
 
-        tbody tr:nth-child(even) td { background: #f7faff; }
+        .ranking-table tbody tr:nth-child(even) td { background: #f7faff; }
 
-        tbody tr:hover td {
+        .ranking-table tbody tr:hover td {
             background: #edf6ff;
             box-shadow: inset 0 1px rgba(37, 99, 235, 0.07), inset 0 -1px rgba(37, 99, 235, 0.07);
         }
 
-        th:first-child,
-        td:first-child,
-        th:nth-child(2),
-        td:nth-child(2) { text-align: left; }
+        .ranking-table th:first-child,
+        .ranking-table td:first-child,
+        .ranking-table th:nth-child(2),
+        .ranking-table td:nth-child(2) { text-align: left; }
 
-        th:first-child,
-        td:first-child {
+        .ranking-table th:first-child,
+        .ranking-table td:first-child {
             position: sticky;
             left: 0;
             z-index: 2;
             width: 78px;
         }
 
-        th:nth-child(2),
-        td:nth-child(2) {
+        .ranking-table th:nth-child(2),
+        .ranking-table td:nth-child(2) {
             position: sticky;
             left: 78px;
             z-index: 2;
@@ -409,8 +409,8 @@
             box-shadow: 8px 0 16px -14px rgba(15, 41, 77, 0.85);
         }
 
-        thead th:first-child,
-        thead th:nth-child(2) { z-index: 5; }
+        .ranking-table thead th:first-child,
+        .ranking-table thead th:nth-child(2) { z-index: 5; }
 
         .rank {
             display: inline-flex;
@@ -601,6 +601,28 @@
             background: linear-gradient(135deg, #2563eb, #0891b2);
         }
 
+        .chart-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            min-height: 36px;
+            padding: 10px 18px 0;
+        }
+
+        .chart-meta__item {
+            display: inline-flex;
+            align-items: center;
+            min-height: 30px;
+            padding: 0 10px;
+            border: 1px solid #c8d8ea;
+            border-radius: 999px;
+            color: #40536f;
+            background: #fff;
+            font-size: 12px;
+            font-weight: 850;
+            font-variant-numeric: tabular-nums;
+        }
+
         .chart-stage {
             position: relative;
             height: min(560px, 62vh);
@@ -674,9 +696,9 @@
             h1 { font-size: 25px; }
             .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .value { font-size: 22px; }
-            th, td { padding: 11px 10px; }
-            th:first-child, td:first-child { width: 68px; }
-            th:nth-child(2), td:nth-child(2) { left: 68px; }
+            .ranking-table th, .ranking-table td { padding: 11px 10px; }
+            .ranking-table th:first-child, .ranking-table td:first-child { width: 68px; }
+            .ranking-table th:nth-child(2), .ranking-table td:nth-child(2) { left: 68px; }
             .chart-modal { padding: 8px; }
             .chart-stage { height: 58vh; margin: 10px; }
         }
@@ -772,7 +794,7 @@
     </form>
 
     <section class="table-panel">
-        <table>
+        <table class="ranking-table">
             <thead>
             <tr>
                 <th>排名</th>
@@ -856,6 +878,7 @@
                             data-stock-code="{{ $row->stock_code }}"
                             data-stock-name="{{ $row->stock_name }}"
                             data-exchange="{{ $row->exchange }}"
+                            data-previous-close="{{ $row->previous_close_price ?? ((float) $row->close_price - (float) $row->price_change_amount) }}"
                         >走勢／K</button>
                     </td>
                     <td><a class="detail-link" href="{{ route('tw-stock.daily-prices.show', ['stockCode' => $row->stock_code, 'exchange' => $row->exchange]) }}">日 K</a></td>
@@ -880,6 +903,7 @@
             <button class="chart-tab active" type="button" data-chart-tab="trend">即時走勢</button>
             <button class="chart-tab" type="button" data-chart-tab="kline">即時 K 線</button>
         </div>
+        <div class="chart-meta" data-chart-meta aria-live="polite"></div>
         <div class="chart-stage">
             <div class="chart-message" data-chart-message>讀取盤中資料中…</div>
             <div class="chart-panel" data-chart-panel="trend"></div>
@@ -909,8 +933,21 @@
     const refreshStatusElement = document.querySelector('[data-refresh-status]');
     const modal = document.querySelector('[data-chart-modal]');
     const chartMessage = document.querySelector('[data-chart-message]');
+    const chartMeta = document.querySelector('[data-chart-meta]');
     const previewPopover = document.querySelector('[data-preview-popover]');
     const previewCache = new Map();
+    const taipeiTimeFormatter = new Intl.DateTimeFormat('zh-TW', {
+        timeZone: 'Asia/Taipei',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    });
+    const taipeiDateFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Taipei',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    });
     let realtimeTimer = null;
     let realtimeLoading = false;
     let trendChart = null;
@@ -930,8 +967,49 @@
     }
 
     function finiteNumber(value) {
+        if (value === null || value === undefined || value === '') {
+            return null;
+        }
+
         const number = Number(value);
         return Number.isFinite(number) ? number : null;
+    }
+
+    function taipeiDateKey(value) {
+        const date = new Date(value);
+        if (!Number.isFinite(date.getTime())) return '';
+        const parts = Object.fromEntries(
+            taipeiDateFormatter.formatToParts(date)
+                .filter(part => part.type !== 'literal')
+                .map(part => [part.type, part.value]),
+        );
+
+        return `${parts.year}-${parts.month}-${parts.day}`;
+    }
+
+    function chartBusinessDay(time) {
+        if (!time || typeof time !== 'object') return null;
+        const year = Number(time.year);
+        const month = Number(time.month);
+        const day = Number(time.day);
+        return [year, month, day].every(Number.isFinite) ? { year, month, day } : null;
+    }
+
+    function chartTimeLabel(time, daily = false, compact = false) {
+        const businessDay = chartBusinessDay(time);
+        if (businessDay) {
+            if (compact) return `${businessDay.month}/${businessDay.day}`;
+            return `${businessDay.year}/${String(businessDay.month).padStart(2, '0')}/${String(businessDay.day).padStart(2, '0')}`;
+        }
+
+        const timestamp = finiteNumber(time);
+        if (timestamp === null) return '--';
+        const date = new Date(timestamp * 1000);
+        if (!Number.isFinite(date.getTime())) return '--';
+        if (!daily) return taipeiTimeFormatter.format(date);
+
+        const dateKey = taipeiDateKey(date);
+        return compact ? dateKey.slice(5).replace('-', '/') : dateKey.replaceAll('-', '/');
     }
 
     function formatNumber(value, decimals = 2) {
@@ -1018,7 +1096,7 @@
                     <td>${metricRevenueHtml(row.metrics?.previousRevenue, '尚無前月資料')}</td>
                     <td>${formatInteger(row.volume_lots)}</td>
                     <td>${escapeHtml(row.trade_date || '--')}</td>
-                    <td><button class="realtime-chart-button" type="button" data-open-intraday data-stock-code="${code}" data-stock-name="${name}" data-exchange="${exchange}">走勢／K</button></td>
+                    <td><button class="realtime-chart-button" type="button" data-open-intraday data-stock-code="${code}" data-stock-name="${name}" data-exchange="${exchange}" data-previous-close="${escapeHtml(row.previous_close_price ?? '')}">走勢／K</button></td>
                     <td><a class="detail-link" href="${detailUrl}">日 K</a></td>
                 </tr>
             `;
@@ -1089,10 +1167,12 @@
         realtimeTimer = setInterval(refreshRealtime, 15000);
     }
 
-    function chartOptions(element) {
+    function chartOptions(element, options = {}) {
+        const fallbackElement = element.parentElement;
+        const daily = options.daily === true;
         return {
-            width: element.clientWidth,
-            height: element.clientHeight,
+            width: element.clientWidth || fallbackElement?.clientWidth || 640,
+            height: element.clientHeight || fallbackElement?.clientHeight || 360,
             layout: { background: { color: '#ffffff' }, textColor: '#334155' },
             grid: { vertLines: { color: '#eef3f9' }, horzLines: { color: '#eef3f9' } },
             crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
@@ -1102,14 +1182,11 @@
                 timeVisible: true,
                 secondsVisible: false,
                 rightOffset: 2,
+                tickMarkFormatter: time => chartTimeLabel(time, daily, true),
             },
             localization: {
                 locale: 'zh-TW',
-                timeFormatter: timestamp => new Date(Number(timestamp) * 1000).toLocaleTimeString('zh-TW', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false,
-                }),
+                timeFormatter: time => chartTimeLabel(time, daily, false),
             },
         };
     }
@@ -1123,42 +1200,100 @@
         document.querySelector('[data-chart-panel="kline"]').innerHTML = '';
     }
 
-    function renderIntradayCharts(points) {
+    function normalizeIntradayPoints(points, expectedDate) {
+        const byMinute = new Map();
+        (Array.isArray(points) ? [...points] : [])
+            .sort((left, right) => Number(left?.time) - Number(right?.time))
+            .forEach(point => {
+                const time = finiteNumber(point?.time);
+                const price = finiteNumber(point?.price);
+                if (time === null || price === null) return;
+                if (expectedDate && taipeiDateKey(time * 1000) !== expectedDate) return;
+
+                const minute = Math.floor(time / 60) * 60;
+                const open = finiteNumber(point?.open) ?? price;
+                const high = finiteNumber(point?.high) ?? price;
+                const low = finiteNumber(point?.low) ?? price;
+                const volume = finiteNumber(point?.volume);
+                const existing = byMinute.get(minute);
+                byMinute.set(minute, {
+                    time: minute,
+                    price,
+                    open: existing?.open ?? open,
+                    high: existing ? Math.max(existing.high, high, price) : Math.max(high, price),
+                    low: existing ? Math.min(existing.low, low, price) : Math.min(low, price),
+                    volume,
+                });
+            });
+
+        return [...byMinute.values()].sort((left, right) => left.time - right.time).slice(-500);
+    }
+
+    function renderChartMeta(points, previousClose) {
+        const lows = points.map(point => finiteNumber(point.low) ?? finiteNumber(point.price)).filter(value => value !== null);
+        const highs = points.map(point => finiteNumber(point.high) ?? finiteNumber(point.price)).filter(value => value !== null);
+        const latest = finiteNumber(points.at(-1)?.price);
+        const items = [
+            ['低', lows.length ? Math.min(...lows) : null],
+            ['高', highs.length ? Math.max(...highs) : null],
+            ['最新', latest],
+            ['昨收', previousClose],
+        ];
+        chartMeta.innerHTML = items
+            .filter(([, value]) => value !== null)
+            .map(([label, value]) => `<span class="chart-meta__item">${label} ${formatNumber(value, 2)}</span>`)
+            .join('');
+    }
+
+    function renderIntradayCharts(points, context = {}) {
         destroyIntradayCharts();
         const trendElement = document.querySelector('[data-chart-panel="trend"]');
         const klineElement = document.querySelector('[data-chart-panel="kline"]');
-        const cleanPoints = (points || []).filter(point => finiteNumber(point.time) !== null && finiteNumber(point.price) !== null);
+        const cleanPoints = normalizeIntradayPoints(points, context.date || '');
+        const previousClose = finiteNumber(context.previousClose);
         if (cleanPoints.length < 2) {
+            chartMeta.innerHTML = '';
             chartMessage.hidden = false;
             chartMessage.textContent = '今天目前沒有足夠的盤中走勢資料。';
             return;
         }
 
-        const first = finiteNumber(cleanPoints[0].price);
         const last = finiteNumber(cleanPoints.at(-1).price);
-        const rising = last >= first;
-        const lineColor = rising ? '#dc2626' : '#15803d';
+        const baseline = previousClose ?? finiteNumber(cleanPoints[0].price);
+        const lineColor = last > baseline ? '#dc2626' : (last < baseline ? '#16a34a' : '#0ea5e9');
+        const lineFill = last > baseline
+            ? 'rgba(220, 38, 38, 0.24)'
+            : (last < baseline ? 'rgba(22, 163, 74, 0.24)' : 'rgba(14, 165, 233, 0.22)');
+        renderChartMeta(cleanPoints, previousClose);
         trendChart = LightweightCharts.createChart(trendElement, chartOptions(trendElement));
         const area = trendChart.addAreaSeries({
             lineColor,
-            topColor: rising ? 'rgba(220, 38, 38, 0.28)' : 'rgba(21, 128, 61, 0.28)',
+            topColor: lineFill,
             bottomColor: 'rgba(255, 255, 255, 0.02)',
             lineWidth: 3,
-            priceLineVisible: true,
+            priceLineVisible: false,
         });
         area.setData(cleanPoints.map(point => ({ time: Number(point.time), value: Number(point.price) })));
+        if (previousClose !== null) {
+            area.createPriceLine({
+                price: previousClose,
+                color: 'rgba(100, 116, 139, 0.58)',
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: '昨收',
+            });
+        }
         trendChart.timeScale().fitContent();
 
-        const candles = cleanPoints
-            .filter(point => [point.open, point.high, point.low, point.price].every(value => finiteNumber(value) !== null))
-            .map(point => ({
-                time: Number(point.time),
-                open: Number(point.open),
-                high: Number(point.high),
-                low: Number(point.low),
-                close: Number(point.price),
-                volume: finiteNumber(point.volume),
-            }));
+        const candles = cleanPoints.map(point => ({
+            time: Number(point.time),
+            open: Number(point.open),
+            high: Number(point.high),
+            low: Number(point.low),
+            close: Number(point.price),
+            volume: finiteNumber(point.volume),
+        }));
         klineChart = LightweightCharts.createChart(klineElement, chartOptions(klineElement));
         if (candles.length) {
             const candleSeries = klineChart.addCandlestickSeries({
@@ -1168,8 +1303,19 @@
                 borderDownColor: '#15803d',
                 wickUpColor: '#dc2626',
                 wickDownColor: '#15803d',
+                priceLineVisible: false,
             });
             candleSeries.setData(candles);
+            if (previousClose !== null) {
+                candleSeries.createPriceLine({
+                    price: previousClose,
+                    color: 'rgba(100, 116, 139, 0.58)',
+                    lineWidth: 1,
+                    lineStyle: LightweightCharts.LineStyle.Dashed,
+                    axisLabelVisible: true,
+                    title: '昨收',
+                });
+            }
             const volumeRows = candles.filter(row => row.volume !== null);
             if (volumeRows.length) {
                 const volumeSeries = klineChart.addHistogramSeries({
@@ -1194,10 +1340,13 @@
     async function openIntraday(button) {
         const code = button.dataset.stockCode;
         const name = button.dataset.stockName;
+        const previousClose = finiteNumber(button.dataset.previousClose);
         modal.hidden = false;
         document.body.style.overflow = 'hidden';
+        activateChartTab('trend');
         document.querySelector('[data-chart-title]').textContent = `${code} ${name} · 盤中即時圖`;
         document.querySelector('[data-chart-subtitle]').textContent = '讀取盤中資料中…';
+        chartMeta.innerHTML = '';
         chartMessage.hidden = false;
         chartMessage.textContent = '讀取盤中資料中…';
         destroyIntradayCharts();
@@ -1210,7 +1359,10 @@
             const points = payload.series?.[code] || [];
             document.querySelector('[data-chart-subtitle]').textContent =
                 `${payload.date || '--'} · ${payload.source?.label || '台股分時'} · ${payload.market?.label || ''}`;
-            renderIntradayCharts(points);
+            renderIntradayCharts(points, {
+                date: payload.date || '',
+                previousClose,
+            });
         } catch (error) {
             chartMessage.hidden = false;
             chartMessage.textContent = '即時圖暫時讀取失敗，請稍後再試。';
@@ -1220,6 +1372,7 @@
     function closeIntraday() {
         modal.hidden = true;
         document.body.style.overflow = '';
+        chartMeta.innerHTML = '';
         destroyIntradayCharts();
     }
 
@@ -1262,9 +1415,16 @@
             element.innerHTML = '<div class="chart-message">目前沒有日 K 資料。</div>';
             return;
         }
+        const previewOptions = chartOptions(element, { daily: true });
         previewChart = LightweightCharts.createChart(element, {
-            ...chartOptions(element),
-            timeScale: { borderColor: '#cbd8e7', timeVisible: false, rightOffset: 0 },
+            ...previewOptions,
+            timeScale: {
+                ...previewOptions.timeScale,
+                timeVisible: false,
+                rightOffset: 0,
+                barSpacing: 24,
+                minBarSpacing: 16,
+            },
         });
         const candles = previewChart.addCandlestickSeries({
             upColor: '#dc2626',
@@ -1374,6 +1534,10 @@
         const klinePanel = document.querySelector('[data-chart-panel="kline"]');
         if (trendChart) trendChart.applyOptions({ width: trendPanel.clientWidth, height: trendPanel.clientHeight });
         if (klineChart) klineChart.applyOptions({ width: klinePanel.clientWidth, height: klinePanel.clientHeight });
+        if (previewChart) {
+            const previewPanel = document.querySelector('[data-preview-chart]');
+            previewChart.applyOptions({ width: previewPanel.clientWidth, height: previewPanel.clientHeight });
+        }
     });
 
     scheduleRealtime(initialMarket);

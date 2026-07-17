@@ -19,6 +19,125 @@ class TwStockRealtimeQuoteService
     private const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/%s';
     private const YAHOO_TW_QUOTE_URL = 'https://tw.stock.yahoo.com/quote/%s';
 
+    /**
+     * Fetches direct official exchange quotes in parallel for a large stock
+     * universe. Unlike the portfolio quote method, this intentionally does not
+     * require a second provider because it is used for a public market ranking,
+     * not account PnL state.
+     *
+     * @param list<array{code: string, exchange: string}> $stocks
+     * @return array<string, mixed>
+     */
+    public function officialMarketQuotes(array $stocks): array
+    {
+        $stocks = collect($stocks)
+            ->map(function (array $stock): array {
+                $code = $this->normalizeCode((string) ($stock['code'] ?? ''));
+                $exchange = strtoupper(trim((string) ($stock['exchange'] ?? '')));
+
+                return [
+                    'code' => $code,
+                    'exchange' => $exchange === 'TWSE' ? 'TWSE' : 'TPEx',
+                ];
+            })
+            ->filter(fn (array $stock): bool => $stock['code'] !== '')
+            ->unique(fn (array $stock): string => $stock['exchange'] . '|' . $stock['code'])
+            ->values()
+            ->all();
+
+        $ttl = 12;
+        if ($stocks === []) {
+            return [
+                'servedAt' => $this->now()->toIso8601String(),
+                'cacheSeconds' => $ttl,
+                'source' => ['status' => 'empty', 'label' => '證交所即時報價', 'errors' => []],
+                'quotes' => [],
+                'missing' => [],
+            ];
+        }
+
+        $cacheKey = 'tw-stock:official-market-quotes:v1:' . sha1(serialize($stocks));
+
+        return Cache::remember($cacheKey, now()->addSeconds($ttl), function () use ($stocks, $ttl): array {
+            $chunks = array_chunk($stocks, 80);
+            $responses = Http::pool(fn (Pool $pool): array => collect($chunks)
+                ->mapWithKeys(function (array $chunk, int $index) use ($pool): array {
+                    $channels = collect($chunk)
+                        ->map(fn (array $stock): string => sprintf(
+                            '%s_%s.tw',
+                            $stock['exchange'] === 'TWSE' ? 'tse' : 'otc',
+                            $stock['code'],
+                        ))
+                        ->implode('|');
+
+                    return [
+                        (string) $index => $pool->as((string) $index)
+                            ->withHeaders([
+                                'Accept' => 'application/json,text/plain,*/*',
+                                'Referer' => 'https://mis.twse.com.tw/stock/index.jsp',
+                                'User-Agent' => 'Mozilla/5.0',
+                            ])
+                            ->timeout($this->timeout())
+                            ->get(self::TWSE_MIS_URL, [
+                                'ex_ch' => $channels,
+                                'json' => '1',
+                                'delay' => '0',
+                                '_' => (string) floor(microtime(true) * 1000),
+                            ]),
+                    ];
+                })
+                ->all());
+
+            $quotes = [];
+            $errors = [];
+            foreach ($chunks as $index => $chunk) {
+                try {
+                    $response = $responses[(string) $index] ?? null;
+                    if (!$response instanceof HttpResponse) {
+                        throw $response instanceof Throwable
+                            ? $response
+                            : new \RuntimeException('TWSE MIS response is unavailable.');
+                    }
+
+                    $payload = $response->throw()->json();
+                    $marketRows = is_array($payload) ? ($payload['msgArray'] ?? []) : [];
+                    if (!is_array($marketRows)) {
+                        continue;
+                    }
+
+                    foreach ($marketRows as $marketRow) {
+                        if (!is_array($marketRow)) {
+                            continue;
+                        }
+
+                        $quote = $this->twseRowToQuote($marketRow);
+                        $code = $this->normalizeCode((string) ($marketRow['c'] ?? ''));
+                        if ($quote !== null && $code !== '') {
+                            $quotes[$code] = $quote;
+                        }
+                    }
+                } catch (Throwable $exception) {
+                    $errors['chunk_' . $index] = $exception->getMessage();
+                }
+            }
+
+            $codes = collect($stocks)->pluck('code')->unique()->values()->all();
+            $missing = array_values(array_diff($codes, array_keys($quotes)));
+
+            return [
+                'servedAt' => $this->now()->toIso8601String(),
+                'cacheSeconds' => $ttl,
+                'source' => [
+                    'status' => $quotes === [] ? 'unavailable' : ($missing === [] ? 'live' : 'partial'),
+                    'label' => '證交所即時報價',
+                    'errors' => $errors,
+                ],
+                'quotes' => $quotes,
+                'missing' => $missing,
+            ];
+        });
+    }
+
     public function quotes(array $codes): array
     {
         $codes = $this->normalizeCodes($codes);
@@ -1090,7 +1209,7 @@ class TwStockRealtimeQuoteService
 
     private function intradayCacheKey(string $date, string $code): string
     {
-        return "tw-stock:intraday:v2:{$date}:{$code}";
+        return "tw-stock:intraday:v3:{$date}:{$code}";
     }
 
     /**
@@ -1112,11 +1231,15 @@ class TwStockRealtimeQuoteService
             }
 
             $filteredPoint = ['time' => $timestamp, 'price' => $price];
-            foreach (['low', 'high'] as $rangeKey) {
+            foreach (['open', 'low', 'high'] as $rangeKey) {
                 $rangeValue = $this->priceOrNull($point[$rangeKey] ?? null);
                 if ($rangeValue !== null) {
                     $filteredPoint[$rangeKey] = $rangeValue;
                 }
+            }
+            $volume = $this->numberOrNull($point['volume'] ?? null);
+            if ($volume !== null && $volume >= 0) {
+                $filteredPoint['volume'] = $volume;
             }
             $filtered[$timestamp] = $filteredPoint;
         }
@@ -1207,6 +1330,8 @@ class TwStockRealtimeQuoteService
             $timezone,
             $chart['indicators']['quote'][0]['low'] ?? [],
             $chart['indicators']['quote'][0]['high'] ?? [],
+            $chart['indicators']['quote'][0]['open'] ?? [],
+            $chart['indicators']['quote'][0]['volume'] ?? [],
         );
     }
 
@@ -1291,6 +1416,10 @@ class TwStockRealtimeQuoteService
             $payload['data']['c'] ?? [],
             $date,
             $timezone,
+            $payload['data']['l'] ?? [],
+            $payload['data']['h'] ?? [],
+            $payload['data']['o'] ?? [],
+            $payload['data']['v'] ?? [],
         );
     }
 
@@ -1304,6 +1433,8 @@ class TwStockRealtimeQuoteService
         string $timezone,
         mixed $lows = [],
         mixed $highs = [],
+        mixed $opens = [],
+        mixed $volumes = [],
     ): array {
         if (!is_array($timestamps) || !is_array($closes)) {
             return [];
@@ -1322,13 +1453,21 @@ class TwStockRealtimeQuoteService
             }
 
             $point = ['time' => $timestamp, 'price' => $price];
+            $open = is_array($opens) ? $this->priceOrNull($opens[$index] ?? null) : null;
             $low = is_array($lows) ? $this->priceOrNull($lows[$index] ?? null) : null;
             $high = is_array($highs) ? $this->priceOrNull($highs[$index] ?? null) : null;
+            $volume = is_array($volumes) ? $this->numberOrNull($volumes[$index] ?? null) : null;
+            if ($open !== null) {
+                $point['open'] = $open;
+            }
             if ($low !== null) {
                 $point['low'] = $low;
             }
             if ($high !== null) {
                 $point['high'] = $high;
+            }
+            if ($volume !== null && $volume >= 0) {
+                $point['volume'] = $volume;
             }
 
             $points[$timestamp] = $point;

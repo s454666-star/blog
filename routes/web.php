@@ -216,6 +216,13 @@ Route::get('/tw-stock/q1-financial-reports', [TwStockQ1FinancialReportController
 Route::get('/tw-stock/annual-financial-comparison', [TwStockQ1FinancialReportController::class, 'annualComparison'])->name('tw-stock.annual-comparison.index');
 Route::get('/tw-stock/monthly-revenue-rankings', [TwStockMonthlyRevenueController::class, 'index'])->name('tw-stock.monthly-revenues.index');
 Route::get('/tw-stock/daily-price-rankings', [TwStockDailyPriceController::class, 'index'])->name('tw-stock.daily-prices.index');
+Route::get('/tw-stock/daily-price-rankings/realtime/data', [TwStockDailyPriceController::class, 'realtime'])->name('tw-stock.daily-prices.realtime');
+Route::get('/tw-stock/daily-price-rankings/intraday/{stockCode}', [TwStockDailyPriceController::class, 'intraday'])
+    ->where('stockCode', '[A-Za-z0-9]+')
+    ->name('tw-stock.daily-prices.intraday');
+Route::get('/tw-stock/daily-price-rankings/preview/{stockCode}', [TwStockDailyPriceController::class, 'preview'])
+    ->where('stockCode', '[A-Za-z0-9]+')
+    ->name('tw-stock.daily-prices.preview');
 Route::get('/tw-stock/daily-price-rankings/{stockCode}', [TwStockDailyPriceController::class, 'show'])
     ->where('stockCode', '[A-Za-z0-9]+')
     ->name('tw-stock.daily-prices.show');

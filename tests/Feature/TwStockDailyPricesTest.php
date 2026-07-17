@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\TwStockRealtimeQuoteService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
@@ -50,6 +51,7 @@ class TwStockDailyPricesTest extends TestCase
         Schema::dropIfExists('tw_stock_company_profiles');
         Schema::dropIfExists('tw_stock_annual_financial_comparisons');
         Schema::dropIfExists('tw_stock_q1_financial_reports');
+        Schema::dropIfExists('tw_stock_monthly_revenues');
         Schema::dropIfExists('tw_stock_daily_turnover_rates');
         Schema::dropIfExists('tw_stock_daily_prices');
 
@@ -444,6 +446,207 @@ class TwStockDailyPricesTest extends TestCase
             ->assertSee('aria-label="下一頁"', false);
     }
 
+    public function test_daily_price_index_displays_fundamentals_realtime_charts_and_hover_preview(): void
+    {
+        $now = now();
+        DB::table('tw_stock_daily_prices')->insert([
+            'exchange' => 'TWSE',
+            'stock_code' => '2330',
+            'stock_name' => '台積電',
+            'trade_date' => '2026-05-08',
+            'open_price' => 98,
+            'high_price' => 102,
+            'low_price' => 97,
+            'close_price' => 100,
+            'previous_close_price' => 98,
+            'price_change_amount' => 2,
+            'price_change_percent' => 2.0408,
+            'volume_lots' => 20000,
+            'volume_shares' => 20000000,
+            'trade_value' => 2000000000,
+            'transaction_count' => 1000,
+            'source' => 'test',
+            'fetched_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        foreach ([
+            [2026, 1, 2.5],
+            [2025, 4, 3.0],
+            [2025, 3, 2.5],
+            [2025, 2, 2.0],
+        ] as [$year, $quarter, $eps]) {
+            DB::table('tw_stock_q1_financial_reports')->insert([
+                'fiscal_year' => $year,
+                'quarter' => $quarter,
+                'exchange' => 'TWSE',
+                'stock_code' => '2330',
+                'stock_name' => '台積電',
+                'q1_eps' => $eps,
+            ]);
+        }
+
+        DB::table('tw_stock_monthly_revenues')->insert([
+            [
+                'revenue_year' => 2026,
+                'revenue_month' => 6,
+                'exchange' => 'TWSE',
+                'stock_code' => '2330',
+                'stock_name' => '台積電',
+                'monthly_revenue_thousands' => 1200000,
+                'year_over_year_percent' => 20,
+            ],
+            [
+                'revenue_year' => 2026,
+                'revenue_month' => 5,
+                'exchange' => 'TWSE',
+                'stock_code' => '2330',
+                'stock_name' => '台積電',
+                'monthly_revenue_thousands' => 1000000,
+                'year_over_year_percent' => -5,
+            ],
+        ]);
+
+        $this->get(route('tw-stock.daily-prices.index'))
+            ->assertOk()
+            ->assertSee('本益比（近四季）')
+            ->assertSee('近一月營收（YoY）')
+            ->assertSee('上上個月營收（YoY）')
+            ->assertSee('10.00 倍')
+            ->assertSee('EPS 10.00 · 2025 Q2–2026 Q1')
+            ->assertSee('12.00 億')
+            ->assertSee('(+20.00%)')
+            ->assertSee('2026/06')
+            ->assertSee('10.00 億')
+            ->assertSee('(-5.00%)')
+            ->assertSee('2026/05')
+            ->assertSee('data-open-intraday', false)
+            ->assertSee('data-preview-stock', false)
+            ->assertSee('近 10 日 K 線')
+            ->assertSee('setInterval(refreshRealtime, 15000)', false)
+            ->assertDontSee('<th>開盤</th>', false)
+            ->assertDontSee('<th>最高</th>', false)
+            ->assertDontSee('<th>最低</th>', false);
+    }
+
+    public function test_realtime_endpoint_ranks_the_current_market_and_returns_metrics(): void
+    {
+        Carbon::setTestNow('2026-05-08 10:00:00');
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-08 10:00:00', 'Asia/Taipei'));
+        $now = now();
+        DB::table('tw_stock_daily_prices')->insert([
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '2330',
+                'stock_name' => '台積電',
+                'trade_date' => '2026-05-07',
+                'open_price' => 98,
+                'high_price' => 101,
+                'low_price' => 97,
+                'close_price' => 100,
+                'previous_close_price' => 98,
+                'price_change_amount' => 2,
+                'price_change_percent' => 2.0408,
+                'volume_lots' => 1000,
+                'volume_shares' => 1000000,
+                'source' => 'test',
+                'fetched_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '2317',
+                'stock_name' => '鴻海',
+                'trade_date' => '2026-05-07',
+                'open_price' => 100,
+                'high_price' => 101,
+                'low_price' => 99,
+                'close_price' => 100,
+                'previous_close_price' => 99,
+                'price_change_amount' => 1,
+                'price_change_percent' => 1.0101,
+                'volume_lots' => 900,
+                'volume_shares' => 900000,
+                'source' => 'test',
+                'fetched_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+        ]);
+
+        $quotes = $this->mock(TwStockRealtimeQuoteService::class);
+        $quotes->shouldReceive('officialMarketQuotes')
+            ->once()
+            ->andReturn([
+                'servedAt' => '2026-05-08T10:00:00+08:00',
+                'source' => ['status' => 'live', 'label' => '證交所即時報價'],
+                'quotes' => [
+                    '2330' => [
+                        'lastPrice' => 110,
+                        'previousClose' => 100,
+                        'volumeLots' => 5000,
+                        'quotedAt' => '2026-05-08T10:00:00+08:00',
+                    ],
+                    '2317' => [
+                        'lastPrice' => 105,
+                        'previousClose' => 100,
+                        'volumeLots' => 6000,
+                        'quotedAt' => '2026-05-08T10:00:00+08:00',
+                    ],
+                ],
+            ]);
+
+        $this->getJson(route('tw-stock.daily-prices.realtime'))
+            ->assertOk()
+            ->assertJsonPath('market.isOpen', true)
+            ->assertJsonPath('market.refreshSeconds', 15)
+            ->assertJsonPath('rows.0.stock_code', '2330')
+            ->assertJsonPath('rows.0.rank', 1)
+            ->assertJsonPath('rows.0.close_price', 110)
+            ->assertJsonPath('rows.0.price_change_percent', 10)
+            ->assertJsonPath('rows.1.stock_code', '2317')
+            ->assertJsonPath('summary.up', 2)
+            ->assertJsonPath('summary.maxChange', 10);
+    }
+
+    public function test_preview_endpoint_returns_only_the_latest_ten_daily_candles(): void
+    {
+        $now = now();
+        foreach (range(1, 12) as $day) {
+            DB::table('tw_stock_daily_prices')->insert([
+                'exchange' => 'TWSE',
+                'stock_code' => '2330',
+                'stock_name' => '台積電',
+                'trade_date' => sprintf('2026-04-%02d', $day),
+                'open_price' => 90 + $day,
+                'high_price' => 92 + $day,
+                'low_price' => 89 + $day,
+                'close_price' => 91 + $day,
+                'previous_close_price' => 90 + $day,
+                'price_change_amount' => 1,
+                'price_change_percent' => 1,
+                'volume_lots' => 1000 + $day,
+                'volume_shares' => (1000 + $day) * 1000,
+                'source' => 'test',
+                'fetched_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        $this->getJson(route('tw-stock.daily-prices.preview', [
+            'stockCode' => '2330',
+            'exchange' => 'TWSE',
+        ]))
+            ->assertOk()
+            ->assertJsonCount(10, 'rows')
+            ->assertJsonPath('rows.0.time', '2026-04-03')
+            ->assertJsonPath('rows.9.time', '2026-04-12')
+            ->assertJsonPath('rows.9.close', 103);
+    }
+
     private function createTables(): void
     {
         Schema::create('tw_stock_daily_prices', function (Blueprint $table): void {
@@ -477,6 +680,18 @@ class TwStockDailyPricesTest extends TestCase
             $table->string('exchange', 12);
             $table->string('stock_code', 12);
             $table->string('stock_name');
+            $table->decimal('q1_eps', 10, 4)->nullable();
+        });
+
+        Schema::create('tw_stock_monthly_revenues', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedSmallInteger('revenue_year');
+            $table->unsignedTinyInteger('revenue_month');
+            $table->string('exchange', 12);
+            $table->string('stock_code', 12);
+            $table->string('stock_name');
+            $table->bigInteger('monthly_revenue_thousands')->nullable();
+            $table->decimal('year_over_year_percent', 12, 4)->nullable();
         });
 
         Schema::create('tw_stock_annual_financial_comparisons', function (Blueprint $table): void {

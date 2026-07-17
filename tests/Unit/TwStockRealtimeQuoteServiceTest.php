@@ -23,6 +23,52 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         config()->set('esun.quote_confirmation_tick_tolerance', 1);
     }
 
+    public function test_it_fetches_large_market_quotes_directly_from_official_exchange_channels(): void
+    {
+        Http::fake([
+            'https://mis.twse.com.tw/stock/api/getStockInfo.jsp*' => Http::response([
+                'msgArray' => [
+                    [
+                        'c' => '2330',
+                        'n' => '台積電',
+                        'ex' => 'tse',
+                        'z' => '1100.0000',
+                        'y' => '1080.0000',
+                        'v' => '12345',
+                        'd' => '20260717',
+                        't' => '10:00:01',
+                    ],
+                    [
+                        'c' => '5483',
+                        'n' => '中美晶',
+                        'ex' => 'otc',
+                        'z' => '145.5000',
+                        'y' => '140.0000',
+                        'v' => '6789',
+                        'd' => '20260717',
+                        't' => '10:00:02',
+                    ],
+                ],
+            ]),
+        ]);
+
+        $payload = app(TwStockRealtimeQuoteService::class)->officialMarketQuotes([
+            ['code' => '2330', 'exchange' => 'TWSE'],
+            ['code' => '5483', 'exchange' => 'TPEx'],
+        ]);
+
+        $this->assertSame('live', $payload['source']['status']);
+        $this->assertSame(1100.0, $payload['quotes']['2330']['lastPrice']);
+        $this->assertSame(12345.0, $payload['quotes']['2330']['volumeLots']);
+        $this->assertSame(145.5, $payload['quotes']['5483']['lastPrice']);
+        $this->assertSame([], $payload['missing']);
+        Http::assertSent(function ($request): bool {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return ($query['ex_ch'] ?? null) === 'tse_2330.tw|otc_5483.tw';
+        });
+    }
+
     public function test_it_parses_twse_mis_quotes_with_mid_price_fallback(): void
     {
         Http::fake([
@@ -593,6 +639,10 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
                             $now->subDay()->setTime(13, 30)->getTimestamp(),
                         ],
                         'c' => [101.5, 100.0, 99.0],
+                        'o' => [100.8, 99.5, 98.5],
+                        'l' => [100.5, 99.0, 98.0],
+                        'h' => [102.0, 100.5, 99.5],
+                        'v' => [2000, 1500, 1000],
                     ],
                 ]),
             ]);
@@ -604,6 +654,10 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
             $this->assertSame('live', $payload['source']['status']);
             $this->assertSame([5483, '00631L'], array_keys($payload['series']));
             $this->assertSame(100.0, $payload['series']['5483'][0]['price']);
+            $this->assertSame(99.5, $payload['series']['5483'][0]['open']);
+            $this->assertSame(99.0, $payload['series']['5483'][0]['low']);
+            $this->assertSame(100.5, $payload['series']['5483'][0]['high']);
+            $this->assertSame(1500.0, $payload['series']['5483'][0]['volume']);
             $this->assertSame(101.5, $payload['series']['5483'][1]['price']);
             $this->assertSame([], $payload['missing']);
 
@@ -621,11 +675,11 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         CarbonImmutable::setTestNow($now);
 
         try {
-            Cache::put('tw-stock:intraday:v2:2026-07-16:5483', [
+            Cache::put('tw-stock:intraday:v3:2026-07-16:5483', [
                 'provider' => 'cnyes',
                 'points' => [
                     ['time' => $now->subDay()->setTime(9, 1)->getTimestamp(), 'price' => 98.0],
-                    ['time' => $now->setTime(9, 2)->getTimestamp(), 'price' => 100.0, 'low' => 99.5, 'high' => 100.5],
+                    ['time' => $now->setTime(9, 2)->getTimestamp(), 'price' => 100.0, 'open' => 99.8, 'low' => 99.5, 'high' => 100.5, 'volume' => 1200],
                 ],
             ], now()->addSeconds(15));
             Http::fake();
@@ -635,8 +689,10 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
             $this->assertSame('2026-07-16', $payload['date']);
             $this->assertCount(1, $payload['series']['5483']);
             $this->assertSame($now->setTime(9, 2)->getTimestamp(), $payload['series']['5483'][0]['time']);
+            $this->assertSame(99.8, $payload['series']['5483'][0]['open']);
             $this->assertSame(99.5, $payload['series']['5483'][0]['low']);
             $this->assertSame(100.5, $payload['series']['5483'][0]['high']);
+            $this->assertSame(1200.0, $payload['series']['5483'][0]['volume']);
             Http::assertNothingSent();
         } finally {
             CarbonImmutable::setTestNow();

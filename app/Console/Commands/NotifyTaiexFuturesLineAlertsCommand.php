@@ -88,9 +88,9 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         return self::SUCCESS;
     }
 
-    private function isFourHourMa5NotifyTime(CarbonImmutable $now): bool
+    private function isConfiguredNotifyTime(CarbonImmutable $now): bool
     {
-        $notifyTimes = config('tw_stock.taiex_futures_four_hour_ma5_notify_times', [
+        $notifyTimes = config('tw_stock.taiex_futures_notify_times', [
             '08:45',
             '12:45',
             '13:45',
@@ -102,20 +102,13 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         return in_array($now->format('H:i'), $notifyTimes, true);
     }
 
-    private function isPriceAlertNotifyTime(CarbonImmutable $now): bool
-    {
-        return ((int) $now->format('i')) % 15 === 0;
-    }
-
     private function refreshCurrentAlertSourceRows(
         TwFuturesHourlyPriceFetcher $fetcher,
         CarbonImmutable $now,
     ): void {
         $barsByInterval = [];
-        if ($this->isFourHourMa5NotifyTime($now)) {
+        if ($this->isConfiguredNotifyTime($now)) {
             $barsByInterval['60'] = 200;
-        }
-        if ($this->isPriceAlertNotifyTime($now) || $this->isFourHourMa5NotifyTime($now)) {
             $barsByInterval['15'] = 600;
         }
         if ($barsByInterval === []) {
@@ -164,18 +157,20 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         $minTimestamp = $now->subMinutes($lookbackMinutes)->timestamp;
         $alerts = [];
 
-        foreach ($payload['chartRows'] ?? [] as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
+        if ($this->option('dry-run') || $this->isConfiguredNotifyTime($now)) {
+            foreach ($payload['chartRows'] ?? [] as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
 
-            $alert = $this->priceAlert(
-                $row,
-                $minTimestamp,
-                $this->option('dry-run') ? null : $now->format('Y-m-d H:i'),
-            );
-            if ($alert !== null) {
-                $alerts[] = $alert;
+                $alert = $this->priceAlert(
+                    $row,
+                    $minTimestamp,
+                    $this->option('dry-run') ? null : $now->format('Y-m-d H:i'),
+                );
+                if ($alert !== null) {
+                    $alerts[] = $alert;
+                }
             }
         }
 

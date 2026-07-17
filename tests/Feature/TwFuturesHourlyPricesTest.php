@@ -467,18 +467,18 @@ class TwFuturesHourlyPricesTest extends TestCase
         ));
     }
 
-    public function test_taiex_futures_line_alert_refreshes_and_sends_only_the_current_15k_end_time(): void
+    public function test_taiex_futures_line_alert_sends_only_at_configured_notify_times(): void
     {
         Cache::flush();
-        Carbon::setTestNow('2026-07-17 13:00:00');
-        CarbonImmutable::setTestNow('2026-07-17 13:00:00');
+        Carbon::setTestNow('2026-07-17 13:45:00');
+        CarbonImmutable::setTestNow('2026-07-17 13:45:00');
 
         $this->mock(TwFuturesHourlyPriceFetcher::class, function (MockInterface $mock): void {
             $mock->shouldReceive('fetchRows')
-                ->once()
+                ->twice()
                 ->andReturn([]);
             $mock->shouldReceive('upsertRows')
-                ->once()
+                ->twice()
                 ->with([])
                 ->andReturn(0);
         });
@@ -488,8 +488,8 @@ class TwFuturesHourlyPricesTest extends TestCase
                 ->andReturn([
                     'chartRows' => [
                         [
-                            'time' => CarbonImmutable::parse('2026-07-17 12:45:00', 'Asia/Taipei')->timestamp,
-                            'localTime' => '2026-07-17 12:45',
+                            'time' => CarbonImmutable::parse('2026-07-17 13:30:00', 'Asia/Taipei')->timestamp,
+                            'localTime' => '2026-07-17 13:30',
                             'gap' => null,
                             'isSessionOpen' => false,
                             'biasRate' => -0.052,
@@ -498,14 +498,24 @@ class TwFuturesHourlyPricesTest extends TestCase
                             'movingAverage' => 45500,
                         ],
                         [
-                            'time' => CarbonImmutable::parse('2026-07-17 13:00:00', 'Asia/Taipei')->timestamp,
-                            'localTime' => '2026-07-17 13:00',
+                            'time' => CarbonImmutable::parse('2026-07-17 13:45:00', 'Asia/Taipei')->timestamp,
+                            'localTime' => '2026-07-17 13:45',
                             'gap' => null,
                             'isSessionOpen' => false,
                             'biasRate' => -0.051,
                             'close' => 43145,
                             'dailyMa5' => 45065,
                             'movingAverage' => 45435,
+                        ],
+                        [
+                            'time' => CarbonImmutable::parse('2026-07-17 15:15:00', 'Asia/Taipei')->timestamp,
+                            'localTime' => '2026-07-17 15:15',
+                            'gap' => -1005,
+                            'isSessionOpen' => true,
+                            'biasRate' => -0.0633,
+                            'close' => 42700,
+                            'dailyMa5' => 44398,
+                            'movingAverage' => 45403,
                         ],
                     ],
                     'fourHourMa5Rows' => [],
@@ -529,15 +539,15 @@ class TwFuturesHourlyPricesTest extends TestCase
         Http::assertSent(function ($request): bool {
             $message = (string) data_get($request->data(), 'messages.0.text', '');
 
-            return str_contains($message, '台指期通知 2026-07-17 13:00')
+            return str_contains($message, '台指期通知 2026-07-17 13:45')
                 && str_contains($message, '現價 43,145')
-                && ! str_contains($message, '2026-07-17 12:45')
+                && ! str_contains($message, '2026-07-17 13:30')
                 && ! str_contains($message, '現價 43,200');
         });
 
         Cache::flush();
-        Carbon::setTestNow('2026-07-17 13:05:00');
-        CarbonImmutable::setTestNow('2026-07-17 13:05:00');
+        Carbon::setTestNow('2026-07-17 15:15:00');
+        CarbonImmutable::setTestNow('2026-07-17 15:15:00');
 
         $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
 
@@ -604,13 +614,8 @@ class TwFuturesHourlyPricesTest extends TestCase
         CarbonImmutable::setTestNow('2026-01-07 10:00:00');
 
         $this->mock(TwFuturesHourlyPriceFetcher::class, function (MockInterface $mock): void {
-            $mock->shouldReceive('fetchRows')
-                ->once()
-                ->andReturn([]);
-            $mock->shouldReceive('upsertRows')
-                ->once()
-                ->with([])
-                ->andReturn(0);
+            $mock->shouldNotReceive('fetchRows');
+            $mock->shouldNotReceive('upsertRows');
         });
 
         config()->set('app.url', 'https://stock.mystar.monster');

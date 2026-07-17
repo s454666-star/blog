@@ -25,9 +25,16 @@ api_id = 27946982
 api_hash = "2324efd7bed05b02a63e3809fa93048c"
 SERVICE_HOME = os.environ.get("TELEGRAM_SERVICE_HOME") or os.path.dirname(os.path.abspath(__file__))
 SESSION_NAME = os.environ.get("TELEGRAM_SERVICE_SESSION", "session/main_account")
+LANG_CODE = str(os.environ.get("TELEGRAM_SERVICE_LANG_CODE", "en") or "en").strip() or "en"
 
 app = FastAPI()
-client = TelegramClient(SESSION_NAME, api_id, api_hash)
+client = TelegramClient(
+    SESSION_NAME,
+    api_id,
+    api_hash,
+    lang_code=LANG_CODE,
+    system_lang_code=LANG_CODE,
+)
 
 MESSAGE_STORE: Dict[Tuple[int, int], Dict[str, Any]] = {}
 DEBUG_LOGS: List[Dict[str, Any]] = []

@@ -31,7 +31,7 @@ class ProcessTelegramResourceCodesCommand extends Command
 
     private const LOCK_NAME = 'blog:telegram-resource-code-worker';
     private const HEX_CODE_REGEX = '/(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])/i';
-    private const WENJIANJI_CODE_REGEX = '/(?<![A-Za-z0-9_])wenjianjibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}(?![A-Za-z0-9_])/i';
+    private const WENJIANJI_CODE_REGEX = '/(?<![A-Za-z0-9_])WenJianJiJibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}(?![A-Za-z0-9_])/i';
     private const QQ_CODE_REGEX = '/(?<![A-Za-z0-9_])QQ[A-Za-z0-9]+_bot:qqcode[0-9a-f]+(?:_[0-9]+[A-Za-z])+(?![A-Za-z0-9_])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
@@ -46,6 +46,8 @@ class ProcessTelegramResourceCodesCommand extends Command
     private int $targetPeerId;
     private string $botUsername;
     private int $codeType;
+    /** @var array<int, string> */
+    private array $processingProfiles = [];
     /** @var array<int, int> */
     private array $scanCodeTypes = [];
     private int $initialScanLimit;
@@ -66,7 +68,7 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         $this->loadOptions();
 
-        if ($this->baseUris === [] || $this->sourcePeerIds === [] || $this->targetPeerId <= 0 || $this->botUsername === '') {
+        if ($this->baseUris === [] || $this->sourcePeerIds === [] || $this->targetPeerId <= 0 || $this->processingProfiles === []) {
             $this->error('Telegram resource-code configuration is incomplete.');
             return self::FAILURE;
         }
@@ -128,6 +130,21 @@ class ProcessTelegramResourceCodesCommand extends Command
         $this->targetPeerId = (int) ($this->option('target-peer-id') ?: ($config['target_peer_id'] ?? 0));
         $this->botUsername = ltrim(trim((string) ($this->option('bot-username') ?: ($config['bot_username'] ?? ''))), '@');
         $this->codeType = max(1, min(255, (int) ($this->option('code-type') ?: ($config['code_type'] ?? 1))));
+        $processingProfilesValue = trim((string) ($config['processing_profiles'] ?? ''));
+        if ($this->option('bot-username') || $this->option('code-type') || $processingProfilesValue === '') {
+            if ($this->botUsername !== '') {
+                $this->processingProfiles = [$this->codeType => $this->botUsername];
+            }
+        } else {
+            foreach ($this->csv($processingProfilesValue) as $profile) {
+                [$rawType, $rawBotUsername] = array_pad(explode(':', $profile, 2), 2, '');
+                $profileCodeType = max(0, min(255, (int) trim($rawType)));
+                $profileBotUsername = ltrim(trim($rawBotUsername), '@');
+                if ($profileCodeType > 0 && $profileBotUsername !== '') {
+                    $this->processingProfiles[$profileCodeType] = $profileBotUsername;
+                }
+            }
+        }
         $scanCodeTypesValue = (string) ($this->option('scan-code-types') ?: ($config['scan_code_types'] ?? $this->codeType));
         $this->scanCodeTypes = array_values(array_unique(array_filter(array_map(
             static fn (string $value): int => max(0, min(255, (int) $value)),
@@ -233,21 +250,23 @@ class ProcessTelegramResourceCodesCommand extends Command
     private function processNextCode(): ?bool
     {
         $now = time();
-        $hasAvailableAccount = false;
-        foreach ($this->baseUris as $baseUri) {
-            if ($this->processCooldownUntil($baseUri) <= $now) {
-                $hasAvailableAccount = true;
-                break;
+        $availableProfiles = [];
+        foreach ($this->processingProfiles as $profileCodeType => $profileBotUsername) {
+            foreach ($this->baseUris as $baseUri) {
+                if ($this->processCooldownUntil($baseUri, $profileBotUsername) <= $now) {
+                    $availableProfiles[$profileCodeType] = $profileBotUsername;
+                    break;
+                }
             }
         }
 
-        if (!$hasAvailableAccount) {
+        if ($availableProfiles === []) {
             return null;
         }
 
         $row = DB::table('telegram_resource_codes')
             ->where('status', TelegramResourceCode::STATUS_PENDING)
-            ->where('code_type', $this->codeType)
+            ->whereIn('code_type', array_keys($availableProfiles))
             ->where(function ($query): void {
                 $query->whereNull('available_at')->orWhere('available_at', '<=', now());
             })
@@ -259,10 +278,16 @@ class ProcessTelegramResourceCodesCommand extends Command
             return null;
         }
 
+        $rowCodeType = (int) $row->code_type;
+        $botUsername = $availableProfiles[$rowCodeType] ?? '';
+        if ($botUsername === '') {
+            return false;
+        }
+
         $claimed = DB::table('telegram_resource_codes')
             ->where('id', $row->id)
             ->where('status', TelegramResourceCode::STATUS_PENDING)
-            ->where('code_type', $this->codeType)
+            ->where('code_type', $rowCodeType)
             ->update([
                 'status' => TelegramResourceCode::STATUS_PROCESSING,
                 'attempts' => DB::raw('attempts + 1'),
@@ -281,7 +306,7 @@ class ProcessTelegramResourceCodesCommand extends Command
         $processingFailureReason = 'unknown';
 
         foreach ($this->baseUris as $accountIndex => $baseUri) {
-            $cooldownUntil = $this->processCooldownUntil($baseUri);
+            $cooldownUntil = $this->processCooldownUntil($baseUri, $botUsername);
             if ($cooldownUntil > time()) {
                 $earliestCooldown = $earliestCooldown === null ? $cooldownUntil : min($earliestCooldown, $cooldownUntil);
                 continue;
@@ -292,7 +317,7 @@ class ProcessTelegramResourceCodesCommand extends Command
                     ->timeout(max(86400, $this->requestTimeoutSeconds + 30))
                     ->post($baseUri . '/resource-codes/process', [
                         'code' => (string) $row->code,
-                        'bot_username' => $this->botUsername,
+                        'bot_username' => $botUsername,
                         'target_peer_id' => $this->targetPeerId,
                         'wait_timeout_seconds' => $this->requestTimeoutSeconds,
                         'drop_media_captions' => false,
@@ -328,8 +353,9 @@ class ProcessTelegramResourceCodesCommand extends Command
                 $cooldownSeconds = $reason === 'account_limited'
                     ? self::ACCOUNT_LIMIT_COOLDOWN_SECONDS
                     : 30;
-                $until = $reason === 'account_limited'
-                    ? $this->markDecoderCooldown($baseUri, $cooldownSeconds)
+                $decoderScopedCooldown = in_array($reason, ['account_limited', 'bot_not_found'], true);
+                $until = $decoderScopedCooldown
+                    ? $this->markDecoderCooldown($baseUri, $botUsername, $cooldownSeconds)
                     : $this->markCooldown($baseUri, $cooldownSeconds);
                 $earliestCooldown = $earliestCooldown === null ? $until : min($earliestCooldown, $until);
                 Log::warning('Telegram resource-code account could not send to decoder', [
@@ -359,7 +385,7 @@ class ProcessTelegramResourceCodesCommand extends Command
                     'updated_at' => now(),
                 ]);
 
-                $this->info("code_id={$row->id} completed account=" . ($accountIndex + 1) . " forwarded={$forwardedCount} decoder_sent={$decoderSentCount} decoder_total={$decoderTotalCount}");
+                $this->info("code_id={$row->id} code_type={$rowCodeType} bot={$botUsername} completed account=" . ($accountIndex + 1) . " forwarded={$forwardedCount} decoder_sent={$decoderSentCount} decoder_total={$decoderTotalCount}");
                 return true;
             }
 
@@ -459,7 +485,7 @@ class ProcessTelegramResourceCodesCommand extends Command
         }
 
         if ($codeType === 2) {
-            return (string) preg_replace('/^wenjianjibot_/i', 'wenjianjibot_', $code);
+            return (string) preg_replace('/^WenJianJiJibot_/i', 'WenJianJiJibot_', $code);
         }
 
         return $code;
@@ -519,14 +545,14 @@ class ProcessTelegramResourceCodesCommand extends Command
         return 'telegram_resource_codes:account_cooldown:' . sha1($baseUri);
     }
 
-    private function decoderCooldownKey(string $baseUri): string
+    private function decoderCooldownKey(string $baseUri, string $botUsername): string
     {
-        return 'telegram_resource_codes:decoder_cooldown:' . sha1($baseUri);
+        return 'telegram_resource_codes:decoder_cooldown:' . sha1(strtolower($botUsername) . '|' . $baseUri);
     }
 
-    private function processCooldownUntil(string $baseUri): int
+    private function processCooldownUntil(string $baseUri, string $botUsername): int
     {
-        return max($this->cooldownUntil($baseUri), $this->decoderCooldownUntil($baseUri));
+        return max($this->cooldownUntil($baseUri), $this->decoderCooldownUntil($baseUri, $botUsername));
     }
 
     private function cooldownUntil(string $baseUri): int
@@ -566,9 +592,9 @@ class ProcessTelegramResourceCodesCommand extends Command
         return $until;
     }
 
-    private function decoderCooldownUntil(string $baseUri): int
+    private function decoderCooldownUntil(string $baseUri, string $botUsername): int
     {
-        $key = $this->decoderCooldownKey($baseUri);
+        $key = $this->decoderCooldownKey($baseUri, $botUsername);
 
         try {
             $remoteUntil = max(0, (int) Cache::store('telegram_resource_codes')->get($key, 0));
@@ -583,11 +609,11 @@ class ProcessTelegramResourceCodesCommand extends Command
         return max(0, $this->localCooldownUntil[$key] ?? 0);
     }
 
-    private function markDecoderCooldown(string $baseUri, int $seconds): int
+    private function markDecoderCooldown(string $baseUri, string $botUsername, int $seconds): int
     {
         $seconds = max(1, $seconds);
         $until = time() + $seconds;
-        $key = $this->decoderCooldownKey($baseUri);
+        $key = $this->decoderCooldownKey($baseUri, $botUsername);
         $this->localCooldownUntil[$key] = $until;
 
         try {
@@ -607,7 +633,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     {
         DB::table('telegram_resource_codes')
             ->where('status', TelegramResourceCode::STATUS_PROCESSING)
-            ->where('code_type', $this->codeType)
+            ->whereIn('code_type', array_keys($this->processingProfiles))
             ->where('processing_started_at', '<=', now()->subMinutes(self::STALE_PROCESSING_MINUTES))
             ->update([
                 'status' => TelegramResourceCode::STATUS_PENDING,

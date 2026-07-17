@@ -57,6 +57,13 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
         ]:
             self.assertEqual(code, service._normalize_resource_code(code))
 
+    def test_wenjianjiji_code_is_accepted_and_prefix_is_normalized(self) -> None:
+        self.assertEqual(
+            "WenJianJiJibot_1v_EY7hgrHmiujLKVaV",
+            service._normalize_resource_code("wenjianjijibot_1v_EY7hgrHmiujLKVaV"),
+        )
+        self.assertIsNone(service._normalize_resource_code("WenJianJibot_1v_EY7hgrHmiujLKVaV"))
+
     def test_qq_paging_buttons_are_supported(self) -> None:
         self.assertIn("下一页", service.RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS)
         self.assertNotIn("推送剩余全部文件", service.RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS)

@@ -51,7 +51,7 @@ DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
 RESOURCE_CODE_LOCK = asyncio.Lock()
 RESOURCE_CODE_HEX_PATTERN = re.compile(r"[0-9a-f]{40}", re.IGNORECASE)
 RESOURCE_CODE_WENJIANJI_PATTERN = re.compile(
-    r"wenjianjibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}",
+    r"WenJianJiJibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}",
     re.IGNORECASE,
 )
 RESOURCE_CODE_QQ_PATTERN = re.compile(
@@ -217,7 +217,7 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
     if RESOURCE_CODE_HEX_PATTERN.fullmatch(code):
         return code.lower()
     if RESOURCE_CODE_WENJIANJI_PATTERN.fullmatch(code):
-        return "wenjianjibot_" + code.split("_", 1)[1]
+        return "WenJianJiJibot_" + code.split("_", 1)[1]
     if RESOURCE_CODE_QQ_PATTERN.fullmatch(code):
         return code
     return None

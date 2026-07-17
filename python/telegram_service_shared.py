@@ -7253,6 +7253,103 @@ class ClickMatchingButtonRequest(BaseModel):
     callback_candidate_scan_limit: int = 30
 
 
+class DispatchNextPageCallbackRequest(BaseModel):
+    bot_username: str
+    message_id: int
+    response_timeout_seconds: float = 0.75
+
+
+def _find_next_page_callback_button(message: Any) -> Optional[Tuple[str, str]]:
+    for row in list(getattr(message, "buttons", None) or []):
+        for button in list(row or []):
+            text = str(getattr(button, "text", "") or "").strip()
+            if not text or ("下一页" not in text and "下一頁" not in text):
+                continue
+            if "推送" in text or "VIP" in text.upper():
+                continue
+
+            data = getattr(button, "data", None)
+            if not data:
+                continue
+            if isinstance(data, str):
+                data = data.encode("utf-8")
+
+            return text, bytes(data).hex()
+
+    return None
+
+
+def _consume_dispatched_callback_task(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except Exception as e:
+        push_log(
+            stage="dispatch_next_page_callback",
+            result="background_result",
+            extra={"error_type": type(e).__name__, "error": str(e)[:300]},
+        )
+
+
+@app.post("/bots/dispatch-next-page-callback")
+async def dispatch_next_page_callback(payload: DispatchNextPageCallbackRequest) -> Dict[str, Any]:
+    bot_username = str(payload.bot_username or "").strip()
+    message_id = int(payload.message_id or 0)
+    if not bot_username or message_id <= 0:
+        return {"status": "error", "reason": "invalid_request"}
+    if not await _ensure_client_connected():
+        return {"status": "error", "reason": "client_not_connected"}
+
+    peer = await _get_peer_for_bot(bot_username)
+    if peer is None:
+        return {"status": "error", "reason": "peer_not_found"}
+
+    message = await client.get_messages(peer, ids=message_id)
+    if message is None:
+        return {"status": "error", "reason": "message_not_found", "message_id": message_id}
+
+    callback = _find_next_page_callback_button(message)
+    if callback is None:
+        return {"status": "error", "reason": "next_page_button_not_found", "message_id": message_id}
+
+    button_text, data_hex = callback
+    task = asyncio.create_task(client(GetBotCallbackAnswerRequest(
+        peer=peer,
+        msg_id=message_id,
+        data=bytes.fromhex(data_hex),
+    )))
+    timeout_seconds = max(0.1, min(float(payload.response_timeout_seconds or 0.75), 3.0))
+
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+        response_status = "acknowledged"
+    except asyncio.TimeoutError:
+        task.add_done_callback(_consume_dispatched_callback_task)
+        response_status = "dispatched"
+    except FloodWaitError as e:
+        return {
+            "status": "flood_wait",
+            "wait_seconds": int(getattr(e, "seconds", 0) or 0),
+            "message_id": message_id,
+        }
+    except Exception as e:
+        if type(e).__name__ == "BotResponseTimeoutError":
+            response_status = "dispatched"
+        else:
+            return {
+                "status": "error",
+                "reason": "callback_failed",
+                "error": str(e),
+                "message_id": message_id,
+            }
+
+    return {
+        "status": "ok",
+        "response_status": response_status,
+        "message_id": message_id,
+        "button_text": button_text,
+    }
+
+
 @app.post("/bots/click-matching-button")
 async def click_matching_button(payload: ClickMatchingButtonRequest) -> Dict[str, Any]:
     timeline: List[Dict[str, Any]] = []

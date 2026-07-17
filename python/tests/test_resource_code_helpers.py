@@ -75,6 +75,23 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
         text = "解码失败!!\n文件码错误或被举报删除"
         self.assertEqual("解码失败", service._match_bot_not_found_keyword(text))
 
+    def test_next_page_callback_excludes_push_action(self) -> None:
+        class Button:
+            def __init__(self, text: str, data: bytes):
+                self.text = text
+                self.data = data
+
+        class Message:
+            buttons = [
+                [Button("📁推送剩余全部文件", b"push")],
+                [Button("下一页⏩", b"next")],
+            ]
+
+        self.assertEqual(
+            ("下一页⏩", b"next".hex()),
+            service._find_next_page_callback_button(Message()),
+        )
+
 
 class DeleteVerificationTest(unittest.IsolatedAsyncioTestCase):
     async def test_manual_resource_batch_forwards_only_requested_media(self) -> None:

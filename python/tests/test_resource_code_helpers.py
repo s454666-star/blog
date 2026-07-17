@@ -92,6 +92,24 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
             service._find_next_page_callback_button(Message()),
         )
 
+    def test_page_callback_matches_only_requested_safe_page(self) -> None:
+        class Button:
+            def __init__(self, text: str, data: bytes):
+                self.text = text
+                self.data = data
+
+        class Message:
+            buttons = [
+                [Button("➡️51", b"page-51"), Button("➡️101", b"page-101")],
+                [Button("📁推送剩余全部文件 51", b"push")],
+            ]
+
+        self.assertEqual(
+            ("➡️51", b"page-51".hex()),
+            service._find_page_callback_button(Message(), 51),
+        )
+        self.assertIsNone(service._find_page_callback_button(Message(), 97))
+
 
 class DeleteVerificationTest(unittest.IsolatedAsyncioTestCase):
     async def test_manual_resource_batch_forwards_only_requested_media(self) -> None:

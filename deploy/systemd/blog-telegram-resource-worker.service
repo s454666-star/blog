@@ -1,8 +1,8 @@
 [Unit]
 Description=Blog Telegram resource-code worker
-After=network-online.target blog-telegram-account@1.service blog-telegram-account@2.service blog-telegram-account@3.service
+After=network-online.target blog-telegram-account@2.service blog-telegram-account@3.service
 Wants=network-online.target
-Requires=blog-telegram-account@1.service blog-telegram-account@2.service blog-telegram-account@3.service
+Requires=blog-telegram-account@2.service blog-telegram-account@3.service
 StartLimitIntervalSec=0
 
 [Service]

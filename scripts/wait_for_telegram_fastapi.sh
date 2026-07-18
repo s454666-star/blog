@@ -1,16 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+base_uris="${TELEGRAM_RESOURCE_CODE_BASE_URIS:-}"
+if [[ -z "${base_uris}" && -r .env ]]; then
+    base_uris="$(sed -n 's/^TELEGRAM_RESOURCE_CODE_BASE_URIS=//p' .env | tail -n 1)"
+fi
+base_uris="${base_uris:-http://127.0.0.1:8001,http://127.0.0.1:8002,http://127.0.0.1:8003}"
+IFS=',' read -r -a account_uris <<< "${base_uris}"
+
 for attempt in $(seq 1 60); do
     healthy=0
-    for port in 8001 8002 8003; do
-        if curl --fail --silent --show-error --max-time 3 "http://127.0.0.1:${port}/bots/health" \
+    total=0
+    for raw_uri in "${account_uris[@]}"; do
+        uri="${raw_uri%/}"
+        if [[ -z "${uri}" ]]; then
+            continue
+        fi
+
+        total=$((total + 1))
+        if curl --fail --silent --show-error --max-time 3 "${uri}/bots/health" \
             | grep --quiet '"status":"ok"'; then
             healthy=$((healthy + 1))
         fi
     done
 
-    if [[ ${healthy} -eq 3 ]]; then
+    if [[ ${total} -gt 0 && ${healthy} -eq ${total} ]]; then
         exit 0
     fi
 

@@ -426,10 +426,11 @@
 
         .stock-cell {
             display: grid;
-            grid-template-columns: 155px 172px 58px;
+            grid-template-columns: 155px minmax(172px, 1fr) 58px;
             align-items: center;
             justify-content: start;
             gap: 7px;
+            width: 100%;
             min-width: 399px;
         }
 
@@ -496,7 +497,7 @@
 
         .stock-wave-svg {
             display: block;
-            width: 160px;
+            width: 100%;
             height: 40px;
             overflow: visible;
         }
@@ -637,8 +638,7 @@
             .ranking-table th:first-child, .ranking-table td:first-child { width: 68px; }
             .ranking-table th:nth-child(2), .ranking-table td:nth-child(2) { left: 68px; }
             .ranking-table th:nth-child(2), .ranking-table td:nth-child(2) { min-width: 385px; }
-            .stock-cell { grid-template-columns: 138px 160px 54px; min-width: 364px; gap: 6px; }
-            .stock-wave-svg { width: 148px; }
+            .stock-cell { grid-template-columns: 138px minmax(160px, 1fr) 54px; min-width: 364px; gap: 6px; }
         }
 @include('tw-stock.partials.shared-shell-width')
     </style>

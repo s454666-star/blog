@@ -1069,13 +1069,25 @@ class TwStockRealtimeQuoteService
         ], $best, $required);
     }
 
-    public function intradayPrices(array $codes): array
+    public function intradayPrices(array $codes, ?string $targetDate = null): array
     {
         $codes = $this->normalizeCodes($codes);
         $ttl = 15;
         $now = $this->now();
-        $date = $now->toDateString();
         $timezone = (string) config('esun.timezone', 'Asia/Taipei');
+        $requestDay = $now->startOfDay();
+        if (is_string($targetDate) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $targetDate) === 1) {
+            try {
+                $candidate = CarbonImmutable::createFromFormat('!Y-m-d', $targetDate, $timezone);
+                if ($candidate !== false && $candidate->toDateString() === $targetDate && $candidate->lessThanOrEqualTo($requestDay)) {
+                    $requestDay = $candidate->startOfDay();
+                }
+            } catch (Throwable) {
+                // Invalid dates fall back to the current Taipei calendar date.
+            }
+        }
+        $date = $requestDay->toDateString();
+        $requestUntil = $date === $now->toDateString() ? $now : $requestDay->endOfDay();
 
         if ($codes === []) {
             return [
@@ -1120,8 +1132,8 @@ class TwStockRealtimeQuoteService
                         ->get(self::CNYES_HISTORY_URL, [
                             'resolution' => '1',
                             'symbol' => 'TWS:' . $code . ':STOCK',
-                            'from' => (string) $now->startOfDay()->getTimestamp(),
-                            'to' => (string) $now->getTimestamp(),
+                            'from' => (string) $requestDay->getTimestamp(),
+                            'to' => (string) $requestUntil->getTimestamp(),
                             'quote' => '1',
                         ]),
                 ])

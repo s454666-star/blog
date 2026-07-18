@@ -521,7 +521,11 @@ class TwStockDailyPricesTest extends TestCase
             ->assertSee('10.00 億')
             ->assertSee('(-5.00%)')
             ->assertSee('2026/05')
-            ->assertSee('data-open-intraday', false)
+            ->assertSee('data-stock-inline-charts', false)
+            ->assertSee('data-stock-wave', false)
+            ->assertSee('data-stock-day-candle', false)
+            ->assertSee('loadVisibleIntraday', false)
+            ->assertSee('dayCandleSvgMarkup', false)
             ->assertSee('data-preview-stock', false)
             ->assertSee('data-previous-close=', false)
             ->assertSee('class="ranking-table"', false)
@@ -535,7 +539,9 @@ class TwStockDailyPricesTest extends TestCase
             ->assertDontSee("\n        th,\n        td {", false)
             ->assertDontSee('<th>開盤</th>', false)
             ->assertDontSee('<th>最高</th>', false)
-            ->assertDontSee('<th>最低</th>', false);
+            ->assertDontSee('<th>最低</th>', false)
+            ->assertDontSee('<th>即時圖</th>', false)
+            ->assertDontSee('data-open-intraday', false);
     }
 
     public function test_realtime_endpoint_ranks_the_current_market_and_returns_metrics(): void
@@ -653,6 +659,37 @@ class TwStockDailyPricesTest extends TestCase
             ->assertJsonPath('rows.0.time', '2026-04-03')
             ->assertJsonPath('rows.9.time', '2026-04-12')
             ->assertJsonPath('rows.9.close', 103);
+    }
+
+    public function test_intraday_batch_endpoint_uses_the_requested_ranking_trade_date(): void
+    {
+        $quotes = $this->mock(TwStockRealtimeQuoteService::class);
+        $quotes->shouldReceive('intradayPrices')
+            ->once()
+            ->with(['2330', '2317'], '2026-05-07')
+            ->andReturn([
+                'servedAt' => '2026-05-09T10:00:00+08:00',
+                'date' => '2026-05-07',
+                'cacheSeconds' => 15,
+                'source' => ['status' => 'live', 'label' => 'CNYES 分時'],
+                'series' => [
+                    '2330' => [
+                        ['time' => 1778115660, 'price' => 100.0],
+                        ['time' => 1778115720, 'price' => 101.0],
+                    ],
+                ],
+                'missing' => ['2317'],
+            ]);
+
+        $this->getJson(route('tw-stock.daily-prices.intraday-data', [
+            'codes' => '2330,2317,2330,invalid!',
+            'date' => '2026-05-07',
+        ]))
+            ->assertOk()
+            ->assertJsonPath('date', '2026-05-07')
+            ->assertJsonCount(2, 'series.2330')
+            ->assertJsonPath('missing.0', '2317')
+            ->assertJsonPath('market.isOpen', false);
     }
 
     private function createTables(): void

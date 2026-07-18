@@ -217,6 +217,8 @@ Route::get('/tw-stock/annual-financial-comparison', [TwStockQ1FinancialReportCon
 Route::get('/tw-stock/monthly-revenue-rankings', [TwStockMonthlyRevenueController::class, 'index'])->name('tw-stock.monthly-revenues.index');
 Route::get('/tw-stock/daily-price-rankings', [TwStockDailyPriceController::class, 'index'])->name('tw-stock.daily-prices.index');
 Route::get('/tw-stock/daily-price-rankings/realtime/data', [TwStockDailyPriceController::class, 'realtime'])->name('tw-stock.daily-prices.realtime');
+Route::get('/tw-stock/daily-price-rankings/intraday/data', [TwStockDailyPriceController::class, 'intradayBatch'])
+    ->name('tw-stock.daily-prices.intraday-data');
 Route::get('/tw-stock/daily-price-rankings/intraday/{stockCode}', [TwStockDailyPriceController::class, 'intraday'])
     ->where('stockCode', '[A-Za-z0-9]+')
     ->name('tw-stock.daily-prices.intraday');

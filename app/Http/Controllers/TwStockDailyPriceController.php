@@ -71,7 +71,7 @@ class TwStockDailyPriceController extends Controller
             'summary' => $this->latestDateSummary($latestDate),
             'initialMarket' => $this->marketStatus(),
             'realtimeUrl' => route('tw-stock.daily-prices.realtime'),
-            'intradayUrlTemplate' => route('tw-stock.daily-prices.intraday', ['stockCode' => '__CODE__']),
+            'intradayBatchUrl' => route('tw-stock.daily-prices.intraday-data'),
             'previewUrlTemplate' => route('tw-stock.daily-prices.preview', ['stockCode' => '__CODE__']),
         ]);
     }
@@ -222,10 +222,29 @@ class TwStockDailyPriceController extends Controller
         ]);
     }
 
-    public function intraday(string $stockCode, TwStockRealtimeQuoteService $quoteService): JsonResponse
+    public function intraday(Request $request, string $stockCode, TwStockRealtimeQuoteService $quoteService): JsonResponse
     {
+        $date = $this->requestedIntradayDate($request);
+
         return response()->json([
-            ...$quoteService->intradayPrices([$stockCode]),
+            ...$quoteService->intradayPrices([$stockCode], $date),
+            'market' => $this->marketStatus(),
+        ]);
+    }
+
+    public function intradayBatch(Request $request, TwStockRealtimeQuoteService $quoteService): JsonResponse
+    {
+        $codes = collect(explode(',', (string) $request->query('codes', '')))
+            ->map(fn (string $code): string => strtoupper(trim($code)))
+            ->filter(fn (string $code): bool => preg_match('/^[A-Z0-9]{2,12}$/', $code) === 1)
+            ->unique()
+            ->take(100)
+            ->values()
+            ->all();
+        $date = $this->requestedIntradayDate($request);
+
+        return response()->json([
+            ...$quoteService->intradayPrices($codes, $date),
             'market' => $this->marketStatus(),
         ]);
     }
@@ -481,6 +500,30 @@ class TwStockDailyPriceController extends Controller
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
             fn (): ?string => $latestDate,
         );
+    }
+
+    private function requestedIntradayDate(Request $request): string
+    {
+        $timezone = (string) config('app.timezone', 'Asia/Taipei');
+        $today = CarbonImmutable::now($timezone)->toDateString();
+        $fallback = $this->latestTradeDate() ?? $today;
+        $requested = trim((string) $request->query('date', $fallback));
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $requested) !== 1) {
+            return $fallback;
+        }
+
+        try {
+            $date = CarbonImmutable::createFromFormat('!Y-m-d', $requested, $timezone);
+
+            return $date !== false
+                && $date->toDateString() === $requested
+                && $date->toDateString() <= $today
+                    ? $requested
+                    : $fallback;
+        } catch (\Throwable) {
+            return $fallback;
+        }
     }
 
     /**

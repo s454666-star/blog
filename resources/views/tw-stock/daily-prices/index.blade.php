@@ -178,8 +178,7 @@
 
         .nav-actions a,
         .sort-link,
-        .detail-link,
-        .realtime-chart-button {
+        .detail-link {
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -207,8 +206,7 @@
 
         .nav-actions a:hover,
         .sort-link:hover,
-        .detail-link:hover,
-        .realtime-chart-button:hover {
+        .detail-link:hover {
             transform: translateY(-2px);
             border-color: #89a8c7;
             box-shadow: 0 11px 24px rgba(26, 61, 111, 0.13);
@@ -341,7 +339,7 @@
 
         .ranking-table {
             width: 100%;
-            min-width: 1710px;
+            min-width: 1900px;
             border-collapse: separate;
             border-spacing: 0;
             background: var(--panel);
@@ -405,7 +403,7 @@
             position: sticky;
             left: 78px;
             z-index: 2;
-            min-width: 180px;
+            min-width: 410px;
             box-shadow: 8px 0 16px -14px rgba(15, 41, 77, 0.85);
         }
 
@@ -426,11 +424,19 @@
             font-weight: 900;
         }
 
+        .stock-cell {
+            display: grid;
+            grid-template-columns: minmax(112px, 1fr) 172px 58px;
+            align-items: center;
+            gap: 10px;
+            min-width: 382px;
+        }
+
         .stock-main {
             display: flex;
             flex-direction: column;
             gap: 3px;
-            min-width: 145px;
+            min-width: 112px;
             padding: 4px 2px;
             border-radius: 8px;
             outline: none;
@@ -453,6 +459,64 @@
         .stock-sub {
             color: var(--muted);
             font-size: 12px;
+        }
+
+        .stock-inline-chart {
+            min-width: 0;
+            padding: 4px 5px;
+            border: 1px solid rgba(148, 181, 222, 0.34);
+            border-radius: 9px;
+            background: linear-gradient(145deg, rgba(239, 248, 255, 0.74), rgba(255, 255, 255, 0.9));
+            box-shadow: inset 0 1px rgba(255, 255, 255, 0.92);
+        }
+
+        .stock-inline-chart__label,
+        .stock-inline-chart__meta {
+            display: block;
+            overflow: hidden;
+            color: #64748b;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 9px;
+            font-weight: 800;
+            line-height: 1.2;
+        }
+
+        .stock-inline-chart__label {
+            margin-bottom: 1px;
+            color: #3d5577;
+            letter-spacing: 0.04em;
+        }
+
+        .stock-inline-chart__meta {
+            margin-top: 1px;
+            text-align: center;
+        }
+
+        .stock-wave-svg {
+            display: block;
+            width: 160px;
+            height: 40px;
+            overflow: visible;
+        }
+
+        .stock-day-candle {
+            text-align: center;
+        }
+
+        .stock-day-candle-svg {
+            display: block;
+            width: 46px;
+            height: 48px;
+            margin: 0 auto;
+            overflow: visible;
+        }
+
+        .wave-empty {
+            fill: #7c8da5;
+            text-anchor: middle;
+            font-size: 9px;
+            font-weight: 800;
         }
 
         .live-price {
@@ -506,139 +570,11 @@
 
         .yoy { font-weight: 900; }
 
-        .realtime-chart-button {
-            color: #075985;
-            border-color: #bae6fd;
-            background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
-        }
-
         .pager {
             padding: 18px 14px;
             border-top: 1px solid var(--line);
             background: #f8fbfd;
         }
-
-        .chart-modal {
-            position: fixed;
-            z-index: 1000;
-            inset: 0;
-            display: grid;
-            place-items: center;
-            padding: 22px;
-            background: rgba(5, 16, 38, 0.7);
-            backdrop-filter: blur(9px);
-        }
-
-        .chart-modal[hidden] { display: none; }
-
-        .chart-dialog {
-            width: min(1060px, 96vw);
-            max-height: 92vh;
-            overflow: auto;
-            border: 1px solid rgba(147, 197, 253, 0.52);
-            border-radius: 18px;
-            background: #f8fbff;
-            box-shadow: 0 36px 90px rgba(2, 12, 35, 0.45);
-        }
-
-        .chart-dialog__head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 14px;
-            padding: 18px 20px;
-            color: #fff;
-            background:
-                radial-gradient(circle at 88% 0%, rgba(56, 189, 248, 0.3), transparent 34%),
-                linear-gradient(135deg, #102b53, #1e4d8f);
-        }
-
-        .chart-dialog__title {
-            font-size: 21px;
-            font-weight: 900;
-        }
-
-        .chart-dialog__sub {
-            margin-top: 4px;
-            color: #c8dcf5;
-            font-size: 12px;
-            font-weight: 750;
-        }
-
-        .chart-close {
-            display: inline-grid;
-            width: 38px;
-            height: 38px;
-            place-items: center;
-            border: 1px solid rgba(255, 255, 255, 0.24);
-            border-radius: 10px;
-            color: #fff;
-            background: rgba(255, 255, 255, 0.1);
-            font-size: 20px;
-            cursor: pointer;
-        }
-
-        .chart-tabs {
-            display: flex;
-            gap: 8px;
-            padding: 14px 18px 0;
-        }
-
-        .chart-tab {
-            min-height: 38px;
-            padding: 0 15px;
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            color: #475569;
-            background: #fff;
-            font-weight: 850;
-            cursor: pointer;
-        }
-
-        .chart-tab.active {
-            color: #fff;
-            border-color: #2563eb;
-            background: linear-gradient(135deg, #2563eb, #0891b2);
-        }
-
-        .chart-meta {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            min-height: 36px;
-            padding: 10px 18px 0;
-        }
-
-        .chart-meta__item {
-            display: inline-flex;
-            align-items: center;
-            min-height: 30px;
-            padding: 0 10px;
-            border: 1px solid #c8d8ea;
-            border-radius: 999px;
-            color: #40536f;
-            background: #fff;
-            font-size: 12px;
-            font-weight: 850;
-            font-variant-numeric: tabular-nums;
-        }
-
-        .chart-stage {
-            position: relative;
-            height: min(560px, 62vh);
-            margin: 14px 18px 18px;
-            overflow: hidden;
-            border: 1px solid var(--line);
-            border-radius: 14px;
-            background: #fff;
-        }
-
-        .chart-panel {
-            width: 100%;
-            height: 100%;
-        }
-
-        .chart-panel[hidden] { display: none; }
 
         .chart-message {
             position: absolute;
@@ -677,7 +613,7 @@
 
         .preview-title { font-weight: 900; }
         .preview-note { color: #bfd4ee; font-size: 11px; font-weight: 750; }
-        .preview-chart { height: 235px; }
+        .preview-chart { position: relative; height: 235px; }
 
         @media (max-width: 1100px) {
             .topbar,
@@ -699,8 +635,9 @@
             .ranking-table th, .ranking-table td { padding: 11px 10px; }
             .ranking-table th:first-child, .ranking-table td:first-child { width: 68px; }
             .ranking-table th:nth-child(2), .ranking-table td:nth-child(2) { left: 68px; }
-            .chart-modal { padding: 8px; }
-            .chart-stage { height: 58vh; margin: 10px; }
+            .ranking-table th:nth-child(2), .ranking-table td:nth-child(2) { min-width: 385px; }
+            .stock-cell { grid-template-columns: 105px 160px 54px; min-width: 365px; gap: 8px; }
+            .stock-wave-svg { width: 148px; }
         }
 @include('tw-stock.partials.shared-shell-width')
     </style>
@@ -807,7 +744,6 @@
                 <th>上上個月營收（YoY）</th>
                 <th>成交量(張)</th>
                 <th>交易日</th>
-                <th>即時圖</th>
                 <th>明細</th>
             </tr>
             </thead>
@@ -822,15 +758,35 @@
                     <td><span class="rank">{{ $rows->firstItem() + $loop->index }}</span></td>
                     <td>
                         <div
-                            class="stock-main"
-                            tabindex="0"
-                            data-preview-stock
+                            class="stock-cell"
+                            data-stock-inline-charts
                             data-stock-code="{{ $row->stock_code }}"
-                            data-stock-name="{{ $row->stock_name }}"
-                            data-exchange="{{ $row->exchange }}"
+                            data-previous-close="{{ $row->previous_close_price ?? ((float) $row->close_price - (float) $row->price_change_amount) }}"
                         >
-                            <a href="{{ route('tw-stock.daily-prices.show', ['stockCode' => $row->stock_code, 'exchange' => $row->exchange]) }}">{{ $row->stock_code }}</a>
-                            <span class="stock-sub">{{ $row->stock_name }} · {{ $row->exchange }}</span>
+                            <div
+                                class="stock-main"
+                                tabindex="0"
+                                data-preview-stock
+                                data-stock-code="{{ $row->stock_code }}"
+                                data-stock-name="{{ $row->stock_name }}"
+                                data-exchange="{{ $row->exchange }}"
+                            >
+                                <a href="{{ route('tw-stock.daily-prices.show', ['stockCode' => $row->stock_code, 'exchange' => $row->exchange]) }}">{{ $row->stock_code }}</a>
+                                <span class="stock-sub">{{ $row->stock_name }} · {{ $row->exchange }}</span>
+                            </div>
+                            <div class="stock-inline-chart" data-stock-wave-panel>
+                                <span class="stock-inline-chart__label">當日分時</span>
+                                <svg class="stock-wave-svg" data-stock-wave viewBox="0 0 160 40" preserveAspectRatio="none" role="img">
+                                    <text class="wave-empty" x="80" y="24">讀取中</text>
+                                </svg>
+                                <span class="stock-inline-chart__meta" data-stock-wave-meta>讀取中</span>
+                            </div>
+                            <div class="stock-inline-chart stock-day-candle" data-stock-day-candle-panel>
+                                <span class="stock-inline-chart__label">當日 K</span>
+                                <svg class="stock-day-candle-svg" data-stock-day-candle viewBox="0 0 46 48" role="img">
+                                    <text class="wave-empty" x="23" y="27">--</text>
+                                </svg>
+                            </div>
                         </div>
                     </td>
                     <td><span class="live-price">{{ $fmt($row->close_price, 2) }}</span></td>
@@ -870,17 +826,6 @@
                     </td>
                     <td>{{ number_format((int) $row->volume_lots) }}</td>
                     <td>{{ $row->trade_date?->toDateString() }}</td>
-                    <td>
-                        <button
-                            class="realtime-chart-button"
-                            type="button"
-                            data-open-intraday
-                            data-stock-code="{{ $row->stock_code }}"
-                            data-stock-name="{{ $row->stock_name }}"
-                            data-exchange="{{ $row->exchange }}"
-                            data-previous-close="{{ $row->previous_close_price ?? ((float) $row->close_price - (float) $row->price_change_amount) }}"
-                        >走勢／K</button>
-                    </td>
                     <td><a class="detail-link" href="{{ route('tw-stock.daily-prices.show', ['stockCode' => $row->stock_code, 'exchange' => $row->exchange]) }}">日 K</a></td>
                 </tr>
             @endforeach
@@ -889,28 +834,6 @@
         <div class="pager">{{ $rows->links('tw-stock.partials.pagination') }}</div>
     </section>
 </main>
-
-<div class="chart-modal" data-chart-modal hidden>
-    <section class="chart-dialog" role="dialog" aria-modal="true" aria-labelledby="intraday-chart-title">
-        <header class="chart-dialog__head">
-            <div>
-                <div class="chart-dialog__title" id="intraday-chart-title" data-chart-title>即時圖</div>
-                <div class="chart-dialog__sub" data-chart-subtitle>讀取盤中資料中</div>
-            </div>
-            <button class="chart-close" type="button" data-chart-close aria-label="關閉">×</button>
-        </header>
-        <div class="chart-tabs" role="tablist">
-            <button class="chart-tab active" type="button" data-chart-tab="trend">即時走勢</button>
-            <button class="chart-tab" type="button" data-chart-tab="kline">即時 K 線</button>
-        </div>
-        <div class="chart-meta" data-chart-meta aria-live="polite"></div>
-        <div class="chart-stage">
-            <div class="chart-message" data-chart-message>讀取盤中資料中…</div>
-            <div class="chart-panel" data-chart-panel="trend"></div>
-            <div class="chart-panel" data-chart-panel="kline" hidden></div>
-        </div>
-    </section>
-</div>
 
 <aside class="preview-popover" data-preview-popover hidden>
     <div class="preview-head">
@@ -926,14 +849,12 @@
 <script>
     const initialMarket = @json($initialMarket, JSON_UNESCAPED_UNICODE);
     const realtimeUrl = @json($realtimeUrl);
-    const intradayUrlTemplate = @json($intradayUrlTemplate);
+    const intradayBatchUrl = @json($intradayBatchUrl);
+    const initialTradeDate = @json($latestDate);
     const previewUrlTemplate = @json($previewUrlTemplate);
     const rankingBody = document.querySelector('[data-ranking-body]');
     const marketStatusElement = document.querySelector('[data-market-status]');
     const refreshStatusElement = document.querySelector('[data-refresh-status]');
-    const modal = document.querySelector('[data-chart-modal]');
-    const chartMessage = document.querySelector('[data-chart-message]');
-    const chartMeta = document.querySelector('[data-chart-meta]');
     const previewPopover = document.querySelector('[data-preview-popover]');
     const previewCache = new Map();
     const taipeiTimeFormatter = new Intl.DateTimeFormat('zh-TW', {
@@ -950,8 +871,7 @@
     });
     let realtimeTimer = null;
     let realtimeLoading = false;
-    let trendChart = null;
-    let klineChart = null;
+    let inlineChartsLoadToken = 0;
     let previewChart = null;
     let previewTimer = null;
     let previewHideTimer = null;
@@ -1088,9 +1008,24 @@
                 <tr>
                     <td><span class="rank">${formatInteger(row.rank)}</span></td>
                     <td>
-                        <div class="stock-main" tabindex="0" data-preview-stock data-stock-code="${code}" data-stock-name="${name}" data-exchange="${exchange}">
-                            <a href="${detailUrl}">${code}</a>
-                            <span class="stock-sub">${name} · ${exchange}</span>
+                        <div class="stock-cell" data-stock-inline-charts data-stock-code="${code}" data-previous-close="${escapeHtml(row.previous_close_price ?? '')}">
+                            <div class="stock-main" tabindex="0" data-preview-stock data-stock-code="${code}" data-stock-name="${name}" data-exchange="${exchange}">
+                                <a href="${detailUrl}">${code}</a>
+                                <span class="stock-sub">${name} · ${exchange}</span>
+                            </div>
+                            <div class="stock-inline-chart" data-stock-wave-panel>
+                                <span class="stock-inline-chart__label">當日分時</span>
+                                <svg class="stock-wave-svg" data-stock-wave viewBox="0 0 160 40" preserveAspectRatio="none" role="img">
+                                    <text class="wave-empty" x="80" y="24">讀取中</text>
+                                </svg>
+                                <span class="stock-inline-chart__meta" data-stock-wave-meta>讀取中</span>
+                            </div>
+                            <div class="stock-inline-chart stock-day-candle" data-stock-day-candle-panel>
+                                <span class="stock-inline-chart__label">當日 K</span>
+                                <svg class="stock-day-candle-svg" data-stock-day-candle viewBox="0 0 46 48" role="img">
+                                    <text class="wave-empty" x="23" y="27">--</text>
+                                </svg>
+                            </div>
                         </div>
                     </td>
                     <td><span class="live-price">${liveDot}${formatNumber(row.close_price, 2)}</span></td>
@@ -1101,7 +1036,6 @@
                     <td>${metricRevenueHtml(row.metrics?.previousRevenue, '尚無前月資料')}</td>
                     <td>${formatInteger(row.volume_lots)}</td>
                     <td>${escapeHtml(row.trade_date || '--')}</td>
-                    <td><button class="realtime-chart-button" type="button" data-open-intraday data-stock-code="${code}" data-stock-name="${name}" data-exchange="${exchange}" data-previous-close="${escapeHtml(row.previous_close_price ?? '')}">走勢／K</button></td>
                     <td><a class="detail-link" href="${detailUrl}">日 K</a></td>
                 </tr>
             `;
@@ -1152,7 +1086,9 @@
             if (Array.isArray(payload.rows) && payload.rows.length) {
                 renderRankingRows(payload.rows);
                 updateSummary(payload.summary);
-                document.querySelector('[data-price-date]').textContent = payload.rows[0]?.trade_date || '--';
+                const tradeDate = payload.rows[0]?.trade_date || initialTradeDate;
+                document.querySelector('[data-price-date]').textContent = tradeDate || '--';
+                loadVisibleIntraday(tradeDate);
             }
             if (payload.market?.isOpen === false && realtimeTimer) {
                 clearInterval(realtimeTimer);
@@ -1196,15 +1132,6 @@
         };
     }
 
-    function destroyIntradayCharts() {
-        if (trendChart) trendChart.remove();
-        if (klineChart) klineChart.remove();
-        trendChart = null;
-        klineChart = null;
-        document.querySelector('[data-chart-panel="trend"]').innerHTML = '';
-        document.querySelector('[data-chart-panel="kline"]').innerHTML = '';
-    }
-
     function normalizeIntradayPoints(points, expectedDate) {
         const byMinute = new Map();
         (Array.isArray(points) ? [...points] : [])
@@ -1234,165 +1161,167 @@
         return [...byMinute.values()].sort((left, right) => left.time - right.time).slice(-500);
     }
 
-    function renderChartMeta(points, previousClose) {
+    function waveSvgMarkup(points, width, height, options = {}) {
+        const normalized = (points || [])
+            .map(point => ({ time: Number(point.time), value: finiteNumber(point.price ?? point.value) }))
+            .filter(point => Number.isFinite(point.time) && point.value !== null)
+            .sort((left, right) => left.time - right.time);
+        if (!normalized.length) {
+            const message = escapeHtml(options.emptyText || '暫無分時');
+            return `<text class="wave-empty" x="${width / 2}" y="${height / 2 + 4}">${message}</text>`;
+        }
+
+        const padX = 2;
+        const padY = 3;
+        const values = normalized.map(point => point.value);
+        const rawMin = Math.min(...values);
+        const rawMax = Math.max(...values);
+        const valuePadding = rawMax === rawMin
+            ? Math.max(Math.abs(rawMax) * 0.01, 0.1)
+            : (rawMax - rawMin) * 0.1;
+        const min = rawMin - valuePadding;
+        const max = rawMax + valuePadding;
+        const firstTime = normalized[0].time;
+        const lastTime = normalized.at(-1).time;
+        const timeRange = Math.max(1, lastTime - firstTime);
+        const x = time => padX + (time - firstTime) / timeRange * (width - padX * 2);
+        const y = value => padY + (max - value) / Math.max(0.000001, max - min) * (height - padY * 2);
+        const coords = normalized.map(point => [x(point.time), y(point.value)]);
+
+        if (coords.length === 1) {
+            coords.unshift([padX, coords[0][1]]);
+            coords.push([width - padX, coords.at(-1)[1]]);
+        }
+
+        const linePath = coords
+            .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point[0].toFixed(2)} ${point[1].toFixed(2)}`)
+            .join(' ');
+        const areaPath = `${linePath} L ${coords.at(-1)[0].toFixed(2)} ${(height - padY).toFixed(2)} L ${coords[0][0].toFixed(2)} ${(height - padY).toFixed(2)} Z`;
+        const baseline = finiteNumber(options.baselineValue) ?? normalized[0].value;
+        const latest = normalized.at(-1).value;
+        const color = latest > baseline ? '#e52329' : (latest < baseline ? '#168a45' : '#2583d8');
+        const endpoint = coords.at(-1);
+
+        return `
+            <line x1="${padX}" x2="${width - padX}" y1="${(height / 2).toFixed(2)}" y2="${(height / 2).toFixed(2)}" stroke="#7790ad" stroke-opacity="0.26" stroke-dasharray="4 4" />
+            <path d="${areaPath}" fill="${color}" fill-opacity="0.10" />
+            <path d="${linePath}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+            <circle cx="${endpoint[0].toFixed(2)}" cy="${endpoint[1].toFixed(2)}" r="2.2" fill="${color}" />
+        `;
+    }
+
+    function waveRangeText(points) {
         const lows = points.map(point => finiteNumber(point.low) ?? finiteNumber(point.price)).filter(value => value !== null);
         const highs = points.map(point => finiteNumber(point.high) ?? finiteNumber(point.price)).filter(value => value !== null);
-        const latest = finiteNumber(points.at(-1)?.price);
-        const items = [
-            ['低', lows.length ? Math.min(...lows) : null],
-            ['高', highs.length ? Math.max(...highs) : null],
-            ['最新', latest],
-            ['昨收', previousClose],
-        ];
-        chartMeta.innerHTML = items
-            .filter(([, value]) => value !== null)
-            .map(([label, value]) => `<span class="chart-meta__item">${label} ${formatNumber(value, 2)}</span>`)
-            .join('');
+        if (!lows.length || !highs.length) return '暫無分時';
+
+        return `低 ${formatNumber(Math.min(...lows), 2)} · 高 ${formatNumber(Math.max(...highs), 2)}`;
     }
 
-    function renderIntradayCharts(points, context = {}) {
-        destroyIntradayCharts();
-        const trendElement = document.querySelector('[data-chart-panel="trend"]');
-        const klineElement = document.querySelector('[data-chart-panel="kline"]');
-        const cleanPoints = normalizeIntradayPoints(points, context.date || '');
-        const previousClose = finiteNumber(context.previousClose);
-        if (cleanPoints.length < 2) {
-            chartMeta.innerHTML = '';
-            chartMessage.hidden = false;
-            chartMessage.textContent = '今天目前沒有足夠的盤中走勢資料。';
-            return;
+    function dayCandleSvgMarkup(points, width = 46, height = 48) {
+        if (!points.length) {
+            return `<text class="wave-empty" x="${width / 2}" y="${height / 2 + 4}">--</text>`;
         }
 
-        const last = finiteNumber(cleanPoints.at(-1).price);
-        const baseline = previousClose ?? finiteNumber(cleanPoints[0].price);
-        const lineColor = last > baseline ? '#dc2626' : (last < baseline ? '#16a34a' : '#0ea5e9');
-        const lineFill = last > baseline
-            ? 'rgba(220, 38, 38, 0.24)'
-            : (last < baseline ? 'rgba(22, 163, 74, 0.24)' : 'rgba(14, 165, 233, 0.22)');
-        renderChartMeta(cleanPoints, previousClose);
-        trendChart = LightweightCharts.createChart(trendElement, chartOptions(trendElement));
-        const area = trendChart.addAreaSeries({
-            lineColor,
-            topColor: lineFill,
-            bottomColor: 'rgba(255, 255, 255, 0.02)',
-            lineWidth: 3,
-            priceLineVisible: false,
-        });
-        area.setData(cleanPoints.map(point => ({ time: Number(point.time), value: Number(point.price) })));
-        if (previousClose !== null) {
-            area.createPriceLine({
-                price: previousClose,
-                color: 'rgba(100, 116, 139, 0.58)',
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle.Dashed,
-                axisLabelVisible: true,
-                title: '昨收',
+        const first = points[0];
+        const last = points.at(-1);
+        const open = finiteNumber(first.open) ?? finiteNumber(first.price);
+        const close = finiteNumber(last.price);
+        const lows = points.map(point => finiteNumber(point.low) ?? finiteNumber(point.price)).filter(value => value !== null);
+        const highs = points.map(point => finiteNumber(point.high) ?? finiteNumber(point.price)).filter(value => value !== null);
+        if (open === null || close === null || !lows.length || !highs.length) {
+            return `<text class="wave-empty" x="${width / 2}" y="${height / 2 + 4}">--</text>`;
+        }
+
+        const rawLow = Math.min(...lows, open, close);
+        const rawHigh = Math.max(...highs, open, close);
+        const padding = rawHigh === rawLow ? Math.max(Math.abs(rawHigh) * 0.01, 0.1) : (rawHigh - rawLow) * 0.08;
+        const low = rawLow - padding;
+        const high = rawHigh + padding;
+        const padY = 3;
+        const y = value => padY + (high - value) / Math.max(0.000001, high - low) * (height - padY * 2);
+        const highY = y(rawHigh);
+        const lowY = y(rawLow);
+        const openY = y(open);
+        const closeY = y(close);
+        const bodyTop = Math.min(openY, closeY);
+        const bodyHeight = Math.max(2, Math.abs(closeY - openY));
+        const color = close > open ? '#e52329' : (close < open ? '#168a45' : '#2583d8');
+        const center = width / 2;
+
+        return `
+            <line x1="${center}" x2="${center}" y1="${highY.toFixed(2)}" y2="${lowY.toFixed(2)}" stroke="${color}" stroke-width="1.4" vector-effect="non-scaling-stroke" />
+            <rect x="${(center - 9).toFixed(2)}" y="${bodyTop.toFixed(2)}" width="18" height="${bodyHeight.toFixed(2)}" fill="${color}" />
+        `;
+    }
+
+    function renderInlineCharts(series, expectedDate, targetCodes = null) {
+        const targetSet = targetCodes ? new Set(targetCodes) : null;
+        document.querySelectorAll('[data-stock-inline-charts]').forEach(container => {
+            const code = container.dataset.stockCode;
+            if (targetSet && !targetSet.has(code)) return;
+            const previousClose = finiteNumber(container.dataset.previousClose);
+            const points = normalizeIntradayPoints(series?.[code] || [], expectedDate);
+            const waveSvg = container.querySelector('[data-stock-wave]');
+            const waveMeta = container.querySelector('[data-stock-wave-meta]');
+            const candleSvg = container.querySelector('[data-stock-day-candle]');
+            const meta = points.length ? waveRangeText(points) : '暫無分時';
+            const title = points.length
+                ? `${code} ${expectedDate} 當日分時：${meta}，最新 ${formatNumber(points.at(-1).price, 2)}`
+                : `${code} ${expectedDate} 暫無分時資料`;
+
+            waveSvg.innerHTML = waveSvgMarkup(points, 160, 40, {
+                emptyText: '暫無分時',
+                baselineValue: previousClose,
             });
-        }
-        trendChart.timeScale().fitContent();
-
-        const candles = cleanPoints.map(point => ({
-            time: Number(point.time),
-            open: Number(point.open),
-            high: Number(point.high),
-            low: Number(point.low),
-            close: Number(point.price),
-            volume: finiteNumber(point.volume),
-        }));
-        klineChart = LightweightCharts.createChart(klineElement, chartOptions(klineElement));
-        if (candles.length) {
-            const candleSeries = klineChart.addCandlestickSeries({
-                upColor: '#dc2626',
-                downColor: '#15803d',
-                borderUpColor: '#dc2626',
-                borderDownColor: '#15803d',
-                wickUpColor: '#dc2626',
-                wickDownColor: '#15803d',
-                priceLineVisible: false,
-            });
-            candleSeries.setData(candles);
-            if (previousClose !== null) {
-                candleSeries.createPriceLine({
-                    price: previousClose,
-                    color: 'rgba(100, 116, 139, 0.58)',
-                    lineWidth: 1,
-                    lineStyle: LightweightCharts.LineStyle.Dashed,
-                    axisLabelVisible: true,
-                    title: '昨收',
-                });
-            }
-            const volumeRows = candles.filter(row => row.volume !== null);
-            if (volumeRows.length) {
-                const volumeSeries = klineChart.addHistogramSeries({
-                    priceFormat: { type: 'volume' },
-                    priceScaleId: 'volume',
-                });
-                volumeSeries.setData(volumeRows.map(row => ({
-                    time: row.time,
-                    value: row.volume,
-                    color: row.close >= row.open ? 'rgba(220, 38, 38, 0.34)' : 'rgba(21, 128, 61, 0.34)',
-                })));
-                klineChart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-                klineChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.05, bottom: 0.24 } });
-            }
-            klineChart.timeScale().fitContent();
-        } else {
-            klineElement.innerHTML = '<div class="chart-message">目前來源只有成交走勢，尚無完整分鐘 OHLC 可畫即時 K 線。</div>';
-        }
-        chartMessage.hidden = true;
+            waveSvg.setAttribute('aria-label', title);
+            waveMeta.textContent = meta;
+            candleSvg.innerHTML = dayCandleSvgMarkup(points);
+            candleSvg.setAttribute('aria-label', `${code} ${expectedDate} 當日一日 K 線`);
+            container.querySelector('[data-stock-wave-panel]').title = title;
+            container.querySelector('[data-stock-day-candle-panel]').title =
+                points.length
+                    ? `開 ${formatNumber(points[0].open ?? points[0].price, 2)} · 收 ${formatNumber(points.at(-1).price, 2)} · ${meta}`
+                    : `${code} ${expectedDate} 暫無當日 K 線`;
+        });
     }
 
-    async function openIntraday(button) {
-        const code = button.dataset.stockCode;
-        const name = button.dataset.stockName;
-        const previousClose = finiteNumber(button.dataset.previousClose);
-        modal.hidden = false;
-        document.body.style.overflow = 'hidden';
-        activateChartTab('trend');
-        document.querySelector('[data-chart-title]').textContent = `${code} ${name} · 盤中即時圖`;
-        document.querySelector('[data-chart-subtitle]').textContent = '讀取盤中資料中…';
-        chartMeta.innerHTML = '';
-        chartMessage.hidden = false;
-        chartMessage.textContent = '讀取盤中資料中…';
-        destroyIntradayCharts();
+    async function fetchIntradayBatch(codes, tradeDate) {
+        const url = new URL(intradayBatchUrl, window.location.origin);
+        url.searchParams.set('codes', codes.join(','));
+        url.searchParams.set('date', tradeDate);
+        const response = await fetch(url.toString(), {
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store',
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        try {
-            const url = intradayUrlTemplate.replace('__CODE__', encodeURIComponent(code));
-            const response = await fetch(url, { headers: { 'Accept': 'application/json' }, cache: 'no-store' });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const payload = await response.json();
-            const points = payload.series?.[code] || [];
-            document.querySelector('[data-chart-subtitle]').textContent =
-                `${payload.date || '--'} · ${payload.source?.label || '台股分時'} · ${payload.market?.label || ''}`;
-            renderIntradayCharts(points, {
-                date: payload.date || '',
-                previousClose,
-            });
-        } catch (error) {
-            chartMessage.hidden = false;
-            chartMessage.textContent = '即時圖暫時讀取失敗，請稍後再試。';
+        return response.json();
+    }
+
+    async function loadVisibleIntraday(tradeDate) {
+        if (!tradeDate) return;
+        const token = ++inlineChartsLoadToken;
+        const codes = [...document.querySelectorAll('[data-stock-inline-charts]')]
+            .map(element => element.dataset.stockCode)
+            .filter((code, index, all) => code && all.indexOf(code) === index);
+        const batches = [];
+        for (let index = 0; index < codes.length; index += 40) {
+            batches.push(codes.slice(index, index + 40));
         }
-    }
 
-    function closeIntraday() {
-        modal.hidden = true;
-        document.body.style.overflow = '';
-        chartMeta.innerHTML = '';
-        destroyIntradayCharts();
-    }
-
-    function activateChartTab(tab) {
-        document.querySelectorAll('[data-chart-tab]').forEach(button => {
-            button.classList.toggle('active', button.dataset.chartTab === tab);
-        });
-        document.querySelectorAll('[data-chart-panel]').forEach(panel => {
-            panel.hidden = panel.dataset.chartPanel !== tab;
-        });
-        requestAnimationFrame(() => {
-            const chart = tab === 'trend' ? trendChart : klineChart;
-            const panel = document.querySelector(`[data-chart-panel="${tab}"]`);
-            if (chart && panel) chart.applyOptions({ width: panel.clientWidth, height: panel.clientHeight });
-        });
+        const series = {};
+        for (let index = 0; index < batches.length; index += 2) {
+            const activeBatches = batches.slice(index, index + 2);
+            const payloads = await Promise.all(
+                activeBatches.map(batch =>
+                    fetchIntradayBatch(batch, tradeDate).catch(() => ({ series: {} })),
+                ),
+            );
+            if (token !== inlineChartsLoadToken) return;
+            payloads.forEach(payload => Object.assign(series, payload.series || {}));
+            renderInlineCharts(series, tradeDate, activeBatches.flat());
+        }
     }
 
     function positionPreview(trigger) {
@@ -1496,11 +1425,6 @@
         }, 140);
     }
 
-    document.addEventListener('click', event => {
-        const intradayButton = event.target.closest('[data-open-intraday]');
-        if (intradayButton) openIntraday(intradayButton);
-    });
-
     document.addEventListener('mouseover', event => {
         const trigger = event.target.closest('[data-preview-stock]');
         if (trigger && !trigger.contains(event.relatedTarget)) schedulePreview(trigger);
@@ -1523,22 +1447,8 @@
 
     previewPopover.addEventListener('mouseenter', () => clearTimeout(previewHideTimer));
     previewPopover.addEventListener('mouseleave', hidePreviewSoon);
-    document.querySelector('[data-chart-close]').addEventListener('click', closeIntraday);
-    modal.addEventListener('click', event => {
-        if (event.target === modal) closeIntraday();
-    });
-    document.querySelectorAll('[data-chart-tab]').forEach(button => {
-        button.addEventListener('click', () => activateChartTab(button.dataset.chartTab));
-    });
-    document.addEventListener('keydown', event => {
-        if (event.key === 'Escape' && !modal.hidden) closeIntraday();
-    });
     window.addEventListener('resize', () => {
         if (previewTrigger && !previewPopover.hidden) positionPreview(previewTrigger);
-        const trendPanel = document.querySelector('[data-chart-panel="trend"]');
-        const klinePanel = document.querySelector('[data-chart-panel="kline"]');
-        if (trendChart) trendChart.applyOptions({ width: trendPanel.clientWidth, height: trendPanel.clientHeight });
-        if (klineChart) klineChart.applyOptions({ width: klinePanel.clientWidth, height: klinePanel.clientHeight });
         if (previewChart) {
             const previewPanel = document.querySelector('[data-preview-chart]');
             previewChart.applyOptions({ width: previewPanel.clientWidth, height: previewPanel.clientHeight });
@@ -1546,6 +1456,9 @@
     });
 
     scheduleRealtime(initialMarket);
+    if (!initialMarket?.isOpen) {
+        loadVisibleIntraday(initialTradeDate);
+    }
 </script>
 </body>
 </html>

@@ -669,6 +669,46 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         }
     }
 
+    public function test_it_can_load_intraday_prices_for_a_previous_ranking_trade_date(): void
+    {
+        $now = CarbonImmutable::parse('2026-07-18 10:30:00', 'Asia/Taipei');
+        $tradeDay = CarbonImmutable::parse('2026-07-17 00:00:00', 'Asia/Taipei');
+        CarbonImmutable::setTestNow($now);
+
+        try {
+            Http::fake([
+                'https://ws.api.cnyes.com/ws/api/v1/charting/history*' => Http::response([
+                    'data' => [
+                        's' => 'ok',
+                        't' => [
+                            $tradeDay->setTime(9, 1)->getTimestamp(),
+                            $tradeDay->setTime(13, 30)->getTimestamp(),
+                        ],
+                        'c' => [100.0, 105.0],
+                        'o' => [99.0, 104.0],
+                        'l' => [98.5, 103.0],
+                        'h' => [101.0, 106.0],
+                        'v' => [1500, 2500],
+                    ],
+                ]),
+            ]);
+
+            $payload = app(TwStockRealtimeQuoteService::class)->intradayPrices(['6811'], '2026-07-17');
+
+            $this->assertSame('2026-07-17', $payload['date']);
+            $this->assertCount(2, $payload['series']['6811']);
+            $this->assertSame(105.0, $payload['series']['6811'][1]['price']);
+            Http::assertSent(function ($request) use ($tradeDay): bool {
+                parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+                return ($query['from'] ?? null) === (string) $tradeDay->startOfDay()->getTimestamp()
+                    && ($query['to'] ?? null) === (string) $tradeDay->endOfDay()->getTimestamp();
+            });
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
     public function test_it_removes_previous_day_points_from_today_intraday_cache(): void
     {
         $now = CarbonImmutable::parse('2026-07-16 09:20:00', 'Asia/Taipei');

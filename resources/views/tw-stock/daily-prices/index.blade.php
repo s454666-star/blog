@@ -426,17 +426,18 @@
 
         .stock-cell {
             display: grid;
-            grid-template-columns: minmax(112px, 1fr) 172px 58px;
+            grid-template-columns: 155px 172px 58px;
             align-items: center;
-            gap: 10px;
-            min-width: 382px;
+            justify-content: start;
+            gap: 7px;
+            min-width: 399px;
         }
 
         .stock-main {
             display: flex;
             flex-direction: column;
             gap: 3px;
-            min-width: 112px;
+            min-width: 0;
             padding: 4px 2px;
             border-radius: 8px;
             outline: none;
@@ -636,7 +637,7 @@
             .ranking-table th:first-child, .ranking-table td:first-child { width: 68px; }
             .ranking-table th:nth-child(2), .ranking-table td:nth-child(2) { left: 68px; }
             .ranking-table th:nth-child(2), .ranking-table td:nth-child(2) { min-width: 385px; }
-            .stock-cell { grid-template-columns: 105px 160px 54px; min-width: 365px; gap: 8px; }
+            .stock-cell { grid-template-columns: 138px 160px 54px; min-width: 364px; gap: 6px; }
             .stock-wave-svg { width: 148px; }
         }
 @include('tw-stock.partials.shared-shell-width')

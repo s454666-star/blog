@@ -21,6 +21,7 @@ DEFAULT_MANIFEST = {
     "source_bot": "yuanchaungbot",
     "source_peer_id": 8766016058,
     "target_peer_id": 3995547485,
+    "dedupe_scope": "epan_originals_combined",
     "expected_total": 6441,
     "expected_media": 6372,
     "expected_images": 583,
@@ -106,6 +107,7 @@ class Migrator:
         self.expected_images = int(self.manifest["expected_images"])
         self.expected_videos = int(self.manifest["expected_videos"])
         self.expected_text = int(self.manifest["expected_text"])
+        self.dedupe_scope = str(self.manifest["dedupe_scope"])
         self.api = Api(args.base_uri)
         self.state = self.load_or_initialize_state()
 
@@ -121,6 +123,7 @@ class Migrator:
             "source_bot",
             "source_peer_id",
             "target_peer_id",
+            "dedupe_scope",
             "expected_total",
             "expected_media",
             "expected_images",
@@ -144,6 +147,8 @@ class Migrator:
             manifest["expected_total"]
         ):
             raise MigrationBlocked("manifest media and text counts do not add up")
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", str(manifest["dedupe_scope"])):
+            raise MigrationBlocked("manifest dedupe_scope is invalid")
         return manifest
 
     def log(self, message: str, **fields: Any) -> None:
@@ -177,6 +182,17 @@ class Migrator:
             for key, value in expected_identity.items():
                 if state.get(key) != value:
                     raise MigrationBlocked(f"checkpoint {key} does not match requested migration")
+            state.setdefault("source_media_processed", int(state.get("copied_media") or 0))
+            state.setdefault("source_images", int(state.get("copied_images") or 0))
+            state.setdefault("source_videos", int(state.get("copied_videos") or 0))
+            state.setdefault("duplicate_media", 0)
+            state.setdefault("duplicate_images", 0)
+            state.setdefault("duplicate_videos", 0)
+            state.setdefault("dedupe_scope", self.dedupe_scope)
+            if state.get("dedupe_scope") != self.dedupe_scope:
+                raise MigrationBlocked("checkpoint dedupe_scope does not match manifest")
+            self.state = state
+            self.save()
             return state
 
         if self.args.fresh:
@@ -188,6 +204,7 @@ class Migrator:
                 "source_bot": self.manifest["source_bot"],
                 "source_peer_id": int(self.manifest["source_peer_id"]),
                 "target_peer_id": int(self.manifest["target_peer_id"]),
+                "dedupe_scope": self.dedupe_scope,
                 "folder_index": 0,
                 "folder_name": "",
                 "folder_expected": 0,
@@ -197,6 +214,12 @@ class Migrator:
                 "copied_media": 0,
                 "copied_images": 0,
                 "copied_videos": 0,
+                "source_media_processed": 0,
+                "source_images": 0,
+                "source_videos": 0,
+                "duplicate_media": 0,
+                "duplicate_images": 0,
+                "duplicate_videos": 0,
                 "deleted_text": 0,
                 "target_baseline_media": 0,
                 "target_baseline_images": 0,
@@ -216,6 +239,7 @@ class Migrator:
             "source_bot": self.manifest["source_bot"],
             "source_peer_id": int(self.manifest["source_peer_id"]),
             "target_peer_id": int(self.manifest["target_peer_id"]),
+            "dedupe_scope": self.dedupe_scope,
             "folder_index": 1,
             "folder_name": self.folders[0][0],
             "folder_expected": self.folders[0][1],
@@ -225,6 +249,12 @@ class Migrator:
             "copied_media": 1,
             "copied_images": 0,
             "copied_videos": 1,
+            "source_media_processed": 1,
+            "source_images": 0,
+            "source_videos": 1,
+            "duplicate_media": 0,
+            "duplicate_images": 0,
+            "duplicate_videos": 0,
             "deleted_text": 0,
             "target_baseline_media": 0,
             "target_baseline_images": 0,
@@ -371,26 +401,70 @@ class Migrator:
             if self.is_regular_message(item) and self.media_kind(item)
         ]
 
-    def mark_source_complete(self, source_id: int, target_id: int, kind: str) -> None:
+    def register_source_hash(self, source_id: int, target_id: int) -> str:
+        response = self.api.post(
+            "/messages/register-media-hash",
+            {
+                "media_peer_id": self.args.source_peer_id,
+                "message_id": source_id,
+                "target_peer_id": self.args.target_peer_id,
+                "target_message_id": target_id,
+                "dedupe_scope": self.dedupe_scope,
+            },
+            timeout=7200.0,
+        )
+        if response.get("status") != "ok":
+            raise MigrationBlocked(f"source hash registration failed: {response}")
+        return str(response.get("content_sha256") or "")
+
+    def mark_source_complete(
+        self,
+        source_id: int,
+        target_id: int,
+        kind: str,
+        *,
+        duplicate: bool,
+        content_sha256: str,
+    ) -> None:
         self.state["stage"] = "source_copied"
         self.state["active_source_message_id"] = source_id
         self.state["active_target_message_id"] = target_id
         self.state["active_media_kind"] = kind
+        self.state["active_duplicate"] = bool(duplicate)
+        self.state["active_content_sha256"] = content_sha256
         self.save()
         self.delete_source([source_id])
         self.state["processed_total"] += 1
         self.state["folder_processed"] += 1
-        self.state["copied_media"] += 1
+        self.state["source_media_processed"] += 1
         if kind == "image":
-            self.state["copied_images"] += 1
+            self.state["source_images"] += 1
         elif kind == "video":
-            self.state["copied_videos"] += 1
+            self.state["source_videos"] += 1
+        if duplicate:
+            self.state["duplicate_media"] += 1
+            if kind == "image":
+                self.state["duplicate_images"] += 1
+            elif kind == "video":
+                self.state["duplicate_videos"] += 1
+        else:
+            self.state["copied_media"] += 1
+            if kind == "image":
+                self.state["copied_images"] += 1
+            elif kind == "video":
+                self.state["copied_videos"] += 1
         self.state["last_source_message_id"] = source_id
-        self.state["last_target_message_id"] = target_id
+        self.state["last_target_message_id"] = max(
+            int(self.state.get("last_target_message_id") or 0),
+            target_id,
+        )
+        self.state["last_content_sha256"] = content_sha256
         for key in (
             "active_source_message_id",
             "active_target_message_id",
             "active_media_kind",
+            "active_duplicate",
+            "active_content_sha256",
             "copy_target_baseline",
         ):
             self.state.pop(key, None)
@@ -401,7 +475,10 @@ class Migrator:
             source_message_id=source_id,
             target_message_id=target_id,
             kind=kind,
+            duplicate=duplicate,
             copied_media=self.state["copied_media"],
+            duplicate_media=self.state["duplicate_media"],
+            source_media_processed=self.state["source_media_processed"],
             processed_total=self.state["processed_total"],
             folder_index=self.state["folder_index"],
         )
@@ -430,7 +507,15 @@ class Migrator:
                     raise MigrationBlocked("copy recovery target media kind mismatch")
                 if str(candidate.get("message") or "") or candidate.get("fwd_from") is not None:
                     raise MigrationBlocked("copy recovery target contains caption or forward attribution")
-                self.mark_source_complete(source_id, int(candidate.get("id") or 0), kind)
+                target_id = int(candidate.get("id") or 0)
+                content_sha256 = self.register_source_hash(source_id, target_id)
+                self.mark_source_complete(
+                    source_id,
+                    target_id,
+                    kind,
+                    duplicate=False,
+                    content_sha256=content_sha256,
+                )
                 return
             if not self.message_exists(self.args.source_peer_id, source_id):
                 raise MigrationBlocked("source disappeared without a recoverable target media message")
@@ -447,7 +532,13 @@ class Migrator:
         target_id = int(self.state.get("active_target_message_id") or 0)
         if target_id <= 0:
             raise MigrationBlocked("copied source checkpoint has no target id")
-        self.mark_source_complete(source_id, target_id, kind)
+        self.mark_source_complete(
+            source_id,
+            target_id,
+            kind,
+            duplicate=bool(self.state.get("active_duplicate")),
+            content_sha256=str(self.state.get("active_content_sha256") or ""),
+        )
 
     def copy_media(self, message: dict[str, Any]) -> None:
         source_id = int(message.get("id") or 0)
@@ -477,6 +568,7 @@ class Migrator:
                         "message_ids": [source_id],
                         "target_peer_id": self.args.target_peer_id,
                         "drop_media_captions": True,
+                        "dedupe_scope": self.dedupe_scope,
                     },
                     timeout=7200.0,
                 )
@@ -507,14 +599,22 @@ class Migrator:
                 return
 
             if response.get("status") == "ok":
-                target_ids = [
-                    int(message_id)
-                    for message_id in response.get("target_message_ids") or []
-                    if int(message_id) > 0
-                ]
-                if len(target_ids) != 1:
+                results = list(response.get("results") or [])
+                if len(results) != 1:
                     raise MigrationBlocked(f"copy response count mismatch: {response}")
-                self.mark_source_complete(source_id, target_ids[0], kind)
+                result = results[0]
+                if int(result.get("source_message_id") or 0) != source_id:
+                    raise MigrationBlocked(f"copy response source mismatch: {response}")
+                target_id = int(result.get("target_message_id") or 0)
+                if target_id <= 0:
+                    raise MigrationBlocked(f"copy response target missing: {response}")
+                self.mark_source_complete(
+                    source_id,
+                    target_id,
+                    kind,
+                    duplicate=bool(result.get("duplicate")),
+                    content_sha256=str(result.get("content_sha256") or ""),
+                )
                 return
 
             self.log(
@@ -806,9 +906,12 @@ class Migrator:
     def verify_target(self) -> None:
         actual = self.target_counts()
         expected = {
-            "media": int(self.state.get("target_baseline_media") or 0) + self.expected_media,
-            "images": int(self.state.get("target_baseline_images") or 0) + self.expected_images,
-            "videos": int(self.state.get("target_baseline_videos") or 0) + self.expected_videos,
+            "media": int(self.state.get("target_baseline_media") or 0)
+            + int(self.state.get("copied_media") or 0),
+            "images": int(self.state.get("target_baseline_images") or 0)
+            + int(self.state.get("copied_images") or 0),
+            "videos": int(self.state.get("target_baseline_videos") or 0)
+            + int(self.state.get("copied_videos") or 0),
             "text": 0,
             "attribution": 0,
         }
@@ -816,12 +919,16 @@ class Migrator:
             raise MigrationBlocked(f"target verification mismatch: actual={actual} expected={expected}")
         if int(self.state.get("processed_total") or 0) != self.expected_total:
             raise MigrationBlocked("processed source total does not match manifest")
-        if int(self.state.get("copied_media") or 0) != self.expected_media:
-            raise MigrationBlocked("copied media total does not match manifest")
-        if int(self.state.get("copied_images") or 0) != self.expected_images:
-            raise MigrationBlocked("copied image total does not match manifest")
-        if int(self.state.get("copied_videos") or 0) != self.expected_videos:
-            raise MigrationBlocked("copied video total does not match manifest")
+        if int(self.state.get("source_media_processed") or 0) != self.expected_media:
+            raise MigrationBlocked("processed source media total does not match manifest")
+        if int(self.state.get("source_images") or 0) != self.expected_images:
+            raise MigrationBlocked("processed source image total does not match manifest")
+        if int(self.state.get("source_videos") or 0) != self.expected_videos:
+            raise MigrationBlocked("processed source video total does not match manifest")
+        if int(self.state.get("copied_media") or 0) + int(
+            self.state.get("duplicate_media") or 0
+        ) != self.expected_media:
+            raise MigrationBlocked("unique plus duplicate media total does not match manifest")
         if int(self.state.get("deleted_text") or 0) != self.expected_text:
             raise MigrationBlocked("deleted text total does not match manifest")
 
@@ -835,6 +942,8 @@ class Migrator:
                 "verified_target_videos": actual["videos"],
                 "verified_target_text": actual["text"],
                 "verified_target_attribution": actual["attribution"],
+                "verified_unique_media_added": int(self.state.get("copied_media") or 0),
+                "verified_duplicate_media_skipped": int(self.state.get("duplicate_media") or 0),
             }
         )
         self.save()

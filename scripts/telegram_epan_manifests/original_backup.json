@@ -3,6 +3,7 @@
   "source_bot": "yuanchaungbot",
   "source_peer_id": 8766016058,
   "target_peer_id": 3995547485,
+  "dedupe_scope": "epan_originals_combined",
   "expected_total": 6441,
   "expected_media": 6372,
   "expected_images": 583,

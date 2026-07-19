@@ -3,6 +3,7 @@
   "source_bot": "YGT7319bot",
   "source_peer_id": 8779587980,
   "target_peer_id": 3995547485,
+  "dedupe_scope": "epan_originals_combined",
   "expected_total": 2403,
   "expected_media": 2378,
   "expected_images": 927,

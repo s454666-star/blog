@@ -18,7 +18,9 @@ import os
 import subprocess
 import json
 import mimetypes
+import hashlib
 import shutil
+import sqlite3
 import tempfile
 from typing import Optional, List, Dict, Any, Tuple, Set
 from datetime import datetime, date
@@ -58,6 +60,11 @@ DOWNLOAD_JOBS: Dict[str, Dict[str, Any]] = {}
 DOWNLOAD_SEEN_KEYS: Set[str] = set()
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
 RESOURCE_CODE_LOCK = asyncio.Lock()
+MEDIA_DEDUPE_LOCK = asyncio.Lock()
+MEDIA_DEDUPE_DB_PATH = os.environ.get(
+    "TELEGRAM_MEDIA_DEDUPE_DB_PATH",
+    "/var/lib/blog-telegram/epan-media-dedupe.sqlite3",
+)
 RESOURCE_CODE_HEX_PATTERN = re.compile(r"[0-9a-f]{40}", re.IGNORECASE)
 RESOURCE_CODE_WENJIANJI_PATTERN = re.compile(
     r"WenJianJiJibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}",
@@ -3212,6 +3219,15 @@ class CopyProtectedMediaBatchRequest(BaseModel):
     message_ids: List[int]
     target_peer_id: int
     drop_media_captions: bool = True
+    dedupe_scope: Optional[str] = None
+
+
+class RegisterMediaHashRequest(BaseModel):
+    media_peer_id: int
+    message_id: int
+    dedupe_scope: str
+    target_peer_id: int = 0
+    target_message_id: int = 0
 
 
 class ProcessResourceCodeRequest(BaseModel):
@@ -3632,10 +3648,183 @@ async def forward_resource_code_batch(payload: ForwardResourceCodeBatchRequest):
     }
 
 
+def _validate_media_dedupe_scope(raw_scope: Optional[str]) -> str:
+    scope = str(raw_scope or "").strip()
+    if not scope:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", scope):
+        raise ValueError("invalid dedupe_scope")
+    return scope
+
+
+def _media_dedupe_connect() -> sqlite3.Connection:
+    database_path = os.path.abspath(MEDIA_DEDUPE_DB_PATH)
+    os.makedirs(os.path.dirname(database_path), exist_ok=True)
+    connection = sqlite3.connect(database_path, timeout=30)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA synchronous=FULL")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS media_hashes (
+            dedupe_scope TEXT NOT NULL,
+            content_sha256 TEXT NOT NULL,
+            target_peer_id INTEGER NOT NULL,
+            target_message_id INTEGER NOT NULL,
+            source_peer_id INTEGER,
+            source_message_id INTEGER,
+            file_size INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (dedupe_scope, content_sha256)
+        )
+        """
+    )
+    return connection
+
+
+def _media_dedupe_lookup(scope: str, content_sha256: str) -> Optional[Dict[str, Any]]:
+    if not scope:
+        return None
+    connection = _media_dedupe_connect()
+    try:
+        row = connection.execute(
+            """
+            SELECT target_peer_id, target_message_id, source_peer_id, source_message_id, file_size
+            FROM media_hashes
+            WHERE dedupe_scope = ? AND content_sha256 = ?
+            """,
+            (scope, content_sha256),
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        return None
+    return {
+        "target_peer_id": int(row[0] or 0),
+        "target_message_id": int(row[1] or 0),
+        "source_peer_id": int(row[2] or 0),
+        "source_message_id": int(row[3] or 0),
+        "file_size": int(row[4] or 0),
+    }
+
+
+def _media_dedupe_delete(scope: str, content_sha256: str) -> None:
+    if not scope:
+        return
+    connection = _media_dedupe_connect()
+    try:
+        connection.execute(
+            "DELETE FROM media_hashes WHERE dedupe_scope = ? AND content_sha256 = ?",
+            (scope, content_sha256),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _media_dedupe_register(
+    scope: str,
+    content_sha256: str,
+    target_peer_id: int,
+    target_message_id: int,
+    source_peer_id: int,
+    source_message_id: int,
+    file_size: int,
+) -> None:
+    if not scope:
+        return
+    connection = _media_dedupe_connect()
+    try:
+        connection.execute(
+            """
+            INSERT INTO media_hashes (
+                dedupe_scope,
+                content_sha256,
+                target_peer_id,
+                target_message_id,
+                source_peer_id,
+                source_message_id,
+                file_size,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(dedupe_scope, content_sha256) DO UPDATE SET
+                target_peer_id = excluded.target_peer_id,
+                target_message_id = excluded.target_message_id,
+                source_peer_id = excluded.source_peer_id,
+                source_message_id = excluded.source_message_id,
+                file_size = excluded.file_size,
+                created_at = excluded.created_at
+            """,
+            (
+                scope,
+                content_sha256,
+                int(target_peer_id),
+                int(target_message_id),
+                int(source_peer_id),
+                int(source_message_id),
+                int(file_size),
+                datetime.now().isoformat(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _sha256_file(path: str) -> Tuple[str, int]:
+    digest = hashlib.sha256()
+    size = 0
+    with open(path, "rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+            size += len(chunk)
+    return digest.hexdigest(), size
+
+
+async def _download_media_to_temporary_file(message: Any) -> Tuple[str, str, str, int]:
+    temporary_directory = tempfile.mkdtemp(prefix="blog-telegram-media-copy-")
+    try:
+        downloaded_path = await client.download_media(
+            message,
+            file=temporary_directory + os.sep,
+        )
+        if not downloaded_path or not os.path.isfile(downloaded_path):
+            raise RuntimeError("media download did not create a file")
+        content_sha256, file_size = await asyncio.to_thread(_sha256_file, downloaded_path)
+        return temporary_directory, downloaded_path, content_sha256, file_size
+    except Exception:
+        shutil.rmtree(temporary_directory, ignore_errors=True)
+        raise
+
+
+async def _verified_dedupe_target_message(
+    target_peer: Any,
+    target_message_id: int,
+) -> Optional[Any]:
+    if int(target_message_id or 0) <= 0:
+        return None
+    fetched = await client.get_messages(target_peer, ids=[int(target_message_id)])
+    messages = fetched if isinstance(fetched, list) else [fetched] if fetched is not None else []
+    if len(messages) != 1 or _resource_code_media_kind(messages[0]) is None:
+        return None
+    message = messages[0]
+    if str(getattr(message, "message", "") or ""):
+        return None
+    if getattr(message, "fwd_from", None) is not None:
+        return None
+    return message
+
+
 @app.post("/messages/copy-protected-media-batch")
 async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
     source_peer_id = int(payload.source_peer_id or 0)
     target_peer_id = int(payload.target_peer_id or 0)
+    try:
+        dedupe_scope = _validate_media_dedupe_scope(payload.dedupe_scope)
+    except ValueError as e:
+        return {"status": "error", "reason": "invalid_dedupe_scope", "error": str(e)}
     message_ids = list(dict.fromkeys(
         int(mid or 0)
         for mid in list(payload.message_ids or [])
@@ -3670,146 +3859,230 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
     if any(_resource_code_media_kind(message) is None for message in ordered_messages):
         return {"status": "error", "reason": "non_media_message", "message_ids": message_ids}
 
-    copied_message_ids: List[int] = []
-    baseline_message_id = await _resource_code_latest_message_id(target_peer)
+    created_target_message_ids: List[int] = []
+    all_target_message_ids: List[int] = []
+    results: List[Dict[str, Any]] = []
 
     for index, source_message in enumerate(ordered_messages):
-        while True:
-            temporary_directory = ""
-            try:
-                source_kind = _resource_code_media_kind(source_message)
-                if bool(getattr(source_message, "noforwards", False)):
-                    temporary_directory = tempfile.mkdtemp(prefix="blog-telegram-media-copy-")
-                    downloaded_path = await client.download_media(
-                        source_message,
-                        file=temporary_directory + os.sep,
-                    )
-                    if not downloaded_path or not os.path.isfile(downloaded_path):
-                        raise RuntimeError("protected media download did not create a file")
-                    copied = await client.send_file(
-                        target_peer,
-                        downloaded_path,
-                        caption="" if payload.drop_media_captions else str(
-                            getattr(source_message, "message", "") or ""
-                        ),
-                        silent=True,
-                        allow_cache=False,
-                        force_document=False,
-                        supports_streaming=source_kind in ("video", "video_document"),
-                    )
-                else:
-                    copied = await client.send_file(
-                        target_peer,
-                        getattr(source_message, "media", None),
-                        caption="" if payload.drop_media_captions else str(
-                            getattr(source_message, "message", "") or ""
-                        ),
-                        silent=True,
-                    )
-                copied_items = copied if isinstance(copied, list) else [copied] if copied is not None else []
-                current_ids = [
-                    int(getattr(message, "id", 0) or 0)
-                    for message in copied_items
-                    if int(getattr(message, "id", 0) or 0) > 0
-                ]
-                if len(current_ids) != 1:
-                    raise RuntimeError("copied single-message result count mismatch")
-                copied_message_ids.append(current_ids[0])
-                baseline_message_id = max(baseline_message_id, current_ids[0])
-                break
-            except FloodWaitError as e:
-                reconciled_id = await _resource_code_reconcile_forward_after_error(
-                    target_peer,
-                    source_message,
-                    baseline_message_id,
-                )
-                if reconciled_id > 0:
-                    copied_message_ids.append(reconciled_id)
-                    baseline_message_id = max(baseline_message_id, reconciled_id)
-                    break
-                wait_s = max(1, int(getattr(e, "seconds", 1) or 1))
-                push_log(
-                    stage="copy_protected_media",
-                    result="flood_wait",
-                    extra={"index": index, "wait_seconds": wait_s},
-                )
-                await asyncio.sleep(float(wait_s) + 1.0)
-            except Exception as e:
-                reconciled_id = await _resource_code_reconcile_forward_after_error(
-                    target_peer,
-                    source_message,
-                    baseline_message_id,
-                )
-                if reconciled_id > 0:
-                    copied_message_ids.append(reconciled_id)
-                    baseline_message_id = max(baseline_message_id, reconciled_id)
-                    break
-                rollback_remaining = await _cleanup_resource_code_bot_messages(
-                    target_peer,
-                    copied_message_ids,
-                ) if copied_message_ids else []
-                return {
-                    "status": "error",
-                    "reason": "copy_failed",
-                    "error": str(e),
-                    "failed_source_message_id": int(getattr(source_message, "id", 0) or 0),
-                    "target_rollback_complete": len(rollback_remaining) == 0,
-                    "remaining_target_message_ids": rollback_remaining,
-                }
-            finally:
-                if temporary_directory:
-                    shutil.rmtree(temporary_directory, ignore_errors=True)
+        source_message_id = int(getattr(source_message, "id", 0) or 0)
+        source_kind = _resource_code_media_kind(source_message)
+        temporary_directory = ""
+        content_sha256 = ""
+        file_size = 0
+        try:
+            downloaded_path = ""
+            if bool(getattr(source_message, "noforwards", False)) or dedupe_scope:
+                (
+                    temporary_directory,
+                    downloaded_path,
+                    content_sha256,
+                    file_size,
+                ) = await _download_media_to_temporary_file(source_message)
 
-    target_messages = await client.get_messages(target_peer, ids=copied_message_ids)
-    target_items = (
-        target_messages
-        if isinstance(target_messages, list)
-        else [target_messages] if target_messages is not None else []
-    )
-    target_by_id = {
-        int(getattr(message, "id", 0) or 0): message
-        for message in target_items
-        if int(getattr(message, "id", 0) or 0) > 0
-    }
-    verification_errors: List[Dict[str, Any]] = []
-    for source_message, target_message_id in zip(ordered_messages, copied_message_ids):
-        target_message = target_by_id.get(target_message_id)
-        if target_message is None:
-            verification_errors.append({
-                "target_message_id": target_message_id,
-                "reason": "target_message_missing",
-            })
-            continue
-        if _resource_code_media_kind(target_message) != _resource_code_media_kind(source_message):
-            verification_errors.append({
-                "target_message_id": target_message_id,
-                "reason": "media_kind_mismatch",
-            })
-        if payload.drop_media_captions and str(getattr(target_message, "message", "") or ""):
-            verification_errors.append({
-                "target_message_id": target_message_id,
-                "reason": "caption_not_empty",
-            })
+            if dedupe_scope and content_sha256:
+                async with MEDIA_DEDUPE_LOCK:
+                    existing = await asyncio.to_thread(
+                        _media_dedupe_lookup,
+                        dedupe_scope,
+                        content_sha256,
+                    )
+                if (
+                    existing is not None
+                    and int(existing.get("target_peer_id") or 0) == target_peer_id
+                ):
+                    existing_target_id = int(existing.get("target_message_id") or 0)
+                    existing_message = await _verified_dedupe_target_message(
+                        target_peer,
+                        existing_target_id,
+                    )
+                    if existing_message is not None:
+                        all_target_message_ids.append(existing_target_id)
+                        results.append({
+                            "source_message_id": source_message_id,
+                            "target_message_id": existing_target_id,
+                            "content_sha256": content_sha256,
+                            "file_size": file_size,
+                            "duplicate": True,
+                        })
+                        continue
+                    async with MEDIA_DEDUPE_LOCK:
+                        await asyncio.to_thread(
+                            _media_dedupe_delete,
+                            dedupe_scope,
+                            content_sha256,
+                        )
 
-    if verification_errors:
-        rollback_remaining = await _cleanup_resource_code_bot_messages(
-            target_peer,
-            copied_message_ids,
-        )
-        return {
-            "status": "error",
-            "reason": "target_verification_failed",
-            "verification_errors": verification_errors,
-            "target_rollback_complete": len(rollback_remaining) == 0,
-            "remaining_target_message_ids": rollback_remaining,
-        }
+            if downloaded_path:
+                copied = await client.send_file(
+                    target_peer,
+                    downloaded_path,
+                    caption="" if payload.drop_media_captions else str(
+                        getattr(source_message, "message", "") or ""
+                    ),
+                    silent=True,
+                    allow_cache=False,
+                    force_document=False,
+                    supports_streaming=source_kind in ("video", "video_document"),
+                )
+            else:
+                copied = await client.send_file(
+                    target_peer,
+                    getattr(source_message, "media", None),
+                    caption="" if payload.drop_media_captions else str(
+                        getattr(source_message, "message", "") or ""
+                    ),
+                    silent=True,
+                )
+
+            copied_items = copied if isinstance(copied, list) else [copied] if copied is not None else []
+            current_ids = [
+                int(getattr(message, "id", 0) or 0)
+                for message in copied_items
+                if int(getattr(message, "id", 0) or 0) > 0
+            ]
+            if len(current_ids) != 1:
+                raise RuntimeError("copied single-message result count mismatch")
+            target_message_id = current_ids[0]
+            target_message = await _verified_dedupe_target_message(
+                target_peer,
+                target_message_id,
+            )
+            if target_message is None:
+                raise RuntimeError("copied target message failed attribution or caption verification")
+            if _resource_code_media_kind(target_message) != source_kind:
+                raise RuntimeError("copied target media kind mismatch")
+
+            created_target_message_ids.append(target_message_id)
+            all_target_message_ids.append(target_message_id)
+            if dedupe_scope and content_sha256:
+                async with MEDIA_DEDUPE_LOCK:
+                    await asyncio.to_thread(
+                        _media_dedupe_register,
+                        dedupe_scope,
+                        content_sha256,
+                        target_peer_id,
+                        target_message_id,
+                        source_peer_id,
+                        source_message_id,
+                        file_size,
+                    )
+            results.append({
+                "source_message_id": source_message_id,
+                "target_message_id": target_message_id,
+                "content_sha256": content_sha256 or None,
+                "file_size": file_size,
+                "duplicate": False,
+            })
+        except FloodWaitError as e:
+            wait_s = max(1, int(getattr(e, "seconds", 1) or 1))
+            rollback_remaining = await _cleanup_resource_code_bot_messages(
+                target_peer,
+                created_target_message_ids,
+            ) if created_target_message_ids else []
+            return {
+                "status": "error",
+                "reason": "flood_wait",
+                "wait_seconds": wait_s,
+                "failed_source_message_id": source_message_id,
+                "target_rollback_complete": len(rollback_remaining) == 0,
+                "remaining_target_message_ids": rollback_remaining,
+            }
+        except Exception as e:
+            rollback_remaining = await _cleanup_resource_code_bot_messages(
+                target_peer,
+                created_target_message_ids,
+            ) if created_target_message_ids else []
+            return {
+                "status": "error",
+                "reason": "copy_failed",
+                "error": str(e),
+                "failed_source_message_id": source_message_id,
+                "target_rollback_complete": len(rollback_remaining) == 0,
+                "remaining_target_message_ids": rollback_remaining,
+            }
+        finally:
+            if temporary_directory:
+                shutil.rmtree(temporary_directory, ignore_errors=True)
 
     return {
         "status": "ok",
         "source_message_ids": message_ids,
-        "target_message_ids": copied_message_ids,
-        "copied_count": len(copied_message_ids),
+        "target_message_ids": all_target_message_ids,
+        "copied_count": len(created_target_message_ids),
+        "duplicate_count": sum(1 for result in results if result.get("duplicate")),
+        "results": results,
     }
+
+
+@app.post("/messages/register-media-hash")
+async def register_media_hash(payload: RegisterMediaHashRequest):
+    media_peer_id = int(payload.media_peer_id or 0)
+    message_id = int(payload.message_id or 0)
+    target_peer_id = int(payload.target_peer_id or media_peer_id)
+    target_message_id = int(payload.target_message_id or message_id)
+    try:
+        dedupe_scope = _validate_media_dedupe_scope(payload.dedupe_scope)
+    except ValueError as e:
+        return {"status": "error", "reason": "invalid_dedupe_scope", "error": str(e)}
+    if (
+        media_peer_id <= 0
+        or message_id <= 0
+        or target_peer_id <= 0
+        or target_message_id <= 0
+        or not dedupe_scope
+    ):
+        return {"status": "error", "reason": "invalid_request"}
+    if not await _ensure_client_connected():
+        return {"status": "error", "reason": "client_not_connected"}
+
+    peer = await _resolve_any_input_entity_by_id(media_peer_id)
+    target_peer = await _resolve_any_input_entity_by_id(target_peer_id)
+    if peer is None or target_peer is None:
+        return {"status": "error", "reason": "peer_not_found"}
+    fetched = await client.get_messages(peer, ids=[message_id])
+    messages = fetched if isinstance(fetched, list) else [fetched] if fetched is not None else []
+    if len(messages) != 1 or _resource_code_media_kind(messages[0]) is None:
+        return {"status": "error", "reason": "media_message_not_found"}
+    target_message = await _verified_dedupe_target_message(
+        target_peer,
+        target_message_id,
+    )
+    if target_message is None:
+        return {"status": "error", "reason": "target_media_message_not_clean"}
+
+    temporary_directory = ""
+    try:
+        (
+            temporary_directory,
+            _,
+            content_sha256,
+            file_size,
+        ) = await _download_media_to_temporary_file(messages[0])
+        async with MEDIA_DEDUPE_LOCK:
+            await asyncio.to_thread(
+                _media_dedupe_register,
+                dedupe_scope,
+                content_sha256,
+                target_peer_id,
+                target_message_id,
+                media_peer_id,
+                message_id,
+                file_size,
+            )
+        return {
+            "status": "ok",
+            "media_peer_id": media_peer_id,
+            "message_id": message_id,
+            "target_peer_id": target_peer_id,
+            "target_message_id": target_message_id,
+            "content_sha256": content_sha256,
+            "file_size": file_size,
+        }
+    except Exception as e:
+        return {"status": "error", "reason": "hash_registration_failed", "error": str(e)}
+    finally:
+        if temporary_directory:
+            shutil.rmtree(temporary_directory, ignore_errors=True)
 
 
 def _resource_code_media_kind(msg: Any) -> Optional[str]:

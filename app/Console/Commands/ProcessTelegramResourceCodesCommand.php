@@ -34,6 +34,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const HEX_CODE_REGEX = '/(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])/i';
     private const WENJIANJI_CODE_REGEX = '/(?<![A-Za-z0-9_])WenJianJiJibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}(?![A-Za-z0-9_])/i';
     private const QQ_CODE_REGEX = '/(?<![A-Za-z0-9_])QQ[A-Za-z0-9_]*_bot:[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
+    private const JSFILE_CODE_REGEX = '/(?<![A-Za-z0-9_])JSfile_bot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
     private const ACCOUNT_LIMIT_COOLDOWN_SECONDS = 900;
@@ -480,6 +481,7 @@ class ProcessTelegramResourceCodesCommand extends Command
         return match ($codeType) {
             2 => self::WENJIANJI_CODE_REGEX,
             3 => self::QQ_CODE_REGEX,
+            4 => self::JSFILE_CODE_REGEX,
             default => self::HEX_CODE_REGEX,
         };
     }
@@ -492,6 +494,10 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         if ($codeType === 2) {
             return (string) preg_replace('/^WenJianJiJibot_/i', 'WenJianJiJibot_', $code);
+        }
+
+        if ($codeType === 4) {
+            return (string) preg_replace('/^JSfile_bot_/i', 'JSfile_bot_', $code);
         }
 
         return $code;

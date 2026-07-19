@@ -65,6 +65,10 @@ RESOURCE_CODE_QQ_PATTERN = re.compile(
     r"QQ[A-Za-z0-9_]*_bot:[A-Za-z0-9_-]+",
     re.IGNORECASE,
 )
+RESOURCE_CODE_JSFILE_PATTERN = re.compile(
+    r"JSfile_bot_[A-Za-z0-9_-]+",
+    re.IGNORECASE,
+)
 RESOURCE_CODE_IMAGE_COUNT_PATTERN = re.compile(r"(?:图片|圖片)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_VIDEO_COUNT_PATTERN = re.compile(r"(?:视频|視頻|影片)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_FILE_COUNT_PATTERN = re.compile(r"(?:文件|档案|檔案)\s*(\d+)\s*(?:个|個)")
@@ -96,6 +100,8 @@ RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS = (
     "需要成為VIP",
     "开通VIP",
     "開通VIP",
+    "普通用户暂停解析至",
+    "普通用戶暫停解析至",
 )
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
 GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180
@@ -227,6 +233,8 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
         return "WenJianJiJibot_" + code.split("_", 1)[1]
     if RESOURCE_CODE_QQ_PATTERN.fullmatch(code):
         return code
+    if RESOURCE_CODE_JSFILE_PATTERN.fullmatch(code):
+        return "JSfile_bot_" + code[len("JSfile_bot_"):]
     return None
 
 

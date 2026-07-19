@@ -59,6 +59,13 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
         ]:
             self.assertEqual(code, service._normalize_resource_code(code))
 
+    def test_jsfile_codes_are_accepted_and_prefix_is_normalized(self) -> None:
+        self.assertEqual(
+            "JSfile_bot_87V0P0D_2TZN-NN8C",
+            service._normalize_resource_code("jsfile_bot_87V0P0D_2TZN-NN8C"),
+        )
+        self.assertIsNone(service._normalize_resource_code("JSfilebot_87V0P0D_2TZN-NN8C"))
+
     def test_wenjianjiji_code_is_accepted_and_prefix_is_normalized(self) -> None:
         self.assertEqual(
             "WenJianJiJibot_1v_EY7hgrHmiujLKVaV",
@@ -71,6 +78,7 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
         self.assertNotIn("推送剩余全部文件", service.RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS)
         self.assertIn("请再次发送文件码", service.RESOURCE_CODE_REPEAT_CONFIRMATION_KEYWORDS)
         self.assertIn("You need to become a VIP member", service.RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS)
+        self.assertIn("普通用户暂停解析至", service.RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS)
 
     def test_qq_decoder_failure_is_not_found(self) -> None:
         text = "解码失败!!\n文件码错误或被举报删除"

@@ -18,6 +18,8 @@ import os
 import subprocess
 import json
 import mimetypes
+import shutil
+import tempfile
 from typing import Optional, List, Dict, Any, Tuple, Set
 from datetime import datetime, date
 
@@ -3673,15 +3675,37 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
 
     for index, source_message in enumerate(ordered_messages):
         while True:
+            temporary_directory = ""
             try:
-                copied = await client.send_file(
-                    target_peer,
-                    getattr(source_message, "media", None),
-                    caption="" if payload.drop_media_captions else str(
-                        getattr(source_message, "message", "") or ""
-                    ),
-                    silent=True,
-                )
+                source_kind = _resource_code_media_kind(source_message)
+                if bool(getattr(source_message, "noforwards", False)):
+                    temporary_directory = tempfile.mkdtemp(prefix="blog-telegram-media-copy-")
+                    downloaded_path = await client.download_media(
+                        source_message,
+                        file=temporary_directory + os.sep,
+                    )
+                    if not downloaded_path or not os.path.isfile(downloaded_path):
+                        raise RuntimeError("protected media download did not create a file")
+                    copied = await client.send_file(
+                        target_peer,
+                        downloaded_path,
+                        caption="" if payload.drop_media_captions else str(
+                            getattr(source_message, "message", "") or ""
+                        ),
+                        silent=True,
+                        allow_cache=False,
+                        force_document=False,
+                        supports_streaming=source_kind in ("video", "video_document"),
+                    )
+                else:
+                    copied = await client.send_file(
+                        target_peer,
+                        getattr(source_message, "media", None),
+                        caption="" if payload.drop_media_captions else str(
+                            getattr(source_message, "message", "") or ""
+                        ),
+                        silent=True,
+                    )
                 copied_items = copied if isinstance(copied, list) else [copied] if copied is not None else []
                 current_ids = [
                     int(getattr(message, "id", 0) or 0)
@@ -3732,6 +3756,9 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                     "target_rollback_complete": len(rollback_remaining) == 0,
                     "remaining_target_message_ids": rollback_remaining,
                 }
+            finally:
+                if temporary_directory:
+                    shutil.rmtree(temporary_directory, ignore_errors=True)
 
     target_messages = await client.get_messages(target_peer, ids=copied_message_ids)
     target_items = (
@@ -3753,10 +3780,10 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                 "reason": "target_message_missing",
             })
             continue
-        if _resource_code_media_key(target_message) != _resource_code_media_key(source_message):
+        if _resource_code_media_kind(target_message) != _resource_code_media_kind(source_message):
             verification_errors.append({
                 "target_message_id": target_message_id,
-                "reason": "media_key_mismatch",
+                "reason": "media_kind_mismatch",
             })
         if payload.drop_media_captions and str(getattr(target_message, "message", "") or ""):
             verification_errors.append({

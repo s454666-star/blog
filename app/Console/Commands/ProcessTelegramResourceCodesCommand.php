@@ -62,6 +62,8 @@ class ProcessTelegramResourceCodesCommand extends Command
     /** @var array<string, int> */
     private array $localCooldownUntil = [];
 
+    private int $nextProcessingProfileOffset = 0;
+
     public function handle(): int
     {
         if (!extension_loaded('redis')) {
@@ -268,18 +270,32 @@ class ProcessTelegramResourceCodesCommand extends Command
             return null;
         }
 
-        $row = DB::table('telegram_resource_codes')
-            ->where('status', TelegramResourceCode::STATUS_PENDING)
-            ->whereIn('code_type', array_keys($availableProfiles))
-            ->when($this->onlyCodeId > 0, function ($query): void {
-                $query->where('id', $this->onlyCodeId);
-            })
-            ->where(function ($query): void {
-                $query->whereNull('available_at')->orWhere('available_at', '<=', now());
-            })
-            ->orderBy('attempts')
-            ->orderBy('id')
-            ->first();
+        $profileCodeTypes = array_keys($availableProfiles);
+        $profileCount = count($profileCodeTypes);
+        $row = null;
+
+        for ($offset = 0; $offset < $profileCount; $offset++) {
+            $profileIndex = ($this->nextProcessingProfileOffset + $offset) % $profileCount;
+            $profileCodeType = $profileCodeTypes[$profileIndex];
+            $candidate = DB::table('telegram_resource_codes')
+                ->where('status', TelegramResourceCode::STATUS_PENDING)
+                ->where('code_type', $profileCodeType)
+                ->when($this->onlyCodeId > 0, function ($query): void {
+                    $query->where('id', $this->onlyCodeId);
+                })
+                ->where(function ($query): void {
+                    $query->whereNull('available_at')->orWhere('available_at', '<=', now());
+                })
+                ->orderBy('attempts')
+                ->orderBy('id')
+                ->first();
+
+            if ($candidate !== null) {
+                $row = $candidate;
+                $this->nextProcessingProfileOffset = ($profileIndex + 1) % $profileCount;
+                break;
+            }
+        }
 
         if ($row === null) {
             return null;

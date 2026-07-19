@@ -441,6 +441,60 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ]);
     }
 
+    public function test_multiple_profiles_rotate_code_types_instead_of_draining_one_type_first(): void
+    {
+        config()->set('telegram.resource_codes.processing_profiles', '1:zyxfidi_bot,2:WenJianJiJibot,3:QQ2aij_bot,4:JSfilesbot');
+        config()->set('telegram.resource_codes.scan_code_types', '1,2,3,4');
+
+        foreach ([
+            ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 1],
+            ['bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 1],
+            ['WenJianJiJibot_1v_EY7hgrHmiujLKVaV', 2],
+            ['QQfile_bot:10506_69799_143-42', 3],
+            ['JSfile_bot_87V0P0D_2TZN-NN8C', 4],
+        ] as [$code, $codeType]) {
+            DB::table('telegram_resource_codes')->insert([
+                'code' => $code,
+                'code_type' => $codeType,
+                'status' => TelegramResourceCode::STATUS_PENDING,
+                'attempts' => 0,
+                'forwarded_message_count' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $sentBots = [];
+        Http::fake(function ($request) use (&$sentBots) {
+            if (str_ends_with($request->url(), '/resource-codes/process')) {
+                $sentBots[] = (string) $request['bot_username'];
+
+                return Http::response([
+                    'status' => 'ok',
+                    'cleanup_complete' => true,
+                    'forwarded_count' => 1,
+                    'expected_media_count' => 1,
+                    'declared_file_count' => 1,
+                ]);
+            }
+
+            return Http::response(['status' => 'ok', 'items' => []]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--process-limit' => 5,
+        ])->assertExitCode(0);
+
+        $this->assertSame([
+            'zyxfidi_bot',
+            'WenJianJiJibot',
+            'QQ2aij_bot',
+            'JSfilesbot',
+            'zyxfidi_bot',
+        ], $sentBots);
+    }
+
     public function test_type_two_worker_does_not_claim_type_one_rows(): void
     {
         DB::table('telegram_resource_codes')->insert([

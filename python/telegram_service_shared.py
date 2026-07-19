@@ -3220,6 +3220,7 @@ class CopyProtectedMediaBatchRequest(BaseModel):
     target_peer_id: int
     drop_media_captions: bool = True
     dedupe_scope: Optional[str] = None
+    existing_dedupe_requires_clean: bool = True
 
 
 class RegisterMediaHashRequest(BaseModel):
@@ -3228,6 +3229,8 @@ class RegisterMediaHashRequest(BaseModel):
     dedupe_scope: str
     target_peer_id: int = 0
     target_message_id: int = 0
+    require_clean_target: bool = True
+    preserve_existing: bool = False
 
 
 class ProcessResourceCodeRequest(BaseModel):
@@ -3802,6 +3805,7 @@ async def _download_media_to_temporary_file(message: Any) -> Tuple[str, str, str
 async def _verified_dedupe_target_message(
     target_peer: Any,
     target_message_id: int,
+    require_clean: bool = True,
 ) -> Optional[Any]:
     if int(target_message_id or 0) <= 0:
         return None
@@ -3810,10 +3814,11 @@ async def _verified_dedupe_target_message(
     if len(messages) != 1 or _resource_code_media_kind(messages[0]) is None:
         return None
     message = messages[0]
-    if str(getattr(message, "message", "") or ""):
-        return None
-    if getattr(message, "fwd_from", None) is not None:
-        return None
+    if require_clean:
+        if str(getattr(message, "message", "") or ""):
+            return None
+        if getattr(message, "fwd_from", None) is not None:
+            return None
     return message
 
 
@@ -3894,6 +3899,7 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                     existing_message = await _verified_dedupe_target_message(
                         target_peer,
                         existing_target_id,
+                        require_clean=bool(payload.existing_dedupe_requires_clean),
                     )
                     if existing_message is not None:
                         all_target_message_ids.append(existing_target_id)
@@ -4046,6 +4052,7 @@ async def register_media_hash(payload: RegisterMediaHashRequest):
     target_message = await _verified_dedupe_target_message(
         target_peer,
         target_message_id,
+        require_clean=bool(payload.require_clean_target),
     )
     if target_message is None:
         return {"status": "error", "reason": "target_media_message_not_clean"}
@@ -4058,6 +4065,40 @@ async def register_media_hash(payload: RegisterMediaHashRequest):
             content_sha256,
             file_size,
         ) = await _download_media_to_temporary_file(messages[0])
+        if bool(payload.preserve_existing):
+            async with MEDIA_DEDUPE_LOCK:
+                existing = await asyncio.to_thread(
+                    _media_dedupe_lookup,
+                    dedupe_scope,
+                    content_sha256,
+                )
+            if (
+                existing is not None
+                and int(existing.get("target_peer_id") or 0) == target_peer_id
+            ):
+                existing_target_id = int(existing.get("target_message_id") or 0)
+                existing_message = await _verified_dedupe_target_message(
+                    target_peer,
+                    existing_target_id,
+                    require_clean=bool(payload.require_clean_target),
+                )
+                if existing_message is not None:
+                    return {
+                        "status": "ok",
+                        "media_peer_id": media_peer_id,
+                        "message_id": message_id,
+                        "target_peer_id": target_peer_id,
+                        "target_message_id": existing_target_id,
+                        "content_sha256": content_sha256,
+                        "file_size": file_size,
+                        "duplicate": existing_target_id != target_message_id,
+                    }
+                async with MEDIA_DEDUPE_LOCK:
+                    await asyncio.to_thread(
+                        _media_dedupe_delete,
+                        dedupe_scope,
+                        content_sha256,
+                    )
         async with MEDIA_DEDUPE_LOCK:
             await asyncio.to_thread(
                 _media_dedupe_register,
@@ -4077,6 +4118,7 @@ async def register_media_hash(payload: RegisterMediaHashRequest):
             "target_message_id": target_message_id,
             "content_sha256": content_sha256,
             "file_size": file_size,
+            "duplicate": False,
         }
     except Exception as e:
         return {"status": "error", "reason": "hash_registration_failed", "error": str(e)}
@@ -8361,6 +8403,9 @@ async def get_group_messages(
                 "sender_id": int(getattr(getattr(m, "sender_id", None), "user_id", 0) or (getattr(m, "sender_id", 0) or 0)),
                 "text": getattr(m, "message", None) or getattr(m, "text", None),
                 "has_media": bool(getattr(m, "media", None) is not None),
+                "media_kind": _resource_code_media_kind(m),
+                "grouped_id": int(getattr(m, "grouped_id", 0) or 0) or None,
+                "noforwards": bool(getattr(m, "noforwards", False)),
             })
 
     ids_desc = [int(x.get("id", 0) or 0) for x in items if isinstance(x, dict)]
@@ -8451,6 +8496,9 @@ async def get_group_message_by_id(
                         ),
                         "text": getattr(m, "message", None) or getattr(m, "text", None),
                         "has_media": bool(getattr(m, "media", None) is not None),
+                        "media_kind": _resource_code_media_kind(m),
+                        "grouped_id": int(getattr(m, "grouped_id", 0) or 0) or None,
+                        "noforwards": bool(getattr(m, "noforwards", False)),
                         "is_reply": bool(getattr(m, "reply_to", None) is not None),
                         "reply_to_message_id": int(
                             getattr(getattr(m, "reply_to", None), "reply_to_msg_id", 0) or 0
@@ -8480,6 +8528,9 @@ async def get_group_message_by_id(
                     ),
                     "text": getattr(msg, "message", None) or getattr(msg, "text", None),
                     "has_media": bool(getattr(msg, "media", None) is not None),
+                    "media_kind": _resource_code_media_kind(msg),
+                    "grouped_id": int(getattr(msg, "grouped_id", 0) or 0) or None,
+                    "noforwards": bool(getattr(msg, "noforwards", False)),
                     "is_reply": bool(getattr(msg, "reply_to", None) is not None),
                     "reply_to_message_id": int(
                         getattr(getattr(msg, "reply_to", None), "reply_to_msg_id", 0) or 0

@@ -1,0 +1,24 @@
+[Unit]
+Description=Blog Telegram media dedupe and routing worker
+After=network-online.target blog-telegram-account@4.service
+Wants=network-online.target
+Requires=blog-telegram-account@4.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/blog
+ExecStart=/usr/bin/python3 scripts/telegram_media_router.py --database-path /var/lib/blog-telegram/media-router.sqlite3 --run
+Restart=on-failure
+RestartSec=20
+TimeoutStopSec=120
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/blog-telegram
+
+[Install]
+WantedBy=multi-user.target

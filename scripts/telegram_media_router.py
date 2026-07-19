@@ -443,6 +443,32 @@ class Router:
                 processed += 1
                 continue
 
+            managed_item = self.connection.execute(
+                """
+                SELECT content_sha256
+                FROM router_items
+                WHERE target_peer_id = ?
+                  AND target_message_id = ?
+                  AND status IN ('completed', 'duplicate')
+                ORDER BY id
+                LIMIT 1
+                """,
+                (int(peer_id), int(message_id)),
+            ).fetchone()
+            if managed_item is not None:
+                self.record_target_item(
+                    target_peer_id=peer_id,
+                    target_message_id=message_id,
+                    media_kind=routed_kind,
+                    content_sha256=str(managed_item["content_sha256"] or ""),
+                    canonical_target_message_id=message_id,
+                    status="managed",
+                )
+                self.update_target_cursor(cursor_column, message_id)
+                cursor = message_id
+                processed += 1
+                continue
+
             response = api.post(
                 "/messages/register-media-hash",
                 {

@@ -126,6 +126,19 @@ class TelegramMediaRouterTest(unittest.TestCase):
         self.assertEqual(2, counts["completed"])
         self.assertEqual(2, counts["ignored"])
 
+        api.groups[200] = [{"id": 1003, "media_kind": "video_document"}]
+        api.groups[300] = [{"id": 1002, "media_kind": "photo"}]
+        register_call_count = len(api.register_calls)
+
+        second_processed = router.run_once()
+
+        self.assertEqual(2, second_processed)
+        self.assertEqual(register_call_count, len(api.register_calls))
+        managed_count = self.connection.execute(
+            "SELECT COUNT(*) FROM router_target_items WHERE status = 'managed'"
+        ).fetchone()[0]
+        self.assertEqual(2, managed_count)
+
     def test_target_index_keeps_first_hash_and_deletes_later_duplicate(self):
         api = FakeApi(
             {

@@ -21,6 +21,8 @@ DEFAULT_MANIFEST = {
     "source_bot": "yuanchaungbot",
     "source_peer_id": 8766016058,
     "target_peer_id": 3995547485,
+    "video_target_peer_id": 3995547485,
+    "image_target_peer_id": 4367037987,
     "dedupe_scope": "epan_originals_combined",
     "expected_total": 6441,
     "expected_media": 6372,
@@ -98,6 +100,8 @@ class Migrator:
         self.args.source_bot = str(self.manifest["source_bot"])
         self.args.source_peer_id = int(self.manifest["source_peer_id"])
         self.args.target_peer_id = int(self.manifest["target_peer_id"])
+        self.video_target_peer_id = int(self.manifest["video_target_peer_id"])
+        self.image_target_peer_id = int(self.manifest["image_target_peer_id"])
         self.folders = [
             (str(folder["name"]), int(folder["count"]))
             for folder in self.manifest["folders"]
@@ -123,6 +127,8 @@ class Migrator:
             "source_bot",
             "source_peer_id",
             "target_peer_id",
+            "video_target_peer_id",
+            "image_target_peer_id",
             "dedupe_scope",
             "expected_total",
             "expected_media",
@@ -189,8 +195,18 @@ class Migrator:
             state.setdefault("duplicate_images", 0)
             state.setdefault("duplicate_videos", 0)
             state.setdefault("dedupe_scope", self.dedupe_scope)
+            state.setdefault("video_target_peer_id", self.video_target_peer_id)
+            state.setdefault("image_target_peer_id", self.image_target_peer_id)
+            state.setdefault("video_target_baseline_videos", 0)
+            state.setdefault("image_target_baseline_images", 0)
+            state.setdefault("last_video_target_message_id", 0)
+            state.setdefault("last_image_target_message_id", 0)
             if state.get("dedupe_scope") != self.dedupe_scope:
                 raise MigrationBlocked("checkpoint dedupe_scope does not match manifest")
+            if int(state.get("video_target_peer_id") or 0) != self.video_target_peer_id:
+                raise MigrationBlocked("checkpoint video target does not match manifest")
+            if int(state.get("image_target_peer_id") or 0) != self.image_target_peer_id:
+                raise MigrationBlocked("checkpoint image target does not match manifest")
             self.state = state
             self.save()
             return state
@@ -204,6 +220,8 @@ class Migrator:
                 "source_bot": self.manifest["source_bot"],
                 "source_peer_id": int(self.manifest["source_peer_id"]),
                 "target_peer_id": int(self.manifest["target_peer_id"]),
+                "video_target_peer_id": self.video_target_peer_id,
+                "image_target_peer_id": self.image_target_peer_id,
                 "dedupe_scope": self.dedupe_scope,
                 "folder_index": 0,
                 "folder_name": "",
@@ -224,6 +242,10 @@ class Migrator:
                 "target_baseline_media": 0,
                 "target_baseline_images": 0,
                 "target_baseline_videos": 0,
+                "video_target_baseline_videos": 0,
+                "image_target_baseline_images": 0,
+                "last_video_target_message_id": 0,
+                "last_image_target_message_id": 0,
                 "started_at": now_iso(),
                 "updated_at": now_iso(),
             }
@@ -239,6 +261,8 @@ class Migrator:
             "source_bot": self.manifest["source_bot"],
             "source_peer_id": int(self.manifest["source_peer_id"]),
             "target_peer_id": int(self.manifest["target_peer_id"]),
+            "video_target_peer_id": self.video_target_peer_id,
+            "image_target_peer_id": self.image_target_peer_id,
             "dedupe_scope": self.dedupe_scope,
             "folder_index": 1,
             "folder_name": self.folders[0][0],
@@ -259,8 +283,12 @@ class Migrator:
             "target_baseline_media": 0,
             "target_baseline_images": 0,
             "target_baseline_videos": 0,
+            "video_target_baseline_videos": 0,
+            "image_target_baseline_images": 0,
             "last_source_message_id": self.args.initial_source_message_id,
             "last_target_message_id": self.args.initial_target_message_id,
+            "last_video_target_message_id": self.args.initial_target_message_id,
+            "last_image_target_message_id": 0,
             "started_at": now_iso(),
             "updated_at": now_iso(),
         }
@@ -292,6 +320,13 @@ class Migrator:
             if mime_type.startswith("video/"):
                 return "video"
         return None
+
+    def target_peer_for_kind(self, kind: str) -> int:
+        if kind == "image":
+            return self.image_target_peer_id
+        if kind == "video":
+            return self.video_target_peer_id
+        raise MigrationBlocked(f"unsupported target media kind {kind!r}")
 
     def messages(
         self,
@@ -389,11 +424,11 @@ class Migrator:
         if response.get("status") != "ok" or response.get("remaining_message_ids"):
             raise MigrationBlocked(f"source deletion incomplete: {response}")
 
-    def target_media_after(self, baseline: int) -> list[dict[str, Any]]:
+    def target_media_after(self, target_peer_id: int, baseline: int) -> list[dict[str, Any]]:
         return [
             item
             for item in self.messages(
-                self.args.target_peer_id,
+                target_peer_id,
                 limit=100,
                 min_id=baseline,
                 reverse=True,
@@ -401,13 +436,18 @@ class Migrator:
             if self.is_regular_message(item) and self.media_kind(item)
         ]
 
-    def register_source_hash(self, source_id: int, target_id: int) -> str:
+    def register_source_hash(
+        self,
+        source_id: int,
+        target_peer_id: int,
+        target_id: int,
+    ) -> str:
         response = self.api.post(
             "/messages/register-media-hash",
             {
                 "media_peer_id": self.args.source_peer_id,
                 "message_id": source_id,
-                "target_peer_id": self.args.target_peer_id,
+                "target_peer_id": target_peer_id,
                 "target_message_id": target_id,
                 "dedupe_scope": self.dedupe_scope,
             },
@@ -423,12 +463,14 @@ class Migrator:
         target_id: int,
         kind: str,
         *,
+        target_peer_id: int,
         duplicate: bool,
         content_sha256: str,
     ) -> None:
         self.state["stage"] = "source_copied"
         self.state["active_source_message_id"] = source_id
         self.state["active_target_message_id"] = target_id
+        self.state["active_target_peer_id"] = target_peer_id
         self.state["active_media_kind"] = kind
         self.state["active_duplicate"] = bool(duplicate)
         self.state["active_content_sha256"] = content_sha256
@@ -458,14 +500,26 @@ class Migrator:
             int(self.state.get("last_target_message_id") or 0),
             target_id,
         )
+        if kind == "image":
+            self.state["last_image_target_message_id"] = max(
+                int(self.state.get("last_image_target_message_id") or 0),
+                target_id,
+            )
+        elif kind == "video":
+            self.state["last_video_target_message_id"] = max(
+                int(self.state.get("last_video_target_message_id") or 0),
+                target_id,
+            )
         self.state["last_content_sha256"] = content_sha256
         for key in (
             "active_source_message_id",
             "active_target_message_id",
+            "active_target_peer_id",
             "active_media_kind",
             "active_duplicate",
             "active_content_sha256",
             "copy_target_baseline",
+            "copy_target_peer_id",
         ):
             self.state.pop(key, None)
         self.state["stage"] = "process_page"
@@ -474,6 +528,7 @@ class Migrator:
             "media_copied_and_source_deleted",
             source_message_id=source_id,
             target_message_id=target_id,
+            target_peer_id=target_peer_id,
             kind=kind,
             duplicate=duplicate,
             copied_media=self.state["copied_media"],
@@ -495,7 +550,11 @@ class Migrator:
 
         if stage == "copying_source":
             baseline = int(self.state.get("copy_target_baseline") or 0)
-            candidates = self.target_media_after(baseline)
+            target_peer_id = int(
+                self.state.get("copy_target_peer_id")
+                or self.target_peer_for_kind(kind)
+            )
+            candidates = self.target_media_after(target_peer_id, baseline)
             if len(candidates) > 1:
                 raise MigrationBlocked(
                     f"copy recovery is ambiguous after target {baseline}: "
@@ -508,11 +567,16 @@ class Migrator:
                 if str(candidate.get("message") or "") or candidate.get("fwd_from") is not None:
                     raise MigrationBlocked("copy recovery target contains caption or forward attribution")
                 target_id = int(candidate.get("id") or 0)
-                content_sha256 = self.register_source_hash(source_id, target_id)
+                content_sha256 = self.register_source_hash(
+                    source_id,
+                    target_peer_id,
+                    target_id,
+                )
                 self.mark_source_complete(
                     source_id,
                     target_id,
                     kind,
+                    target_peer_id=target_peer_id,
                     duplicate=False,
                     content_sha256=content_sha256,
                 )
@@ -524,18 +588,24 @@ class Migrator:
                 "active_source_message_id",
                 "active_media_kind",
                 "copy_target_baseline",
+                "copy_target_peer_id",
             ):
                 self.state.pop(key, None)
             self.save()
             return
 
         target_id = int(self.state.get("active_target_message_id") or 0)
+        target_peer_id = int(
+            self.state.get("active_target_peer_id")
+            or self.target_peer_for_kind(kind)
+        )
         if target_id <= 0:
             raise MigrationBlocked("copied source checkpoint has no target id")
         self.mark_source_complete(
             source_id,
             target_id,
             kind,
+            target_peer_id=target_peer_id,
             duplicate=bool(self.state.get("active_duplicate")),
             content_sha256=str(self.state.get("active_content_sha256") or ""),
         )
@@ -546,13 +616,15 @@ class Migrator:
         if source_id <= 0 or kind not in ("image", "video"):
             raise MigrationBlocked("invalid source media message")
 
-        baseline = self.latest_message_id(self.args.target_peer_id)
+        target_peer_id = self.target_peer_for_kind(kind)
+        baseline = self.latest_message_id(target_peer_id)
         self.state.update(
             {
                 "stage": "copying_source",
                 "active_source_message_id": source_id,
                 "active_media_kind": kind,
                 "copy_target_baseline": baseline,
+                "copy_target_peer_id": target_peer_id,
             }
         )
         self.save()
@@ -566,7 +638,7 @@ class Migrator:
                     {
                         "source_peer_id": self.args.source_peer_id,
                         "message_ids": [source_id],
-                        "target_peer_id": self.args.target_peer_id,
+                        "target_peer_id": target_peer_id,
                         "drop_media_captions": True,
                         "dedupe_scope": self.dedupe_scope,
                     },
@@ -591,7 +663,8 @@ class Migrator:
                             "stage": "copying_source",
                             "active_source_message_id": source_id,
                             "active_media_kind": kind,
-                            "copy_target_baseline": self.latest_message_id(self.args.target_peer_id),
+                            "copy_target_baseline": self.latest_message_id(target_peer_id),
+                            "copy_target_peer_id": target_peer_id,
                         }
                     )
                     self.save()
@@ -612,6 +685,7 @@ class Migrator:
                     source_id,
                     target_id,
                     kind,
+                    target_peer_id=target_peer_id,
                     duplicate=bool(result.get("duplicate")),
                     content_sha256=str(result.get("content_sha256") or ""),
                 )
@@ -635,7 +709,8 @@ class Migrator:
                     "stage": "copying_source",
                     "active_source_message_id": source_id,
                     "active_media_kind": kind,
-                    "copy_target_baseline": self.latest_message_id(self.args.target_peer_id),
+                    "copy_target_baseline": self.latest_message_id(target_peer_id),
+                    "copy_target_peer_id": target_peer_id,
                 }
             )
             self.save()
@@ -825,7 +900,7 @@ class Migrator:
         self.save()
         self.log("source_dialog_cleared")
 
-    def target_counts(self) -> dict[str, int]:
+    def target_counts(self, peer_id: int) -> dict[str, int]:
         offset_id = 0
         media_count = 0
         image_count = 0
@@ -836,7 +911,7 @@ class Migrator:
 
         while True:
             items = self.messages(
-                self.args.target_peer_id,
+                peer_id,
                 limit=1000,
                 offset_id=offset_id,
             )
@@ -875,14 +950,37 @@ class Migrator:
         }
 
     def start_first_folder(self) -> None:
-        baseline = self.target_counts()
-        if baseline["text"] != 0 or baseline["attribution"] != 0:
-            raise MigrationBlocked(f"target baseline is not clean: {baseline}")
+        video_baseline = self.target_counts(self.video_target_peer_id)
+        image_baseline = self.target_counts(self.image_target_peer_id)
+        if video_baseline != {
+            "media": video_baseline["videos"],
+            "images": 0,
+            "videos": video_baseline["videos"],
+            "text": 0,
+            "attribution": 0,
+        }:
+            raise MigrationBlocked(
+                f"video target baseline is not clean: {video_baseline}"
+            )
+        if image_baseline != {
+            "media": image_baseline["images"],
+            "images": image_baseline["images"],
+            "videos": 0,
+            "text": 0,
+            "attribution": 0,
+        }:
+            raise MigrationBlocked(
+                f"image target baseline is not clean: {image_baseline}"
+            )
         self.state.update(
             {
-                "target_baseline_media": baseline["media"],
-                "target_baseline_images": baseline["images"],
-                "target_baseline_videos": baseline["videos"],
+                "target_baseline_media": (
+                    video_baseline["media"] + image_baseline["media"]
+                ),
+                "target_baseline_images": image_baseline["images"],
+                "target_baseline_videos": video_baseline["videos"],
+                "video_target_baseline_videos": video_baseline["videos"],
+                "image_target_baseline_images": image_baseline["images"],
             }
         )
         self.save()
@@ -904,19 +1002,36 @@ class Migrator:
         self.navigate_to_folder(1)
 
     def verify_target(self) -> None:
-        actual = self.target_counts()
-        expected = {
-            "media": int(self.state.get("target_baseline_media") or 0)
-            + int(self.state.get("copied_media") or 0),
-            "images": int(self.state.get("target_baseline_images") or 0)
-            + int(self.state.get("copied_images") or 0),
-            "videos": int(self.state.get("target_baseline_videos") or 0)
+        actual_video = self.target_counts(self.video_target_peer_id)
+        actual_image = self.target_counts(self.image_target_peer_id)
+        expected_video = {
+            "media": int(self.state.get("video_target_baseline_videos") or 0)
+            + int(self.state.get("copied_videos") or 0),
+            "images": 0,
+            "videos": int(self.state.get("video_target_baseline_videos") or 0)
             + int(self.state.get("copied_videos") or 0),
             "text": 0,
             "attribution": 0,
         }
-        if actual != expected:
-            raise MigrationBlocked(f"target verification mismatch: actual={actual} expected={expected}")
+        expected_image = {
+            "media": int(self.state.get("image_target_baseline_images") or 0)
+            + int(self.state.get("copied_images") or 0),
+            "images": int(self.state.get("image_target_baseline_images") or 0)
+            + int(self.state.get("copied_images") or 0),
+            "videos": 0,
+            "text": 0,
+            "attribution": 0,
+        }
+        if actual_video != expected_video:
+            raise MigrationBlocked(
+                "video target verification mismatch: "
+                f"actual={actual_video} expected={expected_video}"
+            )
+        if actual_image != expected_image:
+            raise MigrationBlocked(
+                "image target verification mismatch: "
+                f"actual={actual_image} expected={expected_image}"
+            )
         if int(self.state.get("processed_total") or 0) != self.expected_total:
             raise MigrationBlocked("processed source total does not match manifest")
         if int(self.state.get("source_media_processed") or 0) != self.expected_media:
@@ -937,17 +1052,29 @@ class Migrator:
                 "status": "complete",
                 "stage": "complete",
                 "completed_at": now_iso(),
-                "verified_target_media": actual["media"],
-                "verified_target_images": actual["images"],
-                "verified_target_videos": actual["videos"],
-                "verified_target_text": actual["text"],
-                "verified_target_attribution": actual["attribution"],
+                "verified_target_media": (
+                    actual_video["media"] + actual_image["media"]
+                ),
+                "verified_target_images": actual_image["images"],
+                "verified_target_videos": actual_video["videos"],
+                "verified_target_text": (
+                    actual_video["text"] + actual_image["text"]
+                ),
+                "verified_target_attribution": (
+                    actual_video["attribution"] + actual_image["attribution"]
+                ),
+                "verified_video_target": actual_video,
+                "verified_image_target": actual_image,
                 "verified_unique_media_added": int(self.state.get("copied_media") or 0),
                 "verified_duplicate_media_skipped": int(self.state.get("duplicate_media") or 0),
             }
         )
         self.save()
-        self.log("migration_complete", **actual)
+        self.log(
+            "migration_complete",
+            video_target=actual_video,
+            image_target=actual_image,
+        )
 
     def run(self) -> None:
         self.log(

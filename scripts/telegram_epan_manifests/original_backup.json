@@ -1,0 +1,27 @@
+{
+  "name": "original_backup",
+  "source_bot": "yuanchaungbot",
+  "source_peer_id": 8766016058,
+  "target_peer_id": 3995547485,
+  "expected_total": 6441,
+  "expected_media": 6372,
+  "expected_images": 583,
+  "expected_videos": 5789,
+  "expected_text": 69,
+  "folders": [
+    {"name": "无水印 一套 备用", "count": 50},
+    {"name": "6000—-6500", "count": 494},
+    {"name": "5500————6000", "count": 493},
+    {"name": "5000————-5500", "count": 478},
+    {"name": "4500——-5000", "count": 483},
+    {"name": "4000—-4500", "count": 494},
+    {"name": "3500——4000", "count": 493},
+    {"name": "3000-3500", "count": 491},
+    {"name": "2500——3000", "count": 486},
+    {"name": "2000——2500", "count": 483},
+    {"name": "1500--2000", "count": 496},
+    {"name": "1000--1500", "count": 496},
+    {"name": "500—1000", "count": 502},
+    {"name": "已经被流出很多 喜欢得话 自己收藏把 原画质 无水印", "count": 502}
+  ]
+}

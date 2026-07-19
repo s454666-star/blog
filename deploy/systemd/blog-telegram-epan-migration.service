@@ -1,0 +1,25 @@
+[Unit]
+Description=Blog Telegram protected ePan media migration queue
+After=network-online.target blog-telegram-account@4.service
+Wants=network-online.target
+Requires=blog-telegram-account@4.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/blog
+ExecStart=/bin/bash -lc 'set -e; /usr/bin/python3 scripts/telegram_epan_folder_migrator.py --manifest-path scripts/telegram_epan_manifests/original_backup.json --state-path /var/lib/blog-telegram/epan-original-backup-migration.json; /usr/bin/python3 scripts/telegram_epan_folder_migrator.py --manifest-path scripts/telegram_epan_manifests/ygt7319.json --state-path /var/lib/blog-telegram/epan-ygt7319-migration.json --fresh'
+Restart=on-failure
+RestartPreventExitStatus=2
+RestartSec=30
+TimeoutStopSec=120
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/blog-telegram
+
+[Install]
+WantedBy=multi-user.target

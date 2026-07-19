@@ -3205,6 +3205,13 @@ class ForwardResourceCodeBatchRequest(BaseModel):
     drop_media_captions: bool = False
 
 
+class CopyProtectedMediaBatchRequest(BaseModel):
+    source_peer_id: int
+    message_ids: List[int]
+    target_peer_id: int
+    drop_media_captions: bool = True
+
+
 class ProcessResourceCodeRequest(BaseModel):
     code: str
     bot_username: str = "zyxfids_bot"
@@ -3620,6 +3627,161 @@ async def forward_resource_code_batch(payload: ForwardResourceCodeBatchRequest):
         "source_message_ids": message_ids,
         "target_message_ids": forwarded_message_ids,
         "forwarded_count": len(forwarded_message_ids),
+    }
+
+
+@app.post("/messages/copy-protected-media-batch")
+async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
+    source_peer_id = int(payload.source_peer_id or 0)
+    target_peer_id = int(payload.target_peer_id or 0)
+    message_ids = list(dict.fromkeys(
+        int(mid or 0)
+        for mid in list(payload.message_ids or [])
+        if int(mid or 0) > 0
+    ))
+
+    if source_peer_id <= 0 or target_peer_id <= 0 or not message_ids:
+        return {"status": "error", "reason": "invalid_request"}
+    if not await _ensure_client_connected():
+        return {"status": "error", "reason": "client_not_connected"}
+
+    source_peer = await _resolve_any_input_entity_by_id(source_peer_id)
+    target_peer = await _resolve_any_input_entity_by_id(target_peer_id)
+    if source_peer is None or target_peer is None:
+        return {"status": "error", "reason": "peer_not_found"}
+
+    fetched = await client.get_messages(source_peer, ids=message_ids)
+    fetched_messages = fetched if isinstance(fetched, list) else [fetched] if fetched is not None else []
+    messages_by_id = {
+        int(getattr(message, "id", 0) or 0): message
+        for message in fetched_messages
+        if int(getattr(message, "id", 0) or 0) > 0
+    }
+    ordered_messages = [messages_by_id[mid] for mid in message_ids if mid in messages_by_id]
+    if len(ordered_messages) != len(message_ids):
+        return {
+            "status": "error",
+            "reason": "source_messages_missing",
+            "requested_message_ids": message_ids,
+            "found_message_ids": [int(getattr(message, "id", 0) or 0) for message in ordered_messages],
+        }
+    if any(_resource_code_media_kind(message) is None for message in ordered_messages):
+        return {"status": "error", "reason": "non_media_message", "message_ids": message_ids}
+
+    copied_message_ids: List[int] = []
+    baseline_message_id = await _resource_code_latest_message_id(target_peer)
+
+    for index, source_message in enumerate(ordered_messages):
+        while True:
+            try:
+                copied = await client.send_file(
+                    target_peer,
+                    getattr(source_message, "media", None),
+                    caption="" if payload.drop_media_captions else str(
+                        getattr(source_message, "message", "") or ""
+                    ),
+                    silent=True,
+                )
+                copied_items = copied if isinstance(copied, list) else [copied] if copied is not None else []
+                current_ids = [
+                    int(getattr(message, "id", 0) or 0)
+                    for message in copied_items
+                    if int(getattr(message, "id", 0) or 0) > 0
+                ]
+                if len(current_ids) != 1:
+                    raise RuntimeError("copied single-message result count mismatch")
+                copied_message_ids.append(current_ids[0])
+                baseline_message_id = max(baseline_message_id, current_ids[0])
+                break
+            except FloodWaitError as e:
+                reconciled_id = await _resource_code_reconcile_forward_after_error(
+                    target_peer,
+                    source_message,
+                    baseline_message_id,
+                )
+                if reconciled_id > 0:
+                    copied_message_ids.append(reconciled_id)
+                    baseline_message_id = max(baseline_message_id, reconciled_id)
+                    break
+                wait_s = max(1, int(getattr(e, "seconds", 1) or 1))
+                push_log(
+                    stage="copy_protected_media",
+                    result="flood_wait",
+                    extra={"index": index, "wait_seconds": wait_s},
+                )
+                await asyncio.sleep(float(wait_s) + 1.0)
+            except Exception as e:
+                reconciled_id = await _resource_code_reconcile_forward_after_error(
+                    target_peer,
+                    source_message,
+                    baseline_message_id,
+                )
+                if reconciled_id > 0:
+                    copied_message_ids.append(reconciled_id)
+                    baseline_message_id = max(baseline_message_id, reconciled_id)
+                    break
+                rollback_remaining = await _cleanup_resource_code_bot_messages(
+                    target_peer,
+                    copied_message_ids,
+                ) if copied_message_ids else []
+                return {
+                    "status": "error",
+                    "reason": "copy_failed",
+                    "error": str(e),
+                    "failed_source_message_id": int(getattr(source_message, "id", 0) or 0),
+                    "target_rollback_complete": len(rollback_remaining) == 0,
+                    "remaining_target_message_ids": rollback_remaining,
+                }
+
+    target_messages = await client.get_messages(target_peer, ids=copied_message_ids)
+    target_items = (
+        target_messages
+        if isinstance(target_messages, list)
+        else [target_messages] if target_messages is not None else []
+    )
+    target_by_id = {
+        int(getattr(message, "id", 0) or 0): message
+        for message in target_items
+        if int(getattr(message, "id", 0) or 0) > 0
+    }
+    verification_errors: List[Dict[str, Any]] = []
+    for source_message, target_message_id in zip(ordered_messages, copied_message_ids):
+        target_message = target_by_id.get(target_message_id)
+        if target_message is None:
+            verification_errors.append({
+                "target_message_id": target_message_id,
+                "reason": "target_message_missing",
+            })
+            continue
+        if _resource_code_media_key(target_message) != _resource_code_media_key(source_message):
+            verification_errors.append({
+                "target_message_id": target_message_id,
+                "reason": "media_key_mismatch",
+            })
+        if payload.drop_media_captions and str(getattr(target_message, "message", "") or ""):
+            verification_errors.append({
+                "target_message_id": target_message_id,
+                "reason": "caption_not_empty",
+            })
+
+    if verification_errors:
+        rollback_remaining = await _cleanup_resource_code_bot_messages(
+            target_peer,
+            copied_message_ids,
+        )
+        return {
+            "status": "error",
+            "reason": "target_verification_failed",
+            "verification_errors": verification_errors,
+            "target_rollback_complete": len(rollback_remaining) == 0,
+            "remaining_target_message_ids": rollback_remaining,
+        }
+
+    return {
+        "status": "ok",
+        "source_message_ids": message_ids,
+        "target_message_ids": copied_message_ids,
+        "copied_count": len(copied_message_ids),
     }
 
 

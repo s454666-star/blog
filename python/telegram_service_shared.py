@@ -102,6 +102,8 @@ RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS = (
     "開通VIP",
     "普通用户暂停解析至",
     "普通用戶暫停解析至",
+    "violated Telegram's Terms of Service",
+    "violated Telegram’s Terms of Service",
 )
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
 GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180

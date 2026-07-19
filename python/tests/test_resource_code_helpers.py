@@ -79,6 +79,7 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
         self.assertIn("请再次发送文件码", service.RESOURCE_CODE_REPEAT_CONFIRMATION_KEYWORDS)
         self.assertIn("You need to become a VIP member", service.RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS)
         self.assertIn("普通用户暂停解析至", service.RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS)
+        self.assertIn("violated Telegram's Terms of Service", service.RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS)
 
     def test_qq_decoder_failure_is_not_found(self) -> None:
         text = "解码失败!!\n文件码错误或被举报删除"

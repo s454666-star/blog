@@ -15,7 +15,8 @@
                         <input id="customer_phone_lookup" name="customer_phone_lookup" list="order-phone-history" autocomplete="off" placeholder="例如：90、0912、02">
                         <datalist id="order-phone-history">
                             @foreach($options['orderCustomers'] as $customerOption)
-                                @if($customerOption['phone'])<option value="{{ $customerOption['phone'] }}">{{ $customerOption['name'] }}</option>@endif
+                                @if($customerOption['phone'])<option value="{{ $customerOption['phone'] }}">{{ $customerOption['name'] }}｜市話</option>@endif
+                                @if($customerOption['mobile'])<option value="{{ $customerOption['mobile'] }}">{{ $customerOption['name'] }}｜手機</option>@endif
                             @endforeach
                         </datalist>
                     </div>
@@ -145,23 +146,24 @@
     function renderCustomer(customer){
         if(!customer){info.innerHTML='<div class="customer-info-empty">找不到完全相符的電話，請繼續輸入或從下拉選擇。</div>';return}
         info.innerHTML=[
-            ['客戶名稱',customer.name],['客戶編號',customer.code],['電話',customer.phone],['統一編號',customer.tax_id],
-            ['產業',customer.industry],['Email',customer.email],['狀態',customer.status],['接洽人',customer.contact],
-            ['地址',customer.address]
+            ['客戶名稱',customer.name],['客戶編號',customer.code],['市話',customer.phone],['手機電話',customer.mobile],
+            ['地址',customer.customer_address],['統一編號',customer.tax_id],['產業',customer.industry],['Email',customer.email],
+            ['狀態',customer.status],['接洽人',customer.contact],['配送地址',customer.address]
         ].map(([label,value])=>`<div class="customer-info-item"><small>${label}</small><span title="${safe(value)}">${safe(value)}</span></div>`).join('');
     }
-    function applyCustomer(customer, syncSelects=true){
+    function applyCustomer(customer, syncSelects=true, chosenPhone=null){
         if(!customer){renderCustomer(null);return}
         if(syncSelects){
             customerSelect.value=String(customer.id);
             contactSelect.value=customer.contact_id?String(customer.contact_id):'';
             addressSelect.value=customer.address_id?String(customer.address_id):'';
         }
-        phoneLookup.value=customer.phone||'';
+        phoneLookup.value=chosenPhone||customer.mobile||customer.phone||'';
         renderCustomer(customer);
     }
-    phoneLookup.addEventListener('input',()=>{const customer=orderCustomers.find(item=>item.phone===phoneLookup.value);if(customer)applyCustomer(customer)});
-    phoneLookup.addEventListener('change',()=>{const customer=orderCustomers.find(item=>item.phone===phoneLookup.value);applyCustomer(customer)});
+    const customerByPhone=value=>orderCustomers.find(item=>item.phone===value||item.mobile===value);
+    phoneLookup.addEventListener('input',()=>{const customer=customerByPhone(phoneLookup.value);if(customer)applyCustomer(customer,true,phoneLookup.value)});
+    phoneLookup.addEventListener('change',()=>{const customer=customerByPhone(phoneLookup.value);applyCustomer(customer,true,phoneLookup.value)});
     customerSelect.addEventListener('change',()=>applyCustomer(orderCustomers.find(item=>String(item.id)===customerSelect.value),false));
     const selectedCustomer=orderCustomers.find(item=>String(item.id)===customerSelect.value);if(selectedCustomer)applyCustomer(selectedCustomer,false);
     let nextIndex=list.children.length;

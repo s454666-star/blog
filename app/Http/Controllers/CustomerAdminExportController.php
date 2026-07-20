@@ -22,8 +22,8 @@ class CustomerAdminExportController extends Controller
         $spreadsheet = new Spreadsheet;
         $spreadsheet->removeSheetByIndex(0);
 
-        $this->addSheet($spreadsheet, '客戶', ['編號', '名稱', '統編', '產業', '電話', 'Email', '網站', '狀態', '備註'],
-            CrmCustomer::orderBy('id')->get()->map(fn ($r) => [$r->code, $r->name, $r->tax_id, $r->industry, $r->phone, $r->email, $r->website, $r->status, $r->notes])->all());
+        $this->addSheet($spreadsheet, '客戶', ['客戶編號', '客戶名稱', '市話', '手機電話', '地址', '統編', '產業', 'Email', '網站', '狀態', '備註'],
+            CrmCustomer::orderBy('id')->get()->map(fn ($r) => [$r->code, $r->name, $r->phone, $r->mobile, $r->address, $r->tax_id, $r->industry, $r->email, $r->website, $r->status, $r->notes])->all());
         $this->addSheet($spreadsheet, '接洽人', ['客戶', '姓名', '職稱', '部門', '電話', '手機', 'Email', '偏好聯絡', '備註'],
             CrmContact::with('customer')->orderBy('id')->get()->map(fn ($r) => [$r->customer?->name, $r->name, $r->title, $r->department, $r->phone, $r->mobile, $r->email, $r->preferred_contact, $r->notes])->all());
         $this->addSheet($spreadsheet, '地址', ['客戶', '標籤', '收件人', '電話', '郵遞區號', '縣市', '區域', '地址', '補充地址', '預設', '備註'],

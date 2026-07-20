@@ -188,9 +188,11 @@ class CustomerAdminController extends Controller
             'customers' => [
                 'code' => ['nullable', 'string', 'max:50', Rule::unique('crm_customers', 'code')->ignore($record?->id)],
                 'name' => ['required', 'string', 'max:255'],
+                'phone' => ['nullable', 'string', 'max:50'],
+                'mobile' => ['nullable', 'string', 'max:50'],
+                'address' => ['nullable', 'string', 'max:255'],
                 'tax_id' => ['nullable', 'string', 'max:20'],
                 'industry' => ['nullable', 'string', 'max:100'],
-                'phone' => ['nullable', 'string', 'max:50'],
                 'email' => ['nullable', 'email', 'max:255'],
                 'website' => ['nullable', 'url', 'max:255'],
                 'status' => ['nullable', 'string', 'max:30'],
@@ -268,8 +270,10 @@ class CustomerAdminController extends Controller
                 ->mapWithKeys(fn ($item) => [$item->id => ($item->label ?: '地址 #'.$item->id).'｜'.$item->full_address])->all(),
             'products' => CrmProduct::orderBy('name')->get()
                 ->mapWithKeys(fn ($item) => [$item->id => ['label' => $item->name.'｜$'.number_format((float) $item->price), 'name' => $item->name, 'price' => $item->price]])->all(),
-            'customerPhones' => CrmCustomer::query()->whereNotNull('phone')->where('phone', '!=', '')
+            'cityPhones' => CrmCustomer::query()->whereNotNull('phone')->where('phone', '!=', '')
                 ->distinct()->orderBy('phone')->pluck('phone')->all(),
+            'mobilePhones' => CrmCustomer::query()->whereNotNull('mobile')->where('mobile', '!=', '')
+                ->distinct()->orderBy('mobile')->pluck('mobile')->all(),
             'orderCustomers' => CrmCustomer::with(['contacts', 'addresses'])->orderBy('name')->get()
                 ->map(function (CrmCustomer $customer) {
                     $contact = $customer->contacts->first();
@@ -283,6 +287,8 @@ class CustomerAdminController extends Controller
                         'tax_id' => $customer->tax_id,
                         'industry' => $customer->industry,
                         'phone' => $customer->phone,
+                        'mobile' => $customer->mobile,
+                        'customer_address' => $customer->address,
                         'email' => $customer->email,
                         'website' => $customer->website,
                         'status' => $customer->status,
@@ -300,14 +306,16 @@ class CustomerAdminController extends Controller
         $modules = [
             'customers' => [
                 'title' => '客戶管理', 'singular' => '客戶', 'model' => CrmCustomer::class, 'with' => [],
-                'search' => ['name', 'code', 'tax_id', 'phone', 'email'],
-                'columns' => ['code' => '客戶編號', 'name' => '客戶名稱', 'industry' => '產業', 'phone' => '電話', 'status' => '狀態'],
+                'search' => ['name', 'code', 'tax_id', 'phone', 'mobile', 'address', 'email'],
+                'columns' => ['code' => '客戶編號', 'name' => '客戶名稱', 'phone' => '市話', 'mobile' => '手機電話', 'address' => '地址', 'status' => '狀態'],
                 'fields' => [
                     'code' => ['label' => '客戶編號', 'placeholder' => '例如 C-001'],
                     'name' => ['label' => '客戶名稱', 'required' => true],
+                    'phone' => ['label' => '市話', 'datalist' => 'cityPhones'],
+                    'mobile' => ['label' => '手機電話', 'datalist' => 'mobilePhones'],
+                    'address' => ['label' => '地址', 'wide' => true],
                     'tax_id' => ['label' => '統一編號'],
                     'industry' => ['label' => '產業類別'],
-                    'phone' => ['label' => '公司電話', 'datalist' => 'customerPhones'],
                     'email' => ['label' => '電子信箱', 'type' => 'email'],
                     'website' => ['label' => '網站', 'type' => 'url'],
                     'status' => ['label' => '客戶狀態', 'type' => 'select', 'options' => ['潛在客戶' => '潛在客戶', '洽談中' => '洽談中', '合作中' => '合作中', '暫停' => '暫停']],
@@ -358,7 +366,7 @@ class CustomerAdminController extends Controller
                     'category' => ['label' => '商品分類'],
                     'price' => ['label' => '售價', 'type' => 'number', 'step' => '0.01', 'required' => true],
                     'cost' => ['label' => '成本', 'type' => 'number', 'step' => '0.01'],
-                    'unit' => ['label' => '單位', 'type' => 'select', 'options' => ['個' => '個', '件' => '件', '組' => '組', '盒' => '盒', '箱' => '箱', '公斤' => '公斤']],
+                    'unit' => ['label' => '單位', 'type' => 'select', 'options' => ['個' => '個', '件' => '件', '組' => '組', '盒' => '盒', '包' => '包', '罐' => '罐', '箱' => '箱', '公斤' => '公斤']],
                     'stock_quantity' => ['label' => '庫存數量', 'type' => 'number', 'step' => '0.01'],
                     'tax_rate' => ['label' => '稅率 (%)', 'type' => 'number', 'step' => '0.01'],
                     'status' => ['label' => '商品狀態', 'type' => 'select', 'options' => ['販售中' => '販售中', '暫停販售' => '暫停販售', '停售' => '停售']],

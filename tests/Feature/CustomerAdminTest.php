@@ -6,6 +6,8 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Style\Border;
 use Tests\TestCase;
 
 class CustomerAdminTest extends TestCase
@@ -79,8 +81,13 @@ class CustomerAdminTest extends TestCase
         $this->assertDatabaseHas('crm_orders', ['subtotal' => 2400, 'total' => 2300]);
         $this->assertDatabaseHas('crm_order_items', ['product_name' => '雲端服務', 'line_total' => 2400]);
 
-        $this->get('/admin/export/xlsx')
+        $exportResponse = $this->get('/admin/export/xlsx')
             ->assertOk()
             ->assertHeader('content-disposition');
+        $spreadsheet = IOFactory::load($exportResponse->baseResponse->getFile()->getPathname());
+        $customerSheet = $spreadsheet->getSheetByName('客戶');
+        $this->assertSame('A5', $customerSheet->getFreezePane());
+        $this->assertSame(Border::BORDER_THIN, $customerSheet->getStyle('A4')->getBorders()->getTop()->getBorderStyle());
+        $this->assertGreaterThanOrEqual(10, $customerSheet->getColumnDimension('A')->getWidth());
     }
 }

@@ -46,7 +46,7 @@ class TwStockRealtimeQuoteService
             ->values()
             ->all();
 
-        $ttl = 30;
+        $ttl = 60;
         if ($stocks === []) {
             return [
                 'servedAt' => $this->now()->toIso8601String(),
@@ -58,64 +58,96 @@ class TwStockRealtimeQuoteService
         }
 
         $cacheKey = 'tw-stock:official-market-quotes:v1:' . sha1(serialize($stocks));
+        $staleCacheKey = $cacheKey . ':stale';
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
 
-        return Cache::remember($cacheKey, now()->addSeconds($ttl), function () use ($stocks, $ttl): array {
-            $twseCircuitOpen = Cache::get(self::TWSE_MARKET_QUOTE_CIRCUIT_KEY) === true;
-            $chunks = array_chunk($stocks, 60);
-            [$quotes, $errors] = $twseCircuitOpen
-                ? [[], []]
-                : $this->fetchOfficialMarketQuoteChunks($chunks);
+        try {
+            $payload = $this->buildOfficialMarketQuotes($stocks, $ttl);
+            Cache::put($cacheKey, $payload, now()->addSeconds($ttl));
+            if (($payload['quotes'] ?? []) !== []) {
+                Cache::put($staleCacheKey, $payload, now()->addMinutes(10));
+            }
 
-            $codes = collect($stocks)->pluck('code')->unique()->values()->all();
+            return $payload;
+        } catch (Throwable $exception) {
+            $stale = Cache::get($staleCacheKey);
+            if (is_array($stale)) {
+                $stale['servedAt'] = $this->now()->toIso8601String();
+                $stale['source']['status'] = 'stale';
+                $stale['source']['label'] = ((string) ($stale['source']['label'] ?? '即時報價')) . '（沿用上一筆成功資料）';
+                $stale['source']['errors']['stale_fallback'] = $exception->getMessage();
+
+                return $stale;
+            }
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * @param list<array{code: string, exchange: string}> $stocks
+     * @return array<string, mixed>
+     */
+    private function buildOfficialMarketQuotes(array $stocks, int $ttl): array
+    {
+        $twseCircuitOpen = Cache::get(self::TWSE_MARKET_QUOTE_CIRCUIT_KEY) === true;
+        $chunks = array_chunk($stocks, 60);
+        [$quotes, $errors] = $twseCircuitOpen
+            ? [[], []]
+            : $this->fetchOfficialMarketQuoteChunks($chunks);
+
+        $codes = collect($stocks)->pluck('code')->unique()->values()->all();
+        $missing = array_values(array_diff($codes, array_keys($quotes)));
+        $fallbackProviders = [];
+        if ($missing !== []) {
+            [$fallbackQuotes, $fallbackErrors, $fallbackProviders] = $this->fetchMarketQuoteFallbacks($missing);
+            foreach ($fallbackQuotes as $code => $quote) {
+                if (!isset($quotes[$code])) {
+                    $quotes[$code] = $quote;
+                }
+            }
+            $errors = [...$errors, ...$fallbackErrors];
             $missing = array_values(array_diff($codes, array_keys($quotes)));
-            $fallbackProviders = [];
-            if ($missing !== []) {
-                [$fallbackQuotes, $fallbackErrors, $fallbackProviders] = $this->fetchMarketQuoteFallbacks($missing);
-                foreach ($fallbackQuotes as $code => $quote) {
-                    if (!isset($quotes[$code])) {
-                        $quotes[$code] = $quote;
-                    }
+        }
+        if ($missing !== []) {
+            $missingStocks = collect($stocks)
+                ->filter(fn (array $stock): bool => in_array($stock['code'], $missing, true))
+                ->values()
+                ->all();
+            [$directQuotes, $directErrors] = $this->fetchOfficialMarketQuoteChunks(array_chunk($missingStocks, 20));
+            foreach ($directQuotes as $code => $quote) {
+                if (!isset($quotes[$code])) {
+                    $quotes[$code] = $quote;
                 }
-                $errors = [...$errors, ...$fallbackErrors];
-                $missing = array_values(array_diff($codes, array_keys($quotes)));
             }
-            if ($missing !== []) {
-                $missingStocks = collect($stocks)
-                    ->filter(fn (array $stock): bool => in_array($stock['code'], $missing, true))
-                    ->values()
-                    ->all();
-                [$directQuotes, $directErrors] = $this->fetchOfficialMarketQuoteChunks(array_chunk($missingStocks, 20));
-                foreach ($directQuotes as $code => $quote) {
-                    if (!isset($quotes[$code])) {
-                        $quotes[$code] = $quote;
-                    }
-                }
-                $errors = [...$errors, ...collect($directErrors)
-                    ->mapWithKeys(fn (string $error, string $key): array => ['twse_retry_' . $key => $error])
-                    ->all()];
-                $missing = array_values(array_diff($codes, array_keys($quotes)));
-            }
+            $errors = [...$errors, ...collect($directErrors)
+                ->mapWithKeys(fn (string $error, string $key): array => ['twse_retry_' . $key => $error])
+                ->all()];
+            $missing = array_values(array_diff($codes, array_keys($quotes)));
+        }
 
-            $labels = $twseCircuitOpen ? [] : ['證交所即時報價'];
-            if ($fallbackProviders !== []) {
-                $labels[] = implode(' + ', array_map(fn (string $provider): string => $this->providerLabel($provider), $fallbackProviders));
-            }
-            if (!$twseCircuitOpen && $quotes !== [] && count($errors) >= count($chunks)) {
-                Cache::put(self::TWSE_MARKET_QUOTE_CIRCUIT_KEY, true, now()->addSeconds(90));
-            }
+        $labels = $twseCircuitOpen ? [] : ['證交所即時報價'];
+        if ($fallbackProviders !== []) {
+            $labels[] = implode(' + ', array_map(fn (string $provider): string => $this->providerLabel($provider), $fallbackProviders));
+        }
+        if (!$twseCircuitOpen && $quotes !== [] && count($errors) >= count($chunks)) {
+            Cache::put(self::TWSE_MARKET_QUOTE_CIRCUIT_KEY, true, now()->addSeconds(90));
+        }
 
-            return [
-                'servedAt' => $this->now()->toIso8601String(),
-                'cacheSeconds' => $ttl,
-                'source' => [
-                    'status' => $quotes === [] ? 'unavailable' : ($missing === [] ? 'live' : 'partial'),
-                    'label' => $labels === [] ? '即時報價' : implode(' / ', $labels),
-                    'errors' => $errors,
-                ],
-                'quotes' => $quotes,
-                'missing' => $missing,
-            ];
-        });
+        return [
+            'servedAt' => $this->now()->toIso8601String(),
+            'cacheSeconds' => $ttl,
+            'source' => [
+                'status' => $quotes === [] ? 'unavailable' : ($missing === [] ? 'live' : 'partial'),
+                'label' => $labels === [] ? '即時報價' : implode(' / ', $labels),
+                'errors' => $errors,
+            ],
+            'quotes' => $quotes,
+            'missing' => $missing,
+        ];
     }
 
     /**

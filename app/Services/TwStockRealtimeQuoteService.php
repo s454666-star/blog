@@ -46,7 +46,7 @@ class TwStockRealtimeQuoteService
             ->values()
             ->all();
 
-        $ttl = 12;
+        $ttl = 30;
         if ($stocks === []) {
             return [
                 'servedAt' => $this->now()->toIso8601String(),

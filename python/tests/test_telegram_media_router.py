@@ -20,8 +20,10 @@ class FakeApi:
         self.forward_calls = []
         self.register_calls = []
         self.delete_calls = []
+        self.get_calls = []
 
     def get(self, path, timeout=180.0):
+        self.get_calls.append(path)
         parsed = urllib.parse.urlparse(path)
         peer_id = int(parsed.path.split("/")[-1])
         query = urllib.parse.parse_qs(parsed.query)
@@ -101,8 +103,8 @@ class TelegramMediaRouterTest(unittest.TestCase):
                 300: [{"id": 1, "media_kind": None}],
                 100: [
                     {"id": 1, "media_kind": None},
-                    {"id": 2, "media_kind": "photo"},
-                    {"id": 3, "media_kind": "video_document"},
+                    {"id": 2, "media_kind": "photo", "file_unique_id": "photo-2"},
+                    {"id": 3, "media_kind": "video_document", "file_unique_id": "video-3"},
                     {"id": 4, "media_kind": "document"},
                 ],
             }
@@ -113,6 +115,7 @@ class TelegramMediaRouterTest(unittest.TestCase):
 
         self.assertEqual(4, processed)
         self.assertEqual([300, 200], [call["target_peer_id"] for call in api.forward_calls])
+        self.assertTrue(all("include_text=false" in call for call in api.get_calls))
         self.assertEqual([], api.register_calls)
         source = self.connection.execute(
             "SELECT * FROM router_sources WHERE peer_id = 100"
@@ -160,6 +163,35 @@ class TelegramMediaRouterTest(unittest.TestCase):
             "SELECT * FROM router_settings WHERE id = 1"
         ).fetchone()
         self.assertEqual(0, settings["video_target_cursor"])
+
+    def test_skips_cross_source_duplicate_by_file_unique_id(self):
+        router_module.add_source(self.connection, 100, "Source A")
+        router_module.add_source(self.connection, 101, "Source B")
+        api = FakeApi(
+            {
+                100: [
+                    {"id": 10, "media_kind": "video", "file_unique_id": "same-video"},
+                ],
+                101: [
+                    {"id": 20, "media_kind": "video", "file_unique_id": "same-video"},
+                ],
+            }
+        )
+        router = router_module.Router(self.connection, self.database_path, api=api)
+
+        processed = router.run_once()
+
+        self.assertEqual(2, processed)
+        self.assertEqual(1, len(api.forward_calls))
+        self.assertEqual([10], api.forward_calls[0]["message_ids"])
+        rows = self.connection.execute(
+            "SELECT * FROM router_items ORDER BY source_peer_id, source_message_id"
+        ).fetchall()
+        self.assertEqual("completed", rows[0]["status"])
+        self.assertEqual("duplicate", rows[1]["status"])
+        self.assertEqual(1, rows[1]["is_duplicate"])
+        self.assertEqual(rows[0]["id"], rows[1]["duplicate_of_item_id"])
+        self.assertEqual(rows[0]["target_message_id"], rows[1]["target_message_id"])
 
 
 if __name__ == "__main__":

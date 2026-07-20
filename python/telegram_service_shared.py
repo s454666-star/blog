@@ -8341,7 +8341,8 @@ async def get_group_messages(
     max_id: int = 0,
     add_offset: int = 0,
     reverse: bool = False,
-    include_raw: bool = True
+    include_raw: bool = True,
+    include_text: bool = True
 ):
     ent = await _resolve_any_entity_by_id(peer_id)
     if ent is None:
@@ -8401,12 +8402,17 @@ async def get_group_messages(
                 "id": int(getattr(m, "id", 0) or 0),
                 "date": getattr(m, "date", None).isoformat() if getattr(m, "date", None) else None,
                 "sender_id": int(getattr(getattr(m, "sender_id", None), "user_id", 0) or (getattr(m, "sender_id", 0) or 0)),
-                "text": getattr(m, "message", None) or getattr(m, "text", None),
+                "text": (getattr(m, "message", None) or getattr(m, "text", None)) if include_text else None,
                 "has_media": bool(getattr(m, "media", None) is not None),
                 "media_kind": _resource_code_media_kind(m),
                 "grouped_id": int(getattr(m, "grouped_id", 0) or 0) or None,
                 "noforwards": bool(getattr(m, "noforwards", False)),
             })
+            if items[-1]["has_media"]:
+                file_meta = _extract_file_meta_mtproto(m)
+                if file_meta and file_meta.get("mtproto_doc_id") and file_meta.get("file_unique_id"):
+                    items[-1]["file_id"] = file_meta.get("file_id")
+                    items[-1]["file_unique_id"] = file_meta.get("file_unique_id")
 
     ids_desc = [int(x.get("id", 0) or 0) for x in items if isinstance(x, dict)]
     ids_desc = [x for x in ids_desc if x > 0]

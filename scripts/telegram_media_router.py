@@ -117,10 +117,12 @@ def connect_database(path: str) -> sqlite3.Connection:
             source_message_id INTEGER NOT NULL,
             media_kind TEXT,
             content_sha256 TEXT,
+            file_unique_id TEXT,
             target_peer_id INTEGER,
             target_message_id INTEGER,
             status TEXT NOT NULL,
             is_duplicate INTEGER NOT NULL DEFAULT 0,
+            duplicate_of_item_id INTEGER,
             attempts INTEGER NOT NULL DEFAULT 0,
             last_error TEXT,
             created_at TEXT NOT NULL,
@@ -146,8 +148,33 @@ def connect_database(path: str) -> sqlite3.Connection:
         );
         """
     )
+    ensure_column(connection, "router_items", "file_unique_id", "TEXT")
+    ensure_column(connection, "router_items", "duplicate_of_item_id", "INTEGER")
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS router_items_completed_file_unique_index
+            ON router_items (file_unique_id)
+            WHERE file_unique_id IS NOT NULL AND status = 'completed'
+        """
+    )
     connection.commit()
     return connection
+
+
+def ensure_column(
+    connection: sqlite3.Connection,
+    table_name: str,
+    column_name: str,
+    column_definition: str,
+) -> None:
+    columns = {
+        str(row["name"])
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name not in columns:
+        connection.execute(
+            f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
+        )
 
 
 def configure_router(
@@ -321,6 +348,34 @@ class Router:
             return "video"
         return None
 
+    @staticmethod
+    def normalized_file_unique_id(raw_file_unique_id: Any) -> str | None:
+        value = str(raw_file_unique_id or "").strip()
+        if not value:
+            return None
+        return value[:255]
+
+    def find_completed_file_duplicate(
+        self,
+        file_unique_id: str | None,
+    ) -> sqlite3.Row | None:
+        normalized = self.normalized_file_unique_id(file_unique_id)
+        if normalized is None:
+            return None
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM router_items
+            WHERE file_unique_id = ?
+              AND status = 'completed'
+              AND target_peer_id IS NOT NULL
+              AND target_message_id IS NOT NULL
+            ORDER BY id
+            LIMIT 1
+            """,
+            (normalized,),
+        ).fetchone()
+
     def group_messages(
         self,
         api: Api,
@@ -334,6 +389,7 @@ class Router:
                 "min_id": max(0, int(min_id)),
                 "reverse": "true",
                 "include_raw": "false",
+                "include_text": "false",
             }
         )
         response = api.get(f"/groups/{int(peer_id)}?{query}")
@@ -487,16 +543,18 @@ class Router:
         source_peer_id: int,
         source_message_id: int,
         media_kind: str | None,
+        file_unique_id: str | None = None,
     ) -> sqlite3.Row:
         timestamp = now_iso()
         self.connection.execute(
             """
             INSERT INTO router_items (
-                source_peer_id, source_message_id, media_kind,
+                source_peer_id, source_message_id, media_kind, file_unique_id,
                 status, attempts, created_at, updated_at
-            ) VALUES (?, ?, ?, 'processing', 1, ?, ?)
+            ) VALUES (?, ?, ?, ?, 'processing', 1, ?, ?)
             ON CONFLICT(source_peer_id, source_message_id) DO UPDATE SET
                 media_kind = excluded.media_kind,
+                file_unique_id = COALESCE(excluded.file_unique_id, router_items.file_unique_id),
                 status = CASE
                     WHEN router_items.status IN ('completed', 'duplicate', 'ignored')
                         THEN router_items.status
@@ -514,6 +572,7 @@ class Router:
                 int(source_peer_id),
                 int(source_message_id),
                 media_kind,
+                self.normalized_file_unique_id(file_unique_id),
                 timestamp,
                 timestamp,
             ),
@@ -540,7 +599,9 @@ class Router:
         target_peer_id: int | None = None,
         target_message_id: int | None = None,
         content_sha256: str | None = None,
+        file_unique_id: str | None = None,
         is_duplicate: bool = False,
+        duplicate_of_item_id: int | None = None,
     ) -> None:
         timestamp = now_iso()
         with self.connection:
@@ -549,7 +610,9 @@ class Router:
                 UPDATE router_items
                 SET status = ?, media_kind = ?, target_peer_id = ?,
                     target_message_id = ?, content_sha256 = ?,
-                    is_duplicate = ?, last_error = NULL, updated_at = ?
+                    file_unique_id = COALESCE(?, file_unique_id),
+                    is_duplicate = ?, duplicate_of_item_id = ?,
+                    last_error = NULL, updated_at = ?
                 WHERE source_peer_id = ? AND source_message_id = ?
                 """,
                 (
@@ -558,7 +621,9 @@ class Router:
                     target_peer_id,
                     target_message_id,
                     content_sha256,
+                    self.normalized_file_unique_id(file_unique_id),
                     1 if is_duplicate else 0,
+                    int(duplicate_of_item_id or 0) or None,
                     timestamp,
                     int(source_peer_id),
                     int(source_message_id),
@@ -605,7 +670,8 @@ class Router:
             if message_id <= cursor:
                 continue
             media_kind = self.routed_kind(message.get("media_kind"))
-            item = self.begin_source_item(peer_id, message_id, media_kind)
+            file_unique_id = self.normalized_file_unique_id(message.get("file_unique_id"))
+            item = self.begin_source_item(peer_id, message_id, media_kind, file_unique_id)
             if str(item["status"]) in TERMINAL_ITEM_STATUSES:
                 self.complete_source_item(
                     source_peer_id=peer_id,
@@ -615,7 +681,9 @@ class Router:
                     target_peer_id=item["target_peer_id"],
                     target_message_id=item["target_message_id"],
                     content_sha256=item["content_sha256"],
+                    file_unique_id=item["file_unique_id"],
                     is_duplicate=bool(item["is_duplicate"]),
+                    duplicate_of_item_id=item["duplicate_of_item_id"],
                 )
                 cursor = message_id
                 processed += 1
@@ -626,6 +694,33 @@ class Router:
                     source_message_id=message_id,
                     status="ignored",
                     media_kind=None,
+                )
+                cursor = message_id
+                processed += 1
+                continue
+
+            duplicate = self.find_completed_file_duplicate(file_unique_id)
+            if duplicate is not None:
+                self.complete_source_item(
+                    source_peer_id=peer_id,
+                    source_message_id=message_id,
+                    status="duplicate",
+                    media_kind=media_kind,
+                    target_peer_id=int(duplicate["target_peer_id"] or 0),
+                    target_message_id=int(duplicate["target_message_id"] or 0),
+                    content_sha256=None,
+                    file_unique_id=file_unique_id,
+                    is_duplicate=True,
+                    duplicate_of_item_id=int(duplicate["id"] or 0),
+                )
+                self.log(
+                    "source_media_duplicate_skipped",
+                    source_peer_id=peer_id,
+                    source_message_id=message_id,
+                    media_kind=media_kind,
+                    duplicate_of_item_id=int(duplicate["id"] or 0),
+                    target_peer_id=int(duplicate["target_peer_id"] or 0),
+                    target_message_id=int(duplicate["target_message_id"] or 0),
                 )
                 cursor = message_id
                 processed += 1
@@ -695,6 +790,7 @@ class Router:
                 target_peer_id=target_peer_id,
                 target_message_id=target_message_id,
                 content_sha256=None,
+                file_unique_id=file_unique_id,
                 is_duplicate=False,
             )
             self.log(

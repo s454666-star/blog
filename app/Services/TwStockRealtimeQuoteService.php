@@ -93,7 +93,7 @@ class TwStockRealtimeQuoteService
      */
     private function buildOfficialMarketQuotes(array $stocks, int $ttl): array
     {
-        $twseCircuitOpen = Cache::get(self::TWSE_MARKET_QUOTE_CIRCUIT_KEY) === true;
+        $twseCircuitOpen = Cache::get(self::TWSE_MARKET_QUOTE_CIRCUIT_KEY) === true || count($stocks) > 500;
         $chunks = array_chunk($stocks, 60);
         [$quotes, $errors] = $twseCircuitOpen
             ? [[], []]

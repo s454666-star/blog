@@ -59,9 +59,53 @@ class TwStockRealtimeQuoteService
         $cacheKey = 'tw-stock:official-market-quotes:v1:' . sha1(serialize($stocks));
 
         return Cache::remember($cacheKey, now()->addSeconds($ttl), function () use ($stocks, $ttl): array {
-            $chunks = array_chunk($stocks, 80);
-            $responses = Http::pool(fn (Pool $pool): array => collect($chunks)
-                ->mapWithKeys(function (array $chunk, int $index) use ($pool): array {
+            $chunks = array_chunk($stocks, 60);
+            [$quotes, $errors] = $this->fetchOfficialMarketQuoteChunks($chunks);
+
+            $codes = collect($stocks)->pluck('code')->unique()->values()->all();
+            $missing = array_values(array_diff($codes, array_keys($quotes)));
+            $fallbackProviders = [];
+            if ($missing !== []) {
+                [$fallbackQuotes, $fallbackErrors, $fallbackProviders] = $this->fetchMarketQuoteFallbacks($missing);
+                foreach ($fallbackQuotes as $code => $quote) {
+                    if (!isset($quotes[$code])) {
+                        $quotes[$code] = $quote;
+                    }
+                }
+                $errors = [...$errors, ...$fallbackErrors];
+                $missing = array_values(array_diff($codes, array_keys($quotes)));
+            }
+
+            $labels = ['證交所即時報價'];
+            if ($fallbackProviders !== []) {
+                $labels[] = implode(' + ', array_map(fn (string $provider): string => $this->providerLabel($provider), $fallbackProviders));
+            }
+
+            return [
+                'servedAt' => $this->now()->toIso8601String(),
+                'cacheSeconds' => $ttl,
+                'source' => [
+                    'status' => $quotes === [] ? 'unavailable' : ($missing === [] ? 'live' : 'partial'),
+                    'label' => implode(' / ', $labels),
+                    'errors' => $errors,
+                ],
+                'quotes' => $quotes,
+                'missing' => $missing,
+            ];
+        });
+    }
+
+    /**
+     * @param list<list<array{code: string, exchange: string}>> $chunks
+     * @return array{0: array<string, array<string, mixed>>, 1: array<string, string>}
+     */
+    private function fetchOfficialMarketQuoteChunks(array $chunks): array
+    {
+        $quotes = [];
+        $errors = [];
+        foreach (array_chunk($chunks, 4, true) as $chunkGroup) {
+            $responses = Http::pool(fn (Pool $pool): array => collect($chunkGroup)
+                ->mapWithKeys(function (array $chunk, int|string $index) use ($pool): array {
                     $channels = collect($chunk)
                         ->map(fn (array $stock): string => sprintf(
                             '%s_%s.tw',
@@ -78,6 +122,7 @@ class TwStockRealtimeQuoteService
                                 'User-Agent' => 'Mozilla/5.0',
                             ])
                             ->timeout($this->timeout())
+                            ->retry(1, 200)
                             ->get(self::TWSE_MIS_URL, [
                                 'ex_ch' => $channels,
                                 'json' => '1',
@@ -88,9 +133,7 @@ class TwStockRealtimeQuoteService
                 })
                 ->all());
 
-            $quotes = [];
-            $errors = [];
-            foreach ($chunks as $index => $chunk) {
+            foreach ($chunkGroup as $index => $chunk) {
                 try {
                     $response = $responses[(string) $index] ?? null;
                     if (!$response instanceof HttpResponse) {
@@ -117,25 +160,85 @@ class TwStockRealtimeQuoteService
                         }
                     }
                 } catch (Throwable $exception) {
-                    $errors['chunk_' . $index] = $exception->getMessage();
+                    $errors['twse_chunk_' . $index] = $exception->getMessage();
                 }
             }
 
-            $codes = collect($stocks)->pluck('code')->unique()->values()->all();
-            $missing = array_values(array_diff($codes, array_keys($quotes)));
+            if (count($chunkGroup) === 4) {
+                usleep(120_000);
+            }
+        }
 
-            return [
-                'servedAt' => $this->now()->toIso8601String(),
-                'cacheSeconds' => $ttl,
-                'source' => [
-                    'status' => $quotes === [] ? 'unavailable' : ($missing === [] ? 'live' : 'partial'),
-                    'label' => '證交所即時報價',
-                    'errors' => $errors,
-                ],
-                'quotes' => $quotes,
-                'missing' => $missing,
-            ];
-        });
+        return [$quotes, $errors];
+    }
+
+    /**
+     * @param list<string> $codes
+     * @return array{0: array<string, array<string, mixed>>, 1: array<string, string>, 2: list<string>}
+     */
+    private function fetchMarketQuoteFallbacks(array $codes): array
+    {
+        $quotes = [];
+        $errors = [];
+        $providers = [];
+        foreach (['cnyes', 'yahoo_tw', 'yahoo_tw_page'] as $provider) {
+            $missing = array_values(array_diff($codes, array_keys($quotes)));
+            if ($missing === []) {
+                break;
+            }
+
+            try {
+                $providerQuotes = $this->fetchProviderQuotes($provider, $missing);
+                foreach ($providerQuotes as $code => $quote) {
+                    $code = $this->normalizeCode((string) $code);
+                    $marketQuote = $this->providerQuoteToMarketQuote($quote, $provider);
+                    if ($code !== '' && $marketQuote !== null) {
+                        $quotes[$code] = $marketQuote;
+                    }
+                }
+                if ($providerQuotes !== []) {
+                    $providers[] = $provider;
+                }
+            } catch (Throwable $exception) {
+                $errors['fallback_' . $provider] = $exception->getMessage();
+            }
+        }
+
+        return [$quotes, $errors, array_values(array_unique($providers))];
+    }
+
+    /**
+     * @param array<string, mixed> $quote
+     * @return array<string, mixed>|null
+     */
+    private function providerQuoteToMarketQuote(array $quote, string $provider): ?array
+    {
+        $lastPrice = $this->priceOrNull($quote['lastPrice'] ?? $quote['price'] ?? null);
+        $previousClose = $this->numberOrNull($quote['previousClose'] ?? null);
+        if ($lastPrice === null || $previousClose === null || $previousClose <= 0) {
+            return null;
+        }
+
+        return [
+            'code' => $this->normalizeCode((string) ($quote['code'] ?? '')),
+            'name' => (string) ($quote['name'] ?? ''),
+            'price' => $lastPrice,
+            'priceType' => (string) ($quote['priceType'] ?? 'last'),
+            'lastPrice' => $lastPrice,
+            'previousClose' => $previousClose,
+            'dayChange' => $lastPrice - $previousClose,
+            'dayChangeRate' => ($lastPrice - $previousClose) / $previousClose * 100,
+            'bestBid' => $this->numberOrNull($quote['bestBid'] ?? null),
+            'bestAsk' => $this->numberOrNull($quote['bestAsk'] ?? null),
+            'open' => $this->numberOrNull($quote['open'] ?? null),
+            'high' => $this->numberOrNull($quote['high'] ?? null),
+            'low' => $this->numberOrNull($quote['low'] ?? null),
+            'volumeLots' => $this->numberOrNull($quote['volumeLots'] ?? null),
+            'exchange' => (string) ($quote['exchange'] ?? ''),
+            'quotedAt' => $quote['quotedAt'] ?? null,
+            'source' => $provider,
+            'sourceLabel' => $this->providerLabel($provider),
+        ];
     }
 
     public function quotes(array $codes): array

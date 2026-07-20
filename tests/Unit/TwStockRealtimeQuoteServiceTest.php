@@ -69,6 +69,50 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
         });
     }
 
+    public function test_official_market_quotes_fall_back_when_twse_bulk_requests_fail(): void
+    {
+        Http::fake(fn ($request) => match (true) {
+            str_starts_with($request->url(), 'https://mis.twse.com.tw/stock/api/getStockInfo.jsp') => Http::response('', 502),
+            str_starts_with($request->url(), 'https://ws.api.cnyes.com/ws/api/v1/quote/quotes/') => Http::response([
+                'statusCode' => 200,
+                'data' => [
+                    [
+                        '200010' => '2330',
+                        '200009' => '台積電',
+                        '6' => 1120.0,
+                        '11' => 40.0,
+                        '56' => 3.7037,
+                        '800001' => 32100,
+                        '200007' => 1784509200,
+                    ],
+                    [
+                        '200010' => '5483',
+                        '200009' => '中美晶',
+                        '6' => 145.5,
+                        '11' => 5.5,
+                        '56' => 3.9286,
+                        '800001' => 6789,
+                        '200007' => 1784509260,
+                    ],
+                ],
+            ]),
+            default => Http::response([], 404),
+        });
+
+        $payload = app(TwStockRealtimeQuoteService::class)->officialMarketQuotes([
+            ['code' => '2330', 'exchange' => 'TWSE'],
+            ['code' => '5483', 'exchange' => 'TPEx'],
+        ]);
+
+        $this->assertSame('live', $payload['source']['status']);
+        $this->assertStringContainsString('CNYES', $payload['source']['label']);
+        $this->assertSame(1120.0, $payload['quotes']['2330']['lastPrice']);
+        $this->assertSame(1080.0, $payload['quotes']['2330']['previousClose']);
+        $this->assertSame(145.5, $payload['quotes']['5483']['lastPrice']);
+        $this->assertSame([], $payload['missing']);
+        $this->assertArrayHasKey('twse_chunk_0', $payload['source']['errors']);
+    }
+
     public function test_it_parses_twse_mis_quotes_with_mid_price_fallback(): void
     {
         Http::fake([

@@ -79,6 +79,22 @@ class TwStockRealtimeQuoteService
                 $errors = [...$errors, ...$fallbackErrors];
                 $missing = array_values(array_diff($codes, array_keys($quotes)));
             }
+            if ($missing !== []) {
+                $missingStocks = collect($stocks)
+                    ->filter(fn (array $stock): bool => in_array($stock['code'], $missing, true))
+                    ->values()
+                    ->all();
+                [$directQuotes, $directErrors] = $this->fetchOfficialMarketQuoteChunks(array_chunk($missingStocks, 20));
+                foreach ($directQuotes as $code => $quote) {
+                    if (!isset($quotes[$code])) {
+                        $quotes[$code] = $quote;
+                    }
+                }
+                $errors = [...$errors, ...collect($directErrors)
+                    ->mapWithKeys(fn (string $error, string $key): array => ['twse_retry_' . $key => $error])
+                    ->all()];
+                $missing = array_values(array_diff($codes, array_keys($quotes)));
+            }
 
             $labels = $twseCircuitOpen ? [] : ['證交所即時報價'];
             if ($fallbackProviders !== []) {
@@ -160,7 +176,7 @@ class TwStockRealtimeQuoteService
                             continue;
                         }
 
-                        $quote = $this->twseRowToQuote($marketRow);
+                        $quote = $this->twseRowToQuote($marketRow, allowPreviousClose: true);
                         $code = $this->normalizeCode((string) ($marketRow['c'] ?? ''));
                         if ($quote !== null && $code !== '') {
                             $quotes[$code] = $quote;
@@ -275,6 +291,11 @@ class TwStockRealtimeQuoteService
         if ($lastPrice === null || $previousClose === null || $previousClose <= 0) {
             return null;
         }
+        $quotedAt = $quote['quotedAt'] ?? null;
+        $quotedAtTime = $this->quoteTimestamp($quotedAt);
+        if ($provider !== 'twse' && $quotedAtTime?->toDateString() !== $this->now()->toDateString()) {
+            return null;
+        }
 
         return [
             'code' => $this->normalizeCode((string) ($quote['code'] ?? '')),
@@ -292,7 +313,7 @@ class TwStockRealtimeQuoteService
             'low' => $this->numberOrNull($quote['low'] ?? null),
             'volumeLots' => $this->numberOrNull($quote['volumeLots'] ?? null),
             'exchange' => (string) ($quote['exchange'] ?? ''),
-            'quotedAt' => $quote['quotedAt'] ?? null,
+            'quotedAt' => $quotedAt,
             'source' => $provider,
             'sourceLabel' => $this->providerLabel($provider),
         ];
@@ -498,7 +519,7 @@ class TwStockRealtimeQuoteService
      * @param array<string, mixed> $row
      * @return array<string, mixed>|null
      */
-    private function twseRowToQuote(array $row): ?array
+    private function twseRowToQuote(array $row, bool $allowPreviousClose = false): ?array
     {
         $last = $this->priceOrNull($row['z'] ?? null);
         $previousClose = $this->numberOrNull($row['y'] ?? null);
@@ -516,6 +537,11 @@ class TwStockRealtimeQuoteService
         } elseif ($price === null && $bestAsk !== null) {
             $price = $bestAsk;
             $priceType = 'ask';
+        }
+
+        if ($allowPreviousClose && $price === null && $previousClose !== null && $previousClose > 0 && $this->twseTimestamp($row) !== null) {
+            $price = $previousClose;
+            $priceType = 'previous-close';
         }
 
         if ($price === null) {
@@ -1987,6 +2013,19 @@ class TwStockRealtimeQuoteService
             return CarbonImmutable::parse($timestamp)
                 ->setTimezone((string) config('esun.timezone', 'Asia/Taipei'))
                 ->toIso8601String();
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function quoteTimestamp(mixed $value): ?CarbonImmutable
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse($value)->setTimezone((string) config('esun.timezone', 'Asia/Taipei'));
         } catch (Throwable) {
             return null;
         }

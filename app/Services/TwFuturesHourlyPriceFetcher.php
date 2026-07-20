@@ -136,6 +136,42 @@ class TwFuturesHourlyPriceFetcher
     }
 
     /**
+     * @return array{price: float, quotedAt: CarbonImmutable, symbolId: string}|null
+     */
+    public function fetchCurrentTaifexQuoteSnapshot(?CarbonImmutable $now = null): ?array
+    {
+        $now ??= CarbonImmutable::now('Asia/Taipei');
+        $window = $this->currentSessionWindow($now);
+        if ($window === null) {
+            return null;
+        }
+
+        $quote = $this->fetchTaifexFrontMonthQuote($window['marketType']);
+        if ($quote === null) {
+            return null;
+        }
+
+        $quotedAt = $this->taifexQuoteTimestamp($quote);
+        $price = $this->floatValue($quote['CLastPrice'] ?? null);
+        if (
+            $quotedAt === null
+            || $price === null
+            || $quotedAt->lessThan($window['start'])
+            || $quotedAt->greaterThanOrEqualTo($window['end'])
+            || $quotedAt->greaterThan($now->addSeconds(30))
+            || $quotedAt->lessThan($now->subMinutes(15))
+        ) {
+            return null;
+        }
+
+        return [
+            'price' => $price,
+            'quotedAt' => $quotedAt,
+            'symbolId' => (string) ($quote['SymbolID'] ?? ''),
+        ];
+    }
+
+    /**
      * @param list<array<string, mixed>> $rows
      * @return list<array<string, mixed>>
      */

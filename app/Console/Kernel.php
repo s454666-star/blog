@@ -192,7 +192,7 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_futures_5min_prices.log'));
 
-        $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=15 --from=' . now(config('app.timezone'))->subDays(7)->toDateString() . ' --to=' . now(config('app.timezone'))->addDays(3)->toDateString() . ' --bars=4800 --delay-seconds=10')
+        $schedule->command('tw-stock:fetch-taiex-futures-hourly --interval=15 --from=' . now(config('app.timezone'))->subDays(7)->toDateString() . ' --to=' . now(config('app.timezone'))->addDays(3)->toDateString() . ' --bars=4800 --delay-seconds=35')
             ->everyFifteenMinutes()
             ->name('tw-stock-fetch-taiex-futures-15-minute')
             ->withoutOverlapping(15)

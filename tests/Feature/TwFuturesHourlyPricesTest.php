@@ -489,6 +489,9 @@ class TwFuturesHourlyPricesTest extends TestCase
                 ->once()
                 ->with([])
                 ->andReturn(0);
+            $mock->shouldReceive('fetchCurrentTaifexQuoteSnapshot')
+                ->twice()
+                ->andReturn(null);
         });
         $this->mock(TwFuturesHourlyPriceController::class, function (MockInterface $mock): void {
             $mock->shouldReceive('lineAlertPayload')
@@ -550,6 +553,9 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->mock(TwFuturesHourlyPriceFetcher::class, function (MockInterface $mock): void {
             $mock->shouldNotReceive('fetchRows');
             $mock->shouldNotReceive('upsertRows');
+            $mock->shouldReceive('fetchCurrentTaifexQuoteSnapshot')
+                ->once()
+                ->andReturn(null);
         });
         $this->mock(TwFuturesHourlyPriceController::class, function (MockInterface $mock): void {
             $mock->shouldReceive('lineAlertPayload')
@@ -593,6 +599,100 @@ class TwFuturesHourlyPricesTest extends TestCase
         });
     }
 
+    public function test_taiex_futures_line_alert_uses_live_quote_during_the_current_15k_bar(): void
+    {
+        Cache::flush();
+        Carbon::setTestNow('2026-07-20 09:40:03');
+        CarbonImmutable::setTestNow('2026-07-20 09:40:03');
+
+        $this->mock(TwFuturesHourlyPriceFetcher::class, function (MockInterface $mock): void {
+            $mock->shouldNotReceive('fetchRows');
+            $mock->shouldNotReceive('upsertRows');
+            $mock->shouldReceive('fetchCurrentTaifexQuoteSnapshot')
+                ->once()
+                ->andReturn([
+                    'price' => 42524.0,
+                    'quotedAt' => CarbonImmutable::parse('2026-07-20 09:40:01', 'Asia/Taipei'),
+                    'symbolId' => 'TXFH6-F',
+                ]);
+        });
+        $this->partialMock(TwFuturesHourlyPriceController::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('lineAlertPayload')
+                ->once()
+                ->andReturn([
+                    'chartRows' => [
+                        [
+                            'time' => CarbonImmutable::parse('2026-07-20 09:30:00', 'Asia/Taipei')->timestamp,
+                            'localTime' => '2026-07-20 09:30',
+                            'gap' => -494.1211,
+                            'isSessionOpen' => false,
+                            'biasRate' => -0.04525555,
+                            'close' => 42994,
+                            'dailyMa5' => 44455,
+                            'movingAverage' => 44940.4132,
+                        ],
+                    ],
+                    'fourHourMa5Rows' => [],
+                    'stats' => [
+                        'latestClose' => 42994,
+                        'latestDailyMa5' => 44455,
+                        'latestFiveMinuteClose' => 42994,
+                        'latestMovingAverage' => 44940.4132,
+                        'latestGap' => -485.4132,
+                    ],
+                ]);
+        });
+
+        config()->set('app.url', 'https://stock.mystar.monster');
+        config()->set('line.channel_access_token', 'stock-line-token');
+        config()->set('line.dashboard_notify_target_id', 'Cstocktarget');
+        config()->set('line.yuanta_channel_access_token', 'yuanta-line-token');
+        config()->set('line.yuanta_dashboard_notify_target_id', 'Cyuantatarget');
+
+        Http::fake([
+            'https://api.line.me/v2/bot/message/push' => Http::response([], 200),
+        ]);
+
+        $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
+
+        Http::assertSentCount(1);
+        Http::assertSent(function ($request): bool {
+            $message = (string) data_get($request->data(), 'messages.0.text', '');
+
+            return str_contains($message, '台指期通知 2026-07-20 09:30')
+                && str_contains($message, '乖離率 -5.68% 低於 -5.00%')
+                && str_contains($message, '現價 42,524')
+                && str_contains($message, '即時報價時間 2026-07-20 09:40:01');
+        });
+    }
+
+    public function test_hourly_fetcher_returns_a_fresh_taifex_quote_snapshot(): void
+    {
+        $now = CarbonImmutable::parse('2026-07-20 09:40:03', 'Asia/Taipei');
+        Http::fake([
+            'https://mis.taifex.com.tw/futures/api/getQuoteList' => Http::response([
+                'RtCode' => '0',
+                'RtData' => [
+                    'QuoteList' => [
+                        [
+                            'SymbolID' => 'TXFH6-F',
+                            'CLastPrice' => '42524.00',
+                            'CDate' => '20260720',
+                            'CTime' => '094001',
+                        ],
+                    ],
+                ],
+            ]),
+        ]);
+
+        $snapshot = app(TwFuturesHourlyPriceFetcher::class)->fetchCurrentTaifexQuoteSnapshot($now);
+
+        $this->assertNotNull($snapshot);
+        $this->assertSame(42524.0, $snapshot['price']);
+        $this->assertSame('2026-07-20 09:40:01', $snapshot['quotedAt']->format('Y-m-d H:i:s'));
+        $this->assertSame('TXFH6-F', $snapshot['symbolId']);
+    }
+
     public function test_taiex_futures_line_alert_command_sends_four_hour_ma5_notification(): void
     {
         $this->seedHourlyRows();
@@ -610,6 +710,9 @@ class TwFuturesHourlyPricesTest extends TestCase
                 ->twice()
                 ->with([])
                 ->andReturn(0);
+            $mock->shouldReceive('fetchCurrentTaifexQuoteSnapshot')
+                ->once()
+                ->andReturn(null);
         });
 
         config()->set('app.url', 'https://stock.mystar.monster');
@@ -660,6 +763,9 @@ class TwFuturesHourlyPricesTest extends TestCase
                 ->once()
                 ->with([])
                 ->andReturn(0);
+            $mock->shouldReceive('fetchCurrentTaifexQuoteSnapshot')
+                ->once()
+                ->andReturn(null);
         });
 
         config()->set('app.url', 'https://stock.mystar.monster');

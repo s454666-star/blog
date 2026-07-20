@@ -63,6 +63,71 @@ class TwFuturesHourlyPriceController extends Controller
     }
 
     /**
+     * Replace the delayed current 15K close with a live TAIFEX quote so threshold
+     * alerts can fire while the displayed 15K bar is still forming.
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>|null
+     */
+    public function livePriceAlertRow(array $payload, float $price, CarbonImmutable $quotedAt): ?array
+    {
+        $chartRows = $payload['chartRows'] ?? null;
+        if (! is_array($chartRows) || $chartRows === []) {
+            return null;
+        }
+
+        $latestRow = $chartRows[array_key_last($chartRows)] ?? null;
+        if (! is_array($latestRow)) {
+            return null;
+        }
+
+        $latestClose = $latestRow['close'] ?? null;
+        $latestMovingAverage = $latestRow['movingAverage'] ?? null;
+        if (! is_numeric($latestClose) || ! is_numeric($latestMovingAverage) || $price <= 0.0) {
+            return null;
+        }
+
+        $barMinute = intdiv((int) $quotedAt->format('i'), 15) * 15;
+        $barStartedAt = $quotedAt->setTime((int) $quotedAt->format('H'), $barMinute, 0);
+        $latestLocalTime = (string) ($latestRow['localTime'] ?? '');
+        try {
+            $latestDisplayedAt = CarbonImmutable::parse($latestLocalTime, 'Asia/Taipei');
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (abs($latestDisplayedAt->diffInSeconds($barStartedAt, false)) > 15 * 60) {
+            return null;
+        }
+
+        $movingAverage = (float) $latestMovingAverage
+            + (($price - (float) $latestClose) / self::FIFTEEN_MINUTE_MA_WINDOW);
+        $dailyMa5 = $payload['stats']['latestDailyMa5'] ?? null;
+        $latestFiveMinuteClose = $payload['stats']['latestFiveMinuteClose'] ?? null;
+        if (is_numeric($dailyMa5) && is_numeric($latestFiveMinuteClose)) {
+            $dailyMa5 = (float) $dailyMa5 + (($price - (float) $latestFiveMinuteClose) / 5);
+        }
+
+        $bias = $price - $movingAverage;
+        $biasRate = $bias / $price;
+        $gap = is_numeric($dailyMa5) ? (float) $dailyMa5 - $movingAverage : null;
+
+        return [
+            ...$latestRow,
+            'time' => $barStartedAt->timestamp,
+            'localTime' => $barStartedAt->format('Y-m-d H:i'),
+            'close' => round($price, 4),
+            'movingAverage' => round($movingAverage, 4),
+            'dailyMa5' => is_numeric($dailyMa5) ? round((float) $dailyMa5, 4) : null,
+            'gap' => $gap === null ? null : round($gap, 4),
+            'bias' => round($bias, 4),
+            'biasRate' => round($biasRate, 8),
+            'isSessionOpen' => in_array($barStartedAt->format('H:i'), ['08:45', '15:00'], true),
+            'quoteLocalTime' => $quotedAt->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function chartPayload(?string $dataRevision = null): array
@@ -75,6 +140,7 @@ class TwFuturesHourlyPriceController extends Controller
         $hourlyIndicatorRows = $this->indicatorRows($hourlyRows, self::HOURLY_MA_WINDOW, $dailyMa5ByTimestamp);
         $fourHourMa5Rows = $this->fourHourMa5Rows($hourlyIndicatorRows['chartRows'], $indicatorRows['chartRows']);
         $latest = $rows->last();
+        $latestFiveMinute = $fiveMinuteRows->last();
 
         return [
             'dataRevision' => $dataRevision ?? $this->currentDataRevision(),
@@ -94,6 +160,9 @@ class TwFuturesHourlyPriceController extends Controller
                 'latestClose' => $latest === null ? null : round((float) $latest->close_price, 2),
                 'latestGap' => $indicatorRows['latestGap'],
                 'latestDailyMa5' => $indicatorRows['latestDailyMa5'],
+                'latestFiveMinuteClose' => $latestFiveMinute === null
+                    ? null
+                    : round((float) $latestFiveMinute->close_price, 2),
                 'latestMovingAverage' => $indicatorRows['latestMovingAverage'],
                 'latestBias' => $indicatorRows['latestBias'],
                 'latestBiasRate' => $indicatorRows['latestBiasRate'],

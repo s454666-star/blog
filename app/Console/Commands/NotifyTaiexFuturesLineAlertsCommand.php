@@ -47,6 +47,9 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
             $this->refreshCurrentAlertSourceRows($fetcher, $now);
         }
         $payload = $controller->lineAlertPayload();
+        if (! $this->option('dry-run')) {
+            $payload = $this->withLivePriceAlertRow($payload, $controller, $fetcher, $now);
+        }
         $alerts = $this->alertsFromPayload($payload, $now, $lookbackMinutes);
         $alerts = array_slice($alerts, -$maxAlerts);
 
@@ -109,16 +112,69 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
 
     private function requiredPriceAlertLocalTime(CarbonImmutable $now): ?string
     {
-        $minuteWithinQuarter = ((int) $now->format('i')) % 15;
-        if ($minuteWithinQuarter === 0) {
-            return $now->format('Y-m-d H:i');
+        $minute = (int) $now->format('i');
+        if ($minute % 5 !== 0) {
+            return null;
         }
 
-        if ($minuteWithinQuarter === 5) {
-            return $now->subMinutes(5)->format('Y-m-d H:i');
+        return $now->subMinutes($minute % 15)->format('Y-m-d H:i');
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function withLivePriceAlertRow(
+        array $payload,
+        TwFuturesHourlyPriceController $controller,
+        TwFuturesHourlyPriceFetcher $fetcher,
+        CarbonImmutable $now,
+    ): array {
+        try {
+            $snapshot = $fetcher->fetchCurrentTaifexQuoteSnapshot($now);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return $payload;
         }
 
-        return null;
+        if ($snapshot === null) {
+            return $payload;
+        }
+
+        $row = $controller->livePriceAlertRow(
+            $payload,
+            (float) $snapshot['price'],
+            $snapshot['quotedAt'],
+        );
+        if ($row === null) {
+            return $payload;
+        }
+
+        $replaced = false;
+        foreach ($payload['chartRows'] ?? [] as $index => $existingRow) {
+            if (
+                is_array($existingRow)
+                && (string) ($existingRow['localTime'] ?? '') === (string) $row['localTime']
+            ) {
+                $payload['chartRows'][$index] = $row;
+                $replaced = true;
+                break;
+            }
+        }
+        if (! $replaced) {
+            $payload['chartRows'][] = $row;
+        }
+
+        $this->line(sprintf(
+            '台指期即時乖離資料：bar=%s quote_at=%s price=%s bias_rate=%s',
+            (string) $row['localTime'],
+            (string) $row['quoteLocalTime'],
+            $this->formatOptionalNumber($row['close'] ?? null, 0),
+            $this->formatPercent((float) $row['biasRate']),
+        ));
+
+        return $payload;
     }
 
     private function refreshCurrentAlertSourceRows(
@@ -282,6 +338,9 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
                 $this->formatOptionalNumber($row['dailyMa5'] ?? null, 0),
                 $this->formatOptionalNumber($row['movingAverage'] ?? null, 0),
             ),
+            ...isset($row['quoteLocalTime'])
+                ? ['即時報價時間 ' . (string) $row['quoteLocalTime']]
+                : [],
             $this->dashboardUrl(),
         ];
 

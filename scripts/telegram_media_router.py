@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 
@@ -876,17 +877,68 @@ class Router:
         if not bool(settings["enabled"]):
             return 0
         processed = 0
-        sources = self.connection.execute(
-            "SELECT * FROM router_sources WHERE enabled = 1 ORDER BY id"
-        ).fetchall()
-        for source in sources:
-            processed += self.process_source(settings, source)
-        if processed > 0:
-            return processed
         if not self.all_initial_scans_completed():
-            return 0
+            processed += self.process_initial_scan_sources()
+            return processed
         processed += self.process_pending_item(settings)
         return processed
+
+    def process_initial_scan_sources(self) -> int:
+        sources = self.connection.execute(
+            """
+            SELECT *
+            FROM router_sources
+            WHERE enabled = 1
+              AND initial_scan_completed_at IS NULL
+            ORDER BY id
+            """
+        ).fetchall()
+        if not sources:
+            return 0
+
+        # Tests may inject an in-memory fake API. Keep that path serial so the
+        # fake object and the test connection are not shared across threads.
+        if self._api is not None:
+            settings = self.settings()
+            return sum(self.process_source(settings, source) for source in sources)
+
+        max_workers = max(1, len(sources))
+        processed = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(self.process_source_worker, int(source["peer_id"]))
+                for source in sources
+            ]
+            for future in as_completed(futures):
+                processed += int(future.result() or 0)
+        if processed > 0:
+            self.log(
+                "source_scan_workers_done",
+                workers=max_workers,
+                processed=processed,
+            )
+        return processed
+
+    def process_source_worker(self, peer_id: int) -> int:
+        connection = connect_database(self.database_path)
+        try:
+            worker = Router(connection, self.database_path)
+            settings = worker.settings()
+            source = connection.execute(
+                """
+                SELECT *
+                FROM router_sources
+                WHERE enabled = 1
+                  AND initial_scan_completed_at IS NULL
+                  AND peer_id = ?
+                """,
+                (int(peer_id),),
+            ).fetchone()
+            if source is None:
+                return 0
+            return worker.process_source(settings, source)
+        finally:
+            connection.close()
 
     def all_initial_scans_completed(self) -> bool:
         row = self.connection.execute(

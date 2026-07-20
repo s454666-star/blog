@@ -112,7 +112,7 @@ class TwStockRealtimeQuoteService
             $errors = [...$errors, ...$fallbackErrors];
             $missing = array_values(array_diff($codes, array_keys($quotes)));
         }
-        if ($missing !== []) {
+        if ($missing !== [] && (count($stocks) <= 500 || count($missing) <= 100)) {
             $missingStocks = collect($stocks)
                 ->filter(fn (array $stock): bool => in_array($stock['code'], $missing, true))
                 ->values()
@@ -236,7 +236,8 @@ class TwStockRealtimeQuoteService
         $quotes = [];
         $errors = [];
         $providers = [];
-        foreach (['cnyes', 'yahoo_tw', 'yahoo_tw_page'] as $provider) {
+        $marketProviders = count($codes) > 500 ? ['cnyes'] : ['cnyes', 'yahoo_tw', 'yahoo_tw_page'];
+        foreach ($marketProviders as $provider) {
             $missing = array_values(array_diff($codes, array_keys($quotes)));
             if ($missing === []) {
                 break;
@@ -286,8 +287,8 @@ class TwStockRealtimeQuoteService
                                 'Referer' => 'https://www.cnyes.com/',
                                 'User-Agent' => 'Mozilla/5.0',
                             ])
-                            ->timeout($this->timeout())
-                            ->retry(1, 150)
+                            ->connectTimeout(1)
+                            ->timeout(2)
                             ->get(self::CNYES_QUOTES_URL . $symbols, ['column' => 'G']),
                     ];
                 })
@@ -299,12 +300,16 @@ class TwStockRealtimeQuoteService
                     continue;
                 }
 
-                $payload = $response->throw()->json();
-                $rows = is_array($payload) ? ($payload['data'] ?? []) : [];
-                if (is_array($rows)) {
-                    foreach ($this->cnyesRowsToQuotes($rows) as $code => $quote) {
-                        $quotes[(string) $code] = $quote;
+                try {
+                    $payload = $response->throw()->json();
+                    $rows = is_array($payload) ? ($payload['data'] ?? []) : [];
+                    if (is_array($rows)) {
+                        foreach ($this->cnyesRowsToQuotes($rows) as $code => $quote) {
+                            $quotes[(string) $code] = $quote;
+                        }
                     }
+                } catch (Throwable) {
+                    continue;
                 }
             }
         }

@@ -236,7 +236,7 @@ class TwStockRealtimeQuoteService
         $quotes = [];
         $errors = [];
         $providers = [];
-        foreach (['cnyes', 'yahoo_tw', 'yahoo_tw_page', 'tradingview', 'yahoo_chart'] as $provider) {
+        foreach (['cnyes', 'yahoo_tw', 'yahoo_tw_page'] as $provider) {
             $missing = array_values(array_diff($codes, array_keys($quotes)));
             if ($missing === []) {
                 break;

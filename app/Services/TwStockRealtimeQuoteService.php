@@ -195,7 +195,9 @@ class TwStockRealtimeQuoteService
             }
 
             try {
-                $providerQuotes = $this->fetchProviderQuotes($provider, $missing);
+                $providerQuotes = $provider === 'cnyes'
+                    ? $this->fetchCnyesMarketQuotes($missing)
+                    : $this->fetchProviderQuotes($provider, $missing);
                 foreach ($providerQuotes as $code => $quote) {
                     $code = $this->normalizeCode((string) $code);
                     $marketQuote = $this->providerQuoteToMarketQuote($quote, $provider);
@@ -212,6 +214,54 @@ class TwStockRealtimeQuoteService
         }
 
         return [$quotes, $errors, array_values(array_unique($providers))];
+    }
+
+    /**
+     * @param list<string> $codes
+     * @return array<string, array<string, mixed>>
+     */
+    private function fetchCnyesMarketQuotes(array $codes): array
+    {
+        $chunks = array_chunk($codes, 100);
+        $quotes = [];
+        foreach (array_chunk($chunks, 5, true) as $chunkGroup) {
+            $responses = Http::pool(fn (Pool $pool): array => collect($chunkGroup)
+                ->mapWithKeys(function (array $chunk, int|string $index) use ($pool): array {
+                    $symbols = collect($chunk)
+                        ->map(fn (string $code): string => 'TWS:' . $code . ':STOCK')
+                        ->implode(',');
+
+                    return [
+                        (string) $index => $pool->as((string) $index)
+                            ->withHeaders([
+                                'Accept' => 'application/json,text/plain,*/*',
+                                'Referer' => 'https://www.cnyes.com/',
+                                'User-Agent' => 'Mozilla/5.0',
+                            ])
+                            ->timeout($this->timeout())
+                            ->retry(1, 150)
+                            ->get(self::CNYES_QUOTES_URL . $symbols, ['column' => 'G']),
+                    ];
+                })
+                ->all());
+
+            foreach ($chunkGroup as $index => $chunk) {
+                $response = $responses[(string) $index] ?? null;
+                if (!$response instanceof HttpResponse) {
+                    continue;
+                }
+
+                $payload = $response->throw()->json();
+                $rows = is_array($payload) ? ($payload['data'] ?? []) : [];
+                if (is_array($rows)) {
+                    foreach ($this->cnyesRowsToQuotes($rows) as $code => $quote) {
+                        $quotes[(string) $code] = $quote;
+                    }
+                }
+            }
+        }
+
+        return $quotes;
     }
 
     /**
@@ -519,10 +569,16 @@ class TwStockRealtimeQuoteService
             ->json();
 
         $rows = $payload['data'] ?? [];
-        if (!is_array($rows)) {
-            return [];
-        }
 
+        return is_array($rows) ? $this->cnyesRowsToQuotes($rows) : [];
+    }
+
+    /**
+     * @param list<mixed> $rows
+     * @return array<string, array<string, mixed>>
+     */
+    private function cnyesRowsToQuotes(array $rows): array
+    {
         $quotes = [];
         foreach ($rows as $row) {
             if (!is_array($row)) {

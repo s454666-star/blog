@@ -4,6 +4,9 @@ use App\Http\Controllers\BlogBtController;
 use App\Http\Controllers\BlogController;
     use App\Http\Controllers\BtdigController;
 use App\Http\Controllers\CommandRunnerController;
+use App\Http\Controllers\CustomerAdminAuthController;
+use App\Http\Controllers\CustomerAdminController;
+use App\Http\Controllers\CustomerAdminExportController;
     use App\Http\Controllers\DialogueReadController;
     use App\Http\Controllers\DialogueTokenStatsController;
 use App\Http\Controllers\EncryptionController;
@@ -54,6 +57,23 @@ use App\Http\Controllers\VideoRerunSyncController;
 |--------------------------------------------------------------------------
 */
 Route::get('/page-favicons/{slug}.svg', [PageFaviconController::class, 'show'])->name('page-favicon');
+
+Route::prefix('admin')->name('customer-admin.')->group(function () {
+    Route::get('/', [CustomerAdminAuthController::class, 'show'])->name('login');
+    Route::post('/login', [CustomerAdminAuthController::class, 'login'])->middleware('throttle:10,1')->name('login.submit');
+
+    Route::middleware('customer.admin')->group(function () {
+        Route::get('/dashboard', [CustomerAdminController::class, 'dashboard'])->name('dashboard');
+        Route::post('/logout', [CustomerAdminAuthController::class, 'logout'])->name('logout');
+        Route::get('/export/xlsx', CustomerAdminExportController::class)->name('export');
+        Route::get('/{module}', [CustomerAdminController::class, 'index'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->name('module.index');
+        Route::get('/{module}/create', [CustomerAdminController::class, 'create'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->name('module.create');
+        Route::post('/{module}', [CustomerAdminController::class, 'store'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->name('module.store');
+        Route::get('/{module}/{id}/edit', [CustomerAdminController::class, 'edit'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->whereNumber('id')->name('module.edit');
+        Route::put('/{module}/{id}', [CustomerAdminController::class, 'update'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->whereNumber('id')->name('module.update');
+        Route::delete('/{module}/{id}', [CustomerAdminController::class, 'destroy'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->whereNumber('id')->name('module.destroy');
+    });
+});
 
 Route::get('/videos', [VideosController::class, 'index'])->name('video.index');
 Route::get('/videos/load-more', [VideosController::class, 'loadMore'])->name('video.loadMore');

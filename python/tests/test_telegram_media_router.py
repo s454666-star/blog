@@ -17,7 +17,7 @@ class FakeApi:
     def __init__(self, groups, register_results=None):
         self.groups = groups
         self.register_results = register_results or {}
-        self.copy_calls = []
+        self.forward_calls = []
         self.register_calls = []
         self.delete_calls = []
 
@@ -35,20 +35,15 @@ class FakeApi:
         return {"status": "ok", "items": items, "count": len(items)}
 
     def post(self, path, payload, timeout=7200.0):
-        if path == "/messages/copy-protected-media-batch":
-            self.copy_calls.append(dict(payload))
+        if path == "/resource-codes/forward-batch":
+            self.forward_calls.append(dict(payload))
             message_id = int(payload["message_ids"][0])
             target_message_id = 1000 + message_id
             return {
                 "status": "ok",
-                "results": [
-                    {
-                        "source_message_id": message_id,
-                        "target_message_id": target_message_id,
-                        "content_sha256": f"hash-{message_id}",
-                        "duplicate": False,
-                    }
-                ],
+                "source_message_ids": [message_id],
+                "target_message_ids": [target_message_id],
+                "forwarded_count": 1,
             }
         if path == "/messages/register-media-hash":
             self.register_calls.append(dict(payload))
@@ -116,8 +111,9 @@ class TelegramMediaRouterTest(unittest.TestCase):
 
         processed = router.run_once()
 
-        self.assertEqual(6, processed)
-        self.assertEqual([300, 200], [call["target_peer_id"] for call in api.copy_calls])
+        self.assertEqual(4, processed)
+        self.assertEqual([300, 200], [call["target_peer_id"] for call in api.forward_calls])
+        self.assertEqual([], api.register_calls)
         source = self.connection.execute(
             "SELECT * FROM router_sources WHERE peer_id = 100"
         ).fetchone()
@@ -132,14 +128,14 @@ class TelegramMediaRouterTest(unittest.TestCase):
 
         second_processed = router.run_once()
 
-        self.assertEqual(2, second_processed)
+        self.assertEqual(0, second_processed)
         self.assertEqual(register_call_count, len(api.register_calls))
         managed_count = self.connection.execute(
             "SELECT COUNT(*) FROM router_target_items WHERE status = 'managed'"
         ).fetchone()[0]
-        self.assertEqual(2, managed_count)
+        self.assertEqual(0, managed_count)
 
-    def test_target_index_keeps_first_hash_and_deletes_later_duplicate(self):
+    def test_target_index_records_forward_only_without_hashing_or_deleting(self):
         api = FakeApi(
             {
                 200: [
@@ -157,23 +153,13 @@ class TelegramMediaRouterTest(unittest.TestCase):
 
         processed = router.run_once()
 
-        self.assertEqual(2, processed)
-        self.assertEqual(
-            [{"chat_peer": "200", "message_ids": [2]}],
-            api.delete_calls,
-        )
+        self.assertEqual(0, processed)
+        self.assertEqual([], api.register_calls)
+        self.assertEqual([], api.delete_calls)
         settings = self.connection.execute(
             "SELECT * FROM router_settings WHERE id = 1"
         ).fetchone()
-        self.assertEqual(2, settings["video_target_cursor"])
-        row = self.connection.execute(
-            """
-            SELECT * FROM router_target_items
-            WHERE target_peer_id = 200 AND target_message_id = 2
-            """
-        ).fetchone()
-        self.assertEqual("duplicate_deleted", row["status"])
-        self.assertEqual(1, row["canonical_target_message_id"])
+        self.assertEqual(0, settings["video_target_cursor"])
 
 
 if __name__ == "__main__":

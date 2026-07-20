@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Continuously deduplicate and route Telegram group media by kind.
+"""Continuously route Telegram group media by kind using Telegram forwarding.
 
 Configuration and resumable cursors live in a SQLite database so source groups
 can be added without editing code or restarting the service.
@@ -469,51 +469,13 @@ class Router:
                 processed += 1
                 continue
 
-            response = api.post(
-                "/messages/register-media-hash",
-                {
-                    "media_peer_id": peer_id,
-                    "message_id": message_id,
-                    "dedupe_scope": str(settings["dedupe_scope"]),
-                    "target_peer_id": peer_id,
-                    "target_message_id": message_id,
-                    "require_clean_target": False,
-                    "preserve_existing": True,
-                },
-            )
-            if response.get("status") != "ok":
-                raise RouterBlocked(
-                    f"target hash failed for {peer_id}/{message_id}: "
-                    f"{response.get('reason') or response}"
-                )
-            canonical_id = int(response.get("target_message_id") or 0)
-            duplicate = bool(response.get("duplicate")) and canonical_id != message_id
-            status = "indexed"
-            if duplicate:
-                deletion = api.post(
-                    "/bots/delete-messages",
-                    {"chat_peer": str(peer_id), "message_ids": [message_id]},
-                    timeout=180.0,
-                )
-                if deletion.get("status") != "ok":
-                    raise RouterBlocked(
-                        f"target duplicate delete failed for {peer_id}/{message_id}: "
-                        f"{deletion.get('reason') or deletion}"
-                    )
-                status = "duplicate_deleted"
-                self.log(
-                    "target_duplicate_deleted",
-                    target_peer_id=peer_id,
-                    target_message_id=message_id,
-                    canonical_target_message_id=canonical_id,
-                )
             self.record_target_item(
                 target_peer_id=peer_id,
                 target_message_id=message_id,
                 media_kind=routed_kind,
-                content_sha256=str(response.get("content_sha256") or ""),
-                canonical_target_message_id=canonical_id,
-                status=status,
+                content_sha256="",
+                canonical_target_message_id=message_id,
+                status="indexed_forward_only",
             )
             self.update_target_cursor(cursor_column, message_id)
             cursor = message_id
@@ -676,20 +638,18 @@ class Router:
             )
             try:
                 response = api.post(
-                    "/messages/copy-protected-media-batch",
+                    "/resource-codes/forward-batch",
                     {
                         "source_peer_id": peer_id,
                         "message_ids": [message_id],
                         "target_peer_id": target_peer_id,
                         "drop_media_captions": True,
-                        "dedupe_scope": str(settings["dedupe_scope"]),
-                        "existing_dedupe_requires_clean": False,
                     },
                 )
             except (TimeoutError, urllib.error.URLError, ConnectionError) as error:
                 self.fail_source_item(peer_id, message_id, f"transport_error: {error}")
                 self.log(
-                    "source_copy_transport_error",
+                    "source_forward_transport_error",
                     source_peer_id=peer_id,
                     source_message_id=message_id,
                     error=str(error),
@@ -697,14 +657,14 @@ class Router:
                 break
 
             if response.get("status") != "ok":
-                reason = str(response.get("reason") or "copy_failed")
+                reason = str(response.get("reason") or "forward_failed")
                 self.fail_source_item(
                     peer_id,
                     message_id,
                     f"{reason}: {response.get('error') or ''}".strip(),
                 )
                 self.log(
-                    "source_copy_failed",
+                    "source_forward_failed",
                     source_peer_id=peer_id,
                     source_message_id=message_id,
                     reason=reason,
@@ -715,26 +675,27 @@ class Router:
                     time.sleep(wait_seconds)
                 break
 
-            results = list(response.get("results") or [])
-            if len(results) != 1:
-                self.fail_source_item(peer_id, message_id, "copy_result_count_mismatch")
+            target_message_ids = [
+                int(target_message_id or 0)
+                for target_message_id in list(response.get("target_message_ids") or [])
+                if int(target_message_id or 0) > 0
+            ]
+            if len(target_message_ids) != 1:
+                self.fail_source_item(peer_id, message_id, "forward_result_count_mismatch")
                 break
-            result = results[0]
-            target_message_id = int(result.get("target_message_id") or 0)
+            target_message_id = target_message_ids[0]
             if target_message_id <= 0:
-                self.fail_source_item(peer_id, message_id, "copy_target_message_missing")
+                self.fail_source_item(peer_id, message_id, "forward_target_message_missing")
                 break
-            duplicate = bool(result.get("duplicate"))
-            status = "duplicate" if duplicate else "completed"
             self.complete_source_item(
                 source_peer_id=peer_id,
                 source_message_id=message_id,
-                status=status,
+                status="completed",
                 media_kind=media_kind,
                 target_peer_id=target_peer_id,
                 target_message_id=target_message_id,
-                content_sha256=str(result.get("content_sha256") or ""),
-                is_duplicate=duplicate,
+                content_sha256=None,
+                is_duplicate=False,
             )
             self.log(
                 "source_media_routed",
@@ -743,7 +704,7 @@ class Router:
                 media_kind=media_kind,
                 target_peer_id=target_peer_id,
                 target_message_id=target_message_id,
-                duplicate=duplicate,
+                duplicate=False,
             )
             cursor = message_id
             processed += 1
@@ -766,20 +727,6 @@ class Router:
         if not bool(settings["enabled"]):
             return 0
         processed = 0
-        processed += self.index_target(
-            settings,
-            kind="video",
-            peer_id=int(settings["video_target_peer_id"]),
-            cursor_column="video_target_cursor",
-        )
-        settings = self.settings()
-        processed += self.index_target(
-            settings,
-            kind="image",
-            peer_id=int(settings["image_target_peer_id"]),
-            cursor_column="image_target_cursor",
-        )
-        settings = self.settings()
         sources = self.connection.execute(
             "SELECT * FROM router_sources WHERE enabled = 1 ORDER BY id"
         ).fetchall()

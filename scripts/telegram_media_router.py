@@ -545,25 +545,21 @@ class Router:
         media_kind: str | None,
         file_unique_id: str | None = None,
     ) -> sqlite3.Row:
+        status = "pending" if media_kind is not None else "ignored"
         timestamp = now_iso()
         self.connection.execute(
             """
             INSERT INTO router_items (
                 source_peer_id, source_message_id, media_kind, file_unique_id,
                 status, attempts, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 'processing', 1, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, 0, ?, ?)
             ON CONFLICT(source_peer_id, source_message_id) DO UPDATE SET
                 media_kind = excluded.media_kind,
                 file_unique_id = COALESCE(excluded.file_unique_id, router_items.file_unique_id),
                 status = CASE
                     WHEN router_items.status IN ('completed', 'duplicate', 'ignored')
                         THEN router_items.status
-                    ELSE 'processing'
-                END,
-                attempts = CASE
-                    WHEN router_items.status IN ('completed', 'duplicate', 'ignored')
-                        THEN router_items.attempts
-                    ELSE router_items.attempts + 1
+                    ELSE excluded.status
                 END,
                 last_error = NULL,
                 updated_at = excluded.updated_at
@@ -573,6 +569,7 @@ class Router:
                 int(source_message_id),
                 media_kind,
                 self.normalized_file_unique_id(file_unique_id),
+                status,
                 timestamp,
                 timestamp,
             ),
@@ -587,6 +584,28 @@ class Router:
         ).fetchone()
         if row is None:
             raise RouterBlocked("failed to create source item")
+        return row
+
+    def claim_pending_item(self, item_id: int) -> sqlite3.Row:
+        timestamp = now_iso()
+        with self.connection:
+            self.connection.execute(
+                """
+                UPDATE router_items
+                SET status = 'processing',
+                    attempts = attempts + 1,
+                    last_error = NULL,
+                    updated_at = ?
+                WHERE id = ? AND status = 'pending'
+                """,
+                (timestamp, int(item_id)),
+            )
+        row = self.connection.execute(
+            "SELECT * FROM router_items WHERE id = ?",
+            (int(item_id),),
+        ).fetchone()
+        if row is None or str(row["status"]) != "processing":
+            raise RouterBlocked("failed to claim pending item")
         return row
 
     def complete_source_item(
@@ -632,7 +651,7 @@ class Router:
             self.connection.execute(
                 """
                 UPDATE router_sources
-                SET last_message_id = ?, updated_at = ?
+                SET last_message_id = MAX(last_message_id, ?), updated_at = ?
                 WHERE peer_id = ?
                 """,
                 (int(source_message_id), timestamp, int(source_peer_id)),
@@ -699,108 +718,18 @@ class Router:
                 processed += 1
                 continue
 
-            duplicate = self.find_completed_file_duplicate(file_unique_id)
-            if duplicate is not None:
-                self.complete_source_item(
-                    source_peer_id=peer_id,
-                    source_message_id=message_id,
-                    status="duplicate",
-                    media_kind=media_kind,
-                    target_peer_id=int(duplicate["target_peer_id"] or 0),
-                    target_message_id=int(duplicate["target_message_id"] or 0),
-                    content_sha256=None,
-                    file_unique_id=file_unique_id,
-                    is_duplicate=True,
-                    duplicate_of_item_id=int(duplicate["id"] or 0),
-                )
-                self.log(
-                    "source_media_duplicate_skipped",
-                    source_peer_id=peer_id,
-                    source_message_id=message_id,
-                    media_kind=media_kind,
-                    duplicate_of_item_id=int(duplicate["id"] or 0),
-                    target_peer_id=int(duplicate["target_peer_id"] or 0),
-                    target_message_id=int(duplicate["target_message_id"] or 0),
-                )
-                cursor = message_id
-                processed += 1
-                continue
-
-            target_peer_id = int(
-                settings[
-                    "image_target_peer_id" if media_kind == "image" else "video_target_peer_id"
-                ]
-            )
-            try:
-                response = api.post(
-                    "/resource-codes/forward-batch",
-                    {
-                        "source_peer_id": peer_id,
-                        "message_ids": [message_id],
-                        "target_peer_id": target_peer_id,
-                        "drop_media_captions": True,
-                    },
-                )
-            except (TimeoutError, urllib.error.URLError, ConnectionError) as error:
-                self.fail_source_item(peer_id, message_id, f"transport_error: {error}")
-                self.log(
-                    "source_forward_transport_error",
-                    source_peer_id=peer_id,
-                    source_message_id=message_id,
-                    error=str(error),
-                )
-                break
-
-            if response.get("status") != "ok":
-                reason = str(response.get("reason") or "forward_failed")
-                self.fail_source_item(
-                    peer_id,
-                    message_id,
-                    f"{reason}: {response.get('error') or ''}".strip(),
-                )
-                self.log(
-                    "source_forward_failed",
-                    source_peer_id=peer_id,
-                    source_message_id=message_id,
-                    reason=reason,
-                    wait_seconds=int(response.get("wait_seconds") or 0),
-                )
-                wait_seconds = int(response.get("wait_seconds") or 0)
-                if reason == "flood_wait" and wait_seconds > 0:
-                    time.sleep(wait_seconds)
-                break
-
-            target_message_ids = [
-                int(target_message_id or 0)
-                for target_message_id in list(response.get("target_message_ids") or [])
-                if int(target_message_id or 0) > 0
-            ]
-            if len(target_message_ids) != 1:
-                self.fail_source_item(peer_id, message_id, "forward_result_count_mismatch")
-                break
-            target_message_id = target_message_ids[0]
-            if target_message_id <= 0:
-                self.fail_source_item(peer_id, message_id, "forward_target_message_missing")
-                break
             self.complete_source_item(
                 source_peer_id=peer_id,
                 source_message_id=message_id,
-                status="completed",
+                status=str(item["status"]),
                 media_kind=media_kind,
-                target_peer_id=target_peer_id,
-                target_message_id=target_message_id,
-                content_sha256=None,
                 file_unique_id=file_unique_id,
-                is_duplicate=False,
             )
             self.log(
-                "source_media_routed",
+                "source_media_queued",
                 source_peer_id=peer_id,
                 source_message_id=message_id,
                 media_kind=media_kind,
-                target_peer_id=target_peer_id,
-                target_message_id=target_message_id,
-                duplicate=False,
             )
             cursor = message_id
             processed += 1
@@ -818,6 +747,130 @@ class Router:
             self.connection.commit()
         return processed
 
+    def process_pending_item(self, settings: sqlite3.Row) -> int:
+        pending = self.connection.execute(
+            """
+            SELECT *
+            FROM router_items
+            WHERE status = 'pending'
+              AND media_kind IN ('video', 'image')
+            ORDER BY id
+            LIMIT 1
+            """
+        ).fetchone()
+        if pending is None:
+            return 0
+
+        item = self.claim_pending_item(int(pending["id"]))
+        peer_id = int(item["source_peer_id"])
+        message_id = int(item["source_message_id"])
+        media_kind = str(item["media_kind"] or "")
+        file_unique_id = self.normalized_file_unique_id(item["file_unique_id"])
+
+        duplicate = self.find_completed_file_duplicate(file_unique_id)
+        if duplicate is not None:
+            self.complete_source_item(
+                source_peer_id=peer_id,
+                source_message_id=message_id,
+                status="duplicate",
+                media_kind=media_kind,
+                target_peer_id=int(duplicate["target_peer_id"] or 0),
+                target_message_id=int(duplicate["target_message_id"] or 0),
+                content_sha256=None,
+                file_unique_id=file_unique_id,
+                is_duplicate=True,
+                duplicate_of_item_id=int(duplicate["id"] or 0),
+            )
+            self.log(
+                "source_media_duplicate_skipped",
+                source_peer_id=peer_id,
+                source_message_id=message_id,
+                media_kind=media_kind,
+                duplicate_of_item_id=int(duplicate["id"] or 0),
+                target_peer_id=int(duplicate["target_peer_id"] or 0),
+                target_message_id=int(duplicate["target_message_id"] or 0),
+            )
+            return 1
+
+        target_peer_id = int(
+            settings[
+                "image_target_peer_id" if media_kind == "image" else "video_target_peer_id"
+            ]
+        )
+        api = self.api(settings)
+        try:
+            response = api.post(
+                "/resource-codes/forward-batch",
+                {
+                    "source_peer_id": peer_id,
+                    "message_ids": [message_id],
+                    "target_peer_id": target_peer_id,
+                    "drop_media_captions": True,
+                },
+            )
+        except (TimeoutError, urllib.error.URLError, ConnectionError) as error:
+            self.fail_source_item(peer_id, message_id, f"transport_error: {error}")
+            self.log(
+                "source_forward_transport_error",
+                source_peer_id=peer_id,
+                source_message_id=message_id,
+                error=str(error),
+            )
+            return 1
+
+        if response.get("status") != "ok":
+            reason = str(response.get("reason") or "forward_failed")
+            self.fail_source_item(
+                peer_id,
+                message_id,
+                f"{reason}: {response.get('error') or ''}".strip(),
+            )
+            self.log(
+                "source_forward_failed",
+                source_peer_id=peer_id,
+                source_message_id=message_id,
+                reason=reason,
+                wait_seconds=int(response.get("wait_seconds") or 0),
+            )
+            wait_seconds = int(response.get("wait_seconds") or 0)
+            if reason == "flood_wait" and wait_seconds > 0:
+                time.sleep(wait_seconds)
+            return 1
+
+        target_message_ids = [
+            int(target_message_id or 0)
+            for target_message_id in list(response.get("target_message_ids") or [])
+            if int(target_message_id or 0) > 0
+        ]
+        if len(target_message_ids) != 1:
+            self.fail_source_item(peer_id, message_id, "forward_result_count_mismatch")
+            return 1
+        target_message_id = target_message_ids[0]
+        if target_message_id <= 0:
+            self.fail_source_item(peer_id, message_id, "forward_target_message_missing")
+            return 1
+        self.complete_source_item(
+            source_peer_id=peer_id,
+            source_message_id=message_id,
+            status="completed",
+            media_kind=media_kind,
+            target_peer_id=target_peer_id,
+            target_message_id=target_message_id,
+            content_sha256=None,
+            file_unique_id=file_unique_id,
+            is_duplicate=False,
+        )
+        self.log(
+            "source_media_routed",
+            source_peer_id=peer_id,
+            source_message_id=message_id,
+            media_kind=media_kind,
+            target_peer_id=target_peer_id,
+            target_message_id=target_message_id,
+            duplicate=False,
+        )
+        return 1
+
     def run_once(self) -> int:
         settings = self.settings()
         if not bool(settings["enabled"]):
@@ -828,7 +881,23 @@ class Router:
         ).fetchall()
         for source in sources:
             processed += self.process_source(settings, source)
+        if processed > 0:
+            return processed
+        if not self.all_initial_scans_completed():
+            return 0
+        processed += self.process_pending_item(settings)
         return processed
+
+    def all_initial_scans_completed(self) -> bool:
+        row = self.connection.execute(
+            """
+            SELECT COUNT(1) AS remaining
+            FROM router_sources
+            WHERE enabled = 1
+              AND initial_scan_completed_at IS NULL
+            """
+        ).fetchone()
+        return int(row["remaining"] if row is not None else 0) == 0
 
     def run(self) -> None:
         self.log("media_router_started", database_path=self.database_path)

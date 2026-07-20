@@ -114,7 +114,7 @@ class TelegramMediaRouterTest(unittest.TestCase):
         processed = router.run_once()
 
         self.assertEqual(4, processed)
-        self.assertEqual([300, 200], [call["target_peer_id"] for call in api.forward_calls])
+        self.assertEqual([], api.forward_calls)
         self.assertTrue(all("include_text=false" in call for call in api.get_calls))
         self.assertEqual([], api.register_calls)
         source = self.connection.execute(
@@ -122,8 +122,14 @@ class TelegramMediaRouterTest(unittest.TestCase):
         ).fetchone()
         self.assertEqual(4, source["last_message_id"])
         counts = router_module.router_status(self.connection, self.database_path)["item_counts"]
-        self.assertEqual(2, counts["completed"])
+        self.assertEqual(2, counts["pending"])
         self.assertEqual(2, counts["ignored"])
+
+        self.assertEqual(1, router.run_once())
+        self.assertEqual(1, router.run_once())
+        self.assertEqual([300, 200], [call["target_peer_id"] for call in api.forward_calls])
+        counts = router_module.router_status(self.connection, self.database_path)["item_counts"]
+        self.assertEqual(2, counts["completed"])
 
         api.groups[200] = [{"id": 1003, "media_kind": "video_document"}]
         api.groups[300] = [{"id": 1002, "media_kind": "photo"}]
@@ -179,9 +185,11 @@ class TelegramMediaRouterTest(unittest.TestCase):
         )
         router = router_module.Router(self.connection, self.database_path, api=api)
 
-        processed = router.run_once()
+        self.assertEqual(2, router.run_once())
+        self.assertEqual(0, len(api.forward_calls))
 
-        self.assertEqual(2, processed)
+        self.assertEqual(1, router.run_once())
+        self.assertEqual(1, router.run_once())
         self.assertEqual(1, len(api.forward_calls))
         self.assertEqual([10], api.forward_calls[0]["message_ids"])
         rows = self.connection.execute(

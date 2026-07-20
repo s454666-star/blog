@@ -18,6 +18,7 @@ class TwStockRealtimeQuoteService
     private const YAHOO_TW_STOCK_LIST_URL = 'https://tw.stock.yahoo.com/_td-stock/api/resource/StockServices.stockList;symbols=';
     private const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart/%s';
     private const YAHOO_TW_QUOTE_URL = 'https://tw.stock.yahoo.com/quote/%s';
+    private const TWSE_MARKET_QUOTE_CIRCUIT_KEY = 'tw-stock:official-market-quotes:twse-circuit-open:v1';
 
     /**
      * Fetches direct official exchange quotes in parallel for a large stock
@@ -59,8 +60,11 @@ class TwStockRealtimeQuoteService
         $cacheKey = 'tw-stock:official-market-quotes:v1:' . sha1(serialize($stocks));
 
         return Cache::remember($cacheKey, now()->addSeconds($ttl), function () use ($stocks, $ttl): array {
+            $twseCircuitOpen = Cache::get(self::TWSE_MARKET_QUOTE_CIRCUIT_KEY) === true;
             $chunks = array_chunk($stocks, 60);
-            [$quotes, $errors] = $this->fetchOfficialMarketQuoteChunks($chunks);
+            [$quotes, $errors] = $twseCircuitOpen
+                ? [[], []]
+                : $this->fetchOfficialMarketQuoteChunks($chunks);
 
             $codes = collect($stocks)->pluck('code')->unique()->values()->all();
             $missing = array_values(array_diff($codes, array_keys($quotes)));
@@ -76,9 +80,12 @@ class TwStockRealtimeQuoteService
                 $missing = array_values(array_diff($codes, array_keys($quotes)));
             }
 
-            $labels = ['證交所即時報價'];
+            $labels = $twseCircuitOpen ? [] : ['證交所即時報價'];
             if ($fallbackProviders !== []) {
                 $labels[] = implode(' + ', array_map(fn (string $provider): string => $this->providerLabel($provider), $fallbackProviders));
+            }
+            if (!$twseCircuitOpen && $quotes !== [] && count($errors) >= count($chunks)) {
+                Cache::put(self::TWSE_MARKET_QUOTE_CIRCUIT_KEY, true, now()->addSeconds(90));
             }
 
             return [
@@ -86,7 +93,7 @@ class TwStockRealtimeQuoteService
                 'cacheSeconds' => $ttl,
                 'source' => [
                     'status' => $quotes === [] ? 'unavailable' : ($missing === [] ? 'live' : 'partial'),
-                    'label' => implode(' / ', $labels),
+                    'label' => $labels === [] ? '即時報價' : implode(' / ', $labels),
                     'errors' => $errors,
                 ],
                 'quotes' => $quotes,

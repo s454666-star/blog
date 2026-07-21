@@ -904,6 +904,10 @@ def summarize_buttons(buttons: List[Dict[str, Any]]) -> List[str]:
     return [((b.get("text") or "").strip()) for b in buttons]
 
 
+def summarize_buttons_redacted(buttons: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return {"count": len(buttons or [])}
+
+
 def callback_fingerprint(msg: Dict[str, Any]) -> str:
     text = (msg.get("text") or "")[:400]
     btns = "|".join(summarize_buttons(get_callback_buttons(msg)))
@@ -1954,10 +1958,8 @@ def _summarize_bot_message(msg: Optional[Dict[str, Any]]) -> Optional[Dict[str, 
     return {
         "message_id": int(msg.get("message_id", 0) or 0),
         "chat_id": int(msg.get("chat_id", 0) or 0),
-        "sender_username": msg.get("sender_username"),
         "kind": kind,
-        "text_preview": text[:500],
-        "matched_not_found_keyword": matched_not_found,
+        "matched_not_found": bool(matched_not_found),
         "has_buttons": bool(get_callback_buttons(msg)),
         "page_info": page_info,
         "total_items": total_items,
@@ -8108,99 +8110,121 @@ async def click_matching_button(payload: ClickMatchingButtonRequest) -> Dict[str
             timeline.append({"step": 0, "status": "fail", "reason": "no matching button found", "button_keywords": button_keywords})
             return await _build_response("fail", "no matching button found")
 
-        chosen = candidates[0]
-        chosen_msg = chosen["message"]
-        chosen_btn = chosen["button"]
-        chosen_text = str(chosen.get("button_text") or "").strip()
-        chosen_mid = int(chosen.get("message_id", 0) or 0)
-        chosen_chat_id = int(chosen_msg.get("chat_id", 0) or 0)
+        for chosen in candidates:
+            chosen_msg = chosen["message"]
+            chosen_btn = chosen["button"]
+            chosen_text = str(chosen.get("button_text") or "").strip()
+            chosen_mid = int(chosen.get("message_id", 0) or 0)
+            chosen_chat_id = int(chosen_msg.get("chat_id", 0) or 0)
 
-        if cleanup_min_mid <= 0 or chosen_mid < cleanup_min_mid:
-            cleanup_min_mid = chosen_mid
+            if cleanup_min_mid <= 0 or chosen_mid < cleanup_min_mid:
+                cleanup_min_mid = chosen_mid
 
-        timeline.append({
-            "step": 0,
-            "status": "button_candidate",
-            "message_id": chosen_mid,
-            "chat_id": chosen_chat_id,
-            "button_text": chosen_text,
-            "buttons_text": summarize_buttons(get_callback_buttons(chosen_msg)),
-        })
+            timeline.append({
+                "step": 0,
+                "status": "button_candidate",
+                "message_id": chosen_mid,
+                "chat_id": chosen_chat_id,
+                "buttons": summarize_buttons_redacted(get_callback_buttons(chosen_msg)),
+            })
 
-        data_hex = str(chosen_btn.get("data") or "")
-        if not data_hex:
-            timeline.append({"step": 0, "status": "fail", "reason": "matching button missing callback data"})
-            return await _build_response("fail", "matching button missing callback data")
+            data_hex = str(chosen_btn.get("data") or "")
+            if not data_hex:
+                timeline.append({
+                    "step": 0,
+                    "status": "candidate_skipped",
+                    "message_id": chosen_mid,
+                    "reason": "matching button missing callback data",
+                })
+                continue
 
-        marker = _pagination_action_marker_from_message(chosen_msg, buttons=get_callback_buttons(chosen_msg))
-        if is_recent_used_callback_action(payload.bot_username, chosen_chat_id, chosen_mid, data_hex, marker=marker):
-            timeline.append({"step": 0, "status": "fail", "reason": "recent_used"})
-            return await _build_response("fail", "recent_used")
+            marker = _pagination_action_marker_from_message(chosen_msg, buttons=get_callback_buttons(chosen_msg))
+            if is_recent_used_callback_action(payload.bot_username, chosen_chat_id, chosen_mid, data_hex, marker=marker):
+                timeline.append({
+                    "step": 0,
+                    "status": "candidate_skipped",
+                    "message_id": chosen_mid,
+                    "reason": "recent_used",
+                })
+                continue
 
-        files_meta_before = collect_files_from_store(
-            payload.bot_username,
-            int(payload.max_return_files or 0),
-            int(payload.max_raw_payload_bytes or 0),
-            min_message_id=int(cleanup_min_mid or 0)
-        )
-        files_unique_before = int(files_meta_before.get("files_unique_count", files_meta_before.get("files_count", 0)) or 0)
+            files_meta_before = collect_files_from_store(
+                payload.bot_username,
+                int(payload.max_return_files or 0),
+                int(payload.max_raw_payload_bytes or 0),
+                min_message_id=int(cleanup_min_mid or 0)
+            )
+            files_unique_before = int(files_meta_before.get("files_unique_count", files_meta_before.get("files_count", 0)) or 0)
 
-        await click_callback(payload.bot_username, chosen_chat_id, chosen_mid, data_hex)
-        mark_recent_used_callback_action(payload.bot_username, chosen_chat_id, chosen_mid, data_hex, marker=marker)
+            try:
+                await click_callback(payload.bot_username, chosen_chat_id, chosen_mid, data_hex)
+            except MessageIdInvalidError:
+                mark_invalid_callback(payload.bot_username, chosen_chat_id, chosen_mid)
+                mark_recent_used_callback_action(payload.bot_username, chosen_chat_id, chosen_mid, data_hex, marker=marker)
+                timeline.append({
+                    "step": 0,
+                    "status": "candidate_skipped",
+                    "message_id": chosen_mid,
+                    "reason": "invalid_callback",
+                })
+                continue
 
-        steps = 1
-        timeline.append({
-            "step": steps,
-            "status": "clicked",
-            "message_id": chosen_mid,
-            "chat_id": chosen_chat_id,
-            "button_text": chosen_text,
-        })
+            mark_recent_used_callback_action(payload.bot_username, chosen_chat_id, chosen_mid, data_hex, marker=marker)
 
-        click_effect_observed = False
-        click_effect_reason = ""
-        if int(payload.wait_after_click_timeout_seconds or 0) > 0:
-            click_effect_observed, click_effect_reason = await _wait_for_files_or_state_change(
-                bot_username=payload.bot_username,
-                prev_state_msg_id=chosen_mid,
-                prev_state=chosen_msg,
-                prev_files_unique_count=files_unique_before,
-                min_message_id=int(cleanup_min_mid or 0),
-                timeout_seconds=int(payload.wait_after_click_timeout_seconds or 0),
-                poll_interval=0.35,
+            steps = 1
+            timeline.append({
+                "step": steps,
+                "status": "clicked",
+                "message_id": chosen_mid,
+                "chat_id": chosen_chat_id,
+            })
+
+            click_effect_observed = False
+            click_effect_reason = ""
+            if int(payload.wait_after_click_timeout_seconds or 0) > 0:
+                click_effect_observed, click_effect_reason = await _wait_for_files_or_state_change(
+                    bot_username=payload.bot_username,
+                    prev_state_msg_id=chosen_mid,
+                    prev_state=chosen_msg,
+                    prev_files_unique_count=files_unique_before,
+                    min_message_id=int(cleanup_min_mid or 0),
+                    timeout_seconds=int(payload.wait_after_click_timeout_seconds or 0),
+                    poll_interval=0.35,
+                    max_logs=int(payload.debug_max_logs or 0),
+                    step=steps,
+                    next_keywords=[],
+                    max_return_files=int(payload.max_return_files or 0),
+                    max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0)
+                )
+
+            await backfill_latest_from_bot(
+                payload.bot_username,
+                limit=420,
+                timeout_seconds=6.0,
                 max_logs=int(payload.debug_max_logs or 0),
                 step=steps,
-                next_keywords=[],
-                max_return_files=int(payload.max_return_files or 0),
-                max_raw_payload_bytes=int(payload.max_raw_payload_bytes or 0)
+                force=True,
+                min_message_id=int(cleanup_min_mid or 0)
             )
 
-        await backfill_latest_from_bot(
-            payload.bot_username,
-            limit=420,
-            timeout_seconds=6.0,
-            max_logs=int(payload.debug_max_logs or 0),
-            step=steps,
-            force=True,
-            min_message_id=int(cleanup_min_mid or 0)
-        )
+            timeline.append({
+                "step": steps,
+                "status": "after_click",
+                "reason": click_effect_reason or "clicked",
+                "effect_observed": bool(click_effect_observed),
+            })
 
-        timeline.append({
-            "step": steps,
-            "status": "after_click",
-            "reason": click_effect_reason or "clicked",
-            "effect_observed": bool(click_effect_observed),
-        })
+            return await _build_response(
+                "ok",
+                "clicked matching button",
+                button_clicked=True,
+                clicked_button_text=chosen_text,
+                clicked_message_id=chosen_mid,
+                click_effect_observed=bool(click_effect_observed),
+                click_effect_reason=click_effect_reason,
+            )
 
-        return await _build_response(
-            "ok",
-            "clicked matching button",
-            button_clicked=True,
-            clicked_button_text=chosen_text,
-            clicked_message_id=chosen_mid,
-            click_effect_observed=bool(click_effect_observed),
-            click_effect_reason=click_effect_reason,
-        )
+        return await _build_response("fail", "no usable matching button")
     except MessageIdInvalidError:
         timeline.append({"step": max(steps, 1), "status": "fail", "reason": "invalid_callback"})
         return await _build_response("fail", "invalid_callback")

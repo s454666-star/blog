@@ -421,7 +421,9 @@ class Migrator:
             timeout=90.0,
         )
         if response.get("status") != "ok" or not response.get("button_clicked"):
-            raise MigrationBlocked(f"button {keyword!r} was not clicked: {response}")
+            raise MigrationBlocked(
+                f"button {keyword!r} was not clicked: {self.safe_click_response(response)}"
+            )
         clicked_text = str(response.get("clicked_button_text") or "").strip()
         if keyword.isdigit() and clicked_text != keyword:
             raise MigrationBlocked(
@@ -434,6 +436,57 @@ class Migrator:
             message_id=response.get("clicked_message_id"),
         )
         return response
+
+    @staticmethod
+    def safe_click_response(response: dict[str, Any]) -> dict[str, Any]:
+        safe: dict[str, Any] = {
+            "status": response.get("status"),
+            "reason": response.get("reason"),
+            "steps": response.get("steps"),
+            "button_clicked": bool(response.get("button_clicked")),
+            "clicked_message_id": int(response.get("clicked_message_id") or 0),
+            "button_keywords": list(response.get("button_keywords") or []),
+            "completed": bool(response.get("completed")),
+        }
+        outcome = response.get("outcome")
+        if isinstance(outcome, dict):
+            safe["outcome"] = {
+                "has_files": bool(outcome.get("has_files")),
+                "files_unique_count": int(outcome.get("files_unique_count") or 0),
+                "latest_message_kind": outcome.get("latest_message_kind"),
+                "run_completed": bool(outcome.get("run_completed")),
+            }
+        latest = response.get("latest_message")
+        if isinstance(latest, dict):
+            safe["latest_message"] = {
+                "message_id": int(latest.get("message_id") or 0),
+                "chat_id": int(latest.get("chat_id") or 0),
+                "kind": latest.get("kind"),
+                "has_buttons": bool(latest.get("has_buttons")),
+                "page_info": latest.get("page_info"),
+                "total_items": latest.get("total_items"),
+            }
+        safe_timeline = []
+        for event in list(response.get("timeline") or [])[-5:]:
+            if not isinstance(event, dict):
+                continue
+            safe_timeline.append(
+                {
+                    key: event.get(key)
+                    for key in (
+                        "step",
+                        "status",
+                        "reason",
+                        "message_id",
+                        "chat_id",
+                        "effect_observed",
+                    )
+                    if key in event
+                }
+            )
+        if safe_timeline:
+            safe["timeline"] = safe_timeline
+        return safe
 
     def delete_source(self, message_ids: list[int]) -> None:
         ids = sorted({int(message_id) for message_id in message_ids if int(message_id) > 0})

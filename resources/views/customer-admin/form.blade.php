@@ -11,8 +11,8 @@
             <section class="customer-lookup">
                 <div class="customer-lookup-head">
                     <div class="field">
-                        <label for="customer_phone_lookup">用電話快速帶入客戶 <span class="hint">輸入部分號碼即可搜尋</span></label>
-                        <input id="customer_phone_lookup" name="customer_phone_lookup" list="order-phone-history" autocomplete="off" placeholder="例如：90、0912、02">
+                        <label for="customer_phone_lookup">搜尋舊客戶電話 <span class="hint">輸入部分號碼，例如 0909</span></label>
+                        <input id="customer_phone_lookup" list="order-phone-history" autocomplete="off" placeholder="輸入部分市話或手機號碼">
                         <datalist id="order-phone-history">
                             @foreach($options['orderCustomers'] as $customerOption)
                                 @if($customerOption['phone'])<option value="{{ $customerOption['phone'] }}">{{ $customerOption['name'] }}｜市話</option>@endif
@@ -20,9 +20,18 @@
                             @endforeach
                         </datalist>
                     </div>
-                    <div style="color:var(--muted);font-size:13px;line-height:1.7">選定電話後，會自動帶入客戶、接洽人及配送地址。下方資訊可先核對，再繼續選商品。</div>
+                    <div style="color:var(--muted);font-size:13px;line-height:1.7">選定歷史電話後會帶入舊資料；若是新客戶，直接填寫下方資料即可。儲存訂單時會同步記住客戶資料。</div>
                 </div>
-                <div id="customer-quick-info" class="customer-info"><div class="customer-info-empty">尚未選擇客戶</div></div>
+                <input id="customer_id" name="customer_id" type="hidden" value="{{ old('customer_id', $record->customer_id) }}">
+                <div class="customer-info">
+                    <div class="field"><label for="customer_name">客戶姓名 <b class="required">*</b></label><input id="customer_name" name="customer_name" value="{{ old('customer_name', $record->customer?->name) }}" required></div>
+                    <div class="field"><label for="customer_phone">市話 <span class="hint">選填</span></label><input id="customer_phone" name="customer_phone" value="{{ old('customer_phone', $record->customer?->phone) }}"></div>
+                    <div class="field"><label for="customer_mobile">手機電話 <span class="hint">選填</span></label><input id="customer_mobile" name="customer_mobile" value="{{ old('customer_mobile', $record->customer?->mobile) }}"></div>
+                    <div class="field"><label for="customer_tax_id">統一編號 <span class="hint">選填</span></label><input id="customer_tax_id" name="customer_tax_id" value="{{ old('customer_tax_id', $record->customer?->tax_id) }}"></div>
+                    <div class="field"><label for="customer_email">Email <span class="hint">選填</span></label><input id="customer_email" name="customer_email" type="email" value="{{ old('customer_email', $record->customer?->email) }}"></div>
+                    <div class="field"><label for="customer_address">地址 <span class="hint">選填</span></label><input id="customer_address" name="customer_address" value="{{ old('customer_address', $record->customer?->address) }}"></div>
+                    <div class="field" style="grid-column:1/-1"><label for="customer_notes">客戶備註 <span class="hint">選填</span></label><textarea id="customer_notes" name="customer_notes">{{ old('customer_notes', $record->customer?->notes) }}</textarea></div>
+                </div>
             </section>
         @endif
         @foreach($config['fields'] as $name=>$field)
@@ -140,32 +149,18 @@
     const list=document.querySelector('#item-list'), add=document.querySelector('#add-item');
     const productOptions={{ Illuminate\Support\Js::from($jsProducts) }};
     const orderCustomers={{ Illuminate\Support\Js::from($jsOrderCustomers) }};
-    const phoneLookup=document.querySelector('#customer_phone_lookup'), customerSelect=document.querySelector('#customer_id'), contactSelect=document.querySelector('#contact_id'), addressSelect=document.querySelector('#address_id'), info=document.querySelector('#customer-quick-info');
-    const display=value=>value||'—';
-    const safe=value=>String(display(value)).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
-    function renderCustomer(customer){
-        if(!customer){info.innerHTML='<div class="customer-info-empty">找不到完全相符的電話，請繼續輸入或從下拉選擇。</div>';return}
-        info.innerHTML=[
-            ['客戶名稱',customer.name],['客戶編號',customer.code],['市話',customer.phone],['手機電話',customer.mobile],
-            ['地址',customer.customer_address],['統一編號',customer.tax_id],['產業',customer.industry],['Email',customer.email],
-            ['狀態',customer.status],['接洽人',customer.contact],['配送地址',customer.address]
-        ].map(([label,value])=>`<div class="customer-info-item"><small>${label}</small><span title="${safe(value)}">${safe(value)}</span></div>`).join('');
-    }
-    function applyCustomer(customer, syncSelects=true, chosenPhone=null){
-        if(!customer){renderCustomer(null);return}
-        if(syncSelects){
-            customerSelect.value=String(customer.id);
-            contactSelect.value=customer.contact_id?String(customer.contact_id):'';
-            addressSelect.value=customer.address_id?String(customer.address_id):'';
-        }
+    const phoneLookup=document.querySelector('#customer_phone_lookup'), customerId=document.querySelector('#customer_id');
+    const customerFields={name:document.querySelector('#customer_name'),phone:document.querySelector('#customer_phone'),mobile:document.querySelector('#customer_mobile'),tax_id:document.querySelector('#customer_tax_id'),email:document.querySelector('#customer_email'),customer_address:document.querySelector('#customer_address'),notes:document.querySelector('#customer_notes')};
+    function applyCustomer(customer, chosenPhone=null){
+        if(!customer)return;
+        customerId.value=String(customer.id);
         phoneLookup.value=chosenPhone||customer.mobile||customer.phone||'';
-        renderCustomer(customer);
+        Object.entries(customerFields).forEach(([key,input])=>{input.value=customer[key]||''});
     }
     const customerByPhone=value=>orderCustomers.find(item=>item.phone===value||item.mobile===value);
-    phoneLookup.addEventListener('input',()=>{const customer=customerByPhone(phoneLookup.value);if(customer)applyCustomer(customer,true,phoneLookup.value)});
-    phoneLookup.addEventListener('change',()=>{const customer=customerByPhone(phoneLookup.value);applyCustomer(customer,true,phoneLookup.value)});
-    customerSelect.addEventListener('change',()=>applyCustomer(orderCustomers.find(item=>String(item.id)===customerSelect.value),false));
-    const selectedCustomer=orderCustomers.find(item=>String(item.id)===customerSelect.value);if(selectedCustomer)applyCustomer(selectedCustomer,false);
+    phoneLookup.addEventListener('input',()=>{const customer=customerByPhone(phoneLookup.value);customerId.value='';if(customer)applyCustomer(customer,phoneLookup.value)});
+    phoneLookup.addEventListener('change',()=>{const customer=customerByPhone(phoneLookup.value);customerId.value='';if(customer)applyCustomer(customer,phoneLookup.value)});
+    const selectedCustomer=orderCustomers.find(item=>String(item.id)===customerId.value);if(selectedCustomer&&!phoneLookup.value)phoneLookup.value=selectedCustomer.mobile||selectedCustomer.phone||'';
     let nextIndex=list.children.length;
     function recalc(){
         let total=0;

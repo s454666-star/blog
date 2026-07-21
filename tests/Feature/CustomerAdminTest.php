@@ -39,26 +39,10 @@ class CustomerAdminTest extends TestCase
             ->assertRedirect('/admin/dashboard');
         $this->get('/admin/products/create')->assertOk()->assertSee('商品圖片');
 
-        $this->post('/admin/customers', [
-            'name' => '測試客戶',
-            'phone' => '02-1234-5678',
-            'mobile' => '0912-345-678',
-            'address' => '台北市信義區測試路 1 號',
-            'status' => '合作中',
-        ])->assertRedirect('/admin/customers');
-        $customerId = DB::table('crm_customers')->value('id');
-        $this->get("/admin/customers/{$customerId}/edit")->assertOk()->assertSee('測試客戶');
-        $this->put("/admin/customers/{$customerId}", [
-            'name' => '測試客戶有限公司',
-            'status' => '合作中',
-        ])->assertRedirect('/admin/customers');
-        $this->assertDatabaseHas('crm_customers', ['id' => $customerId, 'name' => '測試客戶有限公司']);
-        $this->get('/admin/customers/create')->assertOk()
-            ->assertSeeInOrder(['客戶編號', '客戶名稱', '市話', '手機電話', '地址', '統一編號'])
-            ->assertSee('phone-history')
-            ->assertSee('02-1234-5678')
-            ->assertSee('mobile-history')
-            ->assertSee('0912-345-678');
+        $this->get('/admin/customers')->assertNotFound();
+        $this->get('/admin/dashboard')->assertOk()
+            ->assertDontSee('href="http://localhost/admin/customers"', false)
+            ->assertSee('直接建立訂單，客戶資料一起記住');
 
         $this->post('/admin/products', [
             'name' => '雲端服務',
@@ -68,8 +52,17 @@ class CustomerAdminTest extends TestCase
         $product = DB::table('crm_products')->first();
         Storage::disk('public')->assertExists($product->image_path);
 
+        $this->get('/admin/orders/create')->assertOk()
+            ->assertSee('搜尋舊客戶電話')
+            ->assertSee('輸入部分號碼，例如 0909')
+            ->assertSeeInOrder(['客戶姓名', '市話', '手機電話', '統一編號', 'Email', '地址', '客戶備註']);
+
         $this->post('/admin/orders', [
-            'customer_id' => $customerId,
+            'customer_name' => '測試客戶',
+            'customer_phone' => '02-1234-5678',
+            'customer_mobile' => '0912-345-678',
+            'customer_address' => '台北市信義區測試路 1 號',
+            'customer_email' => 'customer@example.com',
             'order_date' => '2026-07-20',
             'status' => '已確認',
             'discount' => 100,
@@ -79,17 +72,45 @@ class CustomerAdminTest extends TestCase
                 'unit_price' => 1200,
             ]],
         ])->assertRedirect('/admin/orders');
+        $customerId = DB::table('crm_customers')->value('id');
+        $this->assertDatabaseHas('crm_customers', [
+            'id' => $customerId,
+            'name' => '測試客戶',
+            'mobile' => '0912-345-678',
+            'address' => '台北市信義區測試路 1 號',
+        ]);
+        $this->assertDatabaseHas('crm_orders', ['customer_id' => $customerId]);
+
         $this->get('/admin/orders/create')->assertOk()
-            ->assertSee('用電話快速帶入客戶')
+            ->assertSee('搜尋舊客戶電話')
             ->assertSee('02-1234-5678')
             ->assertSee('0912-345-678')
             ->assertSee('台北市信義區測試路 1 號')
-            ->assertSee('測試客戶有限公司');
+            ->assertSee('測試客戶');
+
+        $this->post('/admin/orders', [
+            'customer_id' => $customerId,
+            'customer_name' => '測試客戶（更新）',
+            'customer_phone' => '02-1234-5678',
+            'customer_mobile' => '0912-345-678',
+            'customer_address' => '台北市信義區更新路 2 號',
+            'items' => [[
+                'product_id' => $product->id,
+                'quantity' => 1,
+                'unit_price' => 1200,
+            ]],
+        ])->assertRedirect('/admin/orders');
+        $this->assertSame(1, DB::table('crm_customers')->count());
+        $this->assertDatabaseHas('crm_customers', [
+            'id' => $customerId,
+            'name' => '測試客戶（更新）',
+            'address' => '台北市信義區更新路 2 號',
+        ]);
         $this->get('/admin/products/create')->assertOk()
             ->assertSee('value="包"', false)
             ->assertSee('value="罐"', false);
 
-        $this->assertDatabaseHas('crm_orders', ['subtotal' => 2400, 'total' => 2300]);
+        $this->assertDatabaseHas('crm_orders', ['subtotal' => 2400, 'total' => 2300, 'customer_id' => $customerId]);
         $this->assertDatabaseHas('crm_order_items', ['product_name' => '雲端服務', 'line_total' => 2400]);
 
         $exportResponse = $this->get('/admin/export/xlsx')

@@ -2,7 +2,7 @@
 @section('title', '營運總覽')
 @section('top-action')<a class="btn btn-primary" href="{{ route('customer-admin.module.create', 'orders') }}">＋ 建立訂單</a>@endsection
 @section('content')
-    <section class="welcome panel"><h2>今天也一起把客戶照顧好 ✦</h2><p>客戶、接洽人、商品、地址與訂單都集中在這裡，資料變得清楚又好找。</p></section>
+    <section class="welcome panel"><h2>直接建立訂單，客戶資料一起記住 ✦</h2><p>在訂單輸入客戶資料；下次輸入部分電話，就能選取並帶回舊資料。</p></section>
     <div class="stat-grid">@foreach($stats as $stat)<div class="stat panel tone-{{ $stat['tone'] }}"><div class="stat-icon">{{ $stat['icon'] }}</div><div class="stat-label">{{ $stat['label'] }}</div><div class="stat-value">{{ $stat['value'] }}</div></div>@endforeach</div>
     <section class="panel"><div class="section-head"><h3>最近訂單</h3><a class="btn btn-sm btn-secondary" href="{{ route('customer-admin.module.index','orders') }}">查看全部 →</a></div>
         @if($recentOrders->isEmpty())<div class="empty">還沒有訂單，從右上角建立第一筆吧。</div>@else

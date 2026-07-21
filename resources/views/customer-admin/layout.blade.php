@@ -53,7 +53,7 @@
         <div class="nav-label">工作空間</div>
         <nav>
             <a class="nav-link {{ request()->routeIs('customer-admin.dashboard') ? 'active' : '' }}" href="{{ route('customer-admin.dashboard') }}"><b class="nav-icon">⌂</b><span>總覽</span></a>
-            @foreach(['customers'=>['◎','客戶'],'contacts'=>['◇','接洽人'],'products'=>['◆','商品'],'orders'=>['▣','訂單'],'addresses'=>['⌖','地址']] as $key=>$nav)
+            @foreach(['contacts'=>['◇','接洽人'],'products'=>['◆','商品'],'orders'=>['▣','訂單'],'addresses'=>['⌖','地址']] as $key=>$nav)
                 <a class="nav-link {{ request()->route('module') === $key ? 'active' : '' }}" href="{{ route('customer-admin.module.index', $key) }}"><b class="nav-icon">{{ $nav[0] }}</b><span>{{ $nav[1] }}</span></a>
             @endforeach
         </nav>

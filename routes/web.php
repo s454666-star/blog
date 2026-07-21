@@ -66,12 +66,12 @@ Route::prefix('admin')->name('customer-admin.')->group(function () {
         Route::get('/dashboard', [CustomerAdminController::class, 'dashboard'])->name('dashboard');
         Route::post('/logout', [CustomerAdminAuthController::class, 'logout'])->name('logout');
         Route::get('/export/xlsx', CustomerAdminExportController::class)->name('export');
-        Route::get('/{module}', [CustomerAdminController::class, 'index'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->name('module.index');
-        Route::get('/{module}/create', [CustomerAdminController::class, 'create'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->name('module.create');
-        Route::post('/{module}', [CustomerAdminController::class, 'store'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->name('module.store');
-        Route::get('/{module}/{id}/edit', [CustomerAdminController::class, 'edit'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->whereNumber('id')->name('module.edit');
-        Route::put('/{module}/{id}', [CustomerAdminController::class, 'update'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->whereNumber('id')->name('module.update');
-        Route::delete('/{module}/{id}', [CustomerAdminController::class, 'destroy'])->whereIn('module', ['customers', 'contacts', 'products', 'orders', 'addresses'])->whereNumber('id')->name('module.destroy');
+        Route::get('/{module}', [CustomerAdminController::class, 'index'])->whereIn('module', ['contacts', 'products', 'orders', 'addresses'])->name('module.index');
+        Route::get('/{module}/create', [CustomerAdminController::class, 'create'])->whereIn('module', ['contacts', 'products', 'orders', 'addresses'])->name('module.create');
+        Route::post('/{module}', [CustomerAdminController::class, 'store'])->whereIn('module', ['contacts', 'products', 'orders', 'addresses'])->name('module.store');
+        Route::get('/{module}/{id}/edit', [CustomerAdminController::class, 'edit'])->whereIn('module', ['contacts', 'products', 'orders', 'addresses'])->whereNumber('id')->name('module.edit');
+        Route::put('/{module}/{id}', [CustomerAdminController::class, 'update'])->whereIn('module', ['contacts', 'products', 'orders', 'addresses'])->whereNumber('id')->name('module.update');
+        Route::delete('/{module}/{id}', [CustomerAdminController::class, 'destroy'])->whereIn('module', ['contacts', 'products', 'orders', 'addresses'])->whereNumber('id')->name('module.destroy');
     });
 });
 

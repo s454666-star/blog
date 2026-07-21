@@ -22,7 +22,7 @@ class CustomerAdminController extends Controller
     {
         return view('customer-admin.dashboard', [
             'stats' => [
-                ['label' => '客戶總數', 'value' => CrmCustomer::count(), 'icon' => '◎', 'tone' => 'cyan'],
+                ['label' => '訂單總數', 'value' => CrmOrder::count(), 'icon' => '▣', 'tone' => 'cyan'],
                 ['label' => '接洽人', 'value' => CrmContact::count(), 'icon' => '◇', 'tone' => 'violet'],
                 ['label' => '商品品項', 'value' => CrmProduct::count(), 'icon' => '◆', 'tone' => 'amber'],
                 ['label' => '訂單總額', 'value' => '$'.number_format((float) CrmOrder::sum('total')), 'icon' => '✦', 'tone' => 'emerald'],
@@ -135,6 +135,44 @@ class CustomerAdminController extends Controller
         $items = $data['items'];
         unset($data['items']);
 
+        $customerData = [
+            'name' => $data['customer_name'],
+            'phone' => $data['customer_phone'] ?? null,
+            'mobile' => $data['customer_mobile'] ?? null,
+            'address' => $data['customer_address'] ?? null,
+            'email' => $data['customer_email'] ?? null,
+            'tax_id' => $data['customer_tax_id'] ?? null,
+            'notes' => $data['customer_notes'] ?? null,
+        ];
+        $customerId = $data['customer_id'] ?? null;
+        foreach (array_keys($customerData) as $field) {
+            unset($data['customer_'.$field]);
+        }
+
+        $customer = $customerId ? CrmCustomer::find($customerId) : null;
+        if (! $customer) {
+            $customer = CrmCustomer::query()
+                ->where(function ($query) use ($customerData) {
+                    if (filled($customerData['phone'])) {
+                        $query->where('phone', $customerData['phone'])
+                            ->orWhere('mobile', $customerData['phone']);
+                    }
+                    if (filled($customerData['mobile'])) {
+                        $method = filled($customerData['phone']) ? 'orWhere' : 'where';
+                        $query->{$method}('phone', $customerData['mobile'])
+                            ->orWhere('mobile', $customerData['mobile']);
+                    }
+                })
+                ->when(blank($customerData['phone']) && blank($customerData['mobile']), fn ($query) => $query->whereRaw('1 = 0'))
+                ->first();
+        }
+        if ($customer) {
+            $customer->update($customerData);
+        } else {
+            $customer = CrmCustomer::create($customerData);
+        }
+        $data['customer_id'] = $customer->id;
+
         $subtotal = collect($items)->sum(fn ($item) => (float) $item['quantity'] * (float) $item['unit_price']);
         $discount = (float) ($data['discount'] ?? 0);
         $shipping = (float) ($data['shipping_fee'] ?? 0);
@@ -239,8 +277,13 @@ class CustomerAdminController extends Controller
             'orders' => [
                 'order_number' => ['nullable', 'string', 'max:60', Rule::unique('crm_orders', 'order_number')->ignore($record?->id)],
                 'customer_id' => ['nullable', 'exists:crm_customers,id'],
-                'contact_id' => ['nullable', 'exists:crm_contacts,id'],
-                'address_id' => ['nullable', 'exists:crm_addresses,id'],
+                'customer_name' => ['required', 'string', 'max:255'],
+                'customer_phone' => ['nullable', 'string', 'max:50'],
+                'customer_mobile' => ['nullable', 'string', 'max:50'],
+                'customer_address' => ['nullable', 'string', 'max:255'],
+                'customer_email' => ['nullable', 'email', 'max:255'],
+                'customer_tax_id' => ['nullable', 'string', 'max:20'],
+                'customer_notes' => ['nullable', 'string'],
                 'order_date' => ['nullable', 'date'],
                 'status' => ['nullable', 'string', 'max:30'],
                 'payment_status' => ['nullable', 'string', 'max:30'],
@@ -292,6 +335,7 @@ class CustomerAdminController extends Controller
                         'email' => $customer->email,
                         'website' => $customer->website,
                         'status' => $customer->status,
+                        'notes' => $customer->notes,
                         'contact_id' => $contact?->id,
                         'contact' => $contact?->name,
                         'address_id' => $address?->id,
@@ -380,9 +424,6 @@ class CustomerAdminController extends Controller
                 'fields' => [
                     'order_number' => ['label' => '訂單編號', 'placeholder' => '留空自動產生'],
                     'order_date' => ['label' => '訂單日期', 'type' => 'date'],
-                    'customer_id' => ['label' => '客戶', 'type' => 'relation', 'source' => 'customers'],
-                    'contact_id' => ['label' => '接洽人', 'type' => 'relation', 'source' => 'contacts'],
-                    'address_id' => ['label' => '配送地址', 'type' => 'relation', 'source' => 'addresses'],
                     'status' => ['label' => '訂單狀態', 'type' => 'select', 'options' => ['草稿' => '草稿', '已確認' => '已確認', '備貨中' => '備貨中', '已出貨' => '已出貨', '已完成' => '已完成', '已取消' => '已取消']],
                     'payment_status' => ['label' => '付款狀態', 'type' => 'select', 'options' => ['未付款' => '未付款', '部分付款' => '部分付款', '已付款' => '已付款', '已退款' => '已退款']],
                     'payment_method' => ['label' => '付款方式', 'type' => 'select', 'options' => ['現金' => '現金', '銀行轉帳' => '銀行轉帳', '信用卡' => '信用卡', '月結' => '月結', '貨到付款' => '貨到付款']],

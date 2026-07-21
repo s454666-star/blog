@@ -56,6 +56,7 @@ class CustomerAdminTest extends TestCase
             ->assertSee('搜尋舊客戶電話')
             ->assertSee('輸入部分號碼，例如 0909')
             ->assertSeeInOrder(['客戶姓名', '市話', '手機電話', '統一編號', 'Email', '地址', '客戶備註'])
+            ->assertSee('接洽人')
             ->assertDontSee('訂單狀態')
             ->assertDontSee('折扣')
             ->assertDontSee('運費')
@@ -96,12 +97,21 @@ class CustomerAdminTest extends TestCase
             ->assertDontSee('稅額');
         $this->get('/admin/dashboard')->assertOk()->assertDontSee('內部隱藏狀態');
 
+        $contactId = DB::table('crm_contacts')->insertGetId([
+            'customer_id' => $customerId,
+            'name' => '測試接洽人',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         $this->get('/admin/orders/create')->assertOk()
             ->assertSee('搜尋舊客戶電話')
             ->assertSee('02-1234-5678')
             ->assertSee('0912-345-678')
             ->assertSee('台北市信義區測試路 1 號')
-            ->assertSee('測試客戶');
+            ->assertSee('測試客戶')
+            ->assertSee('測試接洽人')
+            ->assertSee('contactSelect.value=customer.contact_id');
 
         $this->post('/admin/orders', [
             'customer_id' => $customerId,
@@ -109,6 +119,7 @@ class CustomerAdminTest extends TestCase
             'customer_phone' => '02-1234-5678',
             'customer_mobile' => '0912-345-678',
             'customer_address' => '台北市信義區更新路 2 號',
+            'contact_id' => $contactId,
             'items' => [[
                 'product_id' => $product->id,
                 'quantity' => 1,
@@ -121,6 +132,7 @@ class CustomerAdminTest extends TestCase
             'name' => '測試客戶（更新）',
             'address' => '台北市信義區更新路 2 號',
         ]);
+        $this->assertDatabaseHas('crm_orders', ['customer_id' => $customerId, 'contact_id' => $contactId]);
         $this->get('/admin/products/create')->assertOk()
             ->assertSee('value="包"', false)
             ->assertSee('value="罐"', false);

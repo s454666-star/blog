@@ -284,6 +284,7 @@ class CustomerAdminController extends Controller
                 'customer_email' => ['nullable', 'email', 'max:255'],
                 'customer_tax_id' => ['nullable', 'string', 'max:20'],
                 'customer_notes' => ['nullable', 'string'],
+                'contact_id' => ['nullable', 'exists:crm_contacts,id'],
                 'order_date' => ['nullable', 'date'],
                 'payment_status' => ['nullable', 'string', 'max:30'],
                 'payment_method' => ['nullable', 'string', 'max:30'],
@@ -420,6 +421,7 @@ class CustomerAdminController extends Controller
                 'fields' => [
                     'order_number' => ['label' => '訂單編號', 'placeholder' => '留空自動產生'],
                     'order_date' => ['label' => '訂單日期', 'type' => 'date'],
+                    'contact_id' => ['label' => '接洽人', 'type' => 'relation', 'source' => 'contacts'],
                     'payment_status' => ['label' => '付款狀態', 'type' => 'select', 'options' => ['未付款' => '未付款', '部分付款' => '部分付款', '已付款' => '已付款', '已退款' => '已退款']],
                     'payment_method' => ['label' => '付款方式', 'type' => 'select', 'options' => ['現金' => '現金', '銀行轉帳' => '銀行轉帳', '信用卡' => '信用卡', '月結' => '月結', '貨到付款' => '貨到付款']],
                     'notes' => ['label' => '訂單備註', 'type' => 'textarea', 'wide' => true],

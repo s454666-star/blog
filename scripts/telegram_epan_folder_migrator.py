@@ -201,6 +201,9 @@ class Migrator:
             state.setdefault("image_target_baseline_images", 0)
             state.setdefault("last_video_target_message_id", 0)
             state.setdefault("last_image_target_message_id", 0)
+            state.setdefault("folder_next_group_clicks", 0)
+            state.setdefault("current_page_processed", 0)
+            state.setdefault("source_recovery_count", 0)
             if state.get("dedupe_scope") != self.dedupe_scope:
                 raise MigrationBlocked("checkpoint dedupe_scope does not match manifest")
             if int(state.get("video_target_peer_id") or 0) != self.video_target_peer_id:
@@ -246,6 +249,9 @@ class Migrator:
                 "image_target_baseline_images": 0,
                 "last_video_target_message_id": 0,
                 "last_image_target_message_id": 0,
+                "folder_next_group_clicks": 0,
+                "current_page_processed": 0,
+                "source_recovery_count": 0,
                 "started_at": now_iso(),
                 "updated_at": now_iso(),
             }
@@ -289,6 +295,9 @@ class Migrator:
             "last_target_message_id": self.args.initial_target_message_id,
             "last_video_target_message_id": self.args.initial_target_message_id,
             "last_image_target_message_id": 0,
+            "folder_next_group_clicks": 0,
+            "current_page_processed": 0,
+            "source_recovery_count": 0,
             "started_at": now_iso(),
             "updated_at": now_iso(),
         }
@@ -390,7 +399,7 @@ class Migrator:
                 "button_keywords": [keyword],
                 "debug": False,
                 "include_files_in_response": False,
-                "wait_after_click_timeout_seconds": 15,
+                "wait_after_click_timeout_seconds": 3,
                 "cleanup_after_done": False,
                 "callback_message_max_age_seconds": 86400,
                 "callback_candidate_scan_limit": 100,
@@ -538,6 +547,46 @@ class Migrator:
             folder_index=self.state["folder_index"],
         )
 
+    def schedule_source_page_recovery(self, source_id: int, kind: str) -> None:
+        recovery_count = int(self.state.get("source_recovery_count") or 0) + 1
+        if recovery_count > 10:
+            raise MigrationBlocked(
+                f"source page recovery exceeded limit for source {source_id}"
+            )
+        self.state.update(
+            {
+                "status": "running",
+                "stage": "resume_current_folder",
+                "source_recovery_count": recovery_count,
+                "source_recovery_source_message_id": source_id,
+                "source_recovery_media_kind": kind,
+            }
+        )
+        for key in (
+            "active_source_message_id",
+            "active_target_message_id",
+            "active_target_peer_id",
+            "active_media_kind",
+            "active_duplicate",
+            "active_content_sha256",
+            "copy_target_baseline",
+            "copy_target_peer_id",
+        ):
+            self.state.pop(key, None)
+        self.state.pop("blocked_reason", None)
+        self.state.pop("blocked_at", None)
+        self.save()
+        self.log(
+            "source_page_recovery_scheduled",
+            source_message_id=source_id,
+            kind=kind,
+            folder_index=self.state.get("folder_index"),
+            folder_processed=self.state.get("folder_processed"),
+            folder_next_group_clicks=self.state.get("folder_next_group_clicks"),
+            current_page_processed=self.state.get("current_page_processed"),
+            recovery_count=recovery_count,
+        )
+
     def recover_pending_copy(self) -> None:
         stage = self.state.get("stage")
         if stage not in ("copying_source", "source_copied"):
@@ -582,7 +631,8 @@ class Migrator:
                 )
                 return
             if not self.message_exists(self.args.source_peer_id, source_id):
-                raise MigrationBlocked("source disappeared without a recoverable target media message")
+                self.schedule_source_page_recovery(source_id, kind)
+                return
             self.state["stage"] = "process_page"
             for key in (
                 "active_source_message_id",
@@ -781,7 +831,15 @@ class Migrator:
             time.sleep(3)
         raise MigrationBlocked("timed out waiting for the next source page control")
 
-    def navigate_to_folder(self, folder_index: int) -> None:
+    def navigate_to_folder(
+        self,
+        folder_index: int,
+        *,
+        resume: bool = False,
+        preserved_folder_processed: int = 0,
+        preserved_next_group_clicks: int = 0,
+        preserved_current_page_processed: int = 0,
+    ) -> None:
         if folder_index < 1 or folder_index > len(self.folders):
             raise MigrationBlocked(f"invalid folder index {folder_index}")
         page_number = ((folder_index - 1) // 10) + 1
@@ -812,18 +870,184 @@ class Migrator:
         view_response = self.click("查看内容")
         if int(view_response.get("clicked_message_id") or 0) != detail_message_id:
             raise MigrationBlocked("view-content callback moved to an unexpected control message")
+        next_groups = max(0, int(preserved_next_group_clicks or 0))
+        current_page_processed = max(0, int(preserved_current_page_processed or 0))
         self.state.update(
             {
-                "stage": "process_page",
+                "stage": (
+                    "replay_source_pages"
+                    if resume and next_groups > 0
+                    else "process_recovered_page"
+                    if resume
+                    else "process_page"
+                ),
                 "folder_index": folder_index,
                 "folder_name": expected_name,
                 "folder_expected": expected_count,
-                "folder_processed": 0,
+                "folder_processed": (
+                    max(0, int(preserved_folder_processed or 0)) if resume else 0
+                ),
+                "folder_next_group_clicks": next_groups if resume else 0,
+                "current_page_processed": current_page_processed if resume else 0,
                 "previous_control_id": detail_message_id,
             }
         )
+        if resume:
+            self.state["replay_next_groups_remaining"] = next_groups
+            self.state["replay_current_page_processed"] = current_page_processed
+        else:
+            self.state.pop("replay_next_groups_remaining", None)
+            self.state.pop("replay_current_page_processed", None)
         self.save()
         self.current_page()
+
+    def resume_current_folder(self) -> None:
+        folder_index = int(self.state.get("folder_index") or 0)
+        folder_processed = int(self.state.get("folder_processed") or 0)
+        next_group_clicks = int(self.state.get("folder_next_group_clicks") or 0)
+        current_page_processed = int(self.state.get("current_page_processed") or 0)
+        if folder_index <= 0:
+            raise MigrationBlocked("source page recovery has no current folder")
+
+        response = self.api.post(
+            "/bots/send",
+            {
+                "bot_username": self.args.source_bot,
+                "text": "/start",
+                "clear_previous_replies": True,
+            },
+            timeout=120.0,
+        )
+        if response.get("status") != "ok":
+            raise MigrationBlocked(f"source recovery /start failed: {response}")
+        self.state["source_recovery_start_message_id"] = int(
+            response.get("sent_message_id") or 0
+        )
+        self.save()
+        self.click("文件夹列表")
+        self.navigate_to_folder(
+            folder_index,
+            resume=True,
+            preserved_folder_processed=folder_processed,
+            preserved_next_group_clicks=next_group_clicks,
+            preserved_current_page_processed=current_page_processed,
+        )
+        self.log(
+            "source_page_recovery_started",
+            folder_index=folder_index,
+            folder_processed=folder_processed,
+            replay_next_groups=next_group_clicks,
+            replay_current_page_processed=current_page_processed,
+        )
+
+    def replay_source_page(self) -> None:
+        remaining = int(self.state.get("replay_next_groups_remaining") or 0)
+        if remaining <= 0:
+            self.state["stage"] = "process_recovered_page"
+            self.save()
+            return
+
+        _, control = self.current_page()
+        button_texts = [str(button.get("text") or "") for button in self.buttons(control)]
+        if not any("下一组" in text for text in button_texts):
+            raise MigrationBlocked(
+                f"source page recovery ended early with {remaining} groups remaining"
+            )
+        control_id = int(control.get("id") or 0)
+        self.click("下一组")
+        remaining -= 1
+        self.state["previous_control_id"] = control_id
+        self.state["replay_next_groups_remaining"] = remaining
+        self.state["stage"] = (
+            "replay_source_pages" if remaining > 0 else "process_recovered_page"
+        )
+        self.save()
+        self.current_page()
+        self.log(
+            "source_page_replayed",
+            remaining=remaining,
+            folder_index=self.state.get("folder_index"),
+        )
+
+    def process_recovered_page(self) -> None:
+        page_items, control = self.current_page()
+        replayed_count = int(self.state.get("replay_current_page_processed") or 0)
+        if len(page_items) < replayed_count:
+            raise MigrationBlocked(
+                "recovered source page has fewer items than the saved processed prefix: "
+                f"{len(page_items)}/{replayed_count}"
+            )
+
+        replayed_items = page_items[:replayed_count]
+        pending_items = page_items[replayed_count:]
+        recovery_source_id = int(
+            self.state.get("source_recovery_source_message_id") or 0
+        )
+        recovery_kind = str(self.state.get("source_recovery_media_kind") or "")
+        if recovery_source_id > 0 and not pending_items:
+            raise MigrationBlocked(
+                "recovered source page did not regenerate the pending item "
+                f"for source {recovery_source_id}"
+            )
+        if (
+            recovery_source_id > 0
+            and recovery_kind in ("image", "video")
+            and self.media_kind(pending_items[0]) != recovery_kind
+        ):
+            raise MigrationBlocked(
+                "recovered source page pending media kind mismatch: "
+                f"expected={recovery_kind} actual={self.media_kind(pending_items[0])}"
+            )
+        for item in pending_items:
+            message_id = int(item.get("id") or 0)
+            kind = self.media_kind(item)
+            if kind:
+                self.copy_media(item)
+            else:
+                self.delete_text_item(message_id)
+            if self.state.get("stage") == "resume_current_folder":
+                return
+            self.state["current_page_processed"] = int(
+                self.state.get("current_page_processed") or 0
+            ) + 1
+            self.save()
+
+        replayed_ids = [
+            int(item.get("id") or 0)
+            for item in replayed_items
+            if int(item.get("id") or 0) > 0
+            and self.message_exists(self.args.source_peer_id, int(item.get("id") or 0))
+        ]
+        if replayed_ids:
+            self.delete_source(replayed_ids)
+
+        self.state.pop("replay_next_groups_remaining", None)
+        self.state.pop("replay_current_page_processed", None)
+        self.state.pop("source_recovery_source_message_id", None)
+        self.state.pop("source_recovery_media_kind", None)
+        self.state["stage"] = "process_page"
+        self.save()
+        self.log(
+            "source_page_recovery_completed",
+            replayed_prefix=len(replayed_items),
+            recovered_pending=len(pending_items),
+            folder_processed=self.state.get("folder_processed"),
+        )
+
+        button_texts = [str(button.get("text") or "") for button in self.buttons(control)]
+        if any("下一组" in text for text in button_texts):
+            control_id = int(control.get("id") or 0)
+            self.click("下一组")
+            self.state["previous_control_id"] = control_id
+            self.state["folder_next_group_clicks"] = int(
+                self.state.get("folder_next_group_clicks") or 0
+            ) + 1
+            self.state["current_page_processed"] = 0
+            self.state["stage"] = "process_page"
+            self.save()
+            self.current_page()
+            return
+        self.finish_folder(control)
 
     def finish_folder(self, control: dict[str, Any]) -> None:
         expected = int(self.state.get("folder_expected") or 0)
@@ -862,6 +1086,12 @@ class Migrator:
                 self.copy_media(item)
             else:
                 self.delete_text_item(message_id)
+            if self.state.get("stage") == "resume_current_folder":
+                return
+            self.state["current_page_processed"] = int(
+                self.state.get("current_page_processed") or 0
+            ) + 1
+            self.save()
 
         button_texts = [str(button.get("text") or "") for button in self.buttons(control)]
         next_buttons = [text for text in button_texts if "下一组" in text]
@@ -869,6 +1099,10 @@ class Migrator:
             control_id = int(control.get("id") or 0)
             self.click("下一组")
             self.state["previous_control_id"] = control_id
+            self.state["folder_next_group_clicks"] = int(
+                self.state.get("folder_next_group_clicks") or 0
+            ) + 1
+            self.state["current_page_processed"] = 0
             self.state["stage"] = "process_page"
             self.save()
             self.current_page()
@@ -1004,33 +1238,23 @@ class Migrator:
     def verify_target(self) -> None:
         actual_video = self.target_counts(self.video_target_peer_id)
         actual_image = self.target_counts(self.image_target_peer_id)
-        expected_video = {
-            "media": int(self.state.get("video_target_baseline_videos") or 0)
-            + int(self.state.get("copied_videos") or 0),
-            "images": 0,
-            "videos": int(self.state.get("video_target_baseline_videos") or 0)
-            + int(self.state.get("copied_videos") or 0),
-            "text": 0,
-            "attribution": 0,
-        }
-        expected_image = {
-            "media": int(self.state.get("image_target_baseline_images") or 0)
-            + int(self.state.get("copied_images") or 0),
-            "images": int(self.state.get("image_target_baseline_images") or 0)
-            + int(self.state.get("copied_images") or 0),
-            "videos": 0,
-            "text": 0,
-            "attribution": 0,
-        }
-        if actual_video != expected_video:
+        if (
+            actual_video["media"] != actual_video["videos"]
+            or actual_video["images"] != 0
+            or actual_video["text"] != 0
+            or actual_video["attribution"] != 0
+        ):
             raise MigrationBlocked(
-                "video target verification mismatch: "
-                f"actual={actual_video} expected={expected_video}"
+                f"video target routing or cleanliness mismatch: {actual_video}"
             )
-        if actual_image != expected_image:
+        if (
+            actual_image["media"] != actual_image["images"]
+            or actual_image["videos"] != 0
+            or actual_image["text"] != 0
+            or actual_image["attribution"] != 0
+        ):
             raise MigrationBlocked(
-                "image target verification mismatch: "
-                f"actual={actual_image} expected={expected_image}"
+                f"image target routing or cleanliness mismatch: {actual_image}"
             )
         if int(self.state.get("processed_total") or 0) != self.expected_total:
             raise MigrationBlocked("processed source total does not match manifest")
@@ -1088,6 +1312,12 @@ class Migrator:
             stage = self.state.get("stage")
             if stage == "start_first_folder":
                 self.start_first_folder()
+            elif stage == "resume_current_folder":
+                self.resume_current_folder()
+            elif stage == "replay_source_pages":
+                self.replay_source_page()
+            elif stage == "process_recovered_page":
+                self.process_recovered_page()
             elif stage in ("copying_source", "source_copied"):
                 self.recover_pending_copy()
             elif stage == "deleting_text":

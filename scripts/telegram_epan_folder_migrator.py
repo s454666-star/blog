@@ -677,6 +677,68 @@ class Migrator:
             recovery_count=recovery_count,
         )
 
+    def schedule_folder_control_recovery(self, reason: str, control_id: int = 0) -> None:
+        folder_start_counts = self.state.get("folder_start_counts")
+        if not isinstance(folder_start_counts, dict) or any(
+            key not in folder_start_counts for key in FOLDER_COUNTER_KEYS
+        ):
+            raise MigrationBlocked(
+                "folder control recovery has no complete folder-start counter snapshot"
+            )
+        recovery_count = int(self.state.get("source_recovery_count") or 0) + 1
+        if recovery_count > 10:
+            raise MigrationBlocked(
+                f"folder control recovery exceeded limit for folder {self.state.get('folder_index')}"
+            )
+        progress_before_recovery = {
+            "processed_total": int(self.state.get("processed_total") or 0),
+            "folder_processed": int(self.state.get("folder_processed") or 0),
+        }
+        self.state.update(
+            {
+                "status": "running",
+                "stage": "resume_current_folder",
+                **{
+                    key: int(folder_start_counts[key])
+                    for key in FOLDER_COUNTER_KEYS
+                },
+                "folder_processed": 0,
+                "folder_next_group_clicks": 0,
+                "current_page_processed": 0,
+                "source_recovery_count": recovery_count,
+                "source_recovery_reason": reason,
+                "source_recovery_control_id": int(control_id or 0),
+                "source_recovery_progress_before": progress_before_recovery,
+            }
+        )
+        for key in (
+            "active_source_message_id",
+            "active_target_message_id",
+            "active_target_peer_id",
+            "active_media_kind",
+            "active_duplicate",
+            "active_content_sha256",
+            "copy_target_baseline",
+            "copy_target_peer_id",
+            "replay_next_groups_remaining",
+            "replay_current_page_processed",
+            "active_page_media",
+            "active_page_text_ids",
+            "active_page_results",
+            "blocked_reason",
+            "blocked_at",
+        ):
+            self.state.pop(key, None)
+        self.save()
+        self.log(
+            "folder_control_recovery_scheduled",
+            reason=reason,
+            control_id=int(control_id or 0),
+            folder_index=self.state.get("folder_index"),
+            progress_before_recovery=progress_before_recovery,
+            recovery_count=recovery_count,
+        )
+
     def recover_pending_copy(self) -> None:
         stage = self.state.get("stage")
         if stage not in ("copying_source", "source_copied"):
@@ -1324,6 +1386,16 @@ class Migrator:
             self.save()
             self.current_page()
             return
+
+        expected = int(self.state.get("folder_expected") or 0)
+        processed = int(self.state.get("folder_processed") or 0)
+        if expected > 0 and processed != expected:
+            self.schedule_folder_control_recovery(
+                "folder_control_missing_next_before_expected_count",
+                int(control.get("id") or 0),
+            )
+            return
+
         self.finish_folder(control)
 
     def clear_source_dialog(self) -> None:

@@ -2746,7 +2746,7 @@ def _tdl_chat_arg_from_peer_id(peer_id: int) -> str:
     value = int(peer_id or 0)
     if value <= 0:
         return ""
-    return f"-100{value}"
+    return str(value)
 
 
 def _run_tdl_upload_file(

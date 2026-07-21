@@ -40,6 +40,8 @@
                 $recordValue = data_get($record, $name);
                 if (!$editing && $module === 'orders' && $name === 'contact_id' && $recordValue === null) {
                     $recordValue = $options['defaultContactId'];
+                } elseif (!$editing && $recordValue === null && array_key_exists('default', $field)) {
+                    $recordValue = $field['default'];
                 }
                 $value = old($name, $recordValue);
             @endphp

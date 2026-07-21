@@ -57,6 +57,8 @@ class CustomerAdminTest extends TestCase
             ->assertSee('輸入部分號碼，例如 0909')
             ->assertSeeInOrder(['客戶姓名', '市話', '手機電話', '統一編號', 'Email', '地址', '客戶備註'])
             ->assertSee('接洽人')
+            ->assertSee('value="已付款" selected', false)
+            ->assertSee('value="銀行轉帳" selected', false)
             ->assertDontSee('訂單狀態')
             ->assertDontSee('折扣')
             ->assertDontSee('運費')

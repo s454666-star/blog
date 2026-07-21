@@ -69,7 +69,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
                 "rows": [{"buttons": [{"text": "➡️ 点击查看下一组"}]}]
             },
         }
-        migrator.current_page = lambda: ([], control)
+        migrator.current_page = lambda **_kwargs: ([], control)
         clicks = []
         migrator.click = lambda keyword: clicks.append(keyword) or {}
 

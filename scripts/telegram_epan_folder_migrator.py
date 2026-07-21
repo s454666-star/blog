@@ -805,7 +805,11 @@ class Migrator:
         self.state["stage"] = "process_page"
         self.save()
 
-    def current_page(self) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    def current_page(
+        self,
+        *,
+        required_button_keyword: str = "",
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         previous_control_id = int(self.state.get("previous_control_id") or 0)
         deadline = time.time() + 180
         while time.time() < deadline:
@@ -819,6 +823,15 @@ class Migrator:
                 key=lambda item: int(item.get("id") or 0),
             )
             controls = [item for item in candidates if self.buttons(item)]
+            if required_button_keyword:
+                controls = [
+                    item
+                    for item in controls
+                    if any(
+                        required_button_keyword in str(button.get("text") or "")
+                        for button in self.buttons(item)
+                    )
+                ]
             if controls:
                 control = controls[-1]
                 control_id = int(control.get("id") or 0)
@@ -947,7 +960,7 @@ class Migrator:
             self.save()
             return
 
-        _, control = self.current_page()
+        _, control = self.current_page(required_button_keyword="下一组")
         button_texts = [str(button.get("text") or "") for button in self.buttons(control)]
         if not any("下一组" in text for text in button_texts):
             raise MigrationBlocked(

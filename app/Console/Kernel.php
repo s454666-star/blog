@@ -131,6 +131,15 @@ class Kernel extends ConsoleKernel
                 ->appendOutputTo(storage_path('logs/dashboard_token_rotation.log'));
         }
 
+        if (config('aws_metrics.daily_line_enabled', false)) {
+            $schedule->command('aws:lightsail-monthly-network --send-line')
+                ->dailyAt((string) config('aws_metrics.daily_line_at', '09:00'))
+                ->name('aws-lightsail-monthly-network-line')
+                ->withoutOverlapping(30)
+                ->runInBackground()
+                ->appendOutputTo(storage_path('logs/aws_lightsail_monthly_network.log'));
+        }
+
         $schedule->command('esun:portfolio-capture-daily')
             ->dailyAt('17:56')
             ->weekdays()

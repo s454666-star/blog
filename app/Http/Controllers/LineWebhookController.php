@@ -16,6 +16,8 @@ class LineWebhookController extends Controller
             (string) config('line.channel_secret', ''),
             'line/dashboard-notify-target-id.txt',
             'line/latest-webhook-target.json',
+            'line/personal-notify-target-id.txt',
+            'line/latest-personal-webhook-target.json',
         );
     }
 
@@ -26,6 +28,8 @@ class LineWebhookController extends Controller
             (string) config('line.yuanta_channel_secret', ''),
             'line/yuanta-dashboard-notify-target-id.txt',
             'line/yuanta-latest-webhook-target.json',
+            'line/yuanta-personal-notify-target-id.txt',
+            'line/yuanta-latest-personal-webhook-target.json',
         );
     }
 
@@ -34,6 +38,8 @@ class LineWebhookController extends Controller
         string $channelSecret,
         string $targetPath,
         string $metadataPath,
+        string $personalTargetPath,
+        string $personalMetadataPath,
     ): JsonResponse
     {
         $body = $request->getContent();
@@ -67,7 +73,12 @@ class LineWebhookController extends Controller
                 continue;
             }
 
-            $this->storeLatestTarget($target, $event, $targetPath, $metadataPath);
+            $this->storeLatestTarget(
+                $target,
+                $event,
+                $target['type'] === 'user' ? $personalTargetPath : $targetPath,
+                $target['type'] === 'user' ? $personalMetadataPath : $metadataPath,
+            );
             $capturedTargets[] = $target;
         }
 
@@ -101,6 +112,10 @@ class LineWebhookController extends Controller
 
         if (($source['type'] ?? null) === 'room' && is_string($source['roomId'] ?? null)) {
             return ['type' => 'room', 'id' => $source['roomId']];
+        }
+
+        if (($source['type'] ?? null) === 'user' && is_string($source['userId'] ?? null)) {
+            return ['type' => 'user', 'id' => $source['userId']];
         }
 
         return null;

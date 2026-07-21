@@ -111,6 +111,40 @@ class LineWebhookControllerTest extends TestCase
         Storage::disk('local')->assertMissing('line/yuanta-dashboard-notify-target-id.txt');
     }
 
+    public function test_it_captures_yuanta_direct_user_without_overwriting_group_target(): void
+    {
+        Storage::fake('local');
+        config()->set('line.yuanta_channel_secret', 'yuanta-secret');
+        Storage::disk('local')->put('line/yuanta-dashboard-notify-target-id.txt', "Cexisting-group\n");
+
+        $payload = [
+            'events' => [[
+                'type' => 'message',
+                'mode' => 'active',
+                'timestamp' => 1771925609000,
+                'source' => [
+                    'type' => 'user',
+                    'userId' => 'Udirect-user',
+                ],
+                'message' => [
+                    'type' => 'text',
+                    'id' => '124',
+                    'text' => 'capture me',
+                ],
+            ]],
+        ];
+        $body = json_encode($payload, JSON_THROW_ON_ERROR);
+
+        $this->withHeader('X-Line-Signature', $this->sign($body, 'yuanta-secret'))
+            ->postJson('/api/line/yuanta/webhook', $payload)
+            ->assertOk()
+            ->assertJsonPath('captured_targets.0.type', 'user')
+            ->assertJsonPath('captured_targets.0.id', 'Udirect-user');
+
+        $this->assertSame("Cexisting-group\n", Storage::disk('local')->get('line/yuanta-dashboard-notify-target-id.txt'));
+        $this->assertSame("Udirect-user\n", Storage::disk('local')->get('line/yuanta-personal-notify-target-id.txt'));
+    }
+
     private function sign(string $body, string $secret = 'test-secret'): string
     {
         return base64_encode(hash_hmac('sha256', $body, $secret, true));

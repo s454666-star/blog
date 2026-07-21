@@ -586,6 +586,9 @@ class Migrator:
                 int(self.state.get("last_video_target_message_id") or 0),
                 target_id,
             )
+        self.state["current_page_processed"] = int(
+            self.state.get("current_page_processed") or 0
+        ) + 1
         self.state["last_content_sha256"] = content_sha256
         for key in (
             "active_source_message_id",
@@ -948,111 +951,6 @@ class Migrator:
         )
         self.save()
 
-        results: list[dict[str, Any]] = []
-        for kind in ("image", "video"):
-            source_ids = [
-                entry["source_message_id"]
-                for entry in media_entries
-                if entry["kind"] == kind
-            ]
-            if not source_ids:
-                continue
-            target_peer_id = self.target_peer_for_kind(kind)
-            retry = 0
-            while True:
-                retry += 1
-                try:
-                    response = self.api.post(
-                        "/messages/copy-protected-media-batch",
-                        {
-                            "source_peer_id": self.args.source_peer_id,
-                            "message_ids": source_ids,
-                            "target_peer_id": target_peer_id,
-                            "drop_media_captions": True,
-                            "dedupe_scope": self.dedupe_scope,
-                        },
-                        timeout=7200.0,
-                    )
-                except (TimeoutError, urllib.error.URLError, ConnectionError) as error:
-                    self.log(
-                        "page_copy_transport_error",
-                        kind=kind,
-                        source_message_ids=source_ids,
-                        retry=retry,
-                        error=str(error),
-                    )
-                    self.schedule_source_page_recovery(source_ids[0], kind)
-                    return
-
-                if response.get("status") == "ok":
-                    batch_results = list(response.get("results") or [])
-                    returned_ids = [
-                        int(result.get("source_message_id") or 0)
-                        for result in batch_results
-                    ]
-                    if returned_ids != source_ids:
-                        raise MigrationBlocked(
-                            "page copy response source order mismatch: "
-                            f"expected={source_ids} actual={returned_ids}"
-                        )
-                    for result in batch_results:
-                        target_id = int(result.get("target_message_id") or 0)
-                        content_sha256 = str(result.get("content_sha256") or "")
-                        if target_id <= 0 or not re.fullmatch(
-                            r"[0-9a-f]{64}", content_sha256
-                        ):
-                            raise MigrationBlocked(
-                                f"page copy response is incomplete: {result}"
-                            )
-                        results.append(
-                            {
-                                "source_message_id": int(
-                                    result.get("source_message_id") or 0
-                                ),
-                                "target_message_id": target_id,
-                                "target_peer_id": target_peer_id,
-                                "kind": kind,
-                                "duplicate": bool(result.get("duplicate")),
-                                "content_sha256": content_sha256,
-                            }
-                        )
-                    self.state["active_page_results"] = results
-                    self.save()
-                    break
-
-                reason = str(response.get("reason") or "")
-                self.log(
-                    "page_copy_application_error",
-                    kind=kind,
-                    source_message_ids=source_ids,
-                    retry=retry,
-                    reason=reason,
-                    response=response,
-                )
-                if reason == "source_messages_missing":
-                    found = {
-                        int(message_id)
-                        for message_id in response.get("found_message_ids") or []
-                    }
-                    missing_id = next(
-                        (message_id for message_id in source_ids if message_id not in found),
-                        source_ids[0],
-                    )
-                    self.schedule_source_page_recovery(missing_id, kind)
-                    return
-                if reason == "flood_wait" and retry < 6:
-                    time.sleep(max(1, int(response.get("wait_seconds") or 1)) + 1)
-                    continue
-                if (
-                    reason == "copy_failed"
-                    and bool(response.get("target_rollback_complete"))
-                    and retry < 4
-                ):
-                    time.sleep(min(60, 5 * retry))
-                    continue
-                raise MigrationBlocked(f"protected-media page copy failed: {response}")
-
-        self.state["active_page_results"] = results
         self.state["stage"] = "page_items_ready"
         self.save()
 
@@ -1068,81 +966,22 @@ class Migrator:
         self.schedule_source_page_recovery(source_id, kind)
 
     def complete_page_items(self) -> None:
-        results = list(self.state.get("active_page_results") or [])
         text_ids = [
             int(message_id)
             for message_id in self.state.get("active_page_text_ids") or []
             if int(message_id or 0) > 0
         ]
         expected_media = list(self.state.get("active_page_media") or [])
-        expected_ids = sorted(
-            int(entry.get("source_message_id") or 0) for entry in expected_media
-        )
-        result_ids = sorted(
-            int(result.get("source_message_id") or 0) for result in results
-        )
-        if expected_ids != result_ids:
-            raise MigrationBlocked(
-                "ready page media result mismatch: "
-                f"expected={expected_ids} actual={result_ids}"
-            )
-        for result in results:
-            kind = str(result.get("kind") or "")
-            target_peer_id = int(result.get("target_peer_id") or 0)
-            target_id = int(result.get("target_message_id") or 0)
-            content_sha256 = str(result.get("content_sha256") or "")
-            if (
-                kind not in ("image", "video")
-                or target_peer_id != self.target_peer_for_kind(kind)
-                or target_id <= 0
-                or not re.fullmatch(r"[0-9a-f]{64}", content_sha256)
-            ):
-                raise MigrationBlocked(f"ready page result is invalid: {result}")
+        for entry in expected_media:
+            source_id = int(entry.get("source_message_id") or 0)
+            kind = str(entry.get("kind") or "")
+            if source_id <= 0 or kind not in ("image", "video"):
+                raise MigrationBlocked("ready page media entry is invalid")
+            self.copy_media({"id": source_id, "media_kind": kind})
 
-        source_ids = result_ids + text_ids
-        self.delete_source(source_ids)
+        for message_id in text_ids:
+            self.delete_text_item(message_id)
 
-        for result in results:
-            kind = str(result.get("kind") or "")
-            duplicate = bool(result.get("duplicate"))
-            target_id = int(result.get("target_message_id") or 0)
-            self.state["source_media_processed"] += 1
-            if kind == "image":
-                self.state["source_images"] += 1
-            elif kind == "video":
-                self.state["source_videos"] += 1
-            else:
-                raise MigrationBlocked(f"ready page result has invalid kind: {result}")
-            if duplicate:
-                self.state["duplicate_media"] += 1
-                self.state[f"duplicate_{kind}s"] += 1
-            else:
-                self.state["copied_media"] += 1
-                self.state[f"copied_{kind}s"] += 1
-            self.state["last_target_message_id"] = max(
-                int(self.state.get("last_target_message_id") or 0),
-                target_id,
-            )
-            self.state[f"last_{kind}_target_message_id"] = max(
-                int(self.state.get(f"last_{kind}_target_message_id") or 0),
-                target_id,
-            )
-            self.state["last_content_sha256"] = str(
-                result.get("content_sha256") or ""
-            )
-
-        completed_count = len(results) + len(text_ids)
-        self.state["processed_total"] += completed_count
-        self.state["folder_processed"] += completed_count
-        self.state["deleted_text"] += len(text_ids)
-        if source_ids:
-            self.state["last_source_message_id"] = max(
-                int(self.state.get("last_source_message_id") or 0),
-                max(source_ids),
-            )
-        self.state["current_page_processed"] = int(
-            self.state.get("current_page_processed") or 0
-        ) + completed_count
         for key in (
             "active_page_media",
             "active_page_text_ids",
@@ -1151,29 +990,6 @@ class Migrator:
             self.state.pop(key, None)
         self.state["stage"] = "process_page"
         self.save()
-
-        for result in results:
-            self.log(
-                "media_copied_and_source_deleted",
-                source_message_id=int(result.get("source_message_id") or 0),
-                target_message_id=int(result.get("target_message_id") or 0),
-                target_peer_id=int(result.get("target_peer_id") or 0),
-                kind=str(result.get("kind") or ""),
-                duplicate=bool(result.get("duplicate")),
-                copied_media=self.state["copied_media"],
-                duplicate_media=self.state["duplicate_media"],
-                source_media_processed=self.state["source_media_processed"],
-                processed_total=self.state["processed_total"],
-                folder_index=self.state["folder_index"],
-            )
-        for message_id in text_ids:
-            self.log(
-                "source_text_deleted",
-                source_message_id=message_id,
-                deleted_text=self.state["deleted_text"],
-                processed_total=self.state["processed_total"],
-                folder_index=self.state["folder_index"],
-            )
 
     def delete_text_item(self, message_id: int) -> None:
         self.state.update(
@@ -1187,6 +1003,9 @@ class Migrator:
         self.state["processed_total"] += 1
         self.state["folder_processed"] += 1
         self.state["deleted_text"] += 1
+        self.state["current_page_processed"] = int(
+            self.state.get("current_page_processed") or 0
+        ) + 1
         self.state["last_source_message_id"] = message_id
         self.state.pop("active_source_message_id", None)
         self.state["stage"] = "process_page"

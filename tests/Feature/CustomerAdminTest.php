@@ -56,6 +56,7 @@ class CustomerAdminTest extends TestCase
             ->assertSee('搜尋舊客戶電話')
             ->assertSee('輸入部分號碼，例如 0909')
             ->assertSeeInOrder(['客戶姓名', '市話', '手機電話', '統一編號', 'Email', '地址', '客戶備註'])
+            ->assertSee('style="grid-column:1/-1"><label for="customer_address"', false)
             ->assertSee('接洽人')
             ->assertSee('value="已付款" selected', false)
             ->assertSee('value="銀行轉帳" selected', false)

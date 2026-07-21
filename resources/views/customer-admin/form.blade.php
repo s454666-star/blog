@@ -29,7 +29,7 @@
                     <div class="field"><label for="customer_mobile">手機電話 <span class="hint">選填</span></label><input id="customer_mobile" name="customer_mobile" value="{{ old('customer_mobile', $record->customer?->mobile) }}"></div>
                     <div class="field"><label for="customer_tax_id">統一編號 <span class="hint">選填</span></label><input id="customer_tax_id" name="customer_tax_id" value="{{ old('customer_tax_id', $record->customer?->tax_id) }}"></div>
                     <div class="field"><label for="customer_email">Email <span class="hint">選填</span></label><input id="customer_email" name="customer_email" type="email" value="{{ old('customer_email', $record->customer?->email) }}"></div>
-                    <div class="field"><label for="customer_address">地址 <span class="hint">選填</span></label><input id="customer_address" name="customer_address" value="{{ old('customer_address', $record->customer?->address) }}"></div>
+                    <div class="field" style="grid-column:1/-1"><label for="customer_address">地址 <span class="hint">選填</span></label><input id="customer_address" name="customer_address" value="{{ old('customer_address', $record->customer?->address) }}"></div>
                     <div class="field" style="grid-column:1/-1"><label for="customer_notes">客戶備註 <span class="hint">選填</span></label><textarea id="customer_notes" name="customer_notes">{{ old('customer_notes', $record->customer?->notes) }}</textarea></div>
                 </div>
             </section>

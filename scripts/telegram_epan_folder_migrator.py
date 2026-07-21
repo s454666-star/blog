@@ -844,6 +844,7 @@ class Migrator:
                     "/messages/copy-protected-media-batch",
                     {
                         "source_peer_id": self.args.source_peer_id,
+                        "source_bot_username": self.args.source_bot,
                         "message_ids": [source_id],
                         "target_peer_id": target_peer_id,
                         "drop_media_captions": True,

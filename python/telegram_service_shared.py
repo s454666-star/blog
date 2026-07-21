@@ -117,7 +117,9 @@ RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS = (
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
 GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180
 
-TDL_EXE_PATH = r"C:\Users\User\Videos\Captures\tdl.exe"
+TDL_EXE_PATH = os.environ.get("TDL_EXE_PATH", r"C:\Users\User\Videos\Captures\tdl.exe")
+TDL_NAMESPACE = str(os.environ.get("TDL_NAMESPACE", "s4546666") or "").strip()
+TDL_HOME = str(os.environ.get("TDL_HOME", "") or "").strip()
 TDL_DOWNLOAD_THREADS = 12
 TDL_DOWNLOAD_LIMIT = 32
 FFPROBE_EXE_PATH = r"C:\ffmpeg\bin\ffprobe.exe"
@@ -2562,17 +2564,44 @@ def _ensure_download_folder_for_media(text: str, file_type: Optional[str], mime_
     return target_folder
 
 
+def _resolve_tdl_exe_path() -> str:
+    configured = str(TDL_EXE_PATH or "").strip()
+    candidates = [
+        configured,
+        "/usr/local/bin/tdl",
+        shutil.which("tdl") or "",
+    ]
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    return ""
+
+
+def _resolve_tdl_home() -> str:
+    configured = str(TDL_HOME or "").strip()
+    candidates = [
+        configured,
+        os.environ.get("TELEGRAM_SERVICE_HOME", ""),
+        "/var/lib/blog-telegram",
+        os.path.expanduser("~"),
+    ]
+    for candidate in candidates:
+        home = str(candidate or "").strip()
+        if home and os.path.isdir(home):
+            return home
+    return ""
+
+
 def _run_tdl_download_url(
     url: str,
     folder_path: str,
     reserved_path: str
 ) -> Dict[str, Any]:
-    exe_path = str(TDL_EXE_PATH or "").strip()
-    if not exe_path or not os.path.isfile(exe_path):
+    exe_path = _resolve_tdl_exe_path()
+    if not exe_path:
         return {
             "ok": False,
             "reason": "tdl_missing",
-            "exe_path": exe_path,
         }
 
     os.makedirs(folder_path, exist_ok=True)
@@ -2595,6 +2624,13 @@ def _run_tdl_download_url(
         str(TDL_DOWNLOAD_LIMIT),
         "--skip-same",
     ]
+    if TDL_NAMESPACE:
+        cmd[1:1] = ["-n", TDL_NAMESPACE]
+
+    env = os.environ.copy()
+    tdl_home = _resolve_tdl_home()
+    if tdl_home:
+        env["HOME"] = tdl_home
 
     try:
         proc = subprocess.run(
@@ -2603,6 +2639,7 @@ def _run_tdl_download_url(
             text=True,
             timeout=300,
             check=False,
+            env=env,
         )
     except Exception as e:
         return {
@@ -2630,8 +2667,6 @@ def _run_tdl_download_url(
             "ok": False,
             "reason": "tdl_failed",
             "returncode": int(proc.returncode),
-            "stdout": stdout[-2000:],
-            "stderr": stderr[-2000:],
         }
 
     if not after_paths:
@@ -2640,14 +2675,10 @@ def _run_tdl_download_url(
                 "ok": True,
                 "saved_path": reserved_path,
                 "saved_name": os.path.basename(reserved_path),
-                "stdout": stdout[-1000:],
-                "stderr": stderr[-1000:],
             }
         return {
             "ok": False,
             "reason": "tdl_no_new_file",
-            "stdout": stdout[-2000:],
-            "stderr": stderr[-2000:],
         }
 
     after_paths.sort(key=lambda path: os.path.getmtime(path), reverse=True)
@@ -2674,16 +2705,12 @@ def _run_tdl_download_url(
             "downloaded_path": downloaded_path,
             "target_path": final_path,
             "error": str(e),
-            "stdout": stdout[-2000:],
-            "stderr": stderr[-2000:],
         }
 
     return {
         "ok": True,
         "saved_path": final_path,
         "saved_name": os.path.basename(final_path),
-        "stdout": stdout[-1000:],
-        "stderr": stderr[-1000:],
     }
 
 
@@ -3218,6 +3245,7 @@ class ForwardResourceCodeBatchRequest(BaseModel):
 
 class CopyProtectedMediaBatchRequest(BaseModel):
     source_peer_id: int
+    source_bot_username: Optional[str] = None
     message_ids: List[int]
     target_peer_id: int
     drop_media_captions: bool = True
@@ -3788,9 +3816,49 @@ def _sha256_file(path: str) -> Tuple[str, int]:
     return digest.hexdigest(), size
 
 
-async def _download_media_to_temporary_file(message: Any) -> Tuple[str, str, str, int]:
+def _message_download_extension(message: Any) -> str:
+    file_info = getattr(message, "file", None)
+    file_name = str(getattr(file_info, "name", None) or "")
+    mime_type = str(getattr(file_info, "mime_type", None) or "")
+    document = getattr(message, "document", None)
+    if not mime_type:
+        mime_type = str(getattr(document, "mime_type", None) or "")
+    ext = _safe_download_ext(file_name, mime_type)
+    if ext:
+        return ext
+    kind = _resource_code_media_kind(message)
+    if kind in ("photo", "image_document"):
+        return ".jpg"
+    if kind in ("video", "video_document"):
+        return ".mp4"
+    return ""
+
+
+async def _download_media_to_temporary_file(
+    message: Any,
+    tdl_bot_username: Optional[str] = None,
+) -> Tuple[str, str, str, int, str]:
     temporary_directory = tempfile.mkdtemp(prefix="blog-telegram-media-copy-")
+    message_id = int(getattr(message, "id", 0) or 0)
     try:
+        if tdl_bot_username and message_id > 0:
+            reserved_path = os.path.join(
+                temporary_directory,
+                f"tdl-{uuid.uuid4().hex}{_message_download_extension(message)}",
+            )
+            tdl_result = await asyncio.to_thread(
+                _run_tdl_download_for_bot_message,
+                tdl_bot_username,
+                message_id,
+                temporary_directory,
+                reserved_path,
+            )
+            if bool(tdl_result.get("ok")):
+                downloaded_path = str(tdl_result.get("saved_path") or "")
+                if downloaded_path and os.path.isfile(downloaded_path):
+                    content_sha256, file_size = await asyncio.to_thread(_sha256_file, downloaded_path)
+                    return temporary_directory, downloaded_path, content_sha256, file_size, "tdl"
+
         downloaded_path = await client.download_media(
             message,
             file=temporary_directory + os.sep,
@@ -3798,7 +3866,7 @@ async def _download_media_to_temporary_file(message: Any) -> Tuple[str, str, str
         if not downloaded_path or not os.path.isfile(downloaded_path):
             raise RuntimeError("media download did not create a file")
         content_sha256, file_size = await asyncio.to_thread(_sha256_file, downloaded_path)
-        return temporary_directory, downloaded_path, content_sha256, file_size
+        return temporary_directory, downloaded_path, content_sha256, file_size, "telethon"
     except Exception:
         shutil.rmtree(temporary_directory, ignore_errors=True)
         raise
@@ -3827,6 +3895,7 @@ async def _verified_dedupe_target_message(
 @app.post("/messages/copy-protected-media-batch")
 async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
     source_peer_id = int(payload.source_peer_id or 0)
+    source_bot_username = str(payload.source_bot_username or "").strip()
     target_peer_id = int(payload.target_peer_id or 0)
     try:
         dedupe_scope = _validate_media_dedupe_scope(payload.dedupe_scope)
@@ -3876,6 +3945,7 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
         temporary_directory = ""
         content_sha256 = ""
         file_size = 0
+        downloader = ""
         try:
             downloaded_path = ""
             if bool(getattr(source_message, "noforwards", False)) or dedupe_scope:
@@ -3884,7 +3954,11 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                     downloaded_path,
                     content_sha256,
                     file_size,
-                ) = await _download_media_to_temporary_file(source_message)
+                    downloader,
+                ) = await _download_media_to_temporary_file(
+                    source_message,
+                    tdl_bot_username=source_bot_username,
+                )
 
             if dedupe_scope and content_sha256:
                 async with MEDIA_DEDUPE_LOCK:
@@ -3910,6 +3984,7 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                             "target_message_id": existing_target_id,
                             "content_sha256": content_sha256,
                             "file_size": file_size,
+                            "downloader": downloader or None,
                             "duplicate": True,
                         })
                         continue
@@ -3979,6 +4054,7 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                 "target_message_id": target_message_id,
                 "content_sha256": content_sha256 or None,
                 "file_size": file_size,
+                "downloader": downloader or None,
                 "duplicate": False,
             })
         except FloodWaitError as e:
@@ -4066,6 +4142,7 @@ async def register_media_hash(payload: RegisterMediaHashRequest):
             _,
             content_sha256,
             file_size,
+            _,
         ) = await _download_media_to_temporary_file(messages[0])
         if bool(payload.preserve_existing):
             async with MEDIA_DEDUPE_LOCK:

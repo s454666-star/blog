@@ -817,7 +817,9 @@ class Migrator:
 
     def copy_media(self, message: dict[str, Any]) -> None:
         source_id = int(message.get("id") or 0)
-        kind = self.media_kind(message)
+        kind = self.media_kind(message) or str(
+            message.get("media_kind") or message.get("kind") or ""
+        )
         if source_id <= 0 or kind not in ("image", "video"):
             raise MigrationBlocked("invalid source media message")
 

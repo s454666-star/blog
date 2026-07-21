@@ -55,7 +55,11 @@ class CustomerAdminTest extends TestCase
         $this->get('/admin/orders/create')->assertOk()
             ->assertSee('搜尋舊客戶電話')
             ->assertSee('輸入部分號碼，例如 0909')
-            ->assertSeeInOrder(['客戶姓名', '市話', '手機電話', '統一編號', 'Email', '地址', '客戶備註']);
+            ->assertSeeInOrder(['客戶姓名', '市話', '手機電話', '統一編號', 'Email', '地址', '客戶備註'])
+            ->assertDontSee('訂單狀態')
+            ->assertDontSee('折扣')
+            ->assertDontSee('運費')
+            ->assertDontSee('稅額');
 
         $this->post('/admin/orders', [
             'customer_name' => '測試客戶',
@@ -64,8 +68,6 @@ class CustomerAdminTest extends TestCase
             'customer_address' => '台北市信義區測試路 1 號',
             'customer_email' => 'customer@example.com',
             'order_date' => '2026-07-20',
-            'status' => '已確認',
-            'discount' => 100,
             'items' => [[
                 'product_id' => $product->id,
                 'quantity' => 2,
@@ -80,6 +82,19 @@ class CustomerAdminTest extends TestCase
             'address' => '台北市信義區測試路 1 號',
         ]);
         $this->assertDatabaseHas('crm_orders', ['customer_id' => $customerId]);
+        $firstOrderId = DB::table('crm_orders')->value('id');
+        DB::table('crm_orders')->where('id', $firstOrderId)->update([
+            'status' => '內部隱藏狀態',
+            'discount' => 111,
+            'shipping_fee' => 222,
+            'tax' => 333,
+        ]);
+        $this->get('/admin/orders')->assertOk()
+            ->assertDontSee('內部隱藏狀態')
+            ->assertDontSee('折扣')
+            ->assertDontSee('運費')
+            ->assertDontSee('稅額');
+        $this->get('/admin/dashboard')->assertOk()->assertDontSee('內部隱藏狀態');
 
         $this->get('/admin/orders/create')->assertOk()
             ->assertSee('搜尋舊客戶電話')
@@ -110,7 +125,7 @@ class CustomerAdminTest extends TestCase
             ->assertSee('value="包"', false)
             ->assertSee('value="罐"', false);
 
-        $this->assertDatabaseHas('crm_orders', ['subtotal' => 2400, 'total' => 2300, 'customer_id' => $customerId]);
+        $this->assertDatabaseHas('crm_orders', ['subtotal' => 2400, 'total' => 2400, 'customer_id' => $customerId]);
         $this->assertDatabaseHas('crm_order_items', ['product_name' => '雲端服務', 'line_total' => 2400]);
 
         $exportResponse = $this->get('/admin/export/xlsx')
@@ -124,5 +139,12 @@ class CustomerAdminTest extends TestCase
         $this->assertSame('市話', $customerSheet->getCell('C4')->getValue());
         $this->assertSame('手機電話', $customerSheet->getCell('D4')->getValue());
         $this->assertSame('地址', $customerSheet->getCell('E4')->getValue());
+        $orderHeaders = $spreadsheet->getSheetByName('訂單')->rangeToArray('A4:I4')[0];
+        $this->assertSame(['訂單編號', '日期', '客戶', '接洽人', '付款狀態', '付款方式', '小計', '總額', '備註'], $orderHeaders);
+        $this->assertNotContains('狀態', $orderHeaders);
+        $this->assertNotContains('折扣', $orderHeaders);
+        $this->assertNotContains('運費', $orderHeaders);
+        $this->assertNotContains('稅額', $orderHeaders);
+        $this->assertNotContains('內部隱藏狀態', $spreadsheet->getSheetByName('訂單')->rangeToArray('A5:I6')[0]);
     }
 }

@@ -174,9 +174,9 @@ class CustomerAdminController extends Controller
         $data['customer_id'] = $customer->id;
 
         $subtotal = collect($items)->sum(fn ($item) => (float) $item['quantity'] * (float) $item['unit_price']);
-        $discount = (float) ($data['discount'] ?? 0);
-        $shipping = (float) ($data['shipping_fee'] ?? 0);
-        $tax = (float) ($data['tax'] ?? 0);
+        $discount = $order->exists ? (float) $order->discount : 0;
+        $shipping = $order->exists ? (float) $order->shipping_fee : 0;
+        $tax = $order->exists ? (float) $order->tax : 0;
 
         if (! $order->exists) {
             $data['order_number'] = ($data['order_number'] ?? null)
@@ -285,12 +285,8 @@ class CustomerAdminController extends Controller
                 'customer_tax_id' => ['nullable', 'string', 'max:20'],
                 'customer_notes' => ['nullable', 'string'],
                 'order_date' => ['nullable', 'date'],
-                'status' => ['nullable', 'string', 'max:30'],
                 'payment_status' => ['nullable', 'string', 'max:30'],
                 'payment_method' => ['nullable', 'string', 'max:30'],
-                'discount' => ['nullable', 'numeric', 'min:0'],
-                'shipping_fee' => ['nullable', 'numeric', 'min:0'],
-                'tax' => ['nullable', 'numeric', 'min:0'],
                 'notes' => ['nullable', 'string'],
                 'items' => ['required', 'array', 'min:1'],
                 'items.*.product_id' => ['required', 'exists:crm_products,id'],
@@ -419,17 +415,13 @@ class CustomerAdminController extends Controller
             ],
             'orders' => [
                 'title' => '訂單管理', 'singular' => '訂單', 'model' => CrmOrder::class, 'with' => ['customer', 'items'],
-                'search' => ['order_number', 'status', 'payment_status', 'notes'],
-                'columns' => ['order_number' => '訂單編號', 'order_date' => '訂單日期', 'customer.name' => '客戶', 'status' => '狀態', 'payment_status' => '付款', 'total' => '總額'],
+                'search' => ['order_number', 'payment_status', 'notes'],
+                'columns' => ['order_number' => '訂單編號', 'order_date' => '訂單日期', 'customer.name' => '客戶', 'payment_status' => '付款', 'total' => '總額'],
                 'fields' => [
                     'order_number' => ['label' => '訂單編號', 'placeholder' => '留空自動產生'],
                     'order_date' => ['label' => '訂單日期', 'type' => 'date'],
-                    'status' => ['label' => '訂單狀態', 'type' => 'select', 'options' => ['草稿' => '草稿', '已確認' => '已確認', '備貨中' => '備貨中', '已出貨' => '已出貨', '已完成' => '已完成', '已取消' => '已取消']],
                     'payment_status' => ['label' => '付款狀態', 'type' => 'select', 'options' => ['未付款' => '未付款', '部分付款' => '部分付款', '已付款' => '已付款', '已退款' => '已退款']],
                     'payment_method' => ['label' => '付款方式', 'type' => 'select', 'options' => ['現金' => '現金', '銀行轉帳' => '銀行轉帳', '信用卡' => '信用卡', '月結' => '月結', '貨到付款' => '貨到付款']],
-                    'discount' => ['label' => '折扣', 'type' => 'number', 'step' => '0.01'],
-                    'shipping_fee' => ['label' => '運費', 'type' => 'number', 'step' => '0.01'],
-                    'tax' => ['label' => '稅額', 'type' => 'number', 'step' => '0.01'],
                     'notes' => ['label' => '訂單備註', 'type' => 'textarea', 'wide' => true],
                 ],
             ],

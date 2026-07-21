@@ -30,8 +30,8 @@ class CustomerAdminExportController extends Controller
             CrmAddress::with('customer')->orderBy('id')->get()->map(fn ($r) => [$r->customer?->name, $r->label, $r->recipient, $r->phone, $r->postal_code, $r->county, $r->district, $r->address_line1, $r->address_line2, $r->is_default ? '是' : '否', $r->notes])->all());
         $this->addSheet($spreadsheet, '商品', ['商品編號', '品名', '分類', '售價', '成本', '單位', '庫存', '稅率', '狀態', '圖片路徑', '說明'],
             CrmProduct::orderBy('id')->get()->map(fn ($r) => [$r->sku, $r->name, $r->category, $r->price, $r->cost, $r->unit, $r->stock_quantity, $r->tax_rate, $r->status, $r->image_path, $r->description])->all());
-        $this->addSheet($spreadsheet, '訂單', ['訂單編號', '日期', '客戶', '接洽人', '狀態', '付款狀態', '付款方式', '小計', '折扣', '運費', '稅額', '總額', '備註'],
-            CrmOrder::with(['customer', 'contact'])->orderBy('id')->get()->map(fn ($r) => [$r->order_number, $r->order_date?->format('Y-m-d'), $r->customer?->name, $r->contact?->name, $r->status, $r->payment_status, $r->payment_method, $r->subtotal, $r->discount, $r->shipping_fee, $r->tax, $r->total, $r->notes])->all());
+        $this->addSheet($spreadsheet, '訂單', ['訂單編號', '日期', '客戶', '接洽人', '付款狀態', '付款方式', '小計', '總額', '備註'],
+            CrmOrder::with(['customer', 'contact'])->orderBy('id')->get()->map(fn ($r) => [$r->order_number, $r->order_date?->format('Y-m-d'), $r->customer?->name, $r->contact?->name, $r->payment_status, $r->payment_method, $r->subtotal, $r->total, $r->notes])->all());
         $this->addSheet($spreadsheet, '訂單明細', ['訂單編號', '商品', '數量', '單價', '小計', '備註'],
             CrmOrder::with('items')->orderBy('id')->get()->flatMap(fn ($order) => $order->items->map(fn ($item) => [$order->order_number, $item->product_name, $item->quantity, $item->unit_price, $item->line_total, $item->notes]))->all());
 

@@ -122,6 +122,7 @@ TDL_NAMESPACE = str(os.environ.get("TDL_NAMESPACE", "s4546666") or "").strip()
 TDL_HOME = str(os.environ.get("TDL_HOME", "") or "").strip()
 TDL_DOWNLOAD_THREADS = 12
 TDL_DOWNLOAD_LIMIT = 32
+TDL_COPY_ATTEMPTS = 3
 FFPROBE_EXE_PATH = r"C:\ffmpeg\bin\ffprobe.exe"
 
 
@@ -2741,6 +2742,88 @@ def _run_tdl_download_for_bot_message(
     return _run_tdl_download_url(url, folder_path, reserved_path)
 
 
+def _tdl_chat_arg_from_peer_id(peer_id: int) -> str:
+    value = int(peer_id or 0)
+    if value <= 0:
+        return ""
+    return f"-100{value}"
+
+
+def _run_tdl_upload_file(
+    target_peer_id: int,
+    file_path: str,
+    source_kind: Optional[str],
+    drop_media_captions: bool = True,
+) -> Dict[str, Any]:
+    exe_path = _resolve_tdl_exe_path()
+    if not exe_path:
+        return {
+            "ok": False,
+            "reason": "tdl_missing",
+        }
+    if not os.path.isfile(file_path):
+        return {
+            "ok": False,
+            "reason": "upload_file_missing",
+        }
+
+    chat_arg = _tdl_chat_arg_from_peer_id(int(target_peer_id or 0))
+    if not chat_arg:
+        return {
+            "ok": False,
+            "reason": "target_peer_missing",
+        }
+
+    cmd = [
+        exe_path,
+        "upload",
+        "--chat",
+        chat_arg,
+        "--path",
+        file_path,
+        "--caption",
+        "" if drop_media_captions else " ",
+        "-t",
+        str(TDL_DOWNLOAD_THREADS),
+        "-l",
+        "1",
+    ]
+    if TDL_NAMESPACE:
+        cmd[1:1] = ["-n", TDL_NAMESPACE]
+    if source_kind == "photo":
+        cmd.append("--photo")
+
+    env = os.environ.copy()
+    tdl_home = _resolve_tdl_home()
+    if tdl_home:
+        env["HOME"] = tdl_home
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=False,
+            timeout=900,
+            check=False,
+            env=env,
+        )
+    except Exception as e:
+        return {
+            "ok": False,
+            "reason": "tdl_upload_exec_error",
+            "error": str(e),
+        }
+
+    if proc.returncode != 0:
+        return {
+            "ok": False,
+            "reason": "tdl_upload_failed",
+            "returncode": int(proc.returncode),
+        }
+    return {"ok": True}
+
+
 def _guess_ext_from_name_or_mime(file_name: Optional[str], mime_type: Optional[str]) -> str:
     fn = (file_name or "").strip().lower()
     if "." in fn:
@@ -3842,22 +3925,28 @@ async def _download_media_to_temporary_file(
     message_id = int(getattr(message, "id", 0) or 0)
     try:
         if tdl_bot_username and message_id > 0:
-            reserved_path = os.path.join(
-                temporary_directory,
-                f"tdl-{uuid.uuid4().hex}{_message_download_extension(message)}",
-            )
-            tdl_result = await asyncio.to_thread(
-                _run_tdl_download_for_bot_message,
-                tdl_bot_username,
-                message_id,
-                temporary_directory,
-                reserved_path,
-            )
-            if bool(tdl_result.get("ok")):
-                downloaded_path = str(tdl_result.get("saved_path") or "")
-                if downloaded_path and os.path.isfile(downloaded_path):
-                    content_sha256, file_size = await asyncio.to_thread(_sha256_file, downloaded_path)
-                    return temporary_directory, downloaded_path, content_sha256, file_size, "tdl"
+            for _ in range(TDL_COPY_ATTEMPTS):
+                reserved_path = os.path.join(
+                    temporary_directory,
+                    f"tdl-{uuid.uuid4().hex}{_message_download_extension(message)}",
+                )
+                tdl_result = await asyncio.to_thread(
+                    _run_tdl_download_for_bot_message,
+                    tdl_bot_username,
+                    message_id,
+                    temporary_directory,
+                    reserved_path,
+                )
+                if bool(tdl_result.get("ok")):
+                    downloaded_path = str(tdl_result.get("saved_path") or "")
+                    if downloaded_path and os.path.isfile(downloaded_path):
+                        content_sha256, file_size = await asyncio.to_thread(_sha256_file, downloaded_path)
+                        return temporary_directory, downloaded_path, content_sha256, file_size, "tdl"
+                try:
+                    if os.path.isfile(reserved_path):
+                        os.remove(reserved_path)
+                except Exception:
+                    pass
 
         downloaded_path = await client.download_media(
             message,
@@ -3890,6 +3979,104 @@ async def _verified_dedupe_target_message(
         if getattr(message, "fwd_from", None) is not None:
             return None
     return message
+
+
+async def _find_clean_uploaded_target_message(
+    target_peer: Any,
+    baseline_message_id: int,
+    source_kind: Optional[str],
+) -> Optional[Any]:
+    for _ in range(8):
+        try:
+            messages = await asyncio.wait_for(
+                client.get_messages(target_peer, limit=30, min_id=max(int(baseline_message_id or 0), 0)),
+                timeout=20.0,
+            )
+        except Exception:
+            messages = []
+        candidates = []
+        for msg in (messages or []):
+            mid = int(getattr(msg, "id", 0) or 0)
+            if mid <= int(baseline_message_id or 0):
+                continue
+            if str(getattr(msg, "message", "") or ""):
+                continue
+            if getattr(msg, "fwd_from", None) is not None:
+                continue
+            if _resource_code_media_kind(msg) != source_kind:
+                continue
+            candidates.append(msg)
+        candidates.sort(key=lambda item: int(getattr(item, "id", 0) or 0))
+        if candidates:
+            return candidates[0]
+        await asyncio.sleep(1.0)
+    return None
+
+
+async def _cleanup_target_messages_after_baseline(
+    target_peer: Any,
+    baseline_message_id: int,
+) -> None:
+    try:
+        messages = await asyncio.wait_for(
+            client.get_messages(target_peer, limit=30, min_id=max(int(baseline_message_id or 0), 0)),
+            timeout=20.0,
+        )
+    except Exception:
+        return
+    message_ids = [
+        int(getattr(msg, "id", 0) or 0)
+        for msg in (messages or [])
+        if int(getattr(msg, "id", 0) or 0) > int(baseline_message_id or 0)
+    ]
+    if message_ids:
+        await _cleanup_resource_code_bot_messages(target_peer, message_ids)
+
+
+async def _send_file_with_tdl_preferred(
+    target_peer: Any,
+    target_peer_id: int,
+    file_path: str,
+    source_kind: Optional[str],
+    caption: str,
+) -> Tuple[int, str]:
+    for _ in range(TDL_COPY_ATTEMPTS):
+        baseline_message_id = await _resource_code_latest_message_id(target_peer)
+        tdl_result = await asyncio.to_thread(
+            _run_tdl_upload_file,
+            target_peer_id,
+            file_path,
+            source_kind,
+            not bool(caption),
+        )
+        if bool(tdl_result.get("ok")):
+            target_message = await _find_clean_uploaded_target_message(
+                target_peer,
+                baseline_message_id,
+                source_kind,
+            )
+            if target_message is not None:
+                return int(getattr(target_message, "id", 0) or 0), "tdl"
+        await _cleanup_target_messages_after_baseline(target_peer, baseline_message_id)
+
+    copied = await client.send_file(
+        target_peer,
+        file_path,
+        caption=caption,
+        silent=True,
+        allow_cache=False,
+        force_document=False,
+        supports_streaming=source_kind in ("video", "video_document"),
+    )
+    copied_items = copied if isinstance(copied, list) else [copied] if copied is not None else []
+    current_ids = [
+        int(getattr(message, "id", 0) or 0)
+        for message in copied_items
+        if int(getattr(message, "id", 0) or 0) > 0
+    ]
+    if len(current_ids) != 1:
+        raise RuntimeError("copied single-message result count mismatch")
+    return current_ids[0], "telethon"
 
 
 @app.post("/messages/copy-protected-media-batch")
@@ -3946,6 +4133,7 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
         content_sha256 = ""
         file_size = 0
         downloader = ""
+        uploader = ""
         try:
             downloaded_path = ""
             if bool(getattr(source_message, "noforwards", False)) or dedupe_scope:
@@ -3985,6 +4173,7 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                             "content_sha256": content_sha256,
                             "file_size": file_size,
                             "downloader": downloader or None,
+                            "uploader": None,
                             "duplicate": True,
                         })
                         continue
@@ -3996,18 +4185,17 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                         )
 
             if downloaded_path:
-                copied = await client.send_file(
-                    target_peer,
-                    downloaded_path,
+                target_message_id, uploader = await _send_file_with_tdl_preferred(
+                    target_peer=target_peer,
+                    target_peer_id=target_peer_id,
+                    file_path=downloaded_path,
+                    source_kind=source_kind,
                     caption="" if payload.drop_media_captions else str(
                         getattr(source_message, "message", "") or ""
                     ),
-                    silent=True,
-                    allow_cache=False,
-                    force_document=False,
-                    supports_streaming=source_kind in ("video", "video_document"),
                 )
             else:
+                uploader = "telethon"
                 copied = await client.send_file(
                     target_peer,
                     getattr(source_message, "media", None),
@@ -4016,16 +4204,15 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                     ),
                     silent=True,
                 )
-
-            copied_items = copied if isinstance(copied, list) else [copied] if copied is not None else []
-            current_ids = [
-                int(getattr(message, "id", 0) or 0)
-                for message in copied_items
-                if int(getattr(message, "id", 0) or 0) > 0
-            ]
-            if len(current_ids) != 1:
-                raise RuntimeError("copied single-message result count mismatch")
-            target_message_id = current_ids[0]
+                copied_items = copied if isinstance(copied, list) else [copied] if copied is not None else []
+                current_ids = [
+                    int(getattr(message, "id", 0) or 0)
+                    for message in copied_items
+                    if int(getattr(message, "id", 0) or 0) > 0
+                ]
+                if len(current_ids) != 1:
+                    raise RuntimeError("copied single-message result count mismatch")
+                target_message_id = current_ids[0]
             target_message = await _verified_dedupe_target_message(
                 target_peer,
                 target_message_id,
@@ -4055,6 +4242,7 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                 "content_sha256": content_sha256 or None,
                 "file_size": file_size,
                 "downloader": downloader or None,
+                "uploader": uploader or None,
                 "duplicate": False,
             })
         except FloodWaitError as e:

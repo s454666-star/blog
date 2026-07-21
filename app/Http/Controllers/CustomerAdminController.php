@@ -314,9 +314,8 @@ class CustomerAdminController extends Controller
                 ->distinct()->orderBy('phone')->pluck('phone')->all(),
             'mobilePhones' => CrmCustomer::query()->whereNotNull('mobile')->where('mobile', '!=', '')
                 ->distinct()->orderBy('mobile')->pluck('mobile')->all(),
-            'orderCustomers' => CrmCustomer::with(['contacts', 'addresses'])->orderBy('name')->get()
+            'orderCustomers' => CrmCustomer::with('addresses')->orderBy('name')->get()
                 ->map(function (CrmCustomer $customer) {
-                    $contact = $customer->contacts->first();
                     $address = $customer->addresses->firstWhere('is_default', true)
                         ?? $customer->addresses->first();
 
@@ -333,8 +332,6 @@ class CustomerAdminController extends Controller
                         'website' => $customer->website,
                         'status' => $customer->status,
                         'notes' => $customer->notes,
-                        'contact_id' => $contact?->id,
-                        'contact' => $contact?->name,
                         'address_id' => $address?->id,
                         'address' => $address?->full_address,
                     ];

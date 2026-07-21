@@ -37,7 +37,11 @@
         @foreach($config['fields'] as $name=>$field)
             @php
                 $type = $field['type'] ?? 'text';
-                $value = old($name, data_get($record, $name));
+                $recordValue = data_get($record, $name);
+                if (!$editing && $module === 'orders' && $name === 'contact_id' && $recordValue === null) {
+                    $recordValue = array_key_first($options['contacts']);
+                }
+                $value = old($name, $recordValue);
             @endphp
             <div class="field {{ !empty($field['wide'])?'wide':'' }}">
                 <label for="{{ $name }}">{{ $field['label'] }} @if(!empty($field['required']))<b class="required">*</b>@else<span class="hint">選填</span>@endif</label>
@@ -149,18 +153,17 @@
     const list=document.querySelector('#item-list'), add=document.querySelector('#add-item');
     const productOptions={{ Illuminate\Support\Js::from($jsProducts) }};
     const orderCustomers={{ Illuminate\Support\Js::from($jsOrderCustomers) }};
-    const phoneLookup=document.querySelector('#customer_phone_lookup'), customerId=document.querySelector('#customer_id'), contactSelect=document.querySelector('#contact_id');
+    const phoneLookup=document.querySelector('#customer_phone_lookup'), customerId=document.querySelector('#customer_id');
     const customerFields={name:document.querySelector('#customer_name'),phone:document.querySelector('#customer_phone'),mobile:document.querySelector('#customer_mobile'),tax_id:document.querySelector('#customer_tax_id'),email:document.querySelector('#customer_email'),customer_address:document.querySelector('#customer_address'),notes:document.querySelector('#customer_notes')};
     function applyCustomer(customer, chosenPhone=null){
         if(!customer)return;
         customerId.value=String(customer.id);
-        contactSelect.value=customer.contact_id?String(customer.contact_id):'';
         phoneLookup.value=chosenPhone||customer.mobile||customer.phone||'';
         Object.entries(customerFields).forEach(([key,input])=>{input.value=customer[key]||''});
     }
     const customerByPhone=value=>orderCustomers.find(item=>item.phone===value||item.mobile===value);
-    phoneLookup.addEventListener('input',()=>{const customer=customerByPhone(phoneLookup.value);customerId.value='';contactSelect.value='';if(customer)applyCustomer(customer,phoneLookup.value)});
-    phoneLookup.addEventListener('change',()=>{const customer=customerByPhone(phoneLookup.value);customerId.value='';contactSelect.value='';if(customer)applyCustomer(customer,phoneLookup.value)});
+    phoneLookup.addEventListener('input',()=>{const customer=customerByPhone(phoneLookup.value);customerId.value='';if(customer)applyCustomer(customer,phoneLookup.value)});
+    phoneLookup.addEventListener('change',()=>{const customer=customerByPhone(phoneLookup.value);customerId.value='';if(customer)applyCustomer(customer,phoneLookup.value)});
     const selectedCustomer=orderCustomers.find(item=>String(item.id)===customerId.value);if(selectedCustomer&&!phoneLookup.value)phoneLookup.value=selectedCustomer.mobile||selectedCustomer.phone||'';
     let nextIndex=list.children.length;
     function recalc(){

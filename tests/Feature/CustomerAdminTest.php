@@ -111,7 +111,8 @@ class CustomerAdminTest extends TestCase
             ->assertSee('台北市信義區測試路 1 號')
             ->assertSee('測試客戶')
             ->assertSee('測試接洽人')
-            ->assertSee('contactSelect.value=customer.contact_id');
+            ->assertSee('value="'.$contactId.'" selected', false)
+            ->assertDontSee('contactSelect.value=customer.contact_id');
 
         $this->post('/admin/orders', [
             'customer_id' => $customerId,

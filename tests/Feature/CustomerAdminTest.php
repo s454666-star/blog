@@ -97,9 +97,15 @@ class CustomerAdminTest extends TestCase
             ->assertDontSee('稅額');
         $this->get('/admin/dashboard')->assertOk()->assertDontSee('內部隱藏狀態');
 
+        DB::table('crm_contacts')->insert([
+            'customer_id' => $customerId,
+            'name' => '王小明',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         $contactId = DB::table('crm_contacts')->insertGetId([
             'customer_id' => $customerId,
-            'name' => '測試接洽人',
+            'name' => '陳威仁',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -110,7 +116,8 @@ class CustomerAdminTest extends TestCase
             ->assertSee('0912-345-678')
             ->assertSee('台北市信義區測試路 1 號')
             ->assertSee('測試客戶')
-            ->assertSee('測試接洽人')
+            ->assertSee('陳威仁')
+            ->assertSee('王小明')
             ->assertSee('value="'.$contactId.'" selected', false)
             ->assertDontSee('contactSelect.value=customer.contact_id');
 

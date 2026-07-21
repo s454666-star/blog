@@ -302,10 +302,13 @@ class CustomerAdminController extends Controller
 
     private function formOptions(): array
     {
+        $contacts = CrmContact::with('customer')->orderBy('name')->orderBy('id')->get();
+
         return [
             'customers' => CrmCustomer::orderBy('name')->pluck('name', 'id')->all(),
-            'contacts' => CrmContact::with('customer')->orderBy('name')->get()
+            'contacts' => $contacts
                 ->mapWithKeys(fn ($item) => [$item->id => $item->name.($item->customer ? '｜'.$item->customer->name : '')])->all(),
+            'defaultContactId' => $contacts->firstWhere('name', '陳威仁')?->id,
             'addresses' => CrmAddress::with('customer')->latest()->get()
                 ->mapWithKeys(fn ($item) => [$item->id => ($item->label ?: '地址 #'.$item->id).'｜'.$item->full_address])->all(),
             'products' => CrmProduct::orderBy('name')->get()

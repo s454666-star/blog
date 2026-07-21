@@ -39,7 +39,7 @@
                 $type = $field['type'] ?? 'text';
                 $recordValue = data_get($record, $name);
                 if (!$editing && $module === 'orders' && $name === 'contact_id' && $recordValue === null) {
-                    $recordValue = array_key_first($options['contacts']);
+                    $recordValue = $options['defaultContactId'];
                 }
                 $value = old($name, $recordValue);
             @endphp

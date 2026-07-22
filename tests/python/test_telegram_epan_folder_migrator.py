@@ -118,6 +118,40 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         self.assertEqual([5], navigated)
         self.assertEqual(2711, migrator.state["source_recovery_start_message_id"])
 
+    def test_repeated_empty_source_pages_restart_current_folder(self):
+        migrator = bare_migrator(
+            {
+                **self.folder_start_counts(),
+                "status": "running",
+                "stage": "process_page",
+                "folder_index": 5,
+                "folder_processed": 224,
+                "folder_next_group_clicks": 673,
+                "consecutive_empty_source_pages": 2,
+                "current_page_processed": 0,
+                "source_recovery_count": 1,
+                "folder_start_counts": self.folder_start_counts(),
+            }
+        )
+        control = {
+            "id": 8084,
+            "reply_markup": {
+                "rows": [{"buttons": [{"text": "下一组"}]}],
+            },
+        }
+        migrator.current_page = lambda: ([], control)
+        migrator.click = lambda keyword: self.fail("empty-page recovery must not click again")
+
+        migrator.process_current_page()
+
+        self.assertEqual("resume_current_folder", migrator.state["stage"])
+        self.assertEqual(2, migrator.state["source_recovery_count"])
+        self.assertEqual(1515, migrator.state["processed_total"])
+        self.assertEqual(0, migrator.state["folder_processed"])
+        self.assertEqual(0, migrator.state["folder_next_group_clicks"])
+        self.assertEqual(0, migrator.state["consecutive_empty_source_pages"])
+        self.assertEqual("repeated_empty_source_pages", migrator.state["source_recovery_reason"])
+
     def test_page_media_is_copied_as_one_batch_before_source_deletion(self):
         state = {
             **self.folder_start_counts(),

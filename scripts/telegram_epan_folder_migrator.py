@@ -61,6 +61,8 @@ FOLDER_COUNTER_KEYS = (
     "duplicate_videos",
 )
 
+MAX_CONSECUTIVE_EMPTY_SOURCE_PAGES = 3
+
 
 class MigrationBlocked(RuntimeError):
     pass
@@ -226,6 +228,7 @@ class Migrator:
             state.setdefault("last_video_target_message_id", 0)
             state.setdefault("last_image_target_message_id", 0)
             state.setdefault("folder_next_group_clicks", 0)
+            state.setdefault("consecutive_empty_source_pages", 0)
             state.setdefault("current_page_processed", 0)
             state.setdefault("source_recovery_count", 0)
             if state.get("dedupe_scope") != self.dedupe_scope:
@@ -274,6 +277,7 @@ class Migrator:
                 "last_video_target_message_id": 0,
                 "last_image_target_message_id": 0,
                 "folder_next_group_clicks": 0,
+                "consecutive_empty_source_pages": 0,
                 "current_page_processed": 0,
                 "source_recovery_count": 0,
                 "started_at": now_iso(),
@@ -320,6 +324,7 @@ class Migrator:
             "last_video_target_message_id": self.args.initial_target_message_id,
             "last_image_target_message_id": 0,
             "folder_next_group_clicks": 0,
+            "consecutive_empty_source_pages": 0,
             "current_page_processed": 0,
             "source_recovery_count": 0,
             "started_at": now_iso(),
@@ -654,6 +659,7 @@ class Migrator:
                 },
                 "folder_processed": 0,
                 "folder_next_group_clicks": 0,
+                "consecutive_empty_source_pages": 0,
                 "current_page_processed": 0,
                 "source_recovery_count": recovery_count,
                 "source_recovery_source_message_id": source_id,
@@ -717,6 +723,7 @@ class Migrator:
                 },
                 "folder_processed": 0,
                 "folder_next_group_clicks": 0,
+                "consecutive_empty_source_pages": 0,
                 "current_page_processed": 0,
                 "source_recovery_count": recovery_count,
                 "source_recovery_reason": reason,
@@ -1138,6 +1145,7 @@ class Migrator:
                 "folder_expected": expected_count,
                 "folder_processed": 0,
                 "folder_next_group_clicks": 0,
+                "consecutive_empty_source_pages": 0,
                 "current_page_processed": 0,
                 "folder_start_counts": folder_start_counts,
                 "previous_control_id": detail_message_id,
@@ -1209,6 +1217,7 @@ class Migrator:
     def process_current_page(self) -> None:
         page_items, control = self.current_page()
         if page_items:
+            self.state["consecutive_empty_source_pages"] = 0
             self.prepare_page_items(page_items)
             if self.state.get("stage") == "resume_current_folder":
                 return
@@ -1218,6 +1227,17 @@ class Migrator:
         next_buttons = [text for text in button_texts if "下一组" in text]
         if next_buttons:
             control_id = int(control.get("id") or 0)
+            if not page_items:
+                consecutive_empty_pages = int(
+                    self.state.get("consecutive_empty_source_pages") or 0
+                ) + 1
+                self.state["consecutive_empty_source_pages"] = consecutive_empty_pages
+                if consecutive_empty_pages >= MAX_CONSECUTIVE_EMPTY_SOURCE_PAGES:
+                    self.schedule_folder_control_recovery(
+                        "repeated_empty_source_pages",
+                        control_id,
+                    )
+                    return
             self.click("下一组")
             self.state["previous_control_id"] = control_id
             self.state["folder_next_group_clicks"] = int(

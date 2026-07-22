@@ -20,7 +20,13 @@
                     @else{{ filled($value) ? $value : '—' }}@endif
                 </td>
             @endforeach
-            <td><div class="actions"><a class="btn btn-sm btn-secondary" href="{{ route('customer-admin.module.edit',[$module,$record->id]) }}">編輯</a><form method="post" action="{{ route('customer-admin.module.destroy',[$module,$record->id]) }}" onsubmit="return confirm('確定刪除這筆資料？')">@csrf @method('DELETE')<button class="btn btn-sm btn-danger">刪除</button></form></div></td>
+            <td><div class="actions">
+                @if($module==='products')
+                    <form method="post" action="{{ route('customer-admin.products.move',$record->id) }}">@csrf<input type="hidden" name="direction" value="up"><button class="btn btn-sm btn-secondary product-move" type="submit" title="上移並自動儲存" aria-label="上移 {{ $record->name }}">↑</button></form>
+                    <form method="post" action="{{ route('customer-admin.products.move',$record->id) }}">@csrf<input type="hidden" name="direction" value="down"><button class="btn btn-sm btn-secondary product-move" type="submit" title="下移並自動儲存" aria-label="下移 {{ $record->name }}">↓</button></form>
+                @endif
+                <a class="btn btn-sm btn-secondary" href="{{ route('customer-admin.module.edit',[$module,$record->id]) }}">編輯</a><form method="post" action="{{ route('customer-admin.module.destroy',[$module,$record->id]) }}" onsubmit="return confirm('確定刪除這筆資料？')">@csrf @method('DELETE')<button class="btn btn-sm btn-danger">刪除</button></form>
+            </div></td>
         </tr>@endforeach
     </tbody></table></div><div class="pagination">{{ $records->links() }}</div>@endif
 </section>

@@ -45,10 +45,14 @@ class CustomerAdminController extends Controller
             });
         }
 
+        $module === 'products'
+            ? $query->orderBy('sort_order')->orderBy('id')
+            : $query->latest();
+
         return view('customer-admin.index', [
             'module' => $module,
             'config' => $config,
-            'records' => $query->latest()->paginate(15)->withQueryString(),
+            'records' => $query->paginate(15)->withQueryString(),
         ]);
     }
 
@@ -67,6 +71,7 @@ class CustomerAdminController extends Controller
     public function store(Request $request, string $module): RedirectResponse
     {
         $config = $this->module($module);
+        $this->normalizeOrderDateInput($request, $module);
         $data = $request->validate($this->rules($module));
 
         DB::transaction(function () use ($module, $config, $data) {
@@ -75,6 +80,7 @@ class CustomerAdminController extends Controller
             } else {
                 if ($module === 'products') {
                     $data = $this->prepareProductImage(request(), $data);
+                    $data['sort_order'] = ((int) CrmProduct::max('sort_order')) + 1;
                 }
                 $config['model']::create($data);
             }
@@ -101,6 +107,7 @@ class CustomerAdminController extends Controller
     {
         $config = $this->module($module);
         $record = $config['model']::findOrFail($id);
+        $this->normalizeOrderDateInput($request, $module);
         $data = $request->validate($this->rules($module, $record));
 
         DB::transaction(function () use ($module, $record, $data) {
@@ -128,6 +135,43 @@ class CustomerAdminController extends Controller
         $record->delete();
 
         return back()->with('success', $config['singular'].'已刪除。');
+    }
+
+    public function moveProduct(Request $request, int $id): RedirectResponse
+    {
+        $direction = $request->validate([
+            'direction' => ['required', Rule::in(['up', 'down'])],
+        ])['direction'];
+
+        DB::transaction(function () use ($id, $direction) {
+            $products = CrmProduct::query()->orderBy('sort_order')->orderBy('id')->lockForUpdate()->get();
+            $currentIndex = $products->search(fn (CrmProduct $product) => $product->id === $id);
+            $targetIndex = $direction === 'up' ? $currentIndex - 1 : $currentIndex + 1;
+
+            if ($currentIndex === false || ! $products->has($targetIndex)) {
+                return;
+            }
+
+            [$products[$currentIndex], $products[$targetIndex]] = [$products[$targetIndex], $products[$currentIndex]];
+            $products->values()->each(fn (CrmProduct $product, int $index) => $product->update(['sort_order' => $index + 1]));
+        });
+
+        return back()->with('success', '商品順序已自動儲存。');
+    }
+
+    private function normalizeOrderDateInput(Request $request, string $module): void
+    {
+        if ($module !== 'orders' || blank($request->input('order_date'))) {
+            return;
+        }
+
+        $digits = preg_replace('/\D/', '', (string) $request->input('order_date'));
+        $date = strlen($digits) === 8 ? \DateTimeImmutable::createFromFormat('!Ymd', $digits) : false;
+        $errors = \DateTimeImmutable::getLastErrors();
+
+        if ($date && ($errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0)) && $date->format('Ymd') === $digits) {
+            $request->merge(['order_date' => $date->format('Y-m-d')]);
+        }
     }
 
     private function saveOrder(CrmOrder $order, array $data): void
@@ -311,7 +355,7 @@ class CustomerAdminController extends Controller
             'defaultContactId' => $contacts->firstWhere('name', '陳威仁')?->id,
             'addresses' => CrmAddress::with('customer')->latest()->get()
                 ->mapWithKeys(fn ($item) => [$item->id => ($item->label ?: '地址 #'.$item->id).'｜'.$item->full_address])->all(),
-            'products' => CrmProduct::orderBy('name')->get()
+            'products' => CrmProduct::orderBy('sort_order')->orderBy('id')->get()
                 ->mapWithKeys(fn ($item) => [$item->id => ['label' => $item->name.'｜$'.number_format((float) $item->price), 'name' => $item->name, 'price' => $item->price]])->all(),
             'cityPhones' => CrmCustomer::query()->whereNotNull('phone')->where('phone', '!=', '')
                 ->distinct()->orderBy('phone')->pluck('phone')->all(),

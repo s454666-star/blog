@@ -58,7 +58,7 @@
                     <select id="{{ $name }}" name="{{ $name }}"><option value="">請選擇（可留空）</option>@foreach($options[$field['source']] as $optionValue=>$optionLabel)<option value="{{ $optionValue }}" @selected((string)$value===(string)$optionValue)>{{ is_array($optionLabel)?$optionLabel['label']:$optionLabel }}</option>@endforeach</select>
                 @else
                     <div class="{{ $type === 'date' ? 'input-with-action date-picker-shell' : '' }}">
-                        <input id="{{ $name }}" name="{{ $name }}" type="{{ $type }}" value="{{ $value }}" step="{{ $field['step']??'' }}" placeholder="{{ $field['placeholder']??'' }}" @if(!empty($field['datalist'])) list="{{ $name }}-history" autocomplete="off" @endif @required(!empty($field['required']))>
+                        <input id="{{ $name }}" name="{{ $name }}" type="{{ $type === 'date' ? 'text' : $type }}" value="{{ $value }}" step="{{ $field['step']??'' }}" placeholder="{{ $type === 'date' ? '例如 20260722' : ($field['placeholder']??'') }}" @if($type === 'date') data-date-input inputmode="numeric" autocomplete="off" @elseif(!empty($field['datalist'])) list="{{ $name }}-history" autocomplete="off" @endif @required(!empty($field['required']))>
                         @if($type === 'date')
                             <div class="date-actions">
                                 <button class="btn btn-sm btn-secondary open-date-picker" type="button" data-target="{{ $name }}">📅 選日期</button>
@@ -178,8 +178,9 @@
     const phoneLookup=document.querySelector('#customer_phone_lookup'), customerId=document.querySelector('#customer_id');
     const dateValue=date=>[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
     document.querySelectorAll('.date-picker-shell').forEach(shell=>{
-        const input=shell.querySelector('input[type="date"]'), popover=shell.querySelector('.date-picker-popover'), title=popover.querySelector('.date-picker-title'), days=popover.querySelector('.date-picker-days');
-        let shownMonth=new Date((input.value||dateValue(new Date()))+'T00:00:00');
+        const input=shell.querySelector('[data-date-input]'), popover=shell.querySelector('.date-picker-popover'), title=popover.querySelector('.date-picker-title'), days=popover.querySelector('.date-picker-days');
+        const inputDate=()=>{const candidate=/^\d{4}-\d{2}-\d{2}$/.test(input.value)?new Date(input.value+'T00:00:00'):new Date();return !Number.isNaN(candidate.getTime())&&dateValue(candidate)===input.value?candidate:new Date()};
+        let shownMonth=inputDate();
         const render=()=>{
             const year=shownMonth.getFullYear(), month=shownMonth.getMonth(), selected=input.value;
             title.textContent=`${year} 年 ${month+1} 月`;days.replaceChildren();
@@ -193,9 +194,9 @@
                 days.append(button);
             }
         };
-        const open=()=>{shownMonth=new Date((input.value||dateValue(new Date()))+'T00:00:00');render();popover.hidden=false};
+        const open=()=>{shownMonth=inputDate();render();popover.hidden=false};
         shell.querySelector('.open-date-picker').addEventListener('click',open);
-        input.addEventListener('click',()=>{if(typeof input.showPicker!=='function')open()});
+        input.addEventListener('input',()=>{const digits=input.value.replace(/\D/g,'');if(/^\d{8}$/.test(input.value)){input.value=`${digits.slice(0,4)}-${digits.slice(4,6)}-${digits.slice(6,8)}`}});
         popover.querySelectorAll('[data-month-step]').forEach(button=>button.addEventListener('click',()=>{shownMonth=new Date(shownMonth.getFullYear(),shownMonth.getMonth()+Number(button.dataset.monthStep),1);render()}));
         document.addEventListener('click',event=>{if(!shell.contains(event.target))popover.hidden=true});
     });

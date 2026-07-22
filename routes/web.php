@@ -66,6 +66,7 @@ Route::prefix('admin')->name('customer-admin.')->group(function () {
         Route::get('/dashboard', [CustomerAdminController::class, 'dashboard'])->name('dashboard');
         Route::post('/logout', [CustomerAdminAuthController::class, 'logout'])->name('logout');
         Route::get('/export/xlsx', CustomerAdminExportController::class)->name('export');
+        Route::post('/products/{id}/move', [CustomerAdminController::class, 'moveProduct'])->whereNumber('id')->name('products.move');
         Route::get('/{module}', [CustomerAdminController::class, 'index'])->whereIn('module', ['contacts', 'products', 'orders', 'addresses'])->name('module.index');
         Route::get('/{module}/create', [CustomerAdminController::class, 'create'])->whereIn('module', ['contacts', 'products', 'orders', 'addresses'])->name('module.create');
         Route::post('/{module}', [CustomerAdminController::class, 'store'])->whereIn('module', ['contacts', 'products', 'orders', 'addresses'])->name('module.store');

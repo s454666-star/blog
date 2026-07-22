@@ -23,6 +23,7 @@ class CustomerAdminTest extends TestCase
         DB::reconnect('sqlite');
         (require database_path('migrations/2026_07_20_120000_create_customer_admin_tables.php'))->up();
         (require database_path('migrations/2026_07_20_180000_add_mobile_and_address_to_crm_customers.php'))->up();
+        (require database_path('migrations/2026_07_22_120000_add_sort_order_to_crm_products.php'))->up();
 
         config()->set('customer-admin.username', 'test-admin');
         config()->set('customer-admin.password_hash', Hash::make('test-password'));
@@ -52,6 +53,27 @@ class CustomerAdminTest extends TestCase
         $product = DB::table('crm_products')->first();
         Storage::disk('public')->assertExists($product->image_path);
 
+        $this->post('/admin/products', ['sku' => '02', 'name' => '文旦10斤', 'category' => '文旦', 'price' => 600])
+            ->assertRedirect('/admin/products');
+        $this->post('/admin/products', ['sku' => '01', 'name' => '花生糖', 'category' => '花生', 'price' => 160])
+            ->assertRedirect('/admin/products');
+        $peanutId = DB::table('crm_products')->where('name', '花生糖')->value('id');
+        $this->get('/admin/products')->assertOk()
+            ->assertSee('aria-label="上移 花生糖"', false)
+            ->assertSee('aria-label="下移 花生糖"', false)
+            ->assertSeeInOrder(['雲端服務', '文旦10斤', '花生糖']);
+        $this->post('/admin/products/'.$peanutId.'/move', ['direction' => 'up'])
+            ->assertRedirect('/admin/products');
+        $this->assertSame(
+            ['雲端服務', '花生糖', '文旦10斤'],
+            DB::table('crm_products')->orderBy('sort_order')->orderBy('id')->pluck('name')->all()
+        );
+        $this->get('/admin/products')->assertOk()
+            ->assertSee('商品順序已自動儲存。')
+            ->assertSeeInOrder(['雲端服務', '花生糖', '文旦10斤']);
+        $this->get('/admin/orders/create')->assertOk()
+            ->assertSeeInOrder(['雲端服務｜$1,200', '花生糖｜$160', '文旦10斤｜$600']);
+
         $this->get('/admin/orders/create')->assertOk()
             ->assertSee('搜尋舊客戶電話')
             ->assertSee('輸入部分號碼，例如 0909')
@@ -60,7 +82,9 @@ class CustomerAdminTest extends TestCase
             ->assertSee('lang="zh-TW" autocomplete="name" autocapitalize="off" spellcheck="false"', false)
             ->assertSee('lang="zh-TW" autocomplete="street-address" autocapitalize="off" spellcheck="false"', false)
             ->assertSee('style="grid-column:1/-1"><label for="customer_address"', false)
-            ->assertSee('id="order_date" name="order_date" type="date" value="'.now()->toDateString().'"', false)
+            ->assertSee('id="order_date" name="order_date" type="text" value="'.now()->toDateString().'"', false)
+            ->assertSee('placeholder="例如 20260722"', false)
+            ->assertSee('data-date-input inputmode="numeric" autocomplete="off"', false)
             ->assertSee('class="btn btn-sm btn-secondary open-date-picker"', false)
             ->assertSee('📅 選日期')
             ->assertSee('class="date-picker-popover" data-picker-for="order_date" hidden', false)
@@ -97,7 +121,7 @@ class CustomerAdminTest extends TestCase
         $this->assertDatabaseHas('crm_orders', ['customer_id' => $customerId]);
         $firstOrderId = DB::table('crm_orders')->value('id');
         $this->get('/admin/orders/'.$firstOrderId.'/edit')->assertOk()
-            ->assertSee('id="order_date" name="order_date" type="date" value="2026-07-20"', false);
+            ->assertSee('id="order_date" name="order_date" type="text" value="2026-07-20"', false);
         DB::table('crm_orders')->where('id', $firstOrderId)->update([
             'status' => '內部隱藏狀態',
             'discount' => 111,
@@ -142,6 +166,7 @@ class CustomerAdminTest extends TestCase
             'customer_mobile' => '0912-345-678',
             'customer_address' => '台北市信義區更新路 2 號',
             'contact_id' => $contactId,
+            'order_date' => '20260722',
             'items' => [[
                 'product_id' => $product->id,
                 'quantity' => 1,
@@ -155,6 +180,7 @@ class CustomerAdminTest extends TestCase
             'address' => '台北市信義區更新路 2 號',
         ]);
         $this->assertDatabaseHas('crm_orders', ['customer_id' => $customerId, 'contact_id' => $contactId]);
+        $this->assertSame('2026-07-22', \App\Models\CrmOrder::latest('id')->first()->order_date->toDateString());
         $this->get('/admin/products/create')->assertOk()
             ->assertSee('value="包"', false)
             ->assertSee('value="罐"', false);

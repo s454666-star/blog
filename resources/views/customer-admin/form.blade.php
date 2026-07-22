@@ -24,12 +24,12 @@
                 </div>
                 <input id="customer_id" name="customer_id" type="hidden" value="{{ old('customer_id', $record->customer_id) }}">
                 <div class="customer-info">
-                    <div class="field"><label for="customer_name">客戶姓名 <b class="required">*</b></label><input id="customer_name" name="customer_name" value="{{ old('customer_name', $record->customer?->name) }}" required></div>
+                    <div class="field"><label for="customer_name">客戶姓名 <b class="required">*</b></label><input id="customer_name" name="customer_name" value="{{ old('customer_name', $record->customer?->name) }}" lang="zh-TW" autocomplete="name" autocapitalize="off" spellcheck="false" required></div>
                     <div class="field"><label for="customer_phone">市話 <span class="hint">選填</span></label><input id="customer_phone" name="customer_phone" value="{{ old('customer_phone', $record->customer?->phone) }}"></div>
                     <div class="field"><label for="customer_mobile">手機電話 <span class="hint">選填</span></label><input id="customer_mobile" name="customer_mobile" value="{{ old('customer_mobile', $record->customer?->mobile) }}"></div>
                     <div class="field"><label for="customer_tax_id">統一編號 <span class="hint">選填</span></label><input id="customer_tax_id" name="customer_tax_id" value="{{ old('customer_tax_id', $record->customer?->tax_id) }}"></div>
                     <div class="field"><label for="customer_email">Email <span class="hint">選填</span></label><input id="customer_email" name="customer_email" type="email" value="{{ old('customer_email', $record->customer?->email) }}"></div>
-                    <div class="field" style="grid-column:1/-1"><label for="customer_address">地址 <span class="hint">選填</span></label><input id="customer_address" name="customer_address" value="{{ old('customer_address', $record->customer?->address) }}"></div>
+                    <div class="field" style="grid-column:1/-1"><label for="customer_address">地址 <span class="hint">選填</span></label><input id="customer_address" name="customer_address" value="{{ old('customer_address', $record->customer?->address) }}" lang="zh-TW" autocomplete="street-address" autocapitalize="off" spellcheck="false"></div>
                     <div class="field" style="grid-column:1/-1"><label for="customer_notes">客戶備註 <span class="hint">選填</span></label><textarea id="customer_notes" name="customer_notes">{{ old('customer_notes', $record->customer?->notes) }}</textarea></div>
                 </div>
             </section>
@@ -44,6 +44,9 @@
                     $recordValue = $field['default'];
                 }
                 $value = old($name, $recordValue);
+                if ($type === 'date' && $value instanceof \DateTimeInterface) {
+                    $value = $value->format('Y-m-d');
+                }
             @endphp
             <div class="field {{ !empty($field['wide'])?'wide':'' }}">
                 <label for="{{ $name }}">{{ $field['label'] }} @if(!empty($field['required']))<b class="required">*</b>@else<span class="hint">選填</span>@endif</label>
@@ -54,7 +57,12 @@
                 @elseif($type==='relation')
                     <select id="{{ $name }}" name="{{ $name }}"><option value="">請選擇（可留空）</option>@foreach($options[$field['source']] as $optionValue=>$optionLabel)<option value="{{ $optionValue }}" @selected((string)$value===(string)$optionValue)>{{ is_array($optionLabel)?$optionLabel['label']:$optionLabel }}</option>@endforeach</select>
                 @else
-                    <input id="{{ $name }}" name="{{ $name }}" type="{{ $type }}" value="{{ $value }}" step="{{ $field['step']??'' }}" placeholder="{{ $field['placeholder']??'' }}" @if(!empty($field['datalist'])) list="{{ $name }}-history" autocomplete="off" @endif @required(!empty($field['required']))>
+                    <div class="{{ $type === 'date' ? 'input-with-action' : '' }}">
+                        <input id="{{ $name }}" name="{{ $name }}" type="{{ $type }}" value="{{ $value }}" step="{{ $field['step']??'' }}" placeholder="{{ $field['placeholder']??'' }}" @if(!empty($field['datalist'])) list="{{ $name }}-history" autocomplete="off" @endif @required(!empty($field['required']))>
+                        @if($type === 'date')
+                            <button class="btn btn-sm btn-secondary set-today" type="button" data-target="{{ $name }}">今天</button>
+                        @endif
+                    </div>
                     @if(!empty($field['datalist']))
                         <datalist id="{{ $name }}-history">
                             @foreach($options[$field['datalist']] as $suggestion)<option value="{{ $suggestion }}"></option>@endforeach
@@ -156,6 +164,11 @@
     const productOptions={{ Illuminate\Support\Js::from($jsProducts) }};
     const orderCustomers={{ Illuminate\Support\Js::from($jsOrderCustomers) }};
     const phoneLookup=document.querySelector('#customer_phone_lookup'), customerId=document.querySelector('#customer_id');
+    document.querySelectorAll('.set-today').forEach(button=>button.addEventListener('click',()=>{
+        const date=new Date(), target=document.querySelector('#'+button.dataset.target);
+        target.value=[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
+        target.focus();
+    }));
     const customerFields={name:document.querySelector('#customer_name'),phone:document.querySelector('#customer_phone'),mobile:document.querySelector('#customer_mobile'),tax_id:document.querySelector('#customer_tax_id'),email:document.querySelector('#customer_email'),customer_address:document.querySelector('#customer_address'),notes:document.querySelector('#customer_notes')};
     function applyCustomer(customer, chosenPhone=null){
         if(!customer)return;

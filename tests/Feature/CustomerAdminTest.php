@@ -56,7 +56,12 @@ class CustomerAdminTest extends TestCase
             ->assertSee('搜尋舊客戶電話')
             ->assertSee('輸入部分號碼，例如 0909')
             ->assertSeeInOrder(['客戶姓名', '市話', '手機電話', '統一編號', 'Email', '地址', '客戶備註'])
+            ->assertSee('id="customer_name"', false)
+            ->assertSee('lang="zh-TW" autocomplete="name" autocapitalize="off" spellcheck="false"', false)
+            ->assertSee('lang="zh-TW" autocomplete="street-address" autocapitalize="off" spellcheck="false"', false)
             ->assertSee('style="grid-column:1/-1"><label for="customer_address"', false)
+            ->assertSee('id="order_date" name="order_date" type="date" value="'.now()->toDateString().'"', false)
+            ->assertSee('data-target="order_date">今天</button>', false)
             ->assertSee('接洽人')
             ->assertSee('value="已付款" selected', false)
             ->assertSee('value="銀行轉帳" selected', false)
@@ -87,6 +92,8 @@ class CustomerAdminTest extends TestCase
         ]);
         $this->assertDatabaseHas('crm_orders', ['customer_id' => $customerId]);
         $firstOrderId = DB::table('crm_orders')->value('id');
+        $this->get('/admin/orders/'.$firstOrderId.'/edit')->assertOk()
+            ->assertSee('id="order_date" name="order_date" type="date" value="2026-07-20"', false);
         DB::table('crm_orders')->where('id', $firstOrderId)->update([
             'status' => '內部隱藏狀態',
             'discount' => 111,

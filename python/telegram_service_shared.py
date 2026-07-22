@@ -129,13 +129,14 @@ FFPROBE_EXE_PATH = r"C:\ffmpeg\bin\ffprobe.exe"
 
 
 def _probe_video_metadata(file_path: str) -> Tuple[Optional[float], Optional[int], Optional[int]]:
-    if not os.path.isfile(file_path) or not os.path.isfile(FFPROBE_EXE_PATH):
+    ffprobe_path = FFPROBE_EXE_PATH if os.path.isfile(FFPROBE_EXE_PATH) else shutil.which("ffprobe")
+    if not os.path.isfile(file_path) or not ffprobe_path:
         return None, None, None
 
     try:
         proc = subprocess.run(
             [
-                FFPROBE_EXE_PATH,
+                ffprobe_path,
                 "-v",
                 "error",
                 "-select_streams",
@@ -4034,6 +4035,15 @@ def _resource_code_media_kinds_compatible(
     return bool(first and second and families.get(first) == families.get(second))
 
 
+def _resource_code_target_kind_is_acceptable(
+    target_kind: Optional[str],
+    source_kind: Optional[str],
+) -> bool:
+    if source_kind in ("video", "video_document"):
+        return target_kind == "video"
+    return _resource_code_media_kinds_compatible(target_kind, source_kind)
+
+
 async def _send_file_with_tdl_preferred(
     target_peer: Any,
     target_peer_id: int,
@@ -4041,24 +4051,44 @@ async def _send_file_with_tdl_preferred(
     source_kind: Optional[str],
     caption: str,
 ) -> Tuple[int, str]:
-    for _ in range(TDL_COPY_ATTEMPTS):
-        baseline_message_id = await _resource_code_latest_message_id(target_peer)
-        tdl_result = await asyncio.to_thread(
-            _run_tdl_upload_file,
-            target_peer_id,
-            file_path,
-            source_kind,
-            not bool(caption),
-        )
-        if bool(tdl_result.get("ok")):
-            target_message = await _find_clean_uploaded_target_message(
-                target_peer,
-                baseline_message_id,
+    is_video = source_kind in ("video", "video_document")
+    if not is_video:
+        for _ in range(TDL_COPY_ATTEMPTS):
+            baseline_message_id = await _resource_code_latest_message_id(target_peer)
+            tdl_result = await asyncio.to_thread(
+                _run_tdl_upload_file,
+                target_peer_id,
+                file_path,
                 source_kind,
+                not bool(caption),
             )
-            if target_message is not None:
-                return int(getattr(target_message, "id", 0) or 0), "tdl"
-            raise RuntimeError("tdl upload completed but target message could not be verified")
+            if bool(tdl_result.get("ok")):
+                target_message = await _find_clean_uploaded_target_message(
+                    target_peer,
+                    baseline_message_id,
+                    source_kind,
+                )
+                if target_message is not None:
+                    return int(getattr(target_message, "id", 0) or 0), "tdl"
+                raise RuntimeError("tdl upload completed but target message could not be verified")
+
+    send_options: Dict[str, Any] = {}
+    if is_video:
+        duration, width, height = await asyncio.to_thread(_probe_video_metadata, file_path)
+        send_options.update({
+            "mime_type": mimetypes.guess_type(file_path)[0] or "video/mp4",
+            "attributes": [
+                DocumentAttributeFilename(os.path.basename(file_path)),
+                DocumentAttributeVideo(
+                    duration=duration or 0,
+                    w=width or 0,
+                    h=height or 0,
+                    supports_streaming=True,
+                ),
+            ],
+            "file_size": os.path.getsize(file_path),
+            "video_note": False,
+        })
 
     copied = await client.send_file(
         target_peer,
@@ -4067,7 +4097,8 @@ async def _send_file_with_tdl_preferred(
         silent=True,
         allow_cache=False,
         force_document=False,
-        supports_streaming=source_kind in ("video", "video_document"),
+        supports_streaming=is_video,
+        **send_options,
     )
     copied_items = copied if isinstance(copied, list) else [copied] if copied is not None else []
     current_ids = [
@@ -4077,6 +4108,9 @@ async def _send_file_with_tdl_preferred(
     ]
     if len(current_ids) != 1:
         raise RuntimeError("copied single-message result count mismatch")
+    if is_video and _resource_code_media_kind(copied_items[0]) != "video":
+        await _cleanup_resource_code_bot_messages(target_peer, current_ids)
+        raise RuntimeError("uploaded video did not produce a native Telegram preview")
     return current_ids[0], "telethon"
 
 
@@ -4166,7 +4200,13 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                         existing_target_id,
                         require_clean=bool(payload.existing_dedupe_requires_clean),
                     )
-                    if existing_message is not None:
+                    if (
+                        existing_message is not None
+                        and _resource_code_target_kind_is_acceptable(
+                            _resource_code_media_kind(existing_message),
+                            source_kind,
+                        )
+                    ):
                         all_target_message_ids.append(existing_target_id)
                         results.append({
                             "source_message_id": source_message_id,
@@ -4220,7 +4260,7 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
             )
             if target_message is None:
                 raise RuntimeError("copied target message failed attribution or caption verification")
-            if not _resource_code_media_kinds_compatible(
+            if not _resource_code_target_kind_is_acceptable(
                 _resource_code_media_kind(target_message),
                 source_kind,
             ):

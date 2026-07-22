@@ -285,7 +285,7 @@ class TdlProtectedCopySafetyTest(unittest.IsolatedAsyncioTestCase):
                 object(),
                 3995547485,
                 __file__,
-                "video",
+                "photo",
                 "",
             )
         finally:
@@ -326,7 +326,7 @@ class TdlProtectedCopySafetyTest(unittest.IsolatedAsyncioTestCase):
                     object(),
                     3995547485,
                     __file__,
-                    "video",
+                    "photo",
                     "",
                 )
         finally:
@@ -336,6 +336,92 @@ class TdlProtectedCopySafetyTest(unittest.IsolatedAsyncioTestCase):
             service.client.send_file = original_send_file
 
         self.assertEqual([], telethon_calls)
+
+    async def test_video_skips_tdl_and_requires_native_preview(self) -> None:
+        class Item:
+            id = 99
+
+        tdl_calls = []
+        send_kwargs = []
+        original_tdl = service._run_tdl_upload_file
+        original_probe = service._probe_video_metadata
+        original_media_kind = service._resource_code_media_kind
+        original_send_file = service.client.send_file
+
+        def fake_tdl(*args, **kwargs):
+            tdl_calls.append(1)
+            return {"ok": True}
+
+        async def fake_send_file(*args, **kwargs):
+            send_kwargs.append(kwargs)
+            return Item()
+
+        service._run_tdl_upload_file = fake_tdl
+        service._probe_video_metadata = lambda path: (12, 640, 360)
+        service._resource_code_media_kind = lambda message: "video"
+        service.client.send_file = fake_send_file
+        try:
+            target_id, uploader = await service._send_file_with_tdl_preferred(
+                object(),
+                3995547485,
+                __file__,
+                "video",
+                "",
+            )
+        finally:
+            service._run_tdl_upload_file = original_tdl
+            service._probe_video_metadata = original_probe
+            service._resource_code_media_kind = original_media_kind
+            service.client.send_file = original_send_file
+
+        self.assertEqual([], tdl_calls)
+        self.assertEqual(99, target_id)
+        self.assertEqual("telethon", uploader)
+        self.assertTrue(send_kwargs[0]["supports_streaming"])
+        self.assertFalse(send_kwargs[0]["force_document"])
+        self.assertEqual(2, len(send_kwargs[0]["attributes"]))
+
+    def test_video_document_target_is_rejected_for_video_source(self) -> None:
+        self.assertFalse(service._resource_code_target_kind_is_acceptable("video_document", "video"))
+        self.assertTrue(service._resource_code_target_kind_is_acceptable("video", "video_document"))
+
+    async def test_non_preview_video_upload_is_deleted_and_rejected(self) -> None:
+        class Item:
+            id = 99
+
+        cleaned_ids = []
+        original_probe = service._probe_video_metadata
+        original_media_kind = service._resource_code_media_kind
+        original_cleanup = service._cleanup_resource_code_bot_messages
+        original_send_file = service.client.send_file
+
+        async def fake_send_file(*args, **kwargs):
+            return Item()
+
+        async def fake_cleanup(peer, message_ids):
+            cleaned_ids.extend(message_ids)
+            return []
+
+        service._probe_video_metadata = lambda path: (12, 640, 360)
+        service._resource_code_media_kind = lambda message: "video_document"
+        service._cleanup_resource_code_bot_messages = fake_cleanup
+        service.client.send_file = fake_send_file
+        try:
+            with self.assertRaisesRegex(RuntimeError, "native Telegram preview"):
+                await service._send_file_with_tdl_preferred(
+                    object(),
+                    3995547485,
+                    __file__,
+                    "video",
+                    "",
+                )
+        finally:
+            service._probe_video_metadata = original_probe
+            service._resource_code_media_kind = original_media_kind
+            service._cleanup_resource_code_bot_messages = original_cleanup
+            service.client.send_file = original_send_file
+
+        self.assertEqual([99], cleaned_ids)
 
     async def test_unreconciled_forward_error_rolls_back_prior_items(self) -> None:
         class Document:

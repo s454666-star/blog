@@ -4003,7 +4003,10 @@ async def _find_clean_uploaded_target_message(
                 continue
             if getattr(msg, "fwd_from", None) is not None:
                 continue
-            if _resource_code_media_kind(msg) != source_kind:
+            if not _resource_code_media_kinds_compatible(
+                _resource_code_media_kind(msg),
+                source_kind,
+            ):
                 continue
             candidates.append(msg)
         candidates.sort(key=lambda item: int(getattr(item, "id", 0) or 0))
@@ -4013,24 +4016,17 @@ async def _find_clean_uploaded_target_message(
     return None
 
 
-async def _cleanup_target_messages_after_baseline(
-    target_peer: Any,
-    baseline_message_id: int,
-) -> None:
-    try:
-        messages = await asyncio.wait_for(
-            client.get_messages(target_peer, limit=30, min_id=max(int(baseline_message_id or 0), 0)),
-            timeout=20.0,
-        )
-    except Exception:
-        return
-    message_ids = [
-        int(getattr(msg, "id", 0) or 0)
-        for msg in (messages or [])
-        if int(getattr(msg, "id", 0) or 0) > int(baseline_message_id or 0)
-    ]
-    if message_ids:
-        await _cleanup_resource_code_bot_messages(target_peer, message_ids)
+def _resource_code_media_kinds_compatible(
+    first: Optional[str],
+    second: Optional[str],
+) -> bool:
+    families = {
+        "photo": "image",
+        "image_document": "image",
+        "video": "video",
+        "video_document": "video",
+    }
+    return bool(first and second and families.get(first) == families.get(second))
 
 
 async def _send_file_with_tdl_preferred(
@@ -4057,7 +4053,7 @@ async def _send_file_with_tdl_preferred(
             )
             if target_message is not None:
                 return int(getattr(target_message, "id", 0) or 0), "tdl"
-        await _cleanup_target_messages_after_baseline(target_peer, baseline_message_id)
+            raise RuntimeError("tdl upload completed but target message could not be verified")
 
     copied = await client.send_file(
         target_peer,
@@ -4219,7 +4215,10 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
             )
             if target_message is None:
                 raise RuntimeError("copied target message failed attribution or caption verification")
-            if _resource_code_media_kind(target_message) != source_kind:
+            if not _resource_code_media_kinds_compatible(
+                _resource_code_media_kind(target_message),
+                source_kind,
+            ):
                 raise RuntimeError("copied target media kind mismatch")
 
             created_target_message_ids.append(target_message_id)

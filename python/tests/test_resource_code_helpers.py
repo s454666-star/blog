@@ -224,6 +224,114 @@ class DeleteVerificationTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([11], forwarded_ids)
 
+
+class TdlProtectedCopySafetyTest(unittest.IsolatedAsyncioTestCase):
+    async def test_tdl_video_document_matches_video_source(self) -> None:
+        class Item:
+            id = 11
+            message = ""
+            fwd_from = None
+
+        original_get_messages = service.client.get_messages
+        original_media_kind = service._resource_code_media_kind
+
+        async def fake_get_messages(*args, **kwargs):
+            return [Item()]
+
+        service.client.get_messages = fake_get_messages
+        service._resource_code_media_kind = lambda message: "video_document"
+        try:
+            result = await service._find_clean_uploaded_target_message(
+                object(),
+                10,
+                "video",
+            )
+        finally:
+            service.client.get_messages = original_get_messages
+            service._resource_code_media_kind = original_media_kind
+
+        self.assertIsNotNone(result)
+        self.assertEqual(11, result.id)
+
+    async def test_tdl_failure_three_times_falls_back_without_target_cleanup(self) -> None:
+        class Item:
+            id = 99
+
+        attempts = []
+        original_latest = service._resource_code_latest_message_id
+        original_tdl = service._run_tdl_upload_file
+        original_send_file = service.client.send_file
+
+        async def fake_latest(*args, **kwargs):
+            return 10
+
+        def fake_tdl(*args, **kwargs):
+            attempts.append(1)
+            return {"ok": False, "reason": "tdl_upload_failed"}
+
+        async def fake_send_file(*args, **kwargs):
+            return Item()
+
+        service._resource_code_latest_message_id = fake_latest
+        service._run_tdl_upload_file = fake_tdl
+        service.client.send_file = fake_send_file
+        try:
+            target_id, uploader = await service._send_file_with_tdl_preferred(
+                object(),
+                3995547485,
+                __file__,
+                "video",
+                "",
+            )
+        finally:
+            service._resource_code_latest_message_id = original_latest
+            service._run_tdl_upload_file = original_tdl
+            service.client.send_file = original_send_file
+
+        self.assertEqual(3, len(attempts))
+        self.assertEqual(99, target_id)
+        self.assertEqual("telethon", uploader)
+
+    async def test_unverified_tdl_success_stops_without_telethon_fallback(self) -> None:
+        original_latest = service._resource_code_latest_message_id
+        original_tdl = service._run_tdl_upload_file
+        original_find = service._find_clean_uploaded_target_message
+        original_send_file = service.client.send_file
+        telethon_calls = []
+
+        async def fake_latest(*args, **kwargs):
+            return 10
+
+        def fake_tdl(*args, **kwargs):
+            return {"ok": True}
+
+        async def fake_find(*args, **kwargs):
+            return None
+
+        async def fake_send_file(*args, **kwargs):
+            telethon_calls.append(1)
+
+        service._resource_code_latest_message_id = fake_latest
+        service._run_tdl_upload_file = fake_tdl
+        service._find_clean_uploaded_target_message = fake_find
+        service.client.send_file = fake_send_file
+        try:
+            with self.assertRaisesRegex(RuntimeError, "could not be verified"):
+                await service._send_file_with_tdl_preferred(
+                    object(),
+                    3995547485,
+                    __file__,
+                    "video",
+                    "",
+                )
+        finally:
+            service._resource_code_latest_message_id = original_latest
+            service._run_tdl_upload_file = original_tdl
+            service._find_clean_uploaded_target_message = original_find
+            service.client.send_file = original_send_file
+
+        self.assertEqual([], telethon_calls)
+
     async def test_unreconciled_forward_error_rolls_back_prior_items(self) -> None:
         class Document:
             def __init__(self, document_id: int):

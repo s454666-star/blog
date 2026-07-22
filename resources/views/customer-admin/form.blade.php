@@ -57,12 +57,21 @@
                 @elseif($type==='relation')
                     <select id="{{ $name }}" name="{{ $name }}"><option value="">請選擇（可留空）</option>@foreach($options[$field['source']] as $optionValue=>$optionLabel)<option value="{{ $optionValue }}" @selected((string)$value===(string)$optionValue)>{{ is_array($optionLabel)?$optionLabel['label']:$optionLabel }}</option>@endforeach</select>
                 @else
-                    <div class="{{ $type === 'date' ? 'input-with-action' : '' }}">
+                    <div class="{{ $type === 'date' ? 'input-with-action date-picker-shell' : '' }}">
                         <input id="{{ $name }}" name="{{ $name }}" type="{{ $type }}" value="{{ $value }}" step="{{ $field['step']??'' }}" placeholder="{{ $field['placeholder']??'' }}" @if(!empty($field['datalist'])) list="{{ $name }}-history" autocomplete="off" @endif @required(!empty($field['required']))>
                         @if($type === 'date')
                             <div class="date-actions">
                                 <button class="btn btn-sm btn-secondary open-date-picker" type="button" data-target="{{ $name }}">📅 選日期</button>
                                 <button class="btn btn-sm btn-secondary set-today" type="button" data-target="{{ $name }}">今天</button>
+                            </div>
+                            <div class="date-picker-popover" data-picker-for="{{ $name }}" hidden>
+                                <div class="date-picker-head">
+                                    <button class="date-picker-nav" type="button" data-month-step="-1" aria-label="上個月">‹</button>
+                                    <strong class="date-picker-title"></strong>
+                                    <button class="date-picker-nav" type="button" data-month-step="1" aria-label="下個月">›</button>
+                                </div>
+                                <div class="date-picker-weekdays"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+                                <div class="date-picker-days"></div>
                             </div>
                         @endif
                     </div>
@@ -167,12 +176,32 @@
     const productOptions={{ Illuminate\Support\Js::from($jsProducts) }};
     const orderCustomers={{ Illuminate\Support\Js::from($jsOrderCustomers) }};
     const phoneLookup=document.querySelector('#customer_phone_lookup'), customerId=document.querySelector('#customer_id');
-    const openDatePicker=input=>{try{if(typeof input.showPicker==='function'){input.showPicker();return}}catch(error){}input.focus()};
-    document.querySelectorAll('input[type="date"]').forEach(input=>input.addEventListener('click',()=>openDatePicker(input)));
-    document.querySelectorAll('.open-date-picker').forEach(button=>button.addEventListener('click',()=>openDatePicker(document.querySelector('#'+button.dataset.target))));
+    const dateValue=date=>[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
+    document.querySelectorAll('.date-picker-shell').forEach(shell=>{
+        const input=shell.querySelector('input[type="date"]'), popover=shell.querySelector('.date-picker-popover'), title=popover.querySelector('.date-picker-title'), days=popover.querySelector('.date-picker-days');
+        let shownMonth=new Date((input.value||dateValue(new Date()))+'T00:00:00');
+        const render=()=>{
+            const year=shownMonth.getFullYear(), month=shownMonth.getMonth(), selected=input.value;
+            title.textContent=`${year} 年 ${month+1} 月`;days.replaceChildren();
+            for(let blank=0;blank<new Date(year,month,1).getDay();blank++){days.append(document.createElement('span'))}
+            for(let day=1;day<=new Date(year,month+1,0).getDate();day++){
+                const button=document.createElement('button'), value=dateValue(new Date(year,month,day));
+                button.type='button';button.textContent=String(day);button.className='date-picker-day';
+                if(value===selected)button.classList.add('selected');
+                if(value===dateValue(new Date()))button.classList.add('today');
+                button.addEventListener('click',()=>{input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));popover.hidden=true;input.focus()});
+                days.append(button);
+            }
+        };
+        const open=()=>{shownMonth=new Date((input.value||dateValue(new Date()))+'T00:00:00');render();popover.hidden=false};
+        shell.querySelector('.open-date-picker').addEventListener('click',open);
+        input.addEventListener('click',()=>{if(typeof input.showPicker!=='function')open()});
+        popover.querySelectorAll('[data-month-step]').forEach(button=>button.addEventListener('click',()=>{shownMonth=new Date(shownMonth.getFullYear(),shownMonth.getMonth()+Number(button.dataset.monthStep),1);render()}));
+        document.addEventListener('click',event=>{if(!shell.contains(event.target))popover.hidden=true});
+    });
     document.querySelectorAll('.set-today').forEach(button=>button.addEventListener('click',()=>{
         const date=new Date(), target=document.querySelector('#'+button.dataset.target);
-        target.value=[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
+        target.value=dateValue(date);
         target.focus();
     }));
     const customerFields={name:document.querySelector('#customer_name'),phone:document.querySelector('#customer_phone'),mobile:document.querySelector('#customer_mobile'),tax_id:document.querySelector('#customer_tax_id'),email:document.querySelector('#customer_email'),customer_address:document.querySelector('#customer_address'),notes:document.querySelector('#customer_notes')};

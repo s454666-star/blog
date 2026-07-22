@@ -63,6 +63,8 @@ class CustomerAdminTest extends TestCase
             ->assertSee('id="order_date" name="order_date" type="date" value="'.now()->toDateString().'"', false)
             ->assertSee('class="btn btn-sm btn-secondary open-date-picker"', false)
             ->assertSee('📅 選日期')
+            ->assertSee('class="date-picker-popover" data-picker-for="order_date" hidden', false)
+            ->assertSee('class="date-picker-weekdays"', false)
             ->assertSee('data-target="order_date">今天</button>', false)
             ->assertSee('接洽人')
             ->assertSee('value="已付款" selected', false)

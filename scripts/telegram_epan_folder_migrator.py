@@ -70,6 +70,16 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def copy_source_bot_for_attempt(source_bot: str, retry: int) -> str:
+    return str(source_bot or "") if int(retry or 0) == 1 else ""
+
+
+def copy_retry_delay_seconds(reason: str, wait_seconds: int, retry: int) -> int:
+    if str(reason or "") == "flood_wait":
+        return max(1, int(wait_seconds or 1)) + 1
+    return min(180, 10 * max(1, int(retry or 1)))
+
+
 class Api:
     def __init__(self, base_uri: str):
         self.base_uri = base_uri.rstrip("/")
@@ -844,7 +854,10 @@ class Migrator:
                     "/messages/copy-protected-media-batch",
                     {
                         "source_peer_id": self.args.source_peer_id,
-                        "source_bot_username": self.args.source_bot,
+                        "source_bot_username": copy_source_bot_for_attempt(
+                            self.args.source_bot,
+                            retry,
+                        ),
                         "message_ids": [source_id],
                         "target_peer_id": target_peer_id,
                         "drop_media_captions": True,
@@ -904,6 +917,7 @@ class Migrator:
                 source_message_id=source_id,
                 retry=retry,
                 reason=response.get("reason"),
+                wait_seconds=int(response.get("wait_seconds") or 0),
                 error=response.get("error"),
             )
             self.recover_pending_copy()
@@ -911,7 +925,13 @@ class Migrator:
                 return
             if retry >= 8:
                 raise MigrationBlocked(f"copy failed repeatedly for source {source_id}: {response}")
-            time.sleep(min(180, 10 * retry))
+            time.sleep(
+                copy_retry_delay_seconds(
+                    str(response.get("reason") or ""),
+                    int(response.get("wait_seconds") or 0),
+                    retry,
+                )
+            )
             self.state.update(
                 {
                     "stage": "copying_source",

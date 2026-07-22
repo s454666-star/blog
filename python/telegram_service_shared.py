@@ -123,6 +123,8 @@ TDL_HOME = str(os.environ.get("TDL_HOME", "") or "").strip()
 TDL_DOWNLOAD_THREADS = 12
 TDL_DOWNLOAD_LIMIT = 32
 TDL_COPY_ATTEMPTS = 3
+TDL_COPY_DOWNLOAD_TIMEOUT_SECONDS = 60
+TELETHON_COPY_DOWNLOAD_TIMEOUT_SECONDS = 600
 FFPROBE_EXE_PATH = r"C:\ffmpeg\bin\ffprobe.exe"
 
 
@@ -2638,7 +2640,7 @@ def _run_tdl_download_url(
             cmd,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=TDL_COPY_DOWNLOAD_TIMEOUT_SECONDS,
             check=False,
             env=env,
         )
@@ -3948,9 +3950,12 @@ async def _download_media_to_temporary_file(
                 except Exception:
                     pass
 
-        downloaded_path = await client.download_media(
-            message,
-            file=temporary_directory + os.sep,
+        downloaded_path = await asyncio.wait_for(
+            client.download_media(
+                message,
+                file=temporary_directory + os.sep,
+            ),
+            timeout=TELETHON_COPY_DOWNLOAD_TIMEOUT_SECONDS,
         )
         if not downloaded_path or not os.path.isfile(downloaded_path):
             raise RuntimeError("media download did not create a file")

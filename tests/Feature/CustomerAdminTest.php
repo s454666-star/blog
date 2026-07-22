@@ -61,6 +61,8 @@ class CustomerAdminTest extends TestCase
             ->assertSee('lang="zh-TW" autocomplete="street-address" autocapitalize="off" spellcheck="false"', false)
             ->assertSee('style="grid-column:1/-1"><label for="customer_address"', false)
             ->assertSee('id="order_date" name="order_date" type="date" value="'.now()->toDateString().'"', false)
+            ->assertSee('class="btn btn-sm btn-secondary open-date-picker"', false)
+            ->assertSee('📅 選日期')
             ->assertSee('data-target="order_date">今天</button>', false)
             ->assertSee('接洽人')
             ->assertSee('value="已付款" selected', false)

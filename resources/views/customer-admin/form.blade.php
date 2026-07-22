@@ -60,7 +60,10 @@
                     <div class="{{ $type === 'date' ? 'input-with-action' : '' }}">
                         <input id="{{ $name }}" name="{{ $name }}" type="{{ $type }}" value="{{ $value }}" step="{{ $field['step']??'' }}" placeholder="{{ $field['placeholder']??'' }}" @if(!empty($field['datalist'])) list="{{ $name }}-history" autocomplete="off" @endif @required(!empty($field['required']))>
                         @if($type === 'date')
-                            <button class="btn btn-sm btn-secondary set-today" type="button" data-target="{{ $name }}">今天</button>
+                            <div class="date-actions">
+                                <button class="btn btn-sm btn-secondary open-date-picker" type="button" data-target="{{ $name }}">📅 選日期</button>
+                                <button class="btn btn-sm btn-secondary set-today" type="button" data-target="{{ $name }}">今天</button>
+                            </div>
                         @endif
                     </div>
                     @if(!empty($field['datalist']))
@@ -164,6 +167,9 @@
     const productOptions={{ Illuminate\Support\Js::from($jsProducts) }};
     const orderCustomers={{ Illuminate\Support\Js::from($jsOrderCustomers) }};
     const phoneLookup=document.querySelector('#customer_phone_lookup'), customerId=document.querySelector('#customer_id');
+    const openDatePicker=input=>{try{if(typeof input.showPicker==='function'){input.showPicker();return}}catch(error){}input.focus()};
+    document.querySelectorAll('input[type="date"]').forEach(input=>input.addEventListener('click',()=>openDatePicker(input)));
+    document.querySelectorAll('.open-date-picker').forEach(button=>button.addEventListener('click',()=>openDatePicker(document.querySelector('#'+button.dataset.target))));
     document.querySelectorAll('.set-today').forEach(button=>button.addEventListener('click',()=>{
         const date=new Date(), target=document.querySelector('#'+button.dataset.target);
         target.value=[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');

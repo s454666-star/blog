@@ -464,7 +464,7 @@ class CustomerAdminController extends Controller
                 'columns' => ['order_number' => '訂單編號', 'order_date' => '訂單日期', 'customer.name' => '客戶', 'payment_status' => '付款', 'total' => '總額'],
                 'fields' => [
                     'order_number' => ['label' => '訂單編號', 'placeholder' => '留空自動產生'],
-                    'order_date' => ['label' => '訂單日期', 'type' => 'date', 'default' => now()->toDateString()],
+                    'order_date' => ['label' => '訂單日期', 'type' => 'date'],
                     'contact_id' => ['label' => '接洽人', 'type' => 'relation', 'source' => 'contacts'],
                     'payment_status' => ['label' => '付款狀態', 'type' => 'select', 'default' => '已付款', 'options' => ['未付款' => '未付款', '部分付款' => '部分付款', '已付款' => '已付款', '已退款' => '已退款']],
                     'payment_method' => ['label' => '付款方式', 'type' => 'select', 'default' => '銀行轉帳', 'options' => ['現金' => '現金', '銀行轉帳' => '銀行轉帳', '信用卡' => '信用卡', '月結' => '月結', '貨到付款' => '貨到付款']],

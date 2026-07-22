@@ -82,7 +82,7 @@ class CustomerAdminTest extends TestCase
             ->assertSee('lang="zh-TW" autocomplete="name" autocapitalize="off" spellcheck="false"', false)
             ->assertSee('lang="zh-TW" autocomplete="street-address" autocapitalize="off" spellcheck="false"', false)
             ->assertSee('style="grid-column:1/-1"><label for="customer_address"', false)
-            ->assertSee('id="order_date" name="order_date" type="text" value="'.now()->toDateString().'"', false)
+            ->assertSee('id="order_date" name="order_date" type="text" value=""', false)
             ->assertSee('placeholder="例如 20260722"', false)
             ->assertSee('data-date-input inputmode="numeric" autocomplete="off"', false)
             ->assertSee('class="btn btn-sm btn-secondary open-date-picker"', false)

@@ -28,7 +28,6 @@
                     <div class="field"><label for="customer_phone">市話 <span class="hint">選填</span></label><input id="customer_phone" name="customer_phone" value="{{ old('customer_phone', $record->customer?->phone) }}"></div>
                     <div class="field"><label for="customer_mobile">手機電話 <span class="hint">選填</span></label><input id="customer_mobile" name="customer_mobile" value="{{ old('customer_mobile', $record->customer?->mobile) }}"></div>
                     <div class="field"><label for="customer_tax_id">統一編號 <span class="hint">選填</span></label><input id="customer_tax_id" name="customer_tax_id" value="{{ old('customer_tax_id', $record->customer?->tax_id) }}"></div>
-                    <div class="field"><label for="customer_email">Email <span class="hint">選填</span></label><input id="customer_email" name="customer_email" type="email" value="{{ old('customer_email', $record->customer?->email) }}"></div>
                     <div class="field" style="grid-column:1/-1"><label for="customer_address">地址 <span class="hint">選填</span></label><input id="customer_address" name="customer_address" value="{{ old('customer_address', $record->customer?->address) }}" lang="zh-TW" autocomplete="street-address" autocapitalize="off" spellcheck="false"></div>
                     <div class="field" style="grid-column:1/-1"><label for="customer_notes">客戶備註 <span class="hint">選填</span></label><textarea id="customer_notes" name="customer_notes">{{ old('customer_notes', $record->customer?->notes) }}</textarea></div>
                 </div>
@@ -205,7 +204,7 @@
         target.value=dateValue(date);
         target.focus();
     }));
-    const customerFields={name:document.querySelector('#customer_name'),phone:document.querySelector('#customer_phone'),mobile:document.querySelector('#customer_mobile'),tax_id:document.querySelector('#customer_tax_id'),email:document.querySelector('#customer_email'),customer_address:document.querySelector('#customer_address'),notes:document.querySelector('#customer_notes')};
+    const customerFields={name:document.querySelector('#customer_name'),phone:document.querySelector('#customer_phone'),mobile:document.querySelector('#customer_mobile'),tax_id:document.querySelector('#customer_tax_id'),customer_address:document.querySelector('#customer_address'),notes:document.querySelector('#customer_notes')};
     function applyCustomer(customer, chosenPhone=null){
         if(!customer)return;
         customerId.value=String(customer.id);

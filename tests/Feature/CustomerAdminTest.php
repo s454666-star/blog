@@ -77,7 +77,9 @@ class CustomerAdminTest extends TestCase
         $this->get('/admin/orders/create')->assertOk()
             ->assertSee('搜尋舊客戶電話')
             ->assertSee('輸入部分號碼，例如 0909')
-            ->assertSeeInOrder(['客戶姓名', '市話', '手機電話', '統一編號', 'Email', '地址', '客戶備註'])
+            ->assertSeeInOrder(['客戶姓名', '市話', '手機電話', '統一編號', '地址', '客戶備註'])
+            ->assertDontSee('customer_email')
+            ->assertDontSee('Email')
             ->assertSee('id="customer_name"', false)
             ->assertSee('lang="zh-TW" autocomplete="name" autocapitalize="off" spellcheck="false"', false)
             ->assertSee('lang="zh-TW" autocomplete="street-address" autocapitalize="off" spellcheck="false"', false)
@@ -103,7 +105,6 @@ class CustomerAdminTest extends TestCase
             'customer_phone' => '02-1234-5678',
             'customer_mobile' => '0912-345-678',
             'customer_address' => '台北市信義區測試路 1 號',
-            'customer_email' => 'customer@example.com',
             'order_date' => '2026-07-20',
             'items' => [[
                 'product_id' => $product->id,
@@ -112,6 +113,7 @@ class CustomerAdminTest extends TestCase
             ]],
         ])->assertRedirect('/admin/orders');
         $customerId = DB::table('crm_customers')->value('id');
+        DB::table('crm_customers')->where('id', $customerId)->update(['email' => 'legacy-customer@example.com']);
         $this->assertDatabaseHas('crm_customers', [
             'id' => $customerId,
             'name' => '測試客戶',
@@ -138,12 +140,14 @@ class CustomerAdminTest extends TestCase
         DB::table('crm_contacts')->insert([
             'customer_id' => $customerId,
             'name' => '王小明',
+            'email' => 'legacy-contact@example.com',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
         $contactId = DB::table('crm_contacts')->insertGetId([
             'customer_id' => $customerId,
             'name' => '陳威仁',
+            'email' => 'legacy-default@example.com',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -157,7 +161,21 @@ class CustomerAdminTest extends TestCase
             ->assertSee('陳威仁')
             ->assertSee('王小明')
             ->assertSee('value="'.$contactId.'" selected', false)
+            ->assertDontSee('legacy-customer@example.com')
+            ->assertDontSee('customer_email')
+            ->assertDontSee('Email')
             ->assertDontSee('contactSelect.value=customer.contact_id');
+
+        $this->get('/admin/contacts')->assertOk()
+            ->assertDontSee('Email')
+            ->assertDontSee('legacy-contact@example.com');
+        $this->get('/admin/contacts/create')->assertOk()
+            ->assertDontSee('name="email"', false)
+            ->assertDontSee('Email');
+        $this->get('/admin/contacts/'.$contactId.'/edit')->assertOk()
+            ->assertDontSee('name="email"', false)
+            ->assertDontSee('legacy-default@example.com')
+            ->assertDontSee('Email');
 
         $this->post('/admin/orders', [
             'customer_id' => $customerId,
@@ -199,6 +217,14 @@ class CustomerAdminTest extends TestCase
         $this->assertSame('市話', $customerSheet->getCell('C4')->getValue());
         $this->assertSame('手機電話', $customerSheet->getCell('D4')->getValue());
         $this->assertSame('地址', $customerSheet->getCell('E4')->getValue());
+        $customerHeaders = $customerSheet->rangeToArray('A4:J4')[0];
+        $contactSheet = $spreadsheet->getSheetByName('接洽人');
+        $contactHeaders = $contactSheet->rangeToArray('A4:H4')[0];
+        $this->assertNotContains('Email', $customerHeaders);
+        $this->assertNotContains('Email', $contactHeaders);
+        $this->assertNotContains('legacy-customer@example.com', $customerSheet->rangeToArray('A5:J5')[0]);
+        $this->assertNotContains('legacy-contact@example.com', $contactSheet->rangeToArray('A5:H6')[0]);
+        $this->assertNotContains('legacy-default@example.com', $contactSheet->rangeToArray('A5:H6')[1]);
         $orderHeaders = $spreadsheet->getSheetByName('訂單')->rangeToArray('A4:I4')[0];
         $this->assertSame(['訂單編號', '日期', '客戶', '接洽人', '付款狀態', '付款方式', '小計', '總額', '備註'], $orderHeaders);
         $this->assertNotContains('狀態', $orderHeaders);

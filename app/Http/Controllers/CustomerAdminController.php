@@ -184,7 +184,6 @@ class CustomerAdminController extends Controller
             'phone' => $data['customer_phone'] ?? null,
             'mobile' => $data['customer_mobile'] ?? null,
             'address' => $data['customer_address'] ?? null,
-            'email' => $data['customer_email'] ?? null,
             'tax_id' => $data['customer_tax_id'] ?? null,
             'notes' => $data['customer_notes'] ?? null,
         ];
@@ -275,7 +274,6 @@ class CustomerAdminController extends Controller
                 'address' => ['nullable', 'string', 'max:255'],
                 'tax_id' => ['nullable', 'string', 'max:20'],
                 'industry' => ['nullable', 'string', 'max:100'],
-                'email' => ['nullable', 'email', 'max:255'],
                 'website' => ['nullable', 'url', 'max:255'],
                 'status' => ['nullable', 'string', 'max:30'],
                 'notes' => ['nullable', 'string'],
@@ -287,7 +285,6 @@ class CustomerAdminController extends Controller
                 'department' => ['nullable', 'string', 'max:100'],
                 'phone' => ['nullable', 'string', 'max:50'],
                 'mobile' => ['nullable', 'string', 'max:50'],
-                'email' => ['nullable', 'email', 'max:255'],
                 'preferred_contact' => ['nullable', 'string', 'max:30'],
                 'notes' => ['nullable', 'string'],
             ],
@@ -325,7 +322,6 @@ class CustomerAdminController extends Controller
                 'customer_phone' => ['nullable', 'string', 'max:50'],
                 'customer_mobile' => ['nullable', 'string', 'max:50'],
                 'customer_address' => ['nullable', 'string', 'max:255'],
-                'customer_email' => ['nullable', 'email', 'max:255'],
                 'customer_tax_id' => ['nullable', 'string', 'max:20'],
                 'customer_notes' => ['nullable', 'string'],
                 'contact_id' => ['nullable', 'exists:crm_contacts,id'],
@@ -375,7 +371,6 @@ class CustomerAdminController extends Controller
                         'phone' => $customer->phone,
                         'mobile' => $customer->mobile,
                         'customer_address' => $customer->address,
-                        'email' => $customer->email,
                         'website' => $customer->website,
                         'status' => $customer->status,
                         'notes' => $customer->notes,
@@ -391,7 +386,7 @@ class CustomerAdminController extends Controller
         $modules = [
             'customers' => [
                 'title' => '客戶管理', 'singular' => '客戶', 'model' => CrmCustomer::class, 'with' => [],
-                'search' => ['name', 'code', 'tax_id', 'phone', 'mobile', 'address', 'email'],
+                'search' => ['name', 'code', 'tax_id', 'phone', 'mobile', 'address'],
                 'columns' => ['code' => '客戶編號', 'name' => '客戶名稱', 'phone' => '市話', 'mobile' => '手機電話', 'address' => '地址', 'status' => '狀態'],
                 'fields' => [
                     'code' => ['label' => '客戶編號', 'placeholder' => '例如 C-001'],
@@ -401,7 +396,6 @@ class CustomerAdminController extends Controller
                     'address' => ['label' => '地址', 'wide' => true],
                     'tax_id' => ['label' => '統一編號'],
                     'industry' => ['label' => '產業類別'],
-                    'email' => ['label' => '電子信箱', 'type' => 'email'],
                     'website' => ['label' => '網站', 'type' => 'url'],
                     'status' => ['label' => '客戶狀態', 'type' => 'select', 'options' => ['潛在客戶' => '潛在客戶', '洽談中' => '洽談中', '合作中' => '合作中', '暫停' => '暫停']],
                     'notes' => ['label' => '備註', 'type' => 'textarea', 'wide' => true],
@@ -409,8 +403,8 @@ class CustomerAdminController extends Controller
             ],
             'contacts' => [
                 'title' => '接洽人管理', 'singular' => '接洽人', 'model' => CrmContact::class, 'with' => ['customer'],
-                'search' => ['name', 'title', 'department', 'phone', 'mobile', 'email'],
-                'columns' => ['name' => '姓名', 'customer.name' => '所屬客戶', 'title' => '職稱', 'mobile' => '手機', 'email' => 'Email'],
+                'search' => ['name', 'title', 'department', 'phone', 'mobile'],
+                'columns' => ['name' => '姓名', 'customer.name' => '所屬客戶', 'title' => '職稱', 'mobile' => '手機'],
                 'fields' => [
                     'customer_id' => ['label' => '所屬客戶', 'type' => 'relation', 'source' => 'customers'],
                     'name' => ['label' => '接洽人姓名', 'required' => true],
@@ -418,8 +412,7 @@ class CustomerAdminController extends Controller
                     'department' => ['label' => '部門'],
                     'phone' => ['label' => '公司電話'],
                     'mobile' => ['label' => '行動電話'],
-                    'email' => ['label' => '電子信箱', 'type' => 'email'],
-                    'preferred_contact' => ['label' => '偏好聯絡方式', 'type' => 'select', 'options' => ['電話' => '電話', '手機' => '手機', 'Email' => 'Email', 'LINE' => 'LINE']],
+                    'preferred_contact' => ['label' => '偏好聯絡方式', 'type' => 'select', 'options' => ['電話' => '電話', '手機' => '手機', 'LINE' => 'LINE']],
                     'notes' => ['label' => '備註', 'type' => 'textarea', 'wide' => true],
                 ],
             ],

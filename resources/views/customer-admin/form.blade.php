@@ -186,10 +186,10 @@
             for(let blank=0;blank<new Date(year,month,1).getDay();blank++){days.append(document.createElement('span'))}
             for(let day=1;day<=new Date(year,month+1,0).getDate();day++){
                 const button=document.createElement('button'), value=dateValue(new Date(year,month,day));
-                button.type='button';button.textContent=String(day);button.className='date-picker-day';
+                button.type='button';button.textContent=String(day);button.className='date-picker-day';button.dataset.date=value;
                 if(value===selected)button.classList.add('selected');
                 if(value===dateValue(new Date()))button.classList.add('today');
-                button.addEventListener('click',()=>{input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));popover.hidden=true;input.focus()});
+                button.addEventListener('click',()=>{input.value=button.dataset.date;input.dispatchEvent(new Event('change',{bubbles:true}));popover.hidden=true});
                 days.append(button);
             }
         };

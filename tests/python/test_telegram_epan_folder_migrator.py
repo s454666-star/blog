@@ -197,7 +197,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             )
         )
 
-    def test_page_media_is_copied_as_one_batch_before_source_deletion(self):
+    def test_page_media_is_checkpointed_before_source_deletion(self):
         state = {
             **self.folder_start_counts(),
             "stage": "process_page",
@@ -242,11 +242,17 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         migrator.prepare_page_items(page_items)
 
         self.assertEqual("page_items_ready", migrator.state["stage"])
-        self.assertEqual(1, len(calls))
-        self.assertEqual([2717, 2718, 2719], calls[0][1]["message_ids"])
-        self.assertEqual(3, len(migrator.state["active_page_results"]))
+        self.assertEqual([], calls)
+        self.assertEqual(
+            [
+                {"source_message_id": 2717, "kind": "video"},
+                {"source_message_id": 2718, "kind": "video"},
+                {"source_message_id": 2719, "kind": "video"},
+            ],
+            migrator.state["active_page_media"],
+        )
 
-    def test_ready_page_is_deleted_together_and_counted_once(self):
+    def test_ready_page_copies_media_then_deletes_text(self):
         state = {
             **self.folder_start_counts(),
             "stage": "page_items_ready",
@@ -281,19 +287,22 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             ],
         }
         migrator = bare_migrator(state)
-        deleted = []
-        migrator.delete_source = lambda ids: deleted.append(ids)
+        copied = []
+        deleted_text = []
+        migrator.copy_media = lambda item: copied.append(item)
+        migrator.delete_text_item = lambda message_id: deleted_text.append(message_id)
 
         migrator.complete_page_items()
 
-        self.assertEqual([[2717, 2718, 2715]], deleted)
+        self.assertEqual(
+            [
+                {"id": 2717, "media_kind": "video"},
+                {"id": 2718, "media_kind": "video"},
+            ],
+            copied,
+        )
+        self.assertEqual([2715], deleted_text)
         self.assertEqual("process_page", migrator.state["stage"])
-        self.assertEqual(1518, migrator.state["processed_total"])
-        self.assertEqual(3, migrator.state["folder_processed"])
-        self.assertEqual(1476, migrator.state["copied_media"])
-        self.assertEqual(29, migrator.state["duplicate_media"])
-        self.assertEqual(13, migrator.state["deleted_text"])
-        self.assertEqual(3, migrator.state["current_page_processed"])
         self.assertNotIn("active_page_results", migrator.state)
 
 

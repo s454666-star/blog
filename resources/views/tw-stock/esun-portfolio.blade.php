@@ -1677,6 +1677,7 @@ function stockWaveHtml(row) {
     const points = series.map(point => ({
         time: point.time,
         value: point.price,
+        open: point.open,
         low: point.low,
         high: point.high,
     }));
@@ -1685,14 +1686,14 @@ function stockWaveHtml(row) {
     const lows = points.map(point => finiteNumber(point.low ?? point.value)).filter(value => value !== null);
     const highs = points.map(point => finiteNumber(point.high ?? point.value)).filter(value => value !== null);
     const values = points.map(point => point.value);
-    const previousClose = finiteNumber(row.realtimePreviousClose) ?? finiteNumber(row.previousClose);
+    const openingPrice = finiteNumber(points[0]?.open) ?? finiteNumber(points[0]?.value);
     const title = points.length
         ? `${row.stockName || code} 當日走勢：低 ${formatPrice(Math.min(...lows))}、高 ${formatPrice(Math.max(...highs))}、最新 ${formatPrice(values[values.length - 1])}`
         : `${row.stockName || code} ${emptyText}`;
 
     return `
         <div class="stock-wave" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">
-            <svg class="stock-wave-svg" viewBox="0 0 142 36" preserveAspectRatio="none" role="img">${waveSvgMarkup(points, 142, 36, { compact: true, emptyText, baselineValue: previousClose })}</svg>
+            <svg class="stock-wave-svg" viewBox="0 0 142 36" preserveAspectRatio="none" role="img">${waveSvgMarkup(points, 142, 36, { compact: true, emptyText, baselineValue: openingPrice })}</svg>
             <span class="stock-wave-meta">${escapeHtml(meta)}</span>
         </div>
     `;
@@ -2193,6 +2194,7 @@ function normalizeIntradaySeries(series, expectedDate = ensureCurrentIntradayDat
             byMinute.set(Math.floor(time / 60) * 60, {
                 time: Math.floor(time / 60) * 60,
                 price,
+                open: finiteNumber(point?.open),
                 low: finiteNumber(point?.low),
                 high: finiteNumber(point?.high),
             });
@@ -2212,7 +2214,12 @@ function appendIntradayPoint(code, timestamp, price) {
     const minute = Math.floor(numericTime / 60) * 60;
     const points = Array.isArray(state.intradaySeries[code]) ? [...state.intradaySeries[code]] : [];
     const existingIndex = points.findIndex(point => Number(point.time) === minute);
-    const nextPoint = { time: minute, price: numericPrice };
+    const existingPoint = existingIndex >= 0 ? points[existingIndex] : null;
+    const nextPoint = {
+        ...(existingPoint || {}),
+        time: minute,
+        price: numericPrice,
+    };
     if (existingIndex >= 0) {
         points[existingIndex] = nextPoint;
     } else {

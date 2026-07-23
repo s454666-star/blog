@@ -13,7 +13,10 @@ class ReferenceVideoFeatureIndexService
 
     private const INDEX_FILENAME = 'video-feature-index.json';
 
-    private const VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'm4v', 'mpeg', 'mpg'];
+    private const VIDEO_EXTENSIONS = [
+        'mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm',
+        'm4v', 'mpeg', 'mpg', '3gp', 'ts', 'mts', 'm2ts',
+    ];
 
     public function __construct(
         private readonly VideoFeatureExtractionService $featureExtractionService
@@ -256,6 +259,104 @@ class ReferenceVideoFeatureIndexService
             'total_files' => count($snapshots),
             'failed_count' => count($failedFiles),
         ]);
+
+        return [
+            'directory_path' => $directoryPath,
+            'index_path' => $indexPath,
+            'snapshots' => $snapshots,
+            'total_files' => count($snapshots),
+            'failed_count' => count($failedFiles),
+            'failed_files' => $failedFiles,
+        ];
+    }
+
+    /**
+     * Read only the still-valid snapshots from an existing index.
+     *
+     * This avoids running ffmpeg again on unchanged files during repeated
+     * in-place scans. Stale or missing files are deliberately omitted.
+     */
+    public function loadFreshSnapshots(string $directoryPath): array
+    {
+        $directoryPath = $this->normalizeAbsolutePath($directoryPath);
+        if ($directoryPath === '' || !is_dir($directoryPath)) {
+            return [
+                'snapshots' => [],
+                'snapshots_by_path_hash' => [],
+                'total_files' => 0,
+            ];
+        }
+
+        $indexPath = $directoryPath . DIRECTORY_SEPARATOR . self::INDEX_FILENAME;
+        $snapshots = [];
+        $snapshotsByPathHash = [];
+
+        foreach ($this->loadSnapshotsFromIndex($indexPath) as $snapshot) {
+            $normalizedSnapshot = $this->normalizeSnapshot($snapshot);
+            if ($normalizedSnapshot === null) {
+                continue;
+            }
+
+            $absolutePath = $normalizedSnapshot['absolute_path'];
+            if (
+                !is_file($absolutePath)
+                || !$this->isPathInsideDirectory($absolutePath, $directoryPath)
+                || !$this->isSnapshotFresh($normalizedSnapshot, $absolutePath)
+            ) {
+                continue;
+            }
+
+            $normalizedSnapshot = $this->refreshSnapshotMetadata($normalizedSnapshot, $absolutePath);
+            $snapshots[] = $normalizedSnapshot;
+            $snapshotsByPathHash[$this->hashPath($absolutePath)] = $normalizedSnapshot;
+        }
+
+        $this->sortSnapshots($snapshots);
+
+        return [
+            'directory_path' => $directoryPath,
+            'index_path' => $indexPath,
+            'snapshots' => $snapshots,
+            'snapshots_by_path_hash' => $snapshotsByPathHash,
+            'total_files' => count($snapshots),
+        ];
+    }
+
+    /**
+     * Replace the index in one write after a rolling in-place scan.
+     *
+     * Accepts either extraction payloads or already-normalized snapshots.
+     */
+    public function replacePayloadSnapshots(
+        string $directoryPath,
+        array $payloads,
+        array $failedFiles = []
+    ): array {
+        $directoryPath = $this->normalizeAbsolutePath($directoryPath);
+        if ($directoryPath === '' || !is_dir($directoryPath)) {
+            throw new RuntimeException('reference dir 不是有效資料夾：' . $directoryPath);
+        }
+
+        $snapshotsByPathHash = [];
+        foreach ($payloads as $payload) {
+            $snapshot = $this->normalizeSnapshot($payload);
+            if ($snapshot === null) {
+                continue;
+            }
+
+            $absolutePath = $snapshot['absolute_path'];
+            if (!is_file($absolutePath) || !$this->isPathInsideDirectory($absolutePath, $directoryPath)) {
+                continue;
+            }
+
+            $snapshot = $this->refreshSnapshotMetadata($snapshot, $absolutePath);
+            $snapshotsByPathHash[$this->hashPath($absolutePath)] = $snapshot;
+        }
+
+        $snapshots = array_values($snapshotsByPathHash);
+        $this->sortSnapshots($snapshots);
+        $indexPath = $directoryPath . DIRECTORY_SEPARATOR . self::INDEX_FILENAME;
+        $this->writeIndex($indexPath, $this->buildIndexPayload($directoryPath, $snapshots, $failedFiles));
 
         return [
             'directory_path' => $directoryPath,

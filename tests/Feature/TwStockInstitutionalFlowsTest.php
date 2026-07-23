@@ -35,13 +35,18 @@ class TwStockInstitutionalFlowsTest extends TestCase
         DB::reconnect('sqlite');
         DB::setDefaultConnection('sqlite');
 
-        Schema::dropAllTables();
         $this->createTable();
     }
 
     protected function tearDown(): void
     {
-        Schema::dropIfExists('tw_stock_institutional_flows');
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
+        Schema::connection('sqlite')->dropIfExists('tw_stock_institutional_flows');
 
         DB::disconnect('sqlite');
         config()->set('database.default', $this->originalDatabaseDefault);
@@ -136,7 +141,7 @@ class TwStockInstitutionalFlowsTest extends TestCase
 
     private function createTable(): void
     {
-        Schema::create('tw_stock_institutional_flows', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_institutional_flows', function (Blueprint $table): void {
             $table->id();
             $table->date('trade_date')->unique();
             $table->unsignedBigInteger('foreign_stock_buy_amount')->nullable();

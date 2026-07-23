@@ -34,8 +34,7 @@ class SyncTelegramGroupMessagesCommandTest extends TestCase
         DB::reconnect('sqlite');
         DB::setDefaultConnection('sqlite');
 
-        Schema::dropAllTables();
-        Schema::create('telegram_group_messages', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('telegram_group_messages', function (Blueprint $table): void {
             $table->id();
             $table->longText('group_message')->nullable();
             $table->dateTime('sent_at')->nullable();
@@ -45,7 +44,13 @@ class SyncTelegramGroupMessagesCommandTest extends TestCase
 
     protected function tearDown(): void
     {
-        Schema::dropIfExists('telegram_group_messages');
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
+        Schema::connection('sqlite')->dropIfExists('telegram_group_messages');
 
         DB::disconnect('sqlite');
         config()->set('database.default', $this->originalDatabaseDefault);

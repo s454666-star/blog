@@ -8,6 +8,27 @@ use Tests\TestCase;
 
 class MediaDurationProbeServiceTest extends TestCase
 {
+    public function test_it_prefers_video_stream_duration_over_longer_container_duration(): void
+    {
+        $service = new FakeMediaDurationProbeService([
+            [
+                'successful' => true,
+                'output' => json_encode([
+                    'streams' => [['duration' => '29.780000']],
+                    'format' => ['duration' => '53.104000'],
+                ], JSON_THROW_ON_ERROR),
+                'error_output' => '',
+                'exit_code' => 0,
+            ],
+        ]);
+
+        $duration = $service->exposedProbeDurationSeconds('C:\\video\\mixed-duration.mp4', 'fake-ffprobe', 'fake-ffmpeg');
+
+        $this->assertSame(29.78, $duration);
+        $this->assertContains('-select_streams', $service->commands[0]);
+        $this->assertContains('v:0', $service->commands[0]);
+    }
+
     public function test_it_retries_ffprobe_before_returning_duration(): void
     {
         $service = new FakeMediaDurationProbeService([

@@ -141,6 +141,50 @@ class ReferenceVideoFeatureIndexServiceTest extends TestCase
         $this->assertNotContains($removedPath, $storedPaths);
     }
 
+    public function test_sync_directory_includes_3gp_files(): void
+    {
+        $videoPath = $this->tempDir . DIRECTORY_SEPARATOR . 'camera.3GP';
+        file_put_contents($videoPath, '3gp-video');
+
+        $payload = [
+            'absolute_path' => $videoPath,
+            'video_name' => 'camera.3GP',
+            'file_name' => 'camera.3GP',
+            'file_size_bytes' => filesize($videoPath),
+            'duration_seconds' => 8.0,
+            'file_created_at' => now(),
+            'file_modified_at' => now(),
+            'capture_rule' => 'lt_10s_at_3s',
+            'feature_version' => 'v2',
+            'frames' => [[
+                'capture_order' => 1,
+                'label_second' => 3.0,
+                'capture_second' => 3.0,
+                'dhash_hex' => '0011223344556677',
+                'dhash_prefix' => '00',
+                'frame_sha1' => str_repeat('a', 40),
+                'image_width' => 640,
+                'image_height' => 480,
+            ]],
+        ];
+
+        $featureExtractionService = Mockery::mock(VideoFeatureExtractionService::class);
+        $featureExtractionService->shouldReceive('inspectFile')
+            ->once()
+            ->with($videoPath)
+            ->andReturn($payload);
+        $featureExtractionService->shouldReceive('cleanupPayload')
+            ->once()
+            ->with($payload);
+
+        $service = new ReferenceVideoFeatureIndexService($featureExtractionService);
+        $result = $service->syncDirectory($this->tempDir);
+
+        $this->assertSame(1, $result['total_files']);
+        $this->assertSame(1, $result['extracted_count']);
+        $this->assertSame($videoPath, $result['snapshots'][0]['absolute_path']);
+    }
+
     public function test_sync_directory_can_limit_processed_files(): void
     {
         $alphaPath = $this->tempDir . DIRECTORY_SEPARATOR . 'alpha.mp4';

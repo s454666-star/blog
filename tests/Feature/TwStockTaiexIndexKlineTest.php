@@ -36,15 +36,20 @@ class TwStockTaiexIndexKlineTest extends TestCase
         DB::purge('sqlite');
         DB::reconnect('sqlite');
         DB::setDefaultConnection('sqlite');
-        Schema::dropAllTables();
         $this->createInstitutionalFlowsTable();
         $this->forgetKlineCaches();
     }
 
     protected function tearDown(): void
     {
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
         $this->forgetKlineCaches();
-        Schema::dropIfExists('tw_stock_institutional_flows');
+        Schema::connection('sqlite')->dropIfExists('tw_stock_institutional_flows');
         DB::disconnect('sqlite');
         config()->set('database.default', $this->originalDatabaseDefault);
         Carbon::setTestNow();
@@ -326,7 +331,7 @@ class TwStockTaiexIndexKlineTest extends TestCase
 
     private function createInstitutionalFlowsTable(): void
     {
-        Schema::create('tw_stock_institutional_flows', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_institutional_flows', function (Blueprint $table): void {
             $table->id();
             $table->date('trade_date')->unique();
             $table->bigInteger('foreign_stock_net_amount')->nullable();

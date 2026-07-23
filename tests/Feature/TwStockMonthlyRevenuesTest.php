@@ -36,16 +36,21 @@ class TwStockMonthlyRevenuesTest extends TestCase
         DB::reconnect('sqlite');
         DB::setDefaultConnection('sqlite');
 
-        Schema::dropAllTables();
         $this->createTables();
         Cache::flush();
     }
 
     protected function tearDown(): void
     {
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
         Carbon::setTestNow();
-        Schema::dropIfExists('tw_stock_monthly_revenues');
-        Schema::dropIfExists('tw_stock_daily_prices');
+        Schema::connection('sqlite')->dropIfExists('tw_stock_monthly_revenues');
+        Schema::connection('sqlite')->dropIfExists('tw_stock_daily_prices');
 
         DB::disconnect('sqlite');
         config()->set('database.default', $this->originalDatabaseDefault);
@@ -297,7 +302,7 @@ class TwStockMonthlyRevenuesTest extends TestCase
 
     private function createTables(): void
     {
-        Schema::create('tw_stock_daily_prices', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_daily_prices', function (Blueprint $table): void {
             $table->id();
             $table->string('exchange', 12);
             $table->string('stock_code', 12);
@@ -321,7 +326,7 @@ class TwStockMonthlyRevenuesTest extends TestCase
             $table->unique(['exchange', 'stock_code', 'trade_date']);
         });
 
-        Schema::create('tw_stock_monthly_revenues', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_monthly_revenues', function (Blueprint $table): void {
             $table->id();
             $table->unsignedSmallInteger('revenue_year');
             $table->unsignedTinyInteger('revenue_month');

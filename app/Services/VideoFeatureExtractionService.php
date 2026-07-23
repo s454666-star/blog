@@ -96,14 +96,27 @@ class VideoFeatureExtractionService
         $frames = [];
         $baseName = (string) pathinfo($absolutePath, PATHINFO_FILENAME);
         $usedCaptureSecondKeys = [];
+        $plannedFrames = [];
 
         foreach ($capturePlan as $framePlan) {
             $captureOrder = (int) $framePlan['capture_order'];
+            $plannedFrames[] = [
+                'capture_order' => $captureOrder,
+                'capture_second' => (float) $framePlan['capture_second'],
+                'tmp_path' => $tmpDir . DIRECTORY_SEPARATOR . sprintf('frame_%02d.jpg', $captureOrder),
+            ];
+        }
+
+        $batchCaptureSeconds = $this->captureFramesBatch($absolutePath, $plannedFrames);
+
+        foreach ($capturePlan as $index => $framePlan) {
+            $captureOrder = (int) $framePlan['capture_order'];
             $labelSecond = (float) $framePlan['label_second'];
             $captureSecond = (float) $framePlan['capture_second'];
-            $tmpPath = $tmpDir . DIRECTORY_SEPARATOR . sprintf('frame_%02d.jpg', $captureOrder);
+            $tmpPath = (string) $plannedFrames[$index]['tmp_path'];
 
-            $capturedSecond = $this->captureFrame($absolutePath, $captureSecond, $tmpPath, $usedCaptureSecondKeys);
+            $capturedSecond = $batchCaptureSeconds[$captureOrder]
+                ?? $this->captureFrame($absolutePath, $captureSecond, $tmpPath, $usedCaptureSecondKeys);
             $usedCaptureSecondKeys[number_format($capturedSecond, 3, '.', '')] = true;
 
             $imageInfo = @getimagesize($tmpPath);
@@ -329,6 +342,87 @@ class VideoFeatureExtractionService
         ];
     }
 
+    /**
+     * Extract several verification frames in one FFmpeg process.
+     *
+     * Used only for ambiguous single-frame duplicate candidates, where a
+     * near-EOF 10-second frame is not stable across re-encodes.
+     */
+    public function inspectFramesAtSeconds(string $absolutePath, array $captureSeconds): array
+    {
+        $absolutePath = $this->normalizeAbsolutePath($absolutePath);
+        if ($absolutePath === '' || !is_file($absolutePath)) {
+            throw new RuntimeException('影片檔不存在：' . $absolutePath);
+        }
+
+        $captureSeconds = array_values(array_unique(array_map(
+            fn (mixed $second): string => number_format(max(0.0, (float) $second), 3, '.', ''),
+            $captureSeconds
+        )));
+        sort($captureSeconds, SORT_NUMERIC);
+        if ($captureSeconds === []) {
+            throw new RuntimeException('驗證截圖秒數不可為空。');
+        }
+
+        $tmpDir = storage_path('app/video_features/tmp/' . uniqid('verify_', true));
+        File::ensureDirectoryExists($tmpDir);
+        $tmpDir = $this->normalizeAbsolutePath($tmpDir);
+        $plannedFrames = [];
+
+        foreach ($captureSeconds as $index => $captureSecond) {
+            $captureOrder = $index + 1;
+            $plannedFrames[] = [
+                'capture_order' => $captureOrder,
+                'capture_second' => (float) $captureSecond,
+                'tmp_path' => $tmpDir . DIRECTORY_SEPARATOR . sprintf('verify_%02d.jpg', $captureOrder),
+            ];
+        }
+
+        try {
+            $batchCaptureSeconds = $this->captureFramesBatch($absolutePath, $plannedFrames);
+            $frames = [];
+            $usedCaptureSecondKeys = [];
+
+            foreach ($plannedFrames as $plannedFrame) {
+                $captureOrder = (int) $plannedFrame['capture_order'];
+                $requestedSecond = (float) $plannedFrame['capture_second'];
+                $tmpPath = (string) $plannedFrame['tmp_path'];
+                $capturedSecond = $batchCaptureSeconds[$captureOrder]
+                    ?? $this->captureFrame($absolutePath, $requestedSecond, $tmpPath, $usedCaptureSecondKeys);
+                $usedCaptureSecondKeys[number_format($capturedSecond, 3, '.', '')] = true;
+                $imageInfo = @getimagesize($tmpPath);
+                $dhashHex = $this->computeDhashHexFromJpeg($tmpPath);
+
+                $frames[] = [
+                    'capture_order' => $captureOrder,
+                    'label_second' => $requestedSecond,
+                    'capture_second' => $capturedSecond,
+                    'temp_path' => $tmpPath,
+                    'dhash_hex' => $dhashHex,
+                    'dhash_prefix' => substr($dhashHex, 0, 2),
+                    'frame_sha1' => sha1_file($tmpPath) ?: null,
+                    'image_width' => is_array($imageInfo) ? (int) ($imageInfo[0] ?? 0) : null,
+                    'image_height' => is_array($imageInfo) ? (int) ($imageInfo[1] ?? 0) : null,
+                ];
+            }
+
+            return [
+                'absolute_path' => $absolutePath,
+                'duration_seconds' => null,
+                'feature_version' => self::FEATURE_VERSION,
+                'capture_rule' => 'deep_single_frame_stable_samples',
+                'frames' => $frames,
+                'tmp_dir' => $tmpDir,
+            ];
+        } catch (Throwable $e) {
+            if (File::exists($tmpDir)) {
+                File::deleteDirectory($tmpDir);
+            }
+
+            throw $e;
+        }
+    }
+
     public function cleanupPayload(array $payload): void
     {
         $tmpDir = (string) ($payload['tmp_dir'] ?? '');
@@ -405,6 +499,77 @@ class VideoFeatureExtractionService
             ->value('video_face_screenshots.id');
 
         return $faceId !== null ? (int) $faceId : null;
+    }
+
+    private function captureFramesBatch(string $absolutePath, array $plannedFrames): ?array
+    {
+        if ($plannedFrames === []) {
+            return null;
+        }
+
+        $command = [
+            $this->ffmpegBinary(),
+            '-hide_banner',
+            '-loglevel',
+            'warning',
+            '-y',
+        ];
+
+        foreach ($plannedFrames as $plannedFrame) {
+            $tmpPath = $this->normalizeCaptureOutputPath((string) $plannedFrame['tmp_path']);
+            if (is_file($tmpPath)) {
+                @unlink($tmpPath);
+            }
+
+            $command[] = '-ss';
+            $command[] = number_format((float) $plannedFrame['capture_second'], 3, '.', '');
+            $command[] = '-i';
+            $command[] = $absolutePath;
+        }
+
+        foreach ($plannedFrames as $inputIndex => $plannedFrame) {
+            $command[] = '-map';
+            $command[] = $inputIndex . ':v:0';
+            $command[] = '-frames:v';
+            $command[] = '1';
+            $command[] = '-q:v';
+            $command[] = '3';
+            $command[] = '-an';
+            $command[] = $this->normalizeCaptureOutputPath((string) $plannedFrame['tmp_path']);
+        }
+
+        $process = new Process($command);
+        $process->setTimeout(max(180, count($plannedFrames) * 60));
+        $process->run();
+
+        $capturedSeconds = [];
+        if ($process->isSuccessful()) {
+            foreach ($plannedFrames as $plannedFrame) {
+                $tmpPath = $this->normalizeCaptureOutputPath((string) $plannedFrame['tmp_path']);
+                if (!$this->hasUsableCapturedFrame($tmpPath)) {
+                    $capturedSeconds = [];
+                    break;
+                }
+
+                $capturedSeconds[(int) $plannedFrame['capture_order']] = round(
+                    (float) $plannedFrame['capture_second'],
+                    3
+                );
+            }
+        }
+
+        if (count($capturedSeconds) === count($plannedFrames)) {
+            return $capturedSeconds;
+        }
+
+        foreach ($plannedFrames as $plannedFrame) {
+            $tmpPath = $this->normalizeCaptureOutputPath((string) $plannedFrame['tmp_path']);
+            if (is_file($tmpPath)) {
+                @unlink($tmpPath);
+            }
+        }
+
+        return null;
     }
 
     private function captureFrame(
@@ -536,7 +701,7 @@ class VideoFeatureExtractionService
         string $captureMode
     ): array {
         $command = [
-            (string) env('FFMPEG_BIN', 'ffmpeg'),
+            $this->ffmpegBinary(),
             '-hide_banner',
             '-loglevel',
             'warning',
@@ -633,10 +798,24 @@ class VideoFeatureExtractionService
     {
         return app(MediaDurationProbeService::class)->probeDurationSeconds(
             $absolutePath,
-            (string) env('FFPROBE_BIN', 'ffprobe'),
-            (string) env('FFMPEG_BIN', 'ffmpeg'),
+            $this->ffprobeBinary(),
+            $this->ffmpegBinary(),
             60
         );
+    }
+
+    private function ffmpegBinary(): string
+    {
+        return (string) (env('FFMPEG_BIN')
+            ?: config('folder_video.ffmpeg_bin')
+            ?: 'ffmpeg');
+    }
+
+    private function ffprobeBinary(): string
+    {
+        return (string) (env('FFPROBE_BIN')
+            ?: config('folder_video.ffprobe_bin')
+            ?: 'ffprobe');
     }
 
     private function buildMediaProcessFailureMessage(Process $process, string $successfulNoOutputMessage): string

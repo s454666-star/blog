@@ -33,9 +33,7 @@ class FaceIdentityControllerTest extends TestCase
         DB::reconnect('sqlite');
         DB::setDefaultConnection('sqlite');
 
-        Schema::dropAllTables();
-
-        Schema::create('face_identity_people', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('face_identity_people', function (Blueprint $table): void {
             $table->id();
             $table->string('feature_model', 64)->default('facenet_pytorch_vggface2_mtcnn_v1');
             $table->string('cover_sample_path', 500)->nullable();
@@ -47,7 +45,7 @@ class FaceIdentityControllerTest extends TestCase
             $table->timestamps();
         });
 
-        Schema::create('face_identity_videos', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('face_identity_videos', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('person_id')->nullable();
             $table->string('feature_model', 64)->default('facenet_pytorch_vggface2_mtcnn_v1');
@@ -74,7 +72,7 @@ class FaceIdentityControllerTest extends TestCase
             $table->timestamps();
         });
 
-        Schema::create('face_identity_samples', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('face_identity_samples', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('video_id');
             $table->foreignId('person_id')->nullable();
@@ -96,9 +94,15 @@ class FaceIdentityControllerTest extends TestCase
 
     protected function tearDown(): void
     {
-        Schema::dropIfExists('face_identity_samples');
-        Schema::dropIfExists('face_identity_videos');
-        Schema::dropIfExists('face_identity_people');
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
+        Schema::connection('sqlite')->dropIfExists('face_identity_samples');
+        Schema::connection('sqlite')->dropIfExists('face_identity_videos');
+        Schema::connection('sqlite')->dropIfExists('face_identity_people');
 
         DB::disconnect('sqlite');
         config()->set('database.default', $this->originalDatabaseDefault);

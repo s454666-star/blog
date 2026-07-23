@@ -598,10 +598,7 @@ class MoveDuplicateVideosCommandTest extends TestCase
         $expectedReferencePath = $referenceDir . DIRECTORY_SEPARATOR . 'incoming.mp4';
 
         $featureExtractionService = Mockery::mock(VideoFeatureExtractionService::class);
-        $featureExtractionService->shouldReceive('inspectFile')
-            ->once()
-            ->with($sourcePath)
-            ->andReturn($payload);
+        $featureExtractionService->shouldReceive('inspectFile')->never();
         $featureExtractionService->shouldReceive('cleanupPayload')
             ->once()
             ->with($payload);
@@ -659,6 +656,16 @@ class MoveDuplicateVideosCommandTest extends TestCase
                 'failed_count' => 0,
                 'failed_files' => [],
             ]);
+        $referenceVideoFeatureIndexService->shouldReceive('loadFreshSnapshots')
+            ->once()
+            ->with($this->tempDir)
+            ->andReturn([
+                'snapshots' => [$payload],
+                'snapshots_by_path_hash' => [
+                    sha1(mb_strtolower(str_replace('\\', '/', $sourcePath))) => $payload,
+                ],
+                'total_files' => 1,
+            ]);
         $referenceVideoFeatureIndexService->shouldReceive('upsertPayloadSnapshot')
             ->once()
             ->withArgs(function (
@@ -714,8 +721,11 @@ class MoveDuplicateVideosCommandTest extends TestCase
             'path' => $this->tempDir,
             '--recursive' => 0,
             '--reference-dir' => $referenceDir,
+            '--reuse-source-index' => true,
             '--min-age-seconds' => 0,
-        ])->assertExitCode(0);
+        ])
+            ->expectsOutputToContain('[1/1 100.0%] ' . $sourcePath)
+            ->assertExitCode(0);
 
         $this->assertFileDoesNotExist($sourcePath);
         $this->assertSame($expectedReferencePath, $capturedReferencePath);
@@ -826,6 +836,130 @@ class MoveDuplicateVideosCommandTest extends TestCase
 
         $this->assertFileExists($sourcePath);
         $this->assertDirectoryDoesNotExist($this->tempDir . DIRECTORY_SEPARATOR . '疑似重複檔案');
+    }
+
+    public function test_in_place_dedupe_keeps_first_visual_match_and_deletes_later_file(): void
+    {
+        $firstPath = $this->tempDir . DIRECTORY_SEPARATOR . 'a.mp4';
+        $duplicatePath = $this->tempDir . DIRECTORY_SEPARATOR . 'b.mp4';
+        file_put_contents($firstPath, 'first-encoded-video');
+        file_put_contents($duplicatePath, 'second-encoded-video');
+
+        $buildPayload = static fn (string $path, string $hash): array => [
+            'absolute_path' => $path,
+            'video_name' => basename($path),
+            'file_name' => basename($path),
+            'file_size_bytes' => filesize($path),
+            'duration_seconds' => 13.1,
+            'file_created_at' => now(),
+            'file_modified_at' => now(),
+            'capture_rule' => '10s_x4',
+            'feature_version' => 'v2',
+            'frames' => [[
+                'capture_order' => 1,
+                'capture_second' => 10.0,
+                'dhash_hex' => $hash,
+                'dhash_prefix' => substr($hash, 0, 2),
+                'frame_sha1' => str_repeat('a', 40),
+            ]],
+        ];
+        $firstPayload = $buildPayload($firstPath, '0011223344556677');
+        $duplicatePayload = $buildPayload($duplicatePath, '0011223344556677');
+
+        $rollingIndex = [
+            'snapshots' => [[
+                'absolute_path' => $firstPath,
+                'duration_seconds' => 13.1,
+                'frames' => $firstPayload['frames'],
+            ]],
+        ];
+        $referenceMatch = [
+            'feature' => null,
+            'feature_snapshot' => $rollingIndex['snapshots'][0],
+            'similarity_percent' => 100.0,
+            'matched_frames' => 1,
+            'compared_frames' => 1,
+            'required_matches' => 1,
+            'passes_threshold' => true,
+            'frame_matches' => [],
+            'score' => 1100.0,
+            'duration_delta_seconds' => 0.0,
+            'file_size_delta_bytes' => null,
+        ];
+        $referenceAnalysis = [
+            'best_result' => $referenceMatch,
+            'duplicate_match' => $referenceMatch,
+            'candidate_count' => 1,
+            'payload_frame_count' => 1,
+            'requested_min_match' => 2,
+        ];
+
+        $featureExtractionService = Mockery::mock(VideoFeatureExtractionService::class);
+        $featureExtractionService->shouldReceive('inspectFile')
+            ->once()->with($firstPath)->andReturn($firstPayload);
+        $featureExtractionService->shouldReceive('inspectFile')
+            ->once()->with($duplicatePath)->andReturn($duplicatePayload);
+        $featureExtractionService->shouldReceive('cleanupPayload')->twice();
+        $this->app->instance(VideoFeatureExtractionService::class, $featureExtractionService);
+
+        $duplicateDetectionService = Mockery::mock(VideoDuplicateDetectionService::class);
+        $duplicateDetectionService->shouldReceive('prepareReferenceSnapshotIndex')->never();
+        $duplicateDetectionService->shouldReceive('analyzeDatabaseMatch')->never();
+        $duplicateDetectionService->shouldReceive('prepareDatabaseFeatureSnapshotIndex')->never();
+        $duplicateDetectionService->shouldReceive('appendPreparedReferenceSnapshot')
+            ->once()
+            ->with(Mockery::type('array'), Mockery::on(
+                fn (array $payload): bool => ($payload['absolute_path'] ?? null) === $firstPath
+            ))
+            ->andReturn($rollingIndex);
+        $duplicateDetectionService->shouldReceive('analyzePreparedReferenceSnapshotsMatch')
+            ->once()
+            ->with($duplicatePayload, $rollingIndex, 80, 2, 3, 15, 250)
+            ->andReturn($referenceAnalysis);
+        $this->app->instance(VideoDuplicateDetectionService::class, $duplicateDetectionService);
+
+        $referenceVideoFeatureIndexService = Mockery::mock(ReferenceVideoFeatureIndexService::class);
+        $referenceVideoFeatureIndexService->shouldReceive('syncDirectory')->never();
+        $referenceVideoFeatureIndexService->shouldReceive('loadFreshSnapshots')
+            ->once()
+            ->with($this->tempDir)
+            ->andReturn([
+                'snapshots' => [],
+                'snapshots_by_path_hash' => [],
+                'total_files' => 0,
+            ]);
+        $referenceVideoFeatureIndexService->shouldReceive('upsertPayloadSnapshot')->never();
+        $referenceVideoFeatureIndexService->shouldReceive('replacePayloadSnapshots')
+            ->once()
+            ->with($this->tempDir, Mockery::on(
+                fn (array $payloads): bool => count($payloads) === 1
+                    && ($payloads[0]['absolute_path'] ?? null) === $firstPath
+            ))
+            ->andReturn([
+                'directory_path' => $this->tempDir,
+                'index_path' => $this->tempDir . DIRECTORY_SEPARATOR . 'video-feature-index.json',
+                'snapshots' => [['absolute_path' => $firstPath]],
+                'total_files' => 1,
+                'failed_count' => 0,
+                'failed_files' => [],
+            ]);
+        $this->app->instance(ReferenceVideoFeatureIndexService::class, $referenceVideoFeatureIndexService);
+
+        $externalVideoDuplicateService = Mockery::mock(ExternalVideoDuplicateService::class);
+        $externalVideoDuplicateService->shouldReceive('persistComparisonLog')->twice();
+        $this->app->instance(ExternalVideoDuplicateService::class, $externalVideoDuplicateService);
+
+        $this->artisan('video:move-duplicates', [
+            'path' => $this->tempDir,
+            '--recursive' => 0,
+            '--reference-dir' => $this->tempDir,
+            '--in-place-dedupe' => true,
+            '--skip-database' => true,
+            '--min-age-seconds' => 0,
+        ])->assertExitCode(0);
+
+        $this->assertFileExists($firstPath);
+        $this->assertFileDoesNotExist($duplicatePath);
     }
 
     public function test_command_defers_recent_source_files_without_running_feature_comparison(): void

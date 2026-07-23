@@ -229,6 +229,8 @@ class Migrator:
             state.setdefault("last_image_target_message_id", 0)
             state.setdefault("folder_next_group_clicks", 0)
             state.setdefault("consecutive_empty_source_pages", 0)
+            state.setdefault("last_exhausted_replay_observed_count", 0)
+            state.setdefault("matching_exhausted_replay_count", 0)
             state.setdefault("current_page_processed", 0)
             state.setdefault("source_recovery_count", 0)
             if state.get("dedupe_scope") != self.dedupe_scope:
@@ -278,6 +280,8 @@ class Migrator:
                 "last_image_target_message_id": 0,
                 "folder_next_group_clicks": 0,
                 "consecutive_empty_source_pages": 0,
+                "last_exhausted_replay_observed_count": 0,
+                "matching_exhausted_replay_count": 0,
                 "current_page_processed": 0,
                 "source_recovery_count": 0,
                 "started_at": now_iso(),
@@ -325,6 +329,8 @@ class Migrator:
             "last_image_target_message_id": 0,
             "folder_next_group_clicks": 0,
             "consecutive_empty_source_pages": 0,
+            "last_exhausted_replay_observed_count": 0,
+            "matching_exhausted_replay_count": 0,
             "current_page_processed": 0,
             "source_recovery_count": 0,
             "started_at": now_iso(),
@@ -660,6 +666,8 @@ class Migrator:
                 "folder_processed": 0,
                 "folder_next_group_clicks": 0,
                 "consecutive_empty_source_pages": 0,
+                "last_exhausted_replay_observed_count": 0,
+                "matching_exhausted_replay_count": 0,
                 "current_page_processed": 0,
                 "source_recovery_count": recovery_count,
                 "source_recovery_source_message_id": source_id,
@@ -713,6 +721,19 @@ class Migrator:
             "processed_total": int(self.state.get("processed_total") or 0),
             "folder_processed": int(self.state.get("folder_processed") or 0),
         }
+        recovery_evidence: dict[str, int] = {}
+        if reason == "repeated_empty_source_pages":
+            observed = progress_before_recovery["folder_processed"]
+            previous = int(
+                self.state.get("last_exhausted_replay_observed_count") or 0
+            )
+            matches = int(self.state.get("matching_exhausted_replay_count") or 0)
+            recovery_evidence = {
+                "last_exhausted_replay_observed_count": observed,
+                "matching_exhausted_replay_count": matches + 1
+                if observed > 0 and observed == previous
+                else 1,
+            }
         self.state.update(
             {
                 "status": "running",
@@ -729,6 +750,7 @@ class Migrator:
                 "source_recovery_reason": reason,
                 "source_recovery_control_id": int(control_id or 0),
                 "source_recovery_progress_before": progress_before_recovery,
+                **recovery_evidence,
             }
         )
         for key in (
@@ -1146,6 +1168,8 @@ class Migrator:
                 "folder_processed": 0,
                 "folder_next_group_clicks": 0,
                 "consecutive_empty_source_pages": 0,
+                "last_exhausted_replay_observed_count": 0,
+                "matching_exhausted_replay_count": 0,
                 "current_page_processed": 0,
                 "folder_start_counts": folder_start_counts,
                 "previous_control_id": detail_message_id,
@@ -1214,6 +1238,45 @@ class Migrator:
         self.click("文件夹列表")
         self.navigate_to_folder(folder_index + 1)
 
+    def can_finish_exhausted_replay_folder(self) -> bool:
+        folder_start_counts = self.state.get("folder_start_counts")
+        if not isinstance(folder_start_counts, dict):
+            return False
+        observed = int(self.state.get("folder_processed") or 0)
+        expected = int(self.state.get("folder_expected") or 0)
+        return (
+            observed > 0
+            and expected > observed
+            and int(self.state.get("source_recovery_count") or 0) >= 2
+            and int(self.state.get("matching_exhausted_replay_count") or 0) >= 1
+            and int(self.state.get("last_exhausted_replay_observed_count") or 0)
+            == observed
+            and int(self.state.get("copied_media") or 0)
+            == int(folder_start_counts.get("copied_media") or 0)
+            and int(self.state.get("duplicate_media") or 0)
+            > int(folder_start_counts.get("duplicate_media") or 0)
+        )
+
+    def finish_exhausted_replay_folder(self) -> None:
+        if not self.can_finish_exhausted_replay_folder():
+            raise MigrationBlocked("exhausted replay folder evidence is incomplete")
+        folder_index = int(self.state.get("folder_index") or 0)
+        self.log(
+            "folder_exhausted_after_verified_duplicate_replays",
+            folder_index=folder_index,
+            observed=int(self.state.get("folder_processed") or 0),
+            expected=int(self.state.get("folder_expected") or 0),
+            matching_replays=int(
+                self.state.get("matching_exhausted_replay_count") or 0
+            ) + 1,
+        )
+        if folder_index >= len(self.folders):
+            self.state["stage"] = "clear_source_dialog"
+            self.save()
+            return
+        self.click("文件夹列表")
+        self.navigate_to_folder(folder_index + 1)
+
     def process_current_page(self) -> None:
         page_items, control = self.current_page()
         if page_items:
@@ -1233,6 +1296,9 @@ class Migrator:
                 ) + 1
                 self.state["consecutive_empty_source_pages"] = consecutive_empty_pages
                 if consecutive_empty_pages >= MAX_CONSECUTIVE_EMPTY_SOURCE_PAGES:
+                    if self.can_finish_exhausted_replay_folder():
+                        self.finish_exhausted_replay_folder()
+                        return
                     self.schedule_folder_control_recovery(
                         "repeated_empty_source_pages",
                         control_id,

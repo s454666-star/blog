@@ -3797,7 +3797,138 @@ def _media_dedupe_connect() -> sqlite3.Connection:
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS media_file_ids (
+            dedupe_scope TEXT NOT NULL,
+            telegram_file_unique_id TEXT NOT NULL,
+            target_peer_id INTEGER NOT NULL,
+            target_message_id INTEGER NOT NULL,
+            content_sha256 TEXT,
+            source_peer_id INTEGER,
+            source_message_id INTEGER,
+            file_size INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (dedupe_scope, telegram_file_unique_id)
+        )
+        """
+    )
     return connection
+
+
+def _telegram_media_file_unique_id(message: Any) -> str:
+    photo = getattr(message, "photo", None)
+    photo_id = int(getattr(photo, "id", 0) or 0)
+    if photo_id > 0:
+        return f"photo:{photo_id}"
+
+    document = getattr(message, "document", None)
+    document_id = int(getattr(document, "id", 0) or 0)
+    if document_id > 0:
+        return f"document:{document_id}"
+
+    return ""
+
+
+def _media_file_id_lookup(
+    scope: str,
+    telegram_file_unique_id: str,
+) -> Optional[Dict[str, Any]]:
+    if not scope or not telegram_file_unique_id:
+        return None
+    connection = _media_dedupe_connect()
+    try:
+        row = connection.execute(
+            """
+            SELECT target_peer_id, target_message_id, content_sha256,
+                   source_peer_id, source_message_id, file_size
+            FROM media_file_ids
+            WHERE dedupe_scope = ? AND telegram_file_unique_id = ?
+            """,
+            (scope, telegram_file_unique_id),
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        return None
+    return {
+        "target_peer_id": int(row[0] or 0),
+        "target_message_id": int(row[1] or 0),
+        "content_sha256": str(row[2] or ""),
+        "source_peer_id": int(row[3] or 0),
+        "source_message_id": int(row[4] or 0),
+        "file_size": int(row[5] or 0),
+    }
+
+
+def _media_file_id_delete(scope: str, telegram_file_unique_id: str) -> None:
+    if not scope or not telegram_file_unique_id:
+        return
+    connection = _media_dedupe_connect()
+    try:
+        connection.execute(
+            """
+            DELETE FROM media_file_ids
+            WHERE dedupe_scope = ? AND telegram_file_unique_id = ?
+            """,
+            (scope, telegram_file_unique_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _media_file_id_register(
+    scope: str,
+    telegram_file_unique_id: str,
+    target_peer_id: int,
+    target_message_id: int,
+    content_sha256: str,
+    source_peer_id: int,
+    source_message_id: int,
+    file_size: int,
+) -> None:
+    if not scope or not telegram_file_unique_id:
+        return
+    connection = _media_dedupe_connect()
+    try:
+        connection.execute(
+            """
+            INSERT INTO media_file_ids (
+                dedupe_scope,
+                telegram_file_unique_id,
+                target_peer_id,
+                target_message_id,
+                content_sha256,
+                source_peer_id,
+                source_message_id,
+                file_size,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(dedupe_scope, telegram_file_unique_id) DO UPDATE SET
+                target_peer_id = excluded.target_peer_id,
+                target_message_id = excluded.target_message_id,
+                content_sha256 = excluded.content_sha256,
+                source_peer_id = excluded.source_peer_id,
+                source_message_id = excluded.source_message_id,
+                file_size = excluded.file_size,
+                created_at = excluded.created_at
+            """,
+            (
+                scope,
+                telegram_file_unique_id,
+                int(target_peer_id),
+                int(target_message_id),
+                content_sha256 or None,
+                int(source_peer_id),
+                int(source_message_id),
+                int(file_size),
+                datetime.now().isoformat(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def _media_dedupe_lookup(scope: str, content_sha256: str) -> Optional[Dict[str, Any]]:
@@ -4164,6 +4295,7 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
     for index, source_message in enumerate(ordered_messages):
         source_message_id = int(getattr(source_message, "id", 0) or 0)
         source_kind = _resource_code_media_kind(source_message)
+        source_file_unique_id = _telegram_media_file_unique_id(source_message)
         temporary_directory = ""
         content_sha256 = ""
         file_size = 0
@@ -4171,6 +4303,51 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
         uploader = ""
         try:
             downloaded_path = ""
+            if dedupe_scope and source_file_unique_id:
+                async with MEDIA_DEDUPE_LOCK:
+                    existing_file = await asyncio.to_thread(
+                        _media_file_id_lookup,
+                        dedupe_scope,
+                        source_file_unique_id,
+                    )
+                if (
+                    existing_file is not None
+                    and int(existing_file.get("target_peer_id") or 0) == target_peer_id
+                ):
+                    existing_target_id = int(existing_file.get("target_message_id") or 0)
+                    existing_message = await _verified_dedupe_target_message(
+                        target_peer,
+                        existing_target_id,
+                        require_clean=bool(payload.existing_dedupe_requires_clean),
+                    )
+                    if (
+                        existing_message is not None
+                        and _resource_code_target_kind_is_acceptable(
+                            _resource_code_media_kind(existing_message),
+                            source_kind,
+                        )
+                    ):
+                        all_target_message_ids.append(existing_target_id)
+                        results.append({
+                            "source_message_id": source_message_id,
+                            "target_message_id": existing_target_id,
+                            "content_sha256": existing_file.get("content_sha256") or None,
+                            "file_size": int(existing_file.get("file_size") or 0),
+                            "file_unique_id": source_file_unique_id,
+                            "downloader": None,
+                            "uploader": None,
+                            "duplicate": True,
+                            "duplicate_match": "telegram_file_unique_id",
+                        })
+                        continue
+                if existing_file is not None:
+                    async with MEDIA_DEDUPE_LOCK:
+                        await asyncio.to_thread(
+                            _media_file_id_delete,
+                            dedupe_scope,
+                            source_file_unique_id,
+                        )
+
             if bool(getattr(source_message, "noforwards", False)) or dedupe_scope:
                 (
                     temporary_directory,
@@ -4207,15 +4384,30 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                             source_kind,
                         )
                     ):
+                        if source_file_unique_id:
+                            async with MEDIA_DEDUPE_LOCK:
+                                await asyncio.to_thread(
+                                    _media_file_id_register,
+                                    dedupe_scope,
+                                    source_file_unique_id,
+                                    target_peer_id,
+                                    existing_target_id,
+                                    content_sha256,
+                                    source_peer_id,
+                                    source_message_id,
+                                    file_size,
+                                )
                         all_target_message_ids.append(existing_target_id)
                         results.append({
                             "source_message_id": source_message_id,
                             "target_message_id": existing_target_id,
                             "content_sha256": content_sha256,
                             "file_size": file_size,
+                            "file_unique_id": source_file_unique_id or None,
                             "downloader": downloader or None,
                             "uploader": None,
                             "duplicate": True,
+                            "duplicate_match": "content_sha256",
                         })
                         continue
                     async with MEDIA_DEDUPE_LOCK:
@@ -4280,11 +4472,24 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                         source_message_id,
                         file_size,
                     )
+                    if source_file_unique_id:
+                        await asyncio.to_thread(
+                            _media_file_id_register,
+                            dedupe_scope,
+                            source_file_unique_id,
+                            target_peer_id,
+                            target_message_id,
+                            content_sha256,
+                            source_peer_id,
+                            source_message_id,
+                            file_size,
+                        )
             results.append({
                 "source_message_id": source_message_id,
                 "target_message_id": target_message_id,
                 "content_sha256": content_sha256 or None,
                 "file_size": file_size,
+                "file_unique_id": source_file_unique_id or None,
                 "downloader": downloader or None,
                 "uploader": uploader or None,
                 "duplicate": False,

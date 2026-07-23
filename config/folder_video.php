@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'root' => env('FOLDER_VIDEO_ROOT', 'Z:\video(重跑)'),
+    'root' => env('FOLDER_VIDEO_ROOT', 'E:\video'),
     'good_subdirectory' => env('FOLDER_VIDEO_GOOD_SUBDIRECTORY', 'good'),
     'ffmpeg_bin' => env('FOLDER_VIDEO_FFMPEG_BIN', 'C:\ffmpeg\bin\ffmpeg.exe'),
     'ffprobe_bin' => env('FOLDER_VIDEO_FFPROBE_BIN', 'C:\ffmpeg\bin\ffprobe.exe'),
@@ -12,7 +12,7 @@ return [
     'tv_hls_queue_path' => env('FOLDER_VIDEO_TV_HLS_QUEUE_PATH', storage_path('app/folder-video-tv-hls-queue')),
     'tv_hls_segment_seconds' => (int) env('FOLDER_VIDEO_TV_HLS_SEGMENT_SECONDS', 2),
     'thumbnail_cache_path' => env('FOLDER_VIDEO_THUMBNAIL_CACHE_PATH', storage_path('app/folder-video-thumbnails')),
-    'stream_base_path' => env('FOLDER_VIDEO_STREAM_BASE_PATH', ''),
+    'stream_base_path' => env('FOLDER_VIDEO_STREAM_BASE_PATH', '/video'),
     'preview_seconds' => (int) env('FOLDER_VIDEO_PREVIEW_SECONDS', 4),
     'preview_height' => (int) env('FOLDER_VIDEO_PREVIEW_HEIGHT', 360),
     'preview_workers' => (int) env('FOLDER_VIDEO_PREVIEW_WORKERS', 2),
@@ -26,13 +26,13 @@ return [
     'extensions' => ['mp4', 'm4v', 'mov', 'mkv', 'webm', 'avi'],
     'probe_on_request' => env('FOLDER_VIDEO_PROBE_ON_REQUEST', false),
     'index_refresh_seconds' => (int) env('FOLDER_VIDEO_INDEX_REFRESH_SECONDS', 300),
-    'app_version' => env('FOLDER_VIDEO_APP_VERSION', '2026.07.11.27'),
+    'app_version' => env('FOLDER_VIDEO_APP_VERSION', '2026.07.23.3'),
     'app_preview_max_connections' => (int) env('FOLDER_VIDEO_APP_PREVIEW_MAX_CONNECTIONS', 36),
     'app_page_limit' => (int) env('FOLDER_VIDEO_APP_PAGE_LIMIT', 36),
-    'android_apk_version_code' => (int) env('FOLDER_VIDEO_ANDROID_APK_VERSION_CODE', 16),
-    'android_apk_version_name' => env('FOLDER_VIDEO_ANDROID_APK_VERSION_NAME', '2026.07.11.16'),
+    'android_apk_version_code' => (int) env('FOLDER_VIDEO_ANDROID_APK_VERSION_CODE', 19),
+    'android_apk_version_name' => env('FOLDER_VIDEO_ANDROID_APK_VERSION_NAME', '2026.07.23.19'),
     'android_apk_path' => env('FOLDER_VIDEO_ANDROID_APK_PATH', storage_path('app/folder-video-app.apk')),
-    'tv_android_apk_version_code' => (int) env('FOLDER_VIDEO_TV_ANDROID_APK_VERSION_CODE', 13),
-    'tv_android_apk_version_name' => env('FOLDER_VIDEO_TV_ANDROID_APK_VERSION_NAME', '2026.07.11.13-tv'),
+    'tv_android_apk_version_code' => (int) env('FOLDER_VIDEO_TV_ANDROID_APK_VERSION_CODE', 16),
+    'tv_android_apk_version_name' => env('FOLDER_VIDEO_TV_ANDROID_APK_VERSION_NAME', '2026.07.23.16-tv'),
     'tv_android_apk_path' => env('FOLDER_VIDEO_TV_ANDROID_APK_PATH', storage_path('app/folder-video-tv.apk')),
 ];

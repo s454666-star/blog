@@ -99,7 +99,7 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  if (url.pathname.includes('/stream') || url.pathname.includes('/preview')) {
+  if (url.pathname.startsWith('/video/') || url.pathname.includes('/stream') || url.pathname.includes('/preview')) {
     return;
   }
 

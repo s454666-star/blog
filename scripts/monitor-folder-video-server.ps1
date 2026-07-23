@@ -1,7 +1,7 @@
 param(
     [int]$Port = 8090,
-    [int]$CheckIntervalSeconds = 20,
-    [int]$FailureThreshold = 2
+    [int]$CheckIntervalSeconds = 5,
+    [int]$FailureThreshold = 1
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,7 +10,10 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $startScript = Join-Path $PSScriptRoot "start-folder-video-api.ps1"
 $stateDir = Join-Path $projectRoot "storage\app\folder-video-server"
 $logPath = Join-Path $stateDir "supervisor.log"
-$healthUrl = "http://127.0.0.1:$Port/api/folder-videos/app-config"
+$healthUrls = @(
+    "http://127.0.0.1:$Port/api/folder-videos/app-config",
+    "http://127.0.0.1:$Port/api/folder-photos/app-config"
+)
 $mutex = [System.Threading.Mutex]::new($false, "Local\BlogFolderVideoServerMonitor")
 $ownsMutex = $false
 
@@ -34,6 +37,7 @@ function Get-EnvFileValue {
 
 $mediaRoot = Get-EnvFileValue -Name "FOLDER_VIDEO_ROOT"
 $mediaShare = Get-EnvFileValue -Name "FOLDER_VIDEO_DRIVE_SHARE"
+$photoRoot = Get-EnvFileValue -Name "FOLDER_PHOTO_ROOT"
 
 function Write-SupervisorLog {
     param([string]$Message)
@@ -47,12 +51,18 @@ function Write-SupervisorLog {
 }
 
 function Test-FolderVideoHealth {
-    try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri $healthUrl -TimeoutSec 8
-        return $response.StatusCode -eq 200
-    } catch {
-        return $false
+    foreach ($healthUrl in $healthUrls) {
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Uri $healthUrl -TimeoutSec 3
+            if ($response.StatusCode -ne 200) {
+                return $false
+            }
+        } catch {
+            return $false
+        }
     }
+
+    return $true
 }
 
 function Test-MediaRoot {
@@ -61,7 +71,10 @@ function Test-MediaRoot {
     }
 
     try {
-        return [bool](Test-Path -LiteralPath $mediaRoot -PathType Container -ErrorAction Stop)
+        $videoReady = [bool](Test-Path -LiteralPath $mediaRoot -PathType Container -ErrorAction Stop)
+        $photoReady = [string]::IsNullOrWhiteSpace($photoRoot) -or
+            [bool](Test-Path -LiteralPath $photoRoot -PathType Container -ErrorAction Stop)
+        return $videoReady -and $photoReady
     } catch {
         return $false
     }

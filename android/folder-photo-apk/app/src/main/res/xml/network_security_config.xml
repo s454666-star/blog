@@ -5,14 +5,8 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="false">nas</domain>
-        <trust-anchors>
-            <certificates src="@raw/home_root_ca" />
-        </trust-anchors>
-    </domain-config>
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">10.0.0.25</domain>
+        <domain includeSubdomains="true">10.0.0.31</domain>
         <domain includeSubdomains="true">10.0.0.19</domain>
         <domain includeSubdomains="true">10.147.18.155</domain>
         <domain includeSubdomains="true">blog.test</domain>

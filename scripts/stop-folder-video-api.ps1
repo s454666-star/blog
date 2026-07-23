@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $stateDir = Join-Path $projectRoot "storage\app\folder-video-server"
 $stateFile = Join-Path $stateDir "state.json"
+$caddyConfig = Join-Path $stateDir "Caddyfile"
 
 function Stop-ProcessByIdIfRunning {
     param([int]$ProcessId)
@@ -27,6 +28,9 @@ if (Test-Path $stateFile) {
         if ($state.laravel_pid) {
             Stop-ProcessByIdIfRunning -ProcessId ([int]$state.laravel_pid)
         }
+        if ($state.media_stream_pid) {
+            Stop-ProcessByIdIfRunning -ProcessId ([int]$state.media_stream_pid)
+        }
     } catch {
     }
 
@@ -34,9 +38,12 @@ if (Test-Path $stateFile) {
 }
 
 $artisanProcesses = Get-CimInstance Win32_Process | Where-Object {
-    $_.CommandLine -match "artisan serve" -and (
-        $_.CommandLine -match "--port=$Port" -or
-        $_.CommandLine -match "--port=8091"
+    $commandLine = $_.CommandLine
+    $isProjectServer = $commandLine -match [regex]::Escape((Join-Path $projectRoot "server.php"))
+    ($commandLine -match "artisan serve" -or $isProjectServer) -and (
+        $commandLine -match "--port=$Port" -or
+        $commandLine -match "--port=8091" -or
+        $commandLine -match "\s-S\s+\S+:8091(?:\s|$)"
     )
 }
 
@@ -45,10 +52,21 @@ foreach ($process in $artisanProcesses) {
 }
 
 $caddyProcesses = Get-CimInstance Win32_Process | Where-Object {
-    $_.Name -eq "caddy.exe" -and $_.CommandLine -match [regex]::Escape($projectRoot)
+    $_.Name -eq "caddy.exe" -and
+    $_.CommandLine -match [regex]::Escape($caddyConfig)
 }
 
 foreach ($process in $caddyProcesses) {
+    Stop-ProcessByIdIfRunning -ProcessId $process.ProcessId
+}
+
+$mediaServerScript = Join-Path $projectRoot "scripts\folder_video_range_server.py"
+$mediaProcesses = Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -in @("python.exe", "pythonw.exe") -and
+    $_.CommandLine -match [regex]::Escape($mediaServerScript)
+}
+
+foreach ($process in $mediaProcesses) {
     Stop-ProcessByIdIfRunning -ProcessId $process.ProcessId
 }
 

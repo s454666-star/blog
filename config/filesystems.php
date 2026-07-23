@@ -31,8 +31,8 @@ return [
     'disks' => [
         'videos' => [
             'driver' => 'local',
-            'root' => 'D:/video', // Windows 系統下的絕對路徑
-            'url' => env('VIDEO_BASE_URL', 'https://blog.test/video'),
+            'root' => env('VIDEO_ROOT', 'D:/video'),
+            'url' => env('VIDEO_BASE_URL', 'https://blog/video'),
             'visibility' => 'public',
         ],
         'local' => [

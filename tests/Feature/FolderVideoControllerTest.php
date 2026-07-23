@@ -262,6 +262,24 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.stream_url', '/folder-video-media/good/short.mp4');
     }
 
+    public function test_it_indexes_and_streams_videos_in_nested_directories_with_static_urls(): void
+    {
+        config()->set('folder_video.probe_on_request', false);
+        config()->set('folder_video.stream_base_path', '/video');
+        $nestedDirectory = $this->tempRoot.DIRECTORY_SEPARATOR.'category one';
+        File::ensureDirectoryExists($nestedDirectory);
+        file_put_contents($nestedDirectory.DIRECTORY_SEPARATOR.'nested clip.mp4', 'nested-video');
+
+        $response = $this->getJson('/api/folder-videos?limit=10&offset=0');
+        $nested = collect($response->json('data'))->firstWhere('filename', 'category one/nested clip.mp4');
+
+        $response->assertOk();
+        $this->assertIsArray($nested);
+        $this->assertSame('/video/category%20one/nested%20clip.mp4', $nested['stream_url']);
+
+        $this->get('/api/folder-videos/'.rawurlencode($nested['id']).'/stream')->assertOk();
+    }
+
     public function test_preview_endpoint_falls_back_to_source_when_cache_is_unavailable(): void
     {
         $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
@@ -401,11 +419,16 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'));
     }
 
-    public function test_it_queues_tv_sprites_and_hls_playback(): void
+    public function test_it_queues_high_quality_tv_video_previews_and_hls_playback(): void
     {
         $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
         $this->postJson("/api/folder-videos/{$id}/tv-preview-queue")
             ->assertStatus(202)->assertJsonPath('data.ready', false);
+        $previewRequests = glob($this->tempRoot.DIRECTORY_SEPARATOR.'preview-queue'.DIRECTORY_SEPARATOR.'*.json');
+        $this->assertCount(1, $previewRequests);
+        $previewPayload = json_decode((string) file_get_contents($previewRequests[0]), true);
+        $this->assertSame('tv_mp4', $previewPayload['kind']);
+        $this->assertStringEndsWith('.mp4', $previewPayload['preview_path']);
 
         $this->postJson("/api/folder-videos/{$id}/tv-hls-queue")
             ->assertStatus(202)->assertJsonPath('data.ready', false);

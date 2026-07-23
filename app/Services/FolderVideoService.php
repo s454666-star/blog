@@ -87,10 +87,12 @@ class FolderVideoService
         $index = $this->readIndex();
         $probeMissingDurations = $forceProbe || (bool) config('folder_video.probe_on_request', false);
         $knownFilenames = [];
-        $videos = collect(File::files($root))
-            ->filter(fn (\SplFileInfo $file) => $this->isPlayableVideo($file))
+        $goodDirectory = $this->goodDirectoryPath();
+        $videos = collect(File::allFiles($root))
+            ->filter(fn (\SplFileInfo $file) => $this->isPlayableVideo($file)
+                && ! str_starts_with($file->getPathname(), $goodDirectory.DIRECTORY_SEPARATOR))
             ->map(function (\SplFileInfo $file) use (&$index, &$knownFilenames, $forceProbe, $probeMissingDurations) {
-                $filename = $file->getFilename();
+                $filename = $this->relativeFilenameFromPath($file->getPathname(), $this->rootPath());
                 $path = $file->getPathname();
                 $stat = [
                     'size' => $file->getSize(),
@@ -215,7 +217,7 @@ class FolderVideoService
         return [
             'id' => $id,
             'ready' => is_file($previewPath) && filesize($previewPath) > 0,
-            'preview_url' => $this->previewUrlForFilename(basename($sourcePath)),
+            'preview_url' => $this->previewUrlForFilename($this->relativeFilenameForSource($sourcePath)),
         ];
     }
 
@@ -226,7 +228,7 @@ class FolderVideoService
         $status = [
             'id' => $id,
             'ready' => is_file($previewPath) && filesize($previewPath) > 0,
-            'preview_url' => $this->previewUrlForFilename(basename($sourcePath)),
+            'preview_url' => $this->previewUrlForFilename($this->relativeFilenameForSource($sourcePath)),
         ];
         if ($status['ready']) {
             return $status + ['queued' => false];
@@ -279,7 +281,7 @@ class FolderVideoService
         }
 
         $this->writeMediaQueueRequest($this->previewQueuePath(), hash('sha256', $previewPath), [
-            'kind' => 'animated_webp',
+            'kind' => 'tv_mp4',
             'source_path' => $sourcePath,
             'preview_path' => $previewPath,
             'queued_at' => now()->toIso8601String(),
@@ -450,16 +452,17 @@ class FolderVideoService
         if ($sourcePath === null) {
             $likedPath = $this->safeVideoPathInDirectory($goodDirectory, $filename);
             if ($likedPath !== null) {
-                $likedId = $this->encodeId(basename($likedPath));
+                $likedFilename = $this->relativeFilenameFromPath($likedPath, $goodDirectory);
+                $likedId = $this->encodeId($likedFilename);
 
                 return [
                     'id' => $likedId,
-                    'filename' => basename($likedPath),
+                    'filename' => $likedFilename,
                     'destination' => $likedPath,
                     'liked' => true,
-                    'stream_url' => $this->streamUrlForFilename(basename($likedPath), true),
-                    'preview_url' => $this->previewUrlForFilename(basename($likedPath)),
-                    'thumbnail_url' => $this->thumbnailUrlForFilename(basename($likedPath)),
+                    'stream_url' => $this->streamUrlForFilename($likedFilename, true),
+                    'preview_url' => $this->previewUrlForFilename($likedFilename),
+                    'thumbnail_url' => $this->thumbnailUrlForFilename($likedFilename),
                     'preview_cached' => $this->previewCachedForPath($likedPath),
                     'thumbnail_cached' => $this->thumbnailCachedForPath($likedPath),
                 ];
@@ -468,21 +471,27 @@ class FolderVideoService
             abort(404, 'Video not found.');
         }
 
-        $destinationPath = $this->uniqueDestinationPath($goodDirectory, basename($sourcePath));
+        $relativeDirectory = dirname(str_replace('/', DIRECTORY_SEPARATOR, $filename));
+        $destinationDirectory = $relativeDirectory === '.'
+            ? $goodDirectory
+            : $goodDirectory.DIRECTORY_SEPARATOR.$relativeDirectory;
+        File::ensureDirectoryExists($destinationDirectory);
+        $destinationPath = $this->uniqueDestinationPath($destinationDirectory, basename($sourcePath));
 
         $this->moveVideoFile($sourcePath, $destinationPath, 'Unable to move video to good folder.');
 
-        $this->forgetIndexEntry(basename($sourcePath));
-        $destinationId = $this->encodeId(basename($destinationPath));
+        $this->forgetIndexEntry($filename);
+        $destinationFilename = $this->relativeFilenameFromPath($destinationPath, $goodDirectory);
+        $destinationId = $this->encodeId($destinationFilename);
 
         return [
             'id' => $destinationId,
-            'filename' => basename($destinationPath),
+            'filename' => $destinationFilename,
             'destination' => $destinationPath,
             'liked' => true,
-            'stream_url' => $this->streamUrlForFilename(basename($destinationPath), true),
-            'preview_url' => $this->previewUrlForFilename(basename($destinationPath)),
-            'thumbnail_url' => $this->thumbnailUrlForFilename(basename($destinationPath)),
+            'stream_url' => $this->streamUrlForFilename($destinationFilename, true),
+            'preview_url' => $this->previewUrlForFilename($destinationFilename),
+            'thumbnail_url' => $this->thumbnailUrlForFilename($destinationFilename),
             'preview_cached' => $this->previewCachedForPath($destinationPath),
             'thumbnail_cached' => $this->thumbnailCachedForPath($destinationPath),
         ];
@@ -496,16 +505,17 @@ class FolderVideoService
         if ($sourcePath === null) {
             $rootPath = $this->safeVideoPathInDirectory($this->rootPath(), $filename);
             if ($rootPath !== null) {
-                $rootId = $this->encodeId(basename($rootPath));
+                $rootFilename = $this->relativeFilenameFromPath($rootPath, $this->rootPath());
+                $rootId = $this->encodeId($rootFilename);
 
                 return [
                     'id' => $rootId,
-                    'filename' => basename($rootPath),
+                    'filename' => $rootFilename,
                     'destination' => $rootPath,
                     'liked' => false,
-                    'stream_url' => $this->streamUrlForFilename(basename($rootPath)),
-                    'preview_url' => $this->previewUrlForFilename(basename($rootPath)),
-                    'thumbnail_url' => $this->thumbnailUrlForFilename(basename($rootPath)),
+                    'stream_url' => $this->streamUrlForFilename($rootFilename),
+                    'preview_url' => $this->previewUrlForFilename($rootFilename),
+                    'thumbnail_url' => $this->thumbnailUrlForFilename($rootFilename),
                     'preview_cached' => $this->previewCachedForPath($rootPath),
                     'thumbnail_cached' => $this->thumbnailCachedForPath($rootPath),
                 ];
@@ -514,21 +524,26 @@ class FolderVideoService
             abort(404, 'Video not found.');
         }
 
-        File::ensureDirectoryExists($this->rootPath());
-        $destinationPath = $this->uniqueDestinationPath($this->rootPath(), basename($sourcePath));
+        $relativeDirectory = dirname(str_replace('/', DIRECTORY_SEPARATOR, $filename));
+        $destinationDirectory = $relativeDirectory === '.'
+            ? $this->rootPath()
+            : $this->rootPath().DIRECTORY_SEPARATOR.$relativeDirectory;
+        File::ensureDirectoryExists($destinationDirectory);
+        $destinationPath = $this->uniqueDestinationPath($destinationDirectory, basename($sourcePath));
 
         $this->moveVideoFile($sourcePath, $destinationPath, 'Unable to move video back to video folder.');
 
-        $destinationId = $this->encodeId(basename($destinationPath));
+        $destinationFilename = $this->relativeFilenameFromPath($destinationPath, $this->rootPath());
+        $destinationId = $this->encodeId($destinationFilename);
 
         return [
             'id' => $destinationId,
-            'filename' => basename($destinationPath),
+            'filename' => $destinationFilename,
             'destination' => $destinationPath,
             'liked' => false,
-            'stream_url' => $this->streamUrlForFilename(basename($destinationPath)),
-            'preview_url' => $this->previewUrlForFilename(basename($destinationPath)),
-            'thumbnail_url' => $this->thumbnailUrlForFilename(basename($destinationPath)),
+            'stream_url' => $this->streamUrlForFilename($destinationFilename),
+            'preview_url' => $this->previewUrlForFilename($destinationFilename),
+            'thumbnail_url' => $this->thumbnailUrlForFilename($destinationFilename),
             'preview_cached' => $this->previewCachedForPath($destinationPath),
             'thumbnail_cached' => $this->thumbnailCachedForPath($destinationPath),
         ];
@@ -536,8 +551,8 @@ class FolderVideoService
 
     public function delete(string $id): array
     {
+        $filename = $this->decodeId($id);
         $path = $this->resolveVideoPath($id);
-        $filename = basename($path);
 
         if (! @unlink($path)) {
             throw new FileException('Unable to delete video.');
@@ -628,7 +643,10 @@ class FolderVideoService
         }
 
         $records = collect();
-        foreach (new \DirectoryIterator($directory) as $file) {
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $file) {
             if (! $this->isPlayableVideo($file)) {
                 continue;
             }
@@ -656,9 +674,11 @@ class FolderVideoService
         ?int $newFirstAfter = null
     ): array
     {
-        $records = collect($index)
-            ->pipe(fn (Collection $records) => $this->sortRecords($records, $order, $seed, $newFirstAfter))
-            ->values();
+        $records = collect($index);
+        if ($this->isRandomOrder($order)) {
+            $records = $this->sortRecords($records, $order, $seed, $newFirstAfter);
+        }
+        $records = $records->values();
 
         $slice = $records->slice($offset, $limit + 1)->values();
         $videos = $slice->take($limit)
@@ -700,45 +720,28 @@ class FolderVideoService
         $seen = 0;
         $hasMore = false;
 
-        foreach (new \DirectoryIterator($root) as $file) {
-            if (! $this->isPlayableVideo($file)) {
-                continue;
-            }
+        $index = $this->refreshLightweightIndex();
 
-            if ($seen++ < $offset) {
-                continue;
-            }
-
-            if ($videos->count() >= $limit) {
-                $hasMore = true;
-                break;
-            }
-
-            $videos->push($this->videoPayloadFromFile($file, false));
-        }
-
-        return [
-            'videos' => $videos,
-            'has_more' => $hasMore,
-            'next_offset' => $offset + $videos->count(),
-        ];
+        return $this->listIndexedVideosPage($index, $limit, $offset, $order, $seed, $newFirstAfter);
     }
 
     protected function videoPayloadFromFile(\SplFileInfo $file, bool $liked = false): array
     {
-        $id = $this->encodeId($file->getFilename());
+        $base = $liked ? $this->goodDirectoryPath() : $this->rootPath();
+        $filename = $this->relativeFilenameFromPath($file->getPathname(), $base);
+        $id = $this->encodeId($filename);
 
         return [
             'id' => $id,
-            'filename' => $file->getFilename(),
+            'filename' => $filename,
             'duration_seconds' => 0.0,
             'duration_label' => $this->formatDuration(0.0),
             'size_bytes' => $file->getSize(),
             'modified_at' => $file->getMTime(),
             'created_at' => $file->getCTime(),
-            'stream_url' => $this->streamUrlForFilename($file->getFilename(), $liked),
-            'preview_url' => $this->previewUrlForFilename($file->getFilename()),
-            'thumbnail_url' => $this->thumbnailUrlForFilename($file->getFilename()),
+            'stream_url' => $this->streamUrlForFilename($filename, $liked),
+            'preview_url' => $this->previewUrlForFilename($filename),
+            'thumbnail_url' => $this->thumbnailUrlForFilename($filename),
             'preview_cached' => $this->previewCachedForPath($file->getPathname()),
             'thumbnail_cached' => $this->thumbnailCachedForPath($file->getPathname()),
             'liked' => $liked,
@@ -872,13 +875,19 @@ class FolderVideoService
         $records = [];
         $root = $this->rootPath();
 
-        foreach (new \DirectoryIterator($root) as $file) {
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($iterator as $file) {
             if (! $this->isPlayableVideo($file)) {
+                continue;
+            }
+            if (str_starts_with($file->getPathname(), $this->goodDirectoryPath().DIRECTORY_SEPARATOR)) {
                 continue;
             }
 
             $records[] = [
-                'filename' => $file->getFilename(),
+                'filename' => $this->relativeFilenameFromPath($file->getPathname(), $root),
                 'size' => $file->getSize(),
                 'mtime' => $file->getMTime(),
                 'ctime' => $file->getCTime(),
@@ -907,11 +916,14 @@ class FolderVideoService
 \$WarningPreference = 'SilentlyContinue'
 \$root = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$rootBase64'))
 \$extensions = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$extensionsBase64')) | ConvertFrom-Json
-\$records = Get-ChildItem -LiteralPath \$root -File -ErrorAction Stop |
+\$goodRoot = Join-Path \$root 'good'
+\$rootPrefixLength = \$root.TrimEnd('\', '/').Length
+\$records = Get-ChildItem -LiteralPath \$root -Recurse -File -ErrorAction Stop |
+    Where-Object { -not \$_.FullName.StartsWith(\$goodRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) } |
     Where-Object { \$extensions -contains \$_.Extension.TrimStart('.').ToLowerInvariant() } |
     ForEach-Object {
         [pscustomobject]@{
-            filename = \$_.Name
+            filename = \$_.FullName.Substring(\$rootPrefixLength).TrimStart('\', '/').Replace('\', '/')
             size = [int64]\$_.Length
             mtime = ([DateTimeOffset]\$_.LastWriteTimeUtc).ToUnixTimeSeconds()
             ctime = ([DateTimeOffset]\$_.CreationTimeUtc).ToUnixTimeSeconds()
@@ -959,7 +971,7 @@ POWERSHELL;
         $stat = @stat($sourcePath) ?: [];
 
         return $this->previewPathForStat(
-            basename($sourcePath),
+            $this->relativeFilenameForSource($sourcePath),
             (int) ($stat['size'] ?? 0),
             (int) ($stat['mtime'] ?? 0)
         );
@@ -970,7 +982,7 @@ POWERSHELL;
         $stat = @stat($sourcePath) ?: [];
 
         return $this->thumbnailPathForStat(
-            basename($sourcePath),
+            $this->relativeFilenameForSource($sourcePath),
             (int) ($stat['size'] ?? 0),
             (int) ($stat['mtime'] ?? 0)
         );
@@ -993,9 +1005,9 @@ POWERSHELL;
     protected function tvPreviewPathForSource(string $sourcePath): string
     {
         $stat = @stat($sourcePath) ?: [];
-        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-webp-v3']));
+        $key = hash('sha256', implode('|', [basename($sourcePath), (string) ($stat['size'] ?? 0), (string) ($stat['mtime'] ?? 0), 'tv-mp4-v5-640x360-h264-q20-fps10']));
 
-        return $this->previewCachePath().DIRECTORY_SEPARATOR.'tv-animated'.DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.webp';
+        return $this->previewCachePath().DIRECTORY_SEPARATOR.'tv-video'.DIRECTORY_SEPARATOR.substr($key, 0, 2).DIRECTORY_SEPARATOR.$key.'.mp4';
     }
 
     protected function tvHlsPathForSource(string $sourcePath): string
@@ -1431,7 +1443,14 @@ POWERSHELL;
 
         $decoded = base64_decode($normalized, true);
 
-        if (! is_string($decoded) || $decoded === '' || str_contains($decoded, '/') || str_contains($decoded, '\\')) {
+        if (! is_string($decoded) || $decoded === '') {
+            abort(404, 'Video not found.');
+        }
+
+        $decoded = str_replace('\\', '/', $decoded);
+        $segments = explode('/', $decoded);
+        if (str_starts_with($decoded, '/') || preg_match('/^[A-Za-z]:/', $decoded)
+            || in_array('', $segments, true) || in_array('.', $segments, true) || in_array('..', $segments, true)) {
             abort(404, 'Video not found.');
         }
 
@@ -1453,6 +1472,24 @@ POWERSHELL;
         $insideDirectory = str_starts_with($realPath, $realDirectory.DIRECTORY_SEPARATOR) || $realPath === $realDirectory;
 
         return $insideDirectory ? $realPath : null;
+    }
+
+    protected function relativeFilenameFromPath(string $path, string $root): string
+    {
+        return str_replace('\\', '/', ltrim(substr($path, strlen(rtrim($root, '\\/'))), '\\/'));
+    }
+
+    protected function relativeFilenameForSource(string $sourcePath): string
+    {
+        foreach ([$this->rootPath(), $this->goodDirectoryPath()] as $root) {
+            $normalizedRoot = rtrim(str_replace('\\', '/', $root), '/');
+            $normalizedPath = str_replace('\\', '/', $sourcePath);
+            if (str_starts_with($normalizedPath, $normalizedRoot.'/')) {
+                return ltrim(substr($normalizedPath, strlen($normalizedRoot)), '/');
+            }
+        }
+
+        return basename($sourcePath);
     }
 
     protected function hasFreshIndexEntry(?array $entry, array $stat): bool
@@ -1511,7 +1548,7 @@ POWERSHELL;
                 'root' => $this->rootPath(),
                 'directory_mtime' => $this->rootDirectoryMTime(),
                 'videos' => $records,
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
         );
     }
 

@@ -33,6 +33,11 @@
     const pendingMasterUpdates = new Set();
     const pendingMasterFaceLoads = new Set();
     const initialFocusRetryDelays = [0, 120, 320, 700, 1300];
+    let initialFocusTrackingCancelled = false;
+    let initialFocusResizeObserver = null;
+    let initialFocusTrackingTimeout = null;
+    let initialFocusAnimationFrame = null;
+    let removeInitialFocusCancelListeners = null;
 
     if ('scrollRestoration' in window.history) {
         window.history.scrollRestoration = 'manual';
@@ -260,11 +265,82 @@
             return;
         }
 
+        startInitialFocusTracking();
+
         initialFocusRetryDelays.forEach((delay, index) => {
             window.setTimeout(() => {
+                if (initialFocusTrackingCancelled) {
+                    return;
+                }
+
                 focusInitial(index > 0);
             }, delay);
         });
+    }
+
+    function cancelInitialFocusTracking() {
+        if (initialFocusTrackingCancelled) {
+            return;
+        }
+
+        initialFocusTrackingCancelled = true;
+        initialFocusResizeObserver?.disconnect();
+        initialFocusResizeObserver = null;
+
+        if (initialFocusTrackingTimeout !== null) {
+            window.clearTimeout(initialFocusTrackingTimeout);
+            initialFocusTrackingTimeout = null;
+        }
+
+        if (initialFocusAnimationFrame !== null) {
+            window.cancelAnimationFrame(initialFocusAnimationFrame);
+            initialFocusAnimationFrame = null;
+        }
+
+        removeInitialFocusCancelListeners?.();
+        removeInitialFocusCancelListeners = null;
+    }
+
+    function startInitialFocusTracking() {
+        const list = document.getElementById('videos-list');
+        if (!list || initialFocusResizeObserver !== null || initialFocusTrackingCancelled) {
+            return;
+        }
+
+        const cancelOnUserInput = () => cancelInitialFocusTracking();
+        const cancelOnNavigationKey = event => {
+            if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
+                cancelInitialFocusTracking();
+            }
+        };
+
+        window.addEventListener('wheel', cancelOnUserInput, {passive: true});
+        window.addEventListener('touchstart', cancelOnUserInput, {passive: true});
+        window.addEventListener('pointerdown', cancelOnUserInput, {passive: true});
+        window.addEventListener('keydown', cancelOnNavigationKey);
+
+        removeInitialFocusCancelListeners = () => {
+            window.removeEventListener('wheel', cancelOnUserInput);
+            window.removeEventListener('touchstart', cancelOnUserInput);
+            window.removeEventListener('pointerdown', cancelOnUserInput);
+            window.removeEventListener('keydown', cancelOnNavigationKey);
+        };
+
+        initialFocusResizeObserver = new ResizeObserver(() => {
+            if (initialFocusTrackingCancelled || initialFocusAnimationFrame !== null) {
+                return;
+            }
+
+            initialFocusAnimationFrame = window.requestAnimationFrame(() => {
+                initialFocusAnimationFrame = null;
+                focusInitial(true);
+            });
+        });
+        initialFocusResizeObserver.observe(list);
+
+        // 直式影片的 poster 會在 lazy load 後大幅改變列高；在載入期持續把目標列拉回畫面。
+        // 最多維持 20 秒，使用者只要開始操作頁面就立即停止，避免搶走手動捲動。
+        initialFocusTrackingTimeout = window.setTimeout(cancelInitialFocusTracking, 20000);
     }
 
     function collectExistingVideoIds() {
@@ -1411,9 +1487,12 @@
 
     function focusInitial(forceRetry = false) {
         const targetId = initialFocusTargetId;
-        if (targetId === null) return;
+        if (targetId === null || initialFocusTrackingCancelled) return;
 
-        focusVideoRowById(targetId, {behavior: forceRetry ? 'auto' : 'smooth'});
+        focusVideoRowById(targetId, {
+            behavior: forceRetry ? 'auto' : 'smooth',
+            syncSidebar: !forceRetry,
+        });
 
         if (!forceRetry) {
             // 用完即丟，避免之後 rebuild 又蓋掉使用者手動選擇

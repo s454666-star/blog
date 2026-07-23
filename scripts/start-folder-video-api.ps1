@@ -129,9 +129,14 @@ function Stop-LegacyArtisanServer {
 
     $artisanProcesses = Get-CimInstance Win32_Process | Where-Object {
         $commandLine = $_.CommandLine
-        $commandLine -match "artisan serve" -and [bool](
-            $Ports | Where-Object { $PSItem -gt 0 -and $commandLine -match "--port=$PSItem" }
-        )
+        $isProjectServer = $commandLine -match [regex]::Escape((Join-Path $projectRoot "server.php"))
+        $matchesPort = [bool]($Ports | Where-Object {
+            $PSItem -gt 0 -and (
+                $commandLine -match "--port=$PSItem" -or
+                $commandLine -match "\s-S\s+\S+:$PSItem(?:\s|$)"
+            )
+        })
+        ($commandLine -match "artisan serve" -or $isProjectServer) -and $matchesPort
     }
 
     foreach ($process in $artisanProcesses) {
@@ -141,7 +146,8 @@ function Stop-LegacyArtisanServer {
 
 function Stop-ProjectCaddy {
     $caddyProcesses = Get-CimInstance Win32_Process | Where-Object {
-        $_.Name -eq "caddy.exe" -and $_.CommandLine -match [regex]::Escape($projectRoot)
+        $_.Name -eq "caddy.exe" -and
+        $_.CommandLine -match [regex]::Escape($caddyConfig)
     }
 
     foreach ($process in $caddyProcesses) {
@@ -269,7 +275,7 @@ if ([string]::IsNullOrWhiteSpace($MediaRoot)) {
     $MediaRoot = Get-EnvFileValue -Name "FOLDER_VIDEO_ROOT"
 }
 if ([string]::IsNullOrWhiteSpace($MediaRoot)) {
-    $MediaRoot = "M:\video(重跑)"
+    $MediaRoot = "E:\video"
 }
 if ([string]::IsNullOrWhiteSpace($MediaShare)) {
     $MediaShare = Get-EnvFileValue -Name "FOLDER_VIDEO_DRIVE_SHARE"
@@ -297,8 +303,14 @@ $NasRootPhoto = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_PHOTO" -Default
 $NasRootPlexMediaServer = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_PLEX_MEDIA_SERVER" -DefaultValue "\\mc\PlexMediaServer"
 $NasRootVideo = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_VIDEO" -DefaultValue "\\mc\video"
 
-$phpExe = (Get-Command php -ErrorAction Stop).Source
-$pythonExe = (Get-Command python -ErrorAction Stop).Source
+$phpExe = Get-EnvFileValue -Name "FOLDER_VIDEO_PHP_BIN"
+if ([string]::IsNullOrWhiteSpace($phpExe) -or -not (Test-Path -LiteralPath $phpExe -PathType Leaf)) {
+    $phpExe = (Get-Command php -ErrorAction Stop).Source
+}
+$pythonExe = Get-EnvFileValue -Name "FOLDER_VIDEO_PYTHON_BIN"
+if ([string]::IsNullOrWhiteSpace($pythonExe) -or -not (Test-Path -LiteralPath $pythonExe -PathType Leaf)) {
+    $pythonExe = (Get-Command python -ErrorAction Stop).Source
+}
 $ffmpegBin = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_FFMPEG_BIN" -DefaultValue "C:\ffmpeg\bin\ffmpeg.exe"
 $previewQueuePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_QUEUE_PATH" -DefaultValue (Join-Path $projectRoot "storage\app\folder-video-preview-queue")
 $previewCachePath = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_CACHE_PATH" -DefaultValue (Join-Path $projectRoot "storage\app\folder-video-previews")
@@ -309,7 +321,7 @@ $previewSeconds = [int](Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_SE
 $previewHeight = [int](Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_HEIGHT" -DefaultValue "360")
 $previewWorkers = [int](Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_PREVIEW_WORKERS" -DefaultValue "2")
 
-php artisan config:clear | Out-Null
+& $phpExe artisan config:clear | Out-Null
 
 if ($WarmCache) {
     $warmArgs = @("artisan", "folder-video:warm-cache")
@@ -414,7 +426,6 @@ $configText = @"
 
 :$Port {
     bind $BindAddress
-    encode zstd gzip
 
     @hlsLibrary path /vendor/hls.js/hls.min.js
     handle @hlsLibrary {
@@ -459,12 +470,20 @@ $configText = @"
         }
     }
 
-    @videoMedia path /folder-video-media/*
+    @videoMedia path /video/*
     handle @videoMedia {
-        uri strip_prefix /folder-video-media
-        reverse_proxy 127.0.0.1:$MediaStreamPort {
-            flush_interval -1
+        uri strip_prefix /video
+        root * "$MediaRoot"
+        header {
+            Accept-Ranges "bytes"
+            Access-Control-Allow-Origin "*"
+            Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+            Access-Control-Allow-Headers "Range, If-Range, If-None-Match"
+            Access-Control-Expose-Headers "Accept-Ranges, Content-Length, Content-Range, Etag, Last-Modified"
+            Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
+            X-Content-Type-Options "nosniff"
         }
+        file_server
     }
 
     @videoPreviewCache path /folder-video-preview-cache/*
@@ -556,6 +575,7 @@ $configText = @"
     }
 
     handle {
+        encode zstd gzip
         reverse_proxy 127.0.0.1:$LaravelPort {
             header_up Host {host}
             header_up X-Forwarded-Host {host}
@@ -608,7 +628,7 @@ $lanIps = Get-LanIps
     bind_address = $BindAddress
     media_root = $MediaRoot
     photo_root = $PhotoRoot
-    static_stream_path = "/folder-video-media"
+    static_stream_path = "/video"
     static_photo_path = "/folder-photo-media"
     nas_viewer_roots = @{
         "30t-a" = $NasRoot30TA

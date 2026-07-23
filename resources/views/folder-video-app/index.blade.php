@@ -555,8 +555,8 @@
     let previewRefreshQueued = false;
     let gridMetricsRefreshQueued = false;
     let loadMoreQueued = false;
-    let tvPreviewOffset = 0;
     let tvPlaybackWarmTimer = null;
+    let tvOptimizedPlaybackActive = false;
     let playerLoadGeneration = 0;
     let playerSwitching = false;
     let activePlayerHls = null;
@@ -1027,12 +1027,6 @@
         return /Android/i.test(navigator.userAgent || '') && /FolderVideoTvApp\//.test(navigator.userAgent || '');
     }
 
-    function nasNginxVideoUrl(video) {
-        const relative = `${video?.liked ? 'good/' : ''}${String(video?.filename || '')}`;
-        if (!relative) return '';
-        return `http://10.0.0.2:8095/${relative.split('/').map(encodeURIComponent).join('/')}`;
-    }
-
     function estimatedVideoBitrateMbps(video) {
         const duration = Number(video?.duration_seconds || 0);
         const size = Number(video?.size_bytes || 0);
@@ -1185,7 +1179,7 @@
             card.tabIndex = 0;
             card.setAttribute('role', 'button');
             card.setAttribute('aria-label', `播放 ${video.filename}`);
-            const previewSrc = video.preview_cached ? video.preview_url : '';
+            const previewSrc = isFolderVideoTvApp() ? '' : (video.preview_cached ? video.preview_url : '');
             // Missing thumbnails are expensive synchronous FFmpeg jobs.  Let
             // the lightweight preview worker have priority and only request a
             // poster that is already cached.
@@ -1223,13 +1217,16 @@
                 const cards = Array.from(elements.grid.querySelectorAll('.video-card'));
                 tvFocusIndex = Math.max(0, cards.indexOf(card));
                 scheduleTvPlaybackWarm(video);
+                schedulePreviewRefresh();
             });
             observer.observe(card);
             fragment.appendChild(card);
         });
 
         elements.grid.appendChild(fragment);
-        if (isFolderVideoTvApp() && items.length > 0) queueTvPlaybackWarm(items[clamp(tvFocusIndex, 0, items.length - 1)]);
+        if (isFolderVideoTvApp() && items.length > 0) {
+            scheduleTvPlaybackWarm(items[clamp(tvFocusIndex, 0, items.length - 1)]);
+        }
         elements.empty.textContent = emptyMessage();
         elements.empty.classList.toggle('show', items.length === 0 && !cursor.hasMore && !isLoading);
         updateStatus();
@@ -1254,19 +1251,16 @@
             return;
         }
 
-        if (isFolderVideoTvApp()) {
-            const motion = card.querySelector('.preview-motion');
-            if (motion) motion.dataset.wanted = '1';
-            ensureTvAnimatedPreview(card);
-            return;
-        }
-
         const video = card.querySelector('video');
         if (!video) {
             return;
         }
         if (!video.dataset.src) {
-            ensureCardPreview(card);
+            if (isFolderVideoTvApp()) {
+                ensureTvVideoPreview(card);
+            } else {
+                ensureCardPreview(card);
+            }
             return;
         }
         if (video.dataset.activePreview === '1') {
@@ -1287,16 +1281,11 @@
         video.play().catch(() => {});
     }
 
-    async function ensureTvAnimatedPreview(card) {
+    async function ensureTvVideoPreview(card) {
         const id = String(card?.dataset?.id || '');
-        const motion = card?.querySelector('.preview-motion');
-        if (!id || !motion || motion.dataset.preparing === '1') return;
-        if (motion.dataset.src) {
-            motion.style.backgroundImage = `url("${motion.dataset.src}")`;
-            if (motion.dataset.wanted === '1') motion.classList.add('active');
-            return;
-        }
-        motion.dataset.preparing = '1';
+        const video = card?.querySelector('video');
+        if (!id || !video || video.dataset.previewPreparing === '1') return;
+        video.dataset.previewPreparing = '1';
         let preparation = tvPreviewPreparation.get(id);
         if (!preparation) {
             preparation = prepareTvPreview(id);
@@ -1305,11 +1294,10 @@
         const result = await preparation.catch(() => null);
         if (!result) tvPreviewPreparation.delete(id);
         if (!card.isConnected) return;
-        delete motion.dataset.preparing;
+        delete video.dataset.previewPreparing;
         if (!result?.preview_url) return;
-        motion.dataset.src = result.preview_url;
-        motion.style.backgroundImage = `url("${result.preview_url}")`;
-        if (motion.dataset.wanted === '1' && visiblePreviewCards.has(card)) motion.classList.add('active');
+        video.dataset.src = result.preview_url;
+        if (video.dataset.previewWanted === '1' && visiblePreviewCards.has(card)) startPreview(card);
     }
 
     async function prepareTvPreview(id) {
@@ -1339,7 +1327,7 @@
         }).catch(() => {});
     }
 
-    function scheduleTvPlaybackWarm(video, delay = 120) {
+    function scheduleTvPlaybackWarm(video, delay = 700) {
         if (!isFolderVideoTvApp() || !video?.id || elements.player.classList.contains('open')) return;
         window.clearTimeout(tvPlaybackWarmTimer);
         tvPlaybackWarmTimer = window.setTimeout(() => queueTvPlaybackWarm(video), Math.max(0, delay));
@@ -1384,7 +1372,7 @@
         if (!previewUrl) return false;
         // The static cache is served directly by the Python range server.  A
         // short HEAD poll avoids both the old 1.5 second blind wait and repeated
-        // Laravel/NAS path resolution while the preview is being produced.
+        // Laravel path resolution while the preview is being produced.
         for (let attempt = 0; attempt < 300; attempt++) {
             await sleep(100);
             const response = await fetch(`${previewUrl}?t=${Date.now()}`, {
@@ -1581,15 +1569,13 @@
         }
 
         const desiredActive = desiredVisibleCount();
-        const decoderLimit = isFolderVideoTvApp() ? 4 : 8;
-        const maxActive = clamp(Math.min(Number(appConfig.preview_max_connections || 36), desiredActive, cards.length, decoderLimit), 1, decoderLimit);
+        const configuredPreviewLimit = clamp(Number(appConfig.preview_max_connections || 36), 1, 36);
+        const decoderLimit = configuredPreviewLimit;
+        const maxActive = clamp(Math.min(desiredActive, cards.length, decoderLimit), 1, decoderLimit);
         const activeCards = new Set();
 
         for (let offset = 0; offset < Math.min(maxActive, cards.length); offset++) {
-            const index = isFolderVideoTvApp()
-                ? (tvPreviewOffset + offset) % cards.length
-                : offset;
-            activeCards.add(cards[index]);
+            activeCards.add(cards[offset]);
         }
 
         document.querySelectorAll('.video-card').forEach((card) => {
@@ -1764,6 +1750,7 @@
         elements.playerVideo.preload = 'auto';
         elements.playerVideo.disableRemotePlayback = true;
         const saved = Number(state.progress?.[normalized.id]?.time || 0);
+        tvOptimizedPlaybackActive = false;
         try {
             if (
                 window.FolderVideoTvAndroid
@@ -1771,13 +1758,10 @@
             ) {
                 if (isFolderVideoTvApp()) {
                     window.FolderVideoTvAndroid.stopVideo();
-                    if (typeof window.FolderVideoTvAndroid.playVideoDirectFirst === 'function') {
-                        window.FolderVideoTvAndroid.playVideoDirectFirst(
-                            `${normalized.liked ? 'good/' : ''}${normalized.filename}`,
-                            saved
-                        );
-                    } else {
+                    if (needsOptimizedPlayback(normalized)) {
                         await playTvOptimizedStream(normalized, saved, loadGeneration);
+                    } else {
+                        window.FolderVideoTvAndroid.playVideo(normalized.stream_url, saved);
                     }
                 } else {
                     window.FolderVideoTvAndroid.playVideo(normalized.stream_url, saved);
@@ -1786,15 +1770,7 @@
             }
         } catch (error) {
         }
-        if (isFolderVideoAndroidApp() && needsOptimizedPlayback(normalized)) {
-            playerFallbackPending = true;
-            showToast('高規格影片，正在準備流暢播放…', 5000);
-            const hlsUrl = await prepareAndroidHlsUrl(normalized, loadGeneration);
-            if (playerLoadGeneration !== loadGeneration || playerItem?.id !== normalized.id) return;
-            if (hlsUrl && playPlayerHls(hlsUrl, saved, loadGeneration)) return;
-            playerFallbackPending = false;
-        }
-        const directPhoneUrl = isFolderVideoAndroidApp() ? nasNginxVideoUrl(normalized) : '';
+        const directPhoneUrl = isFolderVideoAndroidApp() ? normalized.stream_url : '';
         if (directPhoneUrl) {
             let fallingBack = false;
             elements.playerVideo.onerror = async () => {
@@ -1863,9 +1839,11 @@
             const playableUrl = payload?.data?.ready ? payload.data.stream_url : video.stream_url;
             const available = Number(payload?.data?.available_seconds || 0);
             const startAt = available > 4 ? Math.min(saved, available - 4) : 0;
+            tvOptimizedPlaybackActive = Boolean(payload?.data?.ready);
             window.FolderVideoTvAndroid.playVideo(playableUrl, startAt);
         } catch (error) {
             if (playerLoadGeneration === loadGeneration && playerItem?.id === video.id) {
+                tvOptimizedPlaybackActive = false;
                 window.FolderVideoTvAndroid.playVideo(video.stream_url, saved);
             }
         }
@@ -1900,13 +1878,6 @@
         }
         return '';
     }
-
-    window.folderVideoTvDirectError = async (startAt = 0) => {
-        if (!isFolderVideoTvApp() || !playerItem) return;
-        const video = playerItem;
-        const generation = playerLoadGeneration;
-        await playTvOptimizedStream(video, Math.max(0, Number(startAt) || 0), generation);
-    };
 
     async function closePlayer() {
         playerLoadGeneration++;
@@ -2019,7 +1990,18 @@
         if (elements.player.classList.contains('open')) closePlayer();
     };
 
-    window.folderVideoTvNativeError = () => showToast('原生播放器無法播放這支影片');
+    window.folderVideoTvNativeError = async () => {
+        if (!playerItem) return;
+        if (tvOptimizedPlaybackActive) {
+            showToast('這支影片無法播放');
+            return;
+        }
+        const video = playerItem;
+        const generation = playerLoadGeneration;
+        const saved = Number(state.progress?.[video.id]?.time || 0);
+        showToast('原檔播放不順，切換流暢播放…', 5000);
+        await playTvOptimizedStream(video, saved, generation);
+    };
 
     window.folderVideoTvNativeProgress = (seconds, duration) => {
         if (!playerItem) return;
@@ -2755,6 +2737,7 @@
     }
 
     window.folderVideoCheckUpdates = () => checkForUpdates();
+    window.setInterval(() => checkForUpdates(), 60_000);
 
     async function registerServiceWorker() {
         if (!('serviceWorker' in navigator)) {
@@ -2936,12 +2919,6 @@
             }
         } else {
             registerServiceWorker();
-        }
-        if (isFolderVideoTvApp()) {
-            window.setInterval(() => {
-                tvPreviewOffset += 4;
-                schedulePreviewRefresh();
-            }, 6000);
         }
     }
 

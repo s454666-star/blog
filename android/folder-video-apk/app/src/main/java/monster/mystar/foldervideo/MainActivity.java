@@ -28,7 +28,6 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
-import android.webkit.HttpAuthHandler;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -40,8 +39,6 @@ import android.widget.Toast;
 
 import org.json.JSONObject;
 
-import monster.mystar.shared.NasDirectBridge;
-
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -49,10 +46,11 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final int APP_VERSION_CODE = 16;
-    private static final String APP_VERSION_NAME = "2026.07.11.16";
+    private static final int APP_VERSION_CODE = 19;
+    private static final String APP_VERSION_NAME = "2026.07.23.19";
     private static final String ANDROID_VERSION_PATH = "/folder-video-app/android-version.json";
     private static final String[] APP_URLS = new String[] {
+        "http://10.0.0.31:8090/folder-video-app",
         "http://10.0.0.25:8090/folder-video-app",
         "http://10.0.0.19:8090/folder-video-app",
         "http://10.147.18.155:8090/folder-video-app"
@@ -60,7 +58,6 @@ public class MainActivity extends Activity {
 
     private FrameLayout root;
     private WebView webView;
-    private NasDirectBridge directNas;
     private View errorView;
     private TextView errorMessageView;
     private TextView errorUrlView;
@@ -130,8 +127,6 @@ public class MainActivity extends Activity {
         settings.setUserAgentString(settings.getUserAgentString() + " FolderVideoApp/" + APP_VERSION_NAME);
 
         webView.setBackgroundColor(Color.BLACK);
-        directNas = new NasDirectBridge(this, "folder-video-phone");
-        webView.addJavascriptInterface(directNas, "DirectNas");
         webView.setWebViewClient(new FolderVideoWebViewClient());
         webView.setWebChromeClient(new FullscreenChromeClient());
         webView.setDownloadListener(new FolderVideoDownloadListener());
@@ -425,15 +420,8 @@ public class MainActivity extends Activity {
         }
 
         @Override
-        public void onReceivedHttpAuthRequest(WebView view, HttpAuthHandler handler, String host, String realm) {
-            if (directNas != null && directNas.handleHttpAuth(handler, host)) return;
-            super.onReceivedHttpAuthRequest(view, handler, host, realm);
-        }
-
-        @Override
         public void onPageFinished(WebView view, String url) {
             super.onPageFinished(view, url);
-            if (directNas != null) directNas.promptIfNeeded(() -> view.reload());
             hideErrorView();
             injectSystemBarInsets();
         }

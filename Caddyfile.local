@@ -1,0 +1,28 @@
+(blog_routes) {
+	handle_path /video/* {
+		root * E:/video
+		file_server browse
+		header Access-Control-Allow-Origin "*"
+		header Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+		header Access-Control-Allow-Headers "Range, If-Range, If-None-Match"
+		header Access-Control-Expose-Headers "Accept-Ranges, Content-Length, Content-Range, Etag, Last-Modified"
+		header Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
+		header X-Content-Type-Options "nosniff"
+	}
+
+	handle {
+		encode zstd gzip
+		root * C:/Users/USER/Documents/project/blog/public
+		php_fastcgi 127.0.0.1:9000
+		file_server
+	}
+}
+
+https://blog {
+	tls storage/certs/blog.pem storage/certs/blog-key.pem
+	import blog_routes
+}
+
+:80 {
+	import blog_routes
+}

@@ -30,6 +30,21 @@ def is_within(path: Path, root: Path) -> bool:
         return False
 
 
+def safe_unlink(path: Path, attempts: int = 6) -> None:
+    for attempt in range(attempts):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if attempt + 1 >= attempts:
+                return
+            time.sleep(0.05 * (attempt + 1))
+        except OSError:
+            return
+
+
 class RangeRequestHandler(BaseHTTPRequestHandler):
     server_version = "FolderVideoRange/1.0"
 
@@ -252,28 +267,43 @@ def transcode_preview(
     return False
 
 
-def transcode_animated_preview(ffmpeg: str, source: Path, destination: Path) -> bool:
+def transcode_tv_preview(ffmpeg: str, source: Path, destination: Path) -> bool:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.stem + f".tmp.{uuid.uuid4().hex}.webp")
-    command = [
-        ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-t", "3", "-i", str(source),
-        "-vf", "fps=5,scale=320:180:force_original_aspect_ratio=increase,crop=320:180",
-        "-an", "-c:v", "libwebp_anim", "-lossless", "0", "-quality", "48",
-        "-compression_level", "3", "-loop", "0", str(temporary),
+    temporary = destination.with_name(destination.name + f".tmp.{uuid.uuid4().hex}.mp4")
+    common = [
+        ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+        "-probesize", "512K", "-analyzeduration", "500000",
+        "-i", str(source), "-t", "3",
+        "-vf", "fps=10,scale=640:360:force_original_aspect_ratio=increase,crop=640:360",
+        "-an",
+    ]
+    output = ["-pix_fmt", "yuv420p", "-movflags", "+faststart", str(temporary)]
+    commands = [
+        common + [
+            "-c:v", "h264_nvenc", "-preset", "p3", "-tune", "hq",
+            "-rc", "vbr", "-cq", "20", "-b:v", "0",
+            "-maxrate", "2500k", "-bufsize", "5000k",
+        ] + output,
+        common + [
+            "-c:v", "libx264", "-preset", "veryfast", "-tune", "fastdecode",
+            "-crf", "20",
+        ] + output,
     ]
     creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        result = subprocess.run(
-            command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, timeout=180, check=False, creationflags=creation_flags,
-        )
-        if result.returncode == 0 and temporary.is_file() and temporary.stat().st_size > 0:
-            os.replace(temporary, destination)
-            return True
+        for command in commands:
+            safe_unlink(temporary)
+            result = subprocess.run(
+                command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=180, check=False, creationflags=creation_flags,
+            )
+            if result.returncode == 0 and temporary.is_file() and temporary.stat().st_size > 0:
+                os.replace(temporary, destination)
+                return True
     except (OSError, subprocess.TimeoutExpired):
         pass
     finally:
-        temporary.unlink(missing_ok=True)
+        safe_unlink(temporary)
     return False
 
 
@@ -427,14 +457,14 @@ def preview_worker(
                 continue
             if destination.is_file() and destination.stat().st_size > 0:
                 continue
-            if payload.get("kind") == "animated_webp":
-                transcode_animated_preview(ffmpeg, source, destination)
+            if payload.get("kind") == "tv_mp4":
+                transcode_tv_preview(ffmpeg, source, destination)
             else:
                 transcode_preview(ffmpeg, source, destination, seconds, height)
         except (OSError, ValueError, json.JSONDecodeError):
             pass
         finally:
-            working_path.unlink(missing_ok=True)
+            safe_unlink(working_path)
 
 
 def hls_worker(

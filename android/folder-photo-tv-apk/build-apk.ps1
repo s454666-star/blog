@@ -2,8 +2,8 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $projectRoot '..\..')
-$versionCode = 4
-$versionName = '2026.07.11.4-tv'
+$versionCode = 5
+$versionName = '2026.07.23.5-tv'
 $sdkRoot = $env:ANDROID_SDK_ROOT
 if (-not $sdkRoot) {
     $sdkRoot = $env:ANDROID_HOME
@@ -45,7 +45,6 @@ foreach ($tool in @($aapt2, $d8, $zipalign, $apksigner, $javac, $keytool, $platf
 
 $buildDir = Join-Path $projectRoot 'build'
 $compiledResources = Join-Path $buildDir 'compiled-resources.zip'
-$sharedCompiledResources = Join-Path $buildDir 'shared-compiled-resources.zip'
 $generatedDir = Join-Path $buildDir 'generated'
 $classesDir = Join-Path $buildDir 'classes'
 $dexDir = Join-Path $buildDir 'dex'
@@ -65,7 +64,6 @@ if (Test-Path $buildDir) {
     Remove-Item -LiteralPath $buildDir -Recurse -Force
 }
 New-Item -ItemType Directory -Force -Path $buildDir, $generatedDir, $classesDir, $dexDir | Out-Null
-$sharedBuildResources = & (Join-Path $repoRoot 'android\shared-nas-direct\prepare-resources.ps1') -BuildDir $buildDir -RepoRoot $repoRoot
 
 $compiled = $false
 for ($attempt = 1; $attempt -le 3; $attempt++) {
@@ -79,9 +77,6 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
 }
 if (-not $compiled) { throw 'aapt2 compile failed' }
 
-& $aapt2 compile --dir $sharedBuildResources -o $sharedCompiledResources
-if ($LASTEXITCODE -ne 0) { throw 'shared aapt2 compile failed' }
-
 & $aapt2 link `
     -o $unsignedApk `
     -I $platformJar `
@@ -89,13 +84,11 @@ if ($LASTEXITCODE -ne 0) { throw 'shared aapt2 compile failed' }
     --version-name $versionName `
     --manifest (Join-Path $projectRoot 'app\src\main\AndroidManifest.xml') `
     --java $generatedDir `
-    $compiledResources `
-    $sharedCompiledResources
+    $compiledResources
 if ($LASTEXITCODE -ne 0) { throw 'aapt2 link failed' }
 
 $javaFiles = @(
     (Join-Path $generatedDir 'monster\mystar\folderphototv\R.java'),
-    (Join-Path $repoRoot 'android\shared-nas-direct\java\monster\mystar\shared\NasDirectBridge.java'),
     (Join-Path $projectRoot 'app\src\main\java\monster\mystar\folderphototv\MainActivity.java')
 )
 & $javac -encoding UTF-8 -source 8 -target 8 -classpath $platformJar -d $classesDir $javaFiles

@@ -10,10 +10,6 @@ $monitorPath = Join-Path $PSScriptRoot "monitor-folder-video-server.ps1"
 if (-not (Test-Path -LiteralPath $monitorPath)) {
     throw "Folder Video monitor not found: $monitorPath"
 }
-if (-not (Test-Path -LiteralPath $HiddenRunnerPath)) {
-    throw "Hidden task runner not found: $HiddenRunnerPath"
-}
-
 function ConvertTo-RunnerToken {
     param([AllowNull()][string]$Value)
 
@@ -28,15 +24,26 @@ $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $powershellPath = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
 $wscriptPath = Join-Path $env:WINDIR "System32\wscript.exe"
 $workingDirectory = Split-Path -Parent $PSScriptRoot
+$bundledHiddenRunner = Join-Path $PSScriptRoot "run-folder-video-monitor-hidden.vbs"
 $actionArguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"' -f $monitorPath
-$hiddenArguments = '//B //Nologo "{0}" {1} {2} {3}' -f $HiddenRunnerPath, `
-    (ConvertTo-RunnerToken $powershellPath), `
-    (ConvertTo-RunnerToken $actionArguments), `
-    (ConvertTo-RunnerToken $workingDirectory)
-$action = New-ScheduledTaskAction `
-    -Execute $wscriptPath `
-    -Argument $hiddenArguments `
-    -WorkingDirectory (Split-Path -Parent $HiddenRunnerPath)
+if (Test-Path -LiteralPath $HiddenRunnerPath) {
+    $hiddenArguments = '//B //Nologo "{0}" {1} {2} {3}' -f $HiddenRunnerPath, `
+        (ConvertTo-RunnerToken $powershellPath), `
+        (ConvertTo-RunnerToken $actionArguments), `
+        (ConvertTo-RunnerToken $workingDirectory)
+    $action = New-ScheduledTaskAction `
+        -Execute $wscriptPath `
+        -Argument $hiddenArguments `
+        -WorkingDirectory (Split-Path -Parent $HiddenRunnerPath)
+} else {
+    if (-not (Test-Path -LiteralPath $bundledHiddenRunner)) {
+        throw "Bundled hidden task runner not found: $bundledHiddenRunner"
+    }
+    $action = New-ScheduledTaskAction `
+        -Execute $wscriptPath `
+        -Argument ('//B //Nologo "{0}"' -f $bundledHiddenRunner) `
+        -WorkingDirectory $PSScriptRoot
+}
 $triggers = @(
     New-ScheduledTaskTrigger -AtLogOn -User $identity
     New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)

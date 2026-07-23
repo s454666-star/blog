@@ -43,7 +43,10 @@ class AndroidTvAppSourceTest extends TestCase
     {
         $contents = file_get_contents(base_path('resources/views/folder-video-app/index.blade.php'));
 
-        $this->assertStringContainsString("const previewSrc = video.preview_cached ? video.preview_url : '';", $contents);
+        $this->assertStringContainsString(
+            "const previewSrc = isFolderVideoTvApp() ? '' : (video.preview_cached ? video.preview_url : '');",
+            $contents
+        );
         $this->assertStringContainsString('class="preview-poster"', $contents);
         $this->assertStringContainsString("video.addEventListener('loadeddata', () => video.classList.add('has-frame'))", $contents);
         $this->assertStringContainsString('/preview-queue', $contents);
@@ -51,21 +54,32 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=', $contents);
         $this->assertStringContainsString("method: 'HEAD', cache: 'no-store'", $contents);
         $this->assertStringContainsString('await sleep(100);', $contents);
-        $this->assertStringContainsString('const decoderLimit = isFolderVideoTvApp() ? 4 : 8;', $contents);
+        $this->assertStringContainsString(
+            'const decoderLimit = configuredPreviewLimit;',
+            $contents
+        );
+        $this->assertStringNotContainsString(
+            'const decoderLimit = isFolderVideoTvApp() ? 4 : 8;',
+            $contents
+        );
+        $this->assertStringNotContainsString('tvPreviewOffset', $contents);
+        $this->assertStringContainsString('scheduleTvPlaybackWarm(video, delay = 700)', $contents);
 
         $server = file_get_contents(base_path('scripts/folder_video_range_server.py'));
         $this->assertStringContainsString('BUFFER_SIZE = 1024 * 1024', $server);
         $this->assertStringContainsString('self.send_response(206 if partial else 200)', $server);
         $this->assertStringContainsString('h264_nvenc', $server);
-        $this->assertStringContainsString('transcode_animated_preview', $server);
+        $this->assertStringContainsString('transcode_tv_preview', $server);
         $this->assertStringContainsString('transcode_hls', $server);
-        $this->assertStringContainsString('libwebp_anim', $server);
+        $this->assertStringContainsString('"h264_nvenc", "-preset", "p3"', $server);
         $this->assertStringContainsString("scale=w='if(gte(iw,ih),-2,256)'", $server);
         $this->assertStringContainsString("scale_cuda=w='if(gte(iw,ih),-2,256)'", $server);
         $this->assertStringNotContainsString('pad_cuda=', $server);
         $this->assertStringNotContainsString('pad={canvas_width}', $server);
         $this->assertStringContainsString('parser.add_argument("--preview-workers", type=int, default=2)', $server);
-        $this->assertStringContainsString('scale=320:180', $server);
+        $this->assertStringContainsString('scale=640:360', $server);
+        $this->assertStringContainsString('"-crf", "20"', $server);
+        $this->assertStringContainsString('safe_unlink(working_path)', $server);
         $this->assertStringContainsString('range(max(1, min(args.preview_workers, 8)))', $server);
         $this->assertStringContainsString('has_newer_request', $server);
 
@@ -75,20 +89,22 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString("method: 'HEAD'", $contents);
         $this->assertStringContainsString("playlist.matchAll(/#EXTINF:", $contents);
         $this->assertStringContainsString('queueTvPlaybackWarm', $contents);
-        $this->assertStringContainsString('playVideoDirectFirst', $contents);
-        $this->assertStringContainsString('folderVideoTvDirectError', $contents);
+        $this->assertStringContainsString(
+            'window.FolderVideoTvAndroid.playVideo(normalized.stream_url, saved);',
+            $contents
+        );
         $this->assertStringContainsString('vendor/hls.js/hls.min.js', $contents);
         $this->assertStringContainsString("script.src = '/vendor/hls.js/hls.min.js';", $contents);
         $this->assertStringContainsString('function ensureHlsLibrary()', $contents);
         $this->assertStringContainsString('needsOptimizedPlayback', $contents);
-        $this->assertStringContainsString('http://10.0.0.2:8095/', $contents);
+        $this->assertStringNotContainsString('http://10.0.0.2:8095/', $contents);
 
         $activity = file_get_contents(base_path(
             'android/folder-video-tv-apk/app/src/main/java/monster/mystar/foldervideotv/MainActivity.java'
         ));
-        $this->assertStringContainsString('NAS_NGINX_BASE_URL', $activity);
-        $this->assertStringContainsString('AndroidKeyStore', $activity);
-        $this->assertStringContainsString('setVideoURI(mediaUri, headers)', $activity);
+        $this->assertStringNotContainsString('NAS_NGINX_BASE_URL', $activity);
+        $this->assertStringNotContainsString('AndroidKeyStore', $activity);
+        $this->assertStringContainsString('setVideoURI(mediaUri)', $activity);
 
         $startup = file_get_contents(base_path('scripts/start-folder-video-api.ps1'));
         $this->assertStringContainsString('[int]$MediaStreamPort = 8092', $startup);
@@ -151,10 +167,12 @@ class AndroidTvAppSourceTest extends TestCase
         $this->assertStringContainsString('$mediaArguments += "--hls-source-root=$hlsSourceRoot"', $startup);
     }
 
-    public function test_all_six_android_apps_include_secure_nas_direct_support(): void
+    public function test_nas_viewer_android_apps_keep_secure_nas_direct_support(): void
     {
-        $activities = glob(base_path('android/*-apk/app/src/main/java/*/*/*/MainActivity.java')) ?: [];
-        $this->assertCount(6, $activities);
+        $activities = [
+            base_path('android/nas-viewer-apk/app/src/main/java/monster/mystar/nasviewer/MainActivity.java'),
+            base_path('android/nas-viewer-tv-apk/app/src/main/java/monster/mystar/nasviewertv/MainActivity.java'),
+        ];
         foreach ($activities as $activity) {
             $contents = file_get_contents($activity);
             $this->assertIsString($contents);
@@ -176,7 +194,8 @@ class AndroidTvAppSourceTest extends TestCase
         $videoTv = file_get_contents(base_path(
             'android/folder-video-tv-apk/app/src/main/java/monster/mystar/foldervideotv/MainActivity.java'
         ));
-        $this->assertStringContainsString('NasDirectBridge.bundledCredentials(this)', $videoTv);
+        $this->assertStringNotContainsString('NasDirectBridge', $videoTv);
+        $this->assertStringNotContainsString('NAS 帳號', $videoTv);
 
         $this->assertFileDoesNotExist(base_path(
             'android/shared-nas-direct/nas-credentials.xml'

@@ -397,6 +397,59 @@
             height: 58px;
             margin: 3px 0 1px;
             overflow: visible;
+            cursor: crosshair;
+            touch-action: pan-y;
+        }
+
+        .cost-history-tooltip {
+            position: absolute;
+            top: 34px;
+            z-index: 5;
+            min-width: 128px;
+            padding: 7px 9px;
+            border: 1px solid rgba(148, 163, 184, 0.32);
+            border-radius: 7px;
+            color: var(--text);
+            background: rgba(9, 14, 23, 0.94);
+            box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(-50%) translateY(3px);
+            transition: opacity 100ms ease, transform 100ms ease;
+        }
+
+        .cost-history-tooltip.visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .cost-history-tooltip-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 10px;
+            font-weight: 900;
+        }
+
+        .cost-history-tooltip-action.add { color: var(--amber); }
+        .cost-history-tooltip-action.reduce { color: var(--cyan); }
+        .cost-history-tooltip-action.flat,
+        .cost-history-tooltip-action.start { color: var(--muted); }
+
+        .cost-history-tooltip-value {
+            margin-top: 4px;
+            font-size: 12px;
+            font-weight: 900;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .cost-history-tooltip-change {
+            margin-top: 2px;
+            color: var(--muted-2);
+            font-size: 10px;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
         }
 
         .investment-metrics {
@@ -1079,7 +1132,15 @@
             <div class="value neutral" data-summary="investedCost">--</div>
             <div class="cost-history-panel" data-cost-history-panel>
                 <div class="cost-history-head"><span>近 15 日成本</span><span data-cost-history-meta>讀取中</span></div>
-                <svg class="cost-history-svg" data-cost-history-wave viewBox="0 0 320 58" preserveAspectRatio="none" role="img" aria-label="近 15 日投入總成本走勢"></svg>
+                <svg class="cost-history-svg" data-cost-history-wave viewBox="0 0 320 58" preserveAspectRatio="none" role="img" aria-label="近 15 日投入總成本走勢，滑鼠移入可查看加減碼日期"></svg>
+                <div class="cost-history-tooltip" data-cost-history-tooltip aria-hidden="true">
+                    <div class="cost-history-tooltip-head">
+                        <span data-cost-history-tooltip-date>--</span>
+                        <span class="cost-history-tooltip-action" data-cost-history-tooltip-action>--</span>
+                    </div>
+                    <div class="cost-history-tooltip-value" data-cost-history-tooltip-value>成本 --</div>
+                    <div class="cost-history-tooltip-change" data-cost-history-tooltip-change>--</div>
+                </div>
                 <div class="cost-history-axis"><span data-cost-history-start>--</span><span data-cost-history-end>--</span></div>
             </div>
             <div class="investment-metrics" data-summary="investmentLevel">
@@ -1212,6 +1273,7 @@ const els = {
     historyDate: document.querySelector('[data-history-date]'),
     costHistoryWave: document.querySelector('[data-cost-history-wave]'),
     costHistoryPanel: document.querySelector('[data-cost-history-panel]'),
+    costHistoryTooltip: document.querySelector('[data-cost-history-tooltip]'),
     sortButtons: document.querySelectorAll('[data-sort-key]'),
 };
 
@@ -1513,7 +1575,12 @@ function renderCostHistory(dates = []) {
 
     const points = state.costHistory;
     const emptyText = '暫無成本快照';
-    els.costHistoryWave.innerHTML = waveSvgMarkup(points, 320, 58, { emptyText });
+    els.costHistoryWave.innerHTML = `${waveSvgMarkup(points, 320, 58, { emptyText })}
+        <g data-cost-history-hover visibility="hidden" pointer-events="none">
+            <line data-cost-history-hover-line y1="5" y2="53" stroke="#e2e8f0" stroke-opacity="0.52" stroke-dasharray="3 3" />
+            <circle data-cost-history-hover-point r="3.5" fill="#0f172a" stroke="#e2e8f0" stroke-width="2" vector-effect="non-scaling-stroke" />
+        </g>`;
+    hideCostHistoryTooltip();
 
     const meta = els.costHistoryPanel.querySelector('[data-cost-history-meta]');
     const start = els.costHistoryPanel.querySelector('[data-cost-history-start]');
@@ -1533,6 +1600,100 @@ function renderCostHistory(dates = []) {
 function costHistoryDateLabel(value) {
     const match = String(value || '').match(/^\d{4}-(\d{2})-(\d{2})$/);
     return match ? `${match[1]}/${match[2]}` : '--';
+}
+
+function costHistoryFullDateLabel(value) {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return match ? `${match[1]}/${match[2]}/${match[3]}` : '--';
+}
+
+function costHistoryGeometry(points, width = 320, height = 58) {
+    if (!points.length) return [];
+
+    const padX = 5;
+    const padY = 7;
+    const values = points.map(point => point.value);
+    const rawMin = Math.min(...values);
+    const rawMax = Math.max(...values);
+    const valuePadding = rawMax === rawMin
+        ? Math.max(Math.abs(rawMax) * 0.01, 1)
+        : (rawMax - rawMin) * 0.1;
+    const min = rawMin - valuePadding;
+    const max = rawMax + valuePadding;
+    const firstTime = points[0].time;
+    const lastTime = points[points.length - 1].time;
+    const timeRange = Math.max(1, lastTime - firstTime);
+
+    return points.map((point, index) => ({
+        ...point,
+        index,
+        x: padX + (point.time - firstTime) / timeRange * (width - padX * 2),
+        y: padY + (max - point.value) / Math.max(0.000001, max - min) * (height - padY * 2),
+    }));
+}
+
+function showCostHistoryTooltip(event) {
+    const points = costHistoryGeometry(state.costHistory);
+    if (!points.length || !els.costHistoryTooltip) return;
+
+    const svgRect = els.costHistoryWave.getBoundingClientRect();
+    if (svgRect.width <= 0) return;
+
+    const pointerX = Math.max(0, Math.min(320, (event.clientX - svgRect.left) / svgRect.width * 320));
+    const point = points.reduce((nearest, candidate) =>
+        Math.abs(candidate.x - pointerX) < Math.abs(nearest.x - pointerX) ? candidate : nearest
+    );
+    const previous = point.index > 0 ? points[point.index - 1] : null;
+    const delta = previous ? point.value - previous.value : null;
+    const action = delta === null ? '起始' : (delta > 0 ? '加碼' : (delta < 0 ? '減碼' : '持平'));
+    const actionClass = delta === null ? 'start' : (delta > 0 ? 'add' : (delta < 0 ? 'reduce' : 'flat'));
+
+    const hover = els.costHistoryWave.querySelector('[data-cost-history-hover]');
+    hover.setAttribute('visibility', 'visible');
+    const line = hover.querySelector('[data-cost-history-hover-line]');
+    line.setAttribute('x1', point.x.toFixed(2));
+    line.setAttribute('x2', point.x.toFixed(2));
+    const circle = hover.querySelector('[data-cost-history-hover-point]');
+    circle.setAttribute('cx', point.x.toFixed(2));
+    circle.setAttribute('cy', point.y.toFixed(2));
+
+    els.costHistoryTooltip.querySelector('[data-cost-history-tooltip-date]').textContent = costHistoryFullDateLabel(point.date);
+    const actionTarget = els.costHistoryTooltip.querySelector('[data-cost-history-tooltip-action]');
+    actionTarget.textContent = action;
+    actionTarget.className = `cost-history-tooltip-action ${actionClass}`;
+    els.costHistoryTooltip.querySelector('[data-cost-history-tooltip-value]').textContent = `成本 ${formatInteger(point.value)}`;
+    els.costHistoryTooltip.querySelector('[data-cost-history-tooltip-change]').textContent = delta === null
+        ? '此區間第一筆快照'
+        : `較前次 ${formatMoney(delta)}`;
+
+    const panelRect = els.costHistoryPanel.getBoundingClientRect();
+    const tooltipHalfWidth = Math.max(64, els.costHistoryTooltip.offsetWidth / 2);
+    const pointLeft = svgRect.left - panelRect.left + point.x / 320 * svgRect.width;
+    const tooltipLeft = Math.max(tooltipHalfWidth + 4, Math.min(panelRect.width - tooltipHalfWidth - 4, pointLeft));
+    els.costHistoryTooltip.style.left = `${tooltipLeft}px`;
+    els.costHistoryTooltip.classList.add('visible');
+    els.costHistoryTooltip.setAttribute('aria-hidden', 'false');
+}
+
+function hideCostHistoryTooltip() {
+    els.costHistoryWave?.querySelector('[data-cost-history-hover]')?.setAttribute('visibility', 'hidden');
+    if (!els.costHistoryTooltip) return;
+    els.costHistoryTooltip.classList.remove('visible');
+    els.costHistoryTooltip.setAttribute('aria-hidden', 'true');
+}
+
+function setupCostHistoryHover() {
+    if (!els.costHistoryWave) return;
+    els.costHistoryWave.addEventListener('pointermove', showCostHistoryTooltip);
+    els.costHistoryWave.addEventListener('pointerdown', showCostHistoryTooltip);
+    els.costHistoryWave.addEventListener('pointerleave', hideCostHistoryTooltip);
+    els.costHistoryPanel?.addEventListener('pointerleave', hideCostHistoryTooltip);
+    els.costHistoryPanel?.addEventListener('mouseleave', hideCostHistoryTooltip);
+    document.addEventListener('pointermove', event => {
+        if (!els.costHistoryPanel?.contains(event.target)) {
+            hideCostHistoryTooltip();
+        }
+    });
 }
 
 function stockWaveHtml(row) {
@@ -2849,6 +3010,7 @@ els.sortButtons.forEach(button => {
 });
 
 setupSilentCopy();
+setupCostHistoryHover();
 updateSortIndicators();
 renderPnlWaves();
 renderCostHistory();

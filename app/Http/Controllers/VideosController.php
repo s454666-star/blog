@@ -543,7 +543,7 @@
         {
             $videoType = $request->input('video_type', '1');
             $page = max(1, (int) $request->input('page', 1));
-            $perPage = min(400, max(40, (int) $request->input('per_page', 160)));
+            $perPage = min(1500, max(40, (int) $request->input('per_page', 160)));
             $keyword = $this->normalizeKeyword($request->input('keyword'));
             $expandContextMode = $this->shouldExpandKeywordContext($request);
 

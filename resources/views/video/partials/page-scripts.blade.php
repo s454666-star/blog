@@ -440,7 +440,7 @@
         });
     }
 
-    function loadPageAndFocus(videoId, page) {
+    function loadPageAndFocus(videoId, page, behavior = 'smooth') {
         if (!page) {
             showMessage('error', '找不到該影片所在的頁面。');
             return;
@@ -468,13 +468,7 @@
                     lastPage = res.last_page || lastPage;
                     rebuildAndSort();
 
-                    const $target = $('.video-row[data-id="' + videoId + '"]');
-                    if ($target.length) {
-                        $('.video-row').removeClass('focused');
-                        $target.addClass('focused');
-                        focusMasterFace(videoId);
-                        $target[0].scrollIntoView({behavior: 'smooth', block: 'center'});
-                    }
+                    focusVideoRowById(videoId, {behavior});
                 } else {
                     showMessage('error', '無法載入該頁資料。');
                 }
@@ -583,7 +577,7 @@
         }
         const c = document.querySelector('.master-faces');
         if (!c) return;
-        c.scrollTo({top: $t[0].offsetTop - c.clientHeight / 2 + $t[0].clientHeight / 2, behavior: 'smooth'});
+        c.scrollTo({top: $t[0].offsetTop - c.clientHeight / 2 + $t[0].clientHeight / 2, behavior: 'auto'});
     }
 
     function releaseRowMediaSources($row) {
@@ -1217,7 +1211,7 @@
                 $('.video-row').removeClass('focused');
                 $row.addClass('focused');
                 focusMasterFace(vid);
-                $row[0].scrollIntoView({behavior: 'smooth', block: 'center'});
+                scrollVideoRowToFocus($row[0], 'auto');
                 return;
             }
 
@@ -1226,7 +1220,7 @@
                 video_id: vid,
             }), res => {
                 if (res?.success && res.page) {
-                    loadPageAndFocus(vid, res.page);
+                    loadPageAndFocus(vid, res.page, 'auto');
                 } else {
                     showMessage('error', '找不到該影片所在的頁面。');
                 }
@@ -1490,7 +1484,7 @@
         if (targetId === null || initialFocusTrackingCancelled) return;
 
         focusVideoRowById(targetId, {
-            behavior: forceRetry ? 'auto' : 'smooth',
+            behavior: 'auto',
             syncSidebar: !forceRetry,
         });
 
@@ -1640,7 +1634,7 @@
             method: 'GET',
             data: {
                 page,
-                per_page: 160,
+                per_page: 1500,
                 video_type: videoType,
                 sort_by: sortBy,
                 sort_dir: sortDir,

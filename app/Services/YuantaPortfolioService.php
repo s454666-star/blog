@@ -140,7 +140,7 @@ class YuantaPortfolioService
     }
 
     /**
-     * @return array<int, array{date: string, capturedAt: string|null, todayPnl: float|null, unrealizedPnl: float|null}>
+     * @return array<int, array{date: string, capturedAt: string|null, costBasis: float|null, todayPnl: float|null, unrealizedPnl: float|null}>
      */
     public function dailySnapshotDates(int $limit = 90): array
     {
@@ -151,6 +151,7 @@ class YuantaPortfolioService
             ->map(fn (YuantaPortfolioDailySnapshot $snapshot): array => [
                 'date' => $snapshot->snapshot_date?->toDateString() ?? '',
                 'capturedAt' => $snapshot->captured_at?->toIso8601String(),
+                'costBasis' => $snapshot->cost_basis,
                 'todayPnl' => $snapshot->today_pnl,
                 'unrealizedPnl' => $snapshot->unrealized_pnl,
             ])

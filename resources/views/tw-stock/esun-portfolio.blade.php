@@ -365,6 +365,40 @@
                 var(--panel);
         }
 
+        .cost-history-panel {
+            position: relative;
+            z-index: 1;
+            margin-top: 12px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(148, 163, 184, 0.13);
+        }
+
+        .cost-history-head,
+        .cost-history-axis {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            color: var(--muted-2);
+            font-size: 9px;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .cost-history-head span:first-child {
+            color: var(--muted);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+        }
+
+        .cost-history-svg {
+            display: block;
+            width: 100%;
+            height: 58px;
+            margin: 3px 0 1px;
+            overflow: visible;
+        }
+
         .investment-metrics {
             display: grid;
             gap: 7px;
@@ -1043,6 +1077,11 @@
         <div class="summary-card capital-card">
             <div class="label">投入總成本</div>
             <div class="value neutral" data-summary="investedCost">--</div>
+            <div class="cost-history-panel" data-cost-history-panel>
+                <div class="cost-history-head"><span>近 15 日成本</span><span data-cost-history-meta>讀取中</span></div>
+                <svg class="cost-history-svg" data-cost-history-wave viewBox="0 0 320 58" preserveAspectRatio="none" role="img" aria-label="近 15 日投入總成本走勢"></svg>
+                <div class="cost-history-axis"><span data-cost-history-start>--</span><span data-cost-history-end>--</span></div>
+            </div>
             <div class="investment-metrics" data-summary="investmentLevel">
                 <div class="investment-line">
                     <span class="investment-label">投資水位</span>
@@ -1151,6 +1190,7 @@ const state = {
     intradayCodesKey: '',
     intradaySeries: {},
     pnlSeries: { todayPnl: [], unrealizedPnl: [] },
+    costHistory: [],
     lastQuotePayload: null,
     lastPayload: null,
     sort: {
@@ -1170,6 +1210,8 @@ const els = {
     esunRefresh: document.querySelector('[data-esun-refresh]'),
     quoteRefresh: document.querySelector('[data-quote-refresh]'),
     historyDate: document.querySelector('[data-history-date]'),
+    costHistoryWave: document.querySelector('[data-cost-history-wave]'),
+    costHistoryPanel: document.querySelector('[data-cost-history-panel]'),
     sortButtons: document.querySelectorAll('[data-sort-key]'),
 };
 
@@ -1453,6 +1495,44 @@ function renderPnlWaves() {
         const axis = panel.querySelector('.pnl-wave-axis span:last-child');
         axis.textContent = points.length ? waveTimeLabel(points[points.length - 1].time) : '現在';
     });
+}
+
+function renderCostHistory(dates = []) {
+    if (!els.costHistoryWave || !els.costHistoryPanel) return;
+
+    state.costHistory = (dates || [])
+        .map(row => {
+            const date = String(row.date || '');
+            const value = finiteNumber(row.costBasis);
+            const time = Date.parse(`${date}T00:00:00+08:00`) / 1000;
+            return { date, time, value };
+        })
+        .filter(point => point.date && Number.isFinite(point.time) && point.value !== null)
+        .slice(0, 15)
+        .reverse();
+
+    const points = state.costHistory;
+    const emptyText = '暫無成本快照';
+    els.costHistoryWave.innerHTML = waveSvgMarkup(points, 320, 58, { emptyText });
+
+    const meta = els.costHistoryPanel.querySelector('[data-cost-history-meta]');
+    const start = els.costHistoryPanel.querySelector('[data-cost-history-start]');
+    const end = els.costHistoryPanel.querySelector('[data-cost-history-end]');
+    if (!points.length) {
+        meta.textContent = emptyText;
+        start.textContent = '--';
+        end.textContent = '--';
+        return;
+    }
+
+    meta.textContent = `${points.length} 筆 · ${waveValueRange(points, formatInteger)}`;
+    start.textContent = costHistoryDateLabel(points[0].date);
+    end.textContent = costHistoryDateLabel(points[points.length - 1].date);
+}
+
+function costHistoryDateLabel(value) {
+    const match = String(value || '').match(/^\d{4}-(\d{2})-(\d{2})$/);
+    return match ? `${match[1]}/${match[2]}` : '--';
 }
 
 function stockWaveHtml(row) {
@@ -2153,9 +2233,12 @@ async function loadHistoryDates() {
             throw new Error(`HTTP ${response.status}`);
         }
 
-        renderHistoryDateOptions((await response.json()).dates || []);
+        const dates = (await response.json()).dates || [];
+        renderHistoryDateOptions(dates);
+        renderCostHistory(dates);
     } catch (error) {
         els.historyDate.innerHTML = '<option value="">即時</option>';
+        renderCostHistory([]);
     }
 }
 
@@ -2768,6 +2851,7 @@ els.sortButtons.forEach(button => {
 setupSilentCopy();
 updateSortIndicators();
 renderPnlWaves();
+renderCostHistory();
 loadHistoryDates();
 fetchData(true);
 </script>

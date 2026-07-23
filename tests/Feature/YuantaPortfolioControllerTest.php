@@ -38,6 +38,8 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertSee('元大每60秒校準')
             ->assertSee('更新元大API')
             ->assertSee('今日損益')
+            ->assertSee('近 15 日成本')
+            ->assertSee('data-cost-history-wave', false)
             ->assertSee('融資額度')
             ->assertSee('已用額度')
             ->assertSee('可用額度')
@@ -167,6 +169,7 @@ class YuantaPortfolioControllerTest extends TestCase
             [
                 'date' => '2026-07-03',
                 'capturedAt' => '2026-07-03T17:55:00+08:00',
+                'costBasis' => 130000.0,
                 'todayPnl' => 16000.0,
                 'unrealizedPnl' => -12000.0,
             ],
@@ -176,6 +179,7 @@ class YuantaPortfolioControllerTest extends TestCase
         $this->getJson(route('tw-stock.yuanta-portfolio.history-dates', ['token' => 'test-token']))
             ->assertOk()
             ->assertJsonPath('dates.0.date', '2026-07-03')
+            ->assertJsonPath('dates.0.costBasis', 130000)
             ->assertJsonPath('dates.0.todayPnl', 16000);
     }
 

@@ -352,6 +352,7 @@ class YuantaPortfolioServiceTest extends TestCase
 
         $dates = $service->dailySnapshotDates();
         $this->assertSame('2099-07-03', $dates[0]['date']);
+        $this->assertSame(130000.0, $dates[0]['costBasis']);
         $this->assertSame(16000.0, $dates[0]['todayPnl']);
 
         $payload = $service->dailySnapshotPayload('2099-07-03');

@@ -53,6 +53,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('股票市值')
             ->assertSee('今年總損益')
             ->assertSee('今年報酬率')
+            ->assertSee('近 15 日成本')
+            ->assertSee('data-cost-history-wave', false)
             ->assertSee('當日已實現')
             ->assertDontSee('沖銷 --')
             ->assertDontSee('年化報酬率')
@@ -257,6 +259,7 @@ class EsunPortfolioControllerTest extends TestCase
             [
                 'date' => '2026-07-03',
                 'capturedAt' => '2026-07-03T17:56:00+08:00',
+                'costBasis' => 130000.0,
                 'todayPnl' => 16000.0,
                 'unrealizedPnl' => -12000.0,
             ],
@@ -266,6 +269,7 @@ class EsunPortfolioControllerTest extends TestCase
         $this->getJson(route('tw-stock.esun-portfolio.history-dates', ['token' => 'test-token']))
             ->assertOk()
             ->assertJsonPath('dates.0.date', '2026-07-03')
+            ->assertJsonPath('dates.0.costBasis', 130000)
             ->assertJsonPath('dates.0.todayPnl', 16000);
     }
 

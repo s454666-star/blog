@@ -403,15 +403,21 @@
 
         .cost-history-tooltip {
             position: absolute;
-            top: 34px;
+            top: 40px;
             z-index: 5;
-            min-width: 128px;
-            padding: 7px 9px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 7px;
             border: 1px solid rgba(148, 163, 184, 0.32);
-            border-radius: 7px;
+            border-radius: 5px;
             color: var(--text);
             background: rgba(9, 14, 23, 0.94);
             box-shadow: 0 8px 22px rgba(0, 0, 0, 0.34);
+            font-size: 10px;
+            font-weight: 900;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
             opacity: 0;
             pointer-events: none;
             transform: translateX(-50%) translateY(3px);
@@ -423,34 +429,8 @@
             transform: translateX(-50%) translateY(0);
         }
 
-        .cost-history-tooltip-head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 10px;
-            font-size: 10px;
-            font-weight: 900;
-        }
-
         .cost-history-tooltip-action.add { color: var(--amber); }
         .cost-history-tooltip-action.reduce { color: var(--cyan); }
-        .cost-history-tooltip-action.flat,
-        .cost-history-tooltip-action.start { color: var(--muted); }
-
-        .cost-history-tooltip-value {
-            margin-top: 4px;
-            font-size: 12px;
-            font-weight: 900;
-            font-variant-numeric: tabular-nums;
-        }
-
-        .cost-history-tooltip-change {
-            margin-top: 2px;
-            color: var(--muted-2);
-            font-size: 10px;
-            font-weight: 800;
-            font-variant-numeric: tabular-nums;
-        }
 
         .investment-metrics {
             display: grid;
@@ -1134,12 +1114,8 @@
                 <div class="cost-history-head"><span>近 15 日成本</span><span data-cost-history-meta>讀取中</span></div>
                 <svg class="cost-history-svg" data-cost-history-wave viewBox="0 0 320 58" preserveAspectRatio="none" role="img" aria-label="近 15 日投入總成本走勢，滑鼠移入可查看加減碼日期"></svg>
                 <div class="cost-history-tooltip" data-cost-history-tooltip aria-hidden="true">
-                    <div class="cost-history-tooltip-head">
-                        <span data-cost-history-tooltip-date>--</span>
-                        <span class="cost-history-tooltip-action" data-cost-history-tooltip-action>--</span>
-                    </div>
-                    <div class="cost-history-tooltip-value" data-cost-history-tooltip-value>成本 --</div>
-                    <div class="cost-history-tooltip-change" data-cost-history-tooltip-change>--</div>
+                    <span data-cost-history-tooltip-date>--</span>
+                    <span class="cost-history-tooltip-action" data-cost-history-tooltip-action hidden></span>
                 </div>
                 <div class="cost-history-axis"><span data-cost-history-start>--</span><span data-cost-history-end>--</span></div>
             </div>
@@ -1645,8 +1621,10 @@ function showCostHistoryTooltip(event) {
     );
     const previous = point.index > 0 ? points[point.index - 1] : null;
     const delta = previous ? point.value - previous.value : null;
-    const action = delta === null ? '起始' : (delta > 0 ? '加碼' : (delta < 0 ? '減碼' : '持平'));
-    const actionClass = delta === null ? 'start' : (delta > 0 ? 'add' : (delta < 0 ? 'reduce' : 'flat'));
+    const action = delta > 0
+        ? `加碼 ${formatInteger(Math.abs(delta))}`
+        : (delta < 0 ? `減碼 ${formatInteger(Math.abs(delta))}` : '');
+    const actionClass = delta > 0 ? 'add' : (delta < 0 ? 'reduce' : '');
 
     const hover = els.costHistoryWave.querySelector('[data-cost-history-hover]');
     hover.setAttribute('visibility', 'visible');
@@ -1661,10 +1639,7 @@ function showCostHistoryTooltip(event) {
     const actionTarget = els.costHistoryTooltip.querySelector('[data-cost-history-tooltip-action]');
     actionTarget.textContent = action;
     actionTarget.className = `cost-history-tooltip-action ${actionClass}`;
-    els.costHistoryTooltip.querySelector('[data-cost-history-tooltip-value]').textContent = `成本 ${formatInteger(point.value)}`;
-    els.costHistoryTooltip.querySelector('[data-cost-history-tooltip-change]').textContent = delta === null
-        ? '此區間第一筆快照'
-        : `較前次 ${formatMoney(delta)}`;
+    actionTarget.hidden = action === '';
 
     const panelRect = els.costHistoryPanel.getBoundingClientRect();
     const tooltipHalfWidth = Math.max(64, els.costHistoryTooltip.offsetWidth / 2);

@@ -37,8 +37,14 @@ class MoveDuplicateVideosCommand extends Command
         {--window-seconds=3 : 時長容許秒數}
         {--size-percent=15 : 相容舊參數；正式比對已不使用檔案大小 gate}
         {--max-candidates=250 : 每支影片最多拉多少 DB 候選}
+        {--repair-db-features=1 : 1=比對時修復缺漏或舊版 DB 特徵，0=快速批次只讀既有完整特徵}
+        {--deep-single-frame=0 : 1=單張片尾特徵模糊時，以穩定中段多點二次驗證}
+        {--skip-database : 略過 DB 主檔比對；用於先完成來源資料夾內部去重}
+        {--reuse-source-index : 重用掃描來源的 video-feature-index.json，避免第二階段重抽特徵}
         {--reference-dir=C:\Users\User\Videos\暫 : 先同步並比對這個資料夾底下的影片特徵 JSON}
+        {--in-place-dedupe : 掃描路徑等於 reference-dir 時，逐一與前面保留的影片比對並刪除資料夾內重複}
         {--min-age-seconds=120 : 檔案最後修改後至少等待幾秒才處理，避免掃到下載或寫入中的影片}
+        {--reference-min-age-seconds= : 參考資料夾的穩定等待秒數；留空時沿用 min-age-seconds}
         {--video-feature-id= : 指定單一 video_features.id 進入手動分析模式；若命中重複仍會直接刪除}
         {--write-log : 相容舊參數；手動分析模式現在預設就會寫 log}
         {--skip-log : 手動 debug 模式不要寫入 external_video_duplicate_logs}
@@ -46,7 +52,10 @@ class MoveDuplicateVideosCommand extends Command
 
     protected $description = '掃描指定資料夾內影片，先比對 DB，再比對暫存參考資料夾的影片特徵 JSON；命中重複就直接刪除，未命中則搬到暫存參考資料夾並更新 JSON。指定 --video-feature-id 時則維持手動分析模式。';
 
-    private const VIDEO_EXTENSIONS = ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'm4v', 'mpeg', 'mpg'];
+    private const VIDEO_EXTENSIONS = [
+        'mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm',
+        'm4v', 'mpeg', 'mpg', '3gp', 'ts', 'mts', 'm2ts',
+    ];
 
     public function handle(
         VideoFeatureExtractionService $featureExtractionService,
@@ -67,7 +76,16 @@ class MoveDuplicateVideosCommand extends Command
         $windowSeconds = max(0, (int) $this->option('window-seconds'));
         $sizePercent = max(0, min(90, (int) $this->option('size-percent')));
         $maxCandidates = max(1, (int) $this->option('max-candidates'));
+        $repairDatabaseFeatures = (int) $this->option('repair-db-features') !== 0;
+        $deepSingleFrame = (int) $this->option('deep-single-frame') !== 0;
+        $skipDatabase = (bool) $this->option('skip-database');
+        $reuseSourceIndex = (bool) $this->option('reuse-source-index');
         $minAgeSeconds = max(0, (int) $this->option('min-age-seconds'));
+        $referenceMinAgeOption = trim((string) $this->option('reference-min-age-seconds'));
+        $referenceMinAgeSeconds = $referenceMinAgeOption === ''
+            ? $minAgeSeconds
+            : max(0, (int) $referenceMinAgeOption);
+        $requestedInPlaceDedupe = (bool) $this->option('in-place-dedupe');
         $dryRun = (bool) $this->option('dry-run');
         $writeLog = !(bool) $this->option('skip-log');
         if ((bool) $this->option('write-log')) {
@@ -82,7 +100,13 @@ class MoveDuplicateVideosCommand extends Command
             'window_seconds' => $windowSeconds,
             'size_percent' => $sizePercent,
             'max_candidates' => $maxCandidates,
+            'repair_database_features' => $repairDatabaseFeatures,
+            'deep_single_frame' => $deepSingleFrame,
+            'skip_database' => $skipDatabase,
+            'reuse_source_index' => $reuseSourceIndex,
             'min_age_seconds' => $minAgeSeconds,
+            'reference_min_age_seconds' => $referenceMinAgeSeconds,
+            'requested_in_place_dedupe' => $requestedInPlaceDedupe,
             'dry_run' => $dryRun,
             'write_log' => $writeLog,
             'manual_feature_id' => $manualFeatureId,
@@ -115,24 +139,75 @@ class MoveDuplicateVideosCommand extends Command
         }
 
         $referenceDir = $this->normalizeAbsolutePath((string) $this->option('reference-dir'));
-        Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates syncing reference index', $commandLogContext + [
-            'reference_dir' => $referenceDir,
-        ]);
-        try {
-            $referenceIndex = $referenceVideoFeatureIndexService->syncDirectory($referenceDir, 0, $minAgeSeconds);
-        } catch (Throwable $e) {
-            Log::channel(self::LOG_CHANNEL)->error('video:move-duplicates failed to sync reference index', $commandLogContext + [
-                'reference_dir' => $referenceDir,
-                'error_message' => $e->getMessage(),
-            ]);
-            $this->error('同步暫存參考索引失敗：' . $e->getMessage());
+        $preflightShouldCompareReferenceIndex = $this->shouldCompareReferenceIndex($path, $referenceDir);
+        if ($requestedInPlaceDedupe && $preflightShouldCompareReferenceIndex) {
+            $this->error('--in-place-dedupe 要求 path 與 --reference-dir 指向同一個資料夾。');
             return self::FAILURE;
+        }
+
+        if ($requestedInPlaceDedupe) {
+            // Do not pre-extract the whole directory. The rolling survivor index below already
+            // extracts every processed file once and persists each survivor incrementally.
+            $referenceIndex = [
+                'directory_path' => $referenceDir,
+                'index_path' => $referenceDir . DIRECTORY_SEPARATOR . 'video-feature-index.json',
+                'snapshots' => [],
+                'total_files' => 0,
+                'reused_count' => 0,
+                'extracted_count' => 0,
+                'removed_count' => 0,
+                'failed_count' => 0,
+                'failed_files' => [],
+                'deferred_count' => 0,
+                'deferred_files' => [],
+            ];
+        } else {
+            Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates syncing reference index', $commandLogContext + [
+                'reference_dir' => $referenceDir,
+            ]);
+            try {
+                $referenceIndex = $referenceVideoFeatureIndexService->syncDirectory($referenceDir, 0, $referenceMinAgeSeconds);
+            } catch (Throwable $e) {
+                Log::channel(self::LOG_CHANNEL)->error('video:move-duplicates failed to sync reference index', $commandLogContext + [
+                    'reference_dir' => $referenceDir,
+                    'error_message' => $e->getMessage(),
+                ]);
+                $this->error('同步暫存參考索引失敗：' . $e->getMessage());
+                return self::FAILURE;
+            }
         }
 
         $referenceDir = (string) $referenceIndex['directory_path'];
         $shouldCompareReferenceIndex = $this->shouldCompareReferenceIndex($path, $referenceDir);
+        if ($requestedInPlaceDedupe && $shouldCompareReferenceIndex) {
+            $this->error('--in-place-dedupe 要求 path 與 --reference-dir 指向同一個資料夾。');
+            return self::FAILURE;
+        }
+
+        $inPlaceDedupe = $requestedInPlaceDedupe && !$shouldCompareReferenceIndex;
         $referenceSnapshots = is_array($referenceIndex['snapshots'] ?? null) ? $referenceIndex['snapshots'] : [];
-        $referenceComparisonEnabled = $shouldCompareReferenceIndex && $referenceSnapshots !== [];
+        if ($inPlaceDedupe) {
+            // In-place mode must never compare a file with the full directory index because
+            // that index contains the file itself. Build a rolling index from survivors only.
+            $referenceSnapshots = [];
+        }
+        if ($inPlaceDedupe) {
+            $sourceFeatureCache = $referenceVideoFeatureIndexService->loadFreshSnapshots($referenceDir);
+        } elseif ($reuseSourceIndex) {
+            $sourceFeatureCache = $referenceVideoFeatureIndexService->loadFreshSnapshots($path);
+        } else {
+            $sourceFeatureCache = ['snapshots_by_path_hash' => [], 'total_files' => 0];
+        }
+        $cachedSnapshotsByPathHash = is_array($sourceFeatureCache['snapshots_by_path_hash'] ?? null)
+            ? $sourceFeatureCache['snapshots_by_path_hash']
+            : [];
+        $survivorPayloads = [];
+        $preparedDatabaseFeatureIndex = !$skipDatabase && !$repairDatabaseFeatures
+            ? $duplicateDetectionService->prepareDatabaseFeatureSnapshotIndex()
+            : null;
+
+        $referenceComparisonEnabled = ($shouldCompareReferenceIndex || $inPlaceDedupe)
+            && $referenceSnapshots !== [];
         $preparedReferenceSnapshotIndex = $referenceComparisonEnabled
             ? $duplicateDetectionService->prepareReferenceSnapshotIndex($referenceSnapshots)
             : ['snapshots' => []];
@@ -146,6 +221,7 @@ class MoveDuplicateVideosCommand extends Command
             'reference_failed_count' => (int) ($referenceIndex['failed_count'] ?? 0),
             'reference_deferred_count' => (int) ($referenceIndex['deferred_count'] ?? 0),
             'reference_compare_enabled' => $referenceComparisonEnabled,
+            'in_place_dedupe' => $inPlaceDedupe,
         ]);
 
         $this->line(sprintf(
@@ -159,10 +235,23 @@ class MoveDuplicateVideosCommand extends Command
             (int) ($referenceIndex['deferred_count'] ?? 0)
         ));
 
-        if (!$shouldCompareReferenceIndex) {
+        if ($inPlaceDedupe) {
+            $this->line(sprintf(
+                '  啟用快速 in-place 去重：只和前面已保留影片比對；可重用特徵快取=%d。',
+                count($cachedSnapshotsByPathHash)
+            ));
+        } elseif (!$shouldCompareReferenceIndex) {
             $this->line('  指定掃描資料夾就是暫存參考資料夾本身，這次只同步 JSON，只比對 DB。');
         } elseif ($referenceSnapshots === []) {
             $this->line('  暫存參考資料夾目前沒有可比對的影片特徵。');
+        }
+        if (is_array($preparedDatabaseFeatureIndex)) {
+            $this->line(sprintf(
+                '  啟用 DB 記憶體候選索引：features=%d（不逐檔重查 SQL）。',
+                (int) ($preparedDatabaseFeatureIndex['database_feature_count'] ?? 0)
+            ));
+        } elseif ($skipDatabase) {
+            $this->line('  第一階段只做來源資料夾內部去重，略過 DB 主檔比對。');
         }
 
         foreach ((array) ($referenceIndex['failed_files'] ?? []) as $failedReferenceFile) {
@@ -280,8 +369,15 @@ class MoveDuplicateVideosCommand extends Command
             'remaining_file_count' => count($files),
         ]);
 
-        foreach ($files as $filePath) {
-            $this->line($filePath);
+        $totalFiles = count($files);
+        foreach ($files as $fileIndex => $filePath) {
+            $this->line(sprintf(
+                '[%d/%d %5.1f%%] %s',
+                $fileIndex + 1,
+                $totalFiles,
+                (($fileIndex + 1) / max(1, $totalFiles)) * 100,
+                $filePath
+            ));
             $fileLogContext = $commandLogContext + [
                 'file_path' => $filePath,
                 'duplicate_directory_path' => $duplicateDir,
@@ -299,21 +395,59 @@ class MoveDuplicateVideosCommand extends Command
             $comparisonLogged = false;
 
             try {
-                $payload = $featureExtractionService->inspectFile($filePath);
+                $cachedPayload = ($inPlaceDedupe || $reuseSourceIndex)
+                    ? ($cachedSnapshotsByPathHash[$this->hashPath($filePath)] ?? null)
+                    : null;
+                $payload = is_array($cachedPayload)
+                    ? $cachedPayload
+                    : $featureExtractionService->inspectFile($filePath);
                 Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates extracted file payload', $fileLogContext + [
+                    'feature_cache_reused' => is_array($cachedPayload),
                     'duration_seconds' => $payload['duration_seconds'] ?? null,
                     'file_size_bytes' => $payload['file_size_bytes'] ?? null,
                     'frame_count' => count((array) ($payload['frames'] ?? [])),
                     'capture_rule' => $payload['capture_rule'] ?? null,
                 ]);
-                $databaseAnalysis = $duplicateDetectionService->analyzeDatabaseMatch(
-                    $payload,
-                    $threshold,
-                    $minMatch,
-                    $windowSeconds,
-                    $sizePercent,
-                    $maxCandidates
-                );
+                if ($skipDatabase) {
+                    $databaseAnalysis = [
+                        'best_result' => null,
+                        'duplicate_match' => null,
+                        'candidate_count' => 0,
+                        'payload_frame_count' => count((array) ($payload['frames'] ?? [])),
+                        'requested_min_match' => $minMatch,
+                        'database_comparison_skipped' => true,
+                    ];
+                } elseif (is_array($preparedDatabaseFeatureIndex)) {
+                    $databaseAnalysis = $deepSingleFrame
+                        ? $duplicateDetectionService->analyzePreparedDatabaseMatch(
+                            $payload,
+                            $preparedDatabaseFeatureIndex,
+                            $threshold,
+                            $minMatch,
+                            $windowSeconds,
+                            $sizePercent,
+                            $maxCandidates,
+                            true
+                        )
+                        : $duplicateDetectionService->analyzePreparedDatabaseMatch(
+                            $payload,
+                            $preparedDatabaseFeatureIndex,
+                            $threshold,
+                            $minMatch,
+                            $windowSeconds,
+                            $sizePercent,
+                            $maxCandidates
+                        );
+                } else {
+                    $databaseAnalysis = $duplicateDetectionService->analyzeDatabaseMatch(
+                        $payload,
+                        $threshold,
+                        $minMatch,
+                        $windowSeconds,
+                        $sizePercent,
+                        $maxCandidates
+                    );
+                }
                 $combinedAnalysis = $databaseAnalysis;
                 $match = $databaseAnalysis['duplicate_match'] ?? null;
                 Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates database analysis completed', $fileLogContext + [
@@ -346,15 +480,26 @@ class MoveDuplicateVideosCommand extends Command
                             'reference_dir' => $referenceDir,
                             'reference_snapshot_count' => count((array) ($preparedReferenceSnapshotIndex['snapshots'] ?? [])),
                         ]);
-                        $referenceAnalysis = $duplicateDetectionService->analyzePreparedReferenceSnapshotsMatch(
-                            $payload,
-                            $preparedReferenceSnapshotIndex,
-                            $threshold,
-                            $minMatch,
-                            $windowSeconds,
-                            $sizePercent,
-                            $maxCandidates
-                        );
+                        $referenceAnalysis = $deepSingleFrame
+                            ? $duplicateDetectionService->analyzePreparedReferenceSnapshotsMatch(
+                                $payload,
+                                $preparedReferenceSnapshotIndex,
+                                $threshold,
+                                $minMatch,
+                                $windowSeconds,
+                                $sizePercent,
+                                $maxCandidates,
+                                true
+                            )
+                            : $duplicateDetectionService->analyzePreparedReferenceSnapshotsMatch(
+                                $payload,
+                                $preparedReferenceSnapshotIndex,
+                                $threshold,
+                                $minMatch,
+                                $windowSeconds,
+                                $sizePercent,
+                                $maxCandidates
+                            );
                         $combinedAnalysis = $this->mergeAnalyses($databaseAnalysis, $referenceAnalysis);
                         $referenceMatch = $referenceAnalysis['duplicate_match'] ?? null;
                         Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates reference index analysis completed', $fileLogContext + [
@@ -442,6 +587,16 @@ class MoveDuplicateVideosCommand extends Command
                     }
 
                     if ($dryRun) {
+                        if ($inPlaceDedupe) {
+                            $survivorPayload = $this->buildMovedPayload($payload, $filePath);
+                            $survivorPayloads[] = $survivorPayload;
+                            $preparedReferenceSnapshotIndex = $duplicateDetectionService->appendPreparedReferenceSnapshot(
+                                $preparedReferenceSnapshotIndex,
+                                $survivorPayload
+                            );
+                            $referenceComparisonEnabled = true;
+                        }
+
                         $externalVideoDuplicateService->persistComparisonLog(
                             $payload,
                             $combinedAnalysis,
@@ -460,6 +615,16 @@ class MoveDuplicateVideosCommand extends Command
                         ]);
                         $this->line('  無重複，dry-run 模式未異動');
                         continue;
+                    }
+
+                    if ($inPlaceDedupe) {
+                        $survivorPayload = $this->buildMovedPayload($payload, $filePath);
+                        $survivorPayloads[] = $survivorPayload;
+                        $preparedReferenceSnapshotIndex = $duplicateDetectionService->appendPreparedReferenceSnapshot(
+                            $preparedReferenceSnapshotIndex,
+                            $survivorPayload
+                        );
+                        $referenceComparisonEnabled = true;
                     }
 
                     if ($shouldCompareReferenceIndex) {
@@ -700,6 +865,36 @@ class MoveDuplicateVideosCommand extends Command
             }
         }
 
+        if ($inPlaceDedupe && !$dryRun && ($failed > 0 || $kept === 0)) {
+            try {
+                $referenceIndex = $referenceVideoFeatureIndexService->syncDirectory($referenceDir, 0, 0);
+                $this->line(sprintf(
+                    '已重建暫存索引：total=%d failed=%d',
+                    (int) ($referenceIndex['total_files'] ?? 0),
+                    (int) ($referenceIndex['failed_count'] ?? 0)
+                ));
+            } catch (Throwable $e) {
+                $failed++;
+                $this->error('重建暫存索引失敗：' . $e->getMessage());
+            }
+        } elseif ($inPlaceDedupe && $failed === 0 && $kept > 0) {
+            try {
+                $referenceIndex = $referenceVideoFeatureIndexService->replacePayloadSnapshots(
+                    $referenceDir,
+                    $survivorPayloads
+                );
+                $referenceSnapshots = (array) ($referenceIndex['snapshots'] ?? []);
+                $this->line(sprintf(
+                    '%s暫存特徵快取：total=%d',
+                    $dryRun ? '已建立 dry-run ' : '已更新',
+                    count($referenceSnapshots)
+                ));
+            } catch (Throwable $e) {
+                $failed++;
+                $this->error('寫入暫存特徵快取失敗：' . $e->getMessage());
+            }
+        }
+
         $this->newLine();
         $this->info(sprintf(
             '完成，source_exact_dry_run=%d deleted=%d staged=%d kept=%d deferred=%d failed=%d',
@@ -779,13 +974,44 @@ class MoveDuplicateVideosCommand extends Command
         $deleted = 0;
         $dryRunCount = 0;
         $failed = 0;
+        $fileSizes = [];
+        $fileSizeCounts = [];
 
         $this->line('來源資料夾 base64 exact duplicate 前置掃描：' . count($files) . ' files');
+
+        foreach ($files as $filePath) {
+            $fileSize = @filesize($filePath);
+            if ($fileSize === false) {
+                $fileSizes[$filePath] = null;
+                continue;
+            }
+
+            $fileSize = (int) $fileSize;
+            $fileSizes[$filePath] = $fileSize;
+            $fileSizeCounts[$fileSize] = ($fileSizeCounts[$fileSize] ?? 0) + 1;
+        }
+
+        $hashCandidateCount = count(array_filter(
+            $files,
+            fn (string $filePath): bool => $fileSizes[$filePath] === null
+                || ($fileSizeCounts[$fileSizes[$filePath]] ?? 0) > 1
+        ));
+        $this->line(sprintf(
+            '  先依檔案大小篩選：只需全文雜湊 %d/%d files',
+            $hashCandidateCount,
+            count($files)
+        ));
 
         foreach ($files as $filePath) {
             $fileLogContext = $logContext + [
                 'file_path' => $filePath,
             ];
+
+            $knownSize = $fileSizes[$filePath] ?? null;
+            if ($knownSize !== null && ($fileSizeCounts[$knownSize] ?? 0) <= 1) {
+                $remainingFiles[] = $filePath;
+                continue;
+            }
 
             try {
                 $fingerprint = $this->buildBase64Fingerprint($filePath);
@@ -1812,5 +2038,10 @@ class MoveDuplicateVideosCommand extends Command
         }
 
         return $path;
+    }
+
+    private function hashPath(string $path): string
+    {
+        return sha1(mb_strtolower(str_replace('\\', '/', trim($path))));
     }
 }

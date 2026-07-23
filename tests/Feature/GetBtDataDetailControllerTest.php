@@ -31,9 +31,7 @@ class GetBtDataDetailControllerTest extends TestCase
         DB::purge('sqlite');
         DB::reconnect('sqlite');
 
-        Schema::dropAllTables();
-
-        Schema::create('articles', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('articles', function (Blueprint $table): void {
             $table->increments('article_id');
             $table->string('title');
             $table->text('password')->nullable();
@@ -46,7 +44,7 @@ class GetBtDataDetailControllerTest extends TestCase
             $table->timestamps();
         });
 
-        Schema::create('images', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('images', function (Blueprint $table): void {
             $table->increments('id');
             $table->unsignedInteger('article_id');
             $table->string('image_name')->nullable();

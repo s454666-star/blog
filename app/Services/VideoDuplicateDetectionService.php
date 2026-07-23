@@ -20,6 +20,9 @@ class VideoDuplicateDetectionService
     private const TWO_FRAME_WEAK_FRAME_SLACK = 15;
     private const STALE_FEATURE_REPAIR_CANDIDATES = 10;
     private const STALE_FEATURE_REPAIR_DURATION_DELTA_SECONDS = 0.25;
+    private const DEEP_SINGLE_FRAME_MAX_DURATION_DELTA_SECONDS = 0.25;
+    private const DEEP_SINGLE_FRAME_MIN_INITIAL_SIMILARITY = 65.0;
+    private const DEEP_SINGLE_FRAME_SAMPLE_RATIOS = [0.2, 0.4, 0.6, 0.8];
 
     private ?string $databaseCandidateCacheVersion = null;
 
@@ -34,7 +37,8 @@ class VideoDuplicateDetectionService
         int $minMatch = 2,
         int $windowSeconds = 3,
         int $sizePercent = 15,
-        int $maxCandidates = 250
+        int $maxCandidates = 250,
+        bool $repairDatabaseFeatures = true
     ): array {
         $payloadContext = $this->buildPayloadContext($payload);
 
@@ -62,11 +66,13 @@ class VideoDuplicateDetectionService
             ];
         }
 
-        $repairedFeatureIds = $this->repairIncompleteDatabaseFeaturesForPayload(
-            $payloadContext,
-            $windowSeconds,
-            $maxCandidates
-        );
+        $repairedFeatureIds = $repairDatabaseFeatures
+            ? $this->repairIncompleteDatabaseFeaturesForPayload(
+                $payloadContext,
+                $windowSeconds,
+                $maxCandidates
+            )
+            : [];
 
         $candidateIds = $this->collectCandidateIds(
             $payloadContext,
@@ -251,6 +257,93 @@ class VideoDuplicateDetectionService
         return is_array($preparedIndex) ? $preparedIndex : ['snapshots' => []];
     }
 
+    /**
+     * Prepare all usable DB features once for a read-only bulk scan.
+     */
+    public function prepareDatabaseFeatureSnapshotIndex(): array
+    {
+        $snapshots = [];
+        $features = VideoFeature::query()
+            ->with(['frames', 'videoMaster'])
+            ->whereNull('last_error')
+            ->where('duration_seconds', '>', 0)
+            ->whereHas('frames')
+            ->get();
+
+        foreach ($features as $feature) {
+            $frames = [];
+            $comparisonFilePath = '';
+
+            if ($feature->videoMaster instanceof VideoMaster) {
+                try {
+                    $comparisonFilePath = $this->featureExtractionService->resolveAbsoluteVideoPath($feature->videoMaster);
+                } catch (Throwable) {
+                    $comparisonFilePath = '';
+                }
+            }
+
+            foreach ($feature->frames as $frame) {
+                $frames[] = [
+                    'video_feature_frame_id' => $frame->id,
+                    'capture_order' => (int) $frame->capture_order,
+                    'capture_second' => (float) ($frame->capture_second ?? 0),
+                    'dhash_hex' => (string) ($frame->dhash_hex ?? ''),
+                    'dhash_prefix' => (string) ($frame->dhash_prefix ?? ''),
+                    'frame_sha1' => $frame->frame_sha1,
+                    'image_width' => $frame->image_width,
+                    'image_height' => $frame->image_height,
+                ];
+            }
+
+            $snapshots[] = [
+                'absolute_path' => 'database-feature:' . $feature->id,
+                'comparison_file_path' => $comparisonFilePath,
+                'video_feature_id' => $feature->id,
+                'video_master_id' => $feature->video_master_id,
+                'video_name' => (string) $feature->video_name,
+                'video_path' => (string) $feature->video_path,
+                'file_name' => (string) $feature->file_name,
+                'file_size_bytes' => $feature->file_size_bytes,
+                'duration_seconds' => (float) $feature->duration_seconds,
+                'screenshot_count' => count($frames),
+                'feature_version' => (string) $feature->feature_version,
+                'capture_rule' => (string) $feature->capture_rule,
+                'frames' => $frames,
+            ];
+        }
+
+        $prepared = $this->prepareReferenceSnapshotIndexUncached($snapshots);
+        $prepared['database_feature_count'] = count($snapshots);
+
+        return $prepared;
+    }
+
+    public function analyzePreparedDatabaseMatch(
+        array $payload,
+        array $preparedDatabaseIndex,
+        int $thresholdPercent = 90,
+        int $minMatch = 2,
+        int $windowSeconds = 3,
+        int $sizePercent = 15,
+        int $maxCandidates = 250,
+        bool $deepSingleFrame = false
+    ): array {
+        $analysis = $this->analyzePreparedReferenceSnapshotsMatch(
+            $payload,
+            $preparedDatabaseIndex,
+            $thresholdPercent,
+            $minMatch,
+            $windowSeconds,
+            $sizePercent,
+            $maxCandidates,
+            $deepSingleFrame
+        );
+        $analysis['repaired_database_feature_count'] = 0;
+        $analysis['repaired_database_feature_ids'] = [];
+
+        return $analysis;
+    }
+
     private function prepareReferenceSnapshotIndexUncached(array $featureSnapshots): array
     {
         $preparedSnapshots = [];
@@ -299,7 +392,8 @@ class VideoDuplicateDetectionService
         int $minMatch = 2,
         int $windowSeconds = 3,
         int $sizePercent = 15,
-        int $maxCandidates = 250
+        int $maxCandidates = 250,
+        bool $deepSingleFrame = false
     ): array {
         $payloadContext = $this->buildPayloadContext($payload);
 
@@ -370,6 +464,20 @@ class VideoDuplicateDetectionService
 
             if ($this->hasReachedMaxPossibleScore($candidateResult, $payloadContext)) {
                 break;
+            }
+        }
+
+        if ($deepSingleFrame && $bestQualifiedResult === null && is_array($bestResult)) {
+            $deepResult = $this->analyzeDeepSingleFrameFallback(
+                $payload,
+                $payloadContext,
+                $bestResult,
+                $thresholdPercent
+            );
+
+            if (is_array($deepResult)) {
+                $bestResult = $deepResult;
+                $bestQualifiedResult = $deepResult;
             }
         }
 
@@ -528,7 +636,7 @@ class VideoDuplicateDetectionService
             $frameMatches[] = [
                 'capture_order' => $captureOrder,
                 'capture_second' => (float) ($payloadFrame['capture_second'] ?? 0),
-                'matched_video_feature_frame_id' => null,
+                'matched_video_feature_frame_id' => $candidateFrame['video_feature_frame_id'] ?? null,
                 'matched_capture_second' => (float) ($candidateFrame['capture_second'] ?? 0),
                 'payload_dhash_hex' => $payloadHash,
                 'matched_dhash_hex' => $candidateHash,
@@ -1186,6 +1294,9 @@ class VideoDuplicateDetectionService
             }
 
             $frames[] = [
+                'video_feature_frame_id' => isset($frame['video_feature_frame_id'])
+                    ? (int) $frame['video_feature_frame_id']
+                    : null,
                 'capture_order' => $captureOrder,
                 'capture_second' => isset($frame['capture_second']) ? (float) $frame['capture_second'] : null,
                 'label_second' => isset($frame['label_second']) ? (float) $frame['label_second'] : null,
@@ -1205,6 +1316,18 @@ class VideoDuplicateDetectionService
 
         return [
             'absolute_path' => $absolutePath,
+            'comparison_file_path' => (string) (
+                $snapshot['comparison_file_path']
+                ?? $snapshot['absolute_path']
+                ?? ''
+            ),
+            'video_feature_id' => isset($snapshot['video_feature_id'])
+                ? (int) $snapshot['video_feature_id']
+                : null,
+            'video_master_id' => isset($snapshot['video_master_id'])
+                ? (int) $snapshot['video_master_id']
+                : null,
+            'video_path' => (string) ($snapshot['video_path'] ?? $absolutePath),
             'video_name' => (string) ($snapshot['video_name'] ?? basename($absolutePath)),
             'file_name' => (string) ($snapshot['file_name'] ?? basename($absolutePath)),
             'file_size_bytes' => isset($snapshot['file_size_bytes']) ? (int) $snapshot['file_size_bytes'] : null,
@@ -1220,9 +1343,11 @@ class VideoDuplicateDetectionService
     private function hydrateFeatureFromSnapshot(array $snapshot): VideoFeature
     {
         $feature = new VideoFeature();
+        $feature->id = isset($snapshot['video_feature_id']) ? (int) $snapshot['video_feature_id'] : null;
         $feature->forceFill([
+            'video_master_id' => isset($snapshot['video_master_id']) ? (int) $snapshot['video_master_id'] : null,
             'video_name' => (string) ($snapshot['video_name'] ?? ''),
-            'video_path' => (string) ($snapshot['absolute_path'] ?? ''),
+            'video_path' => (string) ($snapshot['video_path'] ?? $snapshot['absolute_path'] ?? ''),
             'file_name' => (string) ($snapshot['file_name'] ?? ''),
             'file_size_bytes' => $snapshot['file_size_bytes'] ?? null,
             'duration_seconds' => $snapshot['duration_seconds'] ?? 0,
@@ -1235,6 +1360,9 @@ class VideoDuplicateDetectionService
 
         foreach ((array) ($snapshot['frames'] ?? []) as $frameSnapshot) {
             $frame = new VideoFeatureFrame();
+            $frame->id = isset($frameSnapshot['video_feature_frame_id'])
+                ? (int) $frameSnapshot['video_feature_frame_id']
+                : null;
             $frame->forceFill([
                 'capture_order' => (int) ($frameSnapshot['capture_order'] ?? 0),
                 'capture_second' => $frameSnapshot['capture_second'] ?? 0,
@@ -1367,6 +1495,145 @@ class VideoDuplicateDetectionService
         }
 
         return $low - 1;
+    }
+
+    private function analyzeDeepSingleFrameFallback(
+        array $payload,
+        array $payloadContext,
+        array $bestResult,
+        int $thresholdPercent
+    ): ?array {
+        if ((int) ($payloadContext['frame_count'] ?? 0) !== 1) {
+            return null;
+        }
+
+        $initialSimilarity = (float) ($bestResult['similarity_percent'] ?? 0);
+        $durationDelta = (float) ($bestResult['duration_delta_seconds'] ?? INF);
+        if (
+            $initialSimilarity < self::DEEP_SINGLE_FRAME_MIN_INITIAL_SIMILARITY
+            || $initialSimilarity >= $thresholdPercent
+            || $durationDelta > self::DEEP_SINGLE_FRAME_MAX_DURATION_DELTA_SECONDS
+        ) {
+            return null;
+        }
+
+        $snapshot = $bestResult['feature_snapshot'] ?? null;
+        if (!is_array($snapshot)) {
+            return null;
+        }
+
+        $sourcePath = trim((string) ($payload['absolute_path'] ?? ''));
+        $candidatePath = trim((string) ($snapshot['comparison_file_path'] ?? $snapshot['absolute_path'] ?? ''));
+        if (
+            $sourcePath === ''
+            || $candidatePath === ''
+            || !is_file($sourcePath)
+            || !is_file($candidatePath)
+            || mb_strtolower($sourcePath) === mb_strtolower($candidatePath)
+        ) {
+            return null;
+        }
+
+        $sourceDuration = (float) ($payloadContext['duration_seconds'] ?? 0);
+        $candidateDuration = (float) ($snapshot['duration_seconds'] ?? 0);
+        $sharedDuration = min($sourceDuration, $candidateDuration);
+        if ($sharedDuration < 4.0) {
+            return null;
+        }
+
+        $captureSeconds = array_map(
+            fn (float $ratio): float => round(min(
+                $sharedDuration * $ratio,
+                max(0.0, $sharedDuration - 0.5)
+            ), 3),
+            self::DEEP_SINGLE_FRAME_SAMPLE_RATIOS
+        );
+        $sourceVerification = null;
+        $candidateVerification = null;
+
+        try {
+            $sourceVerification = $this->featureExtractionService->inspectFramesAtSeconds(
+                $sourcePath,
+                $captureSeconds
+            );
+            $candidateVerification = $this->featureExtractionService->inspectFramesAtSeconds(
+                $candidatePath,
+                $captureSeconds
+            );
+
+            $sourceFrames = array_values((array) ($sourceVerification['frames'] ?? []));
+            $candidateFrames = array_values((array) ($candidateVerification['frames'] ?? []));
+            $comparedFrames = min(count($sourceFrames), count($candidateFrames));
+            if ($comparedFrames < 3) {
+                return null;
+            }
+
+            $matchedFrames = 0;
+            $similarities = [];
+            $frameMatches = [];
+
+            for ($index = 0; $index < $comparedFrames; $index++) {
+                $sourceFrame = (array) $sourceFrames[$index];
+                $candidateFrame = (array) $candidateFrames[$index];
+                $sourceHash = (string) ($sourceFrame['dhash_hex'] ?? '');
+                $candidateHash = (string) ($candidateFrame['dhash_hex'] ?? '');
+                $similarity = $this->featureExtractionService->hashSimilarityPercent(
+                    $sourceHash,
+                    $candidateHash
+                );
+                $similarities[] = $similarity;
+
+                if ($similarity >= $thresholdPercent) {
+                    $matchedFrames++;
+                }
+
+                $frameMatches[] = [
+                    'capture_order' => $index + 1,
+                    'capture_second' => (float) ($sourceFrame['capture_second'] ?? 0),
+                    'matched_video_feature_frame_id' => null,
+                    'matched_capture_second' => (float) ($candidateFrame['capture_second'] ?? 0),
+                    'payload_dhash_hex' => $sourceHash,
+                    'matched_dhash_hex' => $candidateHash,
+                    'payload_frame_sha1' => $sourceFrame['frame_sha1'] ?? null,
+                    'matched_frame_sha1' => $candidateFrame['frame_sha1'] ?? null,
+                    'similarity_percent' => $similarity,
+                    'is_threshold_match' => $similarity >= $thresholdPercent,
+                    'verification_sample' => true,
+                ];
+            }
+
+            $requiredMatches = max(3, (int) ceil($comparedFrames * 0.75));
+            $averageSimilarity = array_sum($similarities) / max(1, count($similarities));
+            if ($matchedFrames < $requiredMatches || $averageSimilarity < $thresholdPercent) {
+                return null;
+            }
+
+            return [
+                'feature' => null,
+                'feature_snapshot' => $snapshot,
+                'similarity_percent' => round($averageSimilarity, 2),
+                'matched_frames' => $matchedFrames,
+                'compared_frames' => $comparedFrames,
+                'required_matches' => $requiredMatches,
+                'passes_threshold' => true,
+                'match_rule' => 'deep_single_frame_stable_samples',
+                'frame_matches' => $frameMatches,
+                'score' => ($matchedFrames * 1000) + $averageSimilarity,
+                'duration_delta_seconds' => $durationDelta,
+                'file_size_delta_bytes' => $bestResult['file_size_delta_bytes'] ?? null,
+                'initial_similarity_percent' => $initialSimilarity,
+                'verification_capture_seconds' => $captureSeconds,
+            ];
+        } catch (Throwable) {
+            return null;
+        } finally {
+            if (is_array($sourceVerification)) {
+                $this->featureExtractionService->cleanupPayload($sourceVerification);
+            }
+            if (is_array($candidateVerification)) {
+                $this->featureExtractionService->cleanupPayload($candidateVerification);
+            }
+        }
     }
 
     private function hydrateSnapshotResultFeature(?array $result): ?array

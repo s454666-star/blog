@@ -39,14 +39,19 @@ class TwStockUpcomingDividendsTest extends TestCase
         Carbon::setTestNow('2026-04-30 12:00:00');
         CarbonImmutable::setTestNow('2026-04-30 12:00:00');
 
-        Schema::dropAllTables();
         $this->createTable();
     }
 
     protected function tearDown(): void
     {
-        Schema::dropIfExists('tw_stock_upcoming_dividends');
-        Schema::dropIfExists('tw_stock_daily_prices');
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
+        Schema::connection('sqlite')->dropIfExists('tw_stock_upcoming_dividends');
+        Schema::connection('sqlite')->dropIfExists('tw_stock_daily_prices');
 
         Carbon::setTestNow();
         CarbonImmutable::setTestNow();
@@ -443,7 +448,7 @@ HTML;
 
     private function createTable(): void
     {
-        Schema::create('tw_stock_daily_prices', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_daily_prices', function (Blueprint $table): void {
             $table->id();
             $table->string('exchange', 12);
             $table->string('stock_code', 12);
@@ -454,7 +459,7 @@ HTML;
             $table->unique(['exchange', 'stock_code', 'trade_date']);
         });
 
-        Schema::create('tw_stock_upcoming_dividends', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_upcoming_dividends', function (Blueprint $table): void {
             $table->id();
             $table->string('exchange', 12);
             $table->string('stock_code', 12);

@@ -34,9 +34,7 @@ class BlogBtControllerTest extends TestCase
         DB::reconnect('sqlite');
         DB::setDefaultConnection('sqlite');
 
-        Schema::dropAllTables();
-
-        Schema::create('articles', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('articles', function (Blueprint $table): void {
             $table->increments('article_id');
             $table->string('title');
             $table->text('password')->nullable();
@@ -48,7 +46,7 @@ class BlogBtControllerTest extends TestCase
             $table->timestamps();
         });
 
-        Schema::create('images', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('images', function (Blueprint $table): void {
             $table->increments('id');
             $table->unsignedInteger('article_id');
             $table->string('image_name')->nullable();
@@ -59,8 +57,14 @@ class BlogBtControllerTest extends TestCase
 
     protected function tearDown(): void
     {
-        Schema::dropIfExists('images');
-        Schema::dropIfExists('articles');
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
+        Schema::connection('sqlite')->dropIfExists('images');
+        Schema::connection('sqlite')->dropIfExists('articles');
 
         DB::disconnect('sqlite');
         config()->set('database.default', $this->originalDatabaseDefault);

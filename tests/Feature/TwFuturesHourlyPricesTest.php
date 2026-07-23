@@ -48,14 +48,19 @@ class TwFuturesHourlyPricesTest extends TestCase
         Carbon::setTestNow('2026-05-25 22:00:00');
         CarbonImmutable::setTestNow('2026-05-25 22:00:00');
 
-        Schema::dropAllTables();
         $this->createTables();
     }
 
     protected function tearDown(): void
     {
-        Schema::dropIfExists('tw_futures_daily_prices');
-        Schema::dropIfExists('tw_futures_hourly_prices');
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
+        Schema::connection('sqlite')->dropIfExists('tw_futures_daily_prices');
+        Schema::connection('sqlite')->dropIfExists('tw_futures_hourly_prices');
 
         Carbon::setTestNow();
         CarbonImmutable::setTestNow();
@@ -1460,7 +1465,7 @@ class TwFuturesHourlyPricesTest extends TestCase
 
     private function createTables(): void
     {
-        Schema::create('tw_futures_hourly_prices', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_futures_hourly_prices', function (Blueprint $table): void {
             $table->id();
             $table->string('exchange', 16)->default('TAIFEX');
             $table->string('symbol', 32);
@@ -1482,7 +1487,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             $table->unique(['exchange', 'symbol', 'interval', 'started_at']);
         });
 
-        Schema::create('tw_futures_daily_prices', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_futures_daily_prices', function (Blueprint $table): void {
             $table->id();
             $table->string('exchange', 16)->default('TAIFEX');
             $table->string('symbol', 32);

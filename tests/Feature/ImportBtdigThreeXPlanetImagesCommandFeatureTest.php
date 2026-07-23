@@ -25,15 +25,13 @@ class ImportBtdigThreeXPlanetImagesCommandFeatureTest extends TestCase
         DB::purge('sqlite');
         DB::reconnect('sqlite');
 
-        Schema::dropAllTables();
-
-        Schema::create('btdig_results', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('btdig_results', function (Blueprint $table): void {
             $table->id();
             $table->string('search_keyword');
             $table->string('type');
         });
 
-        Schema::create('btdig_result_images', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('btdig_result_images', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('btdig_result_id');
             $table->string('search_keyword');

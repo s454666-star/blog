@@ -1077,6 +1077,70 @@ class VideoDuplicateDetectionServiceTest extends TestCase
         $this->assertSame(100.0, $analysis['duplicate_match']['similarity_percent']);
     }
 
+    public function test_deep_single_frame_fallback_uses_stable_middle_samples(): void
+    {
+        $sourcePath = tempnam(sys_get_temp_dir(), 'deep_source_');
+        $candidatePath = tempnam(sys_get_temp_dir(), 'deep_candidate_');
+        $this->assertIsString($sourcePath);
+        $this->assertIsString($candidatePath);
+
+        $stableFrames = array_map(
+            fn (int $order): array => [
+                'capture_order' => $order,
+                'capture_second' => $order * 2.0,
+                'dhash_hex' => '7c585d4f87838fbf',
+                'dhash_prefix' => '7c',
+                'frame_sha1' => str_repeat((string) $order, 40),
+            ],
+            [1, 2, 3, 4]
+        );
+
+        $featureExtractionService = \Mockery::mock(VideoFeatureExtractionService::class)->makePartial();
+        $featureExtractionService->shouldReceive('inspectFramesAtSeconds')
+            ->twice()
+            ->andReturn([
+                'frames' => $stableFrames,
+                'tmp_dir' => sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'unused',
+            ]);
+        $featureExtractionService->shouldReceive('cleanupPayload')->twice();
+
+        try {
+            $service = new VideoDuplicateDetectionService($featureExtractionService);
+            $preparedIndex = $service->prepareReferenceSnapshotIndex([[
+                'absolute_path' => $candidatePath,
+                'comparison_file_path' => $candidatePath,
+                'duration_seconds' => 10.077,
+                'file_size_bytes' => 64714341,
+                'frames' => [[
+                    'capture_order' => 1,
+                    'capture_second' => 9.827,
+                    'dhash_hex' => 'c1f4f8b3363c3cb8',
+                    'dhash_prefix' => 'c1',
+                ]],
+            ]]);
+            $analysis = $service->analyzePreparedReferenceSnapshotsMatch([
+                'absolute_path' => $sourcePath,
+                'duration_seconds' => 10.123,
+                'file_size_bytes' => 1644426,
+                'frames' => [[
+                    'capture_order' => 1,
+                    'capture_second' => 9.873,
+                    'dhash_hex' => 'f1e474667c3c3c38',
+                    'dhash_prefix' => 'f1',
+                ]],
+            ], $preparedIndex, 80, 2, 3, 15, 250, true);
+
+            $this->assertNotNull($analysis['duplicate_match']);
+            $this->assertSame('deep_single_frame_stable_samples', $analysis['duplicate_match']['match_rule']);
+            $this->assertSame(4, $analysis['duplicate_match']['matched_frames']);
+            $this->assertSame(4, $analysis['duplicate_match']['compared_frames']);
+            $this->assertSame(100.0, $analysis['duplicate_match']['similarity_percent']);
+        } finally {
+            @unlink($sourcePath);
+            @unlink($candidatePath);
+        }
+    }
+
     public function test_database_candidate_ids_are_reused_from_cache_for_identical_payloads(): void
     {
         DB::table('video_master')->insert([

@@ -27,7 +27,7 @@ class MediaDurationProbeService
                 $timeoutSeconds
             );
 
-            $durationSeconds = $this->parseNumericDurationSeconds((string) ($result['output'] ?? ''));
+            $durationSeconds = $this->parsePreferredVideoDurationSeconds((string) ($result['output'] ?? ''));
             if (($result['successful'] ?? false) && $durationSeconds !== null && $durationSeconds > 0) {
                 return $durationSeconds;
             }
@@ -78,12 +78,35 @@ class MediaDurationProbeService
             $ffprobeBin,
             '-v',
             'error',
+            '-select_streams',
+            'v:0',
             '-show_entries',
-            'format=duration',
+            'stream=duration:format=duration',
             '-of',
-            'default=nokey=1:noprint_wrappers=1',
+            'json',
             $absolutePath,
         ];
+    }
+
+    private function parsePreferredVideoDurationSeconds(string $output): ?float
+    {
+        $decoded = json_decode(trim($output), true);
+
+        if (is_array($decoded)) {
+            $streamDuration = $decoded['streams'][0]['duration'] ?? null;
+            if (is_numeric($streamDuration) && (float) $streamDuration > 0) {
+                return (float) $streamDuration;
+            }
+
+            $formatDuration = $decoded['format']['duration'] ?? null;
+            if (is_numeric($formatDuration) && (float) $formatDuration > 0) {
+                return (float) $formatDuration;
+            }
+        }
+
+        // Keep accepting the legacy plain-number response for compatibility
+        // with custom ffprobe wrappers and older tests.
+        return $this->parseNumericDurationSeconds($output);
     }
 
     private function buildFfmpegFallbackCommand(string $ffmpegBin, string $absolutePath): array

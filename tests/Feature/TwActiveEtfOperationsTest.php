@@ -36,18 +36,23 @@ class TwActiveEtfOperationsTest extends TestCase
         DB::reconnect('sqlite');
         DB::setDefaultConnection('sqlite');
 
-        Schema::dropAllTables();
         $this->createTables();
         Cache::flush();
     }
 
     protected function tearDown(): void
     {
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
         Carbon::setTestNow();
-        Schema::dropIfExists('tw_stock_daily_prices');
-        Schema::dropIfExists('tw_active_etf_operation_items');
-        Schema::dropIfExists('tw_active_etf_operation_reports');
-        Schema::dropIfExists('tw_active_etfs');
+        Schema::connection('sqlite')->dropIfExists('tw_stock_daily_prices');
+        Schema::connection('sqlite')->dropIfExists('tw_active_etf_operation_items');
+        Schema::connection('sqlite')->dropIfExists('tw_active_etf_operation_reports');
+        Schema::connection('sqlite')->dropIfExists('tw_active_etfs');
 
         DB::disconnect('sqlite');
         config()->set('database.default', $this->originalDatabaseDefault);
@@ -346,7 +351,7 @@ class TwActiveEtfOperationsTest extends TestCase
 
     private function createTables(): void
     {
-        Schema::create('tw_active_etfs', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_active_etfs', function (Blueprint $table): void {
             $table->id();
             $table->string('stock_code', 12)->unique();
             $table->string('stock_name');
@@ -372,7 +377,7 @@ class TwActiveEtfOperationsTest extends TestCase
             $table->timestamps();
         });
 
-        Schema::create('tw_active_etf_operation_reports', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_active_etf_operation_reports', function (Blueprint $table): void {
             $table->id();
             $table->string('etf_code', 12);
             $table->string('etf_name');
@@ -387,7 +392,7 @@ class TwActiveEtfOperationsTest extends TestCase
             $table->unique(['etf_code', 'operation_date']);
         });
 
-        Schema::create('tw_active_etf_operation_items', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_active_etf_operation_items', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('report_id')
                 ->constrained('tw_active_etf_operation_reports')
@@ -408,7 +413,7 @@ class TwActiveEtfOperationsTest extends TestCase
             $table->unique(['report_id', 'stock_code', 'action']);
         });
 
-        Schema::create('tw_stock_daily_prices', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_daily_prices', function (Blueprint $table): void {
             $table->id();
             $table->string('exchange', 12);
             $table->string('stock_code', 12);

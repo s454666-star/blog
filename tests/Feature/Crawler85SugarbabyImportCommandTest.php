@@ -39,9 +39,7 @@ class Crawler85SugarbabyImportCommandTest extends TestCase
         DB::reconnect('sqlite');
         DB::setDefaultConnection('sqlite');
 
-        Schema::dropAllTables();
-
-        Schema::create('crawler_profile_candidates', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('crawler_profile_candidates', function (Blueprint $table): void {
             $table->id();
             $table->string('source', 80)->default('synthetic');
             $table->string('external_user_id', 120)->nullable();
@@ -60,7 +58,7 @@ class Crawler85SugarbabyImportCommandTest extends TestCase
             $table->unique(['source', 'external_user_id'], 'uq_crawler_profile_candidates_source_user');
         });
 
-        Schema::create('crawler_profile_images', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('crawler_profile_images', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('crawler_profile_candidate_id')
                 ->constrained('crawler_profile_candidates')
@@ -83,8 +81,14 @@ class Crawler85SugarbabyImportCommandTest extends TestCase
 
     protected function tearDown(): void
     {
-        Schema::dropIfExists('crawler_profile_images');
-        Schema::dropIfExists('crawler_profile_candidates');
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
+        Schema::connection('sqlite')->dropIfExists('crawler_profile_images');
+        Schema::connection('sqlite')->dropIfExists('crawler_profile_candidates');
         if ($this->crawlerStatusTempDir !== null) {
             File::deleteDirectory($this->crawlerStatusTempDir);
         }

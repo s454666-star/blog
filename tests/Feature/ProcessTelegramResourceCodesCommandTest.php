@@ -54,8 +54,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         DB::setDefaultConnection('sqlite');
         Cache::store('telegram_resource_codes')->flush();
 
-        Schema::dropAllTables();
-        Schema::create('telegram_resource_codes', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('telegram_resource_codes', function (Blueprint $table): void {
             $table->id();
             $table->string('code', 128)->unique();
             $table->unsignedTinyInteger('code_type')->default(1);
@@ -78,7 +77,13 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
 
     protected function tearDown(): void
     {
-        Schema::dropIfExists('telegram_resource_codes');
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
+        Schema::connection('sqlite')->dropIfExists('telegram_resource_codes');
         DB::disconnect('sqlite');
         config()->set('database.default', $this->originalDatabaseDefault);
         parent::tearDown();
@@ -116,7 +121,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'code_type' => 1,
             'status' => TelegramResourceCode::STATUS_PENDING,
         ]);
-        $this->assertFalse(Schema::hasColumn('telegram_resource_codes', 'message_text'));
+        $this->assertFalse(Schema::connection('sqlite')->hasColumn('telegram_resource_codes', 'message_text'));
     }
 
     public function test_scan_limits_a_forum_source_to_its_configured_topic(): void

@@ -44,17 +44,22 @@ class TwStockQ1FinancialReportsTest extends TestCase
         Carbon::setTestNow('2026-05-08 17:00:00');
         CarbonImmutable::setTestNow('2026-05-08 17:00:00');
 
-        Schema::dropAllTables();
         $this->createTable();
     }
 
     protected function tearDown(): void
     {
-        Schema::dropIfExists('tw_stock_annual_financial_comparisons');
-        Schema::dropIfExists('tw_stock_company_profiles');
-        Schema::dropIfExists('tw_stock_q1_financial_reports');
-        Schema::dropIfExists('tw_stock_daily_turnover_rates');
-        Schema::dropIfExists('tw_stock_daily_prices');
+        if (!extension_loaded('pdo_sqlite')) {
+            parent::tearDown();
+
+            return;
+        }
+
+        Schema::connection('sqlite')->dropIfExists('tw_stock_annual_financial_comparisons');
+        Schema::connection('sqlite')->dropIfExists('tw_stock_company_profiles');
+        Schema::connection('sqlite')->dropIfExists('tw_stock_q1_financial_reports');
+        Schema::connection('sqlite')->dropIfExists('tw_stock_daily_turnover_rates');
+        Schema::connection('sqlite')->dropIfExists('tw_stock_daily_prices');
 
         Carbon::setTestNow();
         CarbonImmutable::setTestNow();
@@ -2337,7 +2342,7 @@ HTML;
 
     private function createTable(): void
     {
-        Schema::create('tw_stock_daily_prices', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_daily_prices', function (Blueprint $table): void {
             $table->id();
             $table->string('exchange', 12);
             $table->string('stock_code', 12);
@@ -2361,7 +2366,7 @@ HTML;
             $table->unique(['exchange', 'stock_code', 'trade_date']);
         });
 
-        Schema::create('tw_stock_q1_financial_reports', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_q1_financial_reports', function (Blueprint $table): void {
             $table->id();
             $table->unsignedSmallInteger('fiscal_year');
             $table->unsignedTinyInteger('quarter')->default(1);
@@ -2397,7 +2402,7 @@ HTML;
             $table->timestamps();
         });
 
-        Schema::create('tw_stock_company_profiles', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_company_profiles', function (Blueprint $table): void {
             $table->id();
             $table->string('exchange', 12);
             $table->string('stock_code', 12);
@@ -2413,7 +2418,7 @@ HTML;
             $table->unique(['exchange', 'stock_code']);
         });
 
-        Schema::create('tw_stock_daily_turnover_rates', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_daily_turnover_rates', function (Blueprint $table): void {
             $table->id();
             $table->string('exchange', 12);
             $table->string('stock_code', 12);
@@ -2430,7 +2435,7 @@ HTML;
             $table->unique(['exchange', 'stock_code', 'trade_date']);
         });
 
-        Schema::create('tw_stock_annual_financial_comparisons', function (Blueprint $table): void {
+        Schema::connection('sqlite')->create('tw_stock_annual_financial_comparisons', function (Blueprint $table): void {
             $table->id();
             $table->unsignedSmallInteger('context_year');
             $table->unsignedSmallInteger('comparison_start_year');

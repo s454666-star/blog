@@ -152,6 +152,51 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         self.assertEqual(0, migrator.state["consecutive_empty_source_pages"])
         self.assertEqual("repeated_empty_source_pages", migrator.state["source_recovery_reason"])
 
+    def test_matching_exhausted_duplicate_replay_advances_folder(self):
+        start_counts = self.folder_start_counts()
+        migrator = bare_migrator(
+            {
+                **start_counts,
+                "status": "running",
+                "stage": "process_page",
+                "folder_index": 5,
+                "folder_expected": 483,
+                "folder_processed": 247,
+                "folder_next_group_clicks": 8,
+                "consecutive_empty_source_pages": 2,
+                "current_page_processed": 0,
+                "source_recovery_count": 5,
+                "folder_start_counts": start_counts,
+                "processed_total": start_counts["processed_total"] + 247,
+                "duplicate_media": start_counts["duplicate_media"] + 247,
+                "last_exhausted_replay_observed_count": 247,
+                "matching_exhausted_replay_count": 1,
+            }
+        )
+        migrator.folders = [("folder", 1)] * 6
+        control = {
+            "id": 9149,
+            "reply_markup": {
+                "rows": [{"buttons": [{"text": "下一组"}]}],
+            },
+        }
+        migrator.current_page = lambda: ([], control)
+        clicks = []
+        navigated = []
+        migrator.click = lambda keyword: clicks.append(keyword) or {}
+        migrator.navigate_to_folder = lambda index: navigated.append(index)
+
+        migrator.process_current_page()
+
+        self.assertEqual(["文件夹列表"], clicks)
+        self.assertEqual([6], navigated)
+        self.assertTrue(
+            any(
+                message == "folder_exhausted_after_verified_duplicate_replays"
+                for message, _ in migrator.logs
+            )
+        )
+
     def test_page_media_is_copied_as_one_batch_before_source_deletion(self):
         state = {
             **self.folder_start_counts(),

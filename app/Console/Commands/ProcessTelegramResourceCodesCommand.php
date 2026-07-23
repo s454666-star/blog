@@ -45,6 +45,9 @@ class ProcessTelegramResourceCodesCommand extends Command
     /** @var array<int, int> */
     private array $sourcePeerIds = [];
 
+    /** @var array<int, int> */
+    private array $sourceTopicIds = [];
+
     private int $targetPeerId;
     private string $botUsername;
     private int $codeType;
@@ -132,6 +135,15 @@ class ProcessTelegramResourceCodesCommand extends Command
             $this->csv((string) ($this->option('source-peer-ids') ?: ($config['source_peer_ids'] ?? '')))
         ), static fn (int $value): bool => $value > 0)));
 
+        foreach ($this->csv((string) ($config['source_topic_ids'] ?? '')) as $mapping) {
+            [$rawPeerId, $rawTopicId] = array_pad(explode(':', $mapping, 2), 2, '');
+            $peerId = (int) trim($rawPeerId);
+            $topicId = (int) trim($rawTopicId);
+            if ($peerId > 0 && $topicId > 0) {
+                $this->sourceTopicIds[$peerId] = $topicId;
+            }
+        }
+
         $this->targetPeerId = (int) ($this->option('target-peer-id') ?: ($config['target_peer_id'] ?? 0));
         $this->botUsername = ltrim(trim((string) ($this->option('bot-username') ?: ($config['bot_username'] ?? ''))), '@');
         $this->codeType = max(1, min(255, (int) ($this->option('code-type') ?: ($config['code_type'] ?? 1))));
@@ -175,26 +187,31 @@ class ProcessTelegramResourceCodesCommand extends Command
     {
         foreach ($this->scanCodeTypes as $scanCodeType) {
             foreach ($this->sourcePeerIds as $peerId) {
+                $topicId = $this->sourceTopicIds[$peerId] ?? 0;
                 try {
-                    $this->scanSource($peerId, $scanCodeType);
+                    $this->scanSource($peerId, $scanCodeType, $topicId);
                 } catch (\Throwable $e) {
                     Log::warning('Telegram resource-code source scan failed', [
                         'source_peer_id' => $peerId,
+                        'source_topic_id' => $topicId ?: null,
                         'code_type' => $scanCodeType,
                         'error' => $e->getMessage(),
                     ]);
-                    $this->warn("code_type={$scanCodeType} source_peer_id={$peerId} scan unavailable; queued codes will continue");
+                    $topicLog = $topicId > 0 ? " source_topic_id={$topicId}" : '';
+                    $this->warn("code_type={$scanCodeType} source_peer_id={$peerId}{$topicLog} scan unavailable; queued codes will continue");
                 }
             }
         }
     }
 
-    private function scanSource(int $peerId, int $scanCodeType): void
+    private function scanSource(int $peerId, int $scanCodeType, int $topicId = 0): void
     {
-        $cursorKey = "telegram_resource_codes:scan_cursor:{$scanCodeType}:{$peerId}";
+        $cursorScope = $topicId > 0 ? "{$peerId}:topic:{$topicId}" : (string) $peerId;
+        $cursorKey = "telegram_resource_codes:scan_cursor:{$scanCodeType}:{$cursorScope}";
         $cursor = max(0, (int) Cache::store('telegram_resource_codes')->get($cursorKey, 0));
         $isInitial = $cursor === 0;
         $pages = 0;
+        $scannedCount = 0;
 
         do {
             $path = $isInitial
@@ -203,6 +220,9 @@ class ProcessTelegramResourceCodesCommand extends Command
             $query = $isInitial
                 ? ['limit' => $this->initialScanLimit, 'include_raw' => 'false']
                 : ['next_limit' => $this->scanBatchSize, 'include_raw' => 'false'];
+            if ($topicId > 0) {
+                $query['topic_id'] = $topicId;
+            }
 
             $payload = $this->getFromAvailableAccount($path, $query);
             if ($payload === null || (string) ($payload['status'] ?? 'ok') !== 'ok') {
@@ -211,7 +231,8 @@ class ProcessTelegramResourceCodesCommand extends Command
             }
 
             $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
-            $maxMessageId = $cursor;
+            $scannedCount = max(count($items), (int) ($payload['scanned_count'] ?? 0));
+            $maxMessageId = max($cursor, (int) ($payload['max_message_id'] ?? 0));
             $found = 0;
             $inserted = 0;
 
@@ -247,10 +268,11 @@ class ProcessTelegramResourceCodesCommand extends Command
                 Cache::store('telegram_resource_codes')->forever($cursorKey, $cursor);
             }
 
-            $this->line("code_type={$scanCodeType} source_peer_id={$peerId} cursor={$cursor} messages=" . count($items) . " codes={$found} inserted={$inserted}");
+            $topicLog = $topicId > 0 ? " source_topic_id={$topicId}" : '';
+            $this->line("code_type={$scanCodeType} source_peer_id={$peerId}{$topicLog} cursor={$cursor} messages=" . count($items) . " scanned={$scannedCount} codes={$found} inserted={$inserted}");
             $pages++;
             $isInitial = false;
-        } while (count($items) >= $this->scanBatchSize && $pages < 20);
+        } while ($scannedCount >= $this->scanBatchSize && $pages < 20);
     }
 
     private function processNextCode(): ?bool

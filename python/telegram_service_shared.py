@@ -8870,6 +8870,29 @@ async def list_groups(limit: int = 200, include_channels: bool = True):
     return {"items": out, "count": len(out)}
 
 
+def _message_forum_topic_id(message: Any) -> int:
+    reply_to = getattr(message, "reply_to", None)
+    if reply_to is None:
+        return 0
+
+    top_id = int(getattr(reply_to, "reply_to_top_id", 0) or 0)
+    if top_id > 0:
+        return top_id
+
+    if bool(getattr(reply_to, "forum_topic", False)):
+        return int(getattr(reply_to, "reply_to_msg_id", 0) or 0)
+
+    return 0
+
+
+def _messages_for_forum_topic(messages: Any, topic_id: int) -> List[Any]:
+    rows = list(messages or [])
+    wanted_topic_id = int(topic_id or 0)
+    if wanted_topic_id <= 0:
+        return rows
+    return [message for message in rows if _message_forum_topic_id(message) == wanted_topic_id]
+
+
 @app.get("/groups/{peer_id}")
 async def get_group_messages(
     peer_id: int,
@@ -8880,7 +8903,8 @@ async def get_group_messages(
     add_offset: int = 0,
     reverse: bool = False,
     include_raw: bool = True,
-    include_text: bool = True
+    include_text: bool = True,
+    topic_id: int = 0
 ):
     ent = await _resolve_any_entity_by_id(peer_id)
     if ent is None:
@@ -8931,8 +8955,14 @@ async def get_group_messages(
         reverse=bool(reverse)
     )
 
+    scanned_messages = list(msgs or [])
+    max_message_id = max(
+        [int(getattr(message, "id", 0) or 0) for message in scanned_messages] or [0]
+    )
+    filtered_messages = _messages_for_forum_topic(scanned_messages, topic_id)
+
     items: List[Dict[str, Any]] = []
-    for m in (msgs or []):
+    for m in filtered_messages:
         if include_raw:
             items.append(_message_to_full_dict(m))
         else:
@@ -8993,11 +9023,14 @@ async def get_group_messages(
             "max_id": int(max_id or 0),
             "add_offset": int(add_offset or 0),
             "reverse": bool(reverse),
-            "include_raw": bool(include_raw)
+            "include_raw": bool(include_raw),
+            "topic_id": int(topic_id or 0)
         },
         "paging": paging,
         "items": items,
-        "count": len(items)
+        "count": len(items),
+        "scanned_count": len(scanned_messages),
+        "max_message_id": max_message_id
     }
 
 @app.get("/groups/{peer_id}/{message_id}")
@@ -9006,7 +9039,8 @@ async def get_group_message_by_id(
     message_id: int,
     include_next: bool = True,
     next_limit: int = 1000,
-    include_raw: bool = True
+    include_raw: bool = True,
+    topic_id: int = 0
 ):
     ent = await _resolve_any_entity_by_id(peer_id)
     if ent is None:
@@ -9027,7 +9061,11 @@ async def get_group_message_by_id(
                 reverse=True
             )
 
-            for m in (msgs or []):
+            scanned_messages = list(msgs or [])
+            max_message_id = max(
+                [int(getattr(message, "id", 0) or 0) for message in scanned_messages] or [0]
+            )
+            for m in _messages_for_forum_topic(scanned_messages, topic_id):
                 if include_raw:
                     items.append(_message_to_full_dict(m))
                 else:
@@ -9060,7 +9098,14 @@ async def get_group_message_by_id(
                     "items": []
                 }
 
-            if include_raw:
+            scanned_messages = [msg]
+            max_message_id = int(getattr(msg, "id", 0) or 0)
+            if int(topic_id or 0) > 0 and _message_forum_topic_id(msg) != int(topic_id):
+                msg = None
+
+            if msg is None:
+                items = []
+            elif include_raw:
                 items.append(_message_to_full_dict(msg))
             else:
                 items.append({
@@ -9090,12 +9135,18 @@ async def get_group_message_by_id(
             "error": str(e)
         }
 
+    scanned_messages = locals().get("scanned_messages", [])
+    max_message_id = int(locals().get("max_message_id", 0) or 0)
+
     return {
         "status": "ok",
         "peer_id": int(peer_id),
         "start_message_id": int(message_id),
         "include_next": bool(include_next),
         "next_limit": int(next_limit),
+        "topic_id": int(topic_id or 0),
+        "scanned_count": len(scanned_messages),
+        "max_message_id": max_message_id,
         "count": len(items),
         "items": items
     }

@@ -33,6 +33,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         config()->set('telegram.resource_codes', [
             'base_uris' => 'http://127.0.0.1:8001,http://127.0.0.1:8002,http://127.0.0.1:8003',
             'source_peer_ids' => '3779285711,2352070665',
+            'source_topic_ids' => null,
             'target_peer_id' => 3967395258,
             'bot_username' => 'zyxfids_bot',
             'code_type' => 1,
@@ -116,6 +117,38 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'status' => TelegramResourceCode::STATUS_PENDING,
         ]);
         $this->assertFalse(Schema::hasColumn('telegram_resource_codes', 'message_text'));
+    }
+
+    public function test_scan_limits_a_forum_source_to_its_configured_topic(): void
+    {
+        config()->set('telegram.resource_codes.source_peer_ids', '2589355088');
+        config()->set('telegram.resource_codes.source_topic_ids', '2589355088:11');
+
+        Http::fake(function ($request) {
+            $this->assertSame('/groups/2589355088', (string) parse_url($request->url(), PHP_URL_PATH));
+            $this->assertSame('11', (string) $request->data()['topic_id']);
+
+            return Http::response([
+                'status' => 'ok',
+                'max_message_id' => 321,
+                'scanned_count' => 1,
+                'items' => [[
+                    'id' => 321,
+                    'text' => '4dc6eb55ee68f197a332ca4802aaf14420f76d74',
+                ]],
+            ]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--scan-only' => true,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => '4dc6eb55ee68f197a332ca4802aaf14420f76d74',
+            'source_peer_id' => 2589355088,
+            'source_message_id' => 321,
+        ]);
     }
 
     public function test_type_two_scan_stores_only_wenjianji_codes_and_preserves_case(): void

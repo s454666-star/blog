@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 
 PYTHON_DIR = Path(__file__).resolve().parents[1]
@@ -72,6 +73,30 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
             service._normalize_resource_code("wenjianjijibot_1v_EY7hgrHmiujLKVaV"),
         )
         self.assertIsNone(service._normalize_resource_code("WenJianJibot_1v_EY7hgrHmiujLKVaV"))
+
+    def test_forum_topic_filter_uses_top_id_and_forum_root_reply_id(self) -> None:
+        topic_message = SimpleNamespace(
+            id=101,
+            reply_to=SimpleNamespace(reply_to_top_id=11, forum_topic=True, reply_to_msg_id=99),
+        )
+        direct_topic_message = SimpleNamespace(
+            id=102,
+            reply_to=SimpleNamespace(reply_to_top_id=0, forum_topic=True, reply_to_msg_id=11),
+        )
+        other_topic_message = SimpleNamespace(
+            id=103,
+            reply_to=SimpleNamespace(reply_to_top_id=12, forum_topic=True, reply_to_msg_id=12),
+        )
+
+        self.assertEqual(11, service._message_forum_topic_id(topic_message))
+        self.assertEqual(11, service._message_forum_topic_id(direct_topic_message))
+        self.assertEqual(
+            [topic_message, direct_topic_message],
+            service._messages_for_forum_topic(
+                [topic_message, direct_topic_message, other_topic_message],
+                11,
+            ),
+        )
 
     def test_qq_paging_buttons_are_supported(self) -> None:
         self.assertIn("下一页", service.RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS)

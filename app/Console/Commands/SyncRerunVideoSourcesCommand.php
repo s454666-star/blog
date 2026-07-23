@@ -15,7 +15,7 @@ class SyncRerunVideoSourcesCommand extends Command
         {--rerun-limit= : B 來源最多掃幾筆}
         {--eagle-limit= : C 來源最多掃幾筆}';
 
-    protected $description = '比對 video_master(type=1)、Z:\\video(重跑)、Eagle 重跑資源三邊差異，同檔不同名會用檔案指紋歸類。';
+    protected $description = '比對 video_master(type=1)、H:\\video(重跑)、Eagle 重跑資源三邊差異，同檔不同名會用檔案指紋歸類。';
 
     public function handle(VideoRerunSyncService $syncService): int
     {
@@ -117,7 +117,7 @@ class SyncRerunVideoSourcesCommand extends Command
             ['來源', '看到的檔案數'],
             [
                 ['A. video_master(type=1)', (string) $run->db_seen_count],
-                ['B. Z:\\video(重跑)', (string) $run->rerun_seen_count],
+                ['B. H:\\video(重跑)', (string) $run->rerun_seen_count],
                 ['C. Eagle 重跑資源', (string) $run->eagle_seen_count],
             ]
         );

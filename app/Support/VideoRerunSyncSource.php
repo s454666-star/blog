@@ -21,7 +21,7 @@ final class VideoRerunSyncSource
     {
         return match ($source) {
             self::DB => 'A. video_master(type=1)',
-            self::RERUN_DISK => 'B. Z:\\video(重跑)',
+            self::RERUN_DISK => 'B. H:\\video(重跑)',
             self::EAGLE => 'C. Eagle 重跑資源',
             default => $source,
         };

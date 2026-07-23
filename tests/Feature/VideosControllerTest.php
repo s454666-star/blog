@@ -162,6 +162,7 @@ class VideosControllerTest extends TestCase
         file_put_contents($videoFolder . DIRECTORY_SEPARATOR . 'Clip_001.mp4', 'video-body');
         file_put_contents($videoFolder . DIRECTORY_SEPARATOR . 'screenshot_1.jpg', 'shot');
         file_put_contents($videoFolder . DIRECTORY_SEPARATOR . 'Clip_001_face_1.jpg', 'face');
+        file_put_contents($videoFolder . DIRECTORY_SEPARATOR . 'Clip_001_feature_10s_01.jpg', 'feature');
 
         $m3u8Folder = $this->m3u8Root . DIRECTORY_SEPARATOR . 'Clip_001';
         File::ensureDirectoryExists($m3u8Folder);
@@ -225,6 +226,34 @@ class VideosControllerTest extends TestCase
         $this->assertFalse(File::exists($this->rerunRoot . DIRECTORY_SEPARATOR . 'Clip_001.mp4'));
         $this->assertFalse(File::isDirectory($m3u8Folder));
         $this->assertCount(0, $this->eagleItems);
+    }
+
+    public function test_delete_selected_rejects_paths_outside_configured_roots_before_deleting_anything(): void
+    {
+        $outsideFolder = $this->basePath . DIRECTORY_SEPARATOR . 'outside';
+        $outsideVideo = $outsideFolder . DIRECTORY_SEPARATOR . 'keep.mp4';
+        File::ensureDirectoryExists($outsideFolder);
+        file_put_contents($outsideVideo, 'must-not-delete');
+
+        $videoId = DB::table('video_master')->insertGetId([
+            'video_name' => 'keep.mp4',
+            'video_path' => '../outside/keep.mp4',
+            'm3u8_path' => null,
+            'duration' => 10,
+            'video_type' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->post(route('video.deleteSelected'), [
+            'ids' => [$videoId],
+        ]);
+
+        $response->assertStatus(500)
+            ->assertJsonPath('success', false);
+
+        $this->assertFileExists($outsideVideo);
+        $this->assertDatabaseHas('video_master', ['id' => $videoId]);
     }
 
     public function test_load_more_uses_the_same_page_size_as_index_without_repeating_rows(): void

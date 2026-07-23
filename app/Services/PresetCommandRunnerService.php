@@ -991,11 +991,11 @@ class PresetCommandRunnerService
             'sync_rerun_video_sources' => [
                 'eyebrow' => 'Rerun Sync',
                 'title' => '比對 DB / 重跑 / Eagle 三邊差異',
-                'summary' => '掃 video_master(type=1)、Z:\\video(重跑)、Eagle 重跑資源，同檔不同名會用檔案指紋歸成同一組。',
+                'summary' => '掃 video_master(type=1)、H:\\video(重跑)、Eagle 重跑資源，同檔不同名會用檔案指紋歸成同一組。',
                 'details' => '這組是增量掃描。已跑過且未變動的檔案會直接跳過，只重算新增或異動來源。跑完去差異頁可以選擇刪除多出或補齊缺少。',
                 'highlights' => [
                     'A 來源只比對 video_type=1，並從 DB 實際路徑抓原始檔。',
-                    'B 來源掃 Z:\\video(重跑)，C 來源透過 Eagle API + library 實體檔掃描。',
+                    'B 來源掃 H:\\video(重跑)，C 來源透過 Eagle API + library 實體檔掃描。',
                     '跑完到 /videos/rerun-sync 只看差異，並可直接批次刪除或補齊。',
                 ],
                 'tags' => ['檔案指紋', '增量掃描', '差異頁'],

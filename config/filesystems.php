@@ -31,7 +31,7 @@ return [
     'disks' => [
         'videos' => [
             'driver' => 'local',
-            'root' => env('VIDEO_ROOT', 'D:/video'),
+            'root' => env('VIDEO_ROOT', 'E:/video'),
             'url' => env('VIDEO_BASE_URL', 'https://blog/video'),
             'visibility' => 'public',
         ],

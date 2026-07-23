@@ -872,7 +872,7 @@
             VideoTs::where('path', 'like', $prefix . '%')->delete();
 
             // 2) 刪實體檔案：Z:\m3u8\<folder>
-            $targetDir = $this->joinPaths($m3u8Root, $folder);
+            $targetDir = $this->resolvePathWithinRootOrFail($m3u8Root, $folder, 'm3u8 資料夾');
             $this->deletePathWithRetries($targetDir, true);
         }
 
@@ -882,6 +882,9 @@
             string $m3u8Root,
             array $eagleItemLookup = [],
         ): void {
+            // 在動到任何檔案前先驗證所有刪除目標，避免舊資料或異常路徑跳出指定根目錄。
+            $this->validateVideoDeletionTargets($video, $videoRoot, $m3u8Root);
+
             $this->deleteVideoPhysicalFiles($video);
             $this->deleteM3u8AssetsAndRows($video, $m3u8Root);
             $this->deleteRerunReplicaIfExists($video);
@@ -916,8 +919,51 @@
                 return;
             }
 
-            $targetPath = $this->joinPaths($rerunRoot, $fileName);
+            $targetPath = $this->resolvePathWithinRootOrFail($rerunRoot, $fileName, '重跑影片');
             $this->deletePathWithRetries($targetPath);
+        }
+
+        private function validateVideoDeletionTargets(VideoMaster $video, string $videoRoot, string $m3u8Root): void
+        {
+            foreach ($this->videoAssetRelativePaths($video) as $relativePath) {
+                $this->resolvePathWithinRootOrFail($videoRoot, $relativePath, '影片資產');
+            }
+
+            $videoFolder = $this->videoFolderRelativePath($video);
+            if ($videoFolder !== '') {
+                $this->resolvePathWithinRootOrFail($videoRoot, $videoFolder, '影片資料夾');
+            }
+
+            if (!empty($video->m3u8_path)) {
+                $m3u8Folder = basename(dirname(str_replace('\\', '/', (string) $video->m3u8_path)));
+                if ($m3u8Folder !== '' && !in_array($m3u8Folder, ['.', '..', '/'], true)) {
+                    $this->resolvePathWithinRootOrFail($m3u8Root, $m3u8Folder, 'm3u8 資料夾');
+                }
+            }
+
+            $rerunRoot = rtrim((string) config('video_rerun_sync.rerun_root', ''), '/\\');
+            $replicaFileName = $this->replicaFileName($video);
+            if ($rerunRoot !== '' && $replicaFileName !== '') {
+                $this->resolvePathWithinRootOrFail($rerunRoot, $replicaFileName, '重跑影片');
+            }
+        }
+
+        private function videoAssetRelativePaths(VideoMaster $video): array
+        {
+            $paths = [(string) $video->video_path];
+            $screenshots = $video->relationLoaded('screenshots')
+                ? $video->screenshots
+                : $video->screenshots()->with('faceScreenshots')->get();
+
+            foreach ($screenshots as $screenshot) {
+                $paths[] = (string) $screenshot->screenshot_path;
+
+                foreach ($screenshot->faceScreenshots as $face) {
+                    $paths[] = (string) $face->face_image_path;
+                }
+            }
+
+            return array_values(array_unique(array_filter($paths, static fn (string $path): bool => trim($path) !== '')));
         }
 
         private function deleteEagleReplicaIfExists(VideoMaster $video, array $eagleItemLookup): void
@@ -1112,14 +1158,21 @@
          */
         private function deleteVideoFolderIfExists(VideoMaster $video, string $videoRoot): void
         {
-            $videoPath   = str_replace('\\', '/', (string) $video->video_path);
-            $videoFolder = trim(pathinfo($videoPath, PATHINFO_DIRNAME), '/');
-            if ($videoFolder === '' || $videoFolder === '.' || $videoFolder === '..') {
+            $videoFolder = $this->videoFolderRelativePath($video);
+            if ($videoFolder === '') {
                 return;
             }
 
-            $folderPath = $this->joinPaths($videoRoot, $videoFolder);
+            $folderPath = $this->resolvePathWithinRootOrFail($videoRoot, $videoFolder, '影片資料夾');
             $this->deletePathWithRetries($folderPath, true);
+        }
+
+        private function videoFolderRelativePath(VideoMaster $video): string
+        {
+            $videoPath = str_replace('\\', '/', (string) $video->video_path);
+            $videoFolder = trim(pathinfo($videoPath, PATHINFO_DIRNAME), '/');
+
+            return in_array($videoFolder, ['', '.', '..'], true) ? '' : $videoFolder;
         }
 
         /**
@@ -1139,17 +1192,68 @@
 
         private function resolveVideoDiskAbsolutePath(?string $relativePath): string
         {
-            $normalizedPath = RelativeMediaPath::normalize($relativePath);
-            if ($normalizedPath === null || $normalizedPath === '') {
-                return '';
-            }
-
-            return Storage::disk('videos')->path($normalizedPath);
+            return $this->resolvePathWithinRootOrFail($this->videoDiskRoot(), $relativePath, '影片資產');
         }
 
         private function videoDiskRoot(): string
         {
-            return rtrim((string) config('filesystems.disks.videos.root', 'D:/video'), '/\\');
+            return rtrim((string) config('filesystems.disks.videos.root', 'E:/video'), '/\\');
+        }
+
+        private function resolvePathWithinRootOrFail(string $root, ?string $relativePath, string $label): string
+        {
+            $root = rtrim(trim($root), '/\\');
+            $normalizedPath = RelativeMediaPath::normalize($relativePath);
+
+            if ($normalizedPath === null || $normalizedPath === '') {
+                return '';
+            }
+
+            if ($root === '') {
+                throw new \RuntimeException($label . '根目錄未設定。');
+            }
+
+            $segments = explode('/', $normalizedPath);
+            if (
+                str_contains($normalizedPath, "\0")
+                || str_contains($normalizedPath, ':')
+                || in_array('.', $segments, true)
+                || in_array('..', $segments, true)
+            ) {
+                throw new \RuntimeException($label . '路徑不安全：' . $normalizedPath);
+            }
+
+            $rootForComparison = preg_replace('#/+#', '/', str_replace('\\', '/', $root)) ?? $root;
+            $candidateForComparison = $rootForComparison . '/' . $normalizedPath;
+            $comparisonRoot = DIRECTORY_SEPARATOR === '\\' ? mb_strtolower($rootForComparison, 'UTF-8') : $rootForComparison;
+            $comparisonCandidate = DIRECTORY_SEPARATOR === '\\' ? mb_strtolower($candidateForComparison, 'UTF-8') : $candidateForComparison;
+
+            if (!str_starts_with($comparisonCandidate, rtrim($comparisonRoot, '/') . '/')) {
+                throw new \RuntimeException($label . '超出允許根目錄。');
+            }
+
+            $candidate = $this->joinPaths($root, $normalizedPath);
+            $realRoot = realpath($root);
+            $realCandidate = realpath($candidate);
+
+            if ($realRoot !== false && $realCandidate !== false) {
+                $realRootForComparison = str_replace('\\', '/', rtrim($realRoot, '/\\'));
+                $realCandidateForComparison = str_replace('\\', '/', $realCandidate);
+
+                if (DIRECTORY_SEPARATOR === '\\') {
+                    $realRootForComparison = mb_strtolower($realRootForComparison, 'UTF-8');
+                    $realCandidateForComparison = mb_strtolower($realCandidateForComparison, 'UTF-8');
+                }
+
+                if (
+                    $realCandidateForComparison !== $realRootForComparison
+                    && !str_starts_with($realCandidateForComparison, $realRootForComparison . '/')
+                ) {
+                    throw new \RuntimeException($label . '實際路徑超出允許根目錄。');
+                }
+            }
+
+            return $candidate;
         }
 
         private function deleteVideoDiskPathOrFail(?string $relativePath): void

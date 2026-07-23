@@ -175,7 +175,7 @@ class VideoRerunSyncControllerTest extends TestCase
             ->expectsOutputToContain('預估總筆數：A=1, B=1, C=1, total=3')
             ->expectsOutputToContain('開始掃描 A. video_master(type=1) (0/1)')
             ->expectsOutputToContain('進度 33% (1/3) | A. video_master(type=1) 1/1')
-            ->expectsOutputToContain('進度 66% (2/3) | B. Z:\\video(重跑) 1/1')
+            ->expectsOutputToContain('進度 66% (2/3) | B. H:\\video(重跑) 1/1')
             ->expectsOutputToContain('進度 100% (3/3) | C. Eagle 重跑資源 1/1')
             ->assertExitCode(0);
     }

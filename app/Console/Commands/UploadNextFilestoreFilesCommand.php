@@ -13,7 +13,7 @@ use Symfony\Component\Process\Process;
 class UploadNextFilestoreFilesCommand extends Command
 {
     private const DEFAULT_CHAT_ID = 7702694790;
-    private const DEFAULT_SOURCE_DIR = 'Z:\\video(重跑)';
+    private const DEFAULT_SOURCE_DIR = 'H:\\video(重跑)';
     private const DEFAULT_TDL_PATH = 'C:\\Users\\User\\Videos\\Captures\\tdl.exe';
     private const DEFAULT_FASTAPI_BASE_URI = 'http://127.0.0.1:8001/';
     private const DEFAULT_FASTAPI_FALLBACK_BASE_URI = 'http://127.0.0.1:8002/';
@@ -24,7 +24,7 @@ class UploadNextFilestoreFilesCommand extends Command
         {--limit=100 : 本次最多上傳幾筆}
         {--method=tdl : 上傳方法：tdl 或 api-video}
         {--chat-id=7702694790 : 寫入 filestore 的 Telegram chat_id}
-        {--source=Z:\\video(重跑) : 來源資料夾}
+        {--source=H:\\video(重跑) : 來源資料夾}
         {--bot=filestoebot : Telegram bot username（可帶或不帶 @）}
         {--base-uri=http://127.0.0.1:8001/ : 本機 Telegram FastAPI base uri}
         {--fallback-base-uri=http://127.0.0.1:8002/ : api-video 失敗時改打的備援 FastAPI base uri}

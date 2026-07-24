@@ -10,6 +10,18 @@
 		header X-Content-Type-Options "nosniff"
 	}
 
+	handle /folder-video-preview-cache/* {
+		reverse_proxy 127.0.0.1:8092 {
+			flush_interval -1
+		}
+	}
+
+	handle /folder-video-tv-hls-cache/* {
+		reverse_proxy 127.0.0.1:8092 {
+			flush_interval -1
+		}
+	}
+
 	handle {
 		encode zstd gzip
 		root * C:/Users/USER/Documents/project/blog/public

@@ -538,9 +538,7 @@
         preview_max_connections: 36,
     }, BOOT_CONFIG || {});
     const sessionSeed = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-    const freshVideoIds = new Set();
     let state = loadState();
-    const sessionNewFirstAfter = Number(state.lastLibraryScanAt || 0);
     let videos = [];
     let videoById = new Map();
     let cursor = {offset: 0, hasMore: true};
@@ -899,10 +897,6 @@
             return;
         }
 
-        if (!state.known?.[normalized.id]) {
-            freshVideoIds.add(normalized.id);
-        }
-
         if (normalized.liked) {
             rememberLikedVideo(normalized);
         } else if (isLikedMode() && !isLiked(normalized.id)) {
@@ -935,13 +929,7 @@
             }
 
             return !isCompleted(video.id);
-        })
-            .sort((left, right) => {
-                const leftFresh = freshVideoIds.has(left.id) ? 0 : 1;
-                const rightFresh = freshVideoIds.has(right.id) ? 0 : 1;
-
-                return leftFresh - rightFresh;
-            });
+        });
     }
 
     function rememberKnownVideos(items) {
@@ -1403,7 +1391,7 @@
             return;
         }
 
-        const delay = Math.min(120, Math.max(0, order) * 12);
+        const delay = Math.min(48, Math.max(0, order) * 6);
         if (delay <= 0) {
             startPreview(card);
             return;
@@ -1449,9 +1437,24 @@
         });
         video.addEventListener('seeked', () => updatePreviewProgress(video));
         video.addEventListener('error', () => {
+            const card = video.closest('.video-card');
+            const failedSrc = video.getAttribute('src') || '';
             video.classList.remove('has-frame');
+            video.dataset.activePreview = '0';
             video.removeAttribute('src');
             video.load();
+            if (failedSrc && failedSrc === video.dataset.src) {
+                video.dataset.src = '';
+            }
+            if (card && video.dataset.previewWanted === '1' && visiblePreviewCards.has(card)) {
+                window.setTimeout(() => {
+                    if (isFolderVideoTvApp()) {
+                        ensureTvVideoPreview(card);
+                    } else {
+                        ensureCardPreview(card);
+                    }
+                }, 100);
+            }
         });
     }
 
@@ -1529,7 +1532,7 @@
             .map((card) => {
                 const rect = card.getBoundingClientRect();
                 const visiblePixels = Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0);
-                const visible = visiblePixels > 2;
+                const visible = visiblePixels > 0;
                 const near = rect.bottom > -preloadBand && rect.top < viewportHeight + preloadBand;
 
                 if (!near) {
@@ -1549,7 +1552,7 @@
 
                 visiblePreviewCards.set(card, ratio);
 
-                return {card, band, distance, left: rect.left};
+                return {card, visible, band, distance, left: rect.left};
             })
             .filter(Boolean)
             .sort((left, right) => (left.band - right.band) || (left.distance - right.distance) || (left.left - right.left));
@@ -1561,14 +1564,17 @@
             return;
         }
 
-        const cards = collectPreviewEntries().map((entry) => entry.card);
+        const entries = collectPreviewEntries();
+        const cards = entries.map((entry) => entry.card);
 
         if (cards.length === 0) {
             stopAllPreviews();
             return;
         }
 
-        const desiredActive = desiredVisibleCount();
+        const visibleCount = entries.filter((entry) => entry.visible).length;
+        const preloadRows = normalizeGridColumns(state.gridColumns);
+        const desiredActive = Math.max(visibleCount, desiredVisibleCount() + preloadRows);
         const configuredPreviewLimit = clamp(Number(appConfig.preview_max_connections || 36), 1, 36);
         const decoderLimit = configuredPreviewLimit;
         const maxActive = clamp(Math.min(desiredActive, cards.length, decoderLimit), 1, decoderLimit);
@@ -1663,9 +1669,8 @@
         const params = new URLSearchParams({
             limit: String(appConfig.page_limit || 36),
             offset: String(cursor.offset || 0),
-            order: 'random_new_first',
+            order: 'random',
             seed: sessionSeed,
-            new_first_after: String(sessionNewFirstAfter),
             liked: isLikedMode() ? '1' : '0',
         });
 

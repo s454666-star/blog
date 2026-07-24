@@ -30,7 +30,7 @@ class FolderVideoControllerTest extends TestCase
         file_put_contents(
             $this->fakeFfprobe,
             "@echo off\r\n".
-            "set file=%~nx7\r\n".
+            "set file=%~nx9\r\n".
             "if /I \"%file%\"==\"short.mp4\" echo 5.0\r\n".
             "if /I \"%file%\"==\"mid.mp4\" echo 12.0\r\n".
             "if /I \"%file%\"==\"long.mp4\" echo 20.0\r\n"
@@ -378,6 +378,12 @@ class FolderVideoControllerTest extends TestCase
             ->assertSee('watchedOnlyButton')
             ->assertSee('likedOnlyButton')
             ->assertSee('/api/folder-videos', false)
+            ->assertSee("order: 'random'", false)
+            ->assertDontSee('random_new_first', false)
+            ->assertDontSee('new_first_after', false)
+            ->assertSee('const visible = visiblePixels > 0;', false)
+            ->assertSee('desiredVisibleCount() + preloadRows', false)
+            ->assertSee("video.dataset.activePreview = '0';", false)
             ->assertSee('window.folderVideoTvHandleKey', false)
             ->assertSee("seekPlayer(-5, '-5s')", false)
             ->assertSee('window.FolderVideoTvAndroid.setPlayerOpen', false)

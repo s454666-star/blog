@@ -2,8 +2,8 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $projectRoot '..\..')
-$versionCode = 16
-$versionName = '2026.07.23.16-tv'
+$versionCode = 17
+$versionName = '2026.07.24.17-tv'
 $sdkRoot = $env:FOLDER_VIDEO_ANDROID_SDK_ROOT
 if (-not $sdkRoot) {
     $sdkRoot = [Environment]::GetEnvironmentVariable('FOLDER_VIDEO_ANDROID_SDK_ROOT', 'User')

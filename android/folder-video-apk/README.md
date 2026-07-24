@@ -6,7 +6,7 @@ Native Android WebView wrapper for the local `blog` Folder Video app.
 - Fallback URLs: `http://10.0.0.25:8090/folder-video-app`, `http://10.0.0.19:8090/folder-video-app`, `http://10.147.18.155:8090/folder-video-app`
 - Android update metadata: `/folder-video-app/android-version.json`
 - Package: `monster.mystar.foldervideo`
-- Version: `2026.07.23.19` / code `19`
+- Version: `2026.07.24.20` / code `20`
 - Min SDK: 23
 - Target SDK: 34
 

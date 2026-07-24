@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string] $SshExecutable = "$env:WINDIR\System32\OpenSSH\ssh.exe",
-    [string] $PrivateKeyPath = "$env:USERPROFILE\.ssh\lightsail-ap-northeast-1-default.pem",
+    [string] $PrivateKeyPath = "$env:USERPROFILE\.ssh\aws-sky-lightsail.pem",
     [string] $RemoteHost = '13.114.44.241',
     [string] $RemoteUser = 'ubuntu',
     [int] $RemoteSocksPort = 10885,

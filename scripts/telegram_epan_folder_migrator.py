@@ -533,14 +533,14 @@ class Migrator:
             if self.is_regular_message(item) and self.media_kind(item)
         ]
 
-    def register_source_hash(
+    def register_source_file_id(
         self,
         source_id: int,
         target_peer_id: int,
         target_id: int,
     ) -> str:
         response = self.api.post(
-            "/messages/register-media-hash",
+            "/messages/register-media-file-id",
             {
                 "media_peer_id": self.args.source_peer_id,
                 "message_id": source_id,
@@ -551,8 +551,8 @@ class Migrator:
             timeout=7200.0,
         )
         if response.get("status") != "ok":
-            raise MigrationBlocked(f"source hash registration failed: {response}")
-        return str(response.get("content_sha256") or "")
+            raise MigrationBlocked(f"source file id registration failed: {response}")
+        return str(response.get("file_unique_id") or "")
 
     def mark_source_complete(
         self,
@@ -562,7 +562,7 @@ class Migrator:
         *,
         target_peer_id: int,
         duplicate: bool,
-        content_sha256: str,
+        file_unique_id: str,
     ) -> None:
         self.state["stage"] = "source_copied"
         self.state["active_source_message_id"] = source_id
@@ -570,7 +570,7 @@ class Migrator:
         self.state["active_target_peer_id"] = target_peer_id
         self.state["active_media_kind"] = kind
         self.state["active_duplicate"] = bool(duplicate)
-        self.state["active_content_sha256"] = content_sha256
+        self.state["active_file_unique_id"] = file_unique_id
         self.save()
         self.delete_source([source_id])
         self.state["processed_total"] += 1
@@ -610,14 +610,14 @@ class Migrator:
         self.state["current_page_processed"] = int(
             self.state.get("current_page_processed") or 0
         ) + 1
-        self.state["last_content_sha256"] = content_sha256
+        self.state["last_file_unique_id"] = file_unique_id
         for key in (
             "active_source_message_id",
             "active_target_message_id",
             "active_target_peer_id",
             "active_media_kind",
             "active_duplicate",
-            "active_content_sha256",
+            "active_file_unique_id",
             "copy_target_baseline",
             "copy_target_peer_id",
         ):
@@ -681,7 +681,7 @@ class Migrator:
             "active_target_peer_id",
             "active_media_kind",
             "active_duplicate",
-            "active_content_sha256",
+            "active_file_unique_id",
             "copy_target_baseline",
             "copy_target_peer_id",
             "replay_next_groups_remaining",
@@ -759,7 +759,7 @@ class Migrator:
             "active_target_peer_id",
             "active_media_kind",
             "active_duplicate",
-            "active_content_sha256",
+            "active_file_unique_id",
             "copy_target_baseline",
             "copy_target_peer_id",
             "replay_next_groups_remaining",
@@ -810,7 +810,7 @@ class Migrator:
                 if str(candidate.get("message") or "") or candidate.get("fwd_from") is not None:
                     raise MigrationBlocked("copy recovery target contains caption or forward attribution")
                 target_id = int(candidate.get("id") or 0)
-                content_sha256 = self.register_source_hash(
+                file_unique_id = self.register_source_file_id(
                     source_id,
                     target_peer_id,
                     target_id,
@@ -821,7 +821,7 @@ class Migrator:
                     kind,
                     target_peer_id=target_peer_id,
                     duplicate=False,
-                    content_sha256=content_sha256,
+                    file_unique_id=file_unique_id,
                 )
                 return
             if not self.message_exists(self.args.source_peer_id, source_id):
@@ -851,7 +851,7 @@ class Migrator:
             kind,
             target_peer_id=target_peer_id,
             duplicate=bool(self.state.get("active_duplicate")),
-            content_sha256=str(self.state.get("active_content_sha256") or ""),
+            file_unique_id=str(self.state.get("active_file_unique_id") or ""),
         )
 
     def copy_media(self, message: dict[str, Any]) -> None:
@@ -891,6 +891,7 @@ class Migrator:
                         "target_peer_id": target_peer_id,
                         "drop_media_captions": True,
                         "dedupe_scope": self.dedupe_scope,
+                        "dedupe_mode": "telegram_file_unique_id",
                     },
                     timeout=7200.0,
                 )
@@ -937,7 +938,7 @@ class Migrator:
                     kind,
                     target_peer_id=target_peer_id,
                     duplicate=bool(result.get("duplicate")),
-                    content_sha256=str(result.get("content_sha256") or ""),
+                    file_unique_id=str(result.get("file_unique_id") or ""),
                 )
                 return
 

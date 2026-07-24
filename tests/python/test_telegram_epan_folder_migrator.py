@@ -305,6 +305,53 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         self.assertEqual("process_page", migrator.state["stage"])
         self.assertNotIn("active_page_results", migrator.state)
 
+    def test_copy_requests_file_id_only_dedupe(self):
+        migrator = bare_migrator(
+            {
+                "stage": "process_page",
+                "folder_index": 5,
+                "processed_total": 0,
+            }
+        )
+        migrator.dedupe_scope = "epan_originals_combined"
+        migrator.latest_message_id = lambda peer_id: 100
+        calls = []
+
+        def post(path, payload, timeout):
+            calls.append((path, payload, timeout))
+            return {
+                "status": "ok",
+                "results": [
+                    {
+                        "source_message_id": 200,
+                        "target_message_id": 300,
+                        "file_unique_id": "document:400",
+                        "duplicate": False,
+                    }
+                ],
+            }
+
+        migrator.api = types.SimpleNamespace(post=post)
+        completed = []
+        migrator.mark_source_complete = lambda *args, **kwargs: completed.append(
+            (args, kwargs)
+        )
+
+        migrator.copy_media({"id": 200, "media_kind": "video"})
+
+        self.assertEqual(
+            "/messages/copy-protected-media-batch",
+            calls[0][0],
+        )
+        self.assertEqual(
+            "telegram_file_unique_id",
+            calls[0][1]["dedupe_mode"],
+        )
+        self.assertEqual(
+            "document:400",
+            completed[0][1]["file_unique_id"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

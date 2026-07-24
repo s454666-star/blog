@@ -27,6 +27,14 @@ SPEC.loader.exec_module(MODULE)
 
 
 class TelegramMediaFileIdDedupeTest(unittest.TestCase):
+    def test_file_id_only_mode_is_explicit(self):
+        self.assertEqual(
+            "telegram_file_unique_id",
+            MODULE._validate_media_dedupe_mode("telegram_file_unique_id"),
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported media dedupe mode"):
+            MODULE._validate_media_dedupe_mode("sha1")
+
     def test_extracts_stable_photo_and_document_ids(self):
         photo = types.SimpleNamespace(
             photo=types.SimpleNamespace(id=123),

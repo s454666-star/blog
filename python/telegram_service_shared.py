@@ -3419,7 +3419,17 @@ class CopyProtectedMediaBatchRequest(BaseModel):
     target_peer_id: int
     drop_media_captions: bool = True
     dedupe_scope: Optional[str] = None
+    dedupe_mode: str = "content_sha256"
     existing_dedupe_requires_clean: bool = True
+
+
+class RegisterMediaFileIdRequest(BaseModel):
+    media_peer_id: int
+    message_id: int
+    dedupe_scope: str
+    target_peer_id: int
+    target_message_id: int
+    require_clean_target: bool = True
 
 
 class RegisterMediaHashRequest(BaseModel):
@@ -3913,6 +3923,13 @@ def _telegram_media_file_unique_id(message: Any) -> str:
     return ""
 
 
+def _validate_media_dedupe_mode(value: str) -> str:
+    mode = str(value or "content_sha256").strip().lower()
+    if mode not in {"content_sha256", "telegram_file_unique_id"}:
+        raise ValueError("unsupported media dedupe mode")
+    return mode
+
+
 def _media_file_id_lookup(
     scope: str,
     telegram_file_unique_id: str,
@@ -4335,8 +4352,10 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
     target_peer_id = int(payload.target_peer_id or 0)
     try:
         dedupe_scope = _validate_media_dedupe_scope(payload.dedupe_scope)
+        dedupe_mode = _validate_media_dedupe_mode(payload.dedupe_mode)
     except ValueError as e:
-        return {"status": "error", "reason": "invalid_dedupe_scope", "error": str(e)}
+        return {"status": "error", "reason": "invalid_dedupe_config", "error": str(e)}
+    use_content_sha256_dedupe = dedupe_mode == "content_sha256"
     message_ids = list(dict.fromkeys(
         int(mid or 0)
         for mid in list(payload.message_ids or [])
@@ -4443,7 +4462,7 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                     tdl_bot_username=source_bot_username,
                 )
 
-            if dedupe_scope and content_sha256:
+            if dedupe_scope and content_sha256 and use_content_sha256_dedupe:
                 async with MEDIA_DEDUPE_LOCK:
                     existing = await asyncio.to_thread(
                         _media_dedupe_lookup,
@@ -4543,7 +4562,7 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
 
             created_target_message_ids.append(target_message_id)
             all_target_message_ids.append(target_message_id)
-            if dedupe_scope and content_sha256:
+            if dedupe_scope and content_sha256 and use_content_sha256_dedupe:
                 async with MEDIA_DEDUPE_LOCK:
                     await asyncio.to_thread(
                         _media_dedupe_register,
@@ -4555,22 +4574,23 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                         source_message_id,
                         file_size,
                     )
-                    if source_file_unique_id:
-                        await asyncio.to_thread(
-                            _media_file_id_register,
-                            dedupe_scope,
-                            source_file_unique_id,
-                            target_peer_id,
-                            target_message_id,
-                            content_sha256,
-                            source_peer_id,
-                            source_message_id,
-                            file_size,
-                        )
+            if dedupe_scope and source_file_unique_id:
+                async with MEDIA_DEDUPE_LOCK:
+                    await asyncio.to_thread(
+                        _media_file_id_register,
+                        dedupe_scope,
+                        source_file_unique_id,
+                        target_peer_id,
+                        target_message_id,
+                        content_sha256 if use_content_sha256_dedupe else "",
+                        source_peer_id,
+                        source_message_id,
+                        file_size,
+                    )
             results.append({
                 "source_message_id": source_message_id,
                 "target_message_id": target_message_id,
-                "content_sha256": content_sha256 or None,
+                "content_sha256": content_sha256 if use_content_sha256_dedupe else None,
                 "file_size": file_size,
                 "file_unique_id": source_file_unique_id or None,
                 "downloader": downloader or None,
@@ -4615,6 +4635,71 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
         "copied_count": len(created_target_message_ids),
         "duplicate_count": sum(1 for result in results if result.get("duplicate")),
         "results": results,
+    }
+
+
+@app.post("/messages/register-media-file-id")
+async def register_media_file_id(payload: RegisterMediaFileIdRequest):
+    media_peer_id = int(payload.media_peer_id or 0)
+    message_id = int(payload.message_id or 0)
+    target_peer_id = int(payload.target_peer_id or 0)
+    target_message_id = int(payload.target_message_id or 0)
+    try:
+        dedupe_scope = _validate_media_dedupe_scope(payload.dedupe_scope)
+    except ValueError as e:
+        return {"status": "error", "reason": "invalid_dedupe_scope", "error": str(e)}
+    if min(media_peer_id, message_id, target_peer_id, target_message_id) <= 0:
+        return {"status": "error", "reason": "invalid_request"}
+    if not await _ensure_client_connected():
+        return {"status": "error", "reason": "client_not_connected"}
+
+    media_peer = await _resolve_any_input_entity_by_id(media_peer_id)
+    target_peer = await _resolve_any_input_entity_by_id(target_peer_id)
+    if media_peer is None or target_peer is None:
+        return {"status": "error", "reason": "peer_not_found"}
+    fetched = await client.get_messages(media_peer, ids=[message_id])
+    messages = fetched if isinstance(fetched, list) else [fetched] if fetched is not None else []
+    if len(messages) != 1:
+        return {"status": "error", "reason": "media_message_not_found"}
+    source_message = messages[0]
+    source_kind = _resource_code_media_kind(source_message)
+    file_unique_id = _telegram_media_file_unique_id(source_message)
+    if source_kind is None or not file_unique_id:
+        return {"status": "error", "reason": "media_file_id_not_found"}
+
+    target_message = await _verified_dedupe_target_message(
+        target_peer,
+        target_message_id,
+        require_clean=bool(payload.require_clean_target),
+    )
+    if (
+        target_message is None
+        or not _resource_code_target_kind_is_acceptable(
+            _resource_code_media_kind(target_message),
+            source_kind,
+        )
+    ):
+        return {"status": "error", "reason": "target_media_message_not_clean"}
+
+    async with MEDIA_DEDUPE_LOCK:
+        await asyncio.to_thread(
+            _media_file_id_register,
+            dedupe_scope,
+            file_unique_id,
+            target_peer_id,
+            target_message_id,
+            "",
+            media_peer_id,
+            message_id,
+            0,
+        )
+    return {
+        "status": "ok",
+        "media_peer_id": media_peer_id,
+        "message_id": message_id,
+        "target_peer_id": target_peer_id,
+        "target_message_id": target_message_id,
+        "file_unique_id": file_unique_id,
     }
 
 

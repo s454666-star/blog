@@ -1201,7 +1201,7 @@ class Migrator:
             response.get("sent_message_id") or 0
         )
         self.save()
-        self.click("文件夹列表")
+        self.click("文件夹")
         self.navigate_to_folder(folder_index)
         self.log(
             "source_folder_restart_started",
@@ -1234,9 +1234,9 @@ class Migrator:
             return
 
         button_texts = [str(button.get("text") or "") for button in self.buttons(control)]
-        if not any("文件夹列表" in text for text in button_texts):
+        if not any("文件夹" in text for text in button_texts):
             raise MigrationBlocked("folder completion control has no folder-list button")
-        self.click("文件夹列表")
+        self.click("文件夹")
         self.navigate_to_folder(folder_index + 1)
 
     def can_finish_exhausted_replay_folder(self) -> bool:
@@ -1275,7 +1275,7 @@ class Migrator:
             self.state["stage"] = "clear_source_dialog"
             self.save()
             return
-        self.click("文件夹列表")
+        self.click("文件夹")
         self.navigate_to_folder(folder_index + 1)
 
     def process_current_page(self) -> None:
@@ -1450,7 +1450,7 @@ class Migrator:
             raise MigrationBlocked(f"source /start failed: {response}")
         self.state["start_message_id"] = int(response.get("sent_message_id") or 0)
         self.save()
-        self.click("文件夹列表")
+        self.click("文件夹")
         self.navigate_to_folder(1)
 
     def verify_target(self) -> None:

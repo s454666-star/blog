@@ -114,7 +114,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
 
         self.assertEqual("/bots/send", posts[0][0])
         self.assertTrue(posts[0][1]["clear_previous_replies"])
-        self.assertEqual(["文件夹列表"], clicks)
+        self.assertEqual(["文件夹"], clicks)
         self.assertEqual([5], navigated)
         self.assertEqual(2711, migrator.state["source_recovery_start_message_id"])
 
@@ -188,7 +188,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
 
         migrator.process_current_page()
 
-        self.assertEqual(["文件夹列表"], clicks)
+        self.assertEqual(["文件夹"], clicks)
         self.assertEqual([6], navigated)
         self.assertTrue(
             any(

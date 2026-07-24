@@ -152,6 +152,35 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         self.assertEqual(0, migrator.state["consecutive_empty_source_pages"])
         self.assertEqual("repeated_empty_source_pages", migrator.state["source_recovery_reason"])
 
+    def test_right_arrow_advances_updated_media_page(self):
+        migrator = bare_migrator(
+            {
+                **self.folder_start_counts(),
+                "status": "running",
+                "stage": "process_page",
+                "folder_index": 5,
+                "folder_processed": 1,
+                "folder_next_group_clicks": 0,
+                "consecutive_empty_source_pages": 0,
+                "current_page_processed": 0,
+            }
+        )
+        control = {
+            "id": 9000,
+            "reply_markup": {
+                "rows": [{"buttons": [{"text": "➡"}]}],
+            },
+        }
+        migrator.current_page = lambda: ([], control)
+        clicks = []
+        migrator.click = lambda keyword: clicks.append(keyword) or {}
+
+        migrator.process_current_page()
+
+        self.assertEqual([["下一组", "下一組", "➡"]], clicks)
+        self.assertEqual(9000, migrator.state["previous_control_id"])
+        self.assertEqual(1, migrator.state["folder_next_group_clicks"])
+
     def test_matching_exhausted_duplicate_replay_advances_folder(self):
         start_counts = self.folder_start_counts()
         migrator = bare_migrator(

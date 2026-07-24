@@ -1288,7 +1288,11 @@ class Migrator:
             self.complete_page_items()
 
         button_texts = [str(button.get("text") or "") for button in self.buttons(control)]
-        next_buttons = [text for text in button_texts if "下一组" in text]
+        next_buttons = [
+            text
+            for text in button_texts
+            if any(marker in text for marker in ("下一组", "下一組", "➡"))
+        ]
         if next_buttons:
             control_id = int(control.get("id") or 0)
             if not page_items:
@@ -1305,7 +1309,7 @@ class Migrator:
                         control_id,
                     )
                     return
-            self.click("下一组")
+            self.click(["下一组", "下一組", "➡"])
             self.state["previous_control_id"] = control_id
             self.state["folder_next_group_clicks"] = int(
                 self.state.get("folder_next_group_clicks") or 0

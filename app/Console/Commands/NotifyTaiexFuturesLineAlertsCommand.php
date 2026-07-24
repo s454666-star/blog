@@ -4,10 +4,12 @@ namespace App\Console\Commands;
 
 use App\Http\Controllers\TwFuturesHourlyPriceController;
 use App\Services\LinePushService;
+use App\Services\TelegramNotificationService;
 use App\Services\TwFuturesHourlyPriceFetcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use RuntimeException;
 use Throwable;
 
 class NotifyTaiexFuturesLineAlertsCommand extends Command
@@ -31,6 +33,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
     public function handle(
         TwFuturesHourlyPriceController $controller,
         LinePushService $linePush,
+        TelegramNotificationService $telegram,
         TwFuturesHourlyPriceFetcher $fetcher,
     ): int {
         if (! $this->notificationsEnabled()) {
@@ -61,11 +64,16 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
 
         $sent = 0;
         $skipped = 0;
+        $failures = [];
         $target = trim((string) $this->option('target'));
 
         foreach ($alerts as $alert) {
-            $cacheKey = 'tw_futures_line_alert:' . $alert['key'];
-            if (Cache::has($cacheKey)) {
+            $lineCacheKey = 'tw_futures_line_alert:' . $alert['key'];
+            $telegramCacheKey = 'tw_futures_telegram_alert:' . $alert['key'];
+            $lineSent = Cache::has($lineCacheKey);
+            $telegramSent = ! $telegram->isEnabled() || Cache::has($telegramCacheKey);
+
+            if ($lineSent && $telegramSent) {
                 $skipped++;
                 continue;
             }
@@ -73,8 +81,25 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
             if ($this->option('dry-run')) {
                 $this->line($alert['message']);
             } else {
-                $linePush->pushText($alert['message'], $target !== '' ? $target : null);
-                Cache::put($cacheKey, $now->toIso8601String(), $now->addDays(self::CACHE_TTL_DAYS));
+                if (! $telegramSent) {
+                    try {
+                        $telegram->sendText('yuanta', $alert['message']);
+                        Cache::put($telegramCacheKey, $now->toIso8601String(), $now->addDays(self::CACHE_TTL_DAYS));
+                    } catch (Throwable $exception) {
+                        report($exception);
+                        $failures[] = 'Telegram: ' . $exception->getMessage();
+                    }
+                }
+
+                if (! $lineSent) {
+                    try {
+                        $linePush->pushText($alert['message'], $target !== '' ? $target : null);
+                        Cache::put($lineCacheKey, $now->toIso8601String(), $now->addDays(self::CACHE_TTL_DAYS));
+                    } catch (Throwable $exception) {
+                        report($exception);
+                        $failures[] = 'LINE: ' . $exception->getMessage();
+                    }
+                }
             }
 
             $sent++;
@@ -87,6 +112,10 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
             $skipped,
             $this->option('dry-run') ? 'yes' : 'no',
         ));
+
+        if ($failures !== []) {
+            throw new RuntimeException('One or more notification deliveries failed: ' . implode(' | ', $failures));
+        }
 
         return self::SUCCESS;
     }

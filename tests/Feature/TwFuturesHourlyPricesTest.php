@@ -524,14 +524,23 @@ class TwFuturesHourlyPricesTest extends TestCase
         config()->set('line.dashboard_notify_target_id', 'Cstocktarget');
         config()->set('line.yuanta_channel_access_token', 'yuanta-line-token');
         config()->set('line.yuanta_dashboard_notify_target_id', 'Cyuantatarget');
+        config()->set('telegram.line_mirror.enabled', true);
+        config()->set('telegram.line_mirror.routes.yuanta', [
+            'bot_token' => 'yuanta-telegram-token',
+            'chat_id' => '-100222',
+        ]);
 
         Http::fake([
             'https://api.line.me/v2/bot/message/push' => Http::response([], 200),
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 123],
+            ]),
         ]);
 
         $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
 
-        Http::assertSentCount(1);
+        Http::assertSentCount(2);
         Http::assertSent(function ($request): bool {
             $message = (string) data_get($request->data(), 'messages.0.text', '');
 
@@ -540,13 +549,18 @@ class TwFuturesHourlyPricesTest extends TestCase
                 && str_contains($message, '乖離率 -7.11% 低於 -5.00%')
                 && str_contains($message, '現價 42,350');
         });
+        Http::assertSent(function ($request): bool {
+            return $request->url() === 'https://api.telegram.org/botyuanta-telegram-token/sendMessage'
+                && ($request->data()['chat_id'] ?? null) === '-100222'
+                && str_contains((string) ($request->data()['text'] ?? ''), '台指期通知 2026-07-17 16:30');
+        });
 
         Carbon::setTestNow('2026-07-17 16:35:00');
         CarbonImmutable::setTestNow('2026-07-17 16:35:00');
 
         $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
 
-        Http::assertSentCount(1);
+        Http::assertSentCount(2);
     }
 
     public function test_taiex_futures_line_alert_retries_the_latest_15k_row_five_minutes_later(): void

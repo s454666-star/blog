@@ -17,6 +17,11 @@ class ReportLightsailMonthlyNetworkCommandTest extends TestCase
         Storage::fake('local');
         Storage::disk('local')->put('line/yuanta-personal-notify-target-id.txt', "Udirect-user\n");
         config()->set('line.yuanta_channel_access_token', 'test-token');
+        config()->set('telegram.line_mirror.enabled', true);
+        config()->set('telegram.line_mirror.routes.personal', [
+            'bot_token' => 'telegram-test-token',
+            'chat_id' => '4546666',
+        ]);
 
         Process::fake(function (PendingProcess $process) {
             $command = $process->command;
@@ -48,10 +53,15 @@ class ReportLightsailMonthlyNetworkCommandTest extends TestCase
             'https://api.line.me/v2/bot/message/push' => Http::response([], 200, [
                 'x-line-request-id' => 'line-request-id',
             ]),
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 123],
+            ]),
         ]);
 
         $this->artisan('aws:lightsail-monthly-network --send-line')
             ->expectsOutputToContain('總流量：279.40 GiB（300.00 GB）')
+            ->expectsOutput('Lightsail monthly network report sent to the direct Telegram user.')
             ->expectsOutput('Lightsail monthly network report sent to the direct LINE user.')
             ->assertSuccessful();
 
@@ -62,6 +72,13 @@ class ReportLightsailMonthlyNetworkCommandTest extends TestCase
             return $request->url() === 'https://api.line.me/v2/bot/message/push'
                 && ($payload['to'] ?? null) === 'Udirect-user'
                 && str_contains((string) ($payload['messages'][0]['text'] ?? ''), 'AWS Lightsail 本月網路流量');
+        });
+        Http::assertSent(function ($request): bool {
+            $payload = $request->data();
+
+            return str_contains($request->url(), 'api.telegram.org/')
+                && ($payload['chat_id'] ?? null) === '4546666'
+                && str_contains((string) ($payload['text'] ?? ''), 'AWS Lightsail 本月網路流量');
         });
     }
 

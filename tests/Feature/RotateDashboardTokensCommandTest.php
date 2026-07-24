@@ -43,6 +43,15 @@ class RotateDashboardTokensCommandTest extends TestCase
     public function test_it_rotates_dashboard_tokens_and_sends_line_notifications(): void
     {
         Storage::fake('local');
+        config()->set('telegram.line_mirror.enabled', true);
+        config()->set('telegram.line_mirror.routes.esun', [
+            'bot_token' => 'esun-telegram-token',
+            'chat_id' => '-100111',
+        ]);
+        config()->set('telegram.line_mirror.routes.yuanta', [
+            'bot_token' => 'yuanta-telegram-token',
+            'chat_id' => '-100222',
+        ]);
 
         Http::fake([
             'https://api.line.me/oauth2/v3/token' => Http::response([
@@ -52,6 +61,10 @@ class RotateDashboardTokensCommandTest extends TestCase
             ]),
             'https://api.line.me/v2/bot/message/push' => Http::response([], 200, [
                 'x-line-request-id' => 'test-request-id',
+            ]),
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 123],
             ]),
         ]);
 
@@ -74,7 +87,7 @@ class RotateDashboardTokensCommandTest extends TestCase
         $this->assertStringContainsString('https://mystar.monster/tw-stock/esun-portfolio?token=', Storage::disk('local')->get('esun/dashboard-url.txt'));
         $this->assertStringContainsString('https://mystar.monster/tw-stock/yuanta-portfolio?token=', Storage::disk('local')->get('yuanta/dashboard-url.txt'));
 
-        Http::assertSentCount(4);
+        Http::assertSentCount(6);
         Http::assertSent(function ($request) {
             return $request->url() === 'https://api.line.me/v2/bot/message/push'
                 && ($request->data()['to'] ?? null) === 'Cesun-target'
@@ -84,6 +97,16 @@ class RotateDashboardTokensCommandTest extends TestCase
             return $request->url() === 'https://api.line.me/v2/bot/message/push'
                 && ($request->data()['to'] ?? null) === 'Cyuanta-target'
                 && str_contains((string) ($request->data()['messages'][0]['text'] ?? ''), '/tw-stock/yuanta-portfolio?token=');
+        });
+        Http::assertSent(function ($request) {
+            return $request->url() === 'https://api.telegram.org/botesun-telegram-token/sendMessage'
+                && ($request->data()['chat_id'] ?? null) === '-100111'
+                && str_contains((string) ($request->data()['text'] ?? ''), '/tw-stock/esun-portfolio?token=');
+        });
+        Http::assertSent(function ($request) {
+            return $request->url() === 'https://api.telegram.org/botyuanta-telegram-token/sendMessage'
+                && ($request->data()['chat_id'] ?? null) === '-100222'
+                && str_contains((string) ($request->data()['text'] ?? ''), '/tw-stock/yuanta-portfolio?token=');
         });
     }
 }

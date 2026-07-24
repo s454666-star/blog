@@ -4,10 +4,12 @@ namespace App\Console\Commands;
 
 use App\Services\LightsailMonthlyNetworkUsageService;
 use App\Services\LinePushService;
+use App\Services\TelegramNotificationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
+use Throwable;
 
 class ReportLightsailMonthlyNetworkCommand extends Command
 {
@@ -24,6 +26,7 @@ class ReportLightsailMonthlyNetworkCommand extends Command
     public function handle(
         LightsailMonthlyNetworkUsageService $usage,
         LinePushService $linePush,
+        TelegramNotificationService $telegram,
     ): int {
         $target = $this->option('send-line') ? $this->personalLineTarget() : null;
         $report = $usage->report(
@@ -39,8 +42,30 @@ class ReportLightsailMonthlyNetworkCommand extends Command
         }
 
         if ($target !== null) {
-            $linePush->pushText($this->message($report), $target);
-            $this->info('Lightsail monthly network report sent to the direct LINE user.');
+            $failures = [];
+            $message = $this->message($report);
+
+            try {
+                $telegram->sendText('personal', $message);
+                if ($telegram->isEnabled()) {
+                    $this->info('Lightsail monthly network report sent to the direct Telegram user.');
+                }
+            } catch (Throwable $exception) {
+                report($exception);
+                $failures[] = 'Telegram: ' . $exception->getMessage();
+            }
+
+            try {
+                $linePush->pushText($message, $target);
+                $this->info('Lightsail monthly network report sent to the direct LINE user.');
+            } catch (Throwable $exception) {
+                report($exception);
+                $failures[] = 'LINE: ' . $exception->getMessage();
+            }
+
+            if ($failures !== []) {
+                throw new RuntimeException('One or more notification deliveries failed: ' . implode(' | ', $failures));
+            }
         }
 
         return self::SUCCESS;

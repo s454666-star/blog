@@ -2,11 +2,13 @@
 
 namespace App\Console\Commands;
 
+use App\Services\TelegramNotificationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 class SendYuantaDashboardLineUrlCommand extends Command
 {
@@ -17,7 +19,7 @@ class SendYuantaDashboardLineUrlCommand extends Command
 
     protected $description = 'Send the Yuanta portfolio dashboard URL through the Yuanta LINE bot.';
 
-    public function handle(): int
+    public function handle(TelegramNotificationService $telegram): int
     {
         $target = $this->targetId();
         $url = $this->dashboardUrl();
@@ -31,27 +33,48 @@ class SendYuantaDashboardLineUrlCommand extends Command
             return self::SUCCESS;
         }
 
-        $response = Http::withToken($this->lineAccessToken())
-            ->withHeaders(['X-Line-Retry-Key' => (string) Str::uuid()])
-            ->post('https://api.line.me/v2/bot/message/push', [
-                'to' => $target,
-                'messages' => [
-                    [
-                        'type' => 'text',
-                        'text' => $message,
-                    ],
-                ],
-            ]);
+        $failures = [];
 
-        if (! $response->successful()) {
-            throw new RuntimeException(sprintf(
-                'LINE push failed: HTTP %s %s',
-                $response->status(),
-                $response->body(),
-            ));
+        try {
+            $telegram->sendText('yuanta', $message);
+            if ($telegram->isEnabled()) {
+                $this->info('Sent Yuanta dashboard URL via Telegram.');
+            }
+        } catch (Throwable $exception) {
+            report($exception);
+            $failures[] = 'Telegram: ' . $exception->getMessage();
         }
 
-        $this->info('Sent Yuanta dashboard URL via LINE. request_id=' . (string) $response->header('x-line-request-id'));
+        try {
+            $response = Http::withToken($this->lineAccessToken())
+                ->withHeaders(['X-Line-Retry-Key' => (string) Str::uuid()])
+                ->post('https://api.line.me/v2/bot/message/push', [
+                    'to' => $target,
+                    'messages' => [
+                        [
+                            'type' => 'text',
+                            'text' => $message,
+                        ],
+                    ],
+                ]);
+
+            if (! $response->successful()) {
+                throw new RuntimeException(sprintf(
+                    'LINE push failed: HTTP %s %s',
+                    $response->status(),
+                    $response->body(),
+                ));
+            }
+
+            $this->info('Sent Yuanta dashboard URL via LINE. request_id=' . (string) $response->header('x-line-request-id'));
+        } catch (Throwable $exception) {
+            report($exception);
+            $failures[] = 'LINE: ' . $exception->getMessage();
+        }
+
+        if ($failures !== []) {
+            throw new RuntimeException('One or more notification deliveries failed: ' . implode(' | ', $failures));
+        }
 
         return self::SUCCESS;
     }

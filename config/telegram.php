@@ -11,6 +11,23 @@
         'backup_restore_bot_username' => env('TELEGRAM_BACKUP_RESTORE_BOT_USERNAME', 'new_files_star_bot'),
         'backup_restore_target_chat_id' => (int) env('TELEGRAM_BACKUP_RESTORE_TARGET_CHAT_ID', 0),
         'backup_restore_webhook_url' => env('TELEGRAM_BACKUP_RESTORE_WEBHOOK_URL', 'https://new-files-star.mystar.monster/api/telegram/filestore/webhook/new-files-star'),
+        'line_mirror' => [
+            'enabled' => (bool) env('TELEGRAM_LINE_MIRROR_ENABLED', false),
+            'routes' => [
+                'esun' => [
+                    'bot_token' => env('TELEGRAM_ESUN_NOTIFY_BOT_TOKEN'),
+                    'chat_id' => env('TELEGRAM_ESUN_NOTIFY_CHAT_ID'),
+                ],
+                'yuanta' => [
+                    'bot_token' => env('TELEGRAM_YUANTA_NOTIFY_BOT_TOKEN'),
+                    'chat_id' => env('TELEGRAM_YUANTA_NOTIFY_CHAT_ID'),
+                ],
+                'personal' => [
+                    'bot_token' => env('TELEGRAM_YUANTA_NOTIFY_BOT_TOKEN'),
+                    'chat_id' => env('TELEGRAM_PERSONAL_NOTIFY_CHAT_ID'),
+                ],
+            ],
+        ],
         'resource_codes' => [
             'base_uris' => env('TELEGRAM_RESOURCE_CODE_BASE_URIS', 'http://127.0.0.1:8001,http://127.0.0.1:8002,http://127.0.0.1:8003'),
             'source_peer_ids' => env('TELEGRAM_RESOURCE_CODE_SOURCE_PEER_IDS', '3779285711,2352070665,2668374810,3786977217,3948153894,2895647646,2589355088,1886271900,2574836051'),

@@ -2,12 +2,14 @@
 
 namespace App\Console\Commands;
 
+use App\Services\TelegramNotificationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 class RotateDashboardTokensCommand extends Command
 {
@@ -20,7 +22,7 @@ class RotateDashboardTokensCommand extends Command
 
     protected $description = 'Rotate private dashboard URL tokens and optionally push the new links through LINE.';
 
-    public function handle(): int
+    public function handle(TelegramNotificationService $telegram): int
     {
         $portfolio = strtolower((string) $this->argument('portfolio'));
         $definitions = $this->selectedDefinitions($portfolio);
@@ -53,14 +55,34 @@ class RotateDashboardTokensCommand extends Command
 
         if (! $this->option('no-notify')) {
             $values = $this->envValues($envContent);
+            $failures = [];
 
             foreach ($rotated as $item) {
                 $definition = $item['definition'];
                 $url = $item['url'];
                 $message = sprintf($definition['message_template'], $url);
 
-                $this->sendLinePush($values, $definition, $message);
-                $this->info($definition['label'] . ' LINE notification sent.');
+                try {
+                    $telegram->sendText($definition['telegram_route'], $message);
+                    if ($telegram->isEnabled()) {
+                        $this->info($definition['label'] . ' Telegram notification sent.');
+                    }
+                } catch (Throwable $exception) {
+                    report($exception);
+                    $failures[] = $definition['label'] . ' Telegram: ' . $exception->getMessage();
+                }
+
+                try {
+                    $this->sendLinePush($values, $definition, $message);
+                    $this->info($definition['label'] . ' LINE notification sent.');
+                } catch (Throwable $exception) {
+                    report($exception);
+                    $failures[] = $definition['label'] . ' LINE: ' . $exception->getMessage();
+                }
+            }
+
+            if ($failures !== []) {
+                throw new RuntimeException('One or more notification deliveries failed: ' . implode(' | ', $failures));
             }
         }
 
@@ -93,6 +115,7 @@ class RotateDashboardTokensCommand extends Command
         return [
             'esun' => [
                 'label' => 'E.SUN',
+                'telegram_route' => 'esun',
                 'dashboard_token_key' => 'ESUN_PORTFOLIO_DASHBOARD_TOKEN',
                 'dashboard_path' => '/tw-stock/esun-portfolio',
                 'dashboard_url_path' => 'esun/dashboard-url.txt',
@@ -105,6 +128,7 @@ class RotateDashboardTokensCommand extends Command
             ],
             'yuanta' => [
                 'label' => 'Yuanta',
+                'telegram_route' => 'yuanta',
                 'dashboard_token_key' => 'YUANTA_PORTFOLIO_DASHBOARD_TOKEN',
                 'dashboard_path' => '/tw-stock/yuanta-portfolio',
                 'dashboard_url_path' => 'yuanta/dashboard-url.txt',

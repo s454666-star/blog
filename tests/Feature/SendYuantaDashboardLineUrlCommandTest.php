@@ -21,6 +21,11 @@ class SendYuantaDashboardLineUrlCommandTest extends TestCase
         config()->set('line.yuanta_channel_access_token', '');
         config()->set('line.yuanta_dashboard_notify_target_id', '');
         config()->set('line.dashboard_notify_target_id', 'Cesun-target');
+        config()->set('telegram.line_mirror.enabled', true);
+        config()->set('telegram.line_mirror.routes.yuanta', [
+            'bot_token' => 'yuanta-telegram-token',
+            'chat_id' => '-100222',
+        ]);
     }
 
     public function test_it_sends_yuanta_dashboard_url_to_yuanta_group_only(): void
@@ -37,6 +42,10 @@ class SendYuantaDashboardLineUrlCommandTest extends TestCase
             'https://api.line.me/v2/bot/message/push' => Http::response([], 200, [
                 'x-line-request-id' => 'test-request-id',
             ]),
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 123],
+            ]),
         ]);
 
         $exitCode = Artisan::call('line:send-yuanta-dashboard-url');
@@ -51,6 +60,11 @@ class SendYuantaDashboardLineUrlCommandTest extends TestCase
 
             return ($payload['to'] ?? null) === 'Cyuanta-target'
                 && str_contains((string) ($payload['messages'][0]['text'] ?? ''), '/tw-stock/yuanta-portfolio?token=yuanta-test-token');
+        });
+        Http::assertSent(function ($request) {
+            return $request->url() === 'https://api.telegram.org/botyuanta-telegram-token/sendMessage'
+                && ($request->data()['chat_id'] ?? null) === '-100222'
+                && str_contains((string) ($request->data()['text'] ?? ''), '/tw-stock/yuanta-portfolio?token=yuanta-test-token');
         });
     }
 

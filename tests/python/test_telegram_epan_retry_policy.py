@@ -11,10 +11,10 @@ SPEC.loader.exec_module(MODULE)
 
 
 class TelegramEpanRetryPolicyTest(unittest.TestCase):
-    def test_tdl_is_used_only_for_the_first_outer_attempt(self) -> None:
+    def test_tdl_is_available_for_every_outer_attempt(self) -> None:
         self.assertEqual("source", MODULE.copy_source_bot_for_attempt("source", 1))
-        self.assertEqual("", MODULE.copy_source_bot_for_attempt("source", 2))
-        self.assertEqual("", MODULE.copy_source_bot_for_attempt("source", 8))
+        self.assertEqual("source", MODULE.copy_source_bot_for_attempt("source", 2))
+        self.assertEqual("source", MODULE.copy_source_bot_for_attempt("source", 8))
 
     def test_flood_wait_uses_telegram_delay(self) -> None:
         self.assertEqual(121, MODULE.copy_retry_delay_seconds("flood_wait", 120, 1))

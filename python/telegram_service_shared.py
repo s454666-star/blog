@@ -123,8 +123,14 @@ TDL_HOME = str(os.environ.get("TDL_HOME", "") or "").strip()
 TDL_DOWNLOAD_THREADS = 12
 TDL_DOWNLOAD_LIMIT = 32
 TDL_COPY_ATTEMPTS = 3
-TDL_COPY_DOWNLOAD_TIMEOUT_SECONDS = 60
-TELETHON_COPY_DOWNLOAD_TIMEOUT_SECONDS = 600
+TDL_COPY_DOWNLOAD_TIMEOUT_SECONDS = max(
+    60,
+    int(os.environ.get("TDL_COPY_DOWNLOAD_TIMEOUT_SECONDS", "900")),
+)
+TELETHON_COPY_DOWNLOAD_TIMEOUT_SECONDS = max(
+    600,
+    int(os.environ.get("TELETHON_COPY_DOWNLOAD_TIMEOUT_SECONDS", "3600")),
+)
 FFPROBE_EXE_PATH = r"C:\ffmpeg\bin\ffprobe.exe"
 
 
@@ -2596,8 +2602,8 @@ def _resolve_tdl_home() -> str:
     return ""
 
 
-def _run_tdl_download_url(
-    url: str,
+def _run_tdl_download_args(
+    source_args: List[str],
     folder_path: str,
     reserved_path: str
 ) -> Dict[str, Any]:
@@ -2618,8 +2624,7 @@ def _run_tdl_download_url(
     cmd = [
         exe_path,
         "dl",
-        "-u",
-        url,
+        *source_args,
         "-d",
         folder_path,
         "-t",
@@ -2718,6 +2723,14 @@ def _run_tdl_download_url(
     }
 
 
+def _run_tdl_download_url(
+    url: str,
+    folder_path: str,
+    reserved_path: str
+) -> Dict[str, Any]:
+    return _run_tdl_download_args(["-u", url], folder_path, reserved_path)
+
+
 def _run_tdl_download(
     peer_id: int,
     message_id: int,
@@ -2742,7 +2755,77 @@ def _run_tdl_download_for_bot_message(
         }
 
     url = f"https://t.me/{username}/{int(message_id)}"
-    return _run_tdl_download_url(url, folder_path, reserved_path)
+    link_result = _run_tdl_download_url(url, folder_path, reserved_path)
+    if bool(link_result.get("ok")):
+        return link_result
+
+    exe_path = _resolve_tdl_exe_path()
+    if not exe_path:
+        return link_result
+
+    export_path = os.path.join(
+        folder_path,
+        f".tdl-export-{uuid.uuid4().hex}.json",
+    )
+    export_cmd = [
+        exe_path,
+        "chat",
+        "export",
+        "-c",
+        username,
+        "-T",
+        "id",
+        "-i",
+        f"{int(message_id)},{int(message_id) + 1}",
+        "--all",
+        "-o",
+        export_path,
+    ]
+    if TDL_NAMESPACE:
+        export_cmd[1:1] = ["-n", TDL_NAMESPACE]
+
+    env = os.environ.copy()
+    tdl_home = _resolve_tdl_home()
+    if tdl_home:
+        env["HOME"] = tdl_home
+
+    try:
+        exported = subprocess.run(
+            export_cmd,
+            capture_output=True,
+            text=True,
+            timeout=TDL_COPY_DOWNLOAD_TIMEOUT_SECONDS,
+            check=False,
+            env=env,
+        )
+        if exported.returncode != 0 or not os.path.isfile(export_path):
+            return {
+                "ok": False,
+                "reason": "tdl_export_failed",
+                "returncode": int(exported.returncode),
+                "link_reason": link_result.get("reason"),
+            }
+        export_result = _run_tdl_download_args(
+            ["-f", export_path],
+            folder_path,
+            reserved_path,
+        )
+        if not bool(export_result.get("ok")):
+            export_result["link_reason"] = link_result.get("reason")
+        return export_result
+    except Exception as e:
+        return {
+            "ok": False,
+            "reason": "tdl_export_exec_error",
+            "error": str(e),
+            "link_reason": link_result.get("reason"),
+        }
+    finally:
+        try:
+            if os.path.isfile(export_path):
+                os.remove(export_path)
+        except Exception:
+            pass
 
 
 def _tdl_chat_arg_from_peer_id(peer_id: int) -> str:

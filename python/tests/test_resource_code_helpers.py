@@ -253,8 +253,8 @@ class DeleteVerificationTest(unittest.IsolatedAsyncioTestCase):
 class TdlProtectedCopySafetyTest(unittest.IsolatedAsyncioTestCase):
     def test_copy_download_timeouts_bound_stalled_fallbacks(self) -> None:
         self.assertEqual(3, service.TDL_COPY_ATTEMPTS)
-        self.assertEqual(60, service.TDL_COPY_DOWNLOAD_TIMEOUT_SECONDS)
-        self.assertEqual(600, service.TELETHON_COPY_DOWNLOAD_TIMEOUT_SECONDS)
+        self.assertEqual(900, service.TDL_COPY_DOWNLOAD_TIMEOUT_SECONDS)
+        self.assertEqual(3600, service.TELETHON_COPY_DOWNLOAD_TIMEOUT_SECONDS)
 
     async def test_tdl_video_document_matches_video_source(self) -> None:
         class Item:

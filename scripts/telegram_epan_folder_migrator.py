@@ -73,7 +73,7 @@ def now_iso() -> str:
 
 
 def copy_source_bot_for_attempt(source_bot: str, retry: int) -> str:
-    return str(source_bot or "") if int(retry or 0) == 1 else ""
+    return str(source_bot or "")
 
 
 def copy_retry_delay_seconds(reason: str, wait_seconds: int, retry: int) -> int:

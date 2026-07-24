@@ -423,7 +423,10 @@ class Migrator:
         if response.get("status") != "ok":
             raise MigrationBlocked(f"source backfill failed: {response}")
 
-    def click(self, keyword: str) -> dict[str, Any]:
+    def click(self, keyword: str | list[str]) -> dict[str, Any]:
+        keywords = [keyword] if isinstance(keyword, str) else list(keyword)
+        if not keywords:
+            raise MigrationBlocked("button keyword list is empty")
         self.backfill_source()
         response = self.api.post(
             "/bots/click-matching-button",
@@ -431,7 +434,7 @@ class Migrator:
                 "bot_username": self.args.source_bot,
                 "sent_message_id": 0,
                 "clear_previous_replies": False,
-                "button_keywords": [keyword],
+                "button_keywords": keywords,
                 "debug": False,
                 "include_files_in_response": False,
                 "wait_after_click_timeout_seconds": 3,
@@ -442,18 +445,15 @@ class Migrator:
             timeout=90.0,
         )
         if response.get("status") != "ok" or not response.get("button_clicked"):
-            raise MigrationBlocked(
-                f"button {keyword!r} was not clicked: {self.safe_click_response(response)}"
-            )
+            raise MigrationBlocked("no matching navigation button was clicked")
         clicked_text = str(response.get("clicked_button_text") or "").strip()
-        if keyword.isdigit() and clicked_text != keyword:
+        if len(keywords) == 1 and keywords[0].isdigit() and clicked_text != keywords[0]:
             raise MigrationBlocked(
-                f"numeric folder selection mismatch: wanted {keyword}, clicked {clicked_text}"
+                f"numeric folder selection mismatch: wanted {keywords[0]}"
             )
         self.log(
             "button_clicked",
-            keyword=keyword,
-            clicked_text=clicked_text,
+            keyword=keywords[0],
             message_id=response.get("clicked_message_id"),
         )
         return response
@@ -1154,7 +1154,7 @@ class Migrator:
                 f"folder detail mismatch for index {folder_index}: {detail_text[:300]}"
             )
 
-        view_response = self.click("查看内容")
+        view_response = self.click(["查看内容", "查看內容", "➡"])
         if int(view_response.get("clicked_message_id") or 0) != detail_message_id:
             raise MigrationBlocked("view-content callback moved to an unexpected control message")
         folder_start_counts = {

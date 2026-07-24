@@ -13,7 +13,7 @@
         'backup_restore_webhook_url' => env('TELEGRAM_BACKUP_RESTORE_WEBHOOK_URL', 'https://new-files-star.mystar.monster/api/telegram/filestore/webhook/new-files-star'),
         'resource_codes' => [
             'base_uris' => env('TELEGRAM_RESOURCE_CODE_BASE_URIS', 'http://127.0.0.1:8001,http://127.0.0.1:8002,http://127.0.0.1:8003'),
-            'source_peer_ids' => env('TELEGRAM_RESOURCE_CODE_SOURCE_PEER_IDS', '3779285711,2352070665,2668374810,3786977217,3948153894,2895647646,2589355088,1886271900,2574836051,4436308728'),
+            'source_peer_ids' => env('TELEGRAM_RESOURCE_CODE_SOURCE_PEER_IDS', '3779285711,2352070665,2668374810,3786977217,3948153894,2895647646,2589355088,1886271900,2574836051'),
             'source_topic_ids' => env('TELEGRAM_RESOURCE_CODE_SOURCE_TOPIC_IDS', '2589355088:11'),
             'target_peer_id' => (int) env('TELEGRAM_RESOURCE_CODE_TARGET_PEER_ID', 3967395258),
             'bot_username' => env('TELEGRAM_RESOURCE_CODE_BOT_USERNAME', 'JSfilesbot'),

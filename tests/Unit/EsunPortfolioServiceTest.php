@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -15,16 +16,26 @@ class EsunPortfolioServiceTest extends TestCase
 {
     private bool $createdEsunSnapshotsTable = false;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->migrateEsunDailySnapshotsTable();
+    }
+
     protected function tearDown(): void
     {
-        if (Schema::hasTable('esun_portfolio_daily_snapshots')) {
-            DB::table('esun_portfolio_daily_snapshots')
+        $schema = Schema::connection('sqlite');
+        $database = DB::connection('sqlite');
+
+        if ($schema->hasTable('esun_portfolio_daily_snapshots')) {
+            $database->table('esun_portfolio_daily_snapshots')
                 ->where('snapshot_date', '2099-07-03')
                 ->delete();
         }
 
         if ($this->createdEsunSnapshotsTable) {
-            Schema::dropIfExists('esun_portfolio_daily_snapshots');
+            $schema->dropIfExists('esun_portfolio_daily_snapshots');
         }
 
         parent::tearDown();
@@ -930,16 +941,39 @@ class EsunPortfolioServiceTest extends TestCase
 
     private function migrateEsunDailySnapshotsTable(): void
     {
-        if (Schema::hasTable('esun_portfolio_daily_snapshots')) {
-            DB::table('esun_portfolio_daily_snapshots')
+        $schema = Schema::connection('sqlite');
+        $database = DB::connection('sqlite');
+
+        if ($schema->hasTable('esun_portfolio_daily_snapshots')) {
+            $database->table('esun_portfolio_daily_snapshots')
                 ->where('snapshot_date', '2099-07-03')
                 ->delete();
 
             return;
         }
 
-        $migration = require base_path('database/migrations/2026_07_03_112000_create_esun_portfolio_daily_snapshots_table.php');
-        $migration->up();
+        $schema->create('esun_portfolio_daily_snapshots', function (Blueprint $table): void {
+            $table->id();
+            $table->date('snapshot_date')->unique();
+            $table->dateTime('captured_at')->nullable();
+            $table->dateTime('queried_at')->nullable();
+            $table->string('source_status', 32)->nullable();
+            $table->string('source_message')->nullable();
+            $table->unsignedInteger('source_age_seconds')->nullable();
+            $table->unsignedInteger('stock_count')->default(0);
+            $table->decimal('share_count', 18, 4)->default(0);
+            $table->decimal('market_value', 18, 4)->nullable();
+            $table->decimal('cost_basis', 18, 4)->nullable();
+            $table->decimal('today_pnl', 18, 4)->nullable();
+            $table->decimal('unrealized_pnl', 18, 4)->nullable();
+            $table->decimal('bank_balance', 18, 4)->nullable();
+            $table->decimal('margin_used_amount', 18, 4)->nullable();
+            $table->decimal('margin_available_amount', 18, 4)->nullable();
+            $table->json('summary');
+            $table->json('rows');
+            $table->json('payload')->nullable();
+            $table->timestamps();
+        });
         $this->createdEsunSnapshotsTable = true;
     }
 }

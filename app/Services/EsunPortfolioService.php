@@ -235,7 +235,7 @@ class EsunPortfolioService
     {
         $snapshotDate = $this->parseSnapshotDate($date);
         $snapshot = EsunPortfolioDailySnapshot::query()
-            ->where('snapshot_date', $snapshotDate->toDateString())
+            ->whereDate('snapshot_date', $snapshotDate->toDateString())
             ->first();
         if (!$snapshot instanceof EsunPortfolioDailySnapshot) {
             return null;

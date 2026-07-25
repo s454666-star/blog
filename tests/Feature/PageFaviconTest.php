@@ -6,12 +6,12 @@ use Tests\TestCase;
 
 class PageFaviconTest extends TestCase
 {
-    public function test_home_page_injects_dynamic_favicon(): void
+    public function test_html_page_injects_dynamic_favicon(): void
     {
-        $response = $this->get('/');
+        $response = $this->get('/web');
 
         $response->assertOk();
-        $response->assertSee('/page-favicons/home.svg', false);
+        $response->assertSee('/page-favicons/web.svg', false);
         $response->assertSee('rel="icon"', false);
     }
 

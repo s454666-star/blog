@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -15,16 +16,32 @@ class YuantaPortfolioServiceTest extends TestCase
 {
     private bool $createdYuantaSnapshotsTable = false;
 
+    private bool $createdDailyPricesTable = false;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->migrateYuantaDailySnapshotsTable();
+        $this->migrateDailyPricesTable();
+    }
+
     protected function tearDown(): void
     {
-        if (Schema::hasTable('yuanta_portfolio_daily_snapshots')) {
-            DB::table('yuanta_portfolio_daily_snapshots')
+        $schema = Schema::connection('sqlite');
+        $database = DB::connection('sqlite');
+
+        if ($schema->hasTable('yuanta_portfolio_daily_snapshots')) {
+            $database->table('yuanta_portfolio_daily_snapshots')
                 ->where('snapshot_date', '2099-07-03')
                 ->delete();
         }
 
         if ($this->createdYuantaSnapshotsTable) {
-            Schema::dropIfExists('yuanta_portfolio_daily_snapshots');
+            $schema->dropIfExists('yuanta_portfolio_daily_snapshots');
+        }
+        if ($this->createdDailyPricesTable) {
+            $schema->dropIfExists('tw_stock_daily_prices');
         }
 
         parent::tearDown();
@@ -366,16 +383,55 @@ class YuantaPortfolioServiceTest extends TestCase
 
     private function migrateYuantaDailySnapshotsTable(): void
     {
-        if (Schema::hasTable('yuanta_portfolio_daily_snapshots')) {
-            DB::table('yuanta_portfolio_daily_snapshots')
+        $schema = Schema::connection('sqlite');
+        $database = DB::connection('sqlite');
+
+        if ($schema->hasTable('yuanta_portfolio_daily_snapshots')) {
+            $database->table('yuanta_portfolio_daily_snapshots')
                 ->where('snapshot_date', '2099-07-03')
                 ->delete();
 
             return;
         }
 
-        $migration = require base_path('database/migrations/2026_07_03_110000_create_yuanta_portfolio_daily_snapshots_table.php');
-        $migration->up();
+        $schema->create('yuanta_portfolio_daily_snapshots', function (Blueprint $table): void {
+            $table->id();
+            $table->date('snapshot_date')->unique();
+            $table->dateTime('captured_at')->nullable();
+            $table->dateTime('queried_at')->nullable();
+            $table->string('source_status', 32)->nullable();
+            $table->string('source_message')->nullable();
+            $table->unsignedInteger('source_age_seconds')->nullable();
+            $table->unsignedInteger('stock_count')->default(0);
+            $table->decimal('share_count', 18, 4)->default(0);
+            $table->decimal('market_value', 18, 4)->nullable();
+            $table->decimal('cost_basis', 18, 4)->nullable();
+            $table->decimal('today_pnl', 18, 4)->nullable();
+            $table->decimal('unrealized_pnl', 18, 4)->nullable();
+            $table->decimal('bank_balance', 18, 4)->nullable();
+            $table->decimal('margin_used_amount', 18, 4)->nullable();
+            $table->decimal('margin_available_amount', 18, 4)->nullable();
+            $table->json('summary');
+            $table->json('rows');
+            $table->json('payload')->nullable();
+            $table->timestamps();
+        });
         $this->createdYuantaSnapshotsTable = true;
+    }
+
+    private function migrateDailyPricesTable(): void
+    {
+        $schema = Schema::connection('sqlite');
+        if ($schema->hasTable('tw_stock_daily_prices')) {
+            return;
+        }
+
+        $schema->create('tw_stock_daily_prices', function (Blueprint $table): void {
+            $table->id();
+            $table->string('stock_code', 12);
+            $table->date('trade_date');
+            $table->decimal('close_price', 12, 4);
+        });
+        $this->createdDailyPricesTable = true;
     }
 }

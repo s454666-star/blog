@@ -164,7 +164,7 @@ class YuantaPortfolioService
     {
         $snapshotDate = $this->parseSnapshotDate($date);
         $snapshot = YuantaPortfolioDailySnapshot::query()
-            ->where('snapshot_date', $snapshotDate->toDateString())
+            ->whereDate('snapshot_date', $snapshotDate->toDateString())
             ->first();
         if (!$snapshot instanceof YuantaPortfolioDailySnapshot) {
             return null;

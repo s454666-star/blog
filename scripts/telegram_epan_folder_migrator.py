@@ -63,6 +63,8 @@ FOLDER_COUNTER_KEYS = (
 
 MAX_CONSECUTIVE_EMPTY_SOURCE_PAGES = 3
 FOLDER_LIST_PAGE_SIZE = 10
+PARTIAL_PAGE_STABLE_SECONDS = 30
+PARTIAL_PAGE_STABLE_POLLS = 10
 
 
 class MigrationBlocked(RuntimeError):
@@ -1292,6 +1294,9 @@ class Migrator:
         previous_control_id = int(self.state.get("previous_control_id") or 0)
         deadline = time.time() + 180
         poll_attempt = 0
+        partial_signature: tuple[int, ...] = ()
+        partial_first_seen_at = 0.0
+        partial_stable_polls = 0
         self.log(
             "source_page_wait_started",
             previous_control_id=previous_control_id,
@@ -1337,6 +1342,46 @@ class Migrator:
                     folder_index=self.state.get("folder_index"),
                 )
                 return page_items, control
+            media_candidates = [
+                item for item in candidates if self.media_kind(item)
+            ]
+            candidate_signature = tuple(
+                int(item.get("id") or 0) for item in media_candidates
+            )
+            if (
+                candidate_signature
+                and len(media_candidates) == len(candidates)
+                and not required_button_keyword
+            ):
+                if candidate_signature == partial_signature:
+                    partial_stable_polls += 1
+                else:
+                    partial_signature = candidate_signature
+                    partial_first_seen_at = time.time()
+                    partial_stable_polls = 1
+                if (
+                    partial_stable_polls >= PARTIAL_PAGE_STABLE_POLLS
+                    and time.time() - partial_first_seen_at
+                    >= PARTIAL_PAGE_STABLE_SECONDS
+                ):
+                    synthetic_control_id = max(candidate_signature)
+                    self.log(
+                        "source_partial_page_ready",
+                        poll_attempt=poll_attempt,
+                        page_item_count=len(media_candidates),
+                        synthetic_control_id=synthetic_control_id,
+                        stage=self.state.get("stage"),
+                        folder_index=self.state.get("folder_index"),
+                    )
+                    return media_candidates, {
+                        "id": synthetic_control_id,
+                        "reply_markup": {"rows": []},
+                        "partial_without_control": True,
+                    }
+            else:
+                partial_signature = ()
+                partial_first_seen_at = 0.0
+                partial_stable_polls = 0
             if poll_attempt == 1 or poll_attempt % 10 == 0:
                 self.log(
                     "source_page_waiting",
@@ -1359,6 +1404,22 @@ class Migrator:
     def navigate_to_folder(self, folder_index: int) -> None:
         if folder_index < 1 or folder_index > len(self.folders):
             raise MigrationBlocked(f"invalid folder index {folder_index}")
+        recovering_same_folder = (
+            self.state.get("stage") == "resume_current_folder"
+            and int(self.state.get("folder_index") or 0) == folder_index
+        )
+        exhausted_replay_evidence = {
+            "last_exhausted_replay_observed_count": (
+                int(self.state.get("last_exhausted_replay_observed_count") or 0)
+                if recovering_same_folder
+                else 0
+            ),
+            "matching_exhausted_replay_count": (
+                int(self.state.get("matching_exhausted_replay_count") or 0)
+                if recovering_same_folder
+                else 0
+            ),
+        }
         page_number, position = folder_list_location(folder_index)
         self.log(
             "folder_navigation_started",
@@ -1405,8 +1466,7 @@ class Migrator:
                 "folder_processed": 0,
                 "folder_next_group_clicks": 0,
                 "consecutive_empty_source_pages": 0,
-                "last_exhausted_replay_observed_count": 0,
-                "matching_exhausted_replay_count": 0,
+                **exhausted_replay_evidence,
                 "current_page_processed": 0,
                 "folder_start_counts": folder_start_counts,
                 "previous_control_id": detail_message_id,

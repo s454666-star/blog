@@ -74,6 +74,88 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         self.assertEqual([(10, "checkpoint_resume")], navigated)
         self.assertEqual(486, migrator.state["folder_processed"])
 
+    def test_current_page_accepts_stable_media_without_control(self):
+        migrator = bare_migrator(
+            {
+                "status": "running",
+                "stage": "process_page",
+                "folder_index": 10,
+                "previous_control_id": 100,
+            }
+        )
+        page_items = [
+            {
+                "_": "Message",
+                "id": 101,
+                "media": {
+                    "_": "MessageMediaDocument",
+                    "document": {"mime_type": "video/mp4"},
+                },
+            },
+            {
+                "_": "Message",
+                "id": 102,
+                "media": {
+                    "_": "MessageMediaDocument",
+                    "document": {"mime_type": "video/mp4"},
+                },
+            },
+        ]
+        migrator.messages = lambda peer_id, limit: page_items
+        fake_clock = [0.0]
+        original_time = MODULE.time.time
+        original_sleep = MODULE.time.sleep
+        MODULE.time.time = lambda: fake_clock[0]
+        MODULE.time.sleep = lambda seconds: fake_clock.__setitem__(
+            0,
+            fake_clock[0] + seconds,
+        )
+        try:
+            items, control = migrator.current_page()
+        finally:
+            MODULE.time.time = original_time
+            MODULE.time.sleep = original_sleep
+
+        self.assertEqual(page_items, items)
+        self.assertTrue(control["partial_without_control"])
+        self.assertEqual(102, control["id"])
+
+    def test_recovery_navigation_preserves_exhausted_replay_evidence(self):
+        migrator = bare_migrator(
+            {
+                "status": "running",
+                "stage": "resume_current_folder",
+                "folder_index": 10,
+                "last_exhausted_replay_observed_count": 387,
+                "matching_exhausted_replay_count": 5,
+            }
+        )
+        migrator.folders = [("folder", 1)] * 10
+        migrator.click = lambda keyword: {
+            "clicked_message_id": 500,
+        }
+        migrator.api = types.SimpleNamespace(
+            get=lambda path, timeout: {
+                "items": [
+                    {
+                        "message": "folder 消息数：1",
+                    }
+                ],
+            }
+        )
+        migrator.current_page = lambda: ([], {"id": 501})
+
+        migrator.navigate_to_folder(10)
+
+        self.assertEqual(
+            387,
+            migrator.state["last_exhausted_replay_observed_count"],
+        )
+        self.assertEqual(
+            5,
+            migrator.state["matching_exhausted_replay_count"],
+        )
+
     def test_missing_source_rolls_back_to_folder_start_before_recovery(self):
         migrator = bare_migrator(
             {

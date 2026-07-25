@@ -381,6 +381,39 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             completed[0][1]["file_unique_id"],
         )
 
+    def test_click_waits_for_async_navigation_button(self):
+        migrator = bare_migrator({"status": "running"})
+        migrator.backfill_source = lambda: None
+        responses = [
+            {
+                "status": "fail",
+                "reason": "no matching button found",
+                "button_clicked": False,
+            },
+            {
+                "status": "ok",
+                "button_clicked": True,
+                "clicked_button_text": "9",
+                "clicked_message_id": 12000,
+            },
+        ]
+        calls = []
+
+        def post(path, payload, timeout):
+            calls.append((path, payload, timeout))
+            return responses.pop(0)
+
+        migrator.api = types.SimpleNamespace(post=post)
+        original_sleep = MODULE.time.sleep
+        MODULE.time.sleep = lambda seconds: None
+        try:
+            result = migrator.click("9")
+        finally:
+            MODULE.time.sleep = original_sleep
+
+        self.assertEqual(2, len(calls))
+        self.assertEqual(12000, result["clicked_message_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

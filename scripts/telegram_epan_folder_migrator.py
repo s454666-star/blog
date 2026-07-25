@@ -423,28 +423,76 @@ class Migrator:
         if response.get("status") != "ok":
             raise MigrationBlocked(f"source backfill failed: {response}")
 
-    def click(self, keyword: str | list[str]) -> dict[str, Any]:
+    def click(
+        self,
+        keyword: str | list[str],
+        *,
+        wait_attempts: int = 10,
+    ) -> dict[str, Any]:
         keywords = [keyword] if isinstance(keyword, str) else list(keyword)
         if not keywords:
             raise MigrationBlocked("button keyword list is empty")
-        self.backfill_source()
-        response = self.api.post(
-            "/bots/click-matching-button",
-            {
-                "bot_username": self.args.source_bot,
-                "sent_message_id": 0,
-                "clear_previous_replies": False,
-                "button_keywords": keywords,
-                "debug": False,
-                "include_files_in_response": False,
-                "wait_after_click_timeout_seconds": 3,
-                "cleanup_after_done": False,
-                "callback_message_max_age_seconds": 86400,
-                "callback_candidate_scan_limit": 100,
-            },
-            timeout=90.0,
+        numeric_position = (
+            int(keywords[0])
+            if len(keywords) == 1 and keywords[0].isdigit()
+            else 0
         )
-        if response.get("status") != "ok" or not response.get("button_clicked"):
+        control_kind = (
+            "numeric_folder_position" if numeric_position else "navigation_control"
+        )
+        response: dict[str, Any] = {}
+        attempts = max(1, int(wait_attempts))
+        self.log(
+            "button_wait_started",
+            control_kind=control_kind,
+            folder_position=numeric_position,
+            keyword_count=len(keywords),
+            max_attempts=attempts,
+            stage=self.state.get("stage"),
+            folder_index=self.state.get("folder_index"),
+        )
+        for attempt in range(1, attempts + 1):
+            self.backfill_source()
+            response = self.api.post(
+                "/bots/click-matching-button",
+                {
+                    "bot_username": self.args.source_bot,
+                    "sent_message_id": 0,
+                    "clear_previous_replies": False,
+                    "button_keywords": keywords,
+                    "debug": False,
+                    "include_files_in_response": False,
+                    "wait_after_click_timeout_seconds": 3,
+                    "cleanup_after_done": False,
+                    "callback_message_max_age_seconds": 86400,
+                    "callback_candidate_scan_limit": 100,
+                },
+                timeout=90.0,
+            )
+            self.log(
+                "button_wait_attempt",
+                control_kind=control_kind,
+                folder_position=numeric_position,
+                attempt=attempt,
+                status=response.get("status"),
+                button_clicked=bool(response.get("button_clicked")),
+                clicked_message_id=int(response.get("clicked_message_id") or 0),
+                stage=self.state.get("stage"),
+                folder_index=self.state.get("folder_index"),
+            )
+            if response.get("status") == "ok" and response.get("button_clicked"):
+                break
+            if attempt < attempts:
+                time.sleep(3)
+        else:
+            self.log(
+                "button_wait_exhausted",
+                control_kind=control_kind,
+                folder_position=numeric_position,
+                attempts=attempts,
+                stage=self.state.get("stage"),
+                folder_index=self.state.get("folder_index"),
+            )
             raise MigrationBlocked("no matching navigation button was clicked")
         clicked_text = str(response.get("clicked_button_text") or "").strip()
         if len(keywords) == 1 and keywords[0].isdigit() and clicked_text != keywords[0]:
@@ -453,8 +501,12 @@ class Migrator:
             )
         self.log(
             "button_clicked",
-            keyword=keywords[0],
+            control_kind=control_kind,
+            folder_position=numeric_position,
+            attempt=attempt,
             message_id=response.get("clicked_message_id"),
+            stage=self.state.get("stage"),
+            folder_index=self.state.get("folder_index"),
         )
         return response
 
@@ -1094,7 +1146,16 @@ class Migrator:
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         previous_control_id = int(self.state.get("previous_control_id") or 0)
         deadline = time.time() + 180
+        poll_attempt = 0
+        self.log(
+            "source_page_wait_started",
+            previous_control_id=previous_control_id,
+            requires_specific_control=bool(required_button_keyword),
+            stage=self.state.get("stage"),
+            folder_index=self.state.get("folder_index"),
+        )
         while time.time() < deadline:
+            poll_attempt += 1
             candidates = sorted(
                 (
                     item
@@ -1122,14 +1183,45 @@ class Migrator:
                     for item in candidates
                     if int(item.get("id") or 0) < control_id and not self.buttons(item)
                 ]
+                self.log(
+                    "source_page_ready",
+                    poll_attempt=poll_attempt,
+                    control_message_id=control_id,
+                    page_item_count=len(page_items),
+                    stage=self.state.get("stage"),
+                    folder_index=self.state.get("folder_index"),
+                )
                 return page_items, control
+            if poll_attempt == 1 or poll_attempt % 10 == 0:
+                self.log(
+                    "source_page_waiting",
+                    poll_attempt=poll_attempt,
+                    candidate_count=len(candidates),
+                    control_count=len(controls),
+                    stage=self.state.get("stage"),
+                    folder_index=self.state.get("folder_index"),
+                )
             time.sleep(3)
+        self.log(
+            "source_page_wait_exhausted",
+            poll_attempt=poll_attempt,
+            previous_control_id=previous_control_id,
+            stage=self.state.get("stage"),
+            folder_index=self.state.get("folder_index"),
+        )
         raise MigrationBlocked("timed out waiting for the next source page control")
 
     def navigate_to_folder(self, folder_index: int) -> None:
         if folder_index < 1 or folder_index > len(self.folders):
             raise MigrationBlocked(f"invalid folder index {folder_index}")
         page_number = ((folder_index - 1) // 10) + 1
+        self.log(
+            "folder_navigation_started",
+            folder_index=folder_index,
+            folder_list_page=page_number,
+            stage=self.state.get("stage"),
+            recovery_count=self.state.get("source_recovery_count"),
+        )
         for _ in range(1, page_number):
             self.click("下一页")
         position = ((folder_index - 1) % 10) + 1

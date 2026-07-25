@@ -222,6 +222,35 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         ):
             migrator.navigate_to_folder(11)
 
+    def test_navigation_accepts_and_records_folder_count_increase(self):
+        migrator = bare_migrator(
+            {
+                "status": "running",
+                "stage": "advance_folder",
+                "folder_index": 0,
+            }
+        )
+        migrator.folders = [("folder", 32)]
+        migrator.click = lambda keyword: {
+            "clicked_message_id": 700,
+        }
+        migrator.api = types.SimpleNamespace(
+            get=lambda path, timeout: {
+                "items": [
+                    {
+                        "message": "folder 消息数：52",
+                    }
+                ],
+            }
+        )
+        migrator.current_page = lambda: ([], {"id": 701})
+
+        migrator.navigate_to_folder(1)
+
+        self.assertEqual(52, migrator.state["folder_expected"])
+        self.assertEqual({"1": 52}, migrator.state["folder_count_overrides"])
+        self.assertEqual(20, migrator.state["manifest_folder_count_drift_total"])
+
     def test_navigation_recovers_when_initial_page_control_times_out(self):
         start_counts = self.folder_start_counts()
         migrator = bare_migrator(
@@ -473,6 +502,52 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         self.assertEqual(6, migrator.state["copied_media"])
         self.assertEqual(4, migrator.state["duplicate_media"])
         self.assertEqual(2, migrator.state["deleted_text"])
+
+    def test_validates_category_increases_against_folder_count_drift(self):
+        migrator = bare_migrator(
+            {
+                "processed_total": 14,
+                "source_media_processed": 11,
+                "source_images": 4,
+                "source_videos": 7,
+                "deleted_text": 3,
+                "copied_media": 6,
+                "duplicate_media": 5,
+                "manifest_folder_count_drift_total": 2,
+            }
+        )
+        migrator.expected_total = 12
+        migrator.expected_media = 10
+        migrator.expected_images = 3
+        migrator.expected_videos = 7
+        migrator.expected_text = 2
+
+        migrator.validate_source_counters()
+
+    def test_rejects_category_decrease_hidden_by_folder_count_drift(self):
+        migrator = bare_migrator(
+            {
+                "processed_total": 14,
+                "source_media_processed": 10,
+                "source_images": 2,
+                "source_videos": 8,
+                "deleted_text": 4,
+                "copied_media": 6,
+                "duplicate_media": 4,
+                "manifest_folder_count_drift_total": 2,
+            }
+        )
+        migrator.expected_total = 12
+        migrator.expected_media = 10
+        migrator.expected_images = 3
+        migrator.expected_videos = 7
+        migrator.expected_text = 2
+
+        with self.assertRaisesRegex(
+            MODULE.MigrationBlocked,
+            "category increases",
+        ):
+            migrator.validate_source_counters()
 
     def test_page_media_is_checkpointed_before_source_deletion(self):
         state = {

@@ -1,6 +1,11 @@
 /node_modules
 /public/hot
 /public/storage
+/public/build
+/public/css/app.css
+/public/js/app.js
+/public/js/app.js.LICENSE.txt
+/public/mix-manifest.json
 /storage/*.key
 /vendor
 .env
@@ -21,6 +26,7 @@ storage/certs/
 /storage/app/esun-venv/
 /storage/app/yuanta/
 *.pem
+!/tests/Fixtures/cacert.pem
 /python/__pycache__/
 __pycache__/
 /AGENTS.md

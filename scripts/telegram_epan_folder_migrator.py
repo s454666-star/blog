@@ -89,7 +89,7 @@ def folder_list_location(folder_index: int) -> tuple[int, int]:
         raise ValueError("folder_index must be positive")
     return (
         ((index - 1) // FOLDER_LIST_PAGE_SIZE) + 1,
-        ((index - 1) % FOLDER_LIST_PAGE_SIZE) + 1,
+        index,
     )
 
 

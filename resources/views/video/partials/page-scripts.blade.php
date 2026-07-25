@@ -31,6 +31,7 @@
     let masterFacesLoadedCount = 0;
     const pendingFaceUploads = new Set();
     const pendingMasterUpdates = new Set();
+    const pendingImageDeletes = new Set();
     const pendingMasterFaceLoads = new Set();
     const initialFocusRetryDelays = [0, 120, 320, 700, 1300];
     let initialFocusTrackingCancelled = false;
@@ -1106,6 +1107,11 @@
                 return;
             }
 
+            const requestKey = `${type}:${id}`;
+            if (pendingImageDeletes.has(requestKey)) {
+                return;
+            }
+
             const isScreenshot = type === 'screenshot';
             const $container = $img.closest(isScreenshot ? '.screenshot-container' : '.face-screenshot-container');
             const $row = $img.closest('.video-row');
@@ -1114,33 +1120,51 @@
             const removedMasterFace = isScreenshot
                 ? (screenshotId ? $row.find(`.face-screenshot[data-screenshot-id="${screenshotId}"].master`).length > 0 : false)
                 : $img.hasClass('master');
+            const $relatedFaces = isScreenshot && screenshotId
+                ? $row.find(`.face-screenshot-container[data-screenshot-id="${screenshotId}"]`)
+                : $();
+            const $masterItem = removedMasterFace && videoId
+                ? $(`.master-face-item[data-video-id="${videoId}"]`)
+                : $();
+            const elementsToDetach = [...$relatedFaces.get(), ...$container.get(), ...$masterItem.get()];
+            const detached = elementsToDetach.map(element => ({
+                element,
+                parent: element.parentNode,
+                next: element.nextSibling
+            }));
+            const rollback = () => {
+                [...detached].reverse().forEach(({element, parent, next}) => {
+                    if (!parent) {
+                        return;
+                    }
+                    parent.insertBefore(element, next && next.parentNode === parent ? next : null);
+                });
+                refreshVideoPosterFromScreenshots($row);
+                syncMasterFacesLoadStatus();
+                applySizes();
+            };
+
+            pendingImageDeletes.add(requestKey);
+            closeHoverZoomModal();
+            $(elementsToDetach).detach();
+            refreshVideoPosterFromScreenshots($row);
+            if (removedMasterFace) {
+                syncMasterFacesLoadStatus();
+            }
+            applySizes();
 
             $.post("{{ route('video.deleteScreenshot') }}", {id, type, _token: '{{ csrf_token() }}'}, res => {
                 if (!(res && res.success)) {
+                    rollback();
                     showMessage('error', res?.message || '刪除失敗，請稍後再試。');
                     return;
                 }
 
-                closeHoverZoomModal();
-
-                if (isScreenshot) {
-                    if (screenshotId) {
-                        $row.find(`.face-screenshot-container[data-screenshot-id="${screenshotId}"]`).remove();
-                    }
-                    $container.remove();
-                    refreshVideoPosterFromScreenshots($row);
-                } else {
-                    $container.remove();
-                }
-
-                if (removedMasterFace && videoId) {
-                    $(`.master-face-item[data-video-id="${videoId}"]`).remove();
-                    syncMasterFacesLoadStatus();
-                }
-
-                applySizes();
                 showMessage('success', res.message || '圖片刪除成功。');
-            }).fail(() => showMessage('error', '刪除失敗，請稍後再試。'));
+            }).fail(xhr => {
+                rollback();
+                showMessage('error', xhr?.responseJSON?.message || '刪除失敗，請稍後再試。');
+            }).always(() => pendingImageDeletes.delete(requestKey));
         }
 
         $(document).on('click', '.screenshot', function (e) {
@@ -1162,17 +1186,56 @@
             }
 
             const $area = $('.face-upload-area[data-video-id="' + vid + '"]');
+            const $selectedFace = $(`.face-screenshot[data-id="${faceId}"]`);
+            const previousMasterIds = $(`.face-screenshot[data-video-id="${vid}"].master`)
+                .map((_, element) => Number($(element).data('id')))
+                .get();
+            const $masterItem = $(`.master-face-item[data-video-id="${vid}"]`);
+            const previousMasterImageSrc = $masterItem.find('.master-face-img').attr('src') || null;
+            let createdMasterItem = false;
+
+            $(`.face-screenshot[data-video-id="${vid}"]`).removeClass('master');
+            $selectedFace.addClass('master');
+            if ($masterItem.length) {
+                $masterItem.find('.master-face-img').attr('src', $selectedFace.attr('src'));
+            } else if ($selectedFace.length) {
+                const optimisticItem = buildMasterFaceElement({
+                    video_id: vid,
+                    video_duration: 0,
+                    video_name: '影片',
+                    face_image_path: ''
+                });
+                $(optimisticItem).find('.master-face-img').attr('src', $selectedFace.attr('src'));
+                insertMasterFaceInOrder(optimisticItem);
+                masterFacesLoadedCount += 1;
+                createdMasterItem = true;
+                syncMasterFacesLoadStatus();
+            }
+
+            const rollback = () => {
+                $(`.face-screenshot[data-video-id="${vid}"]`).removeClass('master');
+                previousMasterIds.forEach(id => $(`.face-screenshot[data-id="${id}"]`).addClass('master'));
+                if (createdMasterItem) {
+                    $(`.master-face-item[data-video-id="${vid}"]`).remove();
+                    syncMasterFacesLoadStatus();
+                } else if (previousMasterImageSrc) {
+                    $masterItem.find('.master-face-img').attr('src', previousMasterImageSrc);
+                }
+            };
+
             pendingMasterUpdates.add(requestKey);
             $area.addClass('is-saving-master');
 
             $.post("{{ route('video.setMasterFace') }}", {face_id: faceId, _token: '{{ csrf_token() }}'}, res => {
                 if (res && res.success) {
-                    $(`.face-screenshot[data-video-id="${vid}"]`).removeClass('master');
-                    $(`.face-screenshot[data-id="${faceId}"]`).addClass('master');
                     updateMasterFace(res.data);
                     showMessage('success', '主面人臉已更新。');
-                } else showMessage('error', res.message);
+                } else {
+                    rollback();
+                    showMessage('error', res?.message || '更新失敗，請稍後再試。');
+                }
             }).fail(xhr => {
+                rollback();
                 const message = xhr?.responseJSON?.message || '更新失敗，請稍後再試。';
                 showMessage('error', message);
             }).always(() => {

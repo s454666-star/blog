@@ -468,12 +468,12 @@ class VideoFeatureExtractionService
         $feature->save();
     }
 
-    public function syncMasterFaceForVideo(int $videoMasterId): void
+    public function syncMasterFaceForVideo(int $videoMasterId, ?int $knownMasterFaceId = null): void
     {
         VideoFeature::query()
             ->where('video_master_id', $videoMasterId)
             ->update([
-                'master_face_screenshot_id' => $this->findMasterFaceId($videoMasterId),
+                'master_face_screenshot_id' => $knownMasterFaceId ?? $this->findMasterFaceId($videoMasterId),
             ]);
     }
 

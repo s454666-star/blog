@@ -155,6 +155,59 @@ class VideosControllerTest extends TestCase
         $this->assertSame(1, $masterCount);
     }
 
+    public function test_delete_screenshot_removes_related_rows_and_files_after_response(): void
+    {
+        $videoId = DB::table('video_master')->insertGetId([
+            'video_name' => 'Clip_001.mp4',
+            'video_path' => 'Clip_001/Clip_001.mp4',
+            'duration' => 12.34,
+            'video_type' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $screenshotId = DB::table('video_screenshots')->insertGetId([
+            'video_master_id' => $videoId,
+            'screenshot_path' => 'Clip_001/screenshot_1.jpg',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $faceId = DB::table('video_face_screenshots')->insertGetId([
+            'video_screenshot_id' => $screenshotId,
+            'face_image_path' => 'Clip_001/Clip_001_face_1.jpg',
+            'is_master' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('video_features')->insert([
+            'video_master_id' => $videoId,
+            'master_face_screenshot_id' => $faceId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $videoFolder = $this->dbRoot . DIRECTORY_SEPARATOR . 'Clip_001';
+        File::ensureDirectoryExists($videoFolder);
+        $screenshotPath = $videoFolder . DIRECTORY_SEPARATOR . 'screenshot_1.jpg';
+        $facePath = $videoFolder . DIRECTORY_SEPARATOR . 'Clip_001_face_1.jpg';
+        file_put_contents($screenshotPath, 'shot');
+        file_put_contents($facePath, 'face');
+
+        $response = $this->post(route('video.deleteScreenshot'), [
+            'id' => $screenshotId,
+            'type' => 'screenshot',
+        ]);
+
+        $response->assertOk()->assertJsonPath('success', true);
+        $this->assertDatabaseMissing('video_screenshots', ['id' => $screenshotId]);
+        $this->assertDatabaseMissing('video_face_screenshots', ['id' => $faceId]);
+        $this->assertDatabaseHas('video_features', [
+            'video_master_id' => $videoId,
+            'master_face_screenshot_id' => null,
+        ]);
+        $this->assertFalse(File::exists($screenshotPath));
+        $this->assertFalse(File::exists($facePath));
+    }
+
     public function test_delete_selected_removes_video_folder_feature_m3u8_rerun_and_eagle_assets(): void
     {
         $videoFolder = $this->dbRoot . DIRECTORY_SEPARATOR . 'Clip_001';

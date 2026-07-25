@@ -355,11 +355,13 @@
 
         public function deleteScreenshot(Request $request)
         {
-            $id   = $request->input('id');
+            $id   = (int) $request->input('id');
             $type = $request->input('type');
 
             if ($type === 'screenshot') {
-                $screenshot = VideoScreenshot::with('faceScreenshots')->find($id);
+                $screenshot = VideoScreenshot::query()
+                    ->with('faceScreenshots:id,video_screenshot_id,face_image_path')
+                    ->find($id);
                 if (!$screenshot) {
                     return response()->json([
                         'success' => false,
@@ -368,16 +370,24 @@
                 }
 
                 try {
-                    DB::transaction(function () use ($screenshot) {
-                        $this->deleteVideoDiskPathOrFail($screenshot->screenshot_path);
+                    $pathsToDelete = $screenshot->faceScreenshots
+                        ->pluck('face_image_path')
+                        ->prepend($screenshot->screenshot_path)
+                        ->filter()
+                        ->values()
+                        ->all();
+                    $faceIds = $screenshot->faceScreenshots->pluck('id')->all();
 
-                        foreach ($screenshot->faceScreenshots as $face) {
-                            $this->deleteVideoDiskPathOrFail($face->face_image_path);
-                            $face->delete();
+                    DB::transaction(function () use ($screenshot, $faceIds): void {
+                        if ($faceIds !== []) {
+                            VideoFeature::query()
+                                ->whereIn('master_face_screenshot_id', $faceIds)
+                                ->update(['master_face_screenshot_id' => null]);
+                            VideoFaceScreenshot::query()->whereIn('id', $faceIds)->delete();
                         }
-
                         $screenshot->delete();
                     });
+                    $this->deleteVideoDiskPathsAfterResponse($pathsToDelete);
                 } catch (\Throwable $e) {
                     return response()->json([
                         'success' => false,
@@ -390,7 +400,9 @@
                     'message' => '截圖已成功刪除。',
                 ]);
             } elseif ($type === 'face-screenshot') {
-                $face = VideoFaceScreenshot::find($id);
+                $face = VideoFaceScreenshot::query()
+                    ->select(['id', 'face_image_path'])
+                    ->find($id);
                 if (!$face) {
                     return response()->json([
                         'success' => false,
@@ -399,10 +411,14 @@
                 }
 
                 try {
-                    DB::transaction(function () use ($face) {
-                        $this->deleteVideoDiskPathOrFail($face->face_image_path);
+                    $pathToDelete = $face->face_image_path;
+                    DB::transaction(function () use ($face): void {
+                        VideoFeature::query()
+                            ->where('master_face_screenshot_id', $face->id)
+                            ->update(['master_face_screenshot_id' => null]);
                         $face->delete();
                     });
+                    $this->deleteVideoDiskPathsAfterResponse([$pathToDelete]);
                 } catch (\Throwable $e) {
                     return response()->json([
                         'success' => false,
@@ -486,9 +502,9 @@
 
         public function setMasterFace(Request $request, VideoFeatureExtractionService $videoFeatureExtractionService): \Illuminate\Http\JsonResponse
         {
-            $faceId = $request->input('face_id');
+            $faceId = (int) $request->input('face_id');
 
-            $face = VideoFaceScreenshot::find($faceId);
+            $face = $this->findMasterFacePayload($faceId);
             if(!$face){
                 return response()->json([
                     'success' => false,
@@ -496,25 +512,30 @@
                 ]);
             }
 
-            $videoMasterId = (int) $face->videoScreenshot->videoMaster->id;
+            $videoMasterId = (int) $face->video_id;
+            $wasAlreadyMaster = (int) $face->is_master === 1;
 
             try {
-                DB::transaction(function () use ($faceId, $videoMasterId, $videoFeatureExtractionService): void {
+                DB::transaction(function () use ($faceId, $videoMasterId, $wasAlreadyMaster, $videoFeatureExtractionService): void {
                     VideoFaceScreenshot::query()
                         ->whereHas('videoScreenshot', function ($query) use ($videoMasterId): void {
                             $query->where('video_master_id', $videoMasterId);
                         })
+                        ->whereKeyNot($faceId)
+                        ->where('is_master', 1)
                         ->update(['is_master' => 0]);
 
-                    $updatedRows = VideoFaceScreenshot::query()
-                        ->whereKey($faceId)
-                        ->update(['is_master' => 1]);
+                    if (! $wasAlreadyMaster) {
+                        $updatedRows = VideoFaceScreenshot::query()
+                            ->whereKey($faceId)
+                            ->update(['is_master' => 1]);
 
-                    if ($updatedRows !== 1) {
-                        throw new \RuntimeException('主面人臉寫入失敗。');
+                        if ($updatedRows !== 1) {
+                            throw new \RuntimeException('主面人臉寫入失敗。');
+                        }
                     }
 
-                    $videoFeatureExtractionService->syncMasterFaceForVideo($videoMasterId);
+                    $videoFeatureExtractionService->syncMasterFaceForVideo($videoMasterId, $faceId);
                 });
             } catch (\Throwable $e) {
                 return response()->json([
@@ -523,19 +544,11 @@
                 ], 500);
             }
 
-            $updatedFace = $this->findMasterFacePayload($faceId);
-            $masterCount = $this->countMasterFacesForVideo($videoMasterId);
-
-            if ($updatedFace === null || (int) ($updatedFace->is_master ?? 0) !== 1 || $masterCount !== 1) {
-                return response()->json([
-                    'success' => false,
-                    'message' => '主面人臉驗證失敗，請重新嘗試。',
-                ], 409);
-            }
+            $face->is_master = 1;
 
             return response()->json([
                 'success' => true,
-                'data' => $this->transformMasterFaceRecord($updatedFace),
+                'data' => $this->transformMasterFaceRecord($face),
             ]);
         }
 
@@ -1132,15 +1145,6 @@
                 ->first();
         }
 
-        private function countMasterFacesForVideo(int $videoMasterId): int
-        {
-            return VideoFaceScreenshot::query()
-                ->join('video_screenshots', 'video_screenshots.id', '=', 'video_face_screenshots.video_screenshot_id')
-                ->where('video_screenshots.video_master_id', $videoMasterId)
-                ->where('video_face_screenshots.is_master', 1)
-                ->count();
-        }
-
         private function transformMasterFaceRecord($face): array
         {
             return [
@@ -1264,6 +1268,24 @@
             }
 
             $this->deletePathWithRetries($absolutePath);
+        }
+
+        private function deleteVideoDiskPathsAfterResponse(array $relativePaths): void
+        {
+            $paths = array_values(array_unique(array_filter($relativePaths)));
+            if ($paths === []) {
+                return;
+            }
+
+            app()->terminating(function () use ($paths): void {
+                foreach ($paths as $path) {
+                    try {
+                        $this->deleteVideoDiskPathOrFail($path);
+                    } catch (\Throwable $e) {
+                        report($e);
+                    }
+                }
+            });
         }
 
         private function deletePathWithRetries(string $path, bool $directory = false, int $attempts = 6, int $sleepMilliseconds = 250): void

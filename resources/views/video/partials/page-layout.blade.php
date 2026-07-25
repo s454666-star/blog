@@ -236,7 +236,7 @@
 <template id="face-screenshot-template">
     <div class="face-screenshot-container" data-screenshot-id="{{ '{video_screenshot_id}' }}" data-video-id="{{ '{video_id}' }}">
         <img
-            src="{{ rtrim(config('app.video_base_url'), '/') }}/{{ '{face_image_path}' }}"
+            src="{{ rtrim(config('app.video_base_url'), '/') }}/{{ '{face_image_path}' }}?v={{ '{face_id}' }}"
             class="face-screenshot hover-zoom {{ '{is_master_class}' }}"
             alt="人臉截圖"
             data-id="{{ '{face_id}' }}"

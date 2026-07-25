@@ -42,7 +42,7 @@
                     @foreach($video->screenshots as $screenshot)
                         <div class="screenshot-container" data-screenshot-id="{{ $screenshot->id }}" data-video-id="{{ $video->id }}">
                             <img
-                                src="{{ $baseUrl }}/{{ ltrim((string) $screenshot->screenshot_path, '/') }}"
+                                src="{{ $baseUrl }}/{{ ltrim((string) $screenshot->screenshot_path, '/') }}?v={{ $screenshot->id }}"
                                 alt="截圖"
                                 class="screenshot hover-zoom"
                                 data-id="{{ $screenshot->id }}"
@@ -65,7 +65,7 @@
                         @foreach($screenshot->faceScreenshots as $face)
                             <div class="face-screenshot-container" data-screenshot-id="{{ $screenshot->id }}" data-video-id="{{ $video->id }}">
                                 <img
-                                    src="{{ $baseUrl }}/{{ ltrim((string) $face->face_image_path, '/') }}"
+                                    src="{{ $baseUrl }}/{{ ltrim((string) $face->face_image_path, '/') }}?v={{ $face->id }}"
                                     alt="人臉截圖"
                                     class="face-screenshot hover-zoom {{ $face->is_master ? 'master' : '' }}"
                                     data-id="{{ $face->id }}"

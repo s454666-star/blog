@@ -33,6 +33,7 @@
     const pendingMasterUpdates = new Set();
     const pendingImageDeletes = new Set();
     const pendingMasterFaceLoads = new Set();
+    const masterFaceOverrides = new Map();
     const initialFocusRetryDelays = [0, 120, 320, 700, 1300];
     let initialFocusTrackingCancelled = false;
     let initialFocusResizeObserver = null;
@@ -85,6 +86,13 @@
 
     function normalizeMediaPath(path) {
         return String(path || '').replace(/^\/+/, '');
+    }
+
+    function mediaUrl(path, version = null) {
+        const url = baseVideoUrl + '/' + normalizeMediaPath(path);
+        return version === null || version === undefined || version === ''
+            ? url
+            : `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`;
     }
 
     function updateMasterFacesStatus(text, hidden = false) {
@@ -399,6 +407,7 @@
 
         const data = buildListingQueryParams({
             page: target ?? (dir === 'down' ? nextPage : prevPage),
+            known_last_page: lastPage,
         });
 
         $.ajax({
@@ -453,7 +462,7 @@
         $.ajax({
             url: "{{ route('video.loadMore') }}",
             method: 'GET',
-            data: buildListingQueryParams({page}),
+            data: buildListingQueryParams({page, known_last_page: lastPage}),
             success(res) {
                 if (res && res.success && res.data.trim()) {
                     const $temp = $('<div>').html(res.data);
@@ -1127,6 +1136,7 @@
                 ? $(`.master-face-item[data-video-id="${videoId}"]`)
                 : $();
             const elementsToDetach = [...$relatedFaces.get(), ...$container.get(), ...$masterItem.get()];
+            const previousMasterOverride = videoId ? masterFaceOverrides.get(videoId) : undefined;
             const detached = elementsToDetach.map(element => ({
                 element,
                 parent: element.parentNode,
@@ -1142,9 +1152,19 @@
                 refreshVideoPosterFromScreenshots($row);
                 syncMasterFacesLoadStatus();
                 applySizes();
+                if (removedMasterFace && videoId) {
+                    if (previousMasterOverride === undefined) {
+                        masterFaceOverrides.delete(videoId);
+                    } else {
+                        masterFaceOverrides.set(videoId, previousMasterOverride);
+                    }
+                }
             };
 
             pendingImageDeletes.add(requestKey);
+            if (removedMasterFace && videoId) {
+                masterFaceOverrides.set(videoId, {deleted: true});
+            }
             closeHoverZoomModal();
             $(elementsToDetach).detach();
             refreshVideoPosterFromScreenshots($row);
@@ -1192,8 +1212,10 @@
                 .get();
             const $masterItem = $(`.master-face-item[data-video-id="${vid}"]`);
             const previousMasterImageSrc = $masterItem.find('.master-face-img').attr('src') || null;
+            const previousMasterOverride = masterFaceOverrides.get(Number(vid));
             let createdMasterItem = false;
 
+            masterFaceOverrides.set(Number(vid), {faceId: Number(faceId)});
             $(`.face-screenshot[data-video-id="${vid}"]`).removeClass('master');
             $selectedFace.addClass('master');
             if ($masterItem.length) {
@@ -1221,6 +1243,11 @@
                 } else if (previousMasterImageSrc) {
                     $masterItem.find('.master-face-img').attr('src', previousMasterImageSrc);
                 }
+                if (previousMasterOverride === undefined) {
+                    masterFaceOverrides.delete(Number(vid));
+                } else {
+                    masterFaceOverrides.set(Number(vid), previousMasterOverride);
+                }
             };
 
             pendingMasterUpdates.add(requestKey);
@@ -1228,6 +1255,7 @@
 
             $.post("{{ route('video.setMasterFace') }}", {face_id: faceId, _token: '{{ csrf_token() }}'}, res => {
                 if (res && res.success) {
+                    masterFaceOverrides.set(Number(vid), {faceId: Number(res.data.id)});
                     updateMasterFace(res.data);
                     showMessage('success', '主面人臉已更新。');
                 } else {
@@ -1582,7 +1610,7 @@
         card.title = (face.video_name || '影片') + ' #' + face.video_id;
 
         const img = document.createElement('img');
-        img.src = baseVideoUrl + '/' + normalizeMediaPath(face.face_image_path);
+        img.src = mediaUrl(face.face_image_path, face.id);
         img.className = 'master-face-img';
         img.alt = '主面人臉';
         img.dataset.videoId = String(face.video_id);
@@ -1623,13 +1651,23 @@
     function appendMasterFaces(faces, reset = false) {
         const $container = $('.master-face-images');
         if (reset) {
-            $container.empty();
-            masterFacesLoadedCount = 0;
+            $container.children('.master-face-item').each(function () {
+                const videoId = Number($(this).data('video-id')) || 0;
+                if (!masterFaceOverrides.has(videoId)) {
+                    $(this).remove();
+                }
+            });
+            masterFacesLoadedCount = $container.children('.master-face-item').length;
         }
 
         faces.forEach(face => {
             const videoId = parseInt(face.video_id, 10) || 0;
             if (!videoId) {
+                return;
+            }
+
+            const override = masterFaceOverrides.get(videoId);
+            if (override?.deleted || (override?.faceId && Number(face.id) !== override.faceId)) {
                 return;
             }
 
@@ -1639,7 +1677,7 @@
                     .attr('data-duration', Number(face.video_duration) || 0)
                     .attr('title', (face.video_name || '影片') + ' #' + face.video_id)
                     .find('.master-face-img')
-                    .attr('src', baseVideoUrl + '/' + normalizeMediaPath(face.face_image_path))
+                    .attr('src', mediaUrl(face.face_image_path, face.id))
                     .attr('title', (face.video_name || '影片') + ' #' + face.video_id);
                 repositionMasterFace($existing[0]);
                 return;
@@ -1702,17 +1740,14 @@
                 sort_by: sortBy,
                 sort_dir: sortDir,
                 keyword: searchKeyword,
-                expand_context: expandSearchContext ? 1 : 0
+                expand_context: expandSearchContext ? 1 : 0,
+                known_last_page: page > 1 ? masterFacesLastPage : 0
             },
             success(res) {
                 if (res?.success) {
                     masterFacesPage = Number(res.current_page || page) || page;
                     masterFacesLastPage = Number(res.last_page || masterFacesPage) || masterFacesPage;
                     appendMasterFaces(Array.isArray(res.data) ? res.data : [], reset);
-
-                    if (masterFacesPage < masterFacesLastPage) {
-                        queueMasterFacesPrefetch();
-                    }
                 } else {
                     updateMasterFacesStatus(res?.message || '主面人臉載入失敗。');
                 }
@@ -1722,6 +1757,9 @@
             },
             complete() {
                 masterFacesLoading = false;
+                if (masterFacesPage < masterFacesLastPage) {
+                    queueMasterFacesPrefetch();
+                }
             }
         });
     }

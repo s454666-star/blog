@@ -355,6 +355,120 @@ class VideosControllerTest extends TestCase
         $this->assertSame([], array_values(array_intersect($firstPageIds, $secondPageIds)));
     }
 
+    public function test_video_image_urls_include_row_versions_to_avoid_stale_caddy_cache(): void
+    {
+        $videoId = DB::table('video_master')->insertGetId([
+            'video_name' => 'Cache_Test.mp4',
+            'video_path' => 'Cache_Test/Cache_Test.mp4',
+            'm3u8_path' => null,
+            'duration' => 10,
+            'video_type' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $screenshotId = DB::table('video_screenshots')->insertGetId([
+            'video_master_id' => $videoId,
+            'screenshot_path' => 'Cache_Test/screenshot_1.jpg',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $faceId = DB::table('video_face_screenshots')->insertGetId([
+            'video_screenshot_id' => $screenshotId,
+            'face_image_path' => 'Cache_Test/Cache_Test_face_1.jpg',
+            'is_master' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->get(route('video.index', [
+            'video_type' => 1,
+            'sort_by' => 'id',
+            'sort_dir' => 'asc',
+            'focus_id' => $videoId,
+        ]));
+
+        $response->assertOk();
+        $html = $response->getContent();
+        $this->assertStringContainsString('Cache_Test/screenshot_1.jpg?v=' . $screenshotId, $html);
+        $this->assertStringContainsString('Cache_Test/Cache_Test_face_1.jpg?v=' . $faceId, $html);
+        $this->assertStringContainsString('{face_image_path}?v={face_id}', $html);
+    }
+
+    public function test_load_more_can_reuse_known_last_page_without_changing_pagination_contract(): void
+    {
+        for ($i = 1; $i <= 45; $i++) {
+            DB::table('video_master')->insert([
+                'video_name' => sprintf('Known_Page_%03d.mp4', $i),
+                'video_path' => sprintf('Known_Page_%03d/Known_Page_%03d.mp4', $i, $i),
+                'm3u8_path' => null,
+                'duration' => $i,
+                'video_type' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $response = $this->getJson(route('video.loadMore', [
+            'page' => 2,
+            'known_last_page' => 3,
+            'video_type' => 1,
+            'sort_by' => 'id',
+            'sort_dir' => 'asc',
+        ]));
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonPath('last_page', 3)
+            ->assertJsonPath('next_page', 3)
+            ->assertJsonPath('prev_page', 1);
+        $this->assertCount(20, $this->extractVideoRowIdsFromHtml((string) $response->json('data')));
+    }
+
+    public function test_master_face_followup_page_can_reuse_known_last_page(): void
+    {
+        for ($i = 1; $i <= 45; $i++) {
+            $videoId = DB::table('video_master')->insertGetId([
+                'video_name' => sprintf('Master_Page_%03d.mp4', $i),
+                'video_path' => sprintf('Master_Page_%03d/Master_Page_%03d.mp4', $i, $i),
+                'm3u8_path' => null,
+                'duration' => $i,
+                'video_type' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $screenshotId = DB::table('video_screenshots')->insertGetId([
+                'video_master_id' => $videoId,
+                'screenshot_path' => sprintf('Master_Page_%03d/screenshot.jpg', $i),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            DB::table('video_face_screenshots')->insert([
+                'video_screenshot_id' => $screenshotId,
+                'face_image_path' => sprintf('Master_Page_%03d/face.jpg', $i),
+                'is_master' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $response = $this->getJson(route('video.loadMasterFaces', [
+            'page' => 2,
+            'per_page' => 40,
+            'known_last_page' => 2,
+            'video_type' => 1,
+            'sort_by' => 'id',
+            'sort_dir' => 'asc',
+        ]));
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonPath('last_page', 2)
+            ->assertJsonPath('next_page', null);
+        $this->assertCount(5, $response->json('data', []));
+    }
+
     public function test_keyword_filter_limits_index_results_and_focuses_within_matches(): void
     {
         $matchingIds = [];

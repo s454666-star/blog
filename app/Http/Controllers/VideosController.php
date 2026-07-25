@@ -80,8 +80,8 @@
             /* ---------- 取主列表（穩定排序 + 精簡 eager load 欄位） ---------- */
             $videos = $this->withVideoListRelations(
                 $this->applyOrdering((clone $baseQuery), $sortBy, $sortDir)
-            )
-                ->paginate($perPage, ['*'], 'page', max($page, 1));
+            );
+            $videos = $this->paginateWithKnownTotal($videos, $total, $perPage, max($page, 1));
 
             $prevPage = $page > 1 ? $page - 1 : null;
             $nextPage = $page < $lastPage ? $page + 1 : null;
@@ -106,11 +106,22 @@
             $expandContextMode = $this->shouldExpandKeywordContext($request);
 
             $query = $this->buildVideoListingQuery($videoType, $missingOnly, $keyword, $expandContextMode);
+            $knownLastPage = max(0, (int) $request->input('known_last_page', 0));
 
             // 套用穩定排序 + 精簡 eager load 欄位（減少 SQL/記憶體/HTML 生成成本）
-            $videos = $this->withVideoListRelations(
+            $orderedQuery = $this->withVideoListRelations(
                 $this->applyOrdering($query, $sortBy, $sortDir)
-            )->paginate(self::VIDEO_PAGE_SIZE, ['*'], 'page', $page);
+            );
+
+            if ($knownLastPage > 0) {
+                $videos = $orderedQuery->simplePaginate(self::VIDEO_PAGE_SIZE, ['*'], 'page', $page);
+                $lastPage = $videos->hasMorePages()
+                    ? max($knownLastPage, $videos->currentPage() + 1)
+                    : min($knownLastPage, $videos->currentPage());
+            } else {
+                $videos = $orderedQuery->paginate(self::VIDEO_PAGE_SIZE, ['*'], 'page', $page);
+                $lastPage = $videos->lastPage();
+            }
 
             if ($videos->isEmpty()) {
                 return response()->json(['success' => false], 204);
@@ -121,9 +132,9 @@
             return response()->json([
                 'success'      => true,
                 'data'         => $html,
-                'next_page'    => $videos->currentPage() < $videos->lastPage() ? $videos->currentPage() + 1 : null,
+                'next_page'    => $videos->currentPage() < $lastPage ? $videos->currentPage() + 1 : null,
                 'prev_page'    => $videos->currentPage() > 1 ? $videos->currentPage() - 1 : null,
-                'last_page'    => $videos->lastPage(),
+                'last_page'    => $lastPage,
                 'current_page' => $videos->currentPage(),
             ]);
         }
@@ -557,6 +568,7 @@
             $videoType = $request->input('video_type', '1');
             $page = max(1, (int) $request->input('page', 1));
             $perPage = min(1500, max(40, (int) $request->input('per_page', 160)));
+            $knownLastPage = max(0, (int) $request->input('known_last_page', 0));
             $keyword = $this->normalizeKeyword($request->input('keyword'));
             $expandContextMode = $this->shouldExpandKeywordContext($request);
 
@@ -564,11 +576,21 @@
             $sortBy  = in_array($request->input('sort_by'), ['id', 'duration']) ? $request->input('sort_by') : 'duration';
             $sortDir = $request->input('sort_dir') === 'desc' ? 'desc' : 'asc';
 
-            $masterFaces = $this->applyMasterFaceOrdering(
+            $orderedQuery = $this->applyMasterFaceOrdering(
                 $this->masterFaceListingQuery($videoType, $expandContextMode ? '' : $keyword),
                 $sortBy,
                 $sortDir
-            )->paginate($perPage, ['*'], 'page', $page);
+            );
+
+            if ($knownLastPage > 0 && $page > 1) {
+                $masterFaces = $orderedQuery->simplePaginate($perPage, ['*'], 'page', $page);
+                $lastPage = $masterFaces->hasMorePages()
+                    ? max($knownLastPage, $masterFaces->currentPage() + 1)
+                    : min($knownLastPage, $masterFaces->currentPage());
+            } else {
+                $masterFaces = $orderedQuery->paginate($perPage, ['*'], 'page', $page);
+                $lastPage = $masterFaces->lastPage();
+            }
 
             return response()->json([
                 'success' => true,
@@ -576,8 +598,8 @@
                     ->map(fn ($face) => $this->transformMasterFaceRecord($face))
                     ->values()
                     ->all(),
-                'next_page' => $masterFaces->currentPage() < $masterFaces->lastPage() ? $masterFaces->currentPage() + 1 : null,
-                'last_page' => $masterFaces->lastPage(),
+                'next_page' => $masterFaces->currentPage() < $lastPage ? $masterFaces->currentPage() + 1 : null,
+                'last_page' => $lastPage,
                 'current_page' => $masterFaces->currentPage(),
             ]);
         }
@@ -794,6 +816,22 @@
                     ->orderBy('id', $sortDir);
             }
             return $query->orderBy('id', $sortDir);
+        }
+
+        private function paginateWithKnownTotal($query, int $total, int $perPage, int $page): LengthAwarePaginator
+        {
+            $items = $query->forPage($page, $perPage)->get();
+
+            return new LengthAwarePaginator(
+                $items,
+                $total,
+                $perPage,
+                $page,
+                [
+                    'path' => request()->url(),
+                    'pageName' => 'page',
+                ]
+            );
         }
 
         /**

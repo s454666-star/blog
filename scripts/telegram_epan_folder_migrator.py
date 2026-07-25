@@ -1446,9 +1446,16 @@ class Migrator:
         detail_text = str(detail_items[0].get("message") or "")
         expected_name, expected_count = self.folders[folder_index - 1]
         count_match = re.search(r"消息数[：:]\s*(\d+)", detail_text)
-        if expected_name not in detail_text or not count_match or int(count_match.group(1)) != expected_count:
+        if not count_match or int(count_match.group(1)) != expected_count:
             raise MigrationBlocked(
-                f"folder detail mismatch for index {folder_index}: {detail_text[:300]}"
+                f"folder detail count mismatch for index {folder_index}"
+            )
+        if expected_name not in detail_text:
+            self.log(
+                "folder_name_drift_accepted",
+                folder_index=folder_index,
+                expected_count=expected_count,
+                detail_message_id=detail_message_id,
             )
 
         view_response = self.click(["查看内容", "查看內容", "➡"])

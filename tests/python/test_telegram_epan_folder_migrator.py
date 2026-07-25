@@ -156,6 +156,68 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             migrator.state["matching_exhausted_replay_count"],
         )
 
+    def test_navigation_accepts_renamed_folder_when_count_and_position_match(self):
+        migrator = bare_migrator(
+            {
+                "status": "running",
+                "stage": "advance_folder",
+                "folder_index": 10,
+            }
+        )
+        migrator.folders = [("folder", 1)] * 10 + [("old-name", 496)]
+        migrator.click = lambda keyword: {
+            "clicked_message_id": 700,
+        }
+        migrator.api = types.SimpleNamespace(
+            get=lambda path, timeout: {
+                "items": [
+                    {
+                        "message": "renamed-folder 消息数：496",
+                    }
+                ],
+            }
+        )
+        migrator.current_page = lambda: ([], {"id": 701})
+
+        migrator.navigate_to_folder(11)
+
+        self.assertEqual(11, migrator.state["folder_index"])
+        self.assertEqual(496, migrator.state["folder_expected"])
+        self.assertTrue(
+            any(
+                message == "folder_name_drift_accepted"
+                for message, _ in migrator.logs
+            )
+        )
+
+    def test_navigation_still_blocks_when_folder_count_changes(self):
+        migrator = bare_migrator(
+            {
+                "status": "running",
+                "stage": "advance_folder",
+                "folder_index": 10,
+            }
+        )
+        migrator.folders = [("folder", 1)] * 10 + [("old-name", 496)]
+        migrator.click = lambda keyword: {
+            "clicked_message_id": 700,
+        }
+        migrator.api = types.SimpleNamespace(
+            get=lambda path, timeout: {
+                "items": [
+                    {
+                        "message": "renamed-folder 消息数：495",
+                    }
+                ],
+            }
+        )
+
+        with self.assertRaisesRegex(
+            MODULE.MigrationBlocked,
+            "folder detail count mismatch",
+        ):
+            migrator.navigate_to_folder(11)
+
     def test_missing_source_rolls_back_to_folder_start_before_recovery(self):
         migrator = bare_migrator(
             {

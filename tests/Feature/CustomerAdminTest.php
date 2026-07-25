@@ -43,7 +43,10 @@ class CustomerAdminTest extends TestCase
         $this->get('/admin/customers')->assertNotFound();
         $this->get('/admin/dashboard')->assertOk()
             ->assertDontSee('href="http://localhost/admin/customers"', false)
+            ->assertDontSee('href="http://localhost/admin/addresses"', false)
             ->assertSee('直接建立訂單，客戶資料一起記住');
+        $this->get('/admin/addresses')->assertNotFound();
+        $this->get('/admin/addresses/create')->assertNotFound();
 
         $this->post('/admin/products', [
             'name' => '雲端服務',
@@ -260,6 +263,7 @@ class CustomerAdminTest extends TestCase
             ->assertOk()
             ->assertHeader('content-disposition');
         $spreadsheet = IOFactory::load($exportResponse->baseResponse->getFile()->getPathname());
+        $this->assertNull($spreadsheet->getSheetByName('地址'));
         $customerSheet = $spreadsheet->getSheetByName('客戶');
         $this->assertSame('A5', $customerSheet->getFreezePane());
         $this->assertSame(Border::BORDER_THIN, $customerSheet->getStyle('A4')->getBorders()->getTop()->getBorderStyle());

@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\CrmAddress;
 use App\Models\CrmContact;
 use App\Models\CrmCustomer;
 use App\Models\CrmOrder;
@@ -320,19 +319,6 @@ class CustomerAdminController extends Controller
                 'preferred_contact' => ['nullable', 'string', 'max:30'],
                 'notes' => ['nullable', 'string'],
             ],
-            'addresses' => [
-                'customer_id' => ['nullable', 'exists:crm_customers,id'],
-                'label' => ['nullable', 'string', 'max:100'],
-                'recipient' => ['nullable', 'string', 'max:100'],
-                'phone' => ['nullable', 'string', 'max:50'],
-                'postal_code' => ['nullable', 'string', 'max:20'],
-                'county' => ['nullable', 'string', 'max:50'],
-                'district' => ['nullable', 'string', 'max:50'],
-                'address_line1' => ['nullable', 'string', 'max:255'],
-                'address_line2' => ['nullable', 'string', 'max:255'],
-                'is_default' => ['nullable', 'boolean'],
-                'notes' => ['nullable', 'string'],
-            ],
             'products' => [
                 'sku' => ['nullable', 'string', 'max:80', Rule::unique('crm_products', 'sku')->ignore($record?->id)],
                 'name' => ['required', 'string', 'max:255'],
@@ -381,19 +367,14 @@ class CustomerAdminController extends Controller
             'contacts' => $contacts
                 ->mapWithKeys(fn ($item) => [$item->id => $item->name.($item->customer ? '｜'.$item->customer->name : '')])->all(),
             'defaultContactId' => $contacts->firstWhere('name', '陳威仁')?->id,
-            'addresses' => CrmAddress::with('customer')->latest()->get()
-                ->mapWithKeys(fn ($item) => [$item->id => ($item->label ?: '地址 #'.$item->id).'｜'.$item->full_address])->all(),
             'products' => CrmProduct::orderBy('sort_order')->orderBy('id')->get()
                 ->mapWithKeys(fn ($item) => [$item->id => ['label' => $item->name.'｜$'.number_format((float) $item->price), 'name' => $item->name, 'price' => $item->price]])->all(),
             'cityPhones' => CrmCustomer::query()->whereNotNull('phone')->where('phone', '!=', '')
                 ->distinct()->orderBy('phone')->pluck('phone')->all(),
             'mobilePhones' => CrmCustomer::query()->whereNotNull('mobile')->where('mobile', '!=', '')
                 ->distinct()->orderBy('mobile')->pluck('mobile')->all(),
-            'orderCustomers' => CrmCustomer::with('addresses')->orderBy('name')->get()
+            'orderCustomers' => CrmCustomer::orderBy('name')->get()
                 ->map(function (CrmCustomer $customer) {
-                    $address = $customer->addresses->firstWhere('is_default', true)
-                        ?? $customer->addresses->first();
-
                     return [
                         'id' => $customer->id,
                         'code' => $customer->code,
@@ -406,8 +387,6 @@ class CustomerAdminController extends Controller
                         'website' => $customer->website,
                         'status' => $customer->status,
                         'notes' => $customer->notes,
-                        'address_id' => $address?->id,
-                        'address' => $address?->full_address,
                     ];
                 })->values()->all(),
         ];
@@ -445,24 +424,6 @@ class CustomerAdminController extends Controller
                     'phone' => ['label' => '公司電話'],
                     'mobile' => ['label' => '行動電話'],
                     'preferred_contact' => ['label' => '偏好聯絡方式', 'type' => 'select', 'options' => ['電話' => '電話', '手機' => '手機', 'LINE' => 'LINE']],
-                    'notes' => ['label' => '備註', 'type' => 'textarea', 'wide' => true],
-                ],
-            ],
-            'addresses' => [
-                'title' => '地址管理', 'singular' => '地址', 'model' => CrmAddress::class, 'with' => ['customer'],
-                'search' => ['label', 'recipient', 'phone', 'postal_code', 'county', 'district', 'address_line1'],
-                'columns' => ['label' => '地址標籤', 'customer.name' => '客戶', 'recipient' => '收件人', 'full_address' => '完整地址', 'is_default' => '預設'],
-                'fields' => [
-                    'customer_id' => ['label' => '所屬客戶', 'type' => 'relation', 'source' => 'customers'],
-                    'label' => ['label' => '地址標籤', 'placeholder' => '例如：公司、倉庫'],
-                    'recipient' => ['label' => '收件人'],
-                    'phone' => ['label' => '收件電話'],
-                    'postal_code' => ['label' => '郵遞區號'],
-                    'county' => ['label' => '縣市'],
-                    'district' => ['label' => '鄉鎮市區'],
-                    'address_line1' => ['label' => '地址'],
-                    'address_line2' => ['label' => '樓層／補充地址'],
-                    'is_default' => ['label' => '設為預設', 'type' => 'select', 'options' => ['1' => '是', '0' => '否']],
                     'notes' => ['label' => '備註', 'type' => 'textarea', 'wide' => true],
                 ],
             ],

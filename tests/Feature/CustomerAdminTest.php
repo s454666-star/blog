@@ -217,6 +217,36 @@ class CustomerAdminTest extends TestCase
         $this->assertDatabaseHas('crm_orders', ['subtotal' => 2400, 'total' => 2400, 'customer_id' => $customerId]);
         $this->assertDatabaseHas('crm_order_items', ['product_name' => '雲端服務', 'line_total' => 2400]);
 
+        $this->get('/admin/orders')->assertOk()
+            ->assertSee('tbody tr:nth-child(odd)', false)
+            ->assertSee('tbody tr:nth-child(even)', false)
+            ->assertSee('sort=order_number&amp;direction=asc', false)
+            ->assertSee('sort=order_date&amp;direction=asc', false)
+            ->assertSee('sort=customer.name&amp;direction=asc', false)
+            ->assertSee('sort=payment_status&amp;direction=asc', false)
+            ->assertSee('sort=total&amp;direction=asc', false);
+        $this->get('/admin/orders?sort=total&direction=asc')->assertOk()
+            ->assertSee('aria-sort="ascending"', false)
+            ->assertSeeInOrder(['$1,200.00', '$2,400.00']);
+        $this->get('/admin/orders?sort=order_date&direction=desc')->assertOk()
+            ->assertSee('aria-sort="descending"', false)
+            ->assertSeeInOrder(['2026-07-22', '2026-07-20']);
+        $this->get('/admin/orders?sort=customer.name&direction=asc')->assertOk()
+            ->assertSee('aria-sort="ascending"', false);
+
+        foreach (range(1, 14) as $pageOrder) {
+            DB::table('crm_orders')->insert([
+                'order_number' => 'PAGER-'.str_pad((string) $pageOrder, 2, '0', STR_PAD_LEFT),
+                'customer_id' => $customerId,
+                'order_date' => '2026-01-01',
+            ]);
+        }
+        $this->get('/admin/orders')->assertOk()
+            ->assertSee('class="crm-pagination"', false)
+            ->assertSee('class="crm-pagination-row crm-pagination-pages"', false)
+            ->assertSeeInOrder(['上一頁', '1', '2', '下一頁'])
+            ->assertSee('rel="next"', false);
+
         $exportResponse = $this->get('/admin/export/xlsx')
             ->assertOk()
             ->assertHeader('content-disposition');

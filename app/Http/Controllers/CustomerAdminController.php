@@ -56,9 +56,30 @@ class CustomerAdminController extends Controller
             });
         }
 
-        $module === 'products'
-            ? $query->orderBy('sort_order')->orderBy('id')
-            : $query->latest();
+        $sort = (string) $request->query('sort');
+        $direction = $request->query('direction') === 'desc' ? 'desc' : 'asc';
+        $sortable = $config['sortable'] ?? [];
+
+        if (isset($sortable[$sort])) {
+            $sortColumn = $sortable[$sort];
+
+            if ($sortColumn === 'customer.name') {
+                $query->orderBy(
+                    CrmCustomer::query()
+                        ->select('name')
+                        ->whereColumn('crm_customers.id', 'crm_orders.customer_id'),
+                    $direction
+                );
+            } else {
+                $query->orderBy($sortColumn, $direction);
+            }
+
+            $query->orderByDesc($query->getModel()->qualifyColumn('id'));
+        } elseif ($module === 'products') {
+            $query->orderBy('sort_order')->orderBy('id');
+        } else {
+            $query->latest();
+        }
 
         return view('customer-admin.index', [
             'module' => $module,
@@ -466,6 +487,13 @@ class CustomerAdminController extends Controller
                 'title' => '訂單管理', 'singular' => '訂單', 'model' => CrmOrder::class, 'with' => ['customer', 'items'],
                 'search' => ['order_number', 'payment_status', 'notes'],
                 'relationship_search' => ['customer' => ['name', 'phone', 'mobile']],
+                'sortable' => [
+                    'order_number' => 'order_number',
+                    'order_date' => 'order_date',
+                    'customer.name' => 'customer.name',
+                    'payment_status' => 'payment_status',
+                    'total' => 'total',
+                ],
                 'columns' => ['order_number' => '訂單編號', 'order_date' => '訂單日期', 'customer.name' => '客戶', 'payment_status' => '付款', 'total' => '總額'],
                 'fields' => [
                     'order_number' => ['label' => '訂單編號', 'placeholder' => '留空自動產生'],

@@ -75,13 +75,15 @@ class CustomerAdminTest extends TestCase
             ->assertSeeInOrder(['雲端服務｜$1,200', '花生糖｜$160', '文旦10斤｜$600']);
 
         $this->get('/admin/orders/create')->assertOk()
-            ->assertSee('搜尋舊客戶電話')
-            ->assertSee('輸入部分號碼，例如 0909')
-            ->assertSeeInOrder(['客戶姓名', '市話', '手機電話', '統一編號', '地址', '客戶備註'])
+            ->assertDontSee('搜尋舊客戶電話')
+            ->assertSeeInOrder(['姓名', '市話', '手機電話', '統一編號', '地址', '客戶備註'])
             ->assertDontSee('customer_email')
             ->assertDontSee('Email')
             ->assertSee('id="customer_name"', false)
-            ->assertSee('lang="zh-TW" autocomplete="name" autocapitalize="off" spellcheck="false"', false)
+            ->assertSee('list="order-customer-name-history"', false)
+            ->assertSee('list="order-customer-phone-history"', false)
+            ->assertSee('list="order-customer-mobile-history"', false)
+            ->assertSee('lang="zh-TW" autocomplete="off" autocapitalize="off" spellcheck="false"', false)
             ->assertSee('lang="zh-TW" autocomplete="street-address" autocapitalize="off" spellcheck="false"', false)
             ->assertSee('style="grid-column:1/-1"><label for="customer_address"', false)
             ->assertSee('id="order_date" name="order_date" type="text" value=""', false)
@@ -131,6 +133,9 @@ class CustomerAdminTest extends TestCase
             'tax' => 333,
         ]);
         $this->get('/admin/orders')->assertOk()
+            ->assertSee('搜尋姓名、市話、手機電話或訂單資料…')
+            ->assertSee("input.addEventListener('change',()=>form.requestSubmit())", false)
+            ->assertSee("event.key==='Enter'", false)
             ->assertDontSee('內部隱藏狀態')
             ->assertDontSee('折扣')
             ->assertDontSee('運費')
@@ -153,7 +158,7 @@ class CustomerAdminTest extends TestCase
         ]);
 
         $this->get('/admin/orders/create')->assertOk()
-            ->assertSee('搜尋舊客戶電話')
+            ->assertDontSee('搜尋舊客戶電話')
             ->assertSee('02-1234-5678')
             ->assertSee('0912-345-678')
             ->assertSee('台北市信義區測試路 1 號')
@@ -165,6 +170,10 @@ class CustomerAdminTest extends TestCase
             ->assertDontSee('customer_email')
             ->assertDontSee('Email')
             ->assertDontSee('contactSelect.value=customer.contact_id');
+
+        $this->get('/admin/orders?search='.urlencode('試客'))->assertOk()->assertSee('測試客戶');
+        $this->get('/admin/orders?search='.urlencode('1234'))->assertOk()->assertSee('測試客戶');
+        $this->get('/admin/orders?search='.urlencode('345-678'))->assertOk()->assertSee('測試客戶');
 
         $this->get('/admin/contacts')->assertOk()
             ->assertDontSee('Email')

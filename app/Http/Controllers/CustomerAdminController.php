@@ -42,6 +42,17 @@ class CustomerAdminController extends Controller
                     $method = $index === 0 ? 'where' : 'orWhere';
                     $subQuery->{$method}($field, 'like', '%'.$search.'%');
                 }
+
+                foreach ($config['relationship_search'] ?? [] as $relation => $fields) {
+                    $subQuery->orWhereHas($relation, function ($relationQuery) use ($fields, $search) {
+                        $relationQuery->where(function ($fieldQuery) use ($fields, $search) {
+                            foreach ($fields as $index => $field) {
+                                $method = $index === 0 ? 'where' : 'orWhere';
+                                $fieldQuery->{$method}($field, 'like', '%'.$search.'%');
+                            }
+                        });
+                    });
+                }
             });
         }
 
@@ -454,6 +465,7 @@ class CustomerAdminController extends Controller
             'orders' => [
                 'title' => '訂單管理', 'singular' => '訂單', 'model' => CrmOrder::class, 'with' => ['customer', 'items'],
                 'search' => ['order_number', 'payment_status', 'notes'],
+                'relationship_search' => ['customer' => ['name', 'phone', 'mobile']],
                 'columns' => ['order_number' => '訂單編號', 'order_date' => '訂單日期', 'customer.name' => '客戶', 'payment_status' => '付款', 'total' => '總額'],
                 'fields' => [
                     'order_number' => ['label' => '訂單編號', 'placeholder' => '留空自動產生'],

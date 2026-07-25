@@ -3,7 +3,7 @@
 @section('top-action')<a class="btn btn-primary" href="{{ route('customer-admin.module.create',$module) }}">＋ 新增{{ $config['singular'] }}</a>@endsection
 @section('content')
 <section class="panel">
-    <form class="table-tools" method="get"><div class="search"><span>⌕</span><input name="search" value="{{ request('search') }}" placeholder="搜尋{{ $config['singular'] }}資料…"></div><button class="btn btn-secondary" type="submit">搜尋</button></form>
+    <form class="table-tools" method="get" data-search-form><div class="search"><span>⌕</span><input name="search" value="{{ request('search') }}" placeholder="{{ $module === 'orders' ? '搜尋姓名、市話、手機電話或訂單資料…' : '搜尋'.$config['singular'].'資料…' }}" data-search-input></div><button class="btn btn-secondary" type="submit">搜尋</button></form>
     @if($records->isEmpty())<div class="empty"><div style="font-size:34px;margin-bottom:12px">✦</div>目前沒有資料<br><small>按右上角新增第一筆{{ $config['singular'] }}</small></div>@else
     <div class="table-wrap"><table><thead><tr>@foreach($config['columns'] as $label)<th>{{ $label }}</th>@endforeach<th style="text-align:right">操作</th></tr></thead><tbody>
         @foreach($records as $record)<tr>
@@ -31,3 +31,13 @@
     </tbody></table></div><div class="pagination">{{ $records->links() }}</div>@endif
 </section>
 @endsection
+@push('scripts')
+<script>
+(() => {
+    const form=document.querySelector('[data-search-form]'), input=form?.querySelector('[data-search-input]');
+    if(!form||!input)return;
+    input.addEventListener('change',()=>form.requestSubmit());
+    input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();form.requestSubmit()}});
+})();
+</script>
+@endpush

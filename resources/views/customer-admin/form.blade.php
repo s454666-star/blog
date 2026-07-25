@@ -9,24 +9,14 @@
     <div class="form-grid">
         @if($module==='orders')
             <section class="customer-lookup">
-                <div class="customer-lookup-head">
-                    <div class="field">
-                        <label for="customer_phone_lookup">搜尋舊客戶電話 <span class="hint">輸入部分號碼，例如 0909</span></label>
-                        <input id="customer_phone_lookup" list="order-phone-history" autocomplete="off" placeholder="輸入部分市話或手機號碼">
-                        <datalist id="order-phone-history">
-                            @foreach($options['orderCustomers'] as $customerOption)
-                                @if($customerOption['phone'])<option value="{{ $customerOption['phone'] }}">{{ $customerOption['name'] }}｜市話</option>@endif
-                                @if($customerOption['mobile'])<option value="{{ $customerOption['mobile'] }}">{{ $customerOption['name'] }}｜手機</option>@endif
-                            @endforeach
-                        </datalist>
-                    </div>
-                    <div style="color:var(--muted);font-size:13px;line-height:1.7">選定歷史電話後會帶入舊資料；若是新客戶，直接填寫下方資料即可。儲存訂單時會同步記住客戶資料。</div>
-                </div>
                 <input id="customer_id" name="customer_id" type="hidden" value="{{ old('customer_id', $record->customer_id) }}">
                 <div class="customer-info">
-                    <div class="field"><label for="customer_name">客戶姓名 <b class="required">*</b></label><input id="customer_name" name="customer_name" value="{{ old('customer_name', $record->customer?->name) }}" lang="zh-TW" autocomplete="name" autocapitalize="off" spellcheck="false" required></div>
-                    <div class="field"><label for="customer_phone">市話 <span class="hint">選填</span></label><input id="customer_phone" name="customer_phone" value="{{ old('customer_phone', $record->customer?->phone) }}"></div>
-                    <div class="field"><label for="customer_mobile">手機電話 <span class="hint">選填</span></label><input id="customer_mobile" name="customer_mobile" value="{{ old('customer_mobile', $record->customer?->mobile) }}"></div>
+                    <div class="field"><label for="customer_name">姓名 <b class="required">*</b></label><input id="customer_name" name="customer_name" value="{{ old('customer_name', $record->customer?->name) }}" list="order-customer-name-history" lang="zh-TW" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="輸入部分姓名可搜尋舊客戶" required></div>
+                    <div class="field"><label for="customer_phone">市話 <span class="hint">選填</span></label><input id="customer_phone" name="customer_phone" value="{{ old('customer_phone', $record->customer?->phone) }}" list="order-customer-phone-history" autocomplete="off" placeholder="輸入部分市話可搜尋舊客戶"></div>
+                    <div class="field"><label for="customer_mobile">手機電話 <span class="hint">選填</span></label><input id="customer_mobile" name="customer_mobile" value="{{ old('customer_mobile', $record->customer?->mobile) }}" list="order-customer-mobile-history" autocomplete="off" placeholder="輸入部分手機號碼可搜尋舊客戶"></div>
+                    <datalist id="order-customer-name-history">@foreach($options['orderCustomers'] as $customerOption)<option value="{{ $customerOption['name'] }}">{{ $customerOption['phone'] ?: $customerOption['mobile'] }}</option>@endforeach</datalist>
+                    <datalist id="order-customer-phone-history">@foreach($options['orderCustomers'] as $customerOption)@if($customerOption['phone'])<option value="{{ $customerOption['phone'] }}">{{ $customerOption['name'] }}</option>@endif @endforeach</datalist>
+                    <datalist id="order-customer-mobile-history">@foreach($options['orderCustomers'] as $customerOption)@if($customerOption['mobile'])<option value="{{ $customerOption['mobile'] }}">{{ $customerOption['name'] }}</option>@endif @endforeach</datalist>
                     <div class="field"><label for="customer_tax_id">統一編號 <span class="hint">選填</span></label><input id="customer_tax_id" name="customer_tax_id" value="{{ old('customer_tax_id', $record->customer?->tax_id) }}"></div>
                     <div class="field" style="grid-column:1/-1"><label for="customer_address">地址 <span class="hint">選填</span></label><input id="customer_address" name="customer_address" value="{{ old('customer_address', $record->customer?->address) }}" lang="zh-TW" autocomplete="street-address" autocapitalize="off" spellcheck="false"></div>
                     <div class="field" style="grid-column:1/-1"><label for="customer_notes">客戶備註 <span class="hint">選填</span></label><textarea id="customer_notes" name="customer_notes">{{ old('customer_notes', $record->customer?->notes) }}</textarea></div>
@@ -174,7 +164,7 @@
     const list=document.querySelector('#item-list'), add=document.querySelector('#add-item');
     const productOptions={{ Illuminate\Support\Js::from($jsProducts) }};
     const orderCustomers={{ Illuminate\Support\Js::from($jsOrderCustomers) }};
-    const phoneLookup=document.querySelector('#customer_phone_lookup'), customerId=document.querySelector('#customer_id');
+    const customerId=document.querySelector('#customer_id');
     const dateValue=date=>[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
     document.querySelectorAll('.date-picker-shell').forEach(shell=>{
         const input=shell.querySelector('[data-date-input]'), popover=shell.querySelector('.date-picker-popover'), title=popover.querySelector('.date-picker-title'), days=popover.querySelector('.date-picker-days');
@@ -205,16 +195,24 @@
         target.focus();
     }));
     const customerFields={name:document.querySelector('#customer_name'),phone:document.querySelector('#customer_phone'),mobile:document.querySelector('#customer_mobile'),tax_id:document.querySelector('#customer_tax_id'),customer_address:document.querySelector('#customer_address'),notes:document.querySelector('#customer_notes')};
-    function applyCustomer(customer, chosenPhone=null){
+    function applyCustomer(customer){
         if(!customer)return;
         customerId.value=String(customer.id);
-        phoneLookup.value=chosenPhone||customer.mobile||customer.phone||'';
         Object.entries(customerFields).forEach(([key,input])=>{input.value=customer[key]||''});
     }
-    const customerByPhone=value=>orderCustomers.find(item=>item.phone===value||item.mobile===value);
-    phoneLookup.addEventListener('input',()=>{const customer=customerByPhone(phoneLookup.value);customerId.value='';if(customer)applyCustomer(customer,phoneLookup.value)});
-    phoneLookup.addEventListener('change',()=>{const customer=customerByPhone(phoneLookup.value);customerId.value='';if(customer)applyCustomer(customer,phoneLookup.value)});
-    const selectedCustomer=orderCustomers.find(item=>String(item.id)===customerId.value);if(selectedCustomer&&!phoneLookup.value)phoneLookup.value=selectedCustomer.mobile||selectedCustomer.phone||'';
+    [
+        [customerFields.name,'name'],
+        [customerFields.phone,'phone'],
+        [customerFields.mobile,'mobile'],
+    ].forEach(([input,key])=>{
+        const selectCustomer=()=>{
+            const customer=orderCustomers.find(item=>item[key]===input.value);
+            customerId.value='';
+            if(customer)applyCustomer(customer);
+        };
+        input.addEventListener('input',selectCustomer);
+        input.addEventListener('change',selectCustomer);
+    });
     let nextIndex=list.children.length;
     function recalc(){
         let total=0;

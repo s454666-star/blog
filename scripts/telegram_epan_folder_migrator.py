@@ -65,6 +65,7 @@ MAX_CONSECUTIVE_EMPTY_SOURCE_PAGES = 3
 FOLDER_LIST_PAGE_SIZE = 10
 PARTIAL_PAGE_STABLE_SECONDS = 30
 PARTIAL_PAGE_STABLE_POLLS = 10
+PAGE_CONTROL_TIMEOUT_MESSAGE = "timed out waiting for the next source page control"
 
 
 class MigrationBlocked(RuntimeError):
@@ -1399,7 +1400,7 @@ class Migrator:
             stage=self.state.get("stage"),
             folder_index=self.state.get("folder_index"),
         )
-        raise MigrationBlocked("timed out waiting for the next source page control")
+        raise MigrationBlocked(PAGE_CONTROL_TIMEOUT_MESSAGE)
 
     def navigate_to_folder(self, folder_index: int) -> None:
         if folder_index < 1 or folder_index > len(self.folders):
@@ -1487,7 +1488,15 @@ class Migrator:
         self.state.pop("replay_next_groups_remaining", None)
         self.state.pop("replay_current_page_processed", None)
         self.save()
-        self.current_page()
+        try:
+            self.current_page()
+        except MigrationBlocked as error:
+            if str(error) != PAGE_CONTROL_TIMEOUT_MESSAGE:
+                raise
+            self.schedule_folder_control_recovery(
+                "initial_page_control_timeout",
+                detail_message_id,
+            )
 
     def navigate_from_source_root(self, folder_index: int, *, reason: str) -> None:
         response = self.api.post(

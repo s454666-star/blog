@@ -222,6 +222,41 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         ):
             migrator.navigate_to_folder(11)
 
+    def test_navigation_recovers_when_initial_page_control_times_out(self):
+        start_counts = self.folder_start_counts()
+        migrator = bare_migrator(
+            {
+                **start_counts,
+                "status": "running",
+                "stage": "resume_current_folder",
+                "folder_index": 1,
+                "source_recovery_count": 1,
+                "folder_start_counts": start_counts,
+            }
+        )
+        migrator.folders = [("folder", 1)]
+        migrator.click = lambda keyword: {
+            "clicked_message_id": 700,
+        }
+        migrator.api = types.SimpleNamespace(
+            get=lambda path, timeout: {
+                "items": [
+                    {
+                        "message": "folder 消息数：1",
+                    }
+                ],
+            }
+        )
+        migrator.current_page = lambda: (_ for _ in ()).throw(
+            MODULE.MigrationBlocked(MODULE.PAGE_CONTROL_TIMEOUT_MESSAGE)
+        )
+
+        migrator.navigate_to_folder(1)
+
+        self.assertEqual("resume_current_folder", migrator.state["stage"])
+        self.assertEqual(2, migrator.state["source_recovery_count"])
+        self.assertEqual(0, migrator.state["folder_processed"])
+
     def test_missing_source_rolls_back_to_folder_start_before_recovery(self):
         migrator = bare_migrator(
             {

@@ -50,7 +50,7 @@
                 <a class="btn btn-sm btn-secondary" href="{{ route('customer-admin.module.edit',[$module,$record->id]) }}">編輯</a><form method="post" action="{{ route('customer-admin.module.destroy',[$module,$record->id]) }}" onsubmit="return confirm('確定刪除這筆資料？')">@csrf @method('DELETE')<button class="btn btn-sm btn-danger">刪除</button></form>
             </div></td>
         </tr>@endforeach
-    </tbody></table></div><div class="pagination">{{ $records->onEachSide(4)->links('customer-admin.pagination') }}</div>@endif
+    </tbody></table></div><div class="pagination">{{ $records->onEachSide(2)->links('customer-admin.pagination') }}</div>@endif
 </section>
 @endsection
 @push('scripts')

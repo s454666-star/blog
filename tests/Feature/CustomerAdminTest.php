@@ -220,9 +220,9 @@ class CustomerAdminTest extends TestCase
         $this->get('/admin/orders')->assertOk()
             ->assertSee('tbody tr:nth-child(odd)', false)
             ->assertSee('tbody tr:nth-child(even)', false)
-            ->assertSee('--row-odd:#2f4b7c', false)
-            ->assertSee('--row-even:#4a5f98', false)
-            ->assertSee('--row-hover:#6657aa', false)
+            ->assertSee('--row-odd:rgba(5,8,22,.2)', false)
+            ->assertSee('--row-even:rgba(65,78,128,.14)', false)
+            ->assertSee('--row-hover:rgba(124,92,255,.13)', false)
             ->assertSee('sort=order_number&amp;direction=asc', false)
             ->assertSee('sort=order_date&amp;direction=asc', false)
             ->assertSee('sort=customer.name&amp;direction=asc', false)
@@ -246,7 +246,12 @@ class CustomerAdminTest extends TestCase
         }
         $this->get('/admin/orders')->assertOk()
             ->assertSee('class="crm-pagination"', false)
-            ->assertSee('class="crm-pagination-row crm-pagination-pages"', false)
+            ->assertSee('class="crm-pagination-prev"', false)
+            ->assertSee('class="crm-pagination-pages"', false)
+            ->assertSee('class="crm-pagination-next"', false)
+            ->assertSee('grid-template-columns:minmax(90px,1fr) auto minmax(90px,1fr)', false)
+            ->assertSee('background:#f7f8fc', false)
+            ->assertSee('background:#1688e8', false)
             ->assertSeeInOrder(['上一頁', '1', '2', '下一頁'])
             ->assertSee('rel="next"', false);
 

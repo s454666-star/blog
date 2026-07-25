@@ -6,7 +6,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'CRM 後台')｜Star CRM</title>
     <style>
-        :root { --bg:#070916; --panel:rgba(17,22,45,.78); --line:rgba(255,255,255,.09); --text:#f5f7ff; --muted:#96a0be; --purple:#7c5cff; --cyan:#36d9ef; --pink:#ff5fc8; --green:#4ce0a1; --row-odd:rgba(24,36,71,.92); --row-even:rgba(51,70,122,.78); --row-hover:rgba(75,63,140,.88); }
+        :root { --bg:#070916; --panel:rgba(17,22,45,.78); --line:rgba(255,255,255,.09); --text:#f5f7ff; --muted:#96a0be; --purple:#7c5cff; --cyan:#36d9ef; --pink:#ff5fc8; --green:#4ce0a1; --row-odd:#2f4b7c; --row-even:#4a5f98; --row-hover:#6657aa; }
         * { box-sizing:border-box } html { min-height:100%; background:var(--bg) } body { margin:0; min-height:100vh; color:var(--text); font-family:Inter,"Noto Sans TC","Microsoft JhengHei",sans-serif; background:radial-gradient(circle at 15% 10%,rgba(124,92,255,.2),transparent 28%),radial-gradient(circle at 88% 20%,rgba(54,217,239,.15),transparent 25%),linear-gradient(145deg,#060713,#0b1025 55%,#090919); overflow-x:hidden }
         body:before,body:after { content:""; position:fixed; border-radius:50%; filter:blur(2px); pointer-events:none; z-index:0; animation:float 10s ease-in-out infinite }
         body:before { width:330px;height:330px;background:radial-gradient(circle,rgba(255,95,200,.12),transparent 70%);left:-100px;bottom:-60px }

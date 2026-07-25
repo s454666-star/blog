@@ -62,6 +62,7 @@ FOLDER_COUNTER_KEYS = (
 )
 
 MAX_CONSECUTIVE_EMPTY_SOURCE_PAGES = 3
+FOLDER_LIST_PAGE_SIZE = 9
 
 
 class MigrationBlocked(RuntimeError):
@@ -80,6 +81,16 @@ def copy_retry_delay_seconds(reason: str, wait_seconds: int, retry: int) -> int:
     if str(reason or "") == "flood_wait":
         return max(1, int(wait_seconds or 1)) + 1
     return min(180, 10 * max(1, int(retry or 1)))
+
+
+def folder_list_location(folder_index: int) -> tuple[int, int]:
+    index = int(folder_index or 0)
+    if index <= 0:
+        raise ValueError("folder_index must be positive")
+    return (
+        ((index - 1) // FOLDER_LIST_PAGE_SIZE) + 1,
+        ((index - 1) % FOLDER_LIST_PAGE_SIZE) + 1,
+    )
 
 
 class Api:
@@ -1348,7 +1359,7 @@ class Migrator:
     def navigate_to_folder(self, folder_index: int) -> None:
         if folder_index < 1 or folder_index > len(self.folders):
             raise MigrationBlocked(f"invalid folder index {folder_index}")
-        page_number = ((folder_index - 1) // 10) + 1
+        page_number, position = folder_list_location(folder_index)
         self.log(
             "folder_navigation_started",
             folder_index=folder_index,
@@ -1358,7 +1369,6 @@ class Migrator:
         )
         for _ in range(1, page_number):
             self.click("下一页")
-        position = ((folder_index - 1) % 10) + 1
         folder_response = self.click(str(position))
         detail_message_id = int(folder_response.get("clicked_message_id") or 0)
         if detail_message_id <= 0:

@@ -48,6 +48,12 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             "duplicate_videos": 5,
         }
 
+    def test_folder_list_uses_nine_numeric_positions_per_page(self):
+        self.assertEqual((1, 9), MODULE.folder_list_location(9))
+        self.assertEqual((2, 1), MODULE.folder_list_location(10))
+        self.assertEqual((2, 9), MODULE.folder_list_location(18))
+        self.assertEqual((3, 1), MODULE.folder_list_location(19))
+
     def test_missing_source_rolls_back_to_folder_start_before_recovery(self):
         migrator = bare_migrator(
             {

@@ -104,6 +104,7 @@ class CustomerAdminController extends Controller
         $config = $this->module($module);
         $this->normalizeOrderDateInput($request, $module);
         $data = $request->validate($this->rules($module));
+        $data = $this->roundMoneyValues($module, $data);
 
         DB::transaction(function () use ($module, $config, $data) {
             if ($module === 'orders') {
@@ -140,6 +141,7 @@ class CustomerAdminController extends Controller
         $record = $config['model']::findOrFail($id);
         $this->normalizeOrderDateInput($request, $module);
         $data = $request->validate($this->rules($module, $record));
+        $data = $this->roundMoneyValues($module, $data);
 
         DB::transaction(function () use ($module, $record, $data) {
             if ($module === 'orders') {
@@ -207,7 +209,12 @@ class CustomerAdminController extends Controller
 
     private function saveOrder(CrmOrder $order, array $data): void
     {
-        $items = $data['items'];
+        $items = collect($data['items'])->map(function (array $item): array {
+            $item['unit_price'] = $this->roundMoney($item['unit_price']);
+            $item['line_total'] = $this->roundMoney((float) $item['quantity'] * $item['unit_price']);
+
+            return $item;
+        })->all();
         unset($data['items']);
 
         $customerData = [
@@ -247,17 +254,17 @@ class CustomerAdminController extends Controller
         }
         $data['customer_id'] = $customer->id;
 
-        $subtotal = collect($items)->sum(fn ($item) => (float) $item['quantity'] * (float) $item['unit_price']);
-        $discount = $order->exists ? (float) $order->discount : 0;
-        $shipping = $order->exists ? (float) $order->shipping_fee : 0;
-        $tax = $order->exists ? (float) $order->tax : 0;
+        $subtotal = collect($items)->sum('line_total');
+        $discount = $order->exists ? $this->roundMoney($order->discount) : 0;
+        $shipping = $order->exists ? $this->roundMoney($order->shipping_fee) : 0;
+        $tax = $order->exists ? $this->roundMoney($order->tax) : 0;
 
         if (! $order->exists) {
             $data['order_number'] = ($data['order_number'] ?? null)
                 ?: 'ORD-'.now()->format('Ymd-His').'-'.random_int(10, 99);
         }
-        $data['subtotal'] = $subtotal;
-        $data['total'] = max(0, $subtotal - $discount + $shipping + $tax);
+        $data['subtotal'] = $this->roundMoney($subtotal);
+        $data['total'] = max(0, $this->roundMoney($subtotal - $discount + $shipping + $tax));
         $order->fill($data)->save();
         $order->items()->delete();
 
@@ -269,10 +276,28 @@ class CustomerAdminController extends Controller
                 'product_name' => $product?->name ?? $item['product_name'],
                 'quantity' => $item['quantity'],
                 'unit_price' => $item['unit_price'],
-                'line_total' => (float) $item['quantity'] * (float) $item['unit_price'],
+                'line_total' => $item['line_total'],
                 'notes' => $item['notes'] ?? null,
             ]);
         }
+    }
+
+    private function roundMoneyValues(string $module, array $data): array
+    {
+        if ($module === 'products') {
+            foreach (['price', 'cost'] as $field) {
+                if (array_key_exists($field, $data) && $data[$field] !== null) {
+                    $data[$field] = $this->roundMoney($data[$field]);
+                }
+            }
+        }
+
+        return $data;
+    }
+
+    private function roundMoney(int|float|string|null $value): int
+    {
+        return (int) round((float) $value, 0, PHP_ROUND_HALF_UP);
     }
 
     private function prepareProductImage(Request $request, array $data, ?Model $record = null): array
@@ -368,7 +393,7 @@ class CustomerAdminController extends Controller
                 ->mapWithKeys(fn ($item) => [$item->id => $item->name.($item->customer ? '｜'.$item->customer->name : '')])->all(),
             'defaultContactId' => $contacts->firstWhere('name', '陳威仁')?->id,
             'products' => CrmProduct::orderBy('sort_order')->orderBy('id')->get()
-                ->mapWithKeys(fn ($item) => [$item->id => ['label' => $item->name.'｜$'.number_format((float) $item->price), 'name' => $item->name, 'price' => $item->price]])->all(),
+                ->mapWithKeys(fn ($item) => [$item->id => ['label' => $item->name.'｜$'.number_format($this->roundMoney($item->price)), 'name' => $item->name, 'price' => $this->roundMoney($item->price)]])->all(),
             'cityPhones' => CrmCustomer::query()->whereNotNull('phone')->where('phone', '!=', '')
                 ->distinct()->orderBy('phone')->pluck('phone')->all(),
             'mobilePhones' => CrmCustomer::query()->whereNotNull('mobile')->where('mobile', '!=', '')
@@ -435,8 +460,8 @@ class CustomerAdminController extends Controller
                     'sku' => ['label' => '商品編號'],
                     'name' => ['label' => '品名', 'required' => true],
                     'category' => ['label' => '商品分類'],
-                    'price' => ['label' => '售價', 'type' => 'number', 'step' => '0.01', 'required' => true],
-                    'cost' => ['label' => '成本', 'type' => 'number', 'step' => '0.01'],
+                    'price' => ['label' => '售價', 'type' => 'number', 'step' => '1', 'required' => true],
+                    'cost' => ['label' => '成本', 'type' => 'number', 'step' => '1'],
                     'unit' => ['label' => '單位', 'type' => 'select', 'options' => ['個' => '個', '件' => '件', '組' => '組', '盒' => '盒', '包' => '包', '罐' => '罐', '箱' => '箱', '公斤' => '公斤']],
                     'stock_quantity' => ['label' => '庫存數量', 'type' => 'number', 'step' => '0.01'],
                     'tax_rate' => ['label' => '稅率 (%)', 'type' => 'number', 'step' => '0.01'],

@@ -26,11 +26,14 @@ class CustomerAdminExportController extends Controller
         $this->addSheet($spreadsheet, '接洽人', ['客戶', '姓名', '職稱', '部門', '電話', '手機', '偏好聯絡', '備註'],
             CrmContact::with('customer')->orderBy('id')->get()->map(fn ($r) => [$r->customer?->name, $r->name, $r->title, $r->department, $r->phone, $r->mobile, $r->preferred_contact, $r->notes])->all());
         $this->addSheet($spreadsheet, '商品', ['商品編號', '品名', '分類', '售價', '成本', '單位', '庫存', '稅率', '狀態', '圖片路徑', '說明'],
-            CrmProduct::orderBy('id')->get()->map(fn ($r) => [$r->sku, $r->name, $r->category, $r->price, $r->cost, $r->unit, $r->stock_quantity, $r->tax_rate, $r->status, $r->image_path, $r->description])->all());
+            CrmProduct::orderBy('id')->get()->map(fn ($r) => [$r->sku, $r->name, $r->category, $this->roundMoney($r->price), $r->cost === null ? null : $this->roundMoney($r->cost), $r->unit, $r->stock_quantity, $r->tax_rate, $r->status, $r->image_path, $r->description])->all(),
+            ['D', 'E']);
         $this->addSheet($spreadsheet, '訂單', ['訂單編號', '日期', '客戶', '接洽人', '付款狀態', '付款方式', '小計', '總額', '備註'],
-            CrmOrder::with(['customer', 'contact'])->orderBy('id')->get()->map(fn ($r) => [$r->order_number, $r->order_date?->format('Y-m-d'), $r->customer?->name, $r->contact?->name, $r->payment_status, $r->payment_method, $r->subtotal, $r->total, $r->notes])->all());
+            CrmOrder::with(['customer', 'contact'])->orderBy('id')->get()->map(fn ($r) => [$r->order_number, $r->order_date?->format('Y-m-d'), $r->customer?->name, $r->contact?->name, $r->payment_status, $r->payment_method, $this->roundMoney($r->subtotal), $this->roundMoney($r->total), $r->notes])->all(),
+            ['G', 'H']);
         $this->addSheet($spreadsheet, '訂單明細', ['訂單編號', '商品', '數量', '單價', '小計', '備註'],
-            CrmOrder::with('items')->orderBy('id')->get()->flatMap(fn ($order) => $order->items->map(fn ($item) => [$order->order_number, $item->product_name, $item->quantity, $item->unit_price, $item->line_total, $item->notes]))->all());
+            CrmOrder::with('items')->orderBy('id')->get()->flatMap(fn ($order) => $order->items->map(fn ($item) => [$order->order_number, $item->product_name, $item->quantity, $this->roundMoney($item->unit_price), $this->roundMoney($item->line_total), $item->notes]))->all(),
+            ['D', 'E']);
 
         $path = storage_path('app/customer-admin-'.now()->format('Ymd-His').'-'.Str::lower(Str::random(6)).'.xlsx');
         (new Xlsx($spreadsheet))->save($path);
@@ -38,7 +41,7 @@ class CustomerAdminExportController extends Controller
         return response()->download($path, '客戶訂單管理_'.now()->format('Ymd_His').'.xlsx')->deleteFileAfterSend();
     }
 
-    private function addSheet(Spreadsheet $spreadsheet, string $title, array $headers, array $rows): void
+    private function addSheet(Spreadsheet $spreadsheet, string $title, array $headers, array $rows, array $moneyColumns = []): void
     {
         $sheet = $spreadsheet->createSheet();
         $sheet->setTitle($title);
@@ -80,6 +83,10 @@ class CustomerAdminExportController extends Controller
                     ->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB('FFF3F1FF');
             }
         }
+        foreach ($moneyColumns as $column) {
+            $sheet->getStyle("{$column}5:{$column}{$lastRow}")
+                ->getNumberFormat()->setFormatCode('#,##0');
+        }
         $sheet->freezePane('A5');
         $sheet->setAutoFilter("A4:{$lastColumn}4");
         for ($columnIndex = 1; $columnIndex <= count($headers); $columnIndex++) {
@@ -92,5 +99,10 @@ class CustomerAdminExportController extends Controller
             $dimension->setAutoSize(false);
             $dimension->setWidth(max(10, min(45, $calculated + 2)));
         }
+    }
+
+    private function roundMoney(int|float|string|null $value): int
+    {
+        return (int) round((float) $value, 0, PHP_ROUND_HALF_UP);
     }
 }

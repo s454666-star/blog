@@ -38,7 +38,7 @@
                     @if($value instanceof \Carbon\CarbonInterface){{ $value->format('Y-m-d') }}
                     @elseif($key==='is_default')<span class="badge">{{ $value ? '是' : '否' }}</span>
                     @elseif(in_array($key,['status','payment_status']))<span class="badge">{{ $value ?: '未設定' }}</span>
-                    @elseif(in_array($key,['price','total']))${{ number_format((float)$value,2) }}
+                    @elseif(in_array($key,['price','total']))${{ number_format((float)$value,0) }}
                     @else{{ filled($value) ? $value : '—' }}@endif
                 </td>
             @endforeach

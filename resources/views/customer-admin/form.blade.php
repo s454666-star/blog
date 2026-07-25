@@ -35,6 +35,8 @@
                 $value = old($name, $recordValue);
                 if ($type === 'date' && $value instanceof \DateTimeInterface) {
                     $value = $value->format('Y-m-d');
+                } elseif ($module === 'products' && in_array($name, ['price', 'cost'], true) && is_numeric($value)) {
+                    $value = (int) round((float) $value, 0, PHP_ROUND_HALF_UP);
                 }
             @endphp
             <div class="field {{ !empty($field['wide'])?'wide':'' }}">
@@ -96,7 +98,7 @@
                     'product_id' => $item->product_id,
                     'product_name' => $item->product_name,
                     'quantity' => $item->quantity,
-                    'unit_price' => $item->unit_price,
+                    'unit_price' => (int) round((float) $item->unit_price, 0, PHP_ROUND_HALF_UP),
                     'notes' => $item->notes,
                 ])->all()
                 : [[
@@ -106,6 +108,13 @@
                     'unit_price' => '',
                     'notes' => '',
                 ]]);
+            $initialItems = collect($initialItems)->map(function ($item) {
+                if (isset($item['unit_price']) && $item['unit_price'] !== '') {
+                    $item['unit_price'] = (int) round((float) $item['unit_price'], 0, PHP_ROUND_HALF_UP);
+                }
+
+                return $item;
+            })->all();
         @endphp
         <section class="order-items"><div style="display:flex;justify-content:space-between;align-items:center"><div><h3>訂單商品 <b class="required">*</b></h3><small style="color:var(--muted)">選商品後會自動帶入價格，仍可依本次報價調整。</small></div><button id="add-item" class="btn btn-sm btn-secondary" type="button">＋ 加一項</button></div>
             <div id="item-list">
@@ -113,13 +122,13 @@
                     <div class="item-row">
                         <div><label>商品</label><select class="product-select" name="items[{{ $index }}][product_id]" required><option value="">請選擇商品</option>@foreach($options['products'] as $id=>$product)<option value="{{ $id }}" data-name="{{ $product['name'] }}" data-price="{{ $product['price'] }}" @selected((string)($item['product_id']??'')===(string)$id)>{{ $product['label'] }}</option>@endforeach</select><input class="product-name" type="hidden" name="items[{{ $index }}][product_name]" value="{{ $item['product_name']??'' }}"></div>
                         <div><label>數量</label><input class="qty" name="items[{{ $index }}][quantity]" type="number" min=".01" step=".01" value="{{ $item['quantity']??1 }}" required></div>
-                        <div><label>單價</label><input class="unit-price" name="items[{{ $index }}][unit_price]" type="number" min="0" step=".01" value="{{ $item['unit_price']??'' }}" required></div>
+                        <div><label>單價</label><input class="unit-price" name="items[{{ $index }}][unit_price]" type="number" min="0" step="1" value="{{ $item['unit_price']??'' }}" required></div>
                         <div><label>小計</label><div class="line-total">$0</div><input name="items[{{ $index }}][notes]" type="hidden" value="{{ $item['notes']??'' }}"></div>
                         <button class="btn btn-sm btn-danger remove-item" type="button">×</button>
                     </div>
                 @endforeach
             </div>
-            <div class="total-bar"><span>商品小計</span><strong id="items-total">$0.00</strong></div>
+            <div class="total-bar"><span>商品小計</span><strong id="items-total">$0</strong></div>
         </section>
     @endif
 
@@ -216,15 +225,15 @@
     let nextIndex=list.children.length;
     function recalc(){
         let total=0;
-        list.querySelectorAll('.item-row').forEach(row=>{const line=(parseFloat(row.querySelector('.qty').value)||0)*(parseFloat(row.querySelector('.unit-price').value)||0);row.querySelector('.line-total').textContent='$'+line.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});total+=line});
-        document.querySelector('#items-total').textContent='$'+total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+        list.querySelectorAll('.item-row').forEach(row=>{const line=Math.round((parseFloat(row.querySelector('.qty').value)||0)*(parseFloat(row.querySelector('.unit-price').value)||0));row.querySelector('.line-total').textContent='$'+line.toLocaleString();total+=line});
+        document.querySelector('#items-total').textContent='$'+total.toLocaleString();
     }
     function bind(row){
         row.querySelector('.product-select').addEventListener('change',e=>{const option=e.target.selectedOptions[0];row.querySelector('.product-name').value=option?.dataset.name||'';if(option?.dataset.price)row.querySelector('.unit-price').value=option.dataset.price;recalc()});
         row.querySelectorAll('.qty,.unit-price').forEach(el=>el.addEventListener('input',recalc));
         row.querySelector('.remove-item').addEventListener('click',()=>{if(list.children.length>1)row.remove();else{row.querySelector('.product-select').value='';row.querySelector('.unit-price').value=''}recalc()});
     }
-    add.addEventListener('click',()=>{const row=document.createElement('div');row.className='item-row';const options=productOptions.map(p=>`<option value="${p.id}" data-name="${p.name.replaceAll('"','&quot;')}" data-price="${p.price}">${p.label}</option>`).join('');row.innerHTML=`<div><label>商品</label><select class="product-select" name="items[${nextIndex}][product_id]" required><option value="">請選擇商品</option>${options}</select><input class="product-name" type="hidden" name="items[${nextIndex}][product_name]"></div><div><label>數量</label><input class="qty" name="items[${nextIndex}][quantity]" type="number" min=".01" step=".01" value="1" required></div><div><label>單價</label><input class="unit-price" name="items[${nextIndex}][unit_price]" type="number" min="0" step=".01" required></div><div><label>小計</label><div class="line-total">$0.00</div><input type="hidden" name="items[${nextIndex}][notes]"></div><button class="btn btn-sm btn-danger remove-item" type="button">×</button>`;nextIndex++;list.appendChild(row);bind(row);row.querySelector('select').focus()});
+    add.addEventListener('click',()=>{const row=document.createElement('div');row.className='item-row';const options=productOptions.map(p=>`<option value="${p.id}" data-name="${p.name.replaceAll('"','&quot;')}" data-price="${p.price}">${p.label}</option>`).join('');row.innerHTML=`<div><label>商品</label><select class="product-select" name="items[${nextIndex}][product_id]" required><option value="">請選擇商品</option>${options}</select><input class="product-name" type="hidden" name="items[${nextIndex}][product_name]"></div><div><label>數量</label><input class="qty" name="items[${nextIndex}][quantity]" type="number" min=".01" step=".01" value="1" required></div><div><label>單價</label><input class="unit-price" name="items[${nextIndex}][unit_price]" type="number" min="0" step="1" required></div><div><label>小計</label><div class="line-total">$0</div><input type="hidden" name="items[${nextIndex}][notes]"></div><button class="btn btn-sm btn-danger remove-item" type="button">×</button>`;nextIndex++;list.appendChild(row);bind(row);row.querySelector('select').focus()});
     list.querySelectorAll('.item-row').forEach(bind);recalc();
 })();
 </script>

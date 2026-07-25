@@ -50,11 +50,13 @@ class CustomerAdminTest extends TestCase
 
         $this->post('/admin/products', [
             'name' => '雲端服務',
-            'price' => 1200,
+            'price' => 1200.49,
+            'cost' => 345.50,
             'image' => UploadedFile::fake()->image('product.png'),
         ])->assertRedirect('/admin/products');
         $product = DB::table('crm_products')->first();
         Storage::disk('public')->assertExists($product->image_path);
+        $this->assertDatabaseHas('crm_products', ['id' => $product->id, 'price' => 1200, 'cost' => 346]);
 
         $this->post('/admin/products', ['sku' => '02', 'name' => '文旦10斤', 'category' => '文旦', 'price' => 600])
             ->assertRedirect('/admin/products');
@@ -64,6 +66,8 @@ class CustomerAdminTest extends TestCase
         $this->get('/admin/products')->assertOk()
             ->assertSee('aria-label="上移 花生糖"', false)
             ->assertSee('aria-label="下移 花生糖"', false)
+            ->assertSee('$1,200')
+            ->assertDontSee('$1,200.00')
             ->assertSeeInOrder(['雲端服務', '文旦10斤', '花生糖']);
         $this->post('/admin/products/'.$peanutId.'/move', ['direction' => 'up'])
             ->assertRedirect('/admin/products');
@@ -103,7 +107,11 @@ class CustomerAdminTest extends TestCase
             ->assertDontSee('訂單狀態')
             ->assertDontSee('折扣')
             ->assertDontSee('運費')
-            ->assertDontSee('稅額');
+            ->assertDontSee('稅額')
+            ->assertSee('name="items[0][unit_price]" type="number" min="0" step="1"', false)
+            ->assertSee('id="items-total">$0</strong>', false)
+            ->assertDontSee('$0.00')
+            ->assertDontSee('minimumFractionDigits');
 
         $this->post('/admin/orders', [
             'customer_name' => '測試客戶',
@@ -114,7 +122,7 @@ class CustomerAdminTest extends TestCase
             'items' => [[
                 'product_id' => $product->id,
                 'quantity' => 2,
-                'unit_price' => 1200,
+                'unit_price' => 1200.49,
             ]],
         ])->assertRedirect('/admin/orders');
         $customerId = DB::table('crm_customers')->value('id');
@@ -218,7 +226,7 @@ class CustomerAdminTest extends TestCase
             ->assertSee('value="罐"', false);
 
         $this->assertDatabaseHas('crm_orders', ['subtotal' => 2400, 'total' => 2400, 'customer_id' => $customerId]);
-        $this->assertDatabaseHas('crm_order_items', ['product_name' => '雲端服務', 'line_total' => 2400]);
+        $this->assertDatabaseHas('crm_order_items', ['product_name' => '雲端服務', 'unit_price' => 1200, 'line_total' => 2400]);
 
         $this->get('/admin/orders')->assertOk()
             ->assertSee('tbody tr:nth-child(odd)', false)
@@ -233,7 +241,9 @@ class CustomerAdminTest extends TestCase
             ->assertSee('sort=total&amp;direction=asc', false);
         $this->get('/admin/orders?sort=total&direction=asc')->assertOk()
             ->assertSee('aria-sort="ascending"', false)
-            ->assertSeeInOrder(['$1,200.00', '$2,400.00']);
+            ->assertSeeInOrder(['$1,200', '$2,400'])
+            ->assertDontSee('$1,200.00')
+            ->assertDontSee('$2,400.00');
         $this->get('/admin/orders?sort=order_date&direction=desc')->assertOk()
             ->assertSee('aria-sort="descending"', false)
             ->assertSeeInOrder(['2026-07-22', '2026-07-20']);
@@ -279,12 +289,24 @@ class CustomerAdminTest extends TestCase
         $this->assertNotContains('legacy-customer@example.com', $customerSheet->rangeToArray('A5:J5')[0]);
         $this->assertNotContains('legacy-contact@example.com', $contactSheet->rangeToArray('A5:H6')[0]);
         $this->assertNotContains('legacy-default@example.com', $contactSheet->rangeToArray('A5:H6')[1]);
-        $orderHeaders = $spreadsheet->getSheetByName('訂單')->rangeToArray('A4:I4')[0];
+        $productSheet = $spreadsheet->getSheetByName('商品');
+        $this->assertSame(1200, $productSheet->getCell('D5')->getValue());
+        $this->assertSame(346, $productSheet->getCell('E5')->getValue());
+        $this->assertSame('#,##0', $productSheet->getStyle('D5')->getNumberFormat()->getFormatCode());
+        $orderSheet = $spreadsheet->getSheetByName('訂單');
+        $orderHeaders = $orderSheet->rangeToArray('A4:I4')[0];
         $this->assertSame(['訂單編號', '日期', '客戶', '接洽人', '付款狀態', '付款方式', '小計', '總額', '備註'], $orderHeaders);
+        $this->assertSame(2400, $orderSheet->getCell('G5')->getValue());
+        $this->assertSame(2400, $orderSheet->getCell('H5')->getValue());
+        $this->assertSame('#,##0', $orderSheet->getStyle('H5')->getNumberFormat()->getFormatCode());
+        $orderItemSheet = $spreadsheet->getSheetByName('訂單明細');
+        $this->assertSame(1200, $orderItemSheet->getCell('D5')->getValue());
+        $this->assertSame(2400, $orderItemSheet->getCell('E5')->getValue());
+        $this->assertSame('#,##0', $orderItemSheet->getStyle('E5')->getNumberFormat()->getFormatCode());
         $this->assertNotContains('狀態', $orderHeaders);
         $this->assertNotContains('折扣', $orderHeaders);
         $this->assertNotContains('運費', $orderHeaders);
         $this->assertNotContains('稅額', $orderHeaders);
-        $this->assertNotContains('內部隱藏狀態', $spreadsheet->getSheetByName('訂單')->rangeToArray('A5:I6')[0]);
+        $this->assertNotContains('內部隱藏狀態', $orderSheet->rangeToArray('A5:I6')[0]);
     }
 }

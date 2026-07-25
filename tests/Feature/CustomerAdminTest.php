@@ -250,6 +250,7 @@ class CustomerAdminTest extends TestCase
             ->assertSee('class="crm-pagination-pages"', false)
             ->assertSee('class="crm-pagination-next"', false)
             ->assertSee('grid-template-columns:minmax(90px,1fr) auto minmax(90px,1fr)', false)
+            ->assertSee('background:linear-gradient(90deg,#0d1327,#151d38 50%,#0d1327)', false)
             ->assertSee('background:#f7f8fc', false)
             ->assertSee('background:#1688e8', false)
             ->assertSeeInOrder(['上一頁', '1', '2', '下一頁'])

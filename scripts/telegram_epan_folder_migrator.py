@@ -440,6 +440,10 @@ class Migrator:
         control_kind = (
             "numeric_folder_position" if numeric_position else "navigation_control"
         )
+        min_message_id = max(
+            int(self.state.get("start_message_id") or 0),
+            int(self.state.get("source_recovery_start_message_id") or 0),
+        )
         response: dict[str, Any] = {}
         attempts = max(1, int(wait_attempts))
         self.log(
@@ -447,6 +451,7 @@ class Migrator:
             control_kind=control_kind,
             folder_position=numeric_position,
             keyword_count=len(keywords),
+            min_message_id=min_message_id,
             max_attempts=attempts,
             stage=self.state.get("stage"),
             folder_index=self.state.get("folder_index"),
@@ -457,7 +462,7 @@ class Migrator:
                 "/bots/click-matching-button",
                 {
                     "bot_username": self.args.source_bot,
-                    "sent_message_id": 0,
+                    "sent_message_id": min_message_id,
                     "clear_previous_replies": False,
                     "button_keywords": keywords,
                     "debug": False,
@@ -477,6 +482,7 @@ class Migrator:
                 status=response.get("status"),
                 button_clicked=bool(response.get("button_clicked")),
                 clicked_message_id=int(response.get("clicked_message_id") or 0),
+                min_message_id=min_message_id,
                 stage=self.state.get("stage"),
                 folder_index=self.state.get("folder_index"),
             )

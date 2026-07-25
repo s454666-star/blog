@@ -382,7 +382,13 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         )
 
     def test_click_waits_for_async_navigation_button(self):
-        migrator = bare_migrator({"status": "running"})
+        migrator = bare_migrator(
+            {
+                "status": "running",
+                "start_message_id": 11000,
+                "source_recovery_start_message_id": 12000,
+            }
+        )
         migrator.backfill_source = lambda: None
         responses = [
             {
@@ -412,6 +418,8 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             MODULE.time.sleep = original_sleep
 
         self.assertEqual(2, len(calls))
+        self.assertEqual(12000, calls[0][1]["sent_message_id"])
+        self.assertEqual(12000, calls[1][1]["sent_message_id"])
         self.assertEqual(12000, result["clicked_message_id"])
 
 

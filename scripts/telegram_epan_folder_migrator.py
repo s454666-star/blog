@@ -1473,15 +1473,19 @@ class Migrator:
             copied_media=self.state["copied_media"],
             deleted_text=self.state["deleted_text"],
         )
-        folder_index = int(self.state["folder_index"])
+        self.state["stage"] = "advance_folder"
+        self.save()
+        self.advance_folder(reason="folder_completed")
+
+    def advance_folder(self, *, reason: str = "checkpoint_resume") -> None:
+        folder_index = int(self.state.get("folder_index") or 0)
+        if folder_index <= 0:
+            raise MigrationBlocked("folder advance has no current folder")
         if folder_index >= len(self.folders):
             self.state["stage"] = "clear_source_dialog"
             self.save()
             return
-        self.navigate_from_source_root(
-            folder_index + 1,
-            reason="folder_completed",
-        )
+        self.navigate_from_source_root(folder_index + 1, reason=reason)
 
     def can_finish_exhausted_replay_folder(self) -> bool:
         folder_start_counts = self.state.get("folder_start_counts")
@@ -1519,10 +1523,9 @@ class Migrator:
             self.state["stage"] = "clear_source_dialog"
             self.save()
             return
-        self.navigate_from_source_root(
-            folder_index + 1,
-            reason="exhausted_replay_completed",
-        )
+        self.state["stage"] = "advance_folder"
+        self.save()
+        self.advance_folder(reason="exhausted_replay_completed")
 
     def process_current_page(self) -> None:
         page_items, control = self.current_page()
@@ -1794,6 +1797,8 @@ class Migrator:
                 self.process_current_page()
             elif stage == "clear_source_dialog":
                 self.clear_source_dialog()
+            elif stage == "advance_folder":
+                self.advance_folder()
             elif stage == "verify_target":
                 self.verify_target()
             else:

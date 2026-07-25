@@ -54,6 +54,26 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         self.assertEqual((2, 10), MODULE.folder_list_location(20))
         self.assertEqual((3, 1), MODULE.folder_list_location(21))
 
+    def test_advance_folder_resumes_without_reprocessing_completed_page(self):
+        migrator = bare_migrator(
+            {
+                "status": "running",
+                "stage": "advance_folder",
+                "folder_index": 9,
+                "folder_processed": 486,
+            }
+        )
+        migrator.folders = [("folder", 1)] * 14
+        navigated = []
+        migrator.navigate_from_source_root = (
+            lambda index, *, reason: navigated.append((index, reason))
+        )
+
+        migrator.advance_folder()
+
+        self.assertEqual([(10, "checkpoint_resume")], navigated)
+        self.assertEqual(486, migrator.state["folder_processed"])
+
     def test_missing_source_rolls_back_to_folder_start_before_recovery(self):
         migrator = bare_migrator(
             {

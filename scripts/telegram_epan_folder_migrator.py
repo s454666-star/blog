@@ -1473,6 +1473,11 @@ class Migrator:
                 "folder_processed": 0,
                 "folder_next_group_clicks": 0,
                 "consecutive_empty_source_pages": 0,
+                "source_recovery_count": (
+                    int(self.state.get("source_recovery_count") or 0)
+                    if recovering_same_folder
+                    else 0
+                ),
                 **exhausted_replay_evidence,
                 "current_page_processed": 0,
                 "folder_start_counts": folder_start_counts,

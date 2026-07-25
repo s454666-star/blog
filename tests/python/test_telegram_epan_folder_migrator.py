@@ -126,6 +126,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
                 "status": "running",
                 "stage": "resume_current_folder",
                 "folder_index": 10,
+                "source_recovery_count": 5,
                 "last_exhausted_replay_observed_count": 387,
                 "matching_exhausted_replay_count": 5,
             }
@@ -155,6 +156,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             5,
             migrator.state["matching_exhausted_replay_count"],
         )
+        self.assertEqual(5, migrator.state["source_recovery_count"])
 
     def test_navigation_accepts_renamed_folder_when_count_and_position_match(self):
         migrator = bare_migrator(
@@ -162,6 +164,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
                 "status": "running",
                 "stage": "advance_folder",
                 "folder_index": 10,
+                "source_recovery_count": 10,
             }
         )
         migrator.folders = [("folder", 1)] * 10 + [("old-name", 496)]
@@ -183,6 +186,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
 
         self.assertEqual(11, migrator.state["folder_index"])
         self.assertEqual(496, migrator.state["folder_expected"])
+        self.assertEqual(0, migrator.state["source_recovery_count"])
         self.assertTrue(
             any(
                 message == "folder_name_drift_accepted"

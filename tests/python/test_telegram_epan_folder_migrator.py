@@ -318,15 +318,15 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         migrator = bare_migrator(state)
         copied = []
         deleted_text = []
-        migrator.copy_media = lambda item: copied.append(item)
+        migrator.copy_page_media_entries = lambda entries: copied.extend(entries)
         migrator.delete_text_item = lambda message_id: deleted_text.append(message_id)
 
         migrator.complete_page_items()
 
         self.assertEqual(
             [
-                {"id": 2717, "media_kind": "video"},
-                {"id": 2718, "media_kind": "video"},
+                {"source_message_id": 2717, "kind": "video"},
+                {"source_message_id": 2718, "kind": "video"},
             ],
             copied,
         )
@@ -380,6 +380,63 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             "document:400",
             completed[0][1]["file_unique_id"],
         )
+
+    def test_page_batch_requests_file_id_only_dedupe(self):
+        migrator = bare_migrator(
+            {
+                "stage": "page_items_ready",
+                "folder_index": 5,
+            }
+        )
+        migrator.dedupe_scope = "epan_originals_combined"
+        calls = []
+
+        def post(path, payload, timeout):
+            calls.append((path, payload, timeout))
+            return {
+                "status": "ok",
+                "results": [
+                    {
+                        "source_message_id": 201,
+                        "target_message_id": 301,
+                        "file_unique_id": "document:401",
+                        "duplicate": True,
+                    },
+                    {
+                        "source_message_id": 202,
+                        "target_message_id": 302,
+                        "file_unique_id": "document:402",
+                        "duplicate": False,
+                    },
+                ],
+            }
+
+        migrator.api = types.SimpleNamespace(post=post)
+        completed = []
+        migrator.mark_source_complete = lambda *args, **kwargs: completed.append(
+            (args, kwargs)
+        )
+
+        migrator.copy_page_media_entries(
+            [
+                {"source_message_id": 201, "kind": "video"},
+                {"source_message_id": 202, "kind": "video"},
+            ]
+        )
+
+        self.assertEqual(1, len(calls))
+        self.assertEqual(
+            "/messages/copy-protected-media-batch",
+            calls[0][0],
+        )
+        self.assertEqual([201, 202], calls[0][1]["message_ids"])
+        self.assertEqual(
+            "telegram_file_unique_id",
+            calls[0][1]["dedupe_mode"],
+        )
+        self.assertEqual(2, len(completed))
+        self.assertEqual("document:401", completed[0][1]["file_unique_id"])
+        self.assertEqual("document:402", completed[1][1]["file_unique_id"])
 
     def test_click_waits_for_async_navigation_button(self):
         migrator = bare_migrator(

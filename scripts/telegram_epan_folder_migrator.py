@@ -1076,6 +1076,134 @@ class Migrator:
             raise MigrationBlocked("pending page copy checkpoint is invalid")
         self.schedule_source_page_recovery(source_id, kind)
 
+    def copy_page_media_entries(self, media_entries: list[dict[str, Any]]) -> None:
+        for kind in ("image", "video"):
+            entries = [
+                entry
+                for entry in media_entries
+                if str(entry.get("kind") or "") == kind
+            ]
+            if not entries:
+                continue
+            if len(entries) == 1:
+                self.copy_media(
+                    {
+                        "id": int(entries[0].get("source_message_id") or 0),
+                        "media_kind": kind,
+                    }
+                )
+                continue
+
+            source_ids = [
+                int(entry.get("source_message_id") or 0)
+                for entry in entries
+            ]
+            target_peer_id = self.target_peer_for_kind(kind)
+            self.log(
+                "page_media_batch_started",
+                kind=kind,
+                item_count=len(source_ids),
+                target_peer_id=target_peer_id,
+                folder_index=self.state.get("folder_index"),
+            )
+            try:
+                response = self.api.post(
+                    "/messages/copy-protected-media-batch",
+                    {
+                        "source_peer_id": self.args.source_peer_id,
+                        "source_bot_username": copy_source_bot_for_attempt(
+                            self.args.source_bot,
+                            1,
+                        ),
+                        "message_ids": source_ids,
+                        "target_peer_id": target_peer_id,
+                        "drop_media_captions": True,
+                        "dedupe_scope": self.dedupe_scope,
+                        "dedupe_mode": "telegram_file_unique_id",
+                    },
+                    timeout=7200.0,
+                )
+            except (TimeoutError, urllib.error.URLError, ConnectionError) as error:
+                self.log(
+                    "page_media_batch_fallback",
+                    kind=kind,
+                    item_count=len(source_ids),
+                    reason="transport_error",
+                    error_type=type(error).__name__,
+                    folder_index=self.state.get("folder_index"),
+                )
+                for source_id in source_ids:
+                    self.copy_media({"id": source_id, "media_kind": kind})
+                continue
+
+            results = list(response.get("results") or [])
+            results_by_source = {
+                int(result.get("source_message_id") or 0): result
+                for result in results
+                if int(result.get("source_message_id") or 0) > 0
+            }
+            valid = (
+                response.get("status") == "ok"
+                and len(results) == len(source_ids)
+                and set(results_by_source) == set(source_ids)
+                and all(
+                    int(results_by_source[source_id].get("target_message_id") or 0) > 0
+                    and str(results_by_source[source_id].get("file_unique_id") or "")
+                    for source_id in source_ids
+                )
+            )
+            if not valid:
+                self.log(
+                    "page_media_batch_fallback",
+                    kind=kind,
+                    item_count=len(source_ids),
+                    reason=str(response.get("reason") or "invalid_response"),
+                    result_count=len(results),
+                    folder_index=self.state.get("folder_index"),
+                )
+                for source_id in source_ids:
+                    self.copy_media({"id": source_id, "media_kind": kind})
+                continue
+
+            checkpoint_results = [
+                {
+                    "source_message_id": source_id,
+                    "target_message_id": int(
+                        results_by_source[source_id]["target_message_id"]
+                    ),
+                    "target_peer_id": target_peer_id,
+                    "kind": kind,
+                    "duplicate": bool(results_by_source[source_id].get("duplicate")),
+                    "file_unique_id": str(
+                        results_by_source[source_id].get("file_unique_id") or ""
+                    ),
+                }
+                for source_id in source_ids
+            ]
+            self.state["active_page_results"] = checkpoint_results
+            self.save()
+            self.log(
+                "page_media_batch_ready",
+                kind=kind,
+                item_count=len(source_ids),
+                duplicate_count=sum(
+                    1 for result in checkpoint_results if result["duplicate"]
+                ),
+                new_count=sum(
+                    1 for result in checkpoint_results if not result["duplicate"]
+                ),
+                folder_index=self.state.get("folder_index"),
+            )
+            for result in checkpoint_results:
+                self.mark_source_complete(
+                    int(result["source_message_id"]),
+                    int(result["target_message_id"]),
+                    kind,
+                    target_peer_id=target_peer_id,
+                    duplicate=bool(result["duplicate"]),
+                    file_unique_id=str(result["file_unique_id"]),
+                )
+
     def complete_page_items(self) -> None:
         text_ids = [
             int(message_id)
@@ -1088,7 +1216,7 @@ class Migrator:
             kind = str(entry.get("kind") or "")
             if source_id <= 0 or kind not in ("image", "video"):
                 raise MigrationBlocked("ready page media entry is invalid")
-            self.copy_media({"id": source_id, "media_kind": kind})
+        self.copy_page_media_entries(expected_media)
 
         for message_id in text_ids:
             self.delete_text_item(message_id)

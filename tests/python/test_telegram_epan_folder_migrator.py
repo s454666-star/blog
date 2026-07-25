@@ -427,12 +427,52 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         migrator.process_current_page()
 
         self.assertEqual([(6, "exhausted_replay_completed")], navigated)
+        self.assertEqual(
+            236,
+            migrator.state["exhausted_replay_missing_total"],
+        )
         self.assertTrue(
             any(
                 message == "folder_exhausted_after_verified_duplicate_replays"
                 for message, _ in migrator.logs
             )
         )
+
+    def test_reconciles_rollback_counters_from_clean_target_deltas(self):
+        migrator = bare_migrator(
+            {
+                "processed_total": 8,
+                "source_media_processed": 7,
+                "source_images": 2,
+                "source_videos": 5,
+                "deleted_text": 1,
+                "copied_media": 3,
+                "copied_images": 1,
+                "copied_videos": 2,
+                "duplicate_media": 4,
+                "duplicate_images": 1,
+                "duplicate_videos": 3,
+                "image_target_baseline_images": 1,
+                "video_target_baseline_videos": 2,
+                "exhausted_replay_missing_total": 4,
+            }
+        )
+        migrator.expected_total = 12
+        migrator.expected_media = 10
+        migrator.expected_images = 3
+        migrator.expected_videos = 7
+        migrator.expected_text = 2
+
+        reconciled = migrator.reconcile_exhausted_replay_counters(
+            {"videos": 6},
+            {"images": 3},
+        )
+
+        self.assertTrue(reconciled)
+        self.assertEqual(12, migrator.state["processed_total"])
+        self.assertEqual(6, migrator.state["copied_media"])
+        self.assertEqual(4, migrator.state["duplicate_media"])
+        self.assertEqual(2, migrator.state["deleted_text"])
 
     def test_page_media_is_checkpointed_before_source_deletion(self):
         state = {

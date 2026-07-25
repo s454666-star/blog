@@ -1591,15 +1591,20 @@ class Migrator:
         if not self.can_finish_exhausted_replay_folder():
             raise MigrationBlocked("exhausted replay folder evidence is incomplete")
         folder_index = int(self.state.get("folder_index") or 0)
+        observed = int(self.state.get("folder_processed") or 0)
+        expected = int(self.state.get("folder_expected") or 0)
         self.log(
             "folder_exhausted_after_verified_duplicate_replays",
             folder_index=folder_index,
-            observed=int(self.state.get("folder_processed") or 0),
-            expected=int(self.state.get("folder_expected") or 0),
+            observed=observed,
+            expected=expected,
             matching_replays=int(
                 self.state.get("matching_exhausted_replay_count") or 0
             ) + 1,
         )
+        self.state["exhausted_replay_missing_total"] = int(
+            self.state.get("exhausted_replay_missing_total") or 0
+        ) + max(expected - observed, 0)
         if folder_index >= len(self.folders):
             self.state["stage"] = "clear_source_dialog"
             self.save()
@@ -1787,6 +1792,65 @@ class Migrator:
         self.click("文件夹")
         self.navigate_to_folder(1)
 
+    def reconcile_exhausted_replay_counters(
+        self,
+        actual_video: dict[str, int],
+        actual_image: dict[str, int],
+    ) -> bool:
+        missing_total = int(self.state.get("exhausted_replay_missing_total") or 0)
+        actual_missing_total = self.expected_total - int(
+            self.state.get("processed_total") or 0
+        )
+        if missing_total <= 0 or missing_total != actual_missing_total:
+            return False
+
+        copied_images = int(actual_image.get("images") or 0) - int(
+            self.state.get("image_target_baseline_images") or 0
+        )
+        copied_videos = int(actual_video.get("videos") or 0) - int(
+            self.state.get("video_target_baseline_videos") or 0
+        )
+        if (
+            copied_images < int(self.state.get("copied_images") or 0)
+            or copied_videos < int(self.state.get("copied_videos") or 0)
+            or copied_images < 0
+            or copied_videos < 0
+            or copied_images > self.expected_images
+            or copied_videos > self.expected_videos
+        ):
+            raise MigrationBlocked(
+                "exhausted replay target delta cannot reconcile counters"
+            )
+
+        duplicate_images = self.expected_images - copied_images
+        duplicate_videos = self.expected_videos - copied_videos
+        self.state.update(
+            {
+                "processed_total": self.expected_total,
+                "source_media_processed": self.expected_media,
+                "source_images": self.expected_images,
+                "source_videos": self.expected_videos,
+                "deleted_text": self.expected_text,
+                "copied_media": copied_images + copied_videos,
+                "copied_images": copied_images,
+                "copied_videos": copied_videos,
+                "duplicate_media": duplicate_images + duplicate_videos,
+                "duplicate_images": duplicate_images,
+                "duplicate_videos": duplicate_videos,
+                "exhausted_replay_counters_reconciled": True,
+                "exhausted_replay_reconciled_missing_total": missing_total,
+            }
+        )
+        self.save()
+        self.log(
+            "exhausted_replay_counters_reconciled",
+            missing_total=missing_total,
+            copied_media=self.state["copied_media"],
+            duplicate_media=self.state["duplicate_media"],
+            processed_total=self.state["processed_total"],
+        )
+        return True
+
     def verify_target(self) -> None:
         actual_video = self.target_counts(self.video_target_peer_id)
         actual_image = self.target_counts(self.image_target_peer_id)
@@ -1808,6 +1872,7 @@ class Migrator:
             raise MigrationBlocked(
                 f"image target routing or cleanliness mismatch: {actual_image}"
             )
+        self.reconcile_exhausted_replay_counters(actual_video, actual_image)
         if int(self.state.get("processed_total") or 0) != self.expected_total:
             raise MigrationBlocked("processed source total does not match manifest")
         if int(self.state.get("source_media_processed") or 0) != self.expected_media:

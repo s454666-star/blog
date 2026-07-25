@@ -62,7 +62,7 @@ FOLDER_COUNTER_KEYS = (
 )
 
 MAX_CONSECUTIVE_EMPTY_SOURCE_PAGES = 3
-FOLDER_LIST_PAGE_SIZE = 9
+FOLDER_LIST_PAGE_SIZE = 10
 
 
 class MigrationBlocked(RuntimeError):
@@ -89,7 +89,7 @@ def folder_list_location(folder_index: int) -> tuple[int, int]:
         raise ValueError("folder_index must be positive")
     return (
         ((index - 1) // FOLDER_LIST_PAGE_SIZE) + 1,
-        index,
+        ((index - 1) % FOLDER_LIST_PAGE_SIZE) + 1,
     )
 
 

@@ -134,8 +134,10 @@ class CustomerAdminTest extends TestCase
         ]);
         $this->get('/admin/orders')->assertOk()
             ->assertSee('搜尋姓名、市話、手機電話或訂單資料…')
-            ->assertSee("input.addEventListener('change',()=>form.requestSubmit())", false)
+            ->assertSee("input.addEventListener('change',submitSearch)", false)
             ->assertSee("event.key==='Enter'", false)
+            ->assertSee("document.addEventListener('pointerdown'", false)
+            ->assertSee("!form.contains(event.target)", false)
             ->assertDontSee('內部隱藏狀態')
             ->assertDontSee('折扣')
             ->assertDontSee('運費')

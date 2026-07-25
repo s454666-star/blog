@@ -36,8 +36,17 @@
 (() => {
     const form=document.querySelector('[data-search-form]'), input=form?.querySelector('[data-search-input]');
     if(!form||!input)return;
-    input.addEventListener('change',()=>form.requestSubmit());
-    input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();form.requestSubmit()}});
+    const initialValue=input.value;
+    let submitting=false;
+    const submitSearch=()=>{if(submitting)return;submitting=true;form.requestSubmit()};
+    input.addEventListener('change',submitSearch);
+    input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();submitSearch()}});
+    document.addEventListener('pointerdown',event=>{
+        if(!form.contains(event.target)&&input.value!==initialValue){
+            event.preventDefault();
+            submitSearch();
+        }
+    },true);
 })();
 </script>
 @endpush

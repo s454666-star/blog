@@ -1417,11 +1417,7 @@ class Migrator:
         self.save()
         self.current_page()
 
-    def resume_current_folder(self) -> None:
-        folder_index = int(self.state.get("folder_index") or 0)
-        if folder_index <= 0:
-            raise MigrationBlocked("source page recovery has no current folder")
-
+    def navigate_from_source_root(self, folder_index: int, *, reason: str) -> None:
         response = self.api.post(
             "/bots/send",
             {
@@ -1437,8 +1433,22 @@ class Migrator:
             response.get("sent_message_id") or 0
         )
         self.save()
+        self.log(
+            "source_root_navigation_started",
+            reason=reason,
+            folder_index=folder_index,
+            start_message_id=self.state["source_recovery_start_message_id"],
+            recovery_count=self.state.get("source_recovery_count"),
+        )
         self.click("文件夹")
         self.navigate_to_folder(folder_index)
+
+    def resume_current_folder(self) -> None:
+        folder_index = int(self.state.get("folder_index") or 0)
+        if folder_index <= 0:
+            raise MigrationBlocked("source page recovery has no current folder")
+
+        self.navigate_from_source_root(folder_index, reason="checkpoint_recovery")
         self.log(
             "source_folder_restart_started",
             folder_index=folder_index,
@@ -1468,12 +1478,10 @@ class Migrator:
             self.state["stage"] = "clear_source_dialog"
             self.save()
             return
-
-        button_texts = [str(button.get("text") or "") for button in self.buttons(control)]
-        if not any("文件夹" in text for text in button_texts):
-            raise MigrationBlocked("folder completion control has no folder-list button")
-        self.click("文件夹")
-        self.navigate_to_folder(folder_index + 1)
+        self.navigate_from_source_root(
+            folder_index + 1,
+            reason="folder_completed",
+        )
 
     def can_finish_exhausted_replay_folder(self) -> bool:
         folder_start_counts = self.state.get("folder_start_counts")
@@ -1511,8 +1519,10 @@ class Migrator:
             self.state["stage"] = "clear_source_dialog"
             self.save()
             return
-        self.click("文件夹")
-        self.navigate_to_folder(folder_index + 1)
+        self.navigate_from_source_root(
+            folder_index + 1,
+            reason="exhausted_replay_completed",
+        )
 
     def process_current_page(self) -> None:
         page_items, control = self.current_page()

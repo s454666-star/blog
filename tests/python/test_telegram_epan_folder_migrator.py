@@ -216,15 +216,14 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             },
         }
         migrator.current_page = lambda: ([], control)
-        clicks = []
         navigated = []
-        migrator.click = lambda keyword: clicks.append(keyword) or {}
-        migrator.navigate_to_folder = lambda index: navigated.append(index)
+        migrator.navigate_from_source_root = (
+            lambda index, *, reason: navigated.append((index, reason))
+        )
 
         migrator.process_current_page()
 
-        self.assertEqual(["文件夹"], clicks)
-        self.assertEqual([6], navigated)
+        self.assertEqual([(6, "exhausted_replay_completed")], navigated)
         self.assertTrue(
             any(
                 message == "folder_exhausted_after_verified_duplicate_replays"

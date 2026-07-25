@@ -34,6 +34,11 @@ class CustomerAdminController extends Controller
     {
         $config = $this->module($module);
         $query = $config['model']::query()->with($config['with']);
+        $perPageOptions = [20, 50, 100, 200];
+        $perPage = (int) $request->query('per_page', 20);
+        if (! in_array($perPage, $perPageOptions, true)) {
+            $perPage = 20;
+        }
 
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($subQuery) use ($config, $search) {
@@ -83,7 +88,9 @@ class CustomerAdminController extends Controller
         return view('customer-admin.index', [
             'module' => $module,
             'config' => $config,
-            'records' => $query->paginate(15)->withQueryString(),
+            'records' => $query->paginate($perPage)->withQueryString(),
+            'perPage' => $perPage,
+            'perPageOptions' => $perPageOptions,
         ]);
     }
 

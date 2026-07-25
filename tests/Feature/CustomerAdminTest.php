@@ -250,14 +250,20 @@ class CustomerAdminTest extends TestCase
         $this->get('/admin/orders?sort=customer.name&direction=asc')->assertOk()
             ->assertSee('aria-sort="ascending"', false);
 
-        foreach (range(1, 14) as $pageOrder) {
+        foreach (range(1, 24) as $pageOrder) {
             DB::table('crm_orders')->insert([
                 'order_number' => 'PAGER-'.str_pad((string) $pageOrder, 2, '0', STR_PAD_LEFT),
                 'customer_id' => $customerId,
                 'order_date' => '2026-01-01',
             ]);
         }
-        $this->get('/admin/orders')->assertOk()
+        $defaultPageResponse = $this->get('/admin/orders')->assertOk()
+            ->assertSee('class="per-page-control"', false)
+            ->assertSee('name="per_page"', false)
+            ->assertSee('data-per-page aria-label="每頁顯示筆數"', false)
+            ->assertSee('value="20" selected', false)
+            ->assertSeeInOrder(['20 筆', '50 筆', '100 筆', '200 筆'])
+            ->assertSee("perPage?.addEventListener('change',submitSearch)", false)
             ->assertSee('class="crm-pagination"', false)
             ->assertSee('class="crm-pagination-prev"', false)
             ->assertSee('class="crm-pagination-pages"', false)
@@ -268,6 +274,17 @@ class CustomerAdminTest extends TestCase
             ->assertSee('background:#1688e8', false)
             ->assertSeeInOrder(['上一頁', '1', '2', '下一頁'])
             ->assertSee('rel="next"', false);
+        $this->assertSame(21, substr_count($defaultPageResponse->getContent(), '<tr'));
+
+        $expandedPageResponse = $this->get('/admin/orders?per_page=50')->assertOk()
+            ->assertSee('value="50" selected', false)
+            ->assertDontSee('class="crm-pagination"', false);
+        $this->assertSame(27, substr_count($expandedPageResponse->getContent(), '<tr'));
+
+        $invalidPageSizeResponse = $this->get('/admin/orders?per_page=999')->assertOk()
+            ->assertSee('value="20" selected', false)
+            ->assertSee('class="crm-pagination"', false);
+        $this->assertSame(21, substr_count($invalidPageSizeResponse->getContent(), '<tr'));
 
         $exportResponse = $this->get('/admin/export/xlsx')
             ->assertOk()

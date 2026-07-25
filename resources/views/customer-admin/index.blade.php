@@ -3,7 +3,21 @@
 @section('top-action')<a class="btn btn-primary" href="{{ route('customer-admin.module.create',$module) }}">＋ 新增{{ $config['singular'] }}</a>@endsection
 @section('content')
 <section class="panel">
-    <form class="table-tools" method="get" data-search-form><div class="search"><span>⌕</span><input name="search" value="{{ request('search') }}" placeholder="{{ $module === 'orders' ? '搜尋姓名、市話、手機電話或訂單資料…' : '搜尋'.$config['singular'].'資料…' }}" data-search-input></div><button class="btn btn-secondary" type="submit">搜尋</button></form>
+    <form class="table-tools" method="get" data-search-form>
+        @if(request()->filled('sort'))<input type="hidden" name="sort" value="{{ request('sort') }}">@endif
+        @if(request()->filled('direction'))<input type="hidden" name="direction" value="{{ request('direction') }}">@endif
+        <div class="search"><span>⌕</span><input name="search" value="{{ request('search') }}" placeholder="{{ $module === 'orders' ? '搜尋姓名、市話、手機電話或訂單資料…' : '搜尋'.$config['singular'].'資料…' }}" data-search-input></div>
+        <div class="table-tool-actions">
+            <label class="per-page-control">每頁顯示
+                <select name="per_page" data-per-page aria-label="每頁顯示筆數">
+                    @foreach($perPageOptions as $option)
+                        <option value="{{ $option }}" @selected($perPage === $option)>{{ $option }} 筆</option>
+                    @endforeach
+                </select>
+            </label>
+            <button class="btn btn-secondary" type="submit">搜尋</button>
+        </div>
+    </form>
     @if($records->isEmpty())<div class="empty"><div style="font-size:34px;margin-bottom:12px">✦</div>目前沒有資料<br><small>按右上角新增第一筆{{ $config['singular'] }}</small></div>@else
     <div class="table-wrap"><table><thead><tr>
         @foreach($config['columns'] as $key=>$label)
@@ -56,11 +70,12 @@
 @push('scripts')
 <script>
 (() => {
-    const form=document.querySelector('[data-search-form]'), input=form?.querySelector('[data-search-input]');
+    const form=document.querySelector('[data-search-form]'), input=form?.querySelector('[data-search-input]'), perPage=form?.querySelector('[data-per-page]');
     if(!form||!input)return;
     const initialValue=input.value;
     let submitting=false;
     const submitSearch=()=>{if(submitting)return;submitting=true;form.requestSubmit()};
+    perPage?.addEventListener('change',submitSearch);
     input.addEventListener('change',submitSearch);
     input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();submitSearch()}});
     document.addEventListener('pointerdown',event=>{

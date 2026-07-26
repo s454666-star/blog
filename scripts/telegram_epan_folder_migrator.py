@@ -65,6 +65,7 @@ MAX_CONSECUTIVE_EMPTY_SOURCE_PAGES = 3
 FOLDER_LIST_PAGE_SIZE = 10
 PARTIAL_PAGE_STABLE_SECONDS = 30
 PARTIAL_PAGE_STABLE_POLLS = 10
+FOLDER_DETAIL_WAIT_ATTEMPTS = 10
 PAGE_CONTROL_TIMEOUT_MESSAGE = "timed out waiting for the next source page control"
 
 
@@ -415,6 +416,68 @@ class Migrator:
             timeout=120.0,
         )
         return bool(response.get("items"))
+
+    def wait_for_folder_detail(
+        self,
+        clicked_message_id: int,
+    ) -> tuple[dict[str, Any], re.Match[str]]:
+        for attempt in range(1, FOLDER_DETAIL_WAIT_ATTEMPTS + 1):
+            response = self.api.get(
+                f"/groups/{self.args.source_peer_id}/{clicked_message_id}"
+                "?include_next=false&include_raw=true",
+                timeout=120.0,
+            )
+            candidates = list(response.get("items") or [])
+            for item in candidates:
+                count_match = re.search(
+                    r"消息数[：:]\s*(\d+)",
+                    str(item.get("message") or ""),
+                )
+                if count_match:
+                    return item, count_match
+
+            self.backfill_source()
+            candidates = self.messages(
+                self.args.source_peer_id,
+                limit=20,
+                min_id=max(clicked_message_id - 1, 0),
+                reverse=True,
+            )
+            for item in sorted(
+                candidates,
+                key=lambda candidate: int(candidate.get("id") or 0),
+            ):
+                message_id = int(item.get("id") or 0)
+                if message_id < clicked_message_id:
+                    continue
+                count_match = re.search(
+                    r"消息数[：:]\s*(\d+)",
+                    str(item.get("message") or ""),
+                )
+                if not count_match:
+                    continue
+                self.log(
+                    "folder_detail_ready",
+                    attempt=attempt,
+                    detail_message_id=message_id,
+                    delayed_response=message_id != clicked_message_id,
+                    folder_index=self.state.get("folder_index"),
+                )
+                return item, count_match
+
+            self.log(
+                "folder_detail_waiting",
+                attempt=attempt,
+                clicked_message_id=clicked_message_id,
+                candidate_count=len(candidates),
+                folder_index=self.state.get("folder_index"),
+            )
+            if attempt < FOLDER_DETAIL_WAIT_ATTEMPTS:
+                time.sleep(3)
+        raise MigrationBlocked(
+            f"folder detail count mismatch for index "
+            f"{int(self.state.get('folder_index') or 0) + 1}"
+        )
 
     def latest_message_id(self, peer_id: int) -> int:
         items = self.messages(peer_id, limit=1)
@@ -1436,21 +1499,10 @@ class Migrator:
         if detail_message_id <= 0:
             raise MigrationBlocked("folder detail message id missing")
 
-        details = self.api.get(
-            f"/groups/{self.args.source_peer_id}/{detail_message_id}"
-            "?include_next=false&include_raw=true",
-            timeout=120.0,
-        )
-        detail_items = list(details.get("items") or [])
-        if not detail_items:
-            raise MigrationBlocked("folder detail message missing after selection")
-        detail_text = str(detail_items[0].get("message") or "")
+        detail_item, count_match = self.wait_for_folder_detail(detail_message_id)
+        detail_message_id = int(detail_item.get("id") or detail_message_id)
+        detail_text = str(detail_item.get("message") or "")
         expected_name, manifest_expected_count = self.folders[folder_index - 1]
-        count_match = re.search(r"消息数[：:]\s*(\d+)", detail_text)
-        if not count_match:
-            raise MigrationBlocked(
-                f"folder detail count mismatch for index {folder_index}"
-            )
         declared_count = int(count_match.group(1))
         count_overrides = dict(self.state.get("folder_count_overrides") or {})
         previous_override = int(count_overrides.get(str(folder_index)) or 0)

@@ -251,6 +251,55 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         self.assertEqual({"1": 52}, migrator.state["folder_count_overrides"])
         self.assertEqual(20, migrator.state["manifest_folder_count_drift_total"])
 
+    def test_navigation_waits_for_separate_folder_detail_message(self):
+        migrator = bare_migrator(
+            {
+                "status": "running",
+                "stage": "advance_folder",
+                "folder_index": 2,
+            }
+        )
+        migrator.folders = [("folder", 1)] * 2 + [("folder", 28)]
+        click_responses = [
+            {"clicked_message_id": 18054},
+            {"clicked_message_id": 18055},
+        ]
+        migrator.click = lambda keyword: click_responses.pop(0)
+        migrator.backfill_source = lambda: None
+        migrator.api = types.SimpleNamespace(
+            get=lambda path, timeout: {
+                "items": [
+                    {
+                        "id": 18054,
+                        "message": "pending",
+                    }
+                ],
+            }
+        )
+        migrator.messages = lambda *args, **kwargs: [
+            {
+                "id": 18054,
+                "message": "pending",
+            },
+            {
+                "id": 18055,
+                "message": "folder 消息数：28",
+            },
+        ]
+        migrator.current_page = lambda: ([], {"id": 18056})
+
+        migrator.navigate_to_folder(3)
+
+        self.assertEqual(3, migrator.state["folder_index"])
+        self.assertEqual(28, migrator.state["folder_expected"])
+        self.assertTrue(
+            any(
+                message == "folder_detail_ready"
+                and fields["delayed_response"]
+                for message, fields in migrator.logs
+            )
+        )
+
     def test_navigation_recovers_when_initial_page_control_times_out(self):
         start_counts = self.folder_start_counts()
         migrator = bare_migrator(

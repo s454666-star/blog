@@ -1207,6 +1207,7 @@
 
             const $area = $('.face-upload-area[data-video-id="' + vid + '"]');
             const $selectedFace = $(`.face-screenshot[data-id="${faceId}"]`);
+            const $videoRow = $(`.video-row[data-id="${vid}"]`);
             const previousMasterIds = $(`.face-screenshot[data-video-id="${vid}"].master`)
                 .map((_, element) => Number($(element).data('id')))
                 .get();
@@ -1223,7 +1224,7 @@
             } else if ($selectedFace.length) {
                 const optimisticItem = buildMasterFaceElement({
                     video_id: vid,
-                    video_duration: 0,
+                    video_duration: Number($videoRow.attr('data-duration')) || 0,
                     video_name: '影片',
                     face_image_path: ''
                 });
@@ -1232,6 +1233,7 @@
                 masterFacesLoadedCount += 1;
                 createdMasterItem = true;
                 syncMasterFacesLoadStatus();
+                focusMasterFace(vid);
             }
 
             const rollback = () => {
@@ -1586,9 +1588,9 @@
     }
 
     function getFaceSortParts(el) {
-        const $el = $(el);
-        const videoId = parseInt($el.data('video-id'), 10) || 0;
-        const duration = parseFloat($el.data('duration')) || 0;
+        // 直接讀 DOM dataset，避免 jQuery .data() 快取住樂觀新增時的舊排序值。
+        const videoId = parseInt(el.dataset.videoId, 10) || 0;
+        const duration = parseFloat(el.dataset.duration) || 0;
 
         return sortBy === 'duration'
             ? {primary: duration, secondary: videoId}
@@ -1678,6 +1680,7 @@
                     .attr('title', (face.video_name || '影片') + ' #' + face.video_id)
                     .find('.master-face-img')
                     .attr('src', mediaUrl(face.face_image_path, face.id))
+                    .attr('data-duration', Number(face.video_duration) || 0)
                     .attr('title', (face.video_name || '影片') + ' #' + face.video_id);
                 repositionMasterFace($existing[0]);
                 return;

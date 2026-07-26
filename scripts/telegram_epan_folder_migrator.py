@@ -1534,6 +1534,37 @@ class Migrator:
                 detail_message_id=detail_message_id,
             )
 
+        if expected_count == 0:
+            folder_start_counts = {
+                key: int(self.state.get(key) or 0) for key in FOLDER_COUNTER_KEYS
+            }
+            self.state.update(
+                {
+                    "stage": "process_page",
+                    "folder_index": folder_index,
+                    "folder_name": expected_name,
+                    "folder_expected": 0,
+                    "folder_processed": 0,
+                    "folder_next_group_clicks": 0,
+                    "consecutive_empty_source_pages": 0,
+                    "source_recovery_count": 0,
+                    **exhausted_replay_evidence,
+                    "current_page_processed": 0,
+                    "folder_start_counts": folder_start_counts,
+                    "previous_control_id": detail_message_id,
+                }
+            )
+            self.state.pop("replay_next_groups_remaining", None)
+            self.state.pop("replay_current_page_processed", None)
+            self.save()
+            self.log(
+                "empty_folder_completed",
+                folder_index=folder_index,
+                detail_message_id=detail_message_id,
+            )
+            self.finish_folder(detail_item)
+            return
+
         view_response = self.click(["查看内容", "查看內容", "➡"])
         if int(view_response.get("clicked_message_id") or 0) != detail_message_id:
             raise MigrationBlocked("view-content callback moved to an unexpected control message")

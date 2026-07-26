@@ -330,6 +330,59 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             )
         )
 
+    def test_navigation_completes_zero_count_folder_without_waiting_for_page(self):
+        migrator = bare_migrator(
+            {
+                **self.folder_start_counts(),
+                "status": "running",
+                "stage": "resume_current_folder",
+                "folder_index": 15,
+                "source_recovery_count": 10,
+            }
+        )
+        migrator.folders = [("folder", 1)] * 14 + [
+            ("empty-folder", 4),
+            ("next-folder", 1),
+        ]
+        clicks = []
+
+        def click(keyword):
+            clicks.append(keyword)
+            return {"clicked_message_id": 18756}
+
+        migrator.click = click
+        migrator.api = types.SimpleNamespace(
+            get=lambda path, timeout: {
+                "items": [
+                    {
+                        "id": 18756,
+                        "message": "empty-folder 消息数：0",
+                    }
+                ],
+            }
+        )
+        migrator.current_page = lambda: self.fail(
+            "zero-count folder must not wait for a source page"
+        )
+        navigated = []
+        migrator.navigate_from_source_root = (
+            lambda index, *, reason: navigated.append((index, reason))
+        )
+
+        migrator.navigate_to_folder(15)
+
+        self.assertEqual(["下一页", "5"], clicks)
+        self.assertEqual(0, migrator.state["folder_expected"])
+        self.assertEqual(0, migrator.state["folder_processed"])
+        self.assertEqual(0, migrator.state["source_recovery_count"])
+        self.assertEqual([(16, "folder_completed")], navigated)
+        self.assertTrue(
+            any(
+                message == "empty_folder_completed"
+                for message, _ in migrator.logs
+            )
+        )
+
     def test_navigation_recovers_when_initial_page_control_times_out(self):
         start_counts = self.folder_start_counts()
         migrator = bare_migrator(

@@ -194,7 +194,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             )
         )
 
-    def test_navigation_still_blocks_when_folder_count_changes(self):
+    def test_navigation_accepts_and_records_folder_count_decrease(self):
         migrator = bare_migrator(
             {
                 "status": "running",
@@ -211,6 +211,36 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
                 "items": [
                     {
                         "message": "renamed-folder 消息数：495",
+                    }
+                ],
+            }
+        )
+        migrator.current_page = lambda: ([], {"id": 701})
+
+        migrator.navigate_to_folder(11)
+
+        self.assertEqual(495, migrator.state["folder_expected"])
+        self.assertEqual({"11": 495}, migrator.state["folder_count_overrides"])
+        self.assertEqual(-1, migrator.state["manifest_folder_count_drift_total"])
+
+    def test_navigation_blocks_when_previously_observed_count_changes(self):
+        migrator = bare_migrator(
+            {
+                "status": "running",
+                "stage": "advance_folder",
+                "folder_index": 10,
+                "folder_count_overrides": {"11": 495},
+            }
+        )
+        migrator.folders = [("folder", 1)] * 10 + [("old-name", 496)]
+        migrator.click = lambda keyword: {
+            "clicked_message_id": 700,
+        }
+        migrator.api = types.SimpleNamespace(
+            get=lambda path, timeout: {
+                "items": [
+                    {
+                        "message": "renamed-folder 消息数：494",
                     }
                 ],
             }
@@ -573,7 +603,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
 
         migrator.validate_source_counters()
 
-    def test_rejects_category_decrease_hidden_by_folder_count_drift(self):
+    def test_accepts_category_redistribution_with_matching_folder_count_drift(self):
         migrator = bare_migrator(
             {
                 "processed_total": 14,
@@ -592,11 +622,28 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         migrator.expected_videos = 7
         migrator.expected_text = 2
 
-        with self.assertRaisesRegex(
-            MODULE.MigrationBlocked,
-            "category increases",
-        ):
-            migrator.validate_source_counters()
+        migrator.validate_source_counters()
+
+    def test_validates_category_decreases_against_negative_folder_count_drift(self):
+        migrator = bare_migrator(
+            {
+                "processed_total": 10,
+                "source_media_processed": 9,
+                "source_images": 2,
+                "source_videos": 7,
+                "deleted_text": 1,
+                "copied_media": 5,
+                "duplicate_media": 4,
+                "manifest_folder_count_drift_total": -2,
+            }
+        )
+        migrator.expected_total = 12
+        migrator.expected_media = 10
+        migrator.expected_images = 3
+        migrator.expected_videos = 7
+        migrator.expected_text = 2
+
+        migrator.validate_source_counters()
 
     def test_page_media_is_checkpointed_before_source_deletion(self):
         state = {

@@ -1505,26 +1505,21 @@ class Migrator:
         expected_name, manifest_expected_count = self.folders[folder_index - 1]
         declared_count = int(count_match.group(1))
         count_overrides = dict(self.state.get("folder_count_overrides") or {})
+        previous_override_exists = str(folder_index) in count_overrides
         previous_override = int(count_overrides.get(str(folder_index)) or 0)
-        if (
-            declared_count < manifest_expected_count
-            or (previous_override > 0 and declared_count < previous_override)
-        ):
+        if previous_override_exists and declared_count != previous_override:
             raise MigrationBlocked(
                 f"folder detail count mismatch for index {folder_index}"
             )
-        if declared_count > manifest_expected_count:
+        if declared_count != manifest_expected_count:
             count_overrides[str(folder_index)] = declared_count
             self.state["folder_count_overrides"] = count_overrides
             self.state["manifest_folder_count_drift_total"] = sum(
-                max(
-                    int(value) - int(self.folders[int(index) - 1][1]),
-                    0,
-                )
+                int(value) - int(self.folders[int(index) - 1][1])
                 for index, value in count_overrides.items()
             )
             self.log(
-                "folder_count_increase_accepted",
+                "folder_count_change_accepted",
                 folder_index=folder_index,
                 manifest_count=manifest_expected_count,
                 declared_count=declared_count,
@@ -1892,7 +1887,7 @@ class Migrator:
         if copied_media + duplicate_media != source_media:
             raise MigrationBlocked("unique plus duplicate media total does not match manifest")
 
-        if count_drift <= 0:
+        if count_drift == 0:
             if source_media != self.expected_media:
                 raise MigrationBlocked("processed source media total does not match manifest")
             if source_images != self.expected_images:
@@ -1903,14 +1898,17 @@ class Migrator:
                 raise MigrationBlocked("deleted text total does not match manifest")
             return
 
-        category_deltas = (
-            source_images - self.expected_images,
-            source_videos - self.expected_videos,
-            deleted_text - self.expected_text,
+        category_drift = (
+            source_images
+            - self.expected_images
+            + source_videos
+            - self.expected_videos
+            + deleted_text
+            - self.expected_text
         )
-        if min(category_deltas) < 0 or sum(category_deltas) != count_drift:
+        if category_drift != count_drift:
             raise MigrationBlocked(
-                "source category increases do not match folder count drift"
+                "source category changes do not match folder count drift"
             )
 
     def reconcile_exhausted_replay_counters(

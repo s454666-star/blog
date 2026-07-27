@@ -3,11 +3,9 @@
 namespace App\Console\Commands;
 
 use App\Services\LightsailMonthlyNetworkUsageService;
-use App\Services\LinePushService;
 use App\Services\TelegramNotificationService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Throwable;
 
@@ -17,18 +15,16 @@ class ReportLightsailMonthlyNetworkCommand extends Command
         {--instance= : Lightsail instance name}
         {--region= : AWS region}
         {--profile= : AWS CLI profile}
-        {--target= : Direct LINE user id override}
-        {--send-line : Push the report to the configured direct LINE user}
+        {--send-telegram : Push the report to the configured Yuanta Telegram group}
         {--json : Output the report as JSON}';
 
     protected $description = 'Query the current-month Lightsail NetworkIn and NetworkOut totals.';
 
     public function handle(
         LightsailMonthlyNetworkUsageService $usage,
-        LinePushService $linePush,
         TelegramNotificationService $telegram,
     ): int {
-        $target = $this->option('send-line') ? $this->personalLineTarget() : null;
+        $shouldSend = (bool) $this->option('send-telegram');
         $report = $usage->report(
             instanceName: $this->stringOption('instance'),
             region: $this->stringOption('region'),
@@ -41,30 +37,17 @@ class ReportLightsailMonthlyNetworkCommand extends Command
             $this->line($this->message($report));
         }
 
-        if ($target !== null) {
-            $failures = [];
+        if ($shouldSend) {
             $message = $this->message($report);
 
             try {
-                $telegram->sendText('personal', $message);
+                $telegram->sendText('yuanta', $message);
                 if ($telegram->isEnabled()) {
-                    $this->info('Lightsail monthly network report sent to the direct Telegram user.');
+                    $this->info('Lightsail monthly network report sent to the Yuanta Telegram group.');
                 }
             } catch (Throwable $exception) {
                 report($exception);
-                $failures[] = 'Telegram: ' . $exception->getMessage();
-            }
-
-            try {
-                $linePush->pushText($message, $target);
-                $this->info('Lightsail monthly network report sent to the direct LINE user.');
-            } catch (Throwable $exception) {
-                report($exception);
-                $failures[] = 'LINE: ' . $exception->getMessage();
-            }
-
-            if ($failures !== []) {
-                throw new RuntimeException('One or more notification deliveries failed: ' . implode(' | ', $failures));
+                throw new RuntimeException('Telegram delivery failed: ' . $exception->getMessage(), 0, $exception);
             }
         }
 
@@ -76,20 +59,6 @@ class ReportLightsailMonthlyNetworkCommand extends Command
         $value = trim((string) $this->option($name));
 
         return $value === '' ? null : $value;
-    }
-
-    private function personalLineTarget(): string
-    {
-        $target = trim((string) ($this->option('target') ?: config('aws_metrics.line_target_id', '')));
-        if ($target === '' && Storage::disk('local')->exists('line/yuanta-personal-notify-target-id.txt')) {
-            $target = trim(Storage::disk('local')->get('line/yuanta-personal-notify-target-id.txt'));
-        }
-
-        if (! str_starts_with($target, 'U')) {
-            throw new RuntimeException('Direct LINE user target is missing or is not a user ID; group and room targets are refused.');
-        }
-
-        return $target;
     }
 
     /**

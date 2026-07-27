@@ -131,10 +131,10 @@ class Kernel extends ConsoleKernel
                 ->appendOutputTo(storage_path('logs/dashboard_token_rotation.log'));
         }
 
-        if (config('aws_metrics.daily_line_enabled', false)) {
-            $schedule->command('aws:lightsail-monthly-network --send-line')
-                ->dailyAt((string) config('aws_metrics.daily_line_at', '09:00'))
-                ->name('aws-lightsail-monthly-network-line')
+        if (config('aws_metrics.daily_report_enabled', false)) {
+            $schedule->command('aws:lightsail-monthly-network --send-telegram')
+                ->dailyAt((string) config('aws_metrics.daily_report_at', '09:00'))
+                ->name('aws-lightsail-monthly-network-telegram')
                 ->withoutOverlapping(30)
                 ->runInBackground()
                 ->appendOutputTo(storage_path('logs/aws_lightsail_monthly_network.log'));
@@ -214,7 +214,7 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping(10)
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_futures_line_alerts.log'))
-            ->when(fn (): bool => filter_var(config('line.taiex_futures_notify_enabled', true), FILTER_VALIDATE_BOOL));
+            ->when(fn (): bool => filter_var(config('telegram.taiex_futures_notify_enabled', true), FILTER_VALIDATE_BOOL));
 
         $this->scheduleTaiexFuturesOpeningRetries($schedule);
 

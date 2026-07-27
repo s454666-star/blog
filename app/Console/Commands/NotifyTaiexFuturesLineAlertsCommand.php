@@ -3,7 +3,6 @@
 namespace App\Console\Commands;
 
 use App\Http\Controllers\TwFuturesHourlyPriceController;
-use App\Services\LinePushService;
 use App\Services\TelegramNotificationService;
 use App\Services\TwFuturesHourlyPriceFetcher;
 use Carbon\CarbonImmutable;
@@ -23,21 +22,19 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
     private const CACHE_TTL_DAYS = 7;
 
     protected $signature = 'tw-stock:notify-taiex-futures-line
-        {--target= : Override LINE group or room id}
         {--lookback-minutes=90 : Scan recent displayed K-line timestamps}
         {--max-alerts=8 : Maximum alerts to send per run}
-        {--dry-run : Print messages without sending LINE notifications or writing cache}';
+        {--dry-run : Print messages without sending Telegram notifications or writing cache}';
 
-    protected $description = 'Send LINE notifications for 台指期差值、乖離率、開盤差值 and 4H MA5 alerts.';
+    protected $description = 'Send Telegram notifications for 台指期差值、乖離率、開盤差值 and 4H MA5 alerts.';
 
     public function handle(
         TwFuturesHourlyPriceController $controller,
-        LinePushService $linePush,
         TelegramNotificationService $telegram,
         TwFuturesHourlyPriceFetcher $fetcher,
     ): int {
         if (! $this->notificationsEnabled()) {
-            $this->line('台指期 LINE 通知未啟用。');
+            $this->line('台指期 Telegram 通知未啟用。');
 
             return self::SUCCESS;
         }
@@ -57,7 +54,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         $alerts = array_slice($alerts, -$maxAlerts);
 
         if ($alerts === []) {
-            $this->line('沒有新的台指期 LINE 通知。');
+            $this->line('沒有新的台指期 Telegram 通知。');
 
             return self::SUCCESS;
         }
@@ -65,15 +62,11 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         $sent = 0;
         $skipped = 0;
         $failures = [];
-        $target = trim((string) $this->option('target'));
-
         foreach ($alerts as $alert) {
-            $lineCacheKey = 'tw_futures_line_alert:' . $alert['key'];
             $telegramCacheKey = 'tw_futures_telegram_alert:' . $alert['key'];
-            $lineSent = Cache::has($lineCacheKey);
             $telegramSent = ! $telegram->isEnabled() || Cache::has($telegramCacheKey);
 
-            if ($lineSent && $telegramSent) {
+            if ($telegramSent) {
                 $skipped++;
                 continue;
             }
@@ -81,24 +74,12 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
             if ($this->option('dry-run')) {
                 $this->line($alert['message']);
             } else {
-                if (! $telegramSent) {
-                    try {
-                        $telegram->sendText('yuanta', $alert['message']);
-                        Cache::put($telegramCacheKey, $now->toIso8601String(), $now->addDays(self::CACHE_TTL_DAYS));
-                    } catch (Throwable $exception) {
-                        report($exception);
-                        $failures[] = 'Telegram: ' . $exception->getMessage();
-                    }
-                }
-
-                if (! $lineSent) {
-                    try {
-                        $linePush->pushText($alert['message'], $target !== '' ? $target : null);
-                        Cache::put($lineCacheKey, $now->toIso8601String(), $now->addDays(self::CACHE_TTL_DAYS));
-                    } catch (Throwable $exception) {
-                        report($exception);
-                        $failures[] = 'LINE: ' . $exception->getMessage();
-                    }
+                try {
+                    $telegram->sendText('yuanta', $alert['message']);
+                    Cache::put($telegramCacheKey, $now->toIso8601String(), $now->addDays(self::CACHE_TTL_DAYS));
+                } catch (Throwable $exception) {
+                    report($exception);
+                    $failures[] = 'Telegram: ' . $exception->getMessage();
                 }
             }
 
@@ -106,7 +87,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         }
 
         $this->info(sprintf(
-            '台指期 LINE 通知完成：alerts=%d sent=%d skipped=%d dry_run=%s',
+            '台指期 Telegram 通知完成：alerts=%d sent=%d skipped=%d dry_run=%s',
             count($alerts),
             $sent,
             $skipped,
@@ -251,7 +232,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
 
     private function notificationsEnabled(): bool
     {
-        return filter_var(config('line.taiex_futures_notify_enabled', true), FILTER_VALIDATE_BOOL);
+        return filter_var(config('telegram.taiex_futures_notify_enabled', true), FILTER_VALIDATE_BOOL);
     }
 
     /**

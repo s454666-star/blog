@@ -540,19 +540,14 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
 
-        Http::assertSentCount(2);
-        Http::assertSent(function ($request): bool {
-            $message = (string) data_get($request->data(), 'messages.0.text', '');
-
-            return str_contains($message, '台指期通知 2026-07-17 16:30')
-                && str_contains($message, '差值 -1,033點 低於 -1,000點')
-                && str_contains($message, '乖離率 -7.11% 低於 -5.00%')
-                && str_contains($message, '現價 42,350');
-        });
+        Http::assertSentCount(1);
         Http::assertSent(function ($request): bool {
             return $request->url() === 'https://api.telegram.org/botyuanta-telegram-token/sendMessage'
                 && ($request->data()['chat_id'] ?? null) === '-100222'
-                && str_contains((string) ($request->data()['text'] ?? ''), '台指期通知 2026-07-17 16:30');
+                && str_contains((string) ($request->data()['text'] ?? ''), '台指期通知 2026-07-17 16:30')
+                && str_contains((string) ($request->data()['text'] ?? ''), '差值 -1,033點 低於 -1,000點')
+                && str_contains((string) ($request->data()['text'] ?? ''), '乖離率 -7.11% 低於 -5.00%')
+                && str_contains((string) ($request->data()['text'] ?? ''), '現價 42,350');
         });
 
         Carbon::setTestNow('2026-07-17 16:35:00');
@@ -560,7 +555,7 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
 
-        Http::assertSentCount(2);
+        Http::assertSentCount(1);
     }
 
     public function test_taiex_futures_line_alert_retries_the_latest_15k_row_five_minutes_later(): void
@@ -602,20 +597,30 @@ class TwFuturesHourlyPricesTest extends TestCase
         config()->set('line.dashboard_notify_target_id', 'Cstocktarget');
         config()->set('line.yuanta_channel_access_token', 'yuanta-line-token');
         config()->set('line.yuanta_dashboard_notify_target_id', 'Cyuantatarget');
+        config()->set('telegram.line_mirror.enabled', true);
+        config()->set('telegram.line_mirror.routes.yuanta', [
+            'bot_token' => 'yuanta-telegram-token',
+            'chat_id' => '-100222',
+        ]);
 
         Http::fake([
-            'https://api.line.me/v2/bot/message/push' => Http::response([], 200),
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 123],
+            ]),
         ]);
 
         $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
 
         Http::assertSentCount(1);
         Http::assertSent(function ($request): bool {
-            $message = (string) data_get($request->data(), 'messages.0.text', '');
+            $message = (string) ($request->data()['text'] ?? '');
 
-            return str_contains($message, '台指期通知 2026-07-17 16:30')
+            return str_contains($request->url(), 'api.telegram.org/')
+                && str_contains($message, '台指期通知 2026-07-17 16:30')
                 && str_contains($message, '差值 -1,033點 低於 -1,000點');
         });
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'api.line.me'));
     }
 
     public function test_taiex_futures_line_alert_uses_live_quote_during_the_current_15k_bar(): void
@@ -667,22 +672,32 @@ class TwFuturesHourlyPricesTest extends TestCase
         config()->set('line.dashboard_notify_target_id', 'Cstocktarget');
         config()->set('line.yuanta_channel_access_token', 'yuanta-line-token');
         config()->set('line.yuanta_dashboard_notify_target_id', 'Cyuantatarget');
+        config()->set('telegram.line_mirror.enabled', true);
+        config()->set('telegram.line_mirror.routes.yuanta', [
+            'bot_token' => 'yuanta-telegram-token',
+            'chat_id' => '-100222',
+        ]);
 
         Http::fake([
-            'https://api.line.me/v2/bot/message/push' => Http::response([], 200),
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 123],
+            ]),
         ]);
 
         $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
 
         Http::assertSentCount(1);
         Http::assertSent(function ($request): bool {
-            $message = (string) data_get($request->data(), 'messages.0.text', '');
+            $message = (string) ($request->data()['text'] ?? '');
 
-            return str_contains($message, '台指期通知 2026-07-20 09:30')
+            return str_contains($request->url(), 'api.telegram.org/')
+                && str_contains($message, '台指期通知 2026-07-20 09:30')
                 && str_contains($message, '乖離率 -5.68% 低於 -5.00%')
                 && str_contains($message, '現價 42,524')
                 && str_contains($message, '即時報價時間 2026-07-20 09:40:01');
         });
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'api.line.me'));
     }
 
     public function test_hourly_fetcher_returns_a_fresh_taifex_quote_snapshot(): void
@@ -739,10 +754,16 @@ class TwFuturesHourlyPricesTest extends TestCase
         config()->set('line.dashboard_notify_target_id', 'Cstocktarget');
         config()->set('line.yuanta_channel_access_token', 'yuanta-line-token');
         config()->set('line.yuanta_dashboard_notify_target_id', 'Cyuantatarget');
+        config()->set('telegram.line_mirror.enabled', true);
+        config()->set('telegram.line_mirror.routes.yuanta', [
+            'bot_token' => 'yuanta-telegram-token',
+            'chat_id' => '-100222',
+        ]);
 
         Http::fake([
-            'https://api.line.me/v2/bot/message/push' => Http::response([], 200, [
-                'x-line-request-id' => 'test-request-id',
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 123],
             ]),
         ]);
 
@@ -753,11 +774,10 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         Http::assertSent(function ($request) use ($currentGapText): bool {
             $body = $request->data();
-            $message = (string) data_get($body, 'messages.0.text', '');
+            $message = (string) ($body['text'] ?? '');
 
-            return $request->url() === 'https://api.line.me/v2/bot/message/push'
-                && $request->hasHeader('Authorization', 'Bearer yuanta-line-token')
-                && data_get($body, 'to') === 'Cyuantatarget'
+            return $request->url() === 'https://api.telegram.org/botyuanta-telegram-token/sendMessage'
+                && ($body['chat_id'] ?? null) === '-100222'
                 && str_contains($message, '台指期 4H MA5 通知')
                 && str_contains($message, '23:00')
                 && str_contains($message, '目前價格')
@@ -765,6 +785,7 @@ class TwFuturesHourlyPricesTest extends TestCase
                 && str_contains($message, '目前差值 ' . $currentGapText)
                 && str_contains($message, 'https://stock.mystar.monster/tw-stock/taiex-futures-kline');
         });
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'api.line.me'));
     }
 
     public function test_taiex_futures_line_alert_command_does_not_backfill_four_hour_notification_at_ten(): void

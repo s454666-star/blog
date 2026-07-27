@@ -120,6 +120,34 @@ class ConsoleKernelTest extends TestCase
         ], $events);
     }
 
+    public function test_lightsail_network_report_schedule_sends_to_telegram_only(): void
+    {
+        $this->app['config']->set('aws_metrics.daily_report_enabled', true);
+        $this->app['config']->set('aws_metrics.daily_report_at', '09:00');
+
+        $schedule = new Schedule(config('app.timezone'));
+        $method = new ReflectionMethod(Kernel::class, 'schedule');
+        $kernel = $this->app->make(Kernel::class);
+
+        $method->invoke($kernel, $schedule);
+
+        $events = collect($schedule->events())
+            ->filter(fn ($event): bool => str_contains((string) $event->command, 'aws:lightsail-monthly-network'))
+            ->map(fn ($event): array => [
+                'command' => (string) $event->command,
+                'expression' => $event->expression,
+                'name' => $event->description,
+            ])
+            ->values()
+            ->all();
+
+        $this->assertCount(1, $events);
+        $this->assertStringContainsString('--send-telegram', $events[0]['command']);
+        $this->assertStringNotContainsString('--send-line', $events[0]['command']);
+        $this->assertSame('0 9 * * *', $events[0]['expression']);
+        $this->assertSame('aws-lightsail-monthly-network-telegram', $events[0]['name']);
+    }
+
     public function test_yuanta_daily_snapshot_schedule_runs_weekdays_after_close_and_after_broker_finalization(): void
     {
         $schedule = new Schedule(config('app.timezone'));

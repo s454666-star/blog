@@ -857,7 +857,10 @@ class Migrator:
             "folder_processed": int(self.state.get("folder_processed") or 0),
         }
         recovery_evidence: dict[str, int] = {}
-        if reason == "repeated_empty_source_pages":
+        if reason in (
+            "repeated_empty_source_pages",
+            "folder_control_missing_next_before_expected_count",
+        ):
             observed = progress_before_recovery["folder_processed"]
             previous = int(
                 self.state.get("last_exhausted_replay_observed_count") or 0
@@ -1764,6 +1767,9 @@ class Migrator:
         expected = int(self.state.get("folder_expected") or 0)
         processed = int(self.state.get("folder_processed") or 0)
         if expected > 0 and processed != expected:
+            if self.can_finish_exhausted_replay_folder():
+                self.finish_exhausted_replay_folder()
+                return
             self.schedule_folder_control_recovery(
                 "folder_control_missing_next_before_expected_count",
                 int(control.get("id") or 0),

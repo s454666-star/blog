@@ -599,6 +599,67 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             )
         )
 
+    def test_missing_terminal_control_records_exhausted_replay_evidence(self):
+        start_counts = self.folder_start_counts()
+        migrator = bare_migrator(
+            {
+                **start_counts,
+                "status": "running",
+                "stage": "process_page",
+                "folder_index": 20,
+                "folder_expected": 24,
+                "folder_processed": 13,
+                "source_recovery_count": 1,
+                "folder_start_counts": start_counts,
+                "processed_total": start_counts["processed_total"] + 13,
+                "duplicate_media": start_counts["duplicate_media"] + 13,
+                "last_exhausted_replay_observed_count": 0,
+                "matching_exhausted_replay_count": 0,
+            }
+        )
+
+        migrator.schedule_folder_control_recovery(
+            "folder_control_missing_next_before_expected_count",
+            21175,
+        )
+
+        self.assertEqual(13, migrator.state["last_exhausted_replay_observed_count"])
+        self.assertEqual(1, migrator.state["matching_exhausted_replay_count"])
+        self.assertEqual("resume_current_folder", migrator.state["stage"])
+
+    def test_matching_exhausted_replay_without_next_control_advances_folder(self):
+        start_counts = self.folder_start_counts()
+        migrator = bare_migrator(
+            {
+                **start_counts,
+                "status": "running",
+                "stage": "process_page",
+                "folder_index": 20,
+                "folder_expected": 24,
+                "folder_processed": 13,
+                "source_recovery_count": 10,
+                "folder_start_counts": start_counts,
+                "processed_total": start_counts["processed_total"] + 13,
+                "duplicate_media": start_counts["duplicate_media"] + 13,
+                "last_exhausted_replay_observed_count": 13,
+                "matching_exhausted_replay_count": 1,
+            }
+        )
+        migrator.folders = [("folder", 1)] * 21
+        migrator.current_page = lambda: (
+            [],
+            {"id": 21175, "reply_markup": {"rows": []}},
+        )
+        navigated = []
+        migrator.navigate_from_source_root = (
+            lambda index, *, reason: navigated.append((index, reason))
+        )
+
+        migrator.process_current_page()
+
+        self.assertEqual([(21, "exhausted_replay_completed")], navigated)
+        self.assertEqual(11, migrator.state["exhausted_replay_missing_total"])
+
     def test_reconciles_rollback_counters_from_clean_target_deltas(self):
         migrator = bare_migrator(
             {

@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -47,6 +49,60 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             "duplicate_images": 23,
             "duplicate_videos": 5,
         }
+
+    def test_fresh_restart_archives_completed_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            state_path = Path(temporary_directory) / "state.json"
+            manifest = {
+                "name": "test",
+                "source_bot": "source",
+                "source_peer_id": 100,
+                "target_peer_id": 200,
+                "video_target_peer_id": 200,
+                "image_target_peer_id": 300,
+                "dedupe_scope": "scope",
+            }
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "status": "complete",
+                        "stage": "complete",
+                        "manifest_name": "test",
+                        "source_bot": "source",
+                        "source_peer_id": 100,
+                        "target_peer_id": 200,
+                        "video_target_peer_id": 200,
+                        "image_target_peer_id": 300,
+                        "dedupe_scope": "scope",
+                        "processed_total": 10,
+                        "copied_media": 5,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            migrator = MODULE.Migrator.__new__(MODULE.Migrator)
+            migrator.args = types.SimpleNamespace(
+                state_path=str(state_path),
+                fresh=True,
+                restart_complete=True,
+            )
+            migrator.manifest = manifest
+            migrator.dedupe_scope = "scope"
+            migrator.video_target_peer_id = 200
+            migrator.image_target_peer_id = 300
+
+            state = migrator.load_or_initialize_state()
+
+            backups = list(
+                Path(temporary_directory).glob("state.json.complete-*")
+            )
+            self.assertEqual(1, len(backups))
+            archived = json.loads(backups[0].read_text(encoding="utf-8"))
+            self.assertEqual("complete", archived["status"])
+            self.assertEqual("running", state["status"])
+            self.assertEqual("start_first_folder", state["stage"])
+            self.assertEqual(0, state["processed_total"])
+            self.assertEqual(0, state["copied_media"])
 
     def test_folder_list_uses_ten_numeric_positions_per_page(self):
         self.assertEqual((1, 10), MODULE.folder_list_location(10))

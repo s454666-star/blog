@@ -254,9 +254,21 @@ class Migrator:
                 raise MigrationBlocked("checkpoint video target does not match manifest")
             if int(state.get("image_target_peer_id") or 0) != self.image_target_peer_id:
                 raise MigrationBlocked("checkpoint image target does not match manifest")
-            self.state = state
-            self.save()
-            return state
+            if (
+                self.args.fresh
+                and self.args.restart_complete
+                and state.get("status") == "complete"
+            ):
+                completed_stamp = datetime.now(timezone.utc).strftime(
+                    "%Y%m%dT%H%M%S%fZ"
+                )
+                completed_path = f"{path}.complete-{completed_stamp}"
+                os.replace(path, completed_path)
+                os.chmod(completed_path, 0o600)
+            else:
+                self.state = state
+                self.save()
+                return state
 
         if self.args.fresh:
             state = {
@@ -2131,6 +2143,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-uri", default="http://127.0.0.1:8004")
     parser.add_argument("--manifest-path", default="")
     parser.add_argument("--fresh", action="store_true")
+    parser.add_argument("--restart-complete", action="store_true")
     parser.add_argument("--source-bot", default="yuanchaungbot")
     parser.add_argument("--source-peer-id", type=int, default=8766016058)
     parser.add_argument("--target-peer-id", type=int, default=3995547485)
@@ -2149,6 +2162,20 @@ def main() -> int:
     migrator: Migrator | None = None
     try:
         migrator = Migrator(args)
+        if migrator.state.get("status") == "blocked":
+            print(
+                json.dumps(
+                    {
+                        "at": now_iso(),
+                        "message": "migration_checkpoint_blocked",
+                    },
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+            return 2
         migrator.run()
         return 0
     except MigrationBlocked as error:

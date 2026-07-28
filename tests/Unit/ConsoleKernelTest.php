@@ -145,7 +145,7 @@ class ConsoleKernelTest extends TestCase
         $this->assertStringContainsString('--send-telegram', $events[0]['command']);
         $this->assertStringNotContainsString('--send-line', $events[0]['command']);
         $this->assertSame('0 9 * * *', $events[0]['expression']);
-        $this->assertSame('aws-lightsail-monthly-network-telegram', $events[0]['name']);
+        $this->assertSame('aws-lightsail-monthly-network-telegram-personal', $events[0]['name']);
     }
 
     public function test_yuanta_daily_snapshot_schedule_runs_weekdays_after_close_and_after_broker_finalization(): void

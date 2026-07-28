@@ -10,12 +10,12 @@ use Tests\TestCase;
 
 class ReportLightsailMonthlyNetworkCommandTest extends TestCase
 {
-    public function test_it_queries_monthly_metrics_and_sends_only_to_the_yuanta_telegram_group(): void
+    public function test_it_queries_monthly_metrics_and_sends_only_to_the_personal_telegram_chat(): void
     {
         config()->set('telegram.line_mirror.enabled', true);
-        config()->set('telegram.line_mirror.routes.yuanta', [
+        config()->set('telegram.line_mirror.routes.personal', [
             'bot_token' => 'telegram-test-token',
-            'chat_id' => '-1004546666',
+            'chat_id' => '4546666',
         ]);
 
         Process::fake(function (PendingProcess $process) {
@@ -53,7 +53,7 @@ class ReportLightsailMonthlyNetworkCommandTest extends TestCase
 
         $this->artisan('aws:lightsail-monthly-network --send-telegram')
             ->expectsOutputToContain('總流量：279.40 GiB（300.00 GB）')
-            ->expectsOutput('Lightsail monthly network report sent to the Yuanta Telegram group.')
+            ->expectsOutput('Lightsail monthly network report sent to the personal Telegram chat.')
             ->assertSuccessful();
 
         Process::assertRanTimes(fn (): bool => true, 4);
@@ -61,7 +61,7 @@ class ReportLightsailMonthlyNetworkCommandTest extends TestCase
             $payload = $request->data();
 
             return str_contains($request->url(), 'api.telegram.org/')
-                && ($payload['chat_id'] ?? null) === '-1004546666'
+                && ($payload['chat_id'] ?? null) === '4546666'
                 && str_contains((string) ($payload['text'] ?? ''), 'AWS Lightsail 本月網路流量');
         });
         Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'api.line.me'));

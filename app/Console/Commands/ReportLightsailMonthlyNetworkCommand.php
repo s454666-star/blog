@@ -15,7 +15,7 @@ class ReportLightsailMonthlyNetworkCommand extends Command
         {--instance= : Lightsail instance name}
         {--region= : AWS region}
         {--profile= : AWS CLI profile}
-        {--send-telegram : Push the report to the configured Yuanta Telegram group}
+        {--send-telegram : Push the report to the configured personal Telegram chat}
         {--json : Output the report as JSON}';
 
     protected $description = 'Query the current-month Lightsail NetworkIn and NetworkOut totals.';
@@ -41,9 +41,9 @@ class ReportLightsailMonthlyNetworkCommand extends Command
             $message = $this->message($report);
 
             try {
-                $telegram->sendText('yuanta', $message);
+                $telegram->sendText('personal', $message);
                 if ($telegram->isEnabled()) {
-                    $this->info('Lightsail monthly network report sent to the Yuanta Telegram group.');
+                    $this->info('Lightsail monthly network report sent to the personal Telegram chat.');
                 }
             } catch (Throwable $exception) {
                 report($exception);

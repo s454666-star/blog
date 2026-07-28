@@ -134,7 +134,7 @@ class Kernel extends ConsoleKernel
         if (config('aws_metrics.daily_report_enabled', false)) {
             $schedule->command('aws:lightsail-monthly-network --send-telegram')
                 ->dailyAt((string) config('aws_metrics.daily_report_at', '09:00'))
-                ->name('aws-lightsail-monthly-network-telegram')
+                ->name('aws-lightsail-monthly-network-telegram-personal')
                 ->withoutOverlapping(30)
                 ->runInBackground()
                 ->appendOutputTo(storage_path('logs/aws_lightsail_monthly_network.log'));

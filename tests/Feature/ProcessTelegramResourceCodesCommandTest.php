@@ -201,21 +201,17 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ]);
     }
 
-    public function test_type_three_scan_stores_qq_codes_from_multiple_prefixes(): void
+    public function test_type_three_scan_stores_only_jsfilessbot_codes_and_preserves_suffix_case(): void
     {
         Http::fake(Http::response([
             'status' => 'ok',
             'items' => [[
                 'id' => 119900,
                 'text' => implode("\n", [
-                    'QQer16_bot:qqcode1ebfce2af1_3V',
-                    'QQn8zw_bot:qqcode1099c74e81_8P_17V',
-                    'QQyptu_bot:qqcode10884fe700_9V',
-                    'QQyptu_bot:qqcode10882ee480_9V',
-                    'QQfile_bot:10506_69799_143-42',
-                    'QQnext_gen_bot:FutureCode_AZ09-7',
-                    'QQyptu_bot qqcode10882ee480_9V',
-                    'notQQyptu_bot:qqcode10882ee480_9V',
+                    'JSfilessbot_87V0P0D_2TZN-NN8C',
+                    'jsfilessbot_a1B2_c3-D4',
+                    'JSfilesbot_87V0P0D_2TZN-NN8C',
+                    'notJSfilessbot_87V0P0D_2TZN-NN8C',
                 ]),
             ]],
         ]));
@@ -224,21 +220,52 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             '--once' => true,
             '--scan-only' => true,
             '--code-type' => 3,
-            '--bot-username' => 'QQyptu_bot',
+            '--bot-username' => 'JSfilessbot',
         ])->assertExitCode(0);
 
-        $this->assertDatabaseCount('telegram_resource_codes', 6);
+        $this->assertDatabaseCount('telegram_resource_codes', 2);
         foreach ([
-            'QQer16_bot:qqcode1ebfce2af1_3V',
-            'QQn8zw_bot:qqcode1099c74e81_8P_17V',
-            'QQyptu_bot:qqcode10884fe700_9V',
-            'QQyptu_bot:qqcode10882ee480_9V',
-            'QQfile_bot:10506_69799_143-42',
-            'QQnext_gen_bot:FutureCode_AZ09-7',
+            'JSfilessbot_87V0P0D_2TZN-NN8C',
+            'JSfilessbot_a1B2_c3-D4',
         ] as $code) {
             $this->assertDatabaseHas('telegram_resource_codes', [
                 'code' => $code,
                 'code_type' => 3,
+                'status' => TelegramResourceCode::STATUS_PENDING,
+            ]);
+        }
+    }
+
+    public function test_type_five_scan_stores_only_yyjmq_codes_and_preserves_suffix_case(): void
+    {
+        Http::fake(Http::response([
+            'status' => 'ok',
+            'items' => [[
+                'id' => 119903,
+                'text' => implode("\n", [
+                    'yyjmq_bot_87V0P0D_2TZN-NN8C',
+                    'YYJMQ_BOT_a1B2_c3-D4',
+                    'yyjmqbot_87V0P0D_2TZN-NN8C',
+                    'notyyjmq_bot_87V0P0D_2TZN-NN8C',
+                ]),
+            ]],
+        ]));
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--scan-only' => true,
+            '--code-type' => 5,
+            '--bot-username' => 'yyjmq_bot',
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseCount('telegram_resource_codes', 2);
+        foreach ([
+            'yyjmq_bot_87V0P0D_2TZN-NN8C',
+            'yyjmq_bot_a1B2_c3-D4',
+        ] as $code) {
+            $this->assertDatabaseHas('telegram_resource_codes', [
+                'code' => $code,
+                'code_type' => 5,
                 'status' => TelegramResourceCode::STATUS_PENDING,
             ]);
         }
@@ -290,14 +317,14 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
                         'id' => 119901,
                         'text' => implode(' ', [
                             'WenJianJiJibot_1v_imWSCOeauMVsszgd',
-                            'QQyptu_bot:qqcode10884fe700_9V',
+                            'JSfilessbot_qqcode10884fe700_9V',
                         ]),
                     ]],
                 ]);
             }
 
-            $this->assertSame('QQyptu_bot:qqcode10884fe700_9V', $request['code']);
-            $this->assertSame('QQyptu_bot', $request['bot_username']);
+            $this->assertSame('JSfilessbot_qqcode10884fe700_9V', $request['code']);
+            $this->assertSame('JSfilessbot', $request['bot_username']);
 
             return Http::response([
                 'status' => 'ok',
@@ -313,7 +340,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             '--process-limit' => 1,
             '--code-type' => 3,
             '--scan-code-types' => '2,3',
-            '--bot-username' => 'QQyptu_bot',
+            '--bot-username' => 'JSfilessbot',
         ])->assertExitCode(0);
 
         $this->assertDatabaseHas('telegram_resource_codes', [
@@ -323,7 +350,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'attempts' => 0,
         ]);
         $this->assertDatabaseHas('telegram_resource_codes', [
-            'code' => 'QQyptu_bot:qqcode10884fe700_9V',
+            'code' => 'JSfilessbot_qqcode10884fe700_9V',
             'code_type' => 3,
             'status' => TelegramResourceCode::STATUS_COMPLETED,
             'attempts' => 1,
@@ -393,8 +420,8 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
 
     public function test_multiple_profiles_process_all_configured_code_types(): void
     {
-        config()->set('telegram.resource_codes.processing_profiles', '1:zyxfidi_bot,2:WenJianJiJibot,3:QQ2aij_bot,4:JSfilesbot');
-        config()->set('telegram.resource_codes.scan_code_types', '1,2,3,4');
+        config()->set('telegram.resource_codes.processing_profiles', '1:zyxfidi_bot,2:WenJianJiJibot,3:JSfilessbot,4:JSfilesbot,5:yyjmq_bot');
+        config()->set('telegram.resource_codes.scan_code_types', '1,2,3,4,5');
 
         DB::table('telegram_resource_codes')->insert([
             [
@@ -416,7 +443,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
                 'updated_at' => now(),
             ],
             [
-                'code' => 'QQyptu_bot:qqcode10884fe700_9V',
+                'code' => 'JSfilessbot_qqcode10884fe700_9V',
                 'code_type' => 3,
                 'status' => TelegramResourceCode::STATUS_PENDING,
                 'attempts' => 0,
@@ -427,6 +454,15 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             [
                 'code' => 'JSfile_bot_87V0P0D_2TZN-NN8C',
                 'code_type' => 4,
+                'status' => TelegramResourceCode::STATUS_PENDING,
+                'attempts' => 0,
+                'forwarded_message_count' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'code' => 'yyjmq_bot_87V0P0D_2TZN-NN8C',
+                'code_type' => 5,
                 'status' => TelegramResourceCode::STATUS_PENDING,
                 'attempts' => 0,
                 'forwarded_message_count' => 0,
@@ -455,10 +491,10 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
 
         $this->artisan('telegram:process-resource-codes', [
             '--once' => true,
-            '--process-limit' => 4,
+            '--process-limit' => 5,
         ])->assertExitCode(0);
 
-        $this->assertSame(['zyxfidi_bot', 'WenJianJiJibot', 'QQ2aij_bot', 'JSfilesbot'], $sentBots);
+        $this->assertSame(['zyxfidi_bot', 'WenJianJiJibot', 'JSfilessbot', 'JSfilesbot', 'yyjmq_bot'], $sentBots);
         $this->assertDatabaseHas('telegram_resource_codes', [
             'code_type' => 1,
             'status' => TelegramResourceCode::STATUS_COMPLETED,
@@ -477,19 +513,25 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'status' => TelegramResourceCode::STATUS_COMPLETED,
             'attempts' => 1,
         ]);
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code_type' => 5,
+            'status' => TelegramResourceCode::STATUS_COMPLETED,
+            'attempts' => 1,
+        ]);
     }
 
     public function test_multiple_profiles_rotate_code_types_instead_of_draining_one_type_first(): void
     {
-        config()->set('telegram.resource_codes.processing_profiles', '1:zyxfidi_bot,2:WenJianJiJibot,3:QQ2aij_bot,4:JSfilesbot');
-        config()->set('telegram.resource_codes.scan_code_types', '1,2,3,4');
+        config()->set('telegram.resource_codes.processing_profiles', '1:zyxfidi_bot,2:WenJianJiJibot,3:JSfilessbot,4:JSfilesbot,5:yyjmq_bot');
+        config()->set('telegram.resource_codes.scan_code_types', '1,2,3,4,5');
 
         foreach ([
             ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 1],
             ['bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 1],
             ['WenJianJiJibot_1v_EY7hgrHmiujLKVaV', 2],
-            ['QQfile_bot:10506_69799_143-42', 3],
+            ['JSfilessbot_10506_69799_143-42', 3],
             ['JSfile_bot_87V0P0D_2TZN-NN8C', 4],
+            ['yyjmq_bot_87V0P0D_2TZN-NN8C', 5],
         ] as [$code, $codeType]) {
             DB::table('telegram_resource_codes')->insert([
                 'code' => $code,
@@ -521,14 +563,15 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
 
         $this->artisan('telegram:process-resource-codes', [
             '--once' => true,
-            '--process-limit' => 5,
+            '--process-limit' => 6,
         ])->assertExitCode(0);
 
         $this->assertSame([
             'zyxfidi_bot',
             'WenJianJiJibot',
-            'QQ2aij_bot',
+            'JSfilessbot',
             'JSfilesbot',
+            'yyjmq_bot',
             'zyxfidi_bot',
         ], $sentBots);
     }

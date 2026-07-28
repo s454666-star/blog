@@ -74,8 +74,16 @@ RESOURCE_CODE_QQ_PATTERN = re.compile(
     r"QQ[A-Za-z0-9_]*_bot:[A-Za-z0-9_-]+",
     re.IGNORECASE,
 )
+RESOURCE_CODE_JSFILESSBOT_PATTERN = re.compile(
+    r"JSfilessbot_[A-Za-z0-9_-]+",
+    re.IGNORECASE,
+)
 RESOURCE_CODE_JSFILE_PATTERN = re.compile(
     r"JSfile_bot_[A-Za-z0-9_-]+",
+    re.IGNORECASE,
+)
+RESOURCE_CODE_YYJMQ_PATTERN = re.compile(
+    r"yyjmq_bot_[A-Za-z0-9_-]+",
     re.IGNORECASE,
 )
 RESOURCE_CODE_IMAGE_COUNT_PATTERN = re.compile(r"(?:图片|圖片)\s*(\d+)\s*(?:个|個)")
@@ -256,8 +264,12 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
         return "WenJianJiJibot_" + code.split("_", 1)[1]
     if RESOURCE_CODE_QQ_PATTERN.fullmatch(code):
         return code
+    if RESOURCE_CODE_JSFILESSBOT_PATTERN.fullmatch(code):
+        return "JSfilessbot_" + code[len("JSfilessbot_"):]
     if RESOURCE_CODE_JSFILE_PATTERN.fullmatch(code):
         return "JSfile_bot_" + code[len("JSfile_bot_"):]
+    if RESOURCE_CODE_YYJMQ_PATTERN.fullmatch(code):
+        return "yyjmq_bot_" + code[len("yyjmq_bot_"):]
     return None
 
 

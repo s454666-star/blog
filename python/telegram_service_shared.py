@@ -3978,6 +3978,29 @@ def _media_file_id_delete(scope: str, telegram_file_unique_id: str) -> None:
         connection.close()
 
 
+def _media_file_ids_delete_rolled_back_targets(
+    scope: str,
+    results: List[Dict[str, Any]],
+    remaining_target_message_ids: List[int],
+) -> None:
+    remaining = {
+        int(message_id or 0)
+        for message_id in remaining_target_message_ids
+        if int(message_id or 0) > 0
+    }
+    for result in results:
+        target_message_id = int(result.get("target_message_id") or 0)
+        file_unique_id = str(result.get("file_unique_id") or "")
+        if (
+            result.get("duplicate")
+            or target_message_id <= 0
+            or target_message_id in remaining
+            or not file_unique_id
+        ):
+            continue
+        _media_file_id_delete(scope, file_unique_id)
+
+
 def _media_file_id_register(
     scope: str,
     telegram_file_unique_id: str,
@@ -4603,6 +4626,14 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                 target_peer,
                 created_target_message_ids,
             ) if created_target_message_ids else []
+            if dedupe_scope and results:
+                async with MEDIA_DEDUPE_LOCK:
+                    await asyncio.to_thread(
+                        _media_file_ids_delete_rolled_back_targets,
+                        dedupe_scope,
+                        results,
+                        rollback_remaining,
+                    )
             return {
                 "status": "error",
                 "reason": "flood_wait",
@@ -4616,6 +4647,14 @@ async def copy_protected_media_batch(payload: CopyProtectedMediaBatchRequest):
                 target_peer,
                 created_target_message_ids,
             ) if created_target_message_ids else []
+            if dedupe_scope and results:
+                async with MEDIA_DEDUPE_LOCK:
+                    await asyncio.to_thread(
+                        _media_file_ids_delete_rolled_back_targets,
+                        dedupe_scope,
+                        results,
+                        rollback_remaining,
+                    )
             return {
                 "status": "error",
                 "reason": "copy_failed",

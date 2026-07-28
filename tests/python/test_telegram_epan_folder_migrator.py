@@ -759,6 +759,86 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
 
         migrator.validate_source_counters()
 
+    def test_accepts_verified_exhausted_shortfall_with_signed_count_drift(self):
+        migrator = bare_migrator(
+            {
+                "processed_total": 8,
+                "source_media_processed": 7,
+                "source_images": 2,
+                "source_videos": 5,
+                "deleted_text": 1,
+                "copied_media": 4,
+                "duplicate_media": 3,
+                "manifest_folder_count_drift_total": -1,
+                "exhausted_replay_missing_total": 3,
+            }
+        )
+        migrator.expected_total = 12
+        migrator.expected_media = 10
+        migrator.expected_images = 3
+        migrator.expected_videos = 7
+        migrator.expected_text = 2
+
+        migrator.validate_source_counters()
+
+    def test_drifted_exhausted_replay_does_not_invent_category_counters(self):
+        state = {
+            "processed_total": 8,
+            "source_media_processed": 7,
+            "source_images": 2,
+            "source_videos": 5,
+            "deleted_text": 1,
+            "copied_media": 4,
+            "copied_images": 1,
+            "copied_videos": 3,
+            "duplicate_media": 3,
+            "duplicate_images": 1,
+            "duplicate_videos": 2,
+            "image_target_baseline_images": 10,
+            "video_target_baseline_videos": 20,
+            "manifest_folder_count_drift_total": -1,
+            "exhausted_replay_missing_total": 3,
+        }
+        migrator = bare_migrator(state)
+        migrator.expected_total = 12
+        migrator.expected_media = 10
+        migrator.expected_images = 3
+        migrator.expected_videos = 7
+        migrator.expected_text = 2
+
+        reconciled = migrator.reconcile_exhausted_replay_counters(
+            {"videos": 23},
+            {"images": 11},
+        )
+
+        self.assertFalse(reconciled)
+        self.assertEqual(state["processed_total"], migrator.state["processed_total"])
+        self.assertEqual(state["source_images"], migrator.state["source_images"])
+        self.assertEqual(state["source_videos"], migrator.state["source_videos"])
+        self.assertNotIn(
+            "exhausted_replay_counters_reconciled",
+            migrator.state,
+        )
+
+    def test_rejects_target_delta_below_committed_copy_counter(self):
+        migrator = bare_migrator(
+            {
+                "copied_images": 2,
+                "copied_videos": 5,
+                "image_target_baseline_images": 10,
+                "video_target_baseline_videos": 20,
+            }
+        )
+
+        with self.assertRaisesRegex(
+            MODULE.MigrationBlocked,
+            "target media delta is below committed copied counters",
+        ):
+            migrator.target_copy_deltas(
+                {"videos": 24},
+                {"images": 12},
+            )
+
     def test_page_media_is_checkpointed_before_source_deletion(self):
         state = {
             **self.folder_start_counts(),

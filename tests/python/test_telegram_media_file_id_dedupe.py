@@ -89,6 +89,63 @@ class TelegramMediaFileIdDedupeTest(unittest.TestCase):
         finally:
             MODULE.MEDIA_DEDUPE_DB_PATH = original_path
 
+    def test_rollback_removes_only_file_ids_whose_targets_were_deleted(self):
+        original_path = MODULE.MEDIA_DEDUPE_DB_PATH
+        try:
+            with tempfile.TemporaryDirectory() as temporary_directory:
+                MODULE.MEDIA_DEDUPE_DB_PATH = str(
+                    Path(temporary_directory) / "dedupe.sqlite3"
+                )
+                for file_unique_id, target_message_id in (
+                    ("document:1", 101),
+                    ("document:2", 102),
+                    ("document:3", 103),
+                ):
+                    MODULE._media_file_id_register(
+                        "scope",
+                        file_unique_id,
+                        200,
+                        target_message_id,
+                        "",
+                        300,
+                        target_message_id,
+                        0,
+                    )
+
+                MODULE._media_file_ids_delete_rolled_back_targets(
+                    "scope",
+                    [
+                        {
+                            "file_unique_id": "document:1",
+                            "target_message_id": 101,
+                            "duplicate": False,
+                        },
+                        {
+                            "file_unique_id": "document:2",
+                            "target_message_id": 102,
+                            "duplicate": False,
+                        },
+                        {
+                            "file_unique_id": "document:3",
+                            "target_message_id": 103,
+                            "duplicate": True,
+                        },
+                    ],
+                    [102],
+                )
+
+                self.assertIsNone(
+                    MODULE._media_file_id_lookup("scope", "document:1")
+                )
+                self.assertIsNotNone(
+                    MODULE._media_file_id_lookup("scope", "document:2")
+                )
+                self.assertIsNotNone(
+                    MODULE._media_file_id_lookup("scope", "document:3")
+                )
+        finally:
+            MODULE.MEDIA_DEDUPE_DB_PATH = original_path
+
     def test_matching_file_id_skips_download(self):
         original_path = MODULE.MEDIA_DEDUPE_DB_PATH
         original_client = MODULE.client

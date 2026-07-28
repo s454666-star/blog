@@ -1908,6 +1908,14 @@ class Migrator:
         count_drift = int(self.state.get("manifest_folder_count_drift_total") or 0)
         expected_total = self.expected_total + count_drift
         processed_total = int(self.state.get("processed_total") or 0)
+        exhausted_missing = int(
+            self.state.get("exhausted_replay_missing_total") or 0
+        )
+        unreconciled_missing = (
+            exhausted_missing
+            if not self.state.get("exhausted_replay_counters_reconciled")
+            else 0
+        )
         source_media = int(self.state.get("source_media_processed") or 0)
         source_images = int(self.state.get("source_images") or 0)
         source_videos = int(self.state.get("source_videos") or 0)
@@ -1915,7 +1923,7 @@ class Migrator:
         copied_media = int(self.state.get("copied_media") or 0)
         duplicate_media = int(self.state.get("duplicate_media") or 0)
 
-        if processed_total != expected_total:
+        if processed_total + unreconciled_missing != expected_total:
             raise MigrationBlocked("processed source total does not match manifest")
         if source_images + source_videos != source_media:
             raise MigrationBlocked("processed source media kind totals do not add up")
@@ -1924,7 +1932,7 @@ class Migrator:
         if copied_media + duplicate_media != source_media:
             raise MigrationBlocked("unique plus duplicate media total does not match manifest")
 
-        if count_drift == 0:
+        if count_drift == 0 and unreconciled_missing == 0:
             if source_media != self.expected_media:
                 raise MigrationBlocked("processed source media total does not match manifest")
             if source_images != self.expected_images:
@@ -1942,24 +1950,18 @@ class Migrator:
             - self.expected_videos
             + deleted_text
             - self.expected_text
+            + unreconciled_missing
         )
         if category_drift != count_drift:
             raise MigrationBlocked(
                 "source category changes do not match folder count drift"
             )
 
-    def reconcile_exhausted_replay_counters(
+    def target_copy_deltas(
         self,
         actual_video: dict[str, int],
         actual_image: dict[str, int],
-    ) -> bool:
-        missing_total = int(self.state.get("exhausted_replay_missing_total") or 0)
-        actual_missing_total = self.expected_total - int(
-            self.state.get("processed_total") or 0
-        )
-        if missing_total <= 0 or missing_total != actual_missing_total:
-            return False
-
+    ) -> tuple[int, int]:
         copied_images = int(actual_image.get("images") or 0) - int(
             self.state.get("image_target_baseline_images") or 0
         )
@@ -1971,7 +1973,36 @@ class Migrator:
             or copied_videos < int(self.state.get("copied_videos") or 0)
             or copied_images < 0
             or copied_videos < 0
-            or copied_images > self.expected_images
+        ):
+            raise MigrationBlocked(
+                "target media delta is below committed copied counters"
+            )
+        return copied_images, copied_videos
+
+    def reconcile_exhausted_replay_counters(
+        self,
+        actual_video: dict[str, int],
+        actual_image: dict[str, int],
+    ) -> bool:
+        missing_total = int(self.state.get("exhausted_replay_missing_total") or 0)
+        count_drift = int(self.state.get("manifest_folder_count_drift_total") or 0)
+        actual_missing_total = (
+            self.expected_total
+            + count_drift
+            - int(self.state.get("processed_total") or 0)
+        )
+        if missing_total <= 0 or missing_total != actual_missing_total:
+            return False
+
+        copied_images, copied_videos = self.target_copy_deltas(
+            actual_video,
+            actual_image,
+        )
+        if count_drift != 0:
+            return False
+
+        if (
+            copied_images > self.expected_images
             or copied_videos > self.expected_videos
         ):
             raise MigrationBlocked(
@@ -2028,6 +2059,7 @@ class Migrator:
             raise MigrationBlocked(
                 f"image target routing or cleanliness mismatch: {actual_image}"
             )
+        self.target_copy_deltas(actual_video, actual_image)
         self.reconcile_exhausted_replay_counters(actual_video, actual_image)
         self.validate_source_counters()
 

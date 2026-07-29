@@ -890,6 +890,7 @@ class Migrator:
             observed = int(self.state.get("folder_processed") or 0)
             skippable_empty_reasons = (
                 "initial_page_control_timeout",
+                "current_page_control_timeout",
                 "folder_control_missing_next_before_expected_count",
             )
             if (
@@ -1812,7 +1813,16 @@ class Migrator:
         self.advance_folder(reason="exhausted_replay_completed")
 
     def process_current_page(self) -> None:
-        page_items, control = self.current_page()
+        try:
+            page_items, control = self.current_page()
+        except MigrationBlocked as error:
+            if str(error) != PAGE_CONTROL_TIMEOUT_MESSAGE:
+                raise
+            self.schedule_folder_control_recovery(
+                "current_page_control_timeout",
+                int(self.state.get("previous_control_id") or 0),
+            )
+            return
         if page_items:
             self.state["consecutive_empty_source_pages"] = 0
             self.prepare_page_items(page_items)

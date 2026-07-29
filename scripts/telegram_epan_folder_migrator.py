@@ -74,6 +74,10 @@ class MigrationBlocked(RuntimeError):
     pass
 
 
+class MigrationSourceUnavailable(RuntimeError):
+    pass
+
+
 TARGET_MEDIA_DELTA_BELOW_COMMITTED = (
     "target media delta is below committed copied counters"
 )
@@ -1652,6 +1656,8 @@ class Migrator:
             timeout=120.0,
         )
         if response.get("status") != "ok":
+            if response.get("reason") in ("bot_not_found", "bot_unavailable"):
+                raise MigrationSourceUnavailable("source_bot_unavailable")
             raise MigrationBlocked(f"source recovery /start failed: {response}")
         self.state["source_recovery_start_message_id"] = int(
             response.get("sent_message_id") or 0
@@ -1942,6 +1948,8 @@ class Migrator:
             timeout=120.0,
         )
         if response.get("status") != "ok":
+            if response.get("reason") in ("bot_not_found", "bot_unavailable"):
+                raise MigrationSourceUnavailable("source_bot_unavailable")
             raise MigrationBlocked(f"source /start failed: {response}")
         self.state["start_message_id"] = int(response.get("sent_message_id") or 0)
         self.save()
@@ -2209,6 +2217,27 @@ def main() -> int:
             return 2
         migrator.run()
         return 0
+    except MigrationSourceUnavailable:
+        if migrator is not None:
+            migrator.state["source_unavailable_count"] = (
+                int(migrator.state.get("source_unavailable_count") or 0) + 1
+            )
+            migrator.state["last_source_unavailable_at"] = now_iso()
+            migrator.save()
+        print(
+            json.dumps(
+                {
+                    "at": now_iso(),
+                    "message": "migration_source_unavailable",
+                    "reason": "bot_deactivated_or_username_unavailable",
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+        return 3
     except MigrationBlocked as error:
         if migrator is not None:
             migrator.state["status"] = "blocked"

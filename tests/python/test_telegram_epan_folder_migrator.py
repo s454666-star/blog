@@ -72,6 +72,38 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             self.assertIn("--fresh", command)
             self.assertIn("--restart-complete", command)
             self.assertIn("--restart-target-drift", command)
+        self.assertNotIn("set -e", exec_start)
+        self.assertIn("original_status=$?", exec_start)
+        self.assertIn("ygt_status=$?", exec_start)
+        self.assertLess(
+            exec_start.index("original_backup.json"),
+            exec_start.index("ygt7319.json"),
+        )
+
+    def test_source_unavailable_has_a_distinct_retry_exit(self):
+        migrator = bare_migrator(
+            {
+                "status": "running",
+                "stage": "start_first_folder",
+                "source_unavailable_count": 0,
+            }
+        )
+        migrator.api = types.SimpleNamespace(
+            post=lambda path, payload, timeout: {
+                "status": "error",
+                "reason": "bot_unavailable",
+            }
+        )
+        migrator.target_counts = lambda peer_id: {
+            "media": 0,
+            "images": 0,
+            "videos": 0,
+            "text": 0,
+            "attribution": 0,
+        }
+
+        with self.assertRaises(MODULE.MigrationSourceUnavailable):
+            migrator.start_first_folder()
 
     def test_bot_control_requests_include_durable_source_peer_id(self):
         migrator = bare_migrator({"start_message_id": 10})

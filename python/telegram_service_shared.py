@@ -3522,7 +3522,18 @@ async def send_message_to_bot(payload: SendBotMessageRequest):
     if peer is None:
         return {"status": "error", "reason": "bot_not_found"}
 
-    sent = await client.send_message(peer, payload.text)
+    try:
+        sent = await client.send_message(peer, payload.text)
+    except InputUserDeactivatedError:
+        refreshed_peer = await _refresh_peer_for_bot(payload.bot_username)
+        if refreshed_peer is None:
+            return {"status": "error", "reason": "bot_unavailable"}
+        _PEER_CACHE[str(payload.bot_username or "").strip()] = refreshed_peer
+        _remember_bot_peer_alias(payload.bot_peer_id, payload.bot_username)
+        try:
+            sent = await client.send_message(refreshed_peer, payload.text)
+        except InputUserDeactivatedError:
+            return {"status": "error", "reason": "bot_unavailable"}
     try:
         sent_message_id = int(getattr(sent, "id", 0) or 0)
     except Exception:

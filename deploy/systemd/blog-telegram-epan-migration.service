@@ -9,7 +9,7 @@ Type=simple
 User=www-data
 Group=www-data
 WorkingDirectory=/var/www/html/blog
-ExecStart=/bin/bash -lc 'set -e; /usr/bin/python3 scripts/telegram_epan_folder_migrator.py --manifest-path scripts/telegram_epan_manifests/original_backup.json --state-path /var/lib/blog-telegram/epan-original-backup-migration.json --fresh --restart-complete --restart-target-drift; /usr/bin/python3 scripts/telegram_epan_folder_migrator.py --manifest-path scripts/telegram_epan_manifests/ygt7319.json --state-path /var/lib/blog-telegram/epan-ygt7319-migration.json --fresh --restart-complete --restart-target-drift'
+ExecStart=/bin/bash -lc 'original_status=0; /usr/bin/python3 scripts/telegram_epan_folder_migrator.py --manifest-path scripts/telegram_epan_manifests/original_backup.json --state-path /var/lib/blog-telegram/epan-original-backup-migration.json --fresh --restart-complete --restart-target-drift || original_status=$?; ygt_status=0; /usr/bin/python3 scripts/telegram_epan_folder_migrator.py --manifest-path scripts/telegram_epan_manifests/ygt7319.json --state-path /var/lib/blog-telegram/epan-ygt7319-migration.json --fresh --restart-complete --restart-target-drift || ygt_status=$?; if [ "$original_status" -eq 2 ] || [ "$ygt_status" -eq 2 ]; then exit 2; fi; if [ "$original_status" -eq 0 ] || [ "$ygt_status" -eq 0 ]; then exit 0; fi; if [ "$original_status" -eq 3 ] || [ "$ygt_status" -eq 3 ]; then exit 3; fi; exit 1'
 Restart=always
 RestartPreventExitStatus=2
 RestartSec=30

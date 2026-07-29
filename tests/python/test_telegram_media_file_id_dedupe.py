@@ -70,6 +70,51 @@ class TelegramMediaFileIdDedupeTest(unittest.TestCase):
             MODULE._BOT_PEER_ALIAS_BY_ID.clear()
             MODULE._BOT_PEER_ALIAS_BY_ID.update(original_aliases)
 
+    def test_send_refreshes_a_deactivated_cached_bot_peer(self):
+        original_client = MODULE.client
+        original_refresh = MODULE._refresh_peer_for_bot
+        original_backfill = MODULE.backfill_latest_from_bot
+        stale_peer = object()
+        refreshed_peer = object()
+        sent_peers = []
+
+        async def send_message(peer, text):
+            sent_peers.append(peer)
+            if peer is stale_peer:
+                raise MODULE.InputUserDeactivatedError(request=None)
+            return types.SimpleNamespace(id=77)
+
+        async def refresh(_username):
+            return refreshed_peer
+
+        async def backfill(*args, **kwargs):
+            return None
+
+        try:
+            MODULE.client = types.SimpleNamespace(send_message=send_message)
+            MODULE._refresh_peer_for_bot = refresh
+            MODULE.backfill_latest_from_bot = backfill
+            MODULE._PEER_CACHE["legacy_name"] = stale_peer
+
+            response = asyncio.run(
+                MODULE.send_message_to_bot(
+                    MODULE.SendBotMessageRequest(
+                        bot_username="legacy_name",
+                        bot_peer_id=8766016058,
+                        text="/start",
+                    )
+                )
+            )
+
+            self.assertEqual("ok", response["status"])
+            self.assertEqual(77, response["sent_message_id"])
+            self.assertEqual([stale_peer, refreshed_peer], sent_peers)
+        finally:
+            MODULE.client = original_client
+            MODULE._refresh_peer_for_bot = original_refresh
+            MODULE.backfill_latest_from_bot = original_backfill
+            MODULE._PEER_CACHE.pop("legacy_name", None)
+
     def test_file_id_only_mode_is_explicit(self):
         self.assertEqual(
             "telegram_file_unique_id",

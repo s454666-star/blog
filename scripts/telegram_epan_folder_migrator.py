@@ -67,6 +67,7 @@ PARTIAL_PAGE_STABLE_SECONDS = 30
 PARTIAL_PAGE_STABLE_POLLS = 10
 FOLDER_DETAIL_WAIT_ATTEMPTS = 10
 PAGE_CONTROL_TIMEOUT_MESSAGE = "timed out waiting for the next source page control"
+NO_MATCHING_NAVIGATION_MESSAGE = "no matching navigation button was clicked"
 
 
 class MigrationBlocked(RuntimeError):
@@ -606,7 +607,7 @@ class Migrator:
                 stage=self.state.get("stage"),
                 folder_index=self.state.get("folder_index"),
             )
-            raise MigrationBlocked("no matching navigation button was clicked")
+            raise MigrationBlocked(NO_MATCHING_NAVIGATION_MESSAGE)
         clicked_text = str(response.get("clicked_button_text") or "").strip()
         if len(keywords) == 1 and keywords[0].isdigit() and clicked_text != keywords[0]:
             raise MigrationBlocked(
@@ -1783,7 +1784,16 @@ class Migrator:
                         control_id,
                     )
                     return
-            self.click(["下一组", "下一組", "➡"])
+            try:
+                self.click(["下一组", "下一組", "➡"])
+            except MigrationBlocked as error:
+                if str(error) != NO_MATCHING_NAVIGATION_MESSAGE:
+                    raise
+                self.schedule_folder_control_recovery(
+                    "next_page_navigation_button_missing",
+                    control_id,
+                )
+                return
             self.state["previous_control_id"] = control_id
             self.state["folder_next_group_clicks"] = int(
                 self.state.get("folder_next_group_clicks") or 0

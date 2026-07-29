@@ -666,6 +666,51 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         self.assertEqual(9000, migrator.state["previous_control_id"])
         self.assertEqual(1, migrator.state["folder_next_group_clicks"])
 
+    def test_missing_next_page_navigation_restarts_current_folder(self):
+        start_counts = self.folder_start_counts()
+        migrator = bare_migrator(
+            {
+                **start_counts,
+                "status": "running",
+                "stage": "process_page",
+                "folder_index": 17,
+                "folder_expected": 255,
+                "folder_processed": 209,
+                "folder_next_group_clicks": 8,
+                "consecutive_empty_source_pages": 0,
+                "current_page_processed": 20,
+                "source_recovery_count": 0,
+                "folder_start_counts": start_counts,
+                "processed_total": start_counts["processed_total"] + 209,
+                "duplicate_media": start_counts["duplicate_media"] + 209,
+            }
+        )
+        control = {
+            "id": 9001,
+            "reply_markup": {
+                "rows": [{"buttons": [{"text": "下一组"}]}],
+            },
+        }
+        migrator.current_page = lambda: ([], control)
+        migrator.click = lambda keyword: (_ for _ in ()).throw(
+            MODULE.MigrationBlocked(MODULE.NO_MATCHING_NAVIGATION_MESSAGE)
+        )
+
+        migrator.process_current_page()
+
+        self.assertEqual("resume_current_folder", migrator.state["stage"])
+        self.assertEqual(1, migrator.state["source_recovery_count"])
+        self.assertEqual(0, migrator.state["folder_processed"])
+        self.assertEqual(
+            start_counts["processed_total"],
+            migrator.state["processed_total"],
+        )
+        self.assertEqual(
+            "next_page_navigation_button_missing",
+            migrator.state["source_recovery_reason"],
+        )
+        self.assertEqual(9001, migrator.state["source_recovery_control_id"])
+
     def test_matching_exhausted_duplicate_replay_advances_folder(self):
         start_counts = self.folder_start_counts()
         migrator = bare_migrator(

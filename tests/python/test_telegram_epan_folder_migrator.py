@@ -73,6 +73,41 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             self.assertIn("--restart-complete", command)
             self.assertIn("--restart-target-drift", command)
 
+    def test_bot_control_requests_include_durable_source_peer_id(self):
+        migrator = bare_migrator({"start_message_id": 10})
+        posts = []
+
+        def post(path, payload, timeout):
+            posts.append((path, payload, timeout))
+            if path == "/bots/click-matching-button":
+                return {
+                    "status": "ok",
+                    "button_clicked": True,
+                    "clicked_button_text": "1",
+                    "clicked_message_id": 11,
+                }
+            return {"status": "ok"}
+
+        migrator.api = types.SimpleNamespace(post=post)
+
+        migrator.backfill_source()
+        migrator.click("1", wait_attempts=1)
+        migrator.delete_source([12])
+
+        payloads = {path: payload for path, payload, _timeout in posts}
+        self.assertEqual(
+            8766016058,
+            payloads["/bots/files"]["bot_peer_id"],
+        )
+        self.assertEqual(
+            8766016058,
+            payloads["/bots/click-matching-button"]["bot_peer_id"],
+        )
+        self.assertEqual(
+            "8766016058",
+            payloads["/bots/delete-messages"]["chat_peer"],
+        )
+
     def test_fresh_restart_archives_completed_checkpoint(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             state_path = Path(temporary_directory) / "state.json"
@@ -622,6 +657,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
 
         self.assertEqual("/bots/send", posts[0][0])
         self.assertTrue(posts[0][1]["clear_previous_replies"])
+        self.assertEqual(8766016058, posts[0][1]["bot_peer_id"])
         self.assertEqual(["文件夹"], clicks)
         self.assertEqual([5], navigated)
         self.assertEqual(2711, migrator.state["source_recovery_start_message_id"])

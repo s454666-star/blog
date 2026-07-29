@@ -47,6 +47,7 @@ INVALID_CALLBACK_MIDS: Dict[str, float] = {}
 INVALID_CALLBACK_TTL_SECONDS = 180.0
 
 _PEER_CACHE: Dict[str, Any] = {}
+_BOT_PEER_ALIAS_BY_ID: Dict[int, str] = {}
 
 RECENT_USED_CALLBACK_ACTIONS: Dict[str, float] = {}
 RECENT_USED_CALLBACK_TTL_SECONDS = 45.0
@@ -690,6 +691,11 @@ async def save_message(message: Message, forced_sender_username: Optional[str] =
     if sender:
         sender_username = sender.username
         is_bot = bool(getattr(sender, "bot", False))
+
+    message_chat_id = int(getattr(message, "chat_id", 0) or 0)
+    remembered_sender_username = _BOT_PEER_ALIAS_BY_ID.get(message_chat_id)
+    if not forced_sender_username and remembered_sender_username:
+        forced_sender_username = remembered_sender_username
 
     if forced_sender_username:
         sender_username = forced_sender_username
@@ -2075,31 +2081,64 @@ def _summarize_bot_message(msg: Optional[Dict[str, Any]]) -> Optional[Dict[str, 
         "total_items": total_items,
     }
 
-async def _get_peer_for_bot(bot_username: str):
+def _remember_bot_peer_alias(bot_peer_id: int, bot_username: str) -> None:
+    peer_id = int(bot_peer_id or 0)
+    username = str(bot_username or "").strip()
+    if peer_id > 0 and username:
+        _BOT_PEER_ALIAS_BY_ID[peer_id] = username
+
+
+async def _get_peer_for_bot(bot_username: str, bot_peer_id: int = 0):
     key = str(bot_username or "").strip()
     if not key:
         return None
     if key in _PEER_CACHE:
+        _remember_bot_peer_alias(bot_peer_id, key)
         return _PEER_CACHE[key]
     if not await _ensure_client_connected():
         return None
+    resolve_error: Optional[Exception] = None
     try:
         peer = await client.get_input_entity(key)
         _PEER_CACHE[key] = peer
+        _remember_bot_peer_alias(bot_peer_id, key)
         return peer
     except Exception as e:
+        resolve_error = e
         if _is_disconnected_error(e):
             _PEER_CACHE.pop(key, None)
             if await _ensure_client_connected(force_reconnect=True):
                 try:
                     peer = await client.get_input_entity(key)
                     _PEER_CACHE[key] = peer
+                    _remember_bot_peer_alias(bot_peer_id, key)
                     return peer
                 except Exception as retry_error:
+                    resolve_error = retry_error
                     push_log(stage="peer_resolve", result="retry_error", extra={"bot_username": key, "error": str(retry_error), "trace": traceback.format_exc()[:1200]})
-                    return None
-        push_log(stage="peer_resolve", result="error", extra={"bot_username": key, "error": str(e), "trace": traceback.format_exc()[:1200]})
-        return None
+
+    peer_id = int(bot_peer_id or 0)
+    if peer_id > 0:
+        peer = await _resolve_any_input_entity_by_id(peer_id)
+        if peer is not None:
+            _PEER_CACHE[key] = peer
+            _remember_bot_peer_alias(peer_id, key)
+            push_log(
+                stage="peer_resolve",
+                result="peer_id_fallback",
+                extra={"bot_peer_id": peer_id},
+            )
+            return peer
+
+    push_log(
+        stage="peer_resolve",
+        result="error",
+        extra={
+            "bot_username": key,
+            "error": str(resolve_error) if resolve_error is not None else "",
+        },
+    )
+    return None
 
 
 async def _refresh_peer_for_bot(bot_username: str):
@@ -2124,6 +2163,7 @@ async def _refresh_peer_for_bot(bot_username: str):
 
 async def backfill_latest_from_bot(
     bot_username: str,
+    bot_peer_id: int = 0,
     limit: int = 120,
     timeout_seconds: float = 6.0,
     max_logs: int = 2000,
@@ -2141,7 +2181,7 @@ async def backfill_latest_from_bot(
         return
     _BACKFILL_LAST_AT[key] = now
 
-    peer = await _get_peer_for_bot(bot_username)
+    peer = await _get_peer_for_bot(bot_username, bot_peer_id)
     min_mid = int(min_message_id or 0)
 
     async def _do():
@@ -2187,8 +2227,14 @@ async def backfill_latest_from_bot(
         push_log(stage="backfill", result="error", step=step, extra={"error": str(e)}, max_logs=max_logs)
 
 
-async def click_callback(bot_username: str, chat_id: int, message_id: int, data_hex: str):
-    peer = await _get_peer_for_bot(bot_username)
+async def click_callback(
+    bot_username: str,
+    chat_id: int,
+    message_id: int,
+    data_hex: str,
+    bot_peer_id: int = 0,
+):
+    peer = await _get_peer_for_bot(bot_username, bot_peer_id)
     if peer is None:
         push_log(stage="click_callback", result="no_peer", extra={"bot_username": bot_username, "chat_id": chat_id, "message_id": message_id})
         raise RuntimeError("no peer resolved for bot_username")
@@ -3383,6 +3429,7 @@ async def _background_download_files(
 
 class SendBotMessageRequest(BaseModel):
     bot_username: str
+    bot_peer_id: int = 0
     text: str
     clear_previous_replies: bool = True
 
@@ -3397,6 +3444,7 @@ class UploadBotVideoRequest(BaseModel):
 
 class GetBotFilesRequest(BaseModel):
     bot_username: str
+    bot_peer_id: int = 0
     min_message_id: int = 0
     max_return_files: int = 1000
     max_raw_payload_bytes: int = 0
@@ -3470,12 +3518,22 @@ async def send_message_to_bot(payload: SendBotMessageRequest):
         clear_all_replies()
         clear_invalid_callback_cache()
 
-    sent = await client.send_message(payload.bot_username, payload.text)
+    peer = await _get_peer_for_bot(payload.bot_username, payload.bot_peer_id)
+    if peer is None:
+        return {"status": "error", "reason": "bot_not_found"}
+
+    sent = await client.send_message(peer, payload.text)
     try:
         sent_message_id = int(getattr(sent, "id", 0) or 0)
     except Exception:
         sent_message_id = 0
-    await backfill_latest_from_bot(payload.bot_username, limit=160, timeout_seconds=6.0, force=True)
+    await backfill_latest_from_bot(
+        payload.bot_username,
+        bot_peer_id=payload.bot_peer_id,
+        limit=160,
+        timeout_seconds=6.0,
+        force=True,
+    )
     return {"status": "ok", "sent_message_id": sent_message_id}
 
 
@@ -3499,6 +3557,7 @@ async def get_bot_files(payload: GetBotFilesRequest):
     try:
         await backfill_latest_from_bot(
             bot_username,
+            bot_peer_id=payload.bot_peer_id,
             limit=max(int(payload.backfill_limit or 0), 1),
             timeout_seconds=float(payload.backfill_timeout_seconds or 6.0),
             force=bool(payload.force_backfill),
@@ -8479,6 +8538,7 @@ async def send_and_run_all_pages(payload: SendAndRunAllPagesRequest):
 
 class ClickMatchingButtonRequest(BaseModel):
     bot_username: str
+    bot_peer_id: int = 0
     sent_message_id: int = 0
     clear_previous_replies: bool = False
     delay_seconds: int = 0
@@ -8801,6 +8861,7 @@ async def click_matching_button(payload: ClickMatchingButtonRequest) -> Dict[str
 
         await backfill_latest_from_bot(
             payload.bot_username,
+            bot_peer_id=payload.bot_peer_id,
             limit=420,
             timeout_seconds=6.0,
             max_logs=int(payload.debug_max_logs or 0),
@@ -8890,7 +8951,13 @@ async def click_matching_button(payload: ClickMatchingButtonRequest) -> Dict[str
             files_unique_before = int(files_meta_before.get("files_unique_count", files_meta_before.get("files_count", 0)) or 0)
 
             try:
-                await click_callback(payload.bot_username, chosen_chat_id, chosen_mid, data_hex)
+                await click_callback(
+                    payload.bot_username,
+                    chosen_chat_id,
+                    chosen_mid,
+                    data_hex,
+                    bot_peer_id=payload.bot_peer_id,
+                )
             except MessageIdInvalidError:
                 mark_invalid_callback(payload.bot_username, chosen_chat_id, chosen_mid)
                 mark_recent_used_callback_action(payload.bot_username, chosen_chat_id, chosen_mid, data_hex, marker=marker)
@@ -8932,6 +8999,7 @@ async def click_matching_button(payload: ClickMatchingButtonRequest) -> Dict[str
 
             await backfill_latest_from_bot(
                 payload.bot_username,
+                bot_peer_id=payload.bot_peer_id,
                 limit=420,
                 timeout_seconds=6.0,
                 max_logs=int(payload.debug_max_logs or 0),

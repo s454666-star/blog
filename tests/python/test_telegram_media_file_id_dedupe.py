@@ -27,6 +27,49 @@ SPEC.loader.exec_module(MODULE)
 
 
 class TelegramMediaFileIdDedupeTest(unittest.TestCase):
+    def test_bot_peer_resolution_falls_back_to_durable_peer_id(self):
+        original_client = MODULE.client
+        original_ensure_connected = MODULE._ensure_client_connected
+        original_resolve = MODULE._resolve_any_input_entity_by_id
+        original_cache = dict(MODULE._PEER_CACHE)
+        original_aliases = dict(MODULE._BOT_PEER_ALIAS_BY_ID)
+        resolved_peer = object()
+
+        async def fail_username(_username):
+            raise RuntimeError("username unavailable")
+
+        async def ensure_connected(force_reconnect=False):
+            return True
+
+        async def resolve(peer_id):
+            return resolved_peer if peer_id == 8766016058 else None
+
+        try:
+            MODULE.client = types.SimpleNamespace(get_input_entity=fail_username)
+            MODULE._ensure_client_connected = ensure_connected
+            MODULE._resolve_any_input_entity_by_id = resolve
+            MODULE._PEER_CACHE.clear()
+            MODULE._BOT_PEER_ALIAS_BY_ID.clear()
+
+            peer = asyncio.run(
+                MODULE._get_peer_for_bot("legacy_name", 8766016058)
+            )
+
+            self.assertIs(resolved_peer, peer)
+            self.assertIs(resolved_peer, MODULE._PEER_CACHE["legacy_name"])
+            self.assertEqual(
+                "legacy_name",
+                MODULE._BOT_PEER_ALIAS_BY_ID[8766016058],
+            )
+        finally:
+            MODULE.client = original_client
+            MODULE._ensure_client_connected = original_ensure_connected
+            MODULE._resolve_any_input_entity_by_id = original_resolve
+            MODULE._PEER_CACHE.clear()
+            MODULE._PEER_CACHE.update(original_cache)
+            MODULE._BOT_PEER_ALIAS_BY_ID.clear()
+            MODULE._BOT_PEER_ALIAS_BY_ID.update(original_aliases)
+
     def test_file_id_only_mode_is_explicit(self):
         self.assertEqual(
             "telegram_file_unique_id",

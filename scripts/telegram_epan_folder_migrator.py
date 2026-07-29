@@ -519,6 +519,7 @@ class Migrator:
             "/bots/files",
             {
                 "bot_username": self.args.source_bot,
+                "bot_peer_id": self.args.source_peer_id,
                 "min_message_id": 0,
                 "max_return_files": 1,
                 "max_raw_payload_bytes": 0,
@@ -570,6 +571,7 @@ class Migrator:
                 "/bots/click-matching-button",
                 {
                     "bot_username": self.args.source_bot,
+                    "bot_peer_id": self.args.source_peer_id,
                     "sent_message_id": min_message_id,
                     "clear_previous_replies": False,
                     "button_keywords": keywords,
@@ -681,7 +683,7 @@ class Migrator:
             return
         response = self.api.post(
             "/bots/delete-messages",
-            {"chat_peer": self.args.source_bot, "message_ids": ids},
+            {"chat_peer": str(self.args.source_peer_id), "message_ids": ids},
             timeout=180.0,
         )
         if response.get("status") != "ok" or response.get("remaining_message_ids"):
@@ -1643,6 +1645,7 @@ class Migrator:
             "/bots/send",
             {
                 "bot_username": self.args.source_bot,
+                "bot_peer_id": self.args.source_peer_id,
                 "text": "/start",
                 "clear_previous_replies": True,
             },
@@ -1932,6 +1935,7 @@ class Migrator:
             "/bots/send",
             {
                 "bot_username": self.args.source_bot,
+                "bot_peer_id": self.args.source_peer_id,
                 "text": "/start",
                 "clear_previous_replies": True,
             },

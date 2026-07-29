@@ -73,6 +73,11 @@ class MigrationBlocked(RuntimeError):
     pass
 
 
+TARGET_MEDIA_DELTA_BELOW_COMMITTED = (
+    "target media delta is below committed copied counters"
+)
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -254,17 +259,30 @@ class Migrator:
                 raise MigrationBlocked("checkpoint video target does not match manifest")
             if int(state.get("image_target_peer_id") or 0) != self.image_target_peer_id:
                 raise MigrationBlocked("checkpoint image target does not match manifest")
+            archive_suffix = ""
             if (
                 self.args.fresh
                 and self.args.restart_complete
                 and state.get("status") == "complete"
             ):
-                completed_stamp = datetime.now(timezone.utc).strftime(
+                archive_suffix = "complete"
+            elif (
+                self.args.fresh
+                and getattr(self.args, "restart_target_drift", False)
+                and state.get("status") == "blocked"
+                and state.get("stage") == "verify_target"
+                and state.get("blocked_reason")
+                == TARGET_MEDIA_DELTA_BELOW_COMMITTED
+            ):
+                archive_suffix = "blocked-target-drift"
+
+            if archive_suffix:
+                archive_stamp = datetime.now(timezone.utc).strftime(
                     "%Y%m%dT%H%M%S%fZ"
                 )
-                completed_path = f"{path}.complete-{completed_stamp}"
-                os.replace(path, completed_path)
-                os.chmod(completed_path, 0o600)
+                archive_path = f"{path}.{archive_suffix}-{archive_stamp}"
+                os.replace(path, archive_path)
+                os.chmod(archive_path, 0o600)
             else:
                 self.state = state
                 self.save()
@@ -1986,9 +2004,7 @@ class Migrator:
             or copied_images < 0
             or copied_videos < 0
         ):
-            raise MigrationBlocked(
-                "target media delta is below committed copied counters"
-            )
+            raise MigrationBlocked(TARGET_MEDIA_DELTA_BELOW_COMMITTED)
         return copied_images, copied_videos
 
     def reconcile_exhausted_replay_counters(
@@ -2144,6 +2160,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest-path", default="")
     parser.add_argument("--fresh", action="store_true")
     parser.add_argument("--restart-complete", action="store_true")
+    parser.add_argument("--restart-target-drift", action="store_true")
     parser.add_argument("--source-bot", default="yuanchaungbot")
     parser.add_argument("--source-peer-id", type=int, default=8766016058)
     parser.add_argument("--target-peer-id", type=int, default=3995547485)
@@ -2193,6 +2210,14 @@ def main() -> int:
             file=sys.stderr,
             flush=True,
         )
+        if (
+            migrator is not None
+            and args.fresh
+            and args.restart_target_drift
+            and migrator.state.get("stage") == "verify_target"
+            and str(error) == TARGET_MEDIA_DELTA_BELOW_COMMITTED
+        ):
+            return 75
         return 2
     except Exception as error:
         print(

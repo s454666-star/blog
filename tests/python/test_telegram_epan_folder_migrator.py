@@ -85,6 +85,7 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
                 state_path=str(state_path),
                 fresh=True,
                 restart_complete=True,
+                restart_target_drift=False,
             )
             migrator.manifest = manifest
             migrator.dedupe_scope = "scope"
@@ -99,6 +100,64 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             self.assertEqual(1, len(backups))
             archived = json.loads(backups[0].read_text(encoding="utf-8"))
             self.assertEqual("complete", archived["status"])
+            self.assertEqual("running", state["status"])
+            self.assertEqual("start_first_folder", state["stage"])
+            self.assertEqual(0, state["processed_total"])
+            self.assertEqual(0, state["copied_media"])
+
+    def test_fresh_restart_archives_target_drift_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            state_path = Path(temporary_directory) / "state.json"
+            manifest = {
+                "name": "test",
+                "source_bot": "source",
+                "source_peer_id": 100,
+                "target_peer_id": 200,
+                "video_target_peer_id": 200,
+                "image_target_peer_id": 300,
+                "dedupe_scope": "scope",
+            }
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "stage": "verify_target",
+                        "blocked_reason": MODULE.TARGET_MEDIA_DELTA_BELOW_COMMITTED,
+                        "manifest_name": "test",
+                        "source_bot": "source",
+                        "source_peer_id": 100,
+                        "target_peer_id": 200,
+                        "video_target_peer_id": 200,
+                        "image_target_peer_id": 300,
+                        "dedupe_scope": "scope",
+                        "processed_total": 10,
+                        "copied_media": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            migrator = MODULE.Migrator.__new__(MODULE.Migrator)
+            migrator.args = types.SimpleNamespace(
+                state_path=str(state_path),
+                fresh=True,
+                restart_complete=True,
+                restart_target_drift=True,
+            )
+            migrator.manifest = manifest
+            migrator.dedupe_scope = "scope"
+            migrator.video_target_peer_id = 200
+            migrator.image_target_peer_id = 300
+
+            state = migrator.load_or_initialize_state()
+
+            backups = list(
+                Path(temporary_directory).glob(
+                    "state.json.blocked-target-drift-*"
+                )
+            )
+            self.assertEqual(1, len(backups))
+            archived = json.loads(backups[0].read_text(encoding="utf-8"))
+            self.assertEqual("blocked", archived["status"])
             self.assertEqual("running", state["status"])
             self.assertEqual("start_first_folder", state["stage"])
             self.assertEqual(0, state["processed_total"])

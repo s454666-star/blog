@@ -50,6 +50,29 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
             "duplicate_videos": 5,
         }
 
+    def test_systemd_continuous_flags_cover_both_manifests(self):
+        unit_path = (
+            Path(__file__).resolve().parents[2]
+            / "deploy"
+            / "systemd"
+            / "blog-telegram-epan-migration.service"
+        )
+        exec_start = next(
+            line
+            for line in unit_path.read_text(encoding="utf-8").splitlines()
+            if line.startswith("ExecStart=")
+        )
+
+        for manifest_name in ("original_backup.json", "ygt7319.json"):
+            command = next(
+                part
+                for part in exec_start.split(";")
+                if manifest_name in part
+            )
+            self.assertIn("--fresh", command)
+            self.assertIn("--restart-complete", command)
+            self.assertIn("--restart-target-drift", command)
+
     def test_fresh_restart_archives_completed_checkpoint(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             state_path = Path(temporary_directory) / "state.json"

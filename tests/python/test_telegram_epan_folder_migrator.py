@@ -105,6 +105,43 @@ class TelegramEpanRecoveryTest(unittest.TestCase):
         with self.assertRaises(MODULE.MigrationSourceUnavailable):
             migrator.start_first_folder()
 
+    def test_empty_source_folder_at_recovery_limit_advances_without_counters(self):
+        start_counts = self.folder_start_counts()
+        migrator = bare_migrator(
+            {
+                **start_counts,
+                "status": "running",
+                "stage": "process_page",
+                "folder_index": 8,
+                "folder_expected": 1,
+                "folder_processed": 0,
+                "source_recovery_count": 10,
+                "folder_start_counts": start_counts,
+            }
+        )
+
+        migrator.schedule_folder_control_recovery(
+            "folder_control_missing_next_before_expected_count",
+            46072,
+        )
+
+        self.assertEqual("running", migrator.state["status"])
+        self.assertEqual("advance_folder", migrator.state["stage"])
+        self.assertEqual(1515, migrator.state["processed_total"])
+        self.assertEqual(1475, migrator.state["copied_media"])
+        self.assertEqual(28, migrator.state["duplicate_media"])
+        self.assertEqual(1, migrator.state["unavailable_source_missing_total"])
+        self.assertEqual(
+            [
+                {
+                    "folder_index": 8,
+                    "missing_count": 1,
+                    "recovery_count": 10,
+                }
+            ],
+            migrator.state["unavailable_source_folders"],
+        )
+
     def test_bot_control_requests_include_durable_source_peer_id(self):
         migrator = bare_migrator({"start_message_id": 10})
         posts = []

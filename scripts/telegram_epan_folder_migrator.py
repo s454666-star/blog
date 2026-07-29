@@ -886,6 +886,55 @@ class Migrator:
             )
         recovery_count = int(self.state.get("source_recovery_count") or 0) + 1
         if recovery_count > 10:
+            expected = int(self.state.get("folder_expected") or 0)
+            observed = int(self.state.get("folder_processed") or 0)
+            skippable_empty_reasons = (
+                "initial_page_control_timeout",
+                "folder_control_missing_next_before_expected_count",
+            )
+            if (
+                reason in skippable_empty_reasons
+                and expected > 0
+                and observed == 0
+            ):
+                unavailable_folders = list(
+                    self.state.get("unavailable_source_folders") or []
+                )
+                folder_index = int(self.state.get("folder_index") or 0)
+                if not any(
+                    int(item.get("folder_index") or 0) == folder_index
+                    for item in unavailable_folders
+                    if isinstance(item, dict)
+                ):
+                    unavailable_folders.append(
+                        {
+                            "folder_index": folder_index,
+                            "missing_count": expected,
+                            "recovery_count": recovery_count - 1,
+                        }
+                    )
+                    self.state["unavailable_source_missing_total"] = int(
+                        self.state.get("unavailable_source_missing_total") or 0
+                    ) + expected
+                self.state.update(
+                    {
+                        "status": "running",
+                        "stage": "advance_folder",
+                        "source_recovery_count": recovery_count - 1,
+                        "source_recovery_reason": "source_page_unavailable_at_limit",
+                        "unavailable_source_folders": unavailable_folders,
+                    }
+                )
+                self.state.pop("blocked_reason", None)
+                self.state.pop("blocked_at", None)
+                self.save()
+                self.log(
+                    "source_folder_unavailable_after_recovery_limit",
+                    folder_index=folder_index,
+                    missing_count=expected,
+                    recovery_count=recovery_count - 1,
+                )
+                return
             raise MigrationBlocked(
                 f"folder control recovery exceeded limit for folder {self.state.get('folder_index')}"
             )

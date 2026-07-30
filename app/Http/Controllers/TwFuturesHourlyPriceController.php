@@ -284,26 +284,38 @@ class TwFuturesHourlyPriceController extends Controller
 
     private function currentHistoryRevision(): string
     {
-        $rows = TwFuturesHourlyPrice::query()
-            ->where('symbol', self::SYMBOL)
-            ->whereIn('interval', [self::DAILY_MA_SOURCE_INTERVAL, self::PRIMARY_INTERVAL, '60'])
-            ->select('interval')
-            ->selectRaw('COUNT(*) as row_count, MAX(started_at_unix) as latest_started_at_unix, MAX(updated_at) as last_updated_at')
-            ->groupBy('interval')
-            ->orderBy('interval')
-            ->toBase()
-            ->get();
+        $calculate = function (): string {
+            $rows = TwFuturesHourlyPrice::query()
+                ->where('symbol', self::SYMBOL)
+                ->whereIn('interval', [self::DAILY_MA_SOURCE_INTERVAL, self::PRIMARY_INTERVAL, '60'])
+                ->select('interval')
+                ->selectRaw('COUNT(*) as row_count, MAX(started_at_unix) as latest_started_at_unix, MAX(updated_at) as last_updated_at')
+                ->groupBy('interval')
+                ->orderBy('interval')
+                ->toBase()
+                ->get();
 
-        $fingerprint = $rows
-            ->map(fn (object $row): string => implode('|', [
-                (string) $row->interval,
-                (string) $row->row_count,
-                (string) $row->latest_started_at_unix,
-                (string) $row->last_updated_at,
-            ]))
-            ->implode(';');
+            $fingerprint = $rows
+                ->map(fn (object $row): string => implode('|', [
+                    (string) $row->interval,
+                    (string) $row->row_count,
+                    (string) $row->latest_started_at_unix,
+                    (string) $row->last_updated_at,
+                ]))
+                ->implode(';');
 
-        return sha1($fingerprint);
+            return sha1($fingerprint);
+        };
+
+        if (app()->environment('testing')) {
+            return $calculate();
+        }
+
+        return Cache::remember(
+            'tw-futures-kline:history-revision',
+            now()->addSeconds(15),
+            $calculate,
+        );
     }
 
     /**

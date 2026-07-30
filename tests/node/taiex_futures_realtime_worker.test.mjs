@@ -73,6 +73,8 @@ test('TradingView protocol frames and parses quote updates', () => {
     assert.equal(quote.volume, 12345);
     assert.equal(quote.marketStatus, 'open');
     assert.equal(quote.isTradable, true);
+    assert.equal(quote.quoteAt.toISOString(), receivedAt.toISOString());
+    assert.equal(quote.sourceQuoteAt.toISOString(), new Date(1785386400 * 1000).toISOString());
 });
 
 test('only fresh open-session quotes qualify for a one-second Redis refresh', () => {

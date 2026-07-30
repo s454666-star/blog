@@ -143,12 +143,13 @@ export function quoteFromTradingViewMessage(message, expectedSymbol = DEFAULT_SY
         return null;
     }
 
-    const quoteAt = new Date(quoteAtUnix > 10_000_000_000 ? quoteAtUnix : quoteAtUnix * 1000);
+    const sourceQuoteAt = new Date(quoteAtUnix > 10_000_000_000 ? quoteAtUnix : quoteAtUnix * 1000);
 
     return {
         symbol: expectedSymbol,
         price,
-        quoteAt,
+        quoteAt: receivedAt,
+        sourceQuoteAt,
         receivedAt,
         currentSession: typeof values.current_session === 'string' ? values.current_session : null,
         marketStatus: typeof values.market_status === 'string' ? values.market_status : null,
@@ -179,6 +180,7 @@ export function realtimeRedisPayload(quote, now = new Date()) {
         price: quote.price,
         volume: quote.volume,
         quote_at: quote.quoteAt.toISOString(),
+        source_quote_at: quote.sourceQuoteAt?.toISOString() || null,
         received_at: quote.receivedAt.toISOString(),
         written_at: now.toISOString(),
         session: marketSession(now),

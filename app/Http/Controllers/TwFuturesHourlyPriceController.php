@@ -30,10 +30,11 @@ class TwFuturesHourlyPriceController extends Controller
     public function index(): View
     {
         $realtimeQuote = $this->realtimeQuote();
-        $dataRevision = $this->currentDataRevision($realtimeQuote);
+        $historyRevision = $this->currentHistoryRevision();
+        $dataRevision = $this->currentDataRevision($realtimeQuote, $historyRevision);
 
         return view('tw-stock.taiex-futures-kline', [
-            ...$this->chartPayload($dataRevision, $realtimeQuote),
+            ...$this->chartPayload($dataRevision, $realtimeQuote, $historyRevision),
             'dataUrl' => route('tw-stock.taiex-futures.kline.data'),
         ]);
     }
@@ -41,15 +42,29 @@ class TwFuturesHourlyPriceController extends Controller
     public function data(Request $request): JsonResponse
     {
         $realtimeQuote = $this->realtimeQuote();
-        $dataRevision = $this->currentDataRevision($realtimeQuote);
+        $historyRevision = $this->currentHistoryRevision();
+        $dataRevision = $this->currentDataRevision($realtimeQuote, $historyRevision);
         if ($request->query('revision') === $dataRevision) {
             return $this->noStoreJson([
                 'unchanged' => true,
                 'dataRevision' => $dataRevision,
+                'historyRevision' => $historyRevision,
             ]);
         }
 
-        return $this->noStoreJson($this->chartPayload($dataRevision, $realtimeQuote));
+        $payload = $this->chartPayload($dataRevision, $realtimeQuote, $historyRevision);
+        if ($request->query('history_revision') === $historyRevision) {
+            return $this->noStoreJson([
+                'realtimeDelta' => true,
+                'dataRevision' => $dataRevision,
+                'historyRevision' => $historyRevision,
+                'latestChartRow' => $payload['chartRows'][array_key_last($payload['chartRows'])] ?? null,
+                'stats' => $payload['stats'],
+                'realtimeQuote' => $payload['realtimeQuote'],
+            ]);
+        }
+
+        return $this->noStoreJson($payload);
     }
 
     /**
@@ -134,7 +149,11 @@ class TwFuturesHourlyPriceController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function chartPayload(?string $dataRevision = null, ?array $realtimeQuote = null): array
+    private function chartPayload(
+        ?string $dataRevision = null,
+        ?array $realtimeQuote = null,
+        ?string $historyRevision = null,
+    ): array
     {
         $rows = $this->priceRows(self::SYMBOL, self::PRIMARY_INTERVAL);
         $fiveMinuteRows = $this->priceRows(self::SYMBOL, self::DAILY_MA_SOURCE_INTERVAL);
@@ -148,6 +167,7 @@ class TwFuturesHourlyPriceController extends Controller
 
         $payload = [
             'dataRevision' => $dataRevision ?? $this->currentDataRevision(),
+            'historyRevision' => $historyRevision ?? $this->currentHistoryRevision(),
             'latest' => $latest,
             'chartRows' => $indicatorRows['chartRows'],
             'dailyChartRows' => $indicatorRows['dailyChartRows'],
@@ -195,7 +215,19 @@ class TwFuturesHourlyPriceController extends Controller
     /**
      * @param array<string, mixed>|null $realtimeQuote
      */
-    private function currentDataRevision(?array $realtimeQuote = null): string
+    private function currentDataRevision(
+        ?array $realtimeQuote = null,
+        ?string $historyRevision = null,
+    ): string
+    {
+        return sha1(
+            ($historyRevision ?? $this->currentHistoryRevision())
+            . '|realtime:'
+            . (string) ($realtimeQuote['writtenAt'] ?? ''),
+        );
+    }
+
+    private function currentHistoryRevision(): string
     {
         $rows = TwFuturesHourlyPrice::query()
             ->where('symbol', self::SYMBOL)
@@ -216,7 +248,7 @@ class TwFuturesHourlyPriceController extends Controller
             ]))
             ->implode(';');
 
-        return sha1($fingerprint . '|realtime:' . (string) ($realtimeQuote['writtenAt'] ?? ''));
+        return sha1($fingerprint);
     }
 
     /**

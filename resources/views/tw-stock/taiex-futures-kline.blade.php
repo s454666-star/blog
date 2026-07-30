@@ -547,6 +547,7 @@
     let futuresRefreshInFlight = false;
     let lastFuturesRefreshStartedAt = Date.now();
     let futuresDataRevision = @json($dataRevision);
+    let futuresHistoryRevision = @json($historyRevision);
     const FUTURES_REFRESH_INTERVAL_MS = 1000;
     const FUTURES_REFRESH_VISIBLE_GRACE_MS = 750;
     const GAP_AXIS_MIN_SCALE = 0.35;
@@ -1663,11 +1664,17 @@
     }
 
     function applyFuturesPayload(payload) {
+        if (payload?.realtimeDelta) {
+            applyRealtimeDelta(payload);
+            return;
+        }
+
         if (!payload || !Array.isArray(payload.chartRows)) {
             return;
         }
 
         futuresDataRevision = payload.dataRevision ?? futuresDataRevision;
+        futuresHistoryRevision = payload.historyRevision ?? futuresHistoryRevision;
         setArrayContents(chartRows, payload.chartRows);
         setArrayContents(dailyChartRows, payload.dailyChartRows);
         setArrayContents(gapMarkers, payload.gapMarkers);
@@ -1677,6 +1684,49 @@
         updateSummary(payload.stats || {}, payload.realtimeQuote || null);
         updateSessionGapList(payload.sessionGapRows || []);
         applyTimeframe(activeTimeframe);
+    }
+
+    function applyRealtimeDelta(payload) {
+        const row = payload?.latestChartRow;
+        if (!row || row.time === undefined || row.time === null) {
+            return;
+        }
+
+        futuresDataRevision = payload.dataRevision ?? futuresDataRevision;
+        futuresHistoryRevision = payload.historyRevision ?? futuresHistoryRevision;
+        const latestIndex = chartRows.length - 1;
+        if (latestIndex >= 0 && Number(chartRows[latestIndex].time) === Number(row.time)) {
+            chartRows[latestIndex] = row;
+        } else {
+            chartRows.push(row);
+        }
+
+        updateSummary(payload.stats || {}, payload.realtimeQuote || null);
+        if (activeTimeframe !== 'fifteen-minute') {
+            return;
+        }
+
+        currentRows = chartRows;
+        legendMap.set(Number(row.time), row);
+        candleSeries.update(candleData([row])[0]);
+        volumeSeries.update(volumeData([row])[0]);
+        const movingAveragePoint = lineData([row], 'movingAverage')[0];
+        const dailyMa5Point = lineData([row], 'dailyMa5')[0];
+        const gapPoint = lineData([row], 'gap')[0];
+        const biasPoint = lineData([row], 'bias')[0];
+        const biasRatePoint = lineData([row], 'biasRate')[0];
+        const gapZeroPoint = gapZeroData([row])[0];
+        if (movingAveragePoint) movingAverageSeries.update(movingAveragePoint);
+        if (dailyMa5Point) dailyMa5Series.update(dailyMa5Point);
+        if (gapPoint) {
+            gapSeries.update(gapPoint);
+            gapHistogramSeries.update(gapHistogramData([gapPoint])[0]);
+        }
+        if (biasPoint) biasSeries.update(biasPoint);
+        if (biasRatePoint) biasRateSeries.update(biasRatePoint);
+        if (gapZeroPoint) gapZeroSeries.update(gapZeroPoint);
+        updateLegend(row);
+        refreshGapAxisScale();
     }
 
     async function refreshFuturesData(force = false) {
@@ -1697,6 +1747,9 @@
             url.searchParams.set('_', String(now));
             if (futuresDataRevision) {
                 url.searchParams.set('revision', futuresDataRevision);
+            }
+            if (futuresHistoryRevision) {
+                url.searchParams.set('history_revision', futuresHistoryRevision);
             }
             const response = await fetch(url.toString(), {
                 headers: { 'Accept': 'application/json' },

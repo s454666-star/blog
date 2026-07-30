@@ -480,12 +480,18 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $secondResponse = $this->getJson(route('tw-stock.taiex-futures.kline.data', [
             'revision' => $firstResponse->json('dataRevision'),
+            'history_revision' => $firstResponse->json('historyRevision'),
         ]));
         $secondResponse
             ->assertOk()
             ->assertJsonMissing(['unchanged' => true])
+            ->assertJsonPath('realtimeDelta', true)
             ->assertJsonPath('stats.latestClose', 30125)
             ->assertJsonPath('realtimeQuote.price', 30125);
+        $this->assertCount(1, array_filter([
+            $secondResponse->json('latestChartRow'),
+        ]));
+        $this->assertNull($secondResponse->json('chartRows'));
         $this->assertNotSame(
             $firstResponse->json('dataRevision'),
             $secondResponse->json('dataRevision'),

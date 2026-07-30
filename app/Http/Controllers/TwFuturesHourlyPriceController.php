@@ -157,22 +157,6 @@ class TwFuturesHourlyPriceController extends Controller
         ?string $historyRevision = null,
     ): array
     {
-        $cacheKey = $historyRevision === null
-            ? null
-            : 'tw-futures-kline:history-payload:' . $historyRevision;
-        if ($cacheKey !== null) {
-            $cachedPayload = Cache::get($cacheKey);
-            if (is_array($cachedPayload)) {
-                $cachedPayload['dataRevision'] = $dataRevision ?? $this->currentDataRevision();
-                $cachedPayload['historyRevision'] = $historyRevision;
-                $cachedPayload['realtimeQuote'] = null;
-
-                return $realtimeQuote === null
-                    ? $cachedPayload
-                    : $this->applyRealtimeQuote($cachedPayload, $realtimeQuote);
-            }
-        }
-
         $rows = $this->priceRows(self::SYMBOL, self::PRIMARY_INTERVAL);
         $fiveMinuteRows = $this->priceRows(self::SYMBOL, self::DAILY_MA_SOURCE_INTERVAL);
         $hourlyRows = $this->priceRows(self::SYMBOL, '60');
@@ -215,8 +199,18 @@ class TwFuturesHourlyPriceController extends Controller
             'realtimeQuote' => null,
         ];
 
-        if ($cacheKey !== null) {
-            Cache::put($cacheKey, $payload, now()->addHours(2));
+        if ($historyRevision !== null) {
+            Cache::put(
+                'tw-futures-kline:realtime-base:' . $historyRevision,
+                [
+                    'chartRows' => array_slice(
+                        $payload['chartRows'],
+                        -self::FIFTEEN_MINUTE_MA_WINDOW,
+                    ),
+                    'stats' => $payload['stats'],
+                ],
+                now()->addHours(2),
+            );
         }
 
         return $realtimeQuote === null

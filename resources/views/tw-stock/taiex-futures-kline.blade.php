@@ -1683,7 +1683,7 @@
         setArrayContents(hourlyGapMarkers, payload.hourlyGapMarkers);
         updateSummary(payload.stats || {}, payload.realtimeQuote || null);
         updateSessionGapList(payload.sessionGapRows || []);
-        applyTimeframe(activeTimeframe);
+        applyTimeframe(activeTimeframe, { preserveVisibleRange: true });
     }
 
     function applyRealtimeDelta(payload) {
@@ -1811,7 +1811,38 @@
         updateLegend(legendMap.get(Number(param.time)) || currentRows[currentRows.length - 1]);
     });
 
-    function applyTimeframe(timeframe) {
+    function restoreVisibleLogicalRange(range) {
+        if (range === null || lastLogicalIndex < 0) {
+            showLatest();
+            return;
+        }
+
+        const span = range.to - range.from;
+        if (!Number.isFinite(span) || span <= 0) {
+            showLatest();
+            return;
+        }
+
+        let from = range.from;
+        let to = range.to;
+        const maxRight = maxRightLogicalIndex();
+        if (to > maxRight) {
+            to = maxRight;
+            from = to - span;
+        }
+        if (from < 0) {
+            from = 0;
+            to = Math.min(maxRight, span);
+        }
+
+        chart.timeScale().setVisibleLogicalRange({ from, to });
+        scheduleMarkerLabelRender();
+    }
+
+    function applyTimeframe(timeframe, { preserveVisibleRange = false } = {}) {
+        const visibleLogicalRange = preserveVisibleRange
+            ? chart.timeScale().getVisibleLogicalRange()
+            : null;
         const dataset = timeframeDatasets[timeframe] ?? timeframeDatasets['fifteen-minute'];
         activeTimeframe = timeframeDatasets[timeframe] ? timeframe : 'fifteen-minute';
         currentRows = dataset.rows;
@@ -1843,7 +1874,11 @@
 
         applySeriesVisibility();
         updateLegend();
-        showLatest();
+        if (preserveVisibleRange) {
+            restoreVisibleLogicalRange(visibleLogicalRange);
+        } else {
+            showLatest();
+        }
         scheduleMarkerLabelRender();
     }
 

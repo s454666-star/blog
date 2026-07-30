@@ -2,6 +2,7 @@
 
 return [
     'annual_financial_comparisons_schedule_enabled' => env('TW_STOCK_ANNUAL_COMPARISONS_SCHEDULE_ENABLED'),
+    'taiex_futures_tradingview_auth_token' => env('TRADINGVIEW_AUTH_TOKEN'),
     'taiex_futures_four_hour_ma5_notify_times' => [
         '08:45',
         '12:45',

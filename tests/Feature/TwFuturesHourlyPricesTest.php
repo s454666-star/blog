@@ -1222,6 +1222,48 @@ class TwFuturesHourlyPricesTest extends TestCase
         );
     }
 
+    public function test_futures_fetcher_uses_configured_unexpired_tradingview_auth_token(): void
+    {
+        $token = implode('.', [
+            rtrim(strtr(base64_encode('{}'), '+/', '-_'), '='),
+            rtrim(strtr(base64_encode(json_encode([
+                'exp' => CarbonImmutable::parse('2026-05-25 15:00:00', 'UTC')->timestamp,
+            ], JSON_THROW_ON_ERROR)), '+/', '-_'), '='),
+            'test-signature',
+        ]);
+        config()->set('tw_stock.taiex_futures_tradingview_auth_token', $token);
+
+        $fetcher = app(TwFuturesHourlyPriceFetcher::class);
+        $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'tradingViewAuthContext');
+        $method->setAccessible(true);
+        $context = $method->invoke($fetcher);
+
+        $this->assertSame($token, $context['token']);
+        $this->assertSame('authenticated', $context['mode']);
+        $this->assertSame('2026-05-25T15:00:00+00:00', $context['expires_at']);
+    }
+
+    public function test_futures_fetcher_rejects_expired_tradingview_auth_token(): void
+    {
+        $token = implode('.', [
+            rtrim(strtr(base64_encode('{}'), '+/', '-_'), '='),
+            rtrim(strtr(base64_encode(json_encode([
+                'exp' => CarbonImmutable::parse('2026-05-25 13:00:00', 'UTC')->timestamp,
+            ], JSON_THROW_ON_ERROR)), '+/', '-_'), '='),
+            'test-signature',
+        ]);
+        config()->set('tw_stock.taiex_futures_tradingview_auth_token', $token);
+
+        $fetcher = app(TwFuturesHourlyPriceFetcher::class);
+        $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'tradingViewAuthContext');
+        $method->setAccessible(true);
+        $context = $method->invoke($fetcher);
+
+        $this->assertSame('unauthorized_user_token', $context['token']);
+        $this->assertSame('anonymous_expired_token', $context['mode']);
+        $this->assertSame('2026-05-25T13:00:00+00:00', $context['expires_at']);
+    }
+
     public function test_futures_continuous_contract_rolls_on_expiration_date(): void
     {
         $command = new BackfillTwFuturesContinuousPricesCommand();

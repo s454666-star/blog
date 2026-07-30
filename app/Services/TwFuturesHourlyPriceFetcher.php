@@ -15,6 +15,10 @@ class TwFuturesHourlyPriceFetcher
 
     private const TRADINGVIEW_SOCKET_PORT = 443;
 
+    private const TRADINGVIEW_ANONYMOUS_TOKEN = 'unauthorized_user_token';
+
+    private const TRADINGVIEW_AUTH_EXPIRY_SKEW_SECONDS = 60;
+
     private const SOURCE_NAME = 'TradingView chart websocket';
 
     private const SOURCE_QUOTE_NAME = 'TAIFEX official quote snapshot';
@@ -71,6 +75,9 @@ class TwFuturesHourlyPriceFetcher
         if (!is_array($series)) {
             return [];
         }
+        $tradingViewAuthentication = is_array($payload['_tradingview_auth'] ?? null)
+            ? $payload['_tradingview_auth']
+            : ['mode' => 'anonymous'];
 
         $rows = [];
         foreach ($series as $index => $item) {
@@ -113,6 +120,8 @@ class TwFuturesHourlyPriceFetcher
                     'tradingview_symbol' => $tradingViewSymbol,
                     'interval' => $interval,
                     'series_index' => (int) ($item['i'] ?? $index),
+                    'tradingview_auth_mode' => (string) ($tradingViewAuthentication['mode'] ?? 'anonymous'),
+                    'tradingview_auth_expires_at' => $tradingViewAuthentication['expires_at'] ?? null,
                 ],
                 'fetched_at' => now(),
             ];
@@ -441,18 +450,116 @@ class TwFuturesHourlyPriceFetcher
         ?CarbonImmutable $fromDate,
     ): array
     {
+        $authentication = $this->tradingViewAuthContext();
         $cacheKey = 'tw-futures:prices:tradingview:v2:' . sha1(serialize([
             $tradingViewSymbol,
             $interval,
             $bars,
             $fromDate?->toDateString(),
+            $authentication['mode'],
+            sha1($authentication['token']),
         ]));
 
         return Cache::remember(
             $cacheKey,
             $interval === '60' ? now()->addMinutes(8) : now()->addSeconds(30),
-            fn (): array => $this->fetchTradingViewTimescaleUncached($tradingViewSymbol, $interval, $bars, $fromDate),
+            function () use ($tradingViewSymbol, $interval, $bars, $fromDate, $authentication): array {
+                try {
+                    $payload = $this->fetchTradingViewTimescaleUncached(
+                        $tradingViewSymbol,
+                        $interval,
+                        $bars,
+                        $fromDate,
+                        $authentication['token'],
+                    );
+                    $payload['_tradingview_auth'] = [
+                        'mode' => $authentication['mode'],
+                        'expires_at' => $authentication['expires_at'],
+                    ];
+
+                    return $payload;
+                } catch (Throwable $exception) {
+                    if ($authentication['mode'] !== 'authenticated') {
+                        throw $exception;
+                    }
+
+                    $payload = $this->fetchTradingViewTimescaleUncached(
+                        $tradingViewSymbol,
+                        $interval,
+                        $bars,
+                        $fromDate,
+                        self::TRADINGVIEW_ANONYMOUS_TOKEN,
+                    );
+                    $payload['_tradingview_auth'] = [
+                        'mode' => 'anonymous_fallback',
+                        'expires_at' => null,
+                    ];
+
+                    return $payload;
+                }
+            },
         );
+    }
+
+    /**
+     * @return array{token: string, mode: string, expires_at: string|null}
+     */
+    private function tradingViewAuthContext(): array
+    {
+        $token = trim((string) config('tw_stock.taiex_futures_tradingview_auth_token', ''));
+        if ($token === '') {
+            return [
+                'token' => self::TRADINGVIEW_ANONYMOUS_TOKEN,
+                'mode' => 'anonymous',
+                'expires_at' => null,
+            ];
+        }
+
+        $expiresAt = $this->tradingViewAuthTokenExpiresAt($token);
+        if (
+            $expiresAt !== null
+            && $expiresAt->lessThanOrEqualTo(CarbonImmutable::now('UTC')->addSeconds(self::TRADINGVIEW_AUTH_EXPIRY_SKEW_SECONDS))
+        ) {
+            return [
+                'token' => self::TRADINGVIEW_ANONYMOUS_TOKEN,
+                'mode' => 'anonymous_expired_token',
+                'expires_at' => $expiresAt->toIso8601String(),
+            ];
+        }
+
+        return [
+            'token' => $token,
+            'mode' => 'authenticated',
+            'expires_at' => $expiresAt?->toIso8601String(),
+        ];
+    }
+
+    private function tradingViewAuthTokenExpiresAt(string $token): ?CarbonImmutable
+    {
+        $parts = explode('.', $token);
+        if (count($parts) !== 3) {
+            return null;
+        }
+
+        $encodedPayload = strtr($parts[1], '-_', '+/');
+        $encodedPayload .= str_repeat('=', (4 - strlen($encodedPayload) % 4) % 4);
+        $decodedPayload = base64_decode($encodedPayload, true);
+        if ($decodedPayload === false) {
+            return null;
+        }
+
+        try {
+            $payload = json_decode($decodedPayload, true, 8, JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            return null;
+        }
+
+        $expiresAtUnix = filter_var($payload['exp'] ?? null, FILTER_VALIDATE_INT);
+        if ($expiresAtUnix === false || $expiresAtUnix <= 0) {
+            return null;
+        }
+
+        return CarbonImmutable::createFromTimestamp($expiresAtUnix, 'UTC');
     }
 
     /**
@@ -463,6 +570,7 @@ class TwFuturesHourlyPriceFetcher
         string $interval,
         int $bars,
         ?CarbonImmutable $fromDate,
+        string $authToken,
     ): array
     {
         $socket = $this->openTradingViewSocket();
@@ -475,7 +583,7 @@ class TwFuturesHourlyPriceFetcher
                 'session' => 'extended',
             ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
-            $this->sendTradingViewMessage($socket, 'set_auth_token', ['unauthorized_user_token']);
+            $this->sendTradingViewMessage($socket, 'set_auth_token', [$authToken]);
             $this->sendTradingViewMessage($socket, 'chart_create_session', [$chartSession, '']);
             $this->sendTradingViewMessage($socket, 'resolve_symbol', [$chartSession, 'symbol_1', $symbolPayload]);
             $this->sendTradingViewMessage($socket, 'create_series', [$chartSession, 's1', 's1', 'symbol_1', $interval, max(1, $bars)]);
@@ -518,7 +626,7 @@ class TwFuturesHourlyPriceFetcher
 
                     foreach ($this->tradingViewMessages($payload) as $message) {
                         $method = (string) ($message['m'] ?? '');
-                        if (in_array($method, ['critical_error', 'symbol_error'], true)) {
+                        if (in_array($method, ['critical_error', 'protocol_error', 'symbol_error'], true)) {
                             throw new RuntimeException('TradingView 回應錯誤：' . json_encode($message['p'] ?? [], JSON_UNESCAPED_UNICODE));
                         }
 

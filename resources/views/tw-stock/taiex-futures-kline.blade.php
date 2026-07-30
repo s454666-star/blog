@@ -457,8 +457,9 @@
             <div class="value {{ $tone($stats['latestBiasRate']) }}" data-summary-field="latestBiasRate">{{ $signedPercent($stats['latestBiasRate'], 2) }}</div>
         </div>
         <div class="summary-cell">
-            <div class="label">最新收盤</div>
-            <div class="value" data-summary-field="latestClose">{{ $latest ? $fmt($latest->close_price, 0) : '--' }}</div>
+            <div class="label">最新價</div>
+            <div class="value" data-summary-field="latestClose">{{ $fmt($stats['latestClose'], 0) }}</div>
+            <div class="label" data-summary-field="realtimeQuoteAt">{{ $realtimeQuote ? 'Redis ' . $realtimeQuote['quoteLocalTime'] : '歷史 K 線' }}</div>
         </div>
         <div class="summary-cell">
             <div class="label">日 MA5</div>
@@ -546,8 +547,8 @@
     let futuresRefreshInFlight = false;
     let lastFuturesRefreshStartedAt = Date.now();
     let futuresDataRevision = @json($dataRevision);
-    const FUTURES_REFRESH_INTERVAL_MS = 60000;
-    const FUTURES_REFRESH_VISIBLE_GRACE_MS = 10000;
+    const FUTURES_REFRESH_INTERVAL_MS = 1000;
+    const FUTURES_REFRESH_VISIBLE_GRACE_MS = 750;
     const GAP_AXIS_MIN_SCALE = 0.35;
     const GAP_AXIS_MAX_SCALE = 4;
     const GAP_AXIS_DRAG_SENSITIVITY = 180;
@@ -1559,7 +1560,8 @@
         latestDailyMa5: document.querySelector('[data-summary-field="latestDailyMa5"]'),
         latestMovingAverage: document.querySelector('[data-summary-field="latestMovingAverage"]'),
         maxGap: document.querySelector('[data-summary-field="maxGap"]'),
-        minGap: document.querySelector('[data-summary-field="minGap"]')
+        minGap: document.querySelector('[data-summary-field="minGap"]'),
+        realtimeQuoteAt: document.querySelector('[data-summary-field="realtimeQuoteAt"]')
     };
     const sessionGapList = document.querySelector('[data-session-gap-list]');
 
@@ -1614,7 +1616,7 @@
         }
     }
 
-    function updateSummary(stats = {}) {
+    function updateSummary(stats = {}, realtimeQuote = null) {
         updateRangeSummary(stats);
         updateValueSummary('latestGap', stats.latestGap, { signed: true, tone: 'value' });
         updateValueSummary('latestBias', stats.latestBias, { signed: true, tone: 'value' });
@@ -1624,6 +1626,11 @@
         updateValueSummary('latestMovingAverage', stats.latestMovingAverage);
         updateValueSummary('maxGap', stats.maxGap, { signed: true, tone: 'positive' });
         updateValueSummary('minGap', stats.minGap, { signed: true, tone: 'negative' });
+        if (summaryFields.realtimeQuoteAt) {
+            summaryFields.realtimeQuoteAt.textContent = realtimeQuote?.quoteLocalTime
+                ? `Redis ${realtimeQuote.quoteLocalTime}`
+                : '歷史 K 線';
+        }
     }
 
     function updateSessionGapList(rows = []) {
@@ -1667,7 +1674,7 @@
         setArrayContents(dailyGapMarkers, payload.dailyGapMarkers);
         setArrayContents(hourlyChartRows, payload.hourlyChartRows);
         setArrayContents(hourlyGapMarkers, payload.hourlyGapMarkers);
-        updateSummary(payload.stats || {});
+        updateSummary(payload.stats || {}, payload.realtimeQuote || null);
         updateSessionGapList(payload.sessionGapRows || []);
         applyTimeframe(activeTimeframe);
     }

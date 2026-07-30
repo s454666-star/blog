@@ -142,6 +142,17 @@ return [
             'database' => env('REDIS_CACHE_DB', '1'),
         ],
 
+        'taiex_realtime' => [
+            'url' => env('TAIEX_FUTURES_REALTIME_REDIS_URL', env('REDIS_URL')),
+            'host' => env('TAIEX_FUTURES_REALTIME_REDIS_HOST', env('REDIS_HOST', '127.0.0.1')),
+            'password' => env('TAIEX_FUTURES_REALTIME_REDIS_PASSWORD', env('REDIS_PASSWORD')),
+            'port' => env('TAIEX_FUTURES_REALTIME_REDIS_PORT', env('REDIS_PORT', '6379')),
+            'database' => env('TAIEX_FUTURES_REALTIME_REDIS_DB', env('REDIS_DB', '0')),
+            'options' => [
+                'prefix' => '',
+            ],
+        ],
+
         'resource_codes' => [
             'url' => env('TELEGRAM_RESOURCE_CODE_REDIS_URL'),
             'host' => env('TELEGRAM_RESOURCE_CODE_REDIS_HOST', env('REDIS_HOST', '127.0.0.1')),

@@ -1,0 +1,19 @@
+[Unit]
+Description=Blog Taiex Futures Redis to MySQL realtime consumer
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/blog
+ExecStart=/usr/bin/php /var/www/html/blog/artisan tw-stock:consume-taiex-futures-realtime --watch --interval-ms=1000
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

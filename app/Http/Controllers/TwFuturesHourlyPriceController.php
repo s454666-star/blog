@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\TwFuturesHourlyPrice;
+use App\Services\TwFuturesRealtimeQuoteService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Throwable;
 
 class TwFuturesHourlyPriceController extends Controller
 {
@@ -27,17 +29,19 @@ class TwFuturesHourlyPriceController extends Controller
 
     public function index(): View
     {
-        $dataRevision = $this->currentDataRevision();
+        $realtimeQuote = $this->realtimeQuote();
+        $dataRevision = $this->currentDataRevision($realtimeQuote);
 
         return view('tw-stock.taiex-futures-kline', [
-            ...$this->chartPayload($dataRevision),
+            ...$this->chartPayload($dataRevision, $realtimeQuote),
             'dataUrl' => route('tw-stock.taiex-futures.kline.data'),
         ]);
     }
 
     public function data(Request $request): JsonResponse
     {
-        $dataRevision = $this->currentDataRevision();
+        $realtimeQuote = $this->realtimeQuote();
+        $dataRevision = $this->currentDataRevision($realtimeQuote);
         if ($request->query('revision') === $dataRevision) {
             return $this->noStoreJson([
                 'unchanged' => true,
@@ -45,7 +49,7 @@ class TwFuturesHourlyPriceController extends Controller
             ]);
         }
 
-        return $this->noStoreJson($this->chartPayload($dataRevision));
+        return $this->noStoreJson($this->chartPayload($dataRevision, $realtimeQuote));
     }
 
     /**
@@ -130,7 +134,7 @@ class TwFuturesHourlyPriceController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function chartPayload(?string $dataRevision = null): array
+    private function chartPayload(?string $dataRevision = null, ?array $realtimeQuote = null): array
     {
         $rows = $this->priceRows(self::SYMBOL, self::PRIMARY_INTERVAL);
         $fiveMinuteRows = $this->priceRows(self::SYMBOL, self::DAILY_MA_SOURCE_INTERVAL);
@@ -142,7 +146,7 @@ class TwFuturesHourlyPriceController extends Controller
         $latest = $rows->last();
         $latestFiveMinute = $fiveMinuteRows->last();
 
-        return [
+        $payload = [
             'dataRevision' => $dataRevision ?? $this->currentDataRevision(),
             'latest' => $latest,
             'chartRows' => $indicatorRows['chartRows'],
@@ -170,7 +174,12 @@ class TwFuturesHourlyPriceController extends Controller
                 'minGap' => $indicatorRows['minGap'],
                 'sessionGapCount' => count($indicatorRows['sessionGapRows']),
             ],
+            'realtimeQuote' => null,
         ];
+
+        return $realtimeQuote === null
+            ? $payload
+            : $this->applyRealtimeQuote($payload, $realtimeQuote);
     }
 
     /**
@@ -183,7 +192,10 @@ class TwFuturesHourlyPriceController extends Controller
             ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     }
 
-    private function currentDataRevision(): string
+    /**
+     * @param array<string, mixed>|null $realtimeQuote
+     */
+    private function currentDataRevision(?array $realtimeQuote = null): string
     {
         $rows = TwFuturesHourlyPrice::query()
             ->where('symbol', self::SYMBOL)
@@ -204,7 +216,166 @@ class TwFuturesHourlyPriceController extends Controller
             ]))
             ->implode(';');
 
-        return sha1($fingerprint);
+        return sha1($fingerprint . '|realtime:' . (string) ($realtimeQuote['writtenAt'] ?? ''));
+    }
+
+    /**
+     * @return array{price: float, quotedAt: CarbonImmutable, writtenAt: string, source: string, authMode: string}|null
+     */
+    private function realtimeQuote(): ?array
+    {
+        return app(TwFuturesRealtimeQuoteService::class)->latestFresh();
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @param array{
+     *     price: float,
+     *     volume: int|null,
+     *     quotedAt: CarbonImmutable,
+     *     writtenAt: string,
+     *     barStartedAt: CarbonImmutable,
+     *     barOpen: float,
+     *     barHigh: float,
+     *     barLow: float,
+     *     source: string,
+     *     authMode: string
+     * } $realtimeQuote
+     * @return array<string, mixed>
+     */
+    private function applyRealtimeQuote(array $payload, array $realtimeQuote): array
+    {
+        $liveRow = $this->realtimeChartRow($payload, $realtimeQuote);
+        if ($liveRow === null) {
+            return $payload;
+        }
+
+        $price = $realtimeQuote['price'];
+        $replaceLatest = ($liveRow['_replaceLatest'] ?? false) === true;
+        unset($liveRow['_replaceLatest']);
+        if ($replaceLatest) {
+            $latestIndex = array_key_last($payload['chartRows']);
+            $payload['chartRows'][$latestIndex] = $liveRow;
+        } else {
+            $payload['chartRows'][] = $liveRow;
+        }
+        $payload['stats']['lastDateTime'] = $liveRow['localTime'];
+        $payload['stats']['latestClose'] = round($price, 2);
+        $payload['stats']['latestGap'] = $liveRow['gap'];
+        $payload['stats']['latestDailyMa5'] = $liveRow['dailyMa5'];
+        $payload['stats']['latestMovingAverage'] = $liveRow['movingAverage'];
+        $payload['stats']['latestBias'] = $liveRow['bias'];
+        $payload['stats']['latestBiasRate'] = $liveRow['biasRate'];
+        if (is_numeric($liveRow['gap'])) {
+            $payload['stats']['maxGap'] = is_numeric($payload['stats']['maxGap'])
+                ? max((float) $payload['stats']['maxGap'], (float) $liveRow['gap'])
+                : (float) $liveRow['gap'];
+            $payload['stats']['minGap'] = is_numeric($payload['stats']['minGap'])
+                ? min((float) $payload['stats']['minGap'], (float) $liveRow['gap'])
+                : (float) $liveRow['gap'];
+        }
+        $payload['realtimeQuote'] = [
+            'price' => round($price, 2),
+            'quoteLocalTime' => $realtimeQuote['quotedAt']->format('Y-m-d H:i:s'),
+            'writtenAt' => $realtimeQuote['writtenAt'],
+            'source' => $realtimeQuote['source'],
+            'authMode' => $realtimeQuote['authMode'],
+        ];
+
+        return $payload;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @param array{
+     *     price: float,
+     *     volume: int|null,
+     *     quotedAt: CarbonImmutable,
+     *     writtenAt: string,
+     *     barStartedAt: CarbonImmutable,
+     *     barOpen: float,
+     *     barHigh: float,
+     *     barLow: float,
+     *     source: string,
+     *     authMode: string
+     * } $realtimeQuote
+     * @return array<string, mixed>|null
+     */
+    private function realtimeChartRow(array $payload, array $realtimeQuote): ?array
+    {
+        $rows = $payload['chartRows'] ?? null;
+        if (! is_array($rows) || $rows === []) {
+            return null;
+        }
+
+        $barStartedAt = $realtimeQuote['barStartedAt'];
+        $barEndsAt = $barStartedAt->addMinutes(15);
+        $latestIndex = array_key_last($rows);
+        $latestRow = $rows[$latestIndex] ?? null;
+        if (! is_array($latestRow)) {
+            return null;
+        }
+
+        try {
+            $latestDisplayedAt = CarbonImmutable::parse((string) $latestRow['localTime'], 'Asia/Taipei');
+        } catch (Throwable) {
+            return null;
+        }
+
+        if ($latestDisplayedAt->greaterThan($barEndsAt) || $latestDisplayedAt->diffInMinutes($barEndsAt) > 15) {
+            return null;
+        }
+
+        $replaceLatest = $latestDisplayedAt->equalTo($barEndsAt);
+        $completedRows = $replaceLatest ? array_slice($rows, 0, -1) : $rows;
+        $movingAverageCloses = array_values(array_filter(
+            array_map(fn (array $row): mixed => $row['close'] ?? null, $completedRows),
+            'is_numeric',
+        ));
+        $movingAverageCloses = array_slice($movingAverageCloses, -(self::FIFTEEN_MINUTE_MA_WINDOW - 1));
+        $movingAverageCloses[] = $realtimeQuote['price'];
+        $movingAverage = count($movingAverageCloses) === self::FIFTEEN_MINUTE_MA_WINDOW
+            ? array_sum($movingAverageCloses) / self::FIFTEEN_MINUTE_MA_WINDOW
+            : null;
+
+        $dailyMa5 = $payload['stats']['latestDailyMa5'] ?? null;
+        $latestFiveMinuteClose = $payload['stats']['latestFiveMinuteClose'] ?? null;
+        if (is_numeric($dailyMa5) && is_numeric($latestFiveMinuteClose)) {
+            $dailyMa5 = (float) $dailyMa5
+                + (($realtimeQuote['price'] - (float) $latestFiveMinuteClose) / 5);
+        }
+
+        $gap = is_numeric($dailyMa5) && $movingAverage !== null
+            ? (float) $dailyMa5 - $movingAverage
+            : null;
+        $bias = $movingAverage === null ? null : $realtimeQuote['price'] - $movingAverage;
+        $biasRate = $bias === null ? null : $bias / $realtimeQuote['price'];
+        $hour = (int) $barStartedAt->format('H');
+        $sessionType = $hour >= 15 || $hour < 5 ? 'night' : 'day';
+        $tradeDate = $hour >= 15
+            ? $barStartedAt->addDay()->toDateString()
+            : $barStartedAt->toDateString();
+
+        return [
+            'time' => $barEndsAt->timestamp,
+            'localTime' => $barEndsAt->format('Y-m-d H:i'),
+            'tradeDate' => $tradeDate,
+            'sessionType' => $sessionType,
+            'open' => round($realtimeQuote['barOpen'], 4),
+            'high' => round($realtimeQuote['barHigh'], 4),
+            'low' => round($realtimeQuote['barLow'], 4),
+            'close' => round($realtimeQuote['price'], 4),
+            'volume' => $replaceLatest ? (int) ($latestRow['volume'] ?? 0) : 0,
+            'movingAverage' => $movingAverage === null ? null : round($movingAverage, 4),
+            'dailyMa5' => is_numeric($dailyMa5) ? round((float) $dailyMa5, 4) : null,
+            'gap' => $gap === null ? null : round($gap, 4),
+            'bias' => $bias === null ? null : round($bias, 4),
+            'biasRate' => $biasRate === null ? null : round($biasRate, 8),
+            'isSessionOpen' => in_array($barStartedAt->format('H:i'), ['08:45', '15:00'], true),
+            'quoteLocalTime' => $realtimeQuote['quotedAt']->format('Y-m-d H:i:s'),
+            'realtimeSource' => $realtimeQuote['source'],
+            '_replaceLatest' => $replaceLatest,
+        ];
     }
 
     /**

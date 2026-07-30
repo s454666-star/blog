@@ -7,6 +7,7 @@ use App\Console\Commands\NotifyTaiexFuturesLineAlertsCommand;
 use App\Http\Controllers\TwFuturesHourlyPriceController;
 use App\Services\TwFuturesDailyPriceFetcher;
 use App\Services\TwFuturesHourlyPriceFetcher;
+use App\Services\TwFuturesRealtimeQuoteService;
 use App\Services\TwFuturesYahooMinutePriceFetcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
@@ -61,6 +62,7 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         Schema::connection('sqlite')->dropIfExists('tw_futures_daily_prices');
         Schema::connection('sqlite')->dropIfExists('tw_futures_hourly_prices');
+        Schema::connection('sqlite')->dropIfExists('tw_futures_realtime_quotes');
 
         Carbon::setTestNow();
         CarbonImmutable::setTestNow();
@@ -93,7 +95,9 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('const hourlyChartRows =', false)
             ->assertSee('const dataUrl =', false)
             ->assertSee('let futuresDataRevision =', false)
+            ->assertSee('const FUTURES_REFRESH_INTERVAL_MS = 1000;', false)
             ->assertSee('data-summary-field="latestClose"', false)
+            ->assertSee('data-summary-field="realtimeQuoteAt"', false)
             ->assertSee('data-session-gap-list', false)
             ->assertSee('data-timeframe="hourly"', false)
             ->assertSee('data-timeframe="fifteen-minute"', false)
@@ -198,8 +202,8 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee("topLineColor: '#f59e0b'", false)
             ->assertSee("bottomLineColor: '#38bdf8'", false)
             ->assertSee("document.querySelectorAll('input[data-toggle-series]')", false)
-            ->assertSee('FUTURES_REFRESH_INTERVAL_MS = 60000', false)
-            ->assertSee('FUTURES_REFRESH_VISIBLE_GRACE_MS = 10000', false)
+            ->assertSee('FUTURES_REFRESH_INTERVAL_MS = 1000', false)
+            ->assertSee('FUTURES_REFRESH_VISIBLE_GRACE_MS = 750', false)
             ->assertSee('refreshFuturesData', false)
             ->assertSee('applyFuturesPayload', false)
             ->assertSee('setArrayContents(chartRows, payload.chartRows)', false)
@@ -219,7 +223,7 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $content = (string) $response->getContent();
         $summaryGapPosition = strpos($content, '<div class="label">差值</div>');
-        $latestClosePosition = strpos($content, '<div class="label">最新收盤</div>');
+        $latestClosePosition = strpos($content, '<div class="label">最新價</div>');
         $movingAveragePosition = strpos($content, '<div class="label">15K</div>');
         $biasPosition = strpos($content, '<div class="label">乖離</div>');
         $biasRatePosition = strpos($content, '<div class="label">乖離率</div>');
@@ -420,6 +424,146 @@ class TwFuturesHourlyPricesTest extends TestCase
             ]);
         $this->assertArrayNotHasKey('chartRows', $unchangedResponse->json());
         $this->assertStringContainsString('no-store', (string) $unchangedResponse->headers->get('Cache-Control'));
+    }
+
+    public function test_taiex_futures_kline_data_uses_fresh_authenticated_redis_quote(): void
+    {
+        $this->seedHourlyRows();
+        Carbon::setTestNow('2026-01-08 05:16:05');
+        CarbonImmutable::setTestNow('2026-01-08 05:16:05');
+
+        $firstQuote = [
+            'price' => 30123,
+            'volume' => 12345,
+            'quotedAt' => CarbonImmutable::parse('2026-01-08 05:16:04', 'Asia/Taipei'),
+            'writtenAt' => '2026-01-08T05:16:04+08:00',
+            'barStartedAt' => CarbonImmutable::parse('2026-01-08 05:15:00', 'Asia/Taipei'),
+            'barOpen' => 30100,
+            'barHigh' => 30130,
+            'barLow' => 30090,
+            'source' => 'TradingView authenticated websocket',
+            'authMode' => 'authenticated',
+        ];
+        $secondQuote = [
+            'price' => 30125,
+            'volume' => 12346,
+            'quotedAt' => CarbonImmutable::parse('2026-01-08 05:16:05', 'Asia/Taipei'),
+            'writtenAt' => '2026-01-08T05:16:05+08:00',
+            'barStartedAt' => CarbonImmutable::parse('2026-01-08 05:15:00', 'Asia/Taipei'),
+            'barOpen' => 30100,
+            'barHigh' => 30130,
+            'barLow' => 30090,
+            'source' => 'TradingView authenticated websocket',
+            'authMode' => 'authenticated',
+        ];
+
+        $this->mock(TwFuturesRealtimeQuoteService::class, function (MockInterface $mock) use ($firstQuote, $secondQuote): void {
+            $mock->shouldReceive('latestFresh')
+            ->twice()
+            ->andReturn($firstQuote, $secondQuote);
+        });
+
+        $firstResponse = $this->getJson(route('tw-stock.taiex-futures.kline.data'));
+        $firstResponse
+            ->assertOk()
+            ->assertJsonPath('stats.latestClose', 30123)
+            ->assertJsonPath('realtimeQuote.price', 30123)
+            ->assertJsonPath('realtimeQuote.quoteLocalTime', '2026-01-08 05:16:04')
+            ->assertJsonPath('realtimeQuote.authMode', 'authenticated');
+
+        $firstRows = $firstResponse->json('chartRows');
+        $this->assertSame(30123.0, (float) $firstRows[array_key_last($firstRows)]['close']);
+        $this->assertSame(30100.0, (float) $firstRows[array_key_last($firstRows)]['open']);
+        $this->assertSame(30130.0, (float) $firstRows[array_key_last($firstRows)]['high']);
+        $this->assertSame(30090.0, (float) $firstRows[array_key_last($firstRows)]['low']);
+        $this->assertSame('2026-01-08 05:30', $firstRows[array_key_last($firstRows)]['localTime']);
+
+        $secondResponse = $this->getJson(route('tw-stock.taiex-futures.kline.data', [
+            'revision' => $firstResponse->json('dataRevision'),
+        ]));
+        $secondResponse
+            ->assertOk()
+            ->assertJsonMissing(['unchanged' => true])
+            ->assertJsonPath('stats.latestClose', 30125)
+            ->assertJsonPath('realtimeQuote.price', 30125);
+        $this->assertNotSame(
+            $firstResponse->json('dataRevision'),
+            $secondResponse->json('dataRevision'),
+        );
+    }
+
+    public function test_taiex_futures_kline_data_rejects_stale_redis_quote(): void
+    {
+        $this->seedHourlyRows();
+        Carbon::setTestNow('2026-01-08 04:59:30');
+        CarbonImmutable::setTestNow('2026-01-08 04:59:30');
+
+        $this->mock(TwFuturesRealtimeQuoteService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('latestFresh')->once()->andReturn(null);
+        });
+
+        $response = $this->getJson(route('tw-stock.taiex-futures.kline.data'));
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('realtimeQuote', null);
+        $this->assertNotSame(30123.0, (float) $response->json('stats.latestClose'));
+    }
+
+    public function test_realtime_consumer_keeps_one_database_row_and_updates_current_bar_ohlc(): void
+    {
+        Carbon::setTestNow('2026-07-30 11:40:02');
+        CarbonImmutable::setTestNow('2026-07-30 11:40:02');
+
+        $firstPayload = json_encode([
+            'schema_version' => 1,
+            'symbol' => 'TAIFEX:TXF1!',
+            'price' => 40000,
+            'volume' => 1000,
+            'quote_at' => '2026-07-30T11:40:00+08:00',
+            'written_at' => '2026-07-30T11:40:00+08:00',
+            'source' => 'TradingView authenticated websocket',
+            'auth_mode' => 'authenticated',
+        ], JSON_THROW_ON_ERROR);
+        $secondPayload = json_encode([
+            'schema_version' => 1,
+            'symbol' => 'TAIFEX:TXF1!',
+            'price' => 40020,
+            'volume' => 1010,
+            'quote_at' => '2026-07-30T11:40:01+08:00',
+            'written_at' => '2026-07-30T11:40:01+08:00',
+            'source' => 'TradingView authenticated websocket',
+            'auth_mode' => 'authenticated',
+        ], JSON_THROW_ON_ERROR);
+
+        $connection = \Mockery::mock();
+        $connection->shouldReceive('get')
+            ->twice()
+            ->with(TwFuturesRealtimeQuoteService::REDIS_KEY)
+            ->andReturn($firstPayload, $secondPayload);
+        \Illuminate\Support\Facades\Redis::shouldReceive('connection')
+            ->twice()
+            ->with(TwFuturesRealtimeQuoteService::REDIS_CONNECTION)
+            ->andReturn($connection);
+
+        $service = app(TwFuturesRealtimeQuoteService::class);
+        $this->assertSame('stored', $service->consumeLatest()['status']);
+        $this->assertSame('stored', $service->consumeLatest()['status']);
+
+        $this->assertSame(1, DB::table('tw_futures_realtime_quotes')->count());
+        $stored = DB::table('tw_futures_realtime_quotes')->first();
+        $this->assertSame(40020.0, (float) $stored->price);
+        $this->assertSame(40000.0, (float) $stored->bar_open);
+        $this->assertSame(40020.0, (float) $stored->bar_high);
+        $this->assertSame(40000.0, (float) $stored->bar_low);
+        $this->assertSame('2026-07-30 11:30:00', $stored->bar_started_at);
+
+        $fresh = $service->latestFresh();
+        $this->assertNotNull($fresh);
+        $this->assertSame(40020.0, $fresh['price']);
+        $this->assertSame(40000.0, $fresh['barOpen']);
+        $this->assertSame(40020.0, $fresh['barHigh']);
+        $this->assertSame(40000.0, $fresh['barLow']);
     }
 
     public function test_taiex_futures_price_alert_uses_15k_end_time_and_5_percent_bias_threshold(): void
@@ -1545,6 +1689,23 @@ class TwFuturesHourlyPricesTest extends TestCase
             $table->timestamp('fetched_at')->nullable();
             $table->timestamps();
             $table->unique(['exchange', 'symbol', 'session_type', 'trade_date']);
+        });
+
+        Schema::connection('sqlite')->create('tw_futures_realtime_quotes', function (Blueprint $table): void {
+            $table->id();
+            $table->string('symbol', 32)->unique();
+            $table->decimal('price', 12, 4);
+            $table->unsignedBigInteger('volume')->nullable();
+            $table->dateTime('quote_at');
+            $table->dateTime('written_at');
+            $table->dateTime('bar_started_at');
+            $table->decimal('bar_open', 12, 4);
+            $table->decimal('bar_high', 12, 4);
+            $table->decimal('bar_low', 12, 4);
+            $table->string('source');
+            $table->string('auth_mode', 32);
+            $table->json('source_payload')->nullable();
+            $table->timestamps();
         });
     }
 

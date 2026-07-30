@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Star 台指期 TradingView 即時橋接",
+  "version": "1.0.0",
+  "description": "將目前登入的 TradingView 短效授權安全地交給本機台指期 Redis worker。",
+  "permissions": [
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://tw.tradingview.com/*",
+    "http://127.0.0.1:18765/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://tw.tradingview.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

@@ -9,6 +9,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 class TwFuturesHourlyPriceController extends Controller
@@ -155,6 +156,22 @@ class TwFuturesHourlyPriceController extends Controller
         ?string $historyRevision = null,
     ): array
     {
+        $cacheKey = $historyRevision === null
+            ? null
+            : 'tw-futures-kline:history-payload:' . $historyRevision;
+        if ($cacheKey !== null) {
+            $cachedPayload = Cache::get($cacheKey);
+            if (is_array($cachedPayload)) {
+                $cachedPayload['dataRevision'] = $dataRevision ?? $this->currentDataRevision();
+                $cachedPayload['historyRevision'] = $historyRevision;
+                $cachedPayload['realtimeQuote'] = null;
+
+                return $realtimeQuote === null
+                    ? $cachedPayload
+                    : $this->applyRealtimeQuote($cachedPayload, $realtimeQuote);
+            }
+        }
+
         $rows = $this->priceRows(self::SYMBOL, self::PRIMARY_INTERVAL);
         $fiveMinuteRows = $this->priceRows(self::SYMBOL, self::DAILY_MA_SOURCE_INTERVAL);
         $hourlyRows = $this->priceRows(self::SYMBOL, '60');
@@ -196,6 +213,10 @@ class TwFuturesHourlyPriceController extends Controller
             ],
             'realtimeQuote' => null,
         ];
+
+        if ($cacheKey !== null) {
+            Cache::put($cacheKey, $payload, now()->addHours(2));
+        }
 
         return $realtimeQuote === null
             ? $payload

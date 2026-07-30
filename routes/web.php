@@ -137,6 +137,10 @@ Route::post('/command-runner/stream', [CommandRunnerController::class, 'stream']
 Route::post('/command-runner/stop', [CommandRunnerController::class, 'stop'])->name('command-runner.stop');
 
 // 靜態頁面和身份驗證頁面
+Route::domain('stock.mystar.monster')
+    ->get('/', [TwFuturesHourlyPriceController::class, 'index'])
+    ->name('stock.home');
+
 Route::get('/', function () {
     return response('', 200);
 })->name('home');

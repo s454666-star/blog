@@ -312,6 +312,16 @@ class TwFuturesHourlyPricesTest extends TestCase
         }
     }
 
+    public function test_stock_domain_home_renders_taiex_futures_kline_page(): void
+    {
+        $this->seedHourlyRows();
+
+        $this->get('http://stock.mystar.monster/')
+            ->assertOk()
+            ->assertSee('台指期 15K 差值 K 線')
+            ->assertSee('data-summary-field="latestClose"', false);
+    }
+
     public function test_taiex_futures_kline_data_endpoint_returns_chart_payload(): void
     {
         $this->seedHourlyRows();

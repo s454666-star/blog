@@ -53,8 +53,9 @@ class TwFuturesHourlyPriceController extends Controller
             ]);
         }
 
-        $payload = $this->chartPayload($dataRevision, $realtimeQuote, $historyRevision);
         if ($request->query('history_revision') === $historyRevision) {
+            $payload = $this->realtimeDeltaPayload($dataRevision, $historyRevision, $realtimeQuote);
+
             return $this->noStoreJson([
                 'realtimeDelta' => true,
                 'dataRevision' => $dataRevision,
@@ -65,7 +66,7 @@ class TwFuturesHourlyPriceController extends Controller
             ]);
         }
 
-        return $this->noStoreJson($payload);
+        return $this->noStoreJson($this->chartPayload($dataRevision, $realtimeQuote, $historyRevision));
     }
 
     /**
@@ -217,6 +218,39 @@ class TwFuturesHourlyPriceController extends Controller
         if ($cacheKey !== null) {
             Cache::put($cacheKey, $payload, now()->addHours(2));
         }
+
+        return $realtimeQuote === null
+            ? $payload
+            : $this->applyRealtimeQuote($payload, $realtimeQuote);
+    }
+
+    /**
+     * @param array<string, mixed>|null $realtimeQuote
+     * @return array<string, mixed>
+     */
+    private function realtimeDeltaPayload(
+        string $dataRevision,
+        string $historyRevision,
+        ?array $realtimeQuote,
+    ): array
+    {
+        $cacheKey = 'tw-futures-kline:realtime-base:' . $historyRevision;
+        $payload = Cache::get($cacheKey);
+        if (! is_array($payload)) {
+            $fullPayload = $this->chartPayload($dataRevision, null, $historyRevision);
+            $payload = [
+                'chartRows' => array_slice(
+                    $fullPayload['chartRows'],
+                    -self::FIFTEEN_MINUTE_MA_WINDOW,
+                ),
+                'stats' => $fullPayload['stats'],
+            ];
+            Cache::put($cacheKey, $payload, now()->addHours(2));
+        }
+
+        $payload['dataRevision'] = $dataRevision;
+        $payload['historyRevision'] = $historyRevision;
+        $payload['realtimeQuote'] = null;
 
         return $realtimeQuote === null
             ? $payload

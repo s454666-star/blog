@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Http\Controllers\TwFuturesHourlyPriceController;
 use App\Services\TelegramNotificationService;
 use App\Services\TwFuturesHourlyPriceFetcher;
+use App\Services\TwFuturesRealtimeQuoteService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -140,12 +141,19 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         TwFuturesHourlyPriceFetcher $fetcher,
         CarbonImmutable $now,
     ): array {
-        try {
-            $snapshot = $fetcher->fetchCurrentTaifexQuoteSnapshot($now);
-        } catch (Throwable $exception) {
-            report($exception);
+        $snapshot = app(TwFuturesRealtimeQuoteService::class)->latestFresh();
+        $quoteSource = 'redis';
+        if ($snapshot === null) {
+            try {
+                $snapshot = $fetcher->fetchCurrentTaifexQuoteSnapshot(
+                    CarbonImmutable::now((string) config('app.timezone', 'Asia/Taipei')),
+                );
+                $quoteSource = 'taifex';
+            } catch (Throwable $exception) {
+                report($exception);
 
-            return $payload;
+                return $payload;
+            }
         }
 
         if ($snapshot === null) {
@@ -175,13 +183,30 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         if (! $replaced) {
             $payload['chartRows'][] = $row;
         }
+        $payload['stats']['latestGap'] = $row['gap'] ?? null;
+        foreach ($payload['fourHourMa5Rows'] ?? [] as $index => $fourHourRow) {
+            if (
+                ! is_array($fourHourRow)
+                || (string) ($fourHourRow['localTime'] ?? '') !== (string) $row['localTime']
+                || ! is_numeric($fourHourRow['fourHourMa5'] ?? null)
+            ) {
+                continue;
+            }
+
+            $payload['fourHourMa5Rows'][$index]['close'] = $row['close'];
+            $payload['fourHourMa5Rows'][$index]['fourHourMa5Diff'] = round(
+                (float) $row['close'] - (float) $fourHourRow['fourHourMa5'],
+                4,
+            );
+        }
 
         $this->line(sprintf(
-            '台指期即時乖離資料：bar=%s quote_at=%s price=%s bias_rate=%s',
+            '台指期即時乖離資料：bar=%s quote_at=%s price=%s bias_rate=%s source=%s',
             (string) $row['localTime'],
             (string) $row['quoteLocalTime'],
             $this->formatOptionalNumber($row['close'] ?? null, 0),
             $this->formatPercent((float) $row['biasRate']),
+            $quoteSource,
         ));
 
         return $payload;

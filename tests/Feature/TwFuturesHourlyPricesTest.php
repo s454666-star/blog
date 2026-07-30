@@ -860,6 +860,98 @@ class TwFuturesHourlyPricesTest extends TestCase
         Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'api.line.me'));
     }
 
+    public function test_taiex_futures_target_time_alert_prefers_fresh_redis_quote_after_slow_refresh(): void
+    {
+        Cache::flush();
+        Carbon::setTestNow('2026-07-30 12:45:40');
+        CarbonImmutable::setTestNow('2026-07-30 12:45:40');
+
+        DB::table('tw_futures_realtime_quotes')->insert([
+            'symbol' => 'TXF1!',
+            'price' => 40354,
+            'volume' => 12345,
+            'quote_at' => '2026-07-30 12:45:39',
+            'written_at' => '2026-07-30 12:45:39.000',
+            'bar_started_at' => '2026-07-30 12:45:00',
+            'bar_open' => 40340,
+            'bar_high' => 40360,
+            'bar_low' => 40320,
+            'source' => 'TradingView authenticated websocket',
+            'auth_mode' => 'authenticated',
+            'source_payload' => json_encode(['schema_version' => 1], JSON_THROW_ON_ERROR),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->mock(TwFuturesHourlyPriceFetcher::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('fetchRows')->twice()->andReturn([]);
+            $mock->shouldReceive('upsertRows')->twice()->with([])->andReturn(0);
+            $mock->shouldNotReceive('fetchCurrentTaifexQuoteSnapshot');
+        });
+        $this->partialMock(TwFuturesHourlyPriceController::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('lineAlertPayload')->once()->andReturn([
+                'chartRows' => [[
+                    'time' => CarbonImmutable::parse('2026-07-30 12:45:00', 'Asia/Taipei')->timestamp,
+                    'localTime' => '2026-07-30 12:45',
+                    'gap' => -610,
+                    'isSessionOpen' => false,
+                    'biasRate' => -0.0531,
+                    'close' => 40524,
+                    'dailyMa5' => 42068,
+                    'movingAverage' => 42678,
+                ]],
+                'fourHourMa5Rows' => [[
+                    'time' => CarbonImmutable::parse('2026-07-30 12:45:00', 'Asia/Taipei')->timestamp,
+                    'localTime' => '2026-07-30 12:45',
+                    'close' => 40524,
+                    'fourHourMa5' => 40489,
+                    'fourHourMa5Diff' => 35,
+                ]],
+                'stats' => [
+                    'latestClose' => 40524,
+                    'latestDailyMa5' => 42068,
+                    'latestFiveMinuteClose' => 40524,
+                    'latestMovingAverage' => 42678,
+                    'latestGap' => -610,
+                ],
+            ]);
+        });
+
+        config()->set('app.url', 'https://stock.mystar.monster');
+        config()->set('telegram.line_mirror.enabled', true);
+        config()->set('telegram.line_mirror.routes.yuanta', [
+            'bot_token' => 'yuanta-telegram-token',
+            'chat_id' => '-100222',
+        ]);
+        Http::fake([
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 123],
+            ]),
+        ]);
+
+        $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
+
+        Http::assertSentCount(2);
+        Http::assertSent(function ($request): bool {
+            $message = (string) ($request->data()['text'] ?? '');
+
+            return str_contains($message, '台指期通知 2026-07-30 12:45')
+                && str_contains($message, '現價 40,354')
+                && str_contains($message, '即時報價時間 2026-07-30 12:45:39')
+                && ! str_contains($message, '現價 40,524');
+        });
+        Http::assertSent(function ($request): bool {
+            $message = (string) ($request->data()['text'] ?? '');
+
+            return str_contains($message, '台指期 4H MA5 通知 2026-07-30 12:45')
+                && str_contains($message, '目前價格 40,354 低於 4H MA5 40,489')
+                && str_contains($message, '價差 -135點')
+                && ! str_contains($message, '目前價格 40,524');
+        });
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'api.line.me'));
+    }
+
     public function test_hourly_fetcher_returns_a_fresh_taifex_quote_snapshot(): void
     {
         $now = CarbonImmutable::parse('2026-07-20 09:40:03', 'Asia/Taipei');

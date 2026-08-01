@@ -158,6 +158,39 @@ export function quoteFromTradingViewMessage(message, expectedSymbol = DEFAULT_SY
     };
 }
 
+export function quoteFromBrowserBridgePayload(payload, expectedSymbol = DEFAULT_SYMBOL, receivedAt = new Date()) {
+    if (
+        payload?.schema_version !== 1
+        || payload?.symbol !== expectedSymbol
+    ) {
+        return null;
+    }
+
+    const price = Number(payload.price);
+    const quoteAtUnix = Number(payload.source_quote_at);
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(quoteAtUnix) || quoteAtUnix <= 0) {
+        return null;
+    }
+
+    const sourceQuoteAt = new Date(quoteAtUnix > 10_000_000_000 ? quoteAtUnix : quoteAtUnix * 1000);
+    if (Number.isNaN(sourceQuoteAt.getTime())) {
+        return null;
+    }
+
+    return {
+        symbol: expectedSymbol,
+        price,
+        quoteAt: receivedAt,
+        sourceQuoteAt,
+        receivedAt,
+        currentSession: typeof payload.current_session === 'string' ? payload.current_session : null,
+        marketStatus: typeof payload.market_status === 'string' ? payload.market_status : null,
+        isTradable: payload.is_tradable === true,
+        volume: Number.isFinite(Number(payload.volume)) ? Number(payload.volume) : null,
+        source: 'TradingView authenticated browser session',
+    };
+}
+
 export function isFreshOpenQuote(quote, now = new Date(), maxAgeSeconds = 15) {
     const session = marketSession(now);
     if (!quote || session === null || quote.isTradable === false) {
@@ -186,7 +219,7 @@ export function realtimeRedisPayload(quote, now = new Date()) {
         session: marketSession(now),
         current_session: quote.currentSession,
         market_status: quote.marketStatus,
-        source: 'TradingView authenticated websocket',
+        source: quote.source || 'TradingView authenticated websocket',
         auth_mode: 'authenticated',
     };
 }

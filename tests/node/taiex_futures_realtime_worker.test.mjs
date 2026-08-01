@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import {
     frameTradingViewMessage,
     isFreshOpenQuote,
     isUsableTradingViewToken,
     marketSession,
     parseTradingViewMessages,
+    quoteFromBrowserBridgePayload,
     quoteFromTradingViewMessage,
     realtimeRedisPayload,
     redisCommand,
@@ -75,6 +78,78 @@ test('TradingView protocol frames and parses quote updates', () => {
     assert.equal(quote.isTradable, true);
     assert.equal(quote.quoteAt.toISOString(), receivedAt.toISOString());
     assert.equal(quote.sourceQuoteAt.toISOString(), new Date(1785386400 * 1000).toISOString());
+});
+
+test('browser page bridge payload becomes an authenticated realtime quote', () => {
+    const receivedAt = taipeiDate('2026-07-30T11:20:01');
+    const quote = quoteFromBrowserBridgePayload({
+        schema_version: 1,
+        symbol: 'TAIFEX:TXF1!',
+        price: 40663,
+        volume: 12345,
+        source_quote_at: 1785386400,
+        current_session: 'regular',
+        market_status: 'open',
+        is_tradable: true,
+    }, 'TAIFEX:TXF1!', receivedAt);
+
+    assert.equal(quote.price, 40663);
+    assert.equal(quote.quoteAt.toISOString(), receivedAt.toISOString());
+    assert.equal(quote.source, 'TradingView authenticated browser session');
+    assert.equal(quoteFromBrowserBridgePayload({ schema_version: 1, symbol: 'OTHER' }), null);
+});
+
+test('page bridge reuses the TradingView page websocket and publishes TXF1 quotes', () => {
+    class FakeWebSocket {
+        constructor(url) {
+            this.url = url;
+            this.listeners = {};
+        }
+
+        addEventListener(type, listener) {
+            this.listeners[type] = listener;
+        }
+
+        emit(type, event) {
+            this.listeners[type]?.(event);
+        }
+    }
+
+    const posts = [];
+    const pageWindow = {
+        WebSocket: FakeWebSocket,
+        location: { origin: 'https://tw.tradingview.com' },
+        postMessage(message, targetOrigin) {
+            posts.push({ message, targetOrigin });
+        },
+    };
+    const script = readFileSync(
+        new URL('../../scripts/taiex-futures-realtime/chrome-extension/page-quote-bridge.js', import.meta.url),
+        'utf8',
+    );
+    vm.runInNewContext(script, { window: pageWindow, TextEncoder });
+
+    const socket = new pageWindow.WebSocket('wss://data.tradingview.com/socket.io/websocket');
+    const message = {
+        m: 'qsd',
+        p: ['session', {
+            n: 'TAIFEX:TXF1!',
+            s: 'ok',
+            v: {
+                lp: 40663,
+                lp_time: 1785386400,
+                volume: 12345,
+                current_session: 'regular',
+                is_tradable: true,
+            },
+        }],
+    };
+    socket.emit('message', { data: frameTradingViewMessage(message.m, message.p) });
+
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].targetOrigin, 'https://tw.tradingview.com');
+    assert.equal(posts[0].message.quote.price, 40663);
+    assert.equal(posts[0].message.quote.symbol, 'TAIFEX:TXF1!');
 });
 
 test('only fresh open-session quotes qualify for a one-second Redis refresh', () => {

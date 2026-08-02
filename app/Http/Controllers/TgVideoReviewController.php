@@ -69,7 +69,7 @@ class TgVideoReviewController extends Controller
             'completed_ids' => $completed,
             'failed' => $failed,
             'message' => sprintf('完成 %d 筆，失敗 %d 筆。', count($completed), count($failed)),
-        ]);
+        ], 200, [], JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
     private function pathKey(string $path): string

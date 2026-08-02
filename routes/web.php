@@ -32,6 +32,7 @@ use App\Http\Controllers\PdfController;
 use App\Http\Controllers\PdfController2;
 use App\Http\Controllers\StaticProxyController;
 use App\Http\Controllers\TdlCommandController;
+use App\Http\Controllers\TgVideoReviewController;
     use App\Http\Controllers\TelegramWebhookController;
 use App\Http\Controllers\TestImageController;
 use App\Http\Controllers\TwActiveEtfOperationController;
@@ -57,6 +58,10 @@ use App\Http\Controllers\VideoRerunSyncController;
 |--------------------------------------------------------------------------
 */
 Route::get('/page-favicons/{slug}.svg', [PageFaviconController::class, 'show'])->name('page-favicon');
+
+Route::get('/tg-video-review', [TgVideoReviewController::class, 'index'])->name('tg-video-review.index');
+Route::get('/tg-video-review/{record}/image', [TgVideoReviewController::class, 'image'])->whereNumber('record')->name('tg-video-review.image');
+Route::post('/tg-video-review/actions', [TgVideoReviewController::class, 'batchAction'])->name('tg-video-review.actions');
 
 Route::prefix('admin')->name('customer-admin.')->group(function () {
     Route::get('/', [CustomerAdminAuthController::class, 'show'])->name('login');

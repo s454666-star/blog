@@ -175,6 +175,43 @@ class TgVideoReviewTest extends TestCase
         $this->assertDatabaseMissing('tg_video_reviews', ['id' => $record->id]);
     }
 
+    public function test_delete_failure_with_non_utf8_windows_output_still_returns_valid_json(): void
+    {
+        $record = $this->makeRecord('invalid-output.mp4');
+        $this->app->instance(RecycleBin::class, new class implements RecycleBin {
+            public function move(array $paths): void
+            {
+                throw new \RuntimeException("\xA5\x5C\xB1\xD0");
+            }
+        });
+
+        $response = $this->postJson(route('tg-video-review.actions'), [
+            'ids' => [$record->id],
+            'action' => 'delete',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('ok', false)
+            ->assertJsonCount(1, 'failed');
+        $this->assertTrue(mb_check_encoding((string) $response->json('failed.0.message'), 'UTF-8'));
+        $this->assertDatabaseHas('tg_video_reviews', ['id' => $record->id]);
+        $this->assertFileExists($record->video_path);
+        $this->assertFileExists($record->image_path);
+    }
+
+    public function test_windows_recycle_bin_passes_multiple_paths_through_a_utf8_manifest(): void
+    {
+        $service = file_get_contents(app_path('Services/WindowsRecycleBin.php'));
+        $script = file_get_contents(base_path('scripts/send-to-recycle-bin.ps1'));
+
+        $this->assertIsString($service);
+        $this->assertIsString($script);
+        $this->assertStringContainsString("'-ManifestPath', \$manifestPath", $service);
+        $this->assertStringContainsString('[string]$ManifestPath', $script);
+        $this->assertStringContainsString('ConvertFrom-Json', $script);
+        $this->assertStringNotContainsString('[string[]]$Paths', $script);
+    }
+
     public function test_ok_and_watermark_move_video_delete_image_and_delete_exact_row(): void
     {
         $service = app(TgVideoReviewActionService::class);

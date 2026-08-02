@@ -53,7 +53,7 @@ class TgVideoReviewActionService
 
             return ['ok' => true, 'message' => '處理完成。'];
         } catch (Throwable $e) {
-            return ['ok' => false, 'message' => $e->getMessage()];
+            return ['ok' => false, 'message' => $this->utf8Message($e->getMessage())];
         }
     }
 
@@ -119,5 +119,16 @@ class TgVideoReviewActionService
     private function pathKey(string $path): string
     {
         return mb_strtolower(rtrim(str_replace('\\', '/', $path), '/'));
+    }
+
+    private function utf8Message(string $message): string
+    {
+        if (mb_check_encoding($message, 'UTF-8')) {
+            return $message;
+        }
+
+        $converted = mb_convert_encoding($message, 'UTF-8', 'CP950');
+
+        return mb_check_encoding($converted, 'UTF-8') ? $converted : '處理失敗，Windows 回傳了無法解碼的訊息。';
     }
 }

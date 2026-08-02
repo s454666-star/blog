@@ -55,6 +55,8 @@ class TgVideoReviewTest extends TestCase
             ->assertSee('<th>圖片</th>', false)
             ->assertSee('id="selectPage"', false)
             ->assertSee('全選本頁所有資料', false)
+            ->assertSee('class="selection-cell"', false)
+            ->assertSee("document.querySelectorAll('.selection-cell')", false)
             ->assertSee('data-action="delete"', false)
             ->assertSee('data-action="ok"', false)
             ->assertSee('data-action="watermark"', false)

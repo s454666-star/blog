@@ -28,6 +28,7 @@
         table { width:100%; border-collapse:collapse; table-layout:fixed; } th { color:#8ee9f4; text-align:left; letter-spacing:.08em; font-size:.78rem; text-transform:uppercase; background:rgba(14,35,57,.92); }
         th,td { padding:14px; border-bottom:1px solid rgba(148,163,184,.12); } th:first-child,td:first-child{width:76px;text-align:center} tbody tr { transition:.2s;background:linear-gradient(90deg,transparent,rgba(34,211,238,.018)); } tbody tr:hover{background:linear-gradient(90deg,rgba(34,211,238,.08),rgba(59,130,246,.045),rgba(244,114,182,.05));box-shadow:inset 4px 0 var(--cyan)}
         input[type=checkbox] { width:24px;height:24px;accent-color:var(--cyan);cursor:pointer;filter:drop-shadow(0 0 8px rgba(34,211,238,.45)); }
+        .select-page { display:inline-flex;flex-direction:column;align-items:center;gap:4px;color:#8ee9f4;font-size:.68rem;letter-spacing:.04em;cursor:pointer; }
         .sheet { display:block; width:100%; max-height:420px; object-fit:contain; border:1px solid rgba(96,165,250,.25); border-radius:16px; background:#020617; box-shadow:0 14px 34px rgba(0,0,0,.35); cursor:zoom-in; transition:.25s; }
         .sheet:hover { border-color:var(--cyan); box-shadow:0 0 0 1px var(--cyan),0 16px 40px rgba(34,211,238,.16); }
         .empty { padding:80px 24px;text-align:center;color:#94a3b8 }.empty strong{display:block;color:#dff8ff;font-size:1.3rem;margin-bottom:8px}
@@ -43,7 +44,7 @@
 <main class="shell">
     <header><div><div class="eyebrow">Local visual triage</div><h1>TG 暫存影片審核</h1><p class="sub">移入垃圾桶、OK 或水印資料夾前，先用 20 格接觸表快速確認。</p></div><div class="counter">共 {{ $records->total() }} 筆</div></header>
     <div class="toolbar">
-        <button type="button" id="selectAll">勾選本頁</button>
+        <button type="button" id="selectAll" @disabled($records->isEmpty())>全選本頁</button>
         <button type="button" class="danger action" data-action="delete" disabled>刪除</button>
         <button type="button" class="ok action" data-action="ok" disabled>OK</button>
         <button type="button" class="water action" data-action="watermark" disabled>水印</button>
@@ -56,7 +57,7 @@
     </div>
     <div class="table-frame">
         @if($records->count())
-            <table><thead><tr><th>多選</th><th>圖片</th></tr></thead><tbody>
+            <table><thead><tr><th><label class="select-page"><input id="selectPage" type="checkbox" aria-label="全選本頁所有資料"><span>全選</span></label></th><th>圖片</th></tr></thead><tbody>
             @foreach($records as $record)
                 <tr data-id="{{ $record->id }}"><td><input class="row-check" type="checkbox" value="{{ $record->id }}" aria-label="選取第 {{ $record->id }} 筆"></td><td><img class="sheet" src="{{ route('tg-video-review.image', $record) }}" alt="影片 5×4 接觸表" loading="lazy"></td></tr>
             @endforeach
@@ -70,11 +71,13 @@
 <div id="preview" aria-hidden="true"><img alt="全螢幕接觸表預覽"></div><div id="toast" role="status"></div>
 <script>
 (() => {
-    const checks=[...document.querySelectorAll('.row-check')], actions=[...document.querySelectorAll('.action')], preview=document.querySelector('#preview'), previewImage=preview.querySelector('img'), toast=document.querySelector('#toast');
+    const checks=[...document.querySelectorAll('.row-check')], actions=[...document.querySelectorAll('.action')], selectPage=document.querySelector('#selectPage'), selectAll=document.querySelector('#selectAll'), preview=document.querySelector('#preview'), previewImage=preview.querySelector('img'), toast=document.querySelector('#toast');
     const selected=()=>checks.filter(c=>c.checked).map(c=>Number(c.value));
-    const sync=()=>actions.forEach(button=>button.disabled=selected().length===0);
+    const sync=()=>{const count=selected().length,all=checks.length>0&&count===checks.length;actions.forEach(button=>button.disabled=count===0);if(selectPage){selectPage.checked=all;selectPage.indeterminate=count>0&&!all;}if(selectAll)selectAll.textContent=all?'取消全選':'全選本頁';};
+    const togglePage=checked=>{checks.forEach(check=>check.checked=checked);sync();};
     checks.forEach(check=>check.addEventListener('change',sync));
-    document.querySelector('#selectAll')?.addEventListener('click',()=>{const next=checks.some(c=>!c.checked);checks.forEach(c=>c.checked=next);sync();});
+    selectPage?.addEventListener('change',()=>togglePage(selectPage.checked));
+    selectAll?.addEventListener('click',()=>togglePage(checks.some(check=>!check.checked)));
     document.querySelector('#perPage').addEventListener('change',event=>{const url=new URL(location.href);url.searchParams.set('per_page',event.target.value);url.searchParams.delete('page');location.href=url;});
     document.querySelectorAll('.sheet').forEach(img=>{img.addEventListener('pointerenter',()=>{previewImage.src=img.src;preview.classList.add('show');});img.addEventListener('pointerleave',()=>preview.classList.remove('show'));});
     const say=(message,bad=false)=>{toast.textContent=message;toast.classList.toggle('bad',bad);toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),4500)};
@@ -90,6 +93,7 @@
             say(data.message,!data.ok); if(data.ok)setTimeout(()=>location.reload(),500);
         }catch(error){say(error.message||'操作失敗',true);sync();}
     }));
+    sync();
 })();
 </script>
 </body>

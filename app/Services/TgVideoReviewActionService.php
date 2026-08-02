@@ -20,8 +20,17 @@ class TgVideoReviewActionService
             [$videoPath, $imagePath, $root] = $this->validatedPaths($record);
 
             if ($action === 'delete') {
-                $this->recycleBin->move([$videoPath, $imagePath]);
+                $existingPaths = array_values(array_filter(
+                    [$videoPath, $imagePath],
+                    fn (string $path): bool => is_file($path)
+                ));
+                if ($existingPaths !== []) {
+                    $this->recycleBin->move($existingPaths);
+                }
             } elseif (in_array($action, ['ok', 'watermark'], true)) {
+                if (!is_file($videoPath)) {
+                    throw new RuntimeException('影片已不存在，未刪除資料列。');
+                }
                 $subdirectory = $action === 'ok'
                     ? (string) config('tg_video_review.ok_subdirectory')
                     : (string) config('tg_video_review.watermark_subdirectory');
@@ -42,19 +51,30 @@ class TgVideoReviewActionService
     private function validatedPaths(TgVideoReview $record): array
     {
         $root = realpath((string) config('tg_video_review.root'));
-        $video = realpath((string) $record->video_path);
-        $image = realpath((string) $record->image_path);
-
         if (!is_string($root) || !is_dir($root)) {
             throw new RuntimeException('TG 暫存根目錄不存在。');
         }
-        if (!is_string($video) || !is_file($video) || !is_string($image) || !is_file($image)) {
-            throw new RuntimeException('影片或接觸表已不存在，未刪除資料列。');
+
+        $video = trim((string) $record->video_path);
+        $image = trim((string) $record->image_path);
+        if ($video === '' || $image === '') {
+            throw new RuntimeException('影片或接觸表路徑為空，未進行變更。');
         }
 
         $rootKey = $this->pathKey($root);
         if ($this->pathKey(dirname($video)) !== $rootKey || $this->pathKey(dirname($image)) !== $rootKey) {
             throw new RuntimeException('只允許處理 TG 暫存根目錄第一層的檔案。');
+        }
+
+        foreach ([$video, $image] as $path) {
+            if (!file_exists($path)) {
+                continue;
+            }
+
+            $resolved = realpath($path);
+            if (!is_string($resolved) || !is_file($resolved) || $this->pathKey(dirname($resolved)) !== $rootKey) {
+                throw new RuntimeException('檔案實際位置不在 TG 暫存根目錄第一層。');
+            }
         }
 
         return [$video, $image, $root];
@@ -80,7 +100,7 @@ class TgVideoReviewActionService
             throw new RuntimeException('影片搬移失敗。');
         }
 
-        if (!unlink($image)) {
+        if (is_file($image) && !unlink($image)) {
             @rename($destination, $video);
             throw new RuntimeException('圖片刪除失敗，影片已嘗試搬回原位。');
         }

@@ -31,7 +31,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     protected $description = 'Scan Telegram groups for configured resource codes and serially forward decoded media to the resource group.';
 
     private const LOCK_NAME = 'blog:telegram-resource-code-worker';
-    private const HEX_CODE_REGEX = '/(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])/i';
+    private const HEX_CODE_REGEX = '/(?<![A-Za-z0-9_])[0-9a-f]{40}(?![A-Za-z0-9_])/i';
     private const WENJIANJI_CODE_REGEX = '/(?<![A-Za-z0-9_])WenJianJiJibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}(?![A-Za-z0-9_])/i';
     private const JSFILEEESBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])JSfileeesbot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const JSFILE_CODE_REGEX = '/(?<![A-Za-z0-9_])JSfile_bot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';

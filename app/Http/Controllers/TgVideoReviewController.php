@@ -39,6 +39,9 @@ class TgVideoReviewController extends Controller
 
     public function batchAction(Request $request, TgVideoReviewActionService $service): JsonResponse
     {
+        set_time_limit(0);
+        ini_set('max_execution_time', '0');
+
         $validated = $request->validate([
             'ids' => ['required', 'array', 'min:1', 'max:500'],
             'ids.*' => ['required', 'integer', 'min:1'],

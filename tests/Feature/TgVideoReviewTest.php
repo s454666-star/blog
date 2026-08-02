@@ -164,6 +164,39 @@ class TgVideoReviewTest extends TestCase
         $this->assertDatabaseCount('tg_video_reviews', 1);
     }
 
+    public function test_scanner_processes_windows_creation_time_from_oldest_to_newest(): void
+    {
+        $templateDirectory = $this->root . DIRECTORY_SEPARATOR . 'templates';
+        File::ensureDirectoryExists($templateDirectory);
+        $template = $templateDirectory . DIRECTORY_SEPARATOR . 'template.mp4';
+        $this->generateFakeVideo($template);
+
+        $oldest = $this->root . DIRECTORY_SEPARATOR . 'z-oldest.mp4';
+        $newest = $this->root . DIRECTORY_SEPARATOR . 'a-newest.mp4';
+        copy($template, $oldest);
+        usleep(1_200_000);
+        copy($template, $newest);
+
+        app(TgVideoReviewScanner::class)->scan($this->root, null, 'createdorder01');
+
+        $paths = TgVideoReview::query()->orderBy('id')->pluck('video_path')->all();
+        $this->assertSame([$oldest, $newest], $paths);
+    }
+
+    public function test_desktop_launcher_only_runs_contact_sheet_scan_without_opening_review_page(): void
+    {
+        $launcher = file_get_contents(base_path('scripts/launch-tg-video-contact-sheets.cmd'));
+        $script = file_get_contents(base_path('scripts/run-tg-video-contact-sheets.ps1'));
+
+        $this->assertIsString($launcher);
+        $this->assertIsString($script);
+        $this->assertStringContainsString('TG 暫存影片截圖', $launcher);
+        $this->assertStringContainsString('tg-video-review:scan', $script);
+        $this->assertStringContainsString('依影片建立日期，由舊到新', $script);
+        $this->assertStringNotContainsString('Start-Process', $script);
+        $this->assertStringNotContainsString('開啟審核頁面', $script);
+    }
+
     public function test_failed_or_interrupted_scan_leaves_no_contact_sheet_or_table_rows(): void
     {
         $this->generateFakeVideo($this->root . DIRECTORY_SEPARATOR . 'a-valid.mp4');

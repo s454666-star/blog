@@ -23,10 +23,11 @@ try {
         throw "PHP does not exist: $phpBin"
     }
 
-    $Host.UI.RawUI.WindowTitle = 'TG 暫存影片接觸表掃描'
-    Write-Host 'TG 暫存影片掃描' -ForegroundColor Cyan
+    $Host.UI.RawUI.WindowTitle = 'TG 暫存影片截圖'
+    Write-Host 'TG 暫存影片截圖' -ForegroundColor Cyan
     Write-Host "目錄：$resolvedRoot"
     Write-Host '範圍：只掃描第一層，不包含子資料夾'
+    Write-Host '順序：依影片建立日期，由舊到新'
     Write-Host '可隨時按 Ctrl+C 中斷；中斷後會自動清除本次圖片與資料。' -ForegroundColor Yellow
     Write-Host ''
 
@@ -34,9 +35,6 @@ try {
     try {
         & $phpBin artisan tg-video-review:scan "--root=$resolvedRoot" "--run-token=$runToken" --no-interaction
         $exitCode = $LASTEXITCODE
-        if ($exitCode -eq 0) {
-            Start-Process 'https://blog/tg-video-review'
-        }
     }
     finally {
         Pop-Location
@@ -44,7 +42,7 @@ try {
 }
 catch {
     Write-Host ''
-    Write-Host "掃描失敗或已中斷：$($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "截圖失敗或已中斷：$($_.Exception.Message)" -ForegroundColor Red
 }
 finally {
     if ($phpBin -and (Test-Path -LiteralPath $phpBin -PathType Leaf) -and (Test-Path -LiteralPath $ProjectRoot -PathType Container)) {
@@ -63,7 +61,7 @@ finally {
 
 Write-Host ''
 if ($exitCode -eq 0) {
-    Write-Host '完成，已開啟審核頁面。' -ForegroundColor Green
+    Write-Host '截圖完成。' -ForegroundColor Green
 } else {
     Write-Host '未完成；本次暫存圖片與 table 變更已回滾。' -ForegroundColor Yellow
 }

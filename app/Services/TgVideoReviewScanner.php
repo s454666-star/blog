@@ -216,11 +216,19 @@ class TgVideoReviewScanner
         $files = [];
         foreach (new FilesystemIterator($root, FilesystemIterator::SKIP_DOTS) as $item) {
             if ($item->isFile() && in_array(strtolower($item->getExtension()), $extensions, true)) {
-                $files[] = $item->getPathname();
+                $files[] = [
+                    'path' => $item->getPathname(),
+                    'created_at' => (int) $item->getCTime(),
+                ];
             }
         }
-        natcasesort($files);
-        return array_values($files);
+
+        usort($files, function (array $left, array $right): int {
+            $timeOrder = $left['created_at'] <=> $right['created_at'];
+            return $timeOrder !== 0 ? $timeOrder : strnatcasecmp($left['path'], $right['path']);
+        });
+
+        return array_column($files, 'path');
     }
 
     /** @param array<int, string> $videos */

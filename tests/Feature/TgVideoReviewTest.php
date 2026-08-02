@@ -102,6 +102,56 @@ class TgVideoReviewTest extends TestCase
         $this->assertFileDoesNotExist($record->image_path);
     }
 
+    public function test_delete_cleans_stale_row_when_video_and_image_are_already_missing(): void
+    {
+        $record = $this->makeRecord('stale-delete.mp4');
+        unlink($record->video_path);
+        unlink($record->image_path);
+        $recycleBin = new class implements RecycleBin {
+            public bool $called = false;
+            public function move(array $paths): void
+            {
+                $this->called = true;
+            }
+        };
+        $this->app->instance(RecycleBin::class, $recycleBin);
+
+        $response = $this->postJson(route('tg-video-review.actions'), [
+            'ids' => [$record->id],
+            'action' => 'delete',
+        ]);
+
+        $response->assertOk()->assertJson(['ok' => true, 'completed_ids' => [$record->id]]);
+        $this->assertFalse($recycleBin->called);
+        $this->assertDatabaseMissing('tg_video_reviews', ['id' => $record->id]);
+    }
+
+    public function test_delete_recycles_only_the_file_that_still_exists(): void
+    {
+        $record = $this->makeRecord('partial-delete.mp4');
+        unlink($record->image_path);
+        $recycleBin = new class implements RecycleBin {
+            public array $recycled = [];
+            public function move(array $paths): void
+            {
+                $this->recycled = $paths;
+                foreach ($paths as $path) {
+                    unlink($path);
+                }
+            }
+        };
+        $this->app->instance(RecycleBin::class, $recycleBin);
+
+        $response = $this->postJson(route('tg-video-review.actions'), [
+            'ids' => [$record->id],
+            'action' => 'delete',
+        ]);
+
+        $response->assertOk()->assertJson(['ok' => true]);
+        $this->assertSame([$record->video_path], $recycleBin->recycled);
+        $this->assertDatabaseMissing('tg_video_reviews', ['id' => $record->id]);
+    }
+
     public function test_ok_and_watermark_move_video_delete_image_and_delete_exact_row(): void
     {
         $service = app(TgVideoReviewActionService::class);
@@ -118,6 +168,18 @@ class TgVideoReviewTest extends TestCase
             $this->assertFileDoesNotExist($imagePath);
             $this->assertDatabaseMissing('tg_video_reviews', ['id' => $record->id]);
         }
+    }
+
+    public function test_ok_still_moves_video_when_contact_sheet_is_already_missing(): void
+    {
+        $record = $this->makeRecord('ok-without-image.mp4');
+        unlink($record->image_path);
+
+        $result = app(TgVideoReviewActionService::class)->handle($record, 'ok');
+
+        $this->assertTrue($result['ok'], $result['message']);
+        $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . 'ok' . DIRECTORY_SEPARATOR . 'ok-without-image.mp4');
+        $this->assertDatabaseMissing('tg_video_reviews', ['id' => $record->id]);
     }
 
     public function test_destination_collision_preserves_source_image_and_table_row(): void

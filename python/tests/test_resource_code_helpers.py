@@ -67,12 +67,12 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
         )
         self.assertIsNone(service._normalize_resource_code("JSfilebot_87V0P0D_2TZN-NN8C"))
 
-    def test_jsfilese_codes_are_accepted_and_prefix_is_normalized(self) -> None:
+    def test_jsfileeesbot_codes_are_accepted_and_prefix_is_normalized(self) -> None:
         self.assertEqual(
-            "JSfilese_87V0P0D_2TZN-NN8C",
-            service._normalize_resource_code("jsfilese_87V0P0D_2TZN-NN8C"),
+            "JSfileeesbot_87V0P0D_2TZN-NN8C",
+            service._normalize_resource_code("jsfileeesbot_87V0P0D_2TZN-NN8C"),
         )
-        self.assertIsNone(service._normalize_resource_code("notJSfilese_87V0P0D_2TZN-NN8C"))
+        self.assertIsNone(service._normalize_resource_code("notJSfileeesbot_87V0P0D_2TZN-NN8C"))
 
     def test_yyjmq_codes_are_accepted_and_prefix_is_normalized(self) -> None:
         self.assertEqual(

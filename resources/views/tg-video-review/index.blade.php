@@ -29,6 +29,8 @@
         th,td { padding:14px; border-bottom:1px solid rgba(148,163,184,.12); } th:first-child,td:first-child{width:76px;text-align:center} tbody tr { transition:.2s;background:linear-gradient(90deg,transparent,rgba(34,211,238,.018)); } tbody tr:hover{background:linear-gradient(90deg,rgba(34,211,238,.08),rgba(59,130,246,.045),rgba(244,114,182,.05));box-shadow:inset 4px 0 var(--cyan)}
         input[type=checkbox] { width:24px;height:24px;accent-color:var(--cyan);cursor:pointer;filter:drop-shadow(0 0 8px rgba(34,211,238,.45)); }
         .select-page { display:inline-flex;flex-direction:column;align-items:center;gap:4px;color:#8ee9f4;font-size:.68rem;letter-spacing:.04em;cursor:pointer; }
+        .selection-cell { cursor:pointer;user-select:none;transition:background .18s ease,box-shadow .18s ease; }
+        .selection-cell:hover { background:rgba(34,211,238,.09);box-shadow:inset 0 0 24px rgba(34,211,238,.08); }
         .sheet { display:block; width:100%; max-height:420px; object-fit:contain; border:1px solid rgba(96,165,250,.25); border-radius:16px; background:#020617; box-shadow:0 14px 34px rgba(0,0,0,.35); cursor:zoom-in; transition:.25s; }
         .sheet:hover { border-color:var(--cyan); box-shadow:0 0 0 1px var(--cyan),0 16px 40px rgba(34,211,238,.16); }
         .empty { padding:80px 24px;text-align:center;color:#94a3b8 }.empty strong{display:block;color:#dff8ff;font-size:1.3rem;margin-bottom:8px}
@@ -59,7 +61,7 @@
         @if($records->count())
             <table><thead><tr><th><label class="select-page"><input id="selectPage" type="checkbox" aria-label="全選本頁所有資料"><span>全選</span></label></th><th>圖片</th></tr></thead><tbody>
             @foreach($records as $record)
-                <tr data-id="{{ $record->id }}"><td><input class="row-check" type="checkbox" value="{{ $record->id }}" aria-label="選取第 {{ $record->id }} 筆"></td><td><img class="sheet" src="{{ route('tg-video-review.image', $record) }}" alt="影片 5×4 接觸表" loading="lazy"></td></tr>
+                <tr data-id="{{ $record->id }}"><td class="selection-cell" aria-label="點擊此區域可切換選取"><input class="row-check" type="checkbox" value="{{ $record->id }}" aria-label="選取第 {{ $record->id }} 筆"></td><td><img class="sheet" src="{{ route('tg-video-review.image', $record) }}" alt="影片 5×4 接觸表" loading="lazy"></td></tr>
             @endforeach
             </tbody></table>
         @else
@@ -76,6 +78,7 @@
     const sync=()=>{const count=selected().length,all=checks.length>0&&count===checks.length;actions.forEach(button=>button.disabled=count===0);if(selectPage){selectPage.checked=all;selectPage.indeterminate=count>0&&!all;}if(selectAll)selectAll.textContent=all?'取消全選':'全選本頁';};
     const togglePage=checked=>{checks.forEach(check=>check.checked=checked);sync();};
     checks.forEach(check=>check.addEventListener('change',sync));
+    document.querySelectorAll('.selection-cell').forEach(cell=>cell.addEventListener('click',event=>{if(event.target.closest('input'))return;const check=cell.querySelector('.row-check');check.checked=!check.checked;check.dispatchEvent(new Event('change',{bubbles:true}));}));
     selectPage?.addEventListener('change',()=>togglePage(selectPage.checked));
     selectAll?.addEventListener('click',()=>togglePage(checks.some(check=>!check.checked)));
     document.querySelector('#perPage').addEventListener('change',event=>{const url=new URL(location.href);url.searchParams.set('per_page',event.target.value);url.searchParams.delete('page');location.href=url;});

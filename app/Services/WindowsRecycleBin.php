@@ -41,7 +41,7 @@ class WindowsRecycleBin implements RecycleBin
                 'powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
                 '-File', $script, '-ManifestPath', $manifestPath,
             ]);
-            $process->setTimeout(120);
+            $process->setTimeout(null);
             $process->run();
         } finally {
             @unlink($manifestPath);

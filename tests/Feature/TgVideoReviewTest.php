@@ -212,6 +212,19 @@ class TgVideoReviewTest extends TestCase
         $this->assertStringNotContainsString('[string[]]$Paths', $script);
     }
 
+    public function test_delete_action_has_no_php_or_recycle_process_timeout(): void
+    {
+        $controller = file_get_contents(app_path('Http/Controllers/TgVideoReviewController.php'));
+        $recycleBin = file_get_contents(app_path('Services/WindowsRecycleBin.php'));
+
+        $this->assertIsString($controller);
+        $this->assertIsString($recycleBin);
+        $this->assertStringContainsString('set_time_limit(0)', $controller);
+        $this->assertStringContainsString("ini_set('max_execution_time', '0')", $controller);
+        $this->assertStringContainsString('setTimeout(null)', $recycleBin);
+        $this->assertStringNotContainsString('setTimeout(120)', $recycleBin);
+    }
+
     public function test_ok_and_watermark_move_video_delete_image_and_delete_exact_row(): void
     {
         $service = app(TgVideoReviewActionService::class);

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Star 台指期 TradingView 即時橋接",
-  "version": "1.1.0",
-  "description": "共用目前 Chrome TradingView 頁面的行情連線，安全地交給本機台指期 Redis worker。",
+  "version": "1.2.0",
+  "description": "共用目前 Chrome TradingView 頁面的登入行情連線，並在會話中斷時自動重新連接。",
   "permissions": [
     "tabs"
   ],

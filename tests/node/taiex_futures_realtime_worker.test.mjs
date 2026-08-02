@@ -152,6 +152,60 @@ test('page bridge reuses the TradingView page websocket and publishes TXF1 quote
     assert.equal(posts[0].message.quote.symbol, 'TAIFEX:TXF1!');
 });
 
+test('content bridge reconnects only the visible TradingView session-interrupted dialog', () => {
+    let clicked = 0;
+    const dialog = {
+        textContent: '會話中斷 您的會話已結束，因為您的帳戶已從其他瀏覽器或裝置訪問。',
+        parentElement: null,
+    };
+    const reconnectButton = {
+        textContent: '連接',
+        disabled: false,
+        parentElement: dialog,
+        getClientRects: () => [{}],
+        click: () => { clicked += 1; },
+    };
+    const unrelatedButton = {
+        textContent: '連接',
+        disabled: false,
+        parentElement: { textContent: '一般連線設定', parentElement: null },
+        getClientRects: () => [{}],
+        click: () => { clicked += 100; },
+    };
+    class FakeMutationObserver {
+        constructor(callback) {
+            this.callback = callback;
+        }
+
+        observe() {}
+    }
+    const listeners = {};
+    const contentWindow = {
+        addEventListener(type, listener) {
+            listeners[type] = listener;
+        },
+    };
+    const contentDocument = {
+        documentElement: {},
+        querySelectorAll: () => [unrelatedButton, reconnectButton],
+    };
+    const script = readFileSync(
+        new URL('../../scripts/taiex-futures-realtime/chrome-extension/content.js', import.meta.url),
+        'utf8',
+    );
+    vm.runInNewContext(script, {
+        window: contentWindow,
+        document: contentDocument,
+        MutationObserver: FakeMutationObserver,
+        chrome: { runtime: { sendMessage() {}, lastError: null } },
+        setTimeout(callback) { callback(); return 1; },
+        setInterval() { return 1; },
+        Date,
+    });
+
+    assert.equal(clicked, 1);
+});
+
 test('only fresh open-session quotes qualify for a one-second Redis refresh', () => {
     const now = taipeiDate('2026-07-30T11:20:00');
     const quote = {

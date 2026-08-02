@@ -17,6 +17,18 @@ class TgVideoReviewActionService
     public function handle(TgVideoReview $record, string $action): array
     {
         try {
+            if (!in_array($action, ['delete', 'ok', 'watermark'], true)) {
+                throw new RuntimeException('不支援的操作。');
+            }
+
+            if ($action === 'delete'
+                && !file_exists((string) $record->video_path)
+                && !file_exists((string) $record->image_path)) {
+                $record->delete();
+
+                return ['ok' => true, 'message' => '已清除不存在檔案的資料列。'];
+            }
+
             [$videoPath, $imagePath, $root] = $this->validatedPaths($record);
 
             if ($action === 'delete') {
@@ -35,8 +47,6 @@ class TgVideoReviewActionService
                     ? (string) config('tg_video_review.ok_subdirectory')
                     : (string) config('tg_video_review.watermark_subdirectory');
                 $this->moveVideoAndDeleteImage($videoPath, $imagePath, $root, $subdirectory);
-            } else {
-                throw new RuntimeException('不支援的操作。');
             }
 
             $record->delete();

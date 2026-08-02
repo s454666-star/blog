@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$ProjectRoot = 'C:\Users\USER\Documents\project\blog',
     [string]$ScanRoot = 'D:\tg暫存'
 )
@@ -63,7 +63,7 @@ Write-Host ''
 if ($exitCode -eq 0) {
     Write-Host '截圖完成。' -ForegroundColor Green
 } else {
-    Write-Host '未完成；本次暫存圖片與 table 變更已回滾。' -ForegroundColor Yellow
+    Write-Host '未完成；已完成項目會保留，未完成項目的圖片與 table 已清除。' -ForegroundColor Yellow
 }
 Write-Host '按任意鍵關閉視窗。'
 $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')

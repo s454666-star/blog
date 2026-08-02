@@ -126,6 +126,25 @@ class TgVideoReviewTest extends TestCase
         $this->assertDatabaseMissing('tg_video_reviews', ['id' => $record->id]);
     }
 
+    public function test_delete_cleans_legacy_stale_row_even_when_its_missing_paths_are_outside_current_root(): void
+    {
+        $record = $this->makeRecord('legacy-stale.mp4');
+        unlink($record->video_path);
+        unlink($record->image_path);
+        $record->update([
+            'video_path' => 'X:\\old-root\\legacy-stale.mp4',
+            'image_path' => 'X:\\old-root\\legacy-stale.jpg',
+        ]);
+
+        $response = $this->postJson(route('tg-video-review.actions'), [
+            'ids' => [$record->id],
+            'action' => 'delete',
+        ]);
+
+        $response->assertOk()->assertJson(['ok' => true, 'completed_ids' => [$record->id]]);
+        $this->assertDatabaseMissing('tg_video_reviews', ['id' => $record->id]);
+    }
+
     public function test_delete_recycles_only_the_file_that_still_exists(): void
     {
         $record = $this->makeRecord('partial-delete.mp4');
@@ -245,6 +264,39 @@ class TgVideoReviewTest extends TestCase
         $this->assertSame([$oldest, $newest], $paths);
     }
 
+    public function test_scanner_publishes_each_completed_video_and_keeps_it_on_interruption(): void
+    {
+        $this->generateFakeVideo($this->root . DIRECTORY_SEPARATOR . 'first.mp4');
+        usleep(1_200_000);
+        $this->generateFakeVideo($this->root . DIRECTORY_SEPARATOR . 'second.mp4');
+        $observedPublishedResult = false;
+
+        try {
+            app(TgVideoReviewScanner::class)->scan(
+                $this->root,
+                function (int $completed) use (&$observedPublishedResult): void {
+                    if ($completed !== 1) {
+                        return;
+                    }
+
+                    $observedPublishedResult = TgVideoReview::query()->count() === 1
+                        && is_file($this->root . DIRECTORY_SEPARATOR . 'first.jpg');
+                    throw new \RuntimeException('simulated Ctrl+C');
+                },
+                'livepublish01'
+            );
+            $this->fail('The simulated interruption should stop the scan.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('simulated Ctrl+C', $e->getMessage());
+        }
+
+        $this->assertTrue($observedPublishedResult, 'The first row and JPG must be visible before progress is reported.');
+        $this->assertDatabaseCount('tg_video_reviews', 1);
+        $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . 'first.jpg');
+        $this->assertFileDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'second.jpg');
+        $this->assertDirectoryDoesNotExist(storage_path('app/tg-video-review-runs/livepublish01'));
+    }
+
     public function test_desktop_launcher_only_runs_contact_sheet_scan_without_opening_review_page(): void
     {
         $launcher = file_get_contents(base_path('scripts/launch-tg-video-contact-sheets.cmd'));
@@ -252,14 +304,14 @@ class TgVideoReviewTest extends TestCase
 
         $this->assertIsString($launcher);
         $this->assertIsString($script);
-        $this->assertStringContainsString('TG 暫存影片截圖', $launcher);
+        $this->assertStringContainsString('run-tg-video-contact-sheets.ps1', $launcher);
         $this->assertStringContainsString('tg-video-review:scan', $script);
         $this->assertStringContainsString('依影片建立日期，由舊到新', $script);
         $this->assertStringNotContainsString('Start-Process', $script);
         $this->assertStringNotContainsString('開啟審核頁面', $script);
     }
 
-    public function test_failed_or_interrupted_scan_leaves_no_contact_sheet_or_table_rows(): void
+    public function test_failed_or_interrupted_scan_keeps_completed_rows_without_incomplete_residue(): void
     {
         $this->generateFakeVideo($this->root . DIRECTORY_SEPARATOR . 'a-valid.mp4');
         file_put_contents($this->root . DIRECTORY_SEPARATOR . 'z-broken.mp4', 'broken video');
@@ -268,9 +320,9 @@ class TgVideoReviewTest extends TestCase
             app(TgVideoReviewScanner::class)->scan($this->root, null, 'interrupt01');
             $this->fail('Broken fake video should fail the scan.');
         } catch (\Throwable) {
-            $this->assertFileDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'a-valid.jpg');
+            $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . 'a-valid.jpg');
             $this->assertFileDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'z-broken.jpg');
-            $this->assertDatabaseCount('tg_video_reviews', 0);
+            $this->assertDatabaseCount('tg_video_reviews', 1);
             $this->assertDirectoryDoesNotExist(storage_path('app/tg-video-review-runs/interrupt01'));
         }
     }
@@ -307,6 +359,7 @@ class TgVideoReviewTest extends TestCase
                 'stage_path' => $runDirectory . DIRECTORY_SEPARATOR . 'already-moved.jpg',
                 'backup_path' => null,
                 'published' => true,
+                'committed' => false,
             ]],
             'database_before' => [$record->path_hash => null],
         ], JSON_THROW_ON_ERROR));

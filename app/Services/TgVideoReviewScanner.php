@@ -39,7 +39,7 @@ class TgVideoReviewScanner
         $journal = [
             'token' => $token,
             'root' => $root,
-            'status' => 'staging',
+            'status' => 'processing',
             'entries' => [],
             'database_before' => [],
         ];
@@ -80,6 +80,7 @@ class TgVideoReviewScanner
                 $duration = $this->probeDuration($videoPath);
                 $stagePath = $stageDirectory . DIRECTORY_SEPARATOR . sprintf('%04d.jpg', $index + 1);
                 $this->generateContactSheet($videoPath, $stagePath, $duration);
+                $entryIndex = count($journal['entries']);
                 $journal['entries'][] = [
                     'path_hash' => $pathHash,
                     'video_path' => $videoPath,
@@ -87,54 +88,57 @@ class TgVideoReviewScanner
                     'stage_path' => $stagePath,
                     'backup_path' => null,
                     'published' => false,
+                    'committed' => false,
                     'file_size_bytes' => $fileSize,
                     'file_modified_at' => $modifiedAt,
                     'duration_seconds' => $duration,
                 ];
+                $journal['database_before'][$pathHash] = $existing?->getAttributes();
                 $this->writeJournal($journalPath, $journal);
-                $generated++;
-                if ($progress !== null) {
-                    $progress($index + 1, $total, '已產生 5×4 接觸表');
-                }
-            }
 
-            $journal['status'] = 'publishing';
-            foreach ($journal['entries'] as $entryIndex => $entry) {
-                $existing = TgVideoReview::query()->where('path_hash', $entry['path_hash'])->first();
-                $journal['database_before'][$entry['path_hash']] = $existing?->getAttributes();
-
-                if (is_file($entry['image_path'])) {
+                if (is_file($imagePath)) {
                     $backupPath = $runDirectory . DIRECTORY_SEPARATOR . 'backup-' . $entryIndex . '.jpg';
                     $journal['entries'][$entryIndex]['backup_path'] = $backupPath;
                     $this->writeJournal($journalPath, $journal);
-                    if (!rename($entry['image_path'], $backupPath)) {
+                    if (!rename($imagePath, $backupPath)) {
                         throw new RuntimeException('無法暫存既有接觸表。');
                     }
                 }
 
-                $this->writeJournal($journalPath, $journal);
-                if (!rename($entry['stage_path'], $entry['image_path'])) {
+                if (!rename($stagePath, $imagePath)) {
                     throw new RuntimeException('無法發布接觸表。');
                 }
                 $journal['entries'][$entryIndex]['published'] = true;
                 $this->writeJournal($journalPath, $journal);
-            }
 
-            DB::transaction(function () use ($journal): void {
-                foreach ($journal['entries'] as $entry) {
+                DB::transaction(function () use (
+                    $pathHash,
+                    $videoPath,
+                    $imagePath,
+                    $fileSize,
+                    $modifiedAt,
+                    $duration
+                ): void {
                     TgVideoReview::query()->updateOrCreate(
-                        ['path_hash' => $entry['path_hash']],
+                        ['path_hash' => $pathHash],
                         [
-                            'video_path' => $entry['video_path'],
-                            'image_path' => $entry['image_path'],
-                            'file_size_bytes' => $entry['file_size_bytes'],
-                            'file_modified_at' => $entry['file_modified_at'],
-                            'duration_seconds' => $entry['duration_seconds'],
+                            'video_path' => $videoPath,
+                            'image_path' => $imagePath,
+                            'file_size_bytes' => $fileSize,
+                            'file_modified_at' => $modifiedAt,
+                            'duration_seconds' => $duration,
                             'screenshot_count' => 20,
                         ]
                     );
+                });
+                $journal['entries'][$entryIndex]['committed'] = true;
+                $this->writeJournal($journalPath, $journal);
+
+                $generated++;
+                if ($progress !== null) {
+                    $progress($index + 1, $total, '已發布 5×4 接觸表');
                 }
-            });
+            }
 
             $journal['status'] = 'completed';
             $this->writeJournal($journalPath, $journal);
@@ -167,6 +171,10 @@ class TgVideoReviewScanner
         }
 
         foreach (array_reverse((array) ($journal['entries'] ?? [])) as $entry) {
+            if (($entry['committed'] ?? false) === true) {
+                continue;
+            }
+
             $imagePath = (string) ($entry['image_path'] ?? '');
             $backupPath = (string) ($entry['backup_path'] ?? '');
             $stagePath = (string) ($entry['stage_path'] ?? '');
@@ -181,8 +189,19 @@ class TgVideoReviewScanner
             }
         }
 
-        DB::transaction(function () use ($journal): void {
+        $committedHashes = [];
+        foreach ((array) ($journal['entries'] ?? []) as $entry) {
+            if (($entry['committed'] ?? false) === true && isset($entry['path_hash'])) {
+                $committedHashes[(string) $entry['path_hash']] = true;
+            }
+        }
+
+        DB::transaction(function () use ($journal, $committedHashes): void {
             foreach ((array) ($journal['database_before'] ?? []) as $pathHash => $attributes) {
+                if (isset($committedHashes[(string) $pathHash])) {
+                    continue;
+                }
+
                 if (is_array($attributes)) {
                     TgVideoReview::query()->updateOrCreate(['path_hash' => $pathHash], $attributes);
                 } else {

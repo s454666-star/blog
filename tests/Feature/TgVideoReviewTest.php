@@ -1,0 +1,260 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Contracts\RecycleBin;
+use App\Models\TgVideoReview;
+use App\Services\TgVideoReviewActionService;
+use App\Services\TgVideoReviewScanner;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+use Symfony\Component\Process\Process;
+use Tests\TestCase;
+
+class TgVideoReviewTest extends TestCase
+{
+    private string $root;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'blog-tg-video-review-' . Str::uuid();
+        File::ensureDirectoryExists($this->root);
+        config()->set('tg_video_review.root', $this->root);
+
+        Schema::connection('sqlite')->create('tg_video_reviews', function (Blueprint $table): void {
+            $table->id();
+            $table->char('path_hash', 40)->unique();
+            $table->text('video_path');
+            $table->text('image_path');
+            $table->unsignedBigInteger('file_size_bytes');
+            $table->unsignedBigInteger('file_modified_at');
+            $table->decimal('duration_seconds', 12, 3);
+            $table->unsignedTinyInteger('screenshot_count')->default(20);
+            $table->timestamps();
+        });
+    }
+
+    protected function tearDown(): void
+    {
+        Schema::connection('sqlite')->dropIfExists('tg_video_reviews');
+        if (is_dir($this->root)) {
+            File::deleteDirectory($this->root);
+        }
+        parent::tearDown();
+    }
+
+    public function test_page_has_only_selection_and_image_columns_with_required_controls(): void
+    {
+        $record = $this->makeRecord('page.mp4');
+
+        $response = $this->get(route('tg-video-review.index'));
+        $response->assertOk()
+            ->assertSee('<th>多選</th><th>圖片</th>', false)
+            ->assertSee('data-action="delete"', false)
+            ->assertSee('data-action="ok"', false)
+            ->assertSee('data-action="watermark"', false)
+            ->assertSee('<option value="50" selected>50</option>', false)
+            ->assertSee('position:fixed; inset:0', false)
+            ->assertSee(route('tg-video-review.image', $record), false)
+            ->assertDontSee('<th>檔名</th>', false);
+
+        $this->get(route('tg-video-review.index', ['per_page' => 100]))
+            ->assertSee('<option value="100" selected>100</option>', false);
+        $this->get(route('tg-video-review.index', ['per_page' => 999]))
+            ->assertSee('<option value="50" selected>50</option>', false);
+    }
+
+    public function test_image_route_serves_only_an_image_from_the_configured_root(): void
+    {
+        $record = $this->makeRecord('image.mp4');
+        $this->get(route('tg-video-review.image', $record))->assertOk()->assertHeader('Content-Type', 'image/jpeg');
+
+        $outside = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'outside-' . Str::uuid() . '.jpg';
+        file_put_contents($outside, $this->tinyJpeg());
+        $record->update(['image_path' => $outside]);
+        $this->get(route('tg-video-review.image', $record))->assertForbidden();
+        @unlink($outside);
+    }
+
+    public function test_delete_moves_generated_files_through_recycle_bin_then_deletes_exact_row(): void
+    {
+        $record = $this->makeRecord('delete.mp4');
+        $this->app->instance(RecycleBin::class, new class implements RecycleBin {
+            public function move(array $paths): void
+            {
+                foreach ($paths as $path) {
+                    unlink($path);
+                }
+            }
+        });
+
+        $response = $this->postJson(route('tg-video-review.actions'), [
+            'ids' => [$record->id],
+            'action' => 'delete',
+        ]);
+
+        $response->assertOk()->assertJson(['ok' => true, 'completed_ids' => [$record->id]]);
+        $this->assertDatabaseMissing('tg_video_reviews', ['id' => $record->id]);
+        $this->assertFileDoesNotExist($record->video_path);
+        $this->assertFileDoesNotExist($record->image_path);
+    }
+
+    public function test_ok_and_watermark_move_video_delete_image_and_delete_exact_row(): void
+    {
+        $service = app(TgVideoReviewActionService::class);
+        foreach ([
+            ['action' => 'ok', 'directory' => 'ok'],
+            ['action' => 'watermark', 'directory' => '水'],
+        ] as $case) {
+            $record = $this->makeRecord($case['action'] . '.mp4');
+            $videoName = basename($record->video_path);
+            $imagePath = $record->image_path;
+            $result = $service->handle($record, $case['action']);
+            $this->assertTrue($result['ok'], $result['message']);
+            $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . $case['directory'] . DIRECTORY_SEPARATOR . $videoName);
+            $this->assertFileDoesNotExist($imagePath);
+            $this->assertDatabaseMissing('tg_video_reviews', ['id' => $record->id]);
+        }
+    }
+
+    public function test_destination_collision_preserves_source_image_and_table_row(): void
+    {
+        $record = $this->makeRecord('collision.mp4');
+        File::ensureDirectoryExists($this->root . DIRECTORY_SEPARATOR . 'ok');
+        file_put_contents($this->root . DIRECTORY_SEPARATOR . 'ok' . DIRECTORY_SEPARATOR . 'collision.mp4', 'existing');
+
+        $result = app(TgVideoReviewActionService::class)->handle($record, 'ok');
+
+        $this->assertFalse($result['ok']);
+        $this->assertFileExists($record->video_path);
+        $this->assertFileExists($record->image_path);
+        $this->assertDatabaseHas('tg_video_reviews', ['id' => $record->id]);
+    }
+
+    public function test_batch_validation_rejects_empty_selection_and_unknown_action(): void
+    {
+        $this->postJson(route('tg-video-review.actions'), ['ids' => [], 'action' => 'ok'])
+            ->assertUnprocessable()->assertJsonValidationErrors('ids');
+        $this->postJson(route('tg-video-review.actions'), ['ids' => [1], 'action' => 'other'])
+            ->assertUnprocessable()->assertJsonValidationErrors('action');
+    }
+
+    public function test_scanner_uses_fake_video_ignores_subfolders_and_is_idempotent(): void
+    {
+        $video = $this->root . DIRECTORY_SEPARATOR . 'fake.mp4';
+        $this->generateFakeVideo($video);
+        file_put_contents($this->root . DIRECTORY_SEPARATOR . 'ignore.txt', 'not a video');
+        $subdirectory = $this->root . DIRECTORY_SEPARATOR . 'nested';
+        File::ensureDirectoryExists($subdirectory);
+        copy($video, $subdirectory . DIRECTORY_SEPARATOR . 'nested.mp4');
+
+        $first = app(TgVideoReviewScanner::class)->scan($this->root, null, 'testrun01');
+        $this->assertSame(['videos' => 1, 'generated' => 1, 'unchanged' => 0], $first);
+        $this->assertDatabaseCount('tg_video_reviews', 1);
+        $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . 'fake.jpg');
+        $size = getimagesize($this->root . DIRECTORY_SEPARATOR . 'fake.jpg');
+        $this->assertGreaterThan(2000, $size[0]);
+        $this->assertGreaterThan(1000, $size[1]);
+
+        $second = app(TgVideoReviewScanner::class)->scan($this->root, null, 'testrun02');
+        $this->assertSame(['videos' => 1, 'generated' => 0, 'unchanged' => 1], $second);
+        $this->assertDatabaseCount('tg_video_reviews', 1);
+    }
+
+    public function test_failed_or_interrupted_scan_leaves_no_contact_sheet_or_table_rows(): void
+    {
+        $this->generateFakeVideo($this->root . DIRECTORY_SEPARATOR . 'a-valid.mp4');
+        file_put_contents($this->root . DIRECTORY_SEPARATOR . 'z-broken.mp4', 'broken video');
+
+        try {
+            app(TgVideoReviewScanner::class)->scan($this->root, null, 'interrupt01');
+            $this->fail('Broken fake video should fail the scan.');
+        } catch (\Throwable) {
+            $this->assertFileDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'a-valid.jpg');
+            $this->assertFileDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'z-broken.jpg');
+            $this->assertDatabaseCount('tg_video_reviews', 0);
+            $this->assertDirectoryDoesNotExist(storage_path('app/tg-video-review-runs/interrupt01'));
+        }
+    }
+
+    public function test_scanner_never_overwrites_an_unmanaged_same_name_jpeg(): void
+    {
+        $this->generateFakeVideo($this->root . DIRECTORY_SEPARATOR . 'protected.mp4');
+        $image = $this->root . DIRECTORY_SEPARATOR . 'protected.jpg';
+        file_put_contents($image, 'user-owned-image');
+
+        try {
+            app(TgVideoReviewScanner::class)->scan($this->root, null, 'protected01');
+            $this->fail('Unmanaged same-name JPG should block the scan.');
+        } catch (\Throwable) {
+            $this->assertSame('user-owned-image', file_get_contents($image));
+            $this->assertDatabaseCount('tg_video_reviews', 0);
+            $this->assertDirectoryDoesNotExist(storage_path('app/tg-video-review-runs/protected01'));
+        }
+    }
+
+    public function test_abandoned_post_commit_run_removes_new_image_and_row_but_keeps_original_video(): void
+    {
+        $record = $this->makeRecord('hard-interrupt.mp4');
+        $runDirectory = storage_path('app/tg-video-review-runs/hardstop01');
+        File::ensureDirectoryExists($runDirectory);
+        file_put_contents($runDirectory . DIRECTORY_SEPARATOR . 'journal.json', json_encode([
+            'token' => 'hardstop01',
+            'root' => $this->root,
+            'status' => 'publishing',
+            'entries' => [[
+                'path_hash' => $record->path_hash,
+                'video_path' => $record->video_path,
+                'image_path' => $record->image_path,
+                'stage_path' => $runDirectory . DIRECTORY_SEPARATOR . 'already-moved.jpg',
+                'backup_path' => null,
+                'published' => true,
+            ]],
+            'database_before' => [$record->path_hash => null],
+        ], JSON_THROW_ON_ERROR));
+
+        app(TgVideoReviewScanner::class)->cleanupRun('hardstop01');
+
+        $this->assertFileExists($record->video_path);
+        $this->assertFileDoesNotExist($record->image_path);
+        $this->assertDatabaseMissing('tg_video_reviews', ['id' => $record->id]);
+        $this->assertDirectoryDoesNotExist($runDirectory);
+    }
+
+    private function makeRecord(string $videoName): TgVideoReview
+    {
+        $video = $this->root . DIRECTORY_SEPARATOR . $videoName;
+        $image = $this->root . DIRECTORY_SEPARATOR . pathinfo($videoName, PATHINFO_FILENAME) . '.jpg';
+        file_put_contents($video, 'fake-video');
+        file_put_contents($image, $this->tinyJpeg());
+
+        return TgVideoReview::query()->create([
+            'path_hash' => sha1(mb_strtolower(str_replace('\\', '/', $video))),
+            'video_path' => $video,
+            'image_path' => $image,
+            'file_size_bytes' => filesize($video),
+            'file_modified_at' => filemtime($video),
+            'duration_seconds' => 2,
+            'screenshot_count' => 20,
+        ]);
+    }
+
+    private function generateFakeVideo(string $path): void
+    {
+        $process = new Process([
+            (string) config('tg_video_review.ffmpeg_bin'), '-hide_banner', '-loglevel', 'error', '-y',
+            '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=20', '-t', '2',
+            '-c:v', 'mpeg4', '-q:v', '5', $path,
+        ]);
+        $process->setTimeout(60);
+        $process->mustRun();
+    }
+
+    private function tinyJpeg(): string
+    {
+        return base64_decode('/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAEf/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABBQJ//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAwEBPwF//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPwF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQAGPwJ//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPyF//9oADAMBAAIAAwAAABAf/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAwEBPxB//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPxB//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxB//9k=', true);
+    }
+}

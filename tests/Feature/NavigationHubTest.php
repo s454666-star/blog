@@ -40,7 +40,7 @@ class NavigationHubTest extends TestCase
             ->assertSee('https://staging-polar-api.worldvision.org.tw', false)
             ->assertSee('https://alpha-polar-api-internal.worldvision.org.tw', false)
             ->assertSee('TG 暫存影片審核')
-            ->assertSee('href="https://blog/tg-video-review"', false)
+            ->assertSee('href="https://mystar.monster/tg-video-review"', false)
             ->assertSee('target="_blank"', false)
             ->assertSee('rel="noopener noreferrer"', false)
             ->assertDontSee('videos/external-duplicates');

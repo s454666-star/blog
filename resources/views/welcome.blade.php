@@ -37,7 +37,7 @@
                 ['mark' => 'DUP', 'title' => '重複影片檢視', 'description' => '只顯示重複群組，協助比對並處理重複影片。', 'url' => url('/videos/duplicates')],
                 ['mark' => 'SYNC', 'title' => '重跑資源三邊差異', 'description' => '比對重跑來源、資料庫與檔案狀態，找出同步差異。', 'url' => url('/videos/rerun-sync')],
                 ['mark' => 'FACE', 'title' => '人臉作品分群', 'description' => '依人臉身分整理同一人物的影片作品與關聯資料。', 'url' => url('/face-identities')],
-                ['mark' => 'TG', 'title' => 'TG 暫存影片審核', 'description' => '在本機檢視 5×4 影片接觸表，批次分類到 OK、水印或垃圾桶。', 'url' => 'https://blog/tg-video-review', 'meta' => 'Windows 本機 · D:\\tg暫存'],
+                ['mark' => 'TG', 'title' => 'TG 暫存影片審核', 'description' => '在本機檢視 5×4 影片接觸表，批次分類到 OK、水印或垃圾桶。', 'url' => 'https://mystar.monster/tg-video-review', 'meta' => 'Windows 本機 · D:\\tg暫存'],
             ],
         ],
         [

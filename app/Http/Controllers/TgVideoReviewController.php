@@ -13,7 +13,7 @@ class TgVideoReviewController extends Controller
 {
     public function index(Request $request): View
     {
-        $options = [50, 100, 200, 500];
+        $options = [50, 100, 200, 500, 1000, 2000];
         $requested = (int) $request->query('per_page', 50);
         $perPage = in_array($requested, $options, true) ? $requested : 50;
 

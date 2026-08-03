@@ -67,6 +67,10 @@ class TgVideoReviewTest extends TestCase
 
         $this->get(route('tg-video-review.index', ['per_page' => 100]))
             ->assertSee('<option value="100" selected>100</option>', false);
+        $this->get(route('tg-video-review.index', ['per_page' => 1000]))
+            ->assertSee('<option value="1000" selected>1000</option>', false);
+        $this->get(route('tg-video-review.index', ['per_page' => 2000]))
+            ->assertSee('<option value="2000" selected>2000</option>', false);
         $this->get(route('tg-video-review.index', ['per_page' => 999]))
             ->assertSee('<option value="50" selected>50</option>', false);
     }

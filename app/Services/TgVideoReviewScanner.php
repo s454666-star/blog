@@ -14,7 +14,7 @@ class TgVideoReviewScanner
 {
     /**
      * @param callable(int, int, string): void|null $progress
-     * @return array{videos: int, generated: int, unchanged: int, failed: int}
+     * @return array{videos: int, generated: int, unchanged: int, disappeared: int, failed: int}
      */
     public function scan(?string $requestedRoot = null, ?callable $progress = null, ?string $runToken = null): array
     {
@@ -52,13 +52,22 @@ class TgVideoReviewScanner
             $total = count($videos);
             $generated = 0;
             $unchanged = 0;
+            $disappeared = 0;
             $failed = 0;
 
             foreach ($videos as $index => $videoPath) {
                 $imagePath = $root . DIRECTORY_SEPARATOR . pathinfo($videoPath, PATHINFO_FILENAME) . '.jpg';
                 $pathHash = $this->hashPath($videoPath);
-                $fileSize = (int) filesize($videoPath);
-                $modifiedAt = (int) filemtime($videoPath);
+                $metadata = $this->readVideoMetadata($videoPath);
+                if ($metadata === null) {
+                    $disappeared++;
+                    if ($progress !== null) {
+                        $progress($index + 1, $total, '影片已移動，略過');
+                    }
+                    continue;
+                }
+                $fileSize = $metadata['size'];
+                $modifiedAt = $metadata['modified_at'];
                 $existing = TgVideoReview::query()->where('path_hash', $pathHash)->first();
 
                 if (is_file($imagePath)
@@ -87,9 +96,24 @@ class TgVideoReviewScanner
                     if (is_file($stagePath)) {
                         @unlink($stagePath);
                     }
+                    if ($this->readVideoMetadata($videoPath) === null) {
+                        $disappeared++;
+                        if ($progress !== null) {
+                            $progress($index + 1, $total, '影片已移動，略過');
+                        }
+                        continue;
+                    }
                     $failed++;
                     if ($progress !== null) {
                         $progress($index + 1, $total, '影片無法讀取，已略過');
+                    }
+                    continue;
+                }
+                if ($this->readVideoMetadata($videoPath) === null) {
+                    @unlink($stagePath);
+                    $disappeared++;
+                    if ($progress !== null) {
+                        $progress($index + 1, $total, '影片已移動，略過');
                     }
                     continue;
                 }
@@ -161,6 +185,7 @@ class TgVideoReviewScanner
                 'videos' => $total,
                 'generated' => $generated,
                 'unchanged' => $unchanged,
+                'disappeared' => $disappeared,
                 'failed' => $failed,
             ];
         } catch (Throwable $e) {
@@ -329,6 +354,22 @@ class TgVideoReviewScanner
         if (!is_array($size) || $size[0] < $columns * 100 || $size[1] < $rows * 80) {
             throw new RuntimeException('接觸表驗證失敗。');
         }
+    }
+
+    /** @return array{size: int, modified_at: int}|null */
+    private function readVideoMetadata(string $videoPath): ?array
+    {
+        clearstatcache(true, $videoPath);
+        $size = @filesize($videoPath);
+        $modifiedAt = @filemtime($videoPath);
+        if ($size === false || $modifiedAt === false) {
+            return null;
+        }
+
+        return [
+            'size' => (int) $size,
+            'modified_at' => (int) $modifiedAt,
+        ];
     }
 
     private function writeJournal(string $path, array $journal): void

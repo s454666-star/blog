@@ -295,7 +295,7 @@ class TgVideoReviewTest extends TestCase
         copy($video, $subdirectory . DIRECTORY_SEPARATOR . 'nested.mp4');
 
         $first = app(TgVideoReviewScanner::class)->scan($this->root, null, 'testrun01');
-        $this->assertSame(['videos' => 1, 'generated' => 1, 'unchanged' => 0, 'failed' => 0], $first);
+        $this->assertSame(['videos' => 1, 'generated' => 1, 'unchanged' => 0, 'disappeared' => 0, 'failed' => 0], $first);
         $this->assertDatabaseCount('tg_video_reviews', 1);
         $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . 'fake.jpg');
         $size = getimagesize($this->root . DIRECTORY_SEPARATOR . 'fake.jpg');
@@ -303,7 +303,7 @@ class TgVideoReviewTest extends TestCase
         $this->assertGreaterThan(1000, $size[1]);
 
         $second = app(TgVideoReviewScanner::class)->scan($this->root, null, 'testrun02');
-        $this->assertSame(['videos' => 1, 'generated' => 0, 'unchanged' => 1, 'failed' => 0], $second);
+        $this->assertSame(['videos' => 1, 'generated' => 0, 'unchanged' => 1, 'disappeared' => 0, 'failed' => 0], $second);
         $this->assertDatabaseCount('tg_video_reviews', 1);
     }
 
@@ -357,6 +357,35 @@ class TgVideoReviewTest extends TestCase
         $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . 'first.jpg');
         $this->assertFileDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'second.jpg');
         $this->assertDirectoryDoesNotExist(storage_path('app/tg-video-review-runs/livepublish01'));
+    }
+
+    public function test_scanner_continues_when_a_later_video_is_moved_after_enumeration(): void
+    {
+        $first = $this->root . DIRECTORY_SEPARATOR . 'first.mp4';
+        $moved = $this->root . DIRECTORY_SEPARATOR . 'second.mp4';
+        $this->generateFakeVideo($first);
+        usleep(1_200_000);
+        $this->generateFakeVideo($moved);
+        app(TgVideoReviewScanner::class)->scan($this->root, null, 'movingseed01');
+
+        $statuses = [];
+        $result = app(TgVideoReviewScanner::class)->scan(
+            $this->root,
+            function (int $current, int $total, string $status) use ($moved, &$statuses): void {
+                $statuses[] = [$current, $total, $status];
+                if ($current === 1) {
+                    unlink($moved);
+                }
+            },
+            'movingrace01'
+        );
+
+        $this->assertSame(
+            ['videos' => 2, 'generated' => 0, 'unchanged' => 1, 'disappeared' => 1, 'failed' => 0],
+            $result
+        );
+        $this->assertSame('影片已移動，略過', $statuses[1][2]);
+        $this->assertDirectoryDoesNotExist(storage_path('app/tg-video-review-runs/movingrace01'));
     }
 
     public function test_desktop_launcher_only_runs_contact_sheet_scan_without_opening_review_page(): void
@@ -421,7 +450,7 @@ class TgVideoReviewTest extends TestCase
             'invalidvideo01'
         );
 
-        $this->assertSame(['videos' => 2, 'generated' => 1, 'unchanged' => 0, 'failed' => 1], $result);
+        $this->assertSame(['videos' => 2, 'generated' => 1, 'unchanged' => 0, 'disappeared' => 0, 'failed' => 1], $result);
         $this->assertSame('影片無法讀取，已略過', $statuses[0][2]);
         $this->assertFileDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'a-broken.jpg');
         $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . 'z-valid.jpg');

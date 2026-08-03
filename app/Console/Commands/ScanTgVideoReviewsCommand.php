@@ -35,8 +35,8 @@ class ScanTgVideoReviewsCommand extends Command
             );
 
             $this->info(sprintf(
-                '掃描完成：影片 %d、產生 %d、未變更 %d、無法讀取 %d。',
-                $result['videos'], $result['generated'], $result['unchanged'], $result['failed']
+                '掃描完成：影片 %d、產生 %d、未變更 %d、掃描中已移動 %d、無法讀取 %d。',
+                $result['videos'], $result['generated'], $result['unchanged'], $result['disappeared'], $result['failed']
             ));
             return self::SUCCESS;
         } catch (Throwable $e) {

@@ -365,6 +365,39 @@ class TgVideoReviewTest extends TestCase
         $this->assertStringNotContainsString('開啟審核頁面', $script);
     }
 
+    public function test_aws_zerotier_proxy_generates_https_action_and_image_urls(): void
+    {
+        $record = $this->makeRecord('proxy.mp4');
+
+        $response = $this
+            ->withServerVariables(['REMOTE_ADDR' => '10.147.18.34'])
+            ->withHeaders([
+                'X-Forwarded-Proto' => 'https',
+                'X-Forwarded-Host' => 'mystar.monster',
+                'X-Forwarded-Port' => '443',
+            ])
+            ->get('http://mystar.monster/tg-video-review');
+
+        $response->assertOk()
+            ->assertSee('https:\/\/mystar.monster\/tg-video-review\/actions', false)
+            ->assertSee("https://mystar.monster/tg-video-review/{$record->id}/image", false)
+            ->assertDontSee('http:\/\/mystar.monster\/tg-video-review\/actions', false);
+    }
+
+    public function test_zerotier_proxy_listener_accepts_only_the_aws_private_ip(): void
+    {
+        $caddy = file_get_contents(base_path('Caddyfile.local'));
+
+        $this->assertIsString($caddy);
+        $this->assertStringContainsString(':8099', $caddy);
+        $this->assertStringContainsString('bind 10.147.18.198', $caddy);
+        $this->assertStringContainsString('remote_ip 10.147.18.34', $caddy);
+        $this->assertStringContainsString('env HTTPS on', $caddy);
+        $this->assertStringContainsString('header_up X-Forwarded-Proto https', $caddy);
+        $this->assertStringContainsString('header_up X-Forwarded-Port 443', $caddy);
+        $this->assertStringContainsString('respond "Forbidden" 403', $caddy);
+    }
+
     public function test_invalid_video_is_skipped_without_residue_and_later_videos_continue(): void
     {
         file_put_contents($this->root . DIRECTORY_SEPARATOR . 'a-broken.mp4', 'broken video');

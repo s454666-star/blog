@@ -38,3 +38,22 @@ https://blog {
 :80 {
 	import blog_routes
 }
+
+:8099 {
+	bind 10.147.18.198
+
+	@aws_sky remote_ip 10.147.18.34
+	handle @aws_sky {
+		encode zstd gzip
+		root * C:/Users/USER/Documents/project/blog/public
+		php_fastcgi 127.0.0.1:9000 {
+			env HTTPS on
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Port 443
+			header_up X-Forwarded-Host mystar.monster
+		}
+		file_server
+	}
+
+	respond "Forbidden" 403
+}

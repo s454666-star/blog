@@ -12,6 +12,8 @@ use Throwable;
 
 class TgVideoReviewScanner
 {
+    private const UNCHANGED_PROGRESS_INTERVAL = 250;
+
     /**
      * @param callable(int, int, string): void|null $progress
      * @return array{videos: int, generated: int, unchanged: int, disappeared: int, failed: int}
@@ -50,6 +52,10 @@ class TgVideoReviewScanner
             $this->assertMediaToolsAvailable();
             $videos = $this->videoFiles($root);
             $this->assertNoImageNameCollisions($videos);
+            $existingByPathHash = TgVideoReview::query()
+                ->get()
+                ->keyBy(fn (TgVideoReview $review): string => (string) $review->path_hash)
+                ->all();
             $total = count($videos);
             $generated = 0;
             $unchanged = 0;
@@ -69,7 +75,7 @@ class TgVideoReviewScanner
                 }
                 $fileSize = $metadata['size'];
                 $modifiedAt = $metadata['modified_at'];
-                $existing = TgVideoReview::query()->where('path_hash', $pathHash)->first();
+                $existing = $existingByPathHash[$pathHash] ?? null;
 
                 if (is_file($imagePath)
                     && (!$existing instanceof TgVideoReview
@@ -83,8 +89,12 @@ class TgVideoReviewScanner
                     && $this->pathKey((string) $existing->image_path) === $this->pathKey($imagePath)
                     && is_file($imagePath)) {
                     $unchanged++;
-                    if ($progress !== null) {
-                        $progress($index + 1, $total, '已存在，略過');
+                    if ($progress !== null && (
+                        $unchanged === 1
+                        || $unchanged % self::UNCHANGED_PROGRESS_INTERVAL === 0
+                        || $index + 1 === $total
+                    )) {
+                        $progress($index + 1, $total, sprintf('已存在，快速略過（累計 %d）', $unchanged));
                     }
                     continue;
                 }

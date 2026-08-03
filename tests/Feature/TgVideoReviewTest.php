@@ -7,6 +7,7 @@ use App\Models\TgVideoReview;
 use App\Services\TgVideoReviewActionService;
 use App\Services\TgVideoReviewScanner;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -307,6 +308,38 @@ class TgVideoReviewTest extends TestCase
         $second = app(TgVideoReviewScanner::class)->scan($this->root, null, 'testrun02');
         $this->assertSame(['videos' => 1, 'generated' => 0, 'unchanged' => 1, 'disappeared' => 0, 'failed' => 0], $second);
         $this->assertDatabaseCount('tg_video_reviews', 1);
+    }
+
+    public function test_scanner_bulk_loads_existing_rows_and_throttles_unchanged_progress(): void
+    {
+        for ($index = 1; $index <= 5; $index++) {
+            $this->makeRecord('existing-' . $index . '.mp4');
+        }
+
+        $reviewQueries = 0;
+        DB::listen(function ($query) use (&$reviewQueries): void {
+            if (str_contains(strtolower($query->sql), 'tg_video_reviews')) {
+                $reviewQueries++;
+            }
+        });
+        $statuses = [];
+
+        $result = app(TgVideoReviewScanner::class)->scan(
+            $this->root,
+            function (int $current, int $total, string $status) use (&$statuses): void {
+                $statuses[] = [$current, $total, $status];
+            },
+            'bulkresume01'
+        );
+
+        $this->assertSame(
+            ['videos' => 5, 'generated' => 0, 'unchanged' => 5, 'disappeared' => 0, 'failed' => 0],
+            $result
+        );
+        $this->assertSame(1, $reviewQueries);
+        $this->assertCount(2, $statuses);
+        $this->assertStringContainsString('快速略過', $statuses[0][2]);
+        $this->assertStringContainsString('累計 5', $statuses[1][2]);
     }
 
     public function test_scanner_processes_windows_creation_time_from_oldest_to_newest(): void

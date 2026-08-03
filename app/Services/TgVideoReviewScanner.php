@@ -14,7 +14,7 @@ class TgVideoReviewScanner
 {
     /**
      * @param callable(int, int, string): void|null $progress
-     * @return array{videos: int, generated: int, unchanged: int}
+     * @return array{videos: int, generated: int, unchanged: int, failed: int}
      */
     public function scan(?string $requestedRoot = null, ?callable $progress = null, ?string $runToken = null): array
     {
@@ -46,11 +46,13 @@ class TgVideoReviewScanner
         $this->writeJournal($journalPath, $journal);
 
         try {
+            $this->assertMediaToolsAvailable();
             $videos = $this->videoFiles($root);
             $this->assertNoImageNameCollisions($videos);
             $total = count($videos);
             $generated = 0;
             $unchanged = 0;
+            $failed = 0;
 
             foreach ($videos as $index => $videoPath) {
                 $imagePath = $root . DIRECTORY_SEPARATOR . pathinfo($videoPath, PATHINFO_FILENAME) . '.jpg';
@@ -77,9 +79,20 @@ class TgVideoReviewScanner
                     continue;
                 }
 
-                $duration = $this->probeDuration($videoPath);
                 $stagePath = $stageDirectory . DIRECTORY_SEPARATOR . sprintf('%04d.jpg', $index + 1);
-                $this->generateContactSheet($videoPath, $stagePath, $duration);
+                try {
+                    $duration = $this->probeDuration($videoPath);
+                    $this->generateContactSheet($videoPath, $stagePath, $duration);
+                } catch (Throwable) {
+                    if (is_file($stagePath)) {
+                        @unlink($stagePath);
+                    }
+                    $failed++;
+                    if ($progress !== null) {
+                        $progress($index + 1, $total, '影片無法讀取，已略過');
+                    }
+                    continue;
+                }
                 $entryIndex = count($journal['entries']);
                 $journal['entries'][] = [
                     'path_hash' => $pathHash,
@@ -144,7 +157,12 @@ class TgVideoReviewScanner
             $this->writeJournal($journalPath, $journal);
             File::deleteDirectory($runDirectory);
 
-            return ['videos' => $total, 'generated' => $generated, 'unchanged' => $unchanged];
+            return [
+                'videos' => $total,
+                'generated' => $generated,
+                'unchanged' => $unchanged,
+                'failed' => $failed,
+            ];
         } catch (Throwable $e) {
             $this->cleanupRun($token);
             throw $e;
@@ -276,6 +294,16 @@ class TgVideoReviewScanner
             throw new RuntimeException('無法取得有效影片長度。');
         }
         return $duration;
+    }
+
+    private function assertMediaToolsAvailable(): void
+    {
+        foreach (['ffprobe_bin', 'ffmpeg_bin'] as $key) {
+            $path = (string) config('tg_video_review.' . $key);
+            if ($path === '' || !is_file($path)) {
+                throw new RuntimeException('FFmpeg 工具設定無效，已停止掃描。');
+            }
+        }
     }
 
     private function generateContactSheet(string $videoPath, string $outputPath, float $duration): void

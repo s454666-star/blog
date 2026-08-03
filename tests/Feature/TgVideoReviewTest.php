@@ -279,6 +279,10 @@ class TgVideoReviewTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('ids');
         $this->postJson(route('tg-video-review.actions'), ['ids' => [1], 'action' => 'other'])
             ->assertUnprocessable()->assertJsonValidationErrors('action');
+        $this->postJson(route('tg-video-review.actions'), ['ids' => array_fill(0, 2000, 1), 'action' => 'ok'])
+            ->assertOk();
+        $this->postJson(route('tg-video-review.actions'), ['ids' => array_fill(0, 2001, 1), 'action' => 'ok'])
+            ->assertUnprocessable()->assertJsonValidationErrors('ids');
     }
 
     public function test_scanner_uses_fake_video_ignores_subfolders_and_is_idempotent(): void

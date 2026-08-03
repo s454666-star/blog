@@ -43,7 +43,7 @@ class TgVideoReviewController extends Controller
         ini_set('max_execution_time', '0');
 
         $validated = $request->validate([
-            'ids' => ['required', 'array', 'min:1', 'max:500'],
+            'ids' => ['required', 'array', 'min:1', 'max:2000'],
             'ids.*' => ['required', 'integer', 'min:1'],
             'action' => ['required', 'in:delete,ok,watermark'],
         ]);

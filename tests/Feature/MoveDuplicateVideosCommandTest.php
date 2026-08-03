@@ -87,6 +87,34 @@ class MoveDuplicateVideosCommandTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_empty_source_returns_before_syncing_reference_or_loading_database_index(): void
+    {
+        $referenceDir = $this->tempDir . DIRECTORY_SEPARATOR . 'reference';
+        File::ensureDirectoryExists($referenceDir);
+
+        $featureExtractionService = Mockery::mock(VideoFeatureExtractionService::class);
+        $featureExtractionService->shouldReceive('inspectFile')->never();
+        $this->app->instance(VideoFeatureExtractionService::class, $featureExtractionService);
+
+        $duplicateDetectionService = Mockery::mock(VideoDuplicateDetectionService::class);
+        $duplicateDetectionService->shouldReceive('prepareDatabaseFeatureSnapshotIndex')->never();
+        $duplicateDetectionService->shouldReceive('prepareReferenceSnapshotIndex')->never();
+        $this->app->instance(VideoDuplicateDetectionService::class, $duplicateDetectionService);
+
+        $referenceVideoFeatureIndexService = Mockery::mock(ReferenceVideoFeatureIndexService::class);
+        $referenceVideoFeatureIndexService->shouldReceive('syncDirectory')->never();
+        $referenceVideoFeatureIndexService->shouldReceive('loadFreshSnapshots')->never();
+        $this->app->instance(ReferenceVideoFeatureIndexService::class, $referenceVideoFeatureIndexService);
+
+        $this->artisan('video:move-duplicates', [
+            'path' => $this->tempDir,
+            '--reference-dir' => $referenceDir,
+            '--repair-db-features' => '0',
+        ])
+            ->expectsOutputToContain('找不到影片檔。')
+            ->assertSuccessful();
+    }
+
     public function test_manual_feature_mode_deletes_duplicate_and_persists_log(): void
     {
         DB::table('video_master')->insert([

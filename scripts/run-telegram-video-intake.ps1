@@ -33,12 +33,18 @@ function Get-VideoInventory {
 function Invoke-Artisan {
     param(
         [string]$Label,
-        [string[]]$Arguments
+        [string[]]$Arguments,
+        [string]$MemoryLimit = ''
     )
 
     Write-Host ''
     Write-Host $Label -ForegroundColor Cyan
-    & $script:PhpBin @Arguments
+    $phpArguments = @()
+    if ($MemoryLimit -ne '') {
+        $phpArguments += @('-d', "memory_limit=$MemoryLimit")
+    }
+    $phpArguments += $Arguments
+    & $script:PhpBin @phpArguments
     if ($LASTEXITCODE -ne 0) {
         throw "$Label failed with exit code $LASTEXITCODE"
     }
@@ -97,53 +103,58 @@ try {
     Write-Host "Initial inbox: $($beforeInbox.Count) videos, $($beforeInbox.Bytes) bytes"
     Write-Host "Initial destination: $($beforeDestination.Count) videos, $($beforeDestination.Bytes) bytes"
 
-    Push-Location $resolvedProject
-    try {
-        Write-Progress -Activity 'Telegram video intake' -Status '1/4 Building reusable feature cache' -PercentComplete 10
-        Invoke-Artisan -Label '[1/4] Build/reuse Telegram feature cache' -Arguments @(
-            'artisan',
-            'video:build-feature-index-fast',
-            $resolvedInbox,
-            "--workers=$Workers",
-            '--no-interaction'
-        )
+    if ($beforeInbox.Count -eq 0) {
+        Write-Host ''
+        Write-Host '[1-3/4] Skipped: inbox has no videos; destination and DB were not scanned.' -ForegroundColor Yellow
+    } else {
+        Push-Location $resolvedProject
+        try {
+            Write-Progress -Activity 'Telegram video intake' -Status '1/4 Building reusable feature cache' -PercentComplete 10
+            Invoke-Artisan -Label '[1/4] Build/reuse Telegram feature cache' -Arguments @(
+                'artisan',
+                'video:build-feature-index-fast',
+                $resolvedInbox,
+                "--workers=$Workers",
+                '--no-interaction'
+            )
 
-        $commonArguments = @(
-            '--recursive=1',
-            '--threshold=80',
-            '--min-match=2',
-            '--window-seconds=3',
-            '--max-candidates=250',
-            '--repair-db-features=0',
-            '--deep-single-frame=1',
-            "--min-age-seconds=$MinAgeSeconds",
-            '--reference-min-age-seconds=0',
-            '--no-interaction'
-        )
-        if ($DryRun) {
-            $commonArguments += '--dry-run'
+            $commonArguments = @(
+                '--recursive=1',
+                '--threshold=80',
+                '--min-match=2',
+                '--window-seconds=3',
+                '--max-candidates=250',
+                '--repair-db-features=0',
+                '--deep-single-frame=1',
+                "--min-age-seconds=$MinAgeSeconds",
+                '--reference-min-age-seconds=0',
+                '--no-interaction'
+            )
+            if ($DryRun) {
+                $commonArguments += '--dry-run'
+            }
+
+            Write-Progress -Activity 'Telegram video intake' -Status '2/4 Removing duplicates inside Telegram folder' -PercentComplete 30
+            Invoke-Artisan -Label '[2/4] Scan duplicates inside Telegram folder first' -Arguments (@(
+                'artisan',
+                'video:move-duplicates',
+                $resolvedInbox,
+                "--reference-dir=$resolvedInbox",
+                '--in-place-dedupe',
+                '--skip-database'
+            ) + $commonArguments)
+
+            Write-Progress -Activity 'Telegram video intake' -Status '3/4 Comparing DB and destination; moving unique files' -PercentComplete 60
+            Invoke-Artisan -Label '[3/4] Compare DB master files and destination; move unique videos' -MemoryLimit '1G' -Arguments (@(
+                'artisan',
+                'video:move-duplicates',
+                $resolvedInbox,
+                "--reference-dir=$resolvedDestination",
+                '--reuse-source-index'
+            ) + $commonArguments)
+        } finally {
+            Pop-Location
         }
-
-        Write-Progress -Activity 'Telegram video intake' -Status '2/4 Removing duplicates inside Telegram folder' -PercentComplete 30
-        Invoke-Artisan -Label '[2/4] Scan duplicates inside Telegram folder first' -Arguments (@(
-            'artisan',
-            'video:move-duplicates',
-            $resolvedInbox,
-            "--reference-dir=$resolvedInbox",
-            '--in-place-dedupe',
-            '--skip-database'
-        ) + $commonArguments)
-
-        Write-Progress -Activity 'Telegram video intake' -Status '3/4 Comparing DB and destination; moving unique files' -PercentComplete 60
-        Invoke-Artisan -Label '[3/4] Compare DB master files and destination; move unique videos' -Arguments (@(
-            'artisan',
-            'video:move-duplicates',
-            $resolvedInbox,
-            "--reference-dir=$resolvedDestination",
-            '--reuse-source-index'
-        ) + $commonArguments)
-    } finally {
-        Pop-Location
     }
 
     Write-Progress -Activity 'Telegram video intake' -Status '4/4 Complete' -PercentComplete 100

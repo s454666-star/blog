@@ -145,6 +145,23 @@ class MoveDuplicateVideosCommand extends Command
             return self::FAILURE;
         }
 
+        $duplicateDir = $path . DIRECTORY_SEPARATOR . '疑似重複檔案';
+        $files = $this->collectVideoFiles($path, $recursive, $duplicateDir);
+        Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates collected files', $commandLogContext + [
+            'duplicate_directory_path' => $duplicateDir,
+            'file_count' => count($files),
+        ]);
+
+        // An empty source cannot produce a duplicate or a staged file. Return before
+        // synchronizing a potentially large reference index or loading the DB index.
+        if ($files === []) {
+            Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates found no files to scan', $commandLogContext + [
+                'duplicate_directory_path' => $duplicateDir,
+            ]);
+            $this->warn('找不到影片檔。');
+            return self::SUCCESS;
+        }
+
         if ($requestedInPlaceDedupe) {
             // Do not pre-extract the whole directory. The rolling survivor index below already
             // extracts every processed file once and persists each survivor incrementally.
@@ -280,21 +297,6 @@ class MoveDuplicateVideosCommand extends Command
                 ]);
                 $this->warn('  暫存索引延後：' . $deferredPath . ' -> ' . $deferredMessage);
             }
-        }
-
-        $duplicateDir = $path . DIRECTORY_SEPARATOR . '疑似重複檔案';
-        $files = $this->collectVideoFiles($path, $recursive, $duplicateDir);
-        Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates collected files', $commandLogContext + [
-            'duplicate_directory_path' => $duplicateDir,
-            'file_count' => count($files),
-        ]);
-
-        if ($files === []) {
-            Log::channel(self::LOG_CHANNEL)->info('video:move-duplicates found no files to scan', $commandLogContext + [
-                'duplicate_directory_path' => $duplicateDir,
-            ]);
-            $this->warn('找不到影片檔。');
-            return self::SUCCESS;
         }
 
         $deleted = 0;

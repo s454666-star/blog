@@ -31,8 +31,9 @@ class TgVideoReviewScanner
         }
 
         $token = $this->safeToken($runToken ?: bin2hex(random_bytes(16)));
-        $this->cleanupAbandonedRuns($token);
-        $runDirectory = storage_path('app/tg-video-review-runs/' . $token);
+        $runsRoot = $this->runsRootPath();
+        $this->cleanupAbandonedRuns($token, $root, $runsRoot);
+        $runDirectory = $runsRoot . DIRECTORY_SEPARATOR . $token;
         $stageDirectory = $runDirectory . DIRECTORY_SEPARATOR . 'stage';
         File::ensureDirectoryExists($stageDirectory);
         $journalPath = $runDirectory . DIRECTORY_SEPARATOR . 'journal.json';
@@ -200,7 +201,7 @@ class TgVideoReviewScanner
     public function cleanupRun(string $runToken): void
     {
         $token = $this->safeToken($runToken);
-        $runDirectory = storage_path('app/tg-video-review-runs/' . $token);
+        $runDirectory = $this->runsRootPath() . DIRECTORY_SEPARATOR . $token;
         $journalPath = $runDirectory . DIRECTORY_SEPARATOR . 'journal.json';
         if (!is_file($journalPath)) {
             File::deleteDirectory($runDirectory);
@@ -256,18 +257,28 @@ class TgVideoReviewScanner
         File::deleteDirectory($runDirectory);
     }
 
-    private function cleanupAbandonedRuns(string $currentToken): void
+    private function cleanupAbandonedRuns(string $currentToken, string $currentRoot, string $runsRoot): void
     {
-        $runsRoot = storage_path('app/tg-video-review-runs');
         if (!is_dir($runsRoot)) {
             return;
         }
 
         foreach (File::directories($runsRoot) as $directory) {
             $token = basename($directory);
-            if ($token !== $currentToken && preg_match('/\A[a-zA-Z0-9_-]{8,80}\z/', $token)) {
-                $this->cleanupRun($token);
+            if ($token === $currentToken || !preg_match('/\A[a-zA-Z0-9_-]{8,80}\z/', $token)) {
+                continue;
             }
+
+            $journalPath = $directory . DIRECTORY_SEPARATOR . 'journal.json';
+            $journal = is_file($journalPath)
+                ? json_decode((string) file_get_contents($journalPath), true)
+                : null;
+            if (!is_array($journal)
+                || $this->pathKey((string) ($journal['root'] ?? '')) !== $this->pathKey($currentRoot)) {
+                continue;
+            }
+
+            $this->cleanupRun($token);
         }
     }
 
@@ -374,6 +385,7 @@ class TgVideoReviewScanner
 
     private function writeJournal(string $path, array $journal): void
     {
+        File::ensureDirectoryExists(dirname($path));
         $bytes = file_put_contents(
             $path,
             json_encode($journal, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR),
@@ -382,6 +394,19 @@ class TgVideoReviewScanner
         if ($bytes === false) {
             throw new RuntimeException('無法寫入掃描回滾紀錄。');
         }
+    }
+
+    private function runsRootPath(): string
+    {
+        $path = rtrim((string) config(
+            'tg_video_review.runs_root_path',
+            storage_path('app/tg-video-review-runs')
+        ), '\\/');
+        if ($path === '') {
+            throw new RuntimeException('掃描暫存目錄設定無效。');
+        }
+
+        return $path;
     }
 
     private function safeToken(string $token): string

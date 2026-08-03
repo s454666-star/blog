@@ -24,6 +24,7 @@ class TgVideoReviewTest extends TestCase
         File::ensureDirectoryExists($this->root);
         config()->set('tg_video_review.root', $this->root);
         config()->set('tg_video_review.scan_lock_path', $this->root . DIRECTORY_SEPARATOR . 'scan.lock');
+        config()->set('tg_video_review.runs_root_path', $this->root . DIRECTORY_SEPARATOR . 'runs');
 
         Schema::connection('sqlite')->create('tg_video_reviews', function (Blueprint $table): void {
             $table->id();
@@ -357,7 +358,7 @@ class TgVideoReviewTest extends TestCase
         $this->assertDatabaseCount('tg_video_reviews', 1);
         $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . 'first.jpg');
         $this->assertFileDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'second.jpg');
-        $this->assertDirectoryDoesNotExist(storage_path('app/tg-video-review-runs/livepublish01'));
+        $this->assertDirectoryDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'runs' . DIRECTORY_SEPARATOR . 'livepublish01');
     }
 
     public function test_scanner_continues_when_a_later_video_is_moved_after_enumeration(): void
@@ -386,7 +387,7 @@ class TgVideoReviewTest extends TestCase
             $result
         );
         $this->assertSame('影片已移動，略過', $statuses[1][2]);
-        $this->assertDirectoryDoesNotExist(storage_path('app/tg-video-review-runs/movingrace01'));
+        $this->assertDirectoryDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'runs' . DIRECTORY_SEPARATOR . 'movingrace01');
     }
 
     public function test_desktop_launcher_only_runs_contact_sheet_scan_without_opening_review_page(): void
@@ -464,7 +465,7 @@ class TgVideoReviewTest extends TestCase
         $this->assertFileDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'a-broken.jpg');
         $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . 'z-valid.jpg');
         $this->assertDatabaseCount('tg_video_reviews', 1);
-        $this->assertDirectoryDoesNotExist(storage_path('app/tg-video-review-runs/invalidvideo01'));
+        $this->assertDirectoryDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'runs' . DIRECTORY_SEPARATOR . 'invalidvideo01');
     }
 
     public function test_scanner_never_overwrites_an_unmanaged_same_name_jpeg(): void
@@ -479,14 +480,36 @@ class TgVideoReviewTest extends TestCase
         } catch (\Throwable) {
             $this->assertSame('user-owned-image', file_get_contents($image));
             $this->assertDatabaseCount('tg_video_reviews', 0);
-            $this->assertDirectoryDoesNotExist(storage_path('app/tg-video-review-runs/protected01'));
+            $this->assertDirectoryDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'runs' . DIRECTORY_SEPARATOR . 'protected01');
         }
+    }
+
+    public function test_scanner_does_not_cleanup_a_run_owned_by_another_scan_root(): void
+    {
+        $foreignRun = $this->root . DIRECTORY_SEPARATOR . 'runs' . DIRECTORY_SEPARATOR . 'foreignrun01';
+        File::ensureDirectoryExists($foreignRun);
+        file_put_contents($foreignRun . DIRECTORY_SEPARATOR . 'journal.json', json_encode([
+            'token' => 'foreignrun01',
+            'root' => $this->root . DIRECTORY_SEPARATOR . 'another-root',
+            'status' => 'processing',
+            'entries' => [],
+            'database_before' => [],
+        ], JSON_THROW_ON_ERROR));
+
+        $result = app(TgVideoReviewScanner::class)->scan($this->root, null, 'foreigncheck01');
+
+        $this->assertSame(
+            ['videos' => 0, 'generated' => 0, 'unchanged' => 0, 'disappeared' => 0, 'failed' => 0],
+            $result
+        );
+        $this->assertDirectoryExists($foreignRun);
+        $this->assertFileExists($foreignRun . DIRECTORY_SEPARATOR . 'journal.json');
     }
 
     public function test_abandoned_post_commit_run_removes_new_image_and_row_but_keeps_original_video(): void
     {
         $record = $this->makeRecord('hard-interrupt.mp4');
-        $runDirectory = storage_path('app/tg-video-review-runs/hardstop01');
+        $runDirectory = $this->root . DIRECTORY_SEPARATOR . 'runs' . DIRECTORY_SEPARATOR . 'hardstop01';
         File::ensureDirectoryExists($runDirectory);
         file_put_contents($runDirectory . DIRECTORY_SEPARATOR . 'journal.json', json_encode([
             'token' => 'hardstop01',

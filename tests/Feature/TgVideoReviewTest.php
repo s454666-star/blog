@@ -23,6 +23,7 @@ class TgVideoReviewTest extends TestCase
         $this->root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'blog-tg-video-review-' . Str::uuid();
         File::ensureDirectoryExists($this->root);
         config()->set('tg_video_review.root', $this->root);
+        config()->set('tg_video_review.scan_lock_path', $this->root . DIRECTORY_SEPARATOR . 'scan.lock');
 
         Schema::connection('sqlite')->create('tg_video_reviews', function (Blueprint $table): void {
             $table->id();
@@ -392,12 +393,20 @@ class TgVideoReviewTest extends TestCase
     {
         $launcher = file_get_contents(base_path('scripts/launch-tg-video-contact-sheets.cmd'));
         $script = file_get_contents(base_path('scripts/run-tg-video-contact-sheets.ps1'));
+        $scheduleInstaller = file_get_contents(base_path('scripts/install-tg-video-contact-sheet-schedule.ps1'));
 
         $this->assertIsString($launcher);
         $this->assertIsString($script);
+        $this->assertIsString($scheduleInstaller);
         $this->assertStringContainsString('run-tg-video-contact-sheets.ps1', $launcher);
         $this->assertStringContainsString('tg-video-review:scan', $script);
         $this->assertStringContainsString('依影片建立日期，由舊到新', $script);
+        $this->assertStringContainsString('[switch]$AutoClose', $script);
+        $this->assertStringContainsString('5 秒後自動關閉視窗', $script);
+        $this->assertStringContainsString('New-TimeSpan -Hours 4', $scheduleInstaller);
+        $this->assertStringContainsString('-LogonType Interactive', $scheduleInstaller);
+        $this->assertStringContainsString('-MultipleInstances IgnoreNew', $scheduleInstaller);
+        $this->assertStringContainsString('-AutoClose', $scheduleInstaller);
         $this->assertStringNotContainsString('Start-Process', $script);
         $this->assertStringNotContainsString('開啟審核頁面', $script);
     }

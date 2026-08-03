@@ -1,6 +1,7 @@
 ﻿param(
     [string]$ProjectRoot = 'C:\Users\USER\Documents\project\blog',
-    [string]$ScanRoot = 'D:\tg暫存'
+    [string]$ScanRoot = 'D:\tg暫存',
+    [switch]$AutoClose
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,6 +66,11 @@ if ($exitCode -eq 0) {
 } else {
     Write-Host '未完成；已完成項目會保留，未完成項目的圖片與 table 已清除。' -ForegroundColor Yellow
 }
-Write-Host '按任意鍵關閉視窗。'
-$null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+if ($AutoClose) {
+    Write-Host '5 秒後自動關閉視窗。'
+    Start-Sleep -Seconds 5
+} else {
+    Write-Host '按任意鍵關閉視窗。'
+    $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+}
 exit $exitCode

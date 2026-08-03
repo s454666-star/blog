@@ -23,7 +23,7 @@ class TgVideoReviewScanner
             throw new RuntimeException('掃描目錄不存在。');
         }
 
-        $lockPath = storage_path('app/tg-video-review-scan.lock');
+        $lockPath = (string) config('tg_video_review.scan_lock_path', storage_path('app/tg-video-review-scan.lock'));
         File::ensureDirectoryExists(dirname($lockPath));
         $lock = fopen($lockPath, 'c+');
         if ($lock === false || !flock($lock, LOCK_EX | LOCK_NB)) {

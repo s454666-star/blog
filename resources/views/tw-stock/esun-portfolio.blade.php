@@ -1227,6 +1227,7 @@ const state = {
     intradayCodesKey: '',
     intradaySeries: {},
     pnlSeries: { todayPnl: [], unrealizedPnl: [] },
+    costHistorySnapshots: [],
     costHistory: [],
     lastQuotePayload: null,
     lastPayload: null,
@@ -1535,10 +1536,24 @@ function renderPnlWaves() {
     });
 }
 
-function renderCostHistory(dates = []) {
+function renderCostHistory(dates = state.costHistorySnapshots) {
     if (!els.costHistoryWave || !els.costHistoryPanel) return;
 
-    state.costHistory = (dates || [])
+    state.costHistorySnapshots = Array.isArray(dates) ? dates : [];
+    const historyRows = [...state.costHistorySnapshots];
+    const currentCostBasis = state.historyMode ? null : finiteNumber(state.lastPayload?.summary?.costBasis);
+    if (currentCostBasis !== null) {
+        const currentDate = taipeiDateKey();
+        const currentIndex = historyRows.findIndex(row => String(row.date || '') === currentDate);
+        const currentRow = { date: currentDate, costBasis: currentCostBasis };
+        if (currentIndex >= 0) {
+            historyRows[currentIndex] = { ...historyRows[currentIndex], ...currentRow };
+        } else {
+            historyRows.push(currentRow);
+        }
+    }
+
+    state.costHistory = historyRows
         .map(row => {
             const date = String(row.date || '');
             const value = finiteNumber(row.costBasis);
@@ -1546,8 +1561,8 @@ function renderCostHistory(dates = []) {
             return { date, time, value };
         })
         .filter(point => point.date && Number.isFinite(point.time) && point.value !== null)
-        .slice(0, 15)
-        .reverse();
+        .sort((left, right) => left.time - right.time)
+        .slice(-15);
 
     const points = state.costHistory;
     const emptyText = '暫無成本快照';
@@ -1871,6 +1886,7 @@ function applyPayload(payload, options = {}) {
         fetchQuotes();
     }
     if (!options.historical) {
+        renderCostHistory();
         scheduleQuotePolling(market);
         scheduleEsunPolling(market);
     }

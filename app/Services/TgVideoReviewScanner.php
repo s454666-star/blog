@@ -358,14 +358,18 @@ class TgVideoReviewScanner
         $rows = (int) config('tg_video_review.contact_sheet_rows', 4);
         $width = (int) config('tg_video_review.cell_width', 480);
         $height = (int) config('tg_video_review.cell_height', 270);
-        $frameRate = ($columns * $rows) / $duration;
+        $frameCount = $columns * $rows;
+        // Ask for one extra sample so videos whose final timestamp falls just
+        // short of their container duration still yield a complete tile.
+        $frameRate = ($frameCount + 1) / $duration;
         $filter = sprintf(
-            'fps=%.12F,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black,tile=%dx%d:padding=4:margin=4',
+            'setpts=N/FRAME_RATE/TB,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709,fps=%.12F,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black,format=yuvj420p,tile=%dx%d:padding=4:margin=4',
             $frameRate, $width, $height, $width, $height, $columns, $rows
         );
 
         $process = new Process([
             (string) config('tg_video_review.ffmpeg_bin'), '-hide_banner', '-loglevel', 'error', '-y',
+            '-fflags', '+discardcorrupt', '-err_detect', 'ignore_err',
             '-i', $videoPath, '-vf', $filter, '-frames:v', '1', '-q:v', '3', $outputPath,
         ]);
         $process->setTimeout(600);

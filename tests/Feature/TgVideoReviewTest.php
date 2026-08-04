@@ -501,6 +501,30 @@ class TgVideoReviewTest extends TestCase
         $this->assertDirectoryDoesNotExist($this->root . DIRECTORY_SEPARATOR . 'runs' . DIRECTORY_SEPARATOR . 'invalidvideo01');
     }
 
+    public function test_scanner_normalizes_unusual_color_metadata_for_contact_sheets(): void
+    {
+        $video = $this->root . DIRECTORY_SEPARATOR . 'unusual-color.mp4';
+        $source = $this->root . DIRECTORY_SEPARATOR . 'unusual-color-source.mp4';
+        $this->generateFakeVideo($source);
+        $process = new Process([
+            (string) config('tg_video_review.ffmpeg_bin'), '-hide_banner', '-loglevel', 'error', '-y',
+            '-i', $source, '-c', 'copy',
+            '-colorspace', 'ycgco', '-color_trc', 'log316', $video,
+        ]);
+        $process->setTimeout(60);
+        $process->mustRun();
+        unlink($source);
+
+        $result = app(TgVideoReviewScanner::class)->scan($this->root, null, 'unusualcolor01');
+
+        $this->assertSame(['videos' => 1, 'generated' => 1, 'unchanged' => 0, 'disappeared' => 0, 'failed' => 0], $result);
+        $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . 'unusual-color.jpg');
+        $this->assertDatabaseHas('tg_video_reviews', [
+            'video_path' => $video,
+            'screenshot_count' => 20,
+        ]);
+    }
+
     public function test_scanner_never_overwrites_an_unmanaged_same_name_jpeg(): void
     {
         $this->generateFakeVideo($this->root . DIRECTORY_SEPARATOR . 'protected.mp4');

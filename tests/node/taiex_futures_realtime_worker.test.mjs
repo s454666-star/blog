@@ -206,6 +206,77 @@ test('content bridge reconnects only the visible TradingView session-interrupted
     assert.equal(clicked, 1);
 });
 
+test('background watchdog reloads only for stale quotes during an active session', () => {
+    const backgroundScript = readFileSync(
+        new URL('../../scripts/taiex-futures-realtime/chrome-extension/background.js', import.meta.url),
+        'utf8',
+    );
+    const listeners = {};
+    const context = {
+        chrome: {
+            alarms: {
+                create: async () => {},
+                onAlarm: { addListener(listener) { listeners.alarm = listener; } },
+            },
+            runtime: {
+                onInstalled: { addListener(listener) { listeners.installed = listener; } },
+                onStartup: { addListener(listener) { listeners.startup = listener; } },
+                onMessage: { addListener(listener) { listeners.message = listener; } },
+            },
+            storage: { local: { get: async () => ({}), set: async () => {} } },
+            tabs: {
+                create: async () => {},
+                query: async () => [],
+                reload: async () => {},
+            },
+        },
+        fetch: async () => ({ ok: false }),
+        Date,
+        Number,
+    };
+    vm.runInNewContext(backgroundScript, context);
+
+    const now = taipeiDate('2026-08-04T10:00:00').getTime();
+    assert.equal(context.bridgeHealthIsStale({
+        market_session: 'day',
+        last_browser_quote_at: new Date(now - 91_000).toISOString(),
+    }, now), true);
+    assert.equal(context.bridgeHealthIsStale({
+        market_session: 'day',
+        last_browser_quote_at: new Date(now - 30_000).toISOString(),
+    }, now), false);
+    assert.equal(context.bridgeHealthIsStale({
+        market_session: null,
+        last_browser_quote_at: new Date(now - 86400_000).toISOString(),
+    }, now), false);
+});
+
+test('background watchdog prefers the dedicated TXF1 TradingView tab', () => {
+    const backgroundScript = readFileSync(
+        new URL('../../scripts/taiex-futures-realtime/chrome-extension/background.js', import.meta.url),
+        'utf8',
+    );
+    const context = {
+        chrome: {
+            alarms: { onAlarm: { addListener() {} } },
+            runtime: {
+                onInstalled: { addListener() {} },
+                onStartup: { addListener() {} },
+                onMessage: { addListener() {} },
+            },
+        },
+        fetch: async () => ({ ok: false }),
+        Date,
+        Number,
+    };
+    vm.runInNewContext(backgroundScript, context);
+
+    const settings = { id: 1, url: 'https://tw.tradingview.com/settings/#active-sessions' };
+    const symbol = { id: 2, url: 'https://tw.tradingview.com/symbols/TAIFEX-TXF1!/' };
+    assert.equal(context.selectTradingViewBridgeTab([settings, symbol]).id, 2);
+    assert.equal(context.selectTradingViewBridgeTab([settings]).id, 1);
+});
+
 test('only fresh open-session quotes qualify for a one-second Redis refresh', () => {
     const now = taipeiDate('2026-07-30T11:20:00');
     const quote = {

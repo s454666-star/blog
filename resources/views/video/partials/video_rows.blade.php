@@ -85,7 +85,7 @@
                         <span class="face-paste-hint">點一下後貼上，Enter 上傳</span>
                     </div>
                     <div class="upload-instructions">
-                        拖曳圖片到此處上傳
+                        拖曳圖片到此處上傳（單張上限 20MB）
                     </div>
                 </div>
             </div>

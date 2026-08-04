@@ -940,6 +940,8 @@
         $('#next-video-btn').click(() => currentVideoIndex < videoList.length - 1 ? playAt(currentVideoIndex + 1) : showMessage('error', '已經是最後一部影片'));
 
         /* --- 拖拉上傳人臉截圖 --- */
+        const MAX_FACE_UPLOAD_BYTES = 20 * 1024 * 1024;
+
         function normalizeFaceUploadFiles(files) {
             return Array.from(files || [])
                 .filter(file => file && /^image\//.test(file.type || ''))
@@ -1005,6 +1007,13 @@
         }
 
         function uploadFaceImages(vid, files, options = {}) {
+            const oversizedFile = Array.from(files || [])
+                .find(file => file && file.size > MAX_FACE_UPLOAD_BYTES);
+            if (oversizedFile) {
+                showMessage('error', '人臉截圖單張不可超過 20MB。');
+                return;
+            }
+
             const normalizedFiles = normalizeFaceUploadFiles(files);
             if (!normalizedFiles.length) {
                 showMessage('error', '請貼上或選擇圖片檔案。');

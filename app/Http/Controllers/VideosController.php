@@ -452,7 +452,7 @@
         public function uploadFaceScreenshot(Request $request)
         {
             $validated = $request->validate([
-                'face_images.*' => 'required|image|mimes:jpeg,png,jpg,gif|max:5120',
+                'face_images.*' => 'required|image|mimes:jpeg,png,jpg,gif|max:20480',
                 'video_id'      => 'required|exists:video_master,id',
             ]);
 

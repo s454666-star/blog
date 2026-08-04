@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
@@ -153,6 +154,54 @@ class VideosControllerTest extends TestCase
             ->count();
 
         $this->assertSame(1, $masterCount);
+    }
+
+    public function test_face_screenshot_upload_accepts_a_20_mb_image(): void
+    {
+        $videoId = DB::table('video_master')->insertGetId([
+            'video_name' => 'Upload_Test.mp4',
+            'video_path' => 'Upload_Test/Upload_Test.mp4',
+            'duration' => 12.34,
+            'video_type' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('video_screenshots')->insert([
+            'video_master_id' => $videoId,
+            'screenshot_path' => 'Upload_Test/screenshot_1.jpg',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->post(route('video.uploadFaceScreenshot'), [
+            'video_id' => $videoId,
+            'face_images' => [UploadedFile::fake()->image('face.jpg')->size(20 * 1024)],
+        ]);
+
+        $response->assertOk()->assertJsonPath('success', true);
+        $this->assertDatabaseCount('video_face_screenshots', 1);
+    }
+
+    public function test_face_screenshot_upload_rejects_an_image_over_20_mb(): void
+    {
+        $videoId = DB::table('video_master')->insertGetId([
+            'video_name' => 'Upload_Test.mp4',
+            'video_path' => 'Upload_Test/Upload_Test.mp4',
+            'duration' => 12.34,
+            'video_type' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $response = $this->withHeader('Accept', 'application/json')
+            ->post(route('video.uploadFaceScreenshot'), [
+                'video_id' => $videoId,
+                'face_images' => [UploadedFile::fake()->image('face.jpg')->size((20 * 1024) + 1)],
+            ]);
+
+        $response->assertUnprocessable()->assertJsonValidationErrors('face_images.0');
+        $this->assertDatabaseCount('video_face_screenshots', 0);
     }
 
     public function test_delete_screenshot_removes_related_rows_and_files_after_response(): void

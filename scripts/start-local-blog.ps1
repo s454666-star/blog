@@ -13,7 +13,7 @@ if (-not $phpListener) {
     $env:PHP_FCGI_CHILDREN = '16'
     $env:PHP_FCGI_MAX_REQUESTS = '10000'
     Start-Process -FilePath $phpCgi `
-        -ArgumentList @('-b', '127.0.0.1:9000') `
+        -ArgumentList @('-d', 'upload_max_filesize=20M', '-d', 'post_max_size=128M', '-b', '127.0.0.1:9000') `
         -WorkingDirectory $projectPath `
         -RedirectStandardOutput (Join-Path $logPath 'php-cgi.out.log') `
         -RedirectStandardError (Join-Path $logPath 'php-cgi.err.log') `

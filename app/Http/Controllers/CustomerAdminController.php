@@ -237,17 +237,32 @@ class CustomerAdminController extends Controller
             unset($data['customer_'.$field]);
         }
 
-        // Orders never modify existing customer records. Reuse an explicitly
-        // selected customer only when every customer field is unchanged;
-        // otherwise preserve the old record and create a new customer snapshot.
-        $selectedCustomer = $customerId ? CrmCustomer::find($customerId) : null;
-        $selectedCustomerIsUnchanged = $selectedCustomer
-            && collect($customerData)->every(
-                fn ($value, $field) => $selectedCustomer->getAttribute($field) === $value
-            );
-        $customer = $selectedCustomerIsUnchanged
-            ? $selectedCustomer
-            : CrmCustomer::create($customerData);
+        // Phone numbers identify customers regardless of name. Prefer an explicit
+        // selection; otherwise match either submitted phone against both stored
+        // phone fields and overwrite the existing customer when one is found.
+        $customer = $customerId ? CrmCustomer::find($customerId) : null;
+        if (! $customer) {
+            $customer = CrmCustomer::query()
+                ->where(function ($query) use ($customerData) {
+                    if (filled($customerData['phone'])) {
+                        $query->where('phone', $customerData['phone'])
+                            ->orWhere('mobile', $customerData['phone']);
+                    }
+                    if (filled($customerData['mobile'])) {
+                        $method = filled($customerData['phone']) ? 'orWhere' : 'where';
+                        $query->{$method}('phone', $customerData['mobile'])
+                            ->orWhere('mobile', $customerData['mobile']);
+                    }
+                })
+                ->when(blank($customerData['phone']) && blank($customerData['mobile']), fn ($query) => $query->whereRaw('1 = 0'))
+                ->orderBy('id')
+                ->first();
+        }
+        if ($customer) {
+            $customer->update($customerData);
+        } else {
+            $customer = CrmCustomer::create($customerData);
+        }
         $data['customer_id'] = $customer->id;
 
         $subtotal = collect($items)->sum('line_total');

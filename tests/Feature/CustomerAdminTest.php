@@ -111,7 +111,10 @@ class CustomerAdminTest extends TestCase
             ->assertSee('name="items[0][unit_price]" type="number" min="0" step="1"', false)
             ->assertSee('id="items-total">$0</strong>', false)
             ->assertDontSee('$0.00')
-            ->assertDontSee('minimumFractionDigits');
+            ->assertDontSee('minimumFractionDigits')
+            ->assertSee("const customerIdentityKeys=['name','phone','mobile']", false)
+            ->assertSee('const matches=orderCustomers.filter(', false)
+            ->assertSee('if(matches.length===1)applyCustomer(matches[0])', false);
 
         $this->post('/admin/orders', [
             'customer_name' => '測試客戶',
@@ -325,5 +328,52 @@ class CustomerAdminTest extends TestCase
         $this->assertNotContains('運費', $orderHeaders);
         $this->assertNotContains('稅額', $orderHeaders);
         $this->assertNotContains('內部隱藏狀態', $orderSheet->rangeToArray('A5:I6')[0]);
+    }
+
+    public function test_order_with_a_shared_phone_creates_a_new_customer_instead_of_overwriting_the_existing_one(): void
+    {
+        $this->post('/admin/login', ['username' => 'test-admin', 'password' => 'test-password'])
+            ->assertRedirect('/admin/dashboard');
+
+        $productId = DB::table('crm_products')->insertGetId([
+            'name' => '共用電話測試商品',
+            'price' => 100,
+            'sort_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $customerAId = DB::table('crm_customers')->insertGetId([
+            'name' => '客戶 A',
+            'phone' => '123',
+            'address' => 'A 地址',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->post('/admin/orders', [
+            'customer_name' => '客戶 B',
+            'customer_phone' => '123',
+            'customer_address' => 'B 地址',
+            'items' => [[
+                'product_id' => $productId,
+                'quantity' => 1,
+                'unit_price' => 100,
+            ]],
+        ])->assertRedirect('/admin/orders');
+
+        $this->assertSame(2, DB::table('crm_customers')->count());
+        $this->assertDatabaseHas('crm_customers', [
+            'id' => $customerAId,
+            'name' => '客戶 A',
+            'phone' => '123',
+            'address' => 'A 地址',
+        ]);
+        $this->assertDatabaseHas('crm_customers', [
+            'name' => '客戶 B',
+            'phone' => '123',
+            'address' => 'B 地址',
+        ]);
+        $customerBId = DB::table('crm_customers')->where('name', '客戶 B')->value('id');
+        $this->assertDatabaseHas('crm_orders', ['customer_id' => $customerBId]);
     }
 }

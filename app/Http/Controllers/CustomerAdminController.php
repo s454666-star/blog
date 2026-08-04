@@ -237,23 +237,10 @@ class CustomerAdminController extends Controller
             unset($data['customer_'.$field]);
         }
 
+        // Phone numbers are lookup hints, not customer identifiers: households and
+        // companies can legitimately share them. Only an explicit customer ID may
+        // update an existing record; otherwise this order creates a new customer.
         $customer = $customerId ? CrmCustomer::find($customerId) : null;
-        if (! $customer) {
-            $customer = CrmCustomer::query()
-                ->where(function ($query) use ($customerData) {
-                    if (filled($customerData['phone'])) {
-                        $query->where('phone', $customerData['phone'])
-                            ->orWhere('mobile', $customerData['phone']);
-                    }
-                    if (filled($customerData['mobile'])) {
-                        $method = filled($customerData['phone']) ? 'orWhere' : 'where';
-                        $query->{$method}('phone', $customerData['mobile'])
-                            ->orWhere('mobile', $customerData['mobile']);
-                    }
-                })
-                ->when(blank($customerData['phone']) && blank($customerData['mobile']), fn ($query) => $query->whereRaw('1 = 0'))
-                ->first();
-        }
         if ($customer) {
             $customer->update($customerData);
         } else {

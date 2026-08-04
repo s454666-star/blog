@@ -204,6 +204,7 @@
         target.focus();
     }));
     const customerFields={name:document.querySelector('#customer_name'),phone:document.querySelector('#customer_phone'),mobile:document.querySelector('#customer_mobile'),tax_id:document.querySelector('#customer_tax_id'),customer_address:document.querySelector('#customer_address'),notes:document.querySelector('#customer_notes')};
+    const customerIdentityKeys=['name','phone','mobile'];
     function applyCustomer(customer){
         if(!customer)return;
         customerId.value=String(customer.id);
@@ -215,9 +216,9 @@
         [customerFields.mobile,'mobile'],
     ].forEach(([input,key])=>{
         const selectCustomer=()=>{
-            const customer=orderCustomers.find(item=>item[key]===input.value);
+            const matches=orderCustomers.filter(item=>item[key]===input.value&&customerIdentityKeys.every(identityKey=>identityKey===key||!customerFields[identityKey].value||(item[identityKey]||'')===customerFields[identityKey].value));
             customerId.value='';
-            if(customer)applyCustomer(customer);
+            if(matches.length===1)applyCustomer(matches[0]);
         };
         input.addEventListener('input',selectCustomer);
         input.addEventListener('change',selectCustomer);

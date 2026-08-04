@@ -237,15 +237,17 @@ class CustomerAdminController extends Controller
             unset($data['customer_'.$field]);
         }
 
-        // Phone numbers are lookup hints, not customer identifiers: households and
-        // companies can legitimately share them. Only an explicit customer ID may
-        // update an existing record; otherwise this order creates a new customer.
-        $customer = $customerId ? CrmCustomer::find($customerId) : null;
-        if ($customer) {
-            $customer->update($customerData);
-        } else {
-            $customer = CrmCustomer::create($customerData);
-        }
+        // Orders never modify existing customer records. Reuse an explicitly
+        // selected customer only when every customer field is unchanged;
+        // otherwise preserve the old record and create a new customer snapshot.
+        $selectedCustomer = $customerId ? CrmCustomer::find($customerId) : null;
+        $selectedCustomerIsUnchanged = $selectedCustomer
+            && collect($customerData)->every(
+                fn ($value, $field) => $selectedCustomer->getAttribute($field) === $value
+            );
+        $customer = $selectedCustomerIsUnchanged
+            ? $selectedCustomer
+            : CrmCustomer::create($customerData);
         $data['customer_id'] = $customer->id;
 
         $subtotal = collect($items)->sum('line_total');
@@ -466,7 +468,7 @@ class CustomerAdminController extends Controller
             'orders' => [
                 'title' => '訂單管理', 'singular' => '訂單', 'model' => CrmOrder::class, 'with' => ['customer', 'items'],
                 'search' => ['order_number', 'payment_status', 'notes'],
-                'relationship_search' => ['customer' => ['name', 'phone', 'mobile']],
+                'relationship_search' => ['customer' => ['name', 'phone', 'mobile', 'address']],
                 'sortable' => [
                     'order_number' => 'order_number',
                     'order_date' => 'order_date',

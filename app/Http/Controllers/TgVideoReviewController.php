@@ -43,23 +43,28 @@ class TgVideoReviewController extends Controller
         ini_set('max_execution_time', '0');
 
         $validated = $request->validate([
-            'ids' => ['required', 'array', 'min:1', 'max:2000'],
-            'ids.*' => ['required', 'integer', 'min:1'],
-            'action' => ['required', 'in:delete,ok,watermark'],
+            'items' => ['required', 'array', 'min:1', 'max:2000'],
+            'items.*.id' => ['required', 'integer', 'min:1', 'distinct'],
+            'items.*.action' => ['required', 'in:delete,ok,watermark'],
         ]);
-        $ids = array_values(array_unique(array_map('intval', $validated['ids'])));
+        $items = array_map(static fn (array $item): array => [
+            'id' => (int) $item['id'],
+            'action' => (string) $item['action'],
+        ], $validated['items']);
+        $ids = array_column($items, 'id');
         $records = TgVideoReview::query()->whereIn('id', $ids)->get()->keyBy('id');
         $completed = [];
         $failed = [];
 
-        foreach ($ids as $id) {
+        foreach ($items as $item) {
+            $id = $item['id'];
             $record = $records->get($id);
             if (!$record instanceof TgVideoReview) {
                 $failed[] = ['id' => $id, 'message' => '找不到指定資料。'];
                 continue;
             }
 
-            $result = $service->handle($record, (string) $validated['action']);
+            $result = $service->handle($record, $item['action']);
             if ($result['ok']) {
                 $completed[] = $id;
             } else {

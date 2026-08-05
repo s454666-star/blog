@@ -22,13 +22,16 @@
         button,select { border:1px solid rgba(255,255,255,.15); border-radius:13px; color:#fff; background:#101c30; font:inherit; font-weight:750; }
         button { padding:11px 18px; cursor:pointer; transition:.2s ease; box-shadow:inset 0 1px rgba(255,255,255,.08); }
         button:hover:not(:disabled) { transform:translateY(-2px); filter:brightness(1.14); box-shadow:0 10px 26px rgba(0,0,0,.3),0 0 0 1px currentColor; }
-        button:disabled { opacity:.38; cursor:not-allowed; }.danger{color:#fecdd3;background:rgba(159,18,57,.5)}.ok{color:#d1fae5;background:rgba(6,95,70,.55)}.water{color:#dbeafe;background:rgba(30,64,175,.52)}
+        button:disabled { opacity:.38; cursor:not-allowed; }.process{color:#e0f2fe;background:linear-gradient(135deg,rgba(8,145,178,.62),rgba(37,99,235,.58))}
         .spacer{flex:1}.page-size{display:flex;gap:8px;align-items:center;color:#aebed0}.page-size select{padding:10px 34px 10px 12px}
         .table-frame { overflow:hidden; border:1px solid rgba(34,211,238,.2); border-radius:24px; background:rgba(5,14,27,.75); box-shadow:0 30px 90px rgba(0,0,0,.38),inset 0 1px rgba(255,255,255,.05); }
         table { width:100%; border-collapse:collapse; table-layout:fixed; } th { color:#8ee9f4; text-align:left; letter-spacing:.08em; font-size:.78rem; text-transform:uppercase; background:rgba(14,35,57,.92); }
-        th,td { padding:14px; border-bottom:1px solid rgba(148,163,184,.12); } th:first-child,td:first-child{width:76px;text-align:center} tbody tr { transition:.2s;background:linear-gradient(90deg,transparent,rgba(34,211,238,.018)); } tbody tr:hover{background:linear-gradient(90deg,rgba(34,211,238,.08),rgba(59,130,246,.045),rgba(244,114,182,.05));box-shadow:inset 4px 0 var(--cyan)}
+        th,td { padding:14px; border-bottom:1px solid rgba(148,163,184,.12); } th:first-child,td:first-child{width:250px;text-align:center} tbody tr { transition:.2s;background:linear-gradient(90deg,transparent,rgba(34,211,238,.018)); } tbody tr:hover{background:linear-gradient(90deg,rgba(34,211,238,.08),rgba(59,130,246,.045),rgba(244,114,182,.05));box-shadow:inset 4px 0 var(--cyan)}
         input[type=checkbox] { width:24px;height:24px;accent-color:var(--cyan);cursor:pointer;filter:drop-shadow(0 0 8px rgba(34,211,238,.45)); }
-        .select-page { display:inline-flex;flex-direction:column;align-items:center;gap:4px;color:#8ee9f4;font-size:.68rem;letter-spacing:.04em;cursor:pointer; }
+        .action-grid { display:grid;grid-template-columns:repeat(3,minmax(56px,1fr));align-items:center;gap:8px; }
+        .action-option { display:inline-flex;flex-direction:column;align-items:center;gap:5px;color:#b9cce0;font-size:.72rem;letter-spacing:.03em;cursor:pointer; }
+        .action-option.delete { color:#fecdd3; }.action-option.ok { color:#d1fae5; }.action-option.watermark { color:#dbeafe; }
+        .action-option input[data-action="delete"] { accent-color:var(--red); }.action-option input[data-action="ok"] { accent-color:var(--green); }.action-option input[data-action="watermark"] { accent-color:var(--blue); }
         .selection-cell { cursor:pointer;user-select:none;transition:background .18s ease,box-shadow .18s ease; }
         .selection-cell:hover { background:rgba(34,211,238,.09);box-shadow:inset 0 0 24px rgba(34,211,238,.08); }
         .sheet { display:block; width:100%; max-height:420px; object-fit:contain; border:1px solid rgba(96,165,250,.25); border-radius:16px; background:#020617; box-shadow:0 14px 34px rgba(0,0,0,.35); cursor:zoom-in; transition:.25s; }
@@ -38,7 +41,7 @@
         #preview { display:none; position:fixed; inset:0; z-index:1000; padding:20px; align-items:center; justify-content:center; background:rgba(0,4,12,.9); backdrop-filter:blur(16px); pointer-events:none; }
         #preview.show { display:flex; } #preview img { max-width:calc(100vw - 40px);max-height:calc(100vh - 40px);object-fit:contain;border:2px solid var(--cyan);border-radius:18px;box-shadow:0 0 70px rgba(34,211,238,.28),0 40px 100px #000; }
         #toast { position:fixed;right:22px;bottom:22px;z-index:1100;max-width:min(440px,calc(100vw - 44px));padding:14px 18px;border:1px solid rgba(255,255,255,.2);border-radius:14px;background:#0c1d31;box-shadow:0 20px 60px #000;transform:translateY(130%);transition:.25s } #toast.show{transform:none}#toast.bad{border-color:var(--red);color:#fecdd3}
-        @media(max-width:680px){.shell{width:min(100% - 18px,1500px);padding-top:24px}header{align-items:start;flex-direction:column}.toolbar{top:6px}.spacer{display:none}.page-size{width:100%;justify-content:flex-end}th,td{padding:8px}th:first-child,td:first-child{width:54px}.sheet{border-radius:10px}}
+        @media(max-width:680px){.shell{width:min(100% - 18px,1500px);padding-top:24px}header{align-items:start;flex-direction:column}.toolbar{top:6px}.spacer{display:none}.page-size{width:100%;justify-content:flex-end}th,td{padding:8px}th:first-child,td:first-child{width:180px}.action-grid{gap:2px}.action-option{font-size:.65rem}.sheet{border-radius:10px}}
     </style>
 </head>
 <body>
@@ -47,9 +50,7 @@
     <header><div><div class="eyebrow">Local visual triage</div><h1>TG 暫存影片審核</h1><p class="sub">移入垃圾桶、OK 或水印資料夾前，先用 20 格接觸表快速確認。</p></div><div class="counter">共 {{ $records->total() }} 筆</div></header>
     <div class="toolbar">
         <button type="button" id="selectAll" @disabled($records->isEmpty())>全選本頁</button>
-        <button type="button" class="danger action" data-action="delete" disabled>刪除</button>
-        <button type="button" class="ok action" data-action="ok" disabled>OK</button>
-        <button type="button" class="water action" data-action="watermark" disabled>水印</button>
+        <button type="button" id="process" class="process" disabled>處理</button>
         <span class="spacer"></span>
         <label class="page-size">每頁
             <select id="perPage" aria-label="每頁筆數">
@@ -59,9 +60,9 @@
     </div>
     <div class="table-frame">
         @if($records->count())
-            <table><thead><tr><th><label class="select-page"><input id="selectPage" type="checkbox" aria-label="全選本頁所有資料"><span>全選</span></label></th><th>圖片</th></tr></thead><tbody>
+            <table><thead><tr><th><div class="action-grid"><label class="action-option delete"><input id="selectPage" type="checkbox" data-action="delete" aria-label="全選本頁並設為刪除"><span>刪除</span></label><span class="action-option ok"><span aria-hidden="true">✓</span><span>OK</span></span><span class="action-option watermark"><span aria-hidden="true">✓</span><span>水印</span></span></div></th><th>圖片</th></tr></thead><tbody>
             @foreach($records as $record)
-                <tr data-id="{{ $record->id }}"><td class="selection-cell" aria-label="點擊此區域可切換選取"><input class="row-check" type="checkbox" value="{{ $record->id }}" aria-label="選取第 {{ $record->id }} 筆"></td><td><img class="sheet" src="{{ route('tg-video-review.image', $record) }}" alt="影片 5×4 接觸表" loading="lazy"></td></tr>
+                <tr data-id="{{ $record->id }}"><td class="selection-cell"><div class="action-grid" role="group" aria-label="第 {{ $record->id }} 筆處理方式"><label class="action-option delete"><input class="action-check" type="checkbox" value="{{ $record->id }}" data-action="delete" aria-label="第 {{ $record->id }} 筆刪除"><span>刪除</span></label><label class="action-option ok"><input class="action-check" type="checkbox" value="{{ $record->id }}" data-action="ok" aria-label="第 {{ $record->id }} 筆搬到 OK"><span>OK</span></label><label class="action-option watermark"><input class="action-check" type="checkbox" value="{{ $record->id }}" data-action="watermark" aria-label="第 {{ $record->id }} 筆搬到水印"><span>水印</span></label></div></td><td><img class="sheet" src="{{ route('tg-video-review.image', $record) }}" alt="影片 5×4 接觸表" loading="lazy"></td></tr>
             @endforeach
             </tbody></table>
         @else
@@ -73,29 +74,32 @@
 <div id="preview" aria-hidden="true"><img alt="全螢幕接觸表預覽"></div><div id="toast" role="status"></div>
 <script>
 (() => {
-    const checks=[...document.querySelectorAll('.row-check')], actions=[...document.querySelectorAll('.action')], selectPage=document.querySelector('#selectPage'), selectAll=document.querySelector('#selectAll'), preview=document.querySelector('#preview'), previewImage=preview.querySelector('img'), toast=document.querySelector('#toast');
-    const selected=()=>checks.filter(c=>c.checked).map(c=>Number(c.value));
-    const sync=()=>{const count=selected().length,all=checks.length>0&&count===checks.length;actions.forEach(button=>button.disabled=count===0);if(selectPage){selectPage.checked=all;selectPage.indeterminate=count>0&&!all;}if(selectAll)selectAll.textContent=all?'取消全選':'全選本頁';};
-    const togglePage=checked=>{checks.forEach(check=>check.checked=checked);sync();};
-    checks.forEach(check=>check.addEventListener('change',sync));
-    document.querySelectorAll('.selection-cell').forEach(cell=>cell.addEventListener('click',event=>{if(event.target.closest('input'))return;const check=cell.querySelector('.row-check');check.checked=!check.checked;check.dispatchEvent(new Event('change',{bubbles:true}));}));
+    const checks=[...document.querySelectorAll('.action-check')], selectPage=document.querySelector('#selectPage'), selectAll=document.querySelector('#selectAll'), process=document.querySelector('#process'), preview=document.querySelector('#preview'), previewImage=preview.querySelector('img'), toast=document.querySelector('#toast');
+    const rows=[...document.querySelectorAll('tbody tr[data-id]')];
+    const activeRows=()=>rows.filter(row=>row.isConnected);
+    const selected=()=>checks.filter(check=>check.isConnected&&check.checked).map(check=>({id:Number(check.value),action:check.dataset.action}));
+    const allRowsSelected=()=>activeRows().length>0&&activeRows().every(row=>row.querySelector('.action-check:checked'));
+    const allRowsDelete=()=>activeRows().length>0&&activeRows().every(row=>row.querySelector('.action-check[data-action="delete"]')?.checked);
+    const sync=()=>{const count=selected().length,all=allRowsDelete();process.disabled=count===0;if(selectPage){selectPage.checked=all;selectPage.indeterminate=count>0&&!all;}if(selectAll)selectAll.textContent=all?'取消全選':'全選本頁';};
+    const togglePage=checked=>{rows.forEach(row=>{row.querySelectorAll('.action-check').forEach(check=>check.checked=false);if(checked)row.querySelector('.action-check[data-action="delete"]').checked=true;});sync();};
+    checks.forEach(check=>check.addEventListener('change',()=>{if(check.checked)check.closest('tr').querySelectorAll('.action-check').forEach(other=>{if(other!==check)other.checked=false;});sync();}));
     selectPage?.addEventListener('change',()=>togglePage(selectPage.checked));
-    selectAll?.addEventListener('click',()=>togglePage(checks.some(check=>!check.checked)));
+    selectAll?.addEventListener('click',()=>togglePage(!allRowsSelected()||!allRowsDelete()));
     document.querySelector('#perPage').addEventListener('change',event=>{const url=new URL(location.href);url.searchParams.set('per_page',event.target.value);url.searchParams.delete('page');location.href=url;});
     document.querySelectorAll('.sheet').forEach(img=>{img.addEventListener('pointerenter',()=>{previewImage.src=img.src;preview.classList.add('show');});img.addEventListener('pointerleave',()=>preview.classList.remove('show'));});
     const say=(message,bad=false)=>{toast.textContent=message;toast.classList.toggle('bad',bad);toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),4500)};
-    actions.forEach(button=>button.addEventListener('click',async()=>{
-        const ids=selected(); if(!ids.length)return;
-        const labels={delete:'把影片與圖片丟進垃圾桶',ok:'把影片移到 OK 資料夾',watermark:'把影片移到水印資料夾'};
-        if(!confirm(`確定要${labels[button.dataset.action]}？共 ${ids.length} 筆。`))return;
-        actions.forEach(item=>item.disabled=true);
+    process?.addEventListener('click',async()=>{
+        const items=selected(); if(!items.length)return;
+        const counts=items.reduce((result,item)=>({...result,[item.action]:(result[item.action]||0)+1}),{});
+        if(!confirm(`確定處理 ${items.length} 筆？刪除 ${counts.delete||0}、OK ${counts.ok||0}、水印 ${counts.watermark||0}。`))return;
+        process.disabled=true;
         try{
-            const response=await fetch(@json(route('tg-video-review.actions')),{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content},body:JSON.stringify({ids,action:button.dataset.action})});
+            const response=await fetch(@json(route('tg-video-review.actions')),{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content},body:JSON.stringify({items})});
             const data=await response.json(); if(!response.ok)throw new Error(data.message||'操作失敗');
             (data.completed_ids||[]).forEach(id=>document.querySelector(`tr[data-id="${id}"]`)?.remove());
-            say(data.message,!data.ok); if(data.ok)setTimeout(()=>location.reload(),500);
+            say(data.message,!data.ok); if(data.ok)setTimeout(()=>location.reload(),500);else sync();
         }catch(error){say(error.message||'操作失敗',true);sync();}
-    }));
+    });
     sync();
 })();
 </script>

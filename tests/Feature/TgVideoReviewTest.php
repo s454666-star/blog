@@ -57,16 +57,23 @@ class TgVideoReviewTest extends TestCase
         $response->assertOk()
             ->assertSee('<th>圖片</th>', false)
             ->assertSee('id="selectPage"', false)
-            ->assertSee('全選本頁所有資料', false)
+            ->assertSee('全選本頁並設為刪除', false)
             ->assertSee('class="selection-cell"', false)
-            ->assertSee("document.querySelectorAll('.selection-cell')", false)
+            ->assertSee('class="action-check"', false)
             ->assertSee('data-action="delete"', false)
             ->assertSee('data-action="ok"', false)
             ->assertSee('data-action="watermark"', false)
+            ->assertSee('id="process"', false)
+            ->assertSee('>處理</button>', false)
+            ->assertDontSee('>刪除</button>', false)
+            ->assertSee('JSON.stringify({items})', false)
             ->assertSee('<option value="50" selected>50</option>', false)
             ->assertSee('position:fixed; inset:0', false)
             ->assertSee(route('tg-video-review.image', $record), false)
             ->assertDontSee('<th>檔名</th>', false);
+        $this->assertSame(3, substr_count((string) $response->getContent(), 'class="action-check"'));
+        $this->assertStringContainsString("if(other!==check)other.checked=false", (string) $response->getContent());
+        $this->assertStringContainsString(".action-check[data-action=\"delete\"]", (string) $response->getContent());
 
         $this->get(route('tg-video-review.index', ['per_page' => 100]))
             ->assertSee('<option value="100" selected>100</option>', false);
@@ -103,8 +110,7 @@ class TgVideoReviewTest extends TestCase
         });
 
         $response = $this->postJson(route('tg-video-review.actions'), [
-            'ids' => [$record->id],
-            'action' => 'delete',
+            'items' => [['id' => $record->id, 'action' => 'delete']],
         ]);
 
         $response->assertOk()->assertJson(['ok' => true, 'completed_ids' => [$record->id]]);
@@ -128,8 +134,7 @@ class TgVideoReviewTest extends TestCase
         $this->app->instance(RecycleBin::class, $recycleBin);
 
         $response = $this->postJson(route('tg-video-review.actions'), [
-            'ids' => [$record->id],
-            'action' => 'delete',
+            'items' => [['id' => $record->id, 'action' => 'delete']],
         ]);
 
         $response->assertOk()->assertJson(['ok' => true, 'completed_ids' => [$record->id]]);
@@ -148,8 +153,7 @@ class TgVideoReviewTest extends TestCase
         ]);
 
         $response = $this->postJson(route('tg-video-review.actions'), [
-            'ids' => [$record->id],
-            'action' => 'delete',
+            'items' => [['id' => $record->id, 'action' => 'delete']],
         ]);
 
         $response->assertOk()->assertJson(['ok' => true, 'completed_ids' => [$record->id]]);
@@ -173,8 +177,7 @@ class TgVideoReviewTest extends TestCase
         $this->app->instance(RecycleBin::class, $recycleBin);
 
         $response = $this->postJson(route('tg-video-review.actions'), [
-            'ids' => [$record->id],
-            'action' => 'delete',
+            'items' => [['id' => $record->id, 'action' => 'delete']],
         ]);
 
         $response->assertOk()->assertJson(['ok' => true]);
@@ -193,8 +196,7 @@ class TgVideoReviewTest extends TestCase
         });
 
         $response = $this->postJson(route('tg-video-review.actions'), [
-            'ids' => [$record->id],
-            'action' => 'delete',
+            'items' => [['id' => $record->id, 'action' => 'delete']],
         ]);
 
         $response->assertOk()
@@ -276,16 +278,56 @@ class TgVideoReviewTest extends TestCase
         $this->assertDatabaseHas('tg_video_reviews', ['id' => $record->id]);
     }
 
-    public function test_batch_validation_rejects_empty_selection_and_unknown_action(): void
+    public function test_batch_processes_each_selected_row_with_its_own_action(): void
     {
-        $this->postJson(route('tg-video-review.actions'), ['ids' => [], 'action' => 'ok'])
-            ->assertUnprocessable()->assertJsonValidationErrors('ids');
-        $this->postJson(route('tg-video-review.actions'), ['ids' => [1], 'action' => 'other'])
-            ->assertUnprocessable()->assertJsonValidationErrors('action');
-        $this->postJson(route('tg-video-review.actions'), ['ids' => array_fill(0, 2000, 1), 'action' => 'ok'])
+        $delete = $this->makeRecord('mixed-delete.mp4');
+        $ok = $this->makeRecord('mixed-ok.mp4');
+        $watermark = $this->makeRecord('mixed-watermark.mp4');
+        $this->app->instance(RecycleBin::class, new class implements RecycleBin {
+            public function move(array $paths): void
+            {
+                foreach ($paths as $path) {
+                    unlink($path);
+                }
+            }
+        });
+
+        $response = $this->postJson(route('tg-video-review.actions'), ['items' => [
+            ['id' => $delete->id, 'action' => 'delete'],
+            ['id' => $ok->id, 'action' => 'ok'],
+            ['id' => $watermark->id, 'action' => 'watermark'],
+        ]]);
+
+        $response->assertOk()->assertJson([
+            'ok' => true,
+            'completed_ids' => [$delete->id, $ok->id, $watermark->id],
+        ]);
+        $this->assertFileDoesNotExist($delete->video_path);
+        $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . 'ok' . DIRECTORY_SEPARATOR . 'mixed-ok.mp4');
+        $this->assertFileExists($this->root . DIRECTORY_SEPARATOR . '水' . DIRECTORY_SEPARATOR . 'mixed-watermark.mp4');
+        $this->assertDatabaseCount('tg_video_reviews', 0);
+    }
+
+    public function test_batch_validation_rejects_empty_duplicate_and_unknown_actions(): void
+    {
+        $this->postJson(route('tg-video-review.actions'), ['items' => []])
+            ->assertUnprocessable()->assertJsonValidationErrors('items');
+        $this->postJson(route('tg-video-review.actions'), ['items' => [['id' => 1, 'action' => 'other']]])
+            ->assertUnprocessable()->assertJsonValidationErrors('items.0.action');
+        $this->postJson(route('tg-video-review.actions'), ['items' => [
+            ['id' => 1, 'action' => 'ok'],
+            ['id' => 1, 'action' => 'delete'],
+        ]])->assertUnprocessable()->assertJsonValidationErrors('items.1.id');
+        $this->postJson(route('tg-video-review.actions'), ['items' => array_map(
+            static fn (int $id): array => ['id' => $id, 'action' => 'ok'],
+            range(1, 2000)
+        )])
             ->assertOk();
-        $this->postJson(route('tg-video-review.actions'), ['ids' => array_fill(0, 2001, 1), 'action' => 'ok'])
-            ->assertUnprocessable()->assertJsonValidationErrors('ids');
+        $this->postJson(route('tg-video-review.actions'), ['items' => array_map(
+            static fn (int $id): array => ['id' => $id, 'action' => 'ok'],
+            range(1, 2001)
+        )])
+            ->assertUnprocessable()->assertJsonValidationErrors('items');
     }
 
     public function test_scanner_uses_fake_video_ignores_subfolders_and_is_idempotent(): void

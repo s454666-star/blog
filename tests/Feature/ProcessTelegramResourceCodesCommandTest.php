@@ -132,6 +132,33 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         $this->assertFalse(Schema::connection('sqlite')->hasColumn('telegram_resource_codes', 'message_text'));
     }
 
+    public function test_paused_type_one_is_scanned_and_stored_without_forwarding(): void
+    {
+        config()->set('telegram.resource_codes.processing_profiles', '3:JSfileeesbot,5:yyjmq_bot');
+        config()->set('telegram.resource_codes.scan_code_types', '1,3,5');
+
+        Http::fake(Http::response([
+            'status' => 'ok',
+            'items' => [[
+                'id' => 104801,
+                'text' => '4DC6EB55EE68F197A332CA4802AAF14420F76D74',
+            ]],
+        ]));
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--process-limit' => 1,
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => '4dc6eb55ee68f197a332ca4802aaf14420f76d74',
+            'code_type' => 1,
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'attempts' => 0,
+        ]);
+        Http::assertNotSent(fn ($request): bool => $request->method() === 'POST');
+    }
+
     public function test_scan_limits_a_forum_source_to_its_configured_topic(): void
     {
         config()->set('telegram.resource_codes.source_peer_ids', '2589355088');

@@ -567,6 +567,21 @@ class TgVideoReviewTest extends TestCase
         ]);
     }
 
+    public function test_scanner_keeps_portrait_frames_close_without_wide_black_cell_padding(): void
+    {
+        $video = $this->root . DIRECTORY_SEPARATOR . 'portrait.mp4';
+        $image = $this->root . DIRECTORY_SEPARATOR . 'portrait.jpg';
+        $this->generateFakeVideo($video, '180x320');
+
+        $result = app(TgVideoReviewScanner::class)->scan($this->root, null, 'portraitgrid01');
+        $size = getimagesize($image);
+
+        $this->assertSame(['videos' => 1, 'generated' => 1, 'unchanged' => 0, 'disappeared' => 0, 'failed' => 0], $result);
+        $this->assertIsArray($size);
+        $this->assertSame(784, $size[0]);
+        $this->assertSame(1100, $size[1]);
+    }
+
     public function test_scanner_never_overwrites_an_unmanaged_same_name_jpeg(): void
     {
         $this->generateFakeVideo($this->root . DIRECTORY_SEPARATOR . 'protected.mp4');
@@ -652,11 +667,11 @@ class TgVideoReviewTest extends TestCase
         ]);
     }
 
-    private function generateFakeVideo(string $path): void
+    private function generateFakeVideo(string $path, string $size = '320x180'): void
     {
         $process = new Process([
             (string) config('tg_video_review.ffmpeg_bin'), '-hide_banner', '-loglevel', 'error', '-y',
-            '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=20', '-t', '2',
+            '-f', 'lavfi', '-i', "testsrc=size={$size}:rate=20", '-t', '2',
             '-c:v', 'mpeg4', '-q:v', '5', $path,
         ]);
         $process->setTimeout(60);

@@ -11,6 +11,5 @@ return [
     'extensions' => ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm', 'm4v', 'mpeg', 'mpg', '3gp', 'ts', 'mts', 'm2ts'],
     'contact_sheet_columns' => 5,
     'contact_sheet_rows' => 4,
-    'cell_width' => 480,
     'cell_height' => 270,
 ];

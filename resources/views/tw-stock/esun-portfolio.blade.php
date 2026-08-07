@@ -1225,6 +1225,7 @@ const state = {
     intradayLoading: false,
     intradayDate: '',
     intradayCodesKey: '',
+    intradayRetryAt: 0,
     intradaySeries: {},
     pnlSeries: { todayPnl: [], unrealizedPnl: [] },
     costHistorySnapshots: [],
@@ -2185,6 +2186,7 @@ function taipeiDateKey(value = Date.now()) {
 function resetIntradaySeriesForDate(date = taipeiDateKey()) {
     state.intradayDate = date;
     state.intradayCodesKey = '';
+    state.intradayRetryAt = 0;
     state.intradaySeries = {};
     state.pnlSeries = { todayPnl: [], unrealizedPnl: [] };
 }
@@ -2229,6 +2231,8 @@ function appendIntradayPoint(code, timestamp, price) {
 
     const minute = Math.floor(numericTime / 60) * 60;
     const points = Array.isArray(state.intradaySeries[code]) ? [...state.intradaySeries[code]] : [];
+    if (points.length < 2) return;
+
     const existingIndex = points.findIndex(point => Number(point.time) === minute);
     const existingPoint = existingIndex >= 0 ? points[existingIndex] : null;
     const nextPoint = {
@@ -2331,7 +2335,8 @@ async function ensureIntradaySeries() {
     const currentDate = ensureCurrentIntradayDate();
     const codes = intradayCodes();
     const codesKey = codes.join(',');
-    if (state.intradayCodesKey === codesKey) {
+    const retryIsDue = state.intradayRetryAt > 0 && Date.now() >= state.intradayRetryAt;
+    if (state.intradayCodesKey === codesKey && !retryIsDue) {
         appendRealtimeIntraday();
         rebuildPnlSeries();
         renderPnlWaves();
@@ -2360,12 +2365,22 @@ async function ensureIntradaySeries() {
         }
 
         state.intradayDate = responseDate;
-        state.intradaySeries = normalizeIntradaySeries(payload.series || {}, responseDate);
+        const refreshedSeries = normalizeIntradaySeries(payload.series || {}, responseDate);
+        state.intradaySeries = Object.fromEntries(codes.map(code => {
+            const refreshed = refreshedSeries[code] || [];
+            const previous = state.intradaySeries[code] || [];
+
+            return [code, refreshed.length >= 2 || previous.length < 2 ? refreshed : previous];
+        }));
         state.intradayCodesKey = codesKey;
+        const hasIncompleteSeries = codes.some(code => (state.intradaySeries[code] || []).length < 2);
+        const retrySeconds = Math.max(5, finiteNumber(payload?.cacheSeconds) ?? 15);
+        state.intradayRetryAt = hasIncompleteSeries ? Date.now() + retrySeconds * 1000 : 0;
         appendRealtimeIntraday();
         rebuildPnlSeries();
     } catch (error) {
-        state.intradayCodesKey = '';
+        state.intradayCodesKey = codesKey;
+        state.intradayRetryAt = Date.now() + 5000;
     } finally {
         state.intradayLoading = false;
         renderPnlWaves();

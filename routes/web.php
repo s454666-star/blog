@@ -70,7 +70,8 @@ Route::prefix('admin')->name('customer-admin.')->group(function () {
     Route::middleware('customer.admin')->group(function () {
         Route::get('/dashboard', [CustomerAdminController::class, 'dashboard'])->name('dashboard');
         Route::post('/logout', [CustomerAdminAuthController::class, 'logout'])->name('logout');
-        Route::get('/export/xlsx', CustomerAdminExportController::class)->name('export');
+        Route::get('/export', [CustomerAdminExportController::class, 'index'])->name('export.index');
+        Route::get('/export/xlsx', CustomerAdminExportController::class)->name('export.download');
         Route::post('/products/{id}/move', [CustomerAdminController::class, 'moveProduct'])->whereNumber('id')->name('products.move');
         Route::get('/{module}', [CustomerAdminController::class, 'index'])->whereIn('module', ['contacts', 'products', 'orders'])->name('module.index');
         Route::get('/{module}/create', [CustomerAdminController::class, 'create'])->whereIn('module', ['contacts', 'products', 'orders'])->name('module.create');

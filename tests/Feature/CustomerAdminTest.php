@@ -424,4 +424,94 @@ class CustomerAdminTest extends TestCase
             'customer_id' => $customerAId,
         ]);
     }
+
+    public function test_orders_can_be_queried_and_exported_by_year_and_contact(): void
+    {
+        $this->post('/admin/login', ['username' => 'test-admin', 'password' => 'test-password'])
+            ->assertRedirect('/admin/dashboard');
+
+        $customerId = DB::table('crm_customers')->insertGetId([
+            'name' => '匯出測試客戶',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $contactA = DB::table('crm_contacts')->insertGetId([
+            'customer_id' => $customerId,
+            'name' => '接洽人甲',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $contactB = DB::table('crm_contacts')->insertGetId([
+            'customer_id' => $customerId,
+            'name' => '接洽人乙',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $productId = DB::table('crm_products')->insertGetId([
+            'name' => '匯出測試商品',
+            'price' => 500,
+            'sort_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        foreach ([
+            ['EXPORT-2025-A', '2025-06-01', $contactA],
+            ['EXPORT-2026-A', '2026-06-01', $contactA],
+            ['EXPORT-2026-B', '2026-07-01', $contactB],
+        ] as [$number, $date, $contactId]) {
+            $orderId = DB::table('crm_orders')->insertGetId([
+                'order_number' => $number,
+                'customer_id' => $customerId,
+                'contact_id' => $contactId,
+                'order_date' => $date,
+                'subtotal' => 500,
+                'total' => 500,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            DB::table('crm_order_items')->insert([
+                'order_id' => $orderId,
+                'product_id' => $productId,
+                'product_name' => '匯出測試商品',
+                'quantity' => 1,
+                'unit_price' => 500,
+                'line_total' => 500,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $this->get('/admin/export')->assertOk()
+            ->assertSee('依照年份匯出')
+            ->assertSee('依照接洽人匯出')
+            ->assertSee('依照接洽人全部匯出')
+            ->assertSee('2026 年')
+            ->assertSee('接洽人甲');
+        $this->get('/admin/export?year=2026&contact_id='.$contactA)->assertOk()
+            ->assertSee('EXPORT-2026-A')
+            ->assertDontSee('EXPORT-2025-A')
+            ->assertDontSee('EXPORT-2026-B')
+            ->assertSee('mode=year_contact', false)
+            ->assertSee('mode=contact_all', false);
+
+        $yearResponse = $this->get('/admin/export/xlsx?mode=year&year=2026')->assertOk();
+        $yearWorkbook = IOFactory::load($yearResponse->baseResponse->getFile()->getPathname());
+        $this->assertSame('篩選條件：2026 年全部訂單', explode('｜匯出時間：', $yearWorkbook->getSheetByName('訂單')->getCell('A2')->getValue())[0]);
+        $this->assertSame(['EXPORT-2026-A', 'EXPORT-2026-B'], array_column($yearWorkbook->getSheetByName('訂單')->rangeToArray('A5:A6'), 0));
+
+        $contactYearResponse = $this->get('/admin/export/xlsx?mode=year_contact&year=2026&contact_id='.$contactA)->assertOk();
+        $contactYearWorkbook = IOFactory::load($contactYearResponse->baseResponse->getFile()->getPathname());
+        $this->assertSame('EXPORT-2026-A', $contactYearWorkbook->getSheetByName('訂單')->getCell('A5')->getValue());
+        $this->assertNull($contactYearWorkbook->getSheetByName('訂單')->getCell('A6')->getValue());
+
+        $contactAllResponse = $this->get('/admin/export/xlsx?mode=contact_all&contact_id='.$contactA)->assertOk();
+        $contactAllWorkbook = IOFactory::load($contactAllResponse->baseResponse->getFile()->getPathname());
+        $this->assertSame(['EXPORT-2025-A', 'EXPORT-2026-A'], array_column($contactAllWorkbook->getSheetByName('訂單')->rangeToArray('A5:A6'), 0));
+        $this->assertSame('接洽人甲', $contactAllWorkbook->getSheetByName('接洽人')->getCell('B5')->getValue());
+        $this->assertNull($contactAllWorkbook->getSheetByName('接洽人')->getCell('B6')->getValue());
+
+        $this->get('/admin/export/xlsx?mode=year')->assertSessionHasErrors('year');
+        $this->get('/admin/export/xlsx?mode=contact_all')->assertSessionHasErrors('contact_id');
+    }
 }

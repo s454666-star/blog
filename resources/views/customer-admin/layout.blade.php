@@ -64,7 +64,7 @@
         <header class="topbar">
             <div><div class="eyebrow">Customer relationship management</div><h1 class="page-title">@yield('title', '營運總覽')</h1></div>
             <div class="top-actions">
-                <a class="btn btn-secondary" href="{{ route('customer-admin.export') }}">⇩ 匯出 XLSX</a>
+                <a class="btn btn-secondary" href="{{ route('customer-admin.export.index') }}">⌕ 查詢與匯出</a>
                 @yield('top-action')
             </div>
         </header>

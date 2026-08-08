@@ -357,13 +357,15 @@ class TgVideoReviewScanner
         $columns = (int) config('tg_video_review.contact_sheet_columns', 5);
         $rows = (int) config('tg_video_review.contact_sheet_rows', 4);
         $height = (int) config('tg_video_review.cell_height', 270);
+        $padding = 4;
+        $margin = 4;
         $frameCount = $columns * $rows;
         // Ask for one extra sample so videos whose final timestamp falls just
         // short of their container duration still yield a complete tile.
         $frameRate = ($frameCount + 1) / $duration;
         $filter = sprintf(
-            'setpts=N/FRAME_RATE/TB,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709,fps=%.12F,scale=-2:%d,format=yuvj420p,tile=%dx%d:padding=4:margin=4',
-            $frameRate, $height, $columns, $rows
+            'setpts=N/FRAME_RATE/TB,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709,fps=%.12F,scale=-2:%d,format=yuvj420p,tile=%dx%d:padding=%d:margin=%d',
+            $frameRate, $height, $columns, $rows, $padding, $margin
         );
 
         $process = new Process([
@@ -375,7 +377,12 @@ class TgVideoReviewScanner
         $process->mustRun();
 
         $size = @getimagesize($outputPath);
-        if (!is_array($size) || $size[0] < $columns * 100 || $size[1] < $rows * 80) {
+        $minimumWidth = ($columns * 2) + (($columns - 1) * $padding) + (2 * $margin);
+        $expectedHeight = ($rows * $height) + (($rows - 1) * $padding) + (2 * $margin);
+        if (!is_array($size)
+            || $size[2] !== IMAGETYPE_JPEG
+            || $size[0] < $minimumWidth
+            || $size[1] !== $expectedHeight) {
             throw new RuntimeException('接觸表驗證失敗。');
         }
     }

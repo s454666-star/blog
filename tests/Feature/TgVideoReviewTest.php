@@ -582,6 +582,26 @@ class TgVideoReviewTest extends TestCase
         $this->assertSame(1100, $size[1]);
     }
 
+    public function test_scanner_accepts_a_valid_contact_sheet_for_an_extremely_narrow_portrait_video(): void
+    {
+        $video = $this->root . DIRECTORY_SEPARATOR . 'narrow-portrait.mp4';
+        $image = $this->root . DIRECTORY_SEPARATOR . 'narrow-portrait.jpg';
+        $this->generateFakeVideo($video, '96x320');
+
+        $result = app(TgVideoReviewScanner::class)->scan($this->root, null, 'narrowportrait01');
+        $size = getimagesize($image);
+
+        $this->assertSame(['videos' => 1, 'generated' => 1, 'unchanged' => 0, 'disappeared' => 0, 'failed' => 0], $result);
+        $this->assertDatabaseHas('tg_video_reviews', [
+            'video_path' => $video,
+            'image_path' => $image,
+            'screenshot_count' => 20,
+        ]);
+        $this->assertIsArray($size);
+        $this->assertLessThan(500, $size[0]);
+        $this->assertSame(1100, $size[1]);
+    }
+
     public function test_scanner_never_overwrites_an_unmanaged_same_name_jpeg(): void
     {
         $this->generateFakeVideo($this->root . DIRECTORY_SEPARATOR . 'protected.mp4');

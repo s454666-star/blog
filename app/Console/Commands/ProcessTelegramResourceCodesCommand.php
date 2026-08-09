@@ -36,6 +36,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const JSFILEEESBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])JSfileeesbot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const JSFILE_CODE_REGEX = '/(?<![A-Za-z0-9_])JSfile_bot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const YYJMQ_CODE_REGEX = '/(?<![A-Za-z0-9_])yyjmq_bot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
+    private const BFFILESBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])bffilesbot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
     private const ACCOUNT_LIMIT_COOLDOWN_SECONDS = 900;
@@ -522,6 +523,7 @@ class ProcessTelegramResourceCodesCommand extends Command
             3 => self::JSFILEEESBOT_CODE_REGEX,
             4 => self::JSFILE_CODE_REGEX,
             5 => self::YYJMQ_CODE_REGEX,
+            6 => self::BFFILESBOT_CODE_REGEX,
             default => self::HEX_CODE_REGEX,
         };
     }
@@ -546,6 +548,10 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         if ($codeType === 5) {
             return (string) preg_replace('/^yyjmq_bot_/i', 'yyjmq_bot_', $code);
+        }
+
+        if ($codeType === 6) {
+            return (string) preg_replace('/^bffilesbot_/i', 'bffilesbot_', $code);
         }
 
         return $code;

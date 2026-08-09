@@ -87,6 +87,10 @@ RESOURCE_CODE_YYJMQ_PATTERN = re.compile(
     r"yyjmq_bot_[A-Za-z0-9_-]+",
     re.IGNORECASE,
 )
+RESOURCE_CODE_BFFILESBOT_PATTERN = re.compile(
+    r"bffilesbot_[A-Za-z0-9_-]+",
+    re.IGNORECASE,
+)
 RESOURCE_CODE_IMAGE_COUNT_PATTERN = re.compile(r"(?:图片|圖片)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_VIDEO_COUNT_PATTERN = re.compile(r"(?:视频|視頻|影片)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_FILE_COUNT_PATTERN = re.compile(r"(?:文件|档案|檔案)\s*(\d+)\s*(?:个|個)")
@@ -271,6 +275,8 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
         return "JSfile_bot_" + code[len("JSfile_bot_"):]
     if RESOURCE_CODE_YYJMQ_PATTERN.fullmatch(code):
         return "yyjmq_bot_" + code[len("yyjmq_bot_"):]
+    if RESOURCE_CODE_BFFILESBOT_PATTERN.fullmatch(code):
+        return "bffilesbot_" + code[len("bffilesbot_"):]
     return None
 
 

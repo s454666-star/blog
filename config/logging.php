@@ -78,6 +78,7 @@ return [
             'path' => storage_path('logs/crm-order-activity.log'),
             'level' => 'info',
             'days' => 90,
+            'permission' => 0640,
         ],
 
         'slack' => [

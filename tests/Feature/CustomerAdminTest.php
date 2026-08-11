@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
 use Tests\TestCase;
 
 class CustomerAdminTest extends TestCase
@@ -617,6 +618,9 @@ class CustomerAdminTest extends TestCase
 
         $yearResponse = $this->get('/admin/export/xlsx?mode=year&year=2026')->assertOk();
         $yearWorkbook = IOFactory::load($yearResponse->baseResponse->getFile()->getPathname());
+        foreach ($yearWorkbook->getAllSheets() as $sheet) {
+            $this->assertSame(PageSetup::ORIENTATION_LANDSCAPE, $sheet->getPageSetup()->getOrientation());
+        }
         $this->assertSame('篩選條件：2026 年全部訂單', explode('｜匯出時間：', $yearWorkbook->getSheetByName('訂單')->getCell('A2')->getValue())[0]);
         $this->assertSame(['EXPORT-2026-A', 'EXPORT-2026-B'], array_column($yearWorkbook->getSheetByName('訂單')->rangeToArray('A5:A6'), 0));
 
@@ -633,6 +637,9 @@ class CustomerAdminTest extends TestCase
 
         $contactSheetsResponse = $this->get('/admin/export/xlsx?mode=contact_sheets')->assertOk();
         $contactSheetsWorkbook = IOFactory::load($contactSheetsResponse->baseResponse->getFile()->getPathname());
+        foreach ($contactSheetsWorkbook->getAllSheets() as $sheet) {
+            $this->assertSame(PageSetup::ORIENTATION_LANDSCAPE, $sheet->getPageSetup()->getOrientation());
+        }
         $contactSheetNames = $contactSheetsWorkbook->getSheetNames();
         sort($contactSheetNames);
         $expectedContactSheetNames = ['接洽人甲', '接洽人乙', '接洽人無訂單'];

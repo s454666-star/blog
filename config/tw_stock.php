@@ -15,4 +15,12 @@ return [
         '08:45',
         '15:00',
     ],
+    'eps_growth_ranking' => [
+        'base_year' => 2025,
+        'forecast_years' => [2026, 2027, 2028],
+        'lookback_days' => 400,
+        'minimum_eligible' => 50,
+        'cnyes_url' => 'https://api.cnyes.com/media/api/v1/newslist/category/tw_forecast',
+        'finmind_url' => 'https://api.finmindtrade.com/api/v4/data',
+    ],
 ];

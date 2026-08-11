@@ -37,6 +37,7 @@ use App\Http\Controllers\TgVideoReviewController;
 use App\Http\Controllers\TestImageController;
 use App\Http\Controllers\TwActiveEtfOperationController;
 use App\Http\Controllers\TwStockDailyPriceController;
+use App\Http\Controllers\TwStockEpsGrowthRankingController;
 use App\Http\Controllers\TwFuturesHourlyPriceController;
 use App\Http\Controllers\TwStockInstitutionalFlowController;
 use App\Http\Controllers\TwStockMonthlyRevenueController;
@@ -259,6 +260,8 @@ Route::get('/tw-stock/daily-price-rankings/preview/{stockCode}', [TwStockDailyPr
 Route::get('/tw-stock/daily-price-rankings/{stockCode}', [TwStockDailyPriceController::class, 'show'])
     ->where('stockCode', '[A-Za-z0-9]+')
     ->name('tw-stock.daily-prices.show');
+Route::get('/tw-stock/eps-growth-rankings', [TwStockEpsGrowthRankingController::class, 'index'])
+    ->name('tw-stock.eps-growth-rankings.index');
 Route::get('/tw-stock/taiex-futures-kline', [TwFuturesHourlyPriceController::class, 'index'])->name('tw-stock.taiex-futures.kline');
 Route::get('/tw-stock/taiex-futures-kline/data', [TwFuturesHourlyPriceController::class, 'data'])->name('tw-stock.taiex-futures.kline.data');
 Route::get('/tw-stock/taiex-index-kline', [TwStockTaiexIndexController::class, 'index'])->name('tw-stock.taiex-index.kline');

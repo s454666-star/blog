@@ -25,6 +25,7 @@ class TwStockSharedLayoutTest extends TestCase
             'views/tw-stock/active-etf-operations.blade.php',
             'views/tw-stock/taiex-index-kline.blade.php',
             'views/tw-stock/taiex-futures-kline.blade.php',
+            'views/tw-stock/eps-growth-rankings.blade.php',
         ];
 
         foreach ($viewPaths as $viewPath) {
@@ -46,6 +47,20 @@ class TwStockSharedLayoutTest extends TestCase
                 $content,
                 "{$viewPath} should link to the monthly revenue rankings page.",
             );
+
+            if ($viewPath === 'views/tw-stock/eps-growth-rankings.blade.php') {
+                $this->assertStringContainsString(
+                    "route('tw-stock.eps-growth-rankings.index')",
+                    $content,
+                    "{$viewPath} should link to the EPS growth rankings page.",
+                );
+            } else {
+                $this->assertStringContainsString(
+                    "@include('tw-stock.partials.eps-growth-ranking-nav-link')",
+                    $content,
+                    "{$viewPath} should link to the EPS growth rankings page.",
+                );
+            }
         }
     }
 }

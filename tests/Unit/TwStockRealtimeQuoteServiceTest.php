@@ -858,25 +858,27 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
                 'https://tw.stock.yahoo.com/quote/*' => Http::response('<html></html>'),
             ]);
             $charts = $this->mock(TwFuturesHourlyPriceFetcher::class);
-            $charts->shouldReceive('fetchRows')
+            $charts->shouldReceive('fetchTradingViewIntradaySeries')
                 ->once()
-                ->with('2026-08-11', '2026-08-11', '7861', 'TPEX:7861', 100, '5')
+                ->with(['7861' => 'TPEX:7861'], '2026-08-11', 100, '5')
                 ->andReturn([
-                    [
-                        'started_at_unix' => $now->setTime(9, 0)->getTimestamp(),
-                        'open_price' => '1120.0000',
-                        'high_price' => '1140.0000',
-                        'low_price' => '1115.0000',
-                        'close_price' => '1135.0000',
-                        'volume_contracts' => 120,
-                    ],
-                    [
-                        'started_at_unix' => $now->setTime(9, 5)->getTimestamp(),
-                        'open_price' => '1135.0000',
-                        'high_price' => '1150.0000',
-                        'low_price' => '1130.0000',
-                        'close_price' => '1145.0000',
-                        'volume_contracts' => 80,
+                    '7861' => [
+                        [
+                            'time' => $now->setTime(9, 0)->getTimestamp(),
+                            'open' => 1120.0,
+                            'high' => 1140.0,
+                            'low' => 1115.0,
+                            'price' => 1135.0,
+                            'volume' => 120,
+                        ],
+                        [
+                            'time' => $now->setTime(9, 5)->getTimestamp(),
+                            'open' => 1135.0,
+                            'high' => 1150.0,
+                            'low' => 1130.0,
+                            'price' => 1145.0,
+                            'volume' => 80,
+                        ],
                     ],
                 ]);
 

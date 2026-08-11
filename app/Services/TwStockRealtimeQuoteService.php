@@ -1415,25 +1415,31 @@ class TwStockRealtimeQuoteService
                 ->filter(fn (string $code): bool => count($series[$code] ?? []) < 2)
                 ->values()
                 ->all();
-            foreach ($needsTradingView as $code) {
+            if ($needsTradingView !== []) {
                 try {
-                    $rows = $this->tradingViewCharts->fetchRows(
+                    $fallbackSeries = $this->tradingViewCharts->fetchTradingViewIntradaySeries(
+                        collect($needsTradingView)
+                            ->mapWithKeys(fn (string $code): array => [$code => 'TPEX:' . $code])
+                            ->all(),
                         $date,
-                        $date,
-                        $code,
-                        'TPEX:' . $code,
                         100,
                         '5',
                     );
-                    $points = $this->tradingViewIntradayPoints($rows, $date, $timezone);
-                    if (count($points) < 2) {
-                        continue;
-                    }
+                    foreach ($needsTradingView as $code) {
+                        $points = $this->filterIntradayPointsByDate(
+                            $fallbackSeries[$code] ?? [],
+                            $date,
+                            $timezone,
+                        );
+                        if (count($points) < 2) {
+                            continue;
+                        }
 
-                    $series[$code] = $points;
-                    $providerByCode[$code] = 'tradingview';
+                        $series[$code] = $points;
+                        $providerByCode[$code] = 'tradingview';
+                    }
                 } catch (Throwable $exception) {
-                    $errors['tradingview:' . $code] = $exception->getMessage();
+                    $errors['tradingview'] = $exception->getMessage();
                 }
             }
 
@@ -1486,28 +1492,6 @@ class TwStockRealtimeQuoteService
     private function intradayCacheKey(string $date, string $code): string
     {
         return "tw-stock:intraday:v3:{$date}:{$code}";
-    }
-
-    /**
-     * @param list<array<string, mixed>> $rows
-     * @return list<array<string, mixed>>
-     */
-    private function tradingViewIntradayPoints(array $rows, string $date, string $timezone): array
-    {
-        $points = collect($rows)
-            ->map(function (array $row): array {
-                return [
-                    'time' => $row['started_at_unix'] ?? null,
-                    'price' => $row['close_price'] ?? null,
-                    'open' => $row['open_price'] ?? null,
-                    'low' => $row['low_price'] ?? null,
-                    'high' => $row['high_price'] ?? null,
-                    'volume' => $row['volume_contracts'] ?? null,
-                ];
-            })
-            ->all();
-
-        return $this->filterIntradayPointsByDate($points, $date, $timezone);
     }
 
     /**

@@ -52,6 +52,89 @@ class TwFuturesHourlyPriceFetcher
     private const UPSERT_CHUNK_SIZE = 200;
 
     /**
+     * Fetch several Taiwan stock intraday series through one TradingView chart
+     * session so a portfolio does not pay one websocket handshake per symbol.
+     *
+     * @param array<string, string> $symbols code => TradingView symbol
+     * @return array<string, list<array<string, int|float>>>
+     */
+    public function fetchTradingViewIntradaySeries(
+        array $symbols,
+        string $date,
+        int $bars = 100,
+        string $interval = '5',
+    ): array {
+        $interval = $this->normalizeInterval($interval);
+        $symbols = collect($symbols)
+            ->mapWithKeys(function (mixed $symbol, mixed $code): array {
+                $code = trim((string) $code);
+                $symbol = trim((string) $symbol);
+
+                return $code !== '' && $symbol !== '' ? [$code => $symbol] : [];
+            })
+            ->all();
+        if ($symbols === []) {
+            return [];
+        }
+
+        $authentication = $this->tradingViewAuthContext();
+        try {
+            $rawSeries = $this->fetchTradingViewTimescalesUncached(
+                $symbols,
+                $interval,
+                $bars,
+                $authentication['token'],
+            );
+        } catch (Throwable $exception) {
+            if ($authentication['mode'] !== 'authenticated') {
+                throw $exception;
+            }
+
+            $rawSeries = $this->fetchTradingViewTimescalesUncached(
+                $symbols,
+                $interval,
+                $bars,
+                self::TRADINGVIEW_ANONYMOUS_TOKEN,
+            );
+        }
+
+        $series = [];
+        foreach ($rawSeries as $code => $items) {
+            foreach ($items as $item) {
+                $values = is_array($item) ? ($item['v'] ?? null) : null;
+                if (!is_array($values) || count($values) < 5 || !is_numeric($values[0] ?? null)) {
+                    continue;
+                }
+
+                $timestamp = (int) floor((float) $values[0]);
+                if (CarbonImmutable::createFromTimestamp($timestamp, 'UTC')->setTimezone('Asia/Taipei')->toDateString() !== $date) {
+                    continue;
+                }
+
+                $close = $this->floatValue($values[4] ?? null);
+                if ($close === null) {
+                    continue;
+                }
+
+                $series[$code][] = [
+                    'time' => $timestamp,
+                    'price' => $close,
+                    'open' => $this->floatValue($values[1] ?? null) ?? $close,
+                    'high' => $this->floatValue($values[2] ?? null) ?? $close,
+                    'low' => $this->floatValue($values[3] ?? null) ?? $close,
+                    'volume' => max(0, (float) ($values[5] ?? 0)),
+                ];
+            }
+
+            if (isset($series[$code])) {
+                usort($series[$code], fn (array $first, array $second): int => $first['time'] <=> $second['time']);
+            }
+        }
+
+        return $series;
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function fetchRows(
@@ -682,6 +765,126 @@ class TwFuturesHourlyPriceFetcher
         }
 
         throw new RuntimeException(sprintf('等待 TradingView %sK 資料逾時。', $interval));
+    }
+
+    /**
+     * @param array<string, string> $symbols code => TradingView symbol
+     * @return array<string, list<array<string, mixed>>>
+     */
+    private function fetchTradingViewTimescalesUncached(
+        array $symbols,
+        string $interval,
+        int $bars,
+        string $authToken,
+    ): array {
+        $socket = $this->openTradingViewSocket();
+
+        try {
+            $sessionCodes = [];
+            $seriesByCode = [];
+
+            $this->sendTradingViewMessage($socket, 'set_auth_token', [$authToken]);
+            foreach ($symbols as $code => $symbol) {
+                $chartSession = $this->sessionId('cs');
+                $symbolPayload = '=' . json_encode([
+                    'symbol' => $symbol,
+                    'adjustment' => 'splits',
+                    'session' => 'extended',
+                ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+                $sessionCodes[$chartSession] = $code;
+                $seriesByCode[$code] = [];
+                $this->sendTradingViewMessage($socket, 'chart_create_session', [$chartSession, '']);
+                $this->sendTradingViewMessage($socket, 'resolve_symbol', [$chartSession, 'symbol_1', $symbolPayload]);
+                $this->sendTradingViewMessage($socket, 'create_series', [
+                    $chartSession,
+                    's1',
+                    's1',
+                    'symbol_1',
+                    $interval,
+                    max(2, $bars),
+                ]);
+            }
+
+            $buffer = '';
+            $deadline = microtime(true) + self::SOCKET_TIMEOUT_SECONDS;
+            while (microtime(true) < $deadline) {
+                $chunk = fread($socket, 65536);
+                if ($chunk === false) {
+                    throw new RuntimeException('讀取 TradingView websocket 失敗。');
+                }
+                if ($chunk === '') {
+                    usleep(50_000);
+
+                    continue;
+                }
+
+                $buffer .= $chunk;
+                while (($frame = $this->shiftWebSocketFrame($buffer)) !== null) {
+                    if ($frame['opcode'] === 0x9) {
+                        fwrite($socket, $this->webSocketFrame($frame['payload'], 0xA));
+
+                        continue;
+                    }
+                    if ($frame['opcode'] !== 0x1) {
+                        continue;
+                    }
+
+                    $payload = $frame['payload'];
+                    if (str_starts_with($payload, '~h~')) {
+                        fwrite($socket, $this->webSocketFrame($payload));
+
+                        continue;
+                    }
+
+                    foreach ($this->tradingViewMessages($payload) as $message) {
+                        $method = (string) ($message['m'] ?? '');
+                        if (in_array($method, ['critical_error', 'protocol_error', 'symbol_error'], true)) {
+                            throw new RuntimeException('TradingView 回應錯誤：' . json_encode($message['p'] ?? [], JSON_UNESCAPED_UNICODE));
+                        }
+                        if ($method !== 'timescale_update' || !is_array($message['p'][1] ?? null)) {
+                            continue;
+                        }
+
+                        $chartSession = (string) ($message['p'][0] ?? '');
+                        $code = $sessionCodes[$chartSession] ?? null;
+                        $items = $message['p'][1]['s1']['s'] ?? null;
+                        if ($code === null || !is_array($items)) {
+                            continue;
+                        }
+                        foreach ($items as $item) {
+                            $values = is_array($item) ? ($item['v'] ?? null) : null;
+                            if (!is_array($values) || !is_numeric($values[0] ?? null)) {
+                                continue;
+                            }
+                            $seriesByCode[$code][(int) floor((float) $values[0])] = $item;
+                        }
+
+                        $allReady = collect($seriesByCode)
+                            ->every(fn (array $items): bool => count($items) >= 2);
+                        if ($allReady) {
+                            return collect($seriesByCode)
+                                ->map(function (array $items): array {
+                                    ksort($items, SORT_NUMERIC);
+
+                                    return array_values($items);
+                                })
+                                ->all();
+                        }
+                    }
+                }
+            }
+
+            return collect($seriesByCode)
+                ->filter()
+                ->map(function (array $items): array {
+                    ksort($items, SORT_NUMERIC);
+
+                    return array_values($items);
+                })
+                ->all();
+        } finally {
+            fclose($socket);
+        }
     }
 
     /**

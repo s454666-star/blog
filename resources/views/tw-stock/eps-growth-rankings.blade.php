@@ -547,8 +547,9 @@
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
         }
+
+        @include('tw-stock.partials.shared-shell-width')
     </style>
-    @include('tw-stock.partials.shared-shell-width')
 </head>
 <body>
 <div class="aurora one"></div>

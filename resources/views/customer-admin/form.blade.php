@@ -10,6 +10,7 @@
         @if($module==='orders')
             <section class="customer-lookup">
                 <input id="customer_id" name="customer_id" type="hidden" value="{{ old('customer_id', $record->customer_id) }}">
+                <input id="activity_draft_id" name="activity_draft_id" type="hidden" value="{{ old('activity_draft_id', (string) Illuminate\Support\Str::uuid()) }}">
                 <div class="customer-info">
                     <div class="field"><label for="customer_name">姓名 <b class="required">*</b></label><input id="customer_name" name="customer_name" value="{{ old('customer_name', $record->customer?->name) }}" list="order-customer-name-history" lang="zh-TW" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="輸入部分姓名可搜尋舊客戶" required></div>
                     <div class="field"><label for="customer_phone">市話 <span class="hint">選填</span></label><input id="customer_phone" name="customer_phone" value="{{ old('customer_phone', $record->customer?->phone) }}" list="order-customer-phone-history" autocomplete="off" placeholder="輸入部分市話可搜尋舊客戶"></div>
@@ -132,7 +133,10 @@
         </section>
     @endif
 
-    <div class="form-footer"><a class="btn btn-secondary" href="{{ route('customer-admin.module.index',$module) }}">取消</a><button class="btn btn-primary" type="submit">✓ 儲存{{ $config['singular'] }}</button></div>
+    <div class="form-footer">
+        @if($module==='orders')<span id="activity-log-status" class="activity-log-status" role="status" aria-live="polite">尚未有新的選擇</span>@endif
+        <a class="btn btn-secondary" href="{{ route('customer-admin.module.index',$module) }}">取消</a><button class="btn btn-primary" type="submit">✓ 儲存{{ $config['singular'] }}</button>
+    </div>
 </form>
 @endsection
 @php
@@ -170,10 +174,27 @@
 @if($module==='orders')
 <script>
 (() => {
-    const list=document.querySelector('#item-list'), add=document.querySelector('#add-item');
+    const form=document.querySelector('#module-form'), list=document.querySelector('#item-list'), add=document.querySelector('#add-item');
     const productOptions={{ Illuminate\Support\Js::from($jsProducts) }};
     const orderCustomers={{ Illuminate\Support\Js::from($jsOrderCustomers) }};
     const customerId=document.querySelector('#customer_id');
+    const contactSelect=document.querySelector('#contact_id'), draftId=document.querySelector('#activity_draft_id').value;
+    const activityStatus=document.querySelector('#activity-log-status'), csrf=document.querySelector('meta[name="csrf-token"]').content;
+    const activityUrl={{ Illuminate\Support\Js::from(route('customer-admin.orders.activity-log')) }};
+    const activityMode={{ Illuminate\Support\Js::from($editing ? 'update' : 'create') }};
+    const activityOrderId={{ Illuminate\Support\Js::from($editing ? $record->id : null) }};
+    let activitySequence=0;
+    async function logActivity(event, details={}){
+        const sequence=++activitySequence;
+        activityStatus.className='activity-log-status logging';activityStatus.textContent='記錄中…';
+        try{
+            const response=await fetch(activityUrl,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':csrf},credentials:'same-origin',keepalive:true,body:JSON.stringify({event,draft_id:draftId,client_selected_at:new Date().toISOString(),mode:activityMode,order_id:activityOrderId,...details})});
+            if(!response.ok)throw new Error('HTTP '+response.status);
+            if(sequence===activitySequence){activityStatus.className='activity-log-status complete';activityStatus.textContent='✓ 紀錄完成 '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+        }catch(error){
+            if(sequence===activitySequence){activityStatus.className='activity-log-status failed';activityStatus.textContent='⚠ 紀錄失敗，儲存時會再次記錄'}
+        }
+    }
     const dateValue=date=>[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
     document.querySelectorAll('.date-picker-shell').forEach(shell=>{
         const input=shell.querySelector('[data-date-input]'), popover=shell.querySelector('.date-picker-popover'), title=popover.querySelector('.date-picker-title'), days=popover.querySelector('.date-picker-days');
@@ -204,6 +225,7 @@
         target.focus();
     }));
     const customerFields={name:document.querySelector('#customer_name'),phone:document.querySelector('#customer_phone'),mobile:document.querySelector('#customer_mobile'),tax_id:document.querySelector('#customer_tax_id'),customer_address:document.querySelector('#customer_address'),notes:document.querySelector('#customer_notes')};
+    let loggedCustomerId=customerId.value||null;
     function applyCustomer(customer){
         if(!customer)return;
         customerId.value=String(customer.id);
@@ -217,10 +239,24 @@
         const selectCustomer=()=>{
             const customer=orderCustomers.find(item=>item[key]===input.value);
             customerId.value='';
-            if(customer)applyCustomer(customer);
+            if(customer){
+                applyCustomer(customer);
+                if(loggedCustomerId!==String(customer.id)){
+                    loggedCustomerId=String(customer.id);
+                    logActivity('customer_selected',{customer_id:customer.id,customer_name:customer.name,matched_by:key});
+                }
+            }else if(loggedCustomerId){
+                loggedCustomerId=null;
+                logActivity('customer_cleared',{customer_name:customerFields.name.value||null,matched_by:key});
+            }
         };
         input.addEventListener('input',selectCustomer);
-        input.addEventListener('change',selectCustomer);
+        input.addEventListener('change',()=>{
+            selectCustomer();
+            if(!customerId.value&&customerFields.name.value.trim()){
+                logActivity('customer_entered',{customer_name:customerFields.name.value.trim(),matched_by:key});
+            }
+        });
     });
     let nextIndex=list.children.length;
     function recalc(){
@@ -229,12 +265,14 @@
         document.querySelector('#items-total').textContent='$'+total.toLocaleString();
     }
     function bind(row){
-        row.querySelector('.product-select').addEventListener('change',e=>{const option=e.target.selectedOptions[0];row.querySelector('.product-name').value=option?.dataset.name||'';if(option?.dataset.price)row.querySelector('.unit-price').value=option.dataset.price;recalc()});
+        row.querySelector('.product-select').addEventListener('change',e=>{const option=e.target.selectedOptions[0];row.querySelector('.product-name').value=option?.dataset.name||'';if(option?.dataset.price)row.querySelector('.unit-price').value=option.dataset.price;recalc();const rowIndex=Number((e.target.name.match(/items\[(\d+)\]/)||[])[1]||0);logActivity(e.target.value?'product_selected':'product_cleared',{product_id:e.target.value?Number(e.target.value):null,row_index:rowIndex,quantity:Number(row.querySelector('.qty').value)||null,unit_price:Number(row.querySelector('.unit-price').value)||null})});
         row.querySelectorAll('.qty,.unit-price').forEach(el=>el.addEventListener('input',recalc));
-        row.querySelector('.remove-item').addEventListener('click',()=>{if(list.children.length>1)row.remove();else{row.querySelector('.product-select').value='';row.querySelector('.unit-price').value=''}recalc()});
+        row.querySelector('.remove-item').addEventListener('click',()=>{const select=row.querySelector('.product-select'),rowIndex=Number((select.name.match(/items\[(\d+)\]/)||[])[1]||0);if(select.value)logActivity('product_removed',{product_id:Number(select.value),row_index:rowIndex,quantity:Number(row.querySelector('.qty').value)||null,unit_price:Number(row.querySelector('.unit-price').value)||null});if(list.children.length>1)row.remove();else{select.value='';row.querySelector('.unit-price').value=''}recalc()});
     }
     add.addEventListener('click',()=>{const row=document.createElement('div');row.className='item-row';const options=productOptions.map(p=>`<option value="${p.id}" data-name="${p.name.replaceAll('"','&quot;')}" data-price="${p.price}">${p.label}</option>`).join('');row.innerHTML=`<div><label>商品</label><select class="product-select" name="items[${nextIndex}][product_id]" required><option value="">請選擇商品</option>${options}</select><input class="product-name" type="hidden" name="items[${nextIndex}][product_name]"></div><div><label>數量</label><input class="qty" name="items[${nextIndex}][quantity]" type="number" min=".01" step=".01" value="1" required></div><div><label>單價</label><input class="unit-price" name="items[${nextIndex}][unit_price]" type="number" min="0" step="1" required></div><div><label>小計</label><div class="line-total">$0</div><input type="hidden" name="items[${nextIndex}][notes]"></div><button class="btn btn-sm btn-danger remove-item" type="button">×</button>`;nextIndex++;list.appendChild(row);bind(row);row.querySelector('select').focus()});
     list.querySelectorAll('.item-row').forEach(bind);recalc();
+    contactSelect?.addEventListener('change',()=>logActivity(contactSelect.value?'contact_selected':'contact_cleared',{contact_id:contactSelect.value?Number(contactSelect.value):null}));
+    form.addEventListener('submit',()=>{activityStatus.className='activity-log-status logging';activityStatus.textContent='正在儲存並記錄…'});
 })();
 </script>
 @endif

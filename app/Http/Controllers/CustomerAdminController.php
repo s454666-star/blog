@@ -8,9 +8,11 @@ use App\Models\CrmOrder;
 use App\Models\CrmOrderItem;
 use App\Models\CrmProduct;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -109,13 +111,16 @@ class CustomerAdminController extends Controller
     public function store(Request $request, string $module): RedirectResponse
     {
         $config = $this->module($module);
+        if ($module === 'orders') {
+            $this->logOrderSubmitAttempt($request, 'create');
+        }
         $this->normalizeOrderDateInput($request, $module);
         $data = $request->validate($this->rules($module));
         $data = $this->roundMoneyValues($module, $data);
 
-        DB::transaction(function () use ($module, $config, $data) {
+        $savedOrder = DB::transaction(function () use ($module, $config, $data) {
             if ($module === 'orders') {
-                $this->saveOrder(new CrmOrder, $data);
+                return $this->saveOrder(new CrmOrder, $data);
             } else {
                 if ($module === 'products') {
                     $data = $this->prepareProductImage(request(), $data);
@@ -124,6 +129,15 @@ class CustomerAdminController extends Controller
                 $config['model']::create($data);
             }
         });
+
+        if ($savedOrder instanceof CrmOrder) {
+            $this->writeOrderActivity($request, 'saved', [
+                'draft_id' => $this->safeText($request->input('activity_draft_id'), 36),
+                'mode' => 'create',
+                'order_id' => $savedOrder->id,
+                'order_number' => $savedOrder->order_number,
+            ]);
+        }
 
         return redirect()->route('customer-admin.module.index', $module)
             ->with('success', $config['singular'].'已新增。');
@@ -146,6 +160,9 @@ class CustomerAdminController extends Controller
     {
         $config = $this->module($module);
         $record = $config['model']::findOrFail($id);
+        if ($module === 'orders') {
+            $this->logOrderSubmitAttempt($request, 'update', $id);
+        }
         $this->normalizeOrderDateInput($request, $module);
         $data = $request->validate($this->rules($module, $record));
         $data = $this->roundMoneyValues($module, $data);
@@ -161,6 +178,15 @@ class CustomerAdminController extends Controller
             }
         });
 
+        if ($record instanceof CrmOrder) {
+            $this->writeOrderActivity($request, 'saved', [
+                'draft_id' => $this->safeText($request->input('activity_draft_id'), 36),
+                'mode' => 'update',
+                'order_id' => $record->id,
+                'order_number' => $record->order_number,
+            ]);
+        }
+
         return redirect()->route('customer-admin.module.index', $module)
             ->with('success', $config['singular'].'已更新。');
     }
@@ -172,9 +198,79 @@ class CustomerAdminController extends Controller
         if ($module === 'products' && $record->image_path) {
             Storage::disk('public')->delete($record->image_path);
         }
+        $deletedOrder = $record instanceof CrmOrder ? [
+            'order_id' => $record->id,
+            'order_number' => $record->order_number,
+            'customer' => $this->customerSelection($record->customer_id),
+            'contact' => $this->contactSelection($record->contact_id),
+            'products' => $record->items()->get()->map(fn (CrmOrderItem $item) => [
+                'id' => $item->product_id,
+                'name' => $item->product_name,
+                'quantity' => (float) $item->quantity,
+                'unit_price' => (int) round((float) $item->unit_price),
+            ])->all(),
+        ] : null;
         $record->delete();
 
+        if ($deletedOrder) {
+            $this->writeOrderActivity(request(), 'deleted', $deletedOrder);
+        }
+
         return back()->with('success', $config['singular'].'已刪除。');
+    }
+
+    public function logOrderActivity(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'event' => ['required', Rule::in([
+                'customer_selected', 'customer_entered', 'customer_cleared',
+                'contact_selected', 'contact_cleared',
+                'product_selected', 'product_cleared', 'product_removed',
+            ])],
+            'draft_id' => ['required', 'uuid'],
+            'client_selected_at' => ['required', 'string', 'max:40'],
+            'mode' => ['required', Rule::in(['create', 'update'])],
+            'order_id' => ['nullable', 'integer', 'exists:crm_orders,id'],
+            'customer_id' => ['nullable', 'integer', 'exists:crm_customers,id'],
+            'customer_name' => ['nullable', 'string', 'max:255'],
+            'matched_by' => ['nullable', Rule::in(['name', 'phone', 'mobile'])],
+            'contact_id' => ['nullable', 'integer', 'exists:crm_contacts,id'],
+            'product_id' => ['nullable', 'integer', 'exists:crm_products,id'],
+            'row_index' => ['nullable', 'integer', 'min:0'],
+            'quantity' => ['nullable', 'numeric'],
+            'unit_price' => ['nullable', 'numeric'],
+        ]);
+
+        $context = [
+            'draft_id' => $data['draft_id'],
+            'client_selected_at' => $data['client_selected_at'],
+            'mode' => $data['mode'],
+            'order_id' => $data['order_id'] ?? null,
+            'matched_by' => $data['matched_by'] ?? null,
+            'row_index' => $data['row_index'] ?? null,
+            'quantity' => isset($data['quantity']) ? (float) $data['quantity'] : null,
+            'unit_price' => isset($data['unit_price']) ? $this->roundMoney($data['unit_price']) : null,
+        ];
+
+        if (array_key_exists('customer_id', $data) || array_key_exists('customer_name', $data)) {
+            $context['customer'] = $this->customerSelection(
+                $data['customer_id'] ?? null,
+                $data['customer_name'] ?? null,
+            );
+        }
+        if (array_key_exists('contact_id', $data)) {
+            $context['contact'] = $this->contactSelection($data['contact_id']);
+        }
+        if (array_key_exists('product_id', $data)) {
+            $context['product'] = $this->productSelection($data['product_id']);
+        }
+
+        $logged = $this->writeOrderActivity($request, $data['event'], array_filter(
+            $context,
+            fn ($value) => $value !== null,
+        ));
+
+        return response()->json(['logged' => $logged], $logged ? 200 : 500);
     }
 
     public function moveProduct(Request $request, int $id): RedirectResponse
@@ -214,7 +310,7 @@ class CustomerAdminController extends Controller
         }
     }
 
-    private function saveOrder(CrmOrder $order, array $data): void
+    private function saveOrder(CrmOrder $order, array $data): CrmOrder
     {
         $items = collect($data['items'])->map(function (array $item): array {
             $item['unit_price'] = $this->roundMoney($item['unit_price']);
@@ -291,6 +387,92 @@ class CustomerAdminController extends Controller
                 'notes' => $item['notes'] ?? null,
             ]);
         }
+
+        return $order;
+    }
+
+    private function logOrderSubmitAttempt(Request $request, string $mode, ?int $orderId = null): void
+    {
+        $items = collect($request->input('items', []))
+            ->take(50)
+            ->map(function ($item, $index): array {
+                $item = is_array($item) ? $item : [];
+                $productId = filter_var($item['product_id'] ?? null, FILTER_VALIDATE_INT) ?: null;
+
+                return [
+                    'row_index' => $index,
+                    'product' => $this->productSelection($productId),
+                    'quantity' => is_numeric($item['quantity'] ?? null) ? (float) $item['quantity'] : null,
+                    'unit_price' => is_numeric($item['unit_price'] ?? null) ? $this->roundMoney($item['unit_price']) : null,
+                ];
+            })->values()->all();
+
+        $customerId = filter_var($request->input('customer_id'), FILTER_VALIDATE_INT) ?: null;
+        $contactId = filter_var($request->input('contact_id'), FILTER_VALIDATE_INT) ?: null;
+
+        $this->writeOrderActivity($request, 'submit_attempted', [
+            'draft_id' => $this->safeText($request->input('activity_draft_id'), 36),
+            'mode' => $mode,
+            'order_id' => $orderId,
+            'customer' => $this->customerSelection($customerId, $request->input('customer_name')),
+            'contact' => $this->contactSelection($contactId),
+            'products' => $items,
+        ]);
+    }
+
+    private function writeOrderActivity(Request $request, string $event, array $context = []): bool
+    {
+        try {
+            Log::channel('crm_order_activity')->info('crm_order_'.$event, array_merge([
+                'event' => $event,
+                'server_time' => now()->toIso8601String(),
+                'session_hash' => substr(hash('sha256', $request->session()->getId()), 0, 16),
+                'source_ip' => $request->ip(),
+            ], $context));
+
+            return true;
+        } catch (\Throwable $exception) {
+            try {
+                report($exception);
+            } catch (\Throwable) {
+                // Logging must never prevent an order from being saved or deleted.
+            }
+
+            return false;
+        }
+    }
+
+    private function customerSelection(int|string|null $id, mixed $fallbackName = null): ?array
+    {
+        $customer = $id ? CrmCustomer::find($id) : null;
+        $name = $customer?->name ?? $this->safeText($fallbackName);
+
+        return $customer || $name ? ['id' => $customer?->id, 'name' => $name] : null;
+    }
+
+    private function contactSelection(int|string|null $id): ?array
+    {
+        $contact = $id ? CrmContact::find($id) : null;
+
+        return $contact ? ['id' => $contact->id, 'name' => $contact->name] : null;
+    }
+
+    private function productSelection(int|string|null $id): ?array
+    {
+        $product = $id ? CrmProduct::find($id) : null;
+
+        return $product ? ['id' => $product->id, 'name' => $product->name] : null;
+    }
+
+    private function safeText(mixed $value, int $maxLength = 255): ?string
+    {
+        if (! is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : mb_substr($value, 0, $maxLength);
     }
 
     private function roundMoneyValues(string $module, array $data): array

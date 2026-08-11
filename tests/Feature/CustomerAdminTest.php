@@ -5,7 +5,9 @@ namespace Tests\Feature;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use Tests\TestCase;
@@ -114,7 +116,12 @@ class CustomerAdminTest extends TestCase
             ->assertDontSee('minimumFractionDigits')
             ->assertDontSee('customerIdentityKeys', false)
             ->assertSee('const customer=orderCustomers.find(item=>item[key]===input.value)', false)
-            ->assertSee('if(customer)applyCustomer(customer)', false);
+            ->assertSee("logActivity('customer_selected'", false)
+            ->assertSee("logActivity('customer_entered'", false)
+            ->assertSee("contactSelect?.addEventListener('change'", false)
+            ->assertSee("'product_selected'", false)
+            ->assertSee('id="activity-log-status"', false)
+            ->assertSee('尚未有新的選擇');
 
         $this->post('/admin/orders', [
             'customer_name' => '測試客戶',
@@ -338,6 +345,88 @@ class CustomerAdminTest extends TestCase
         $this->assertNotContains('內部隱藏狀態', $orderSheet->rangeToArray('A5:I6')[0]);
     }
 
+    public function test_order_activity_is_logged_before_validation_and_through_save_and_delete(): void
+    {
+        $logPath = storage_path('framework/testing/crm-order-activity.log');
+        @unlink($logPath);
+        config()->set('logging.channels.crm_order_activity', [
+            'driver' => 'single',
+            'path' => $logPath,
+            'level' => 'info',
+        ]);
+        Log::forgetChannel('crm_order_activity');
+
+        $this->post('/admin/login', ['username' => 'test-admin', 'password' => 'test-password'])
+            ->assertRedirect('/admin/dashboard');
+
+        $customerId = DB::table('crm_customers')->insertGetId([
+            'name' => '紀錄測試客戶',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $contactId = DB::table('crm_contacts')->insertGetId([
+            'customer_id' => $customerId,
+            'name' => '紀錄測試接洽人',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $productId = DB::table('crm_products')->insertGetId([
+            'name' => '紀錄測試商品',
+            'price' => 800,
+            'sort_order' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $draftId = (string) Str::uuid();
+
+        $this->postJson('/admin/orders/activity-log', [
+            'event' => 'product_selected',
+            'draft_id' => $draftId,
+            'client_selected_at' => now()->toIso8601String(),
+            'mode' => 'create',
+            'customer_id' => $customerId,
+            'contact_id' => $contactId,
+            'product_id' => $productId,
+            'row_index' => 0,
+            'quantity' => 2,
+            'unit_price' => 800,
+        ])->assertOk()->assertJson(['logged' => true]);
+
+        $this->post('/admin/orders', [
+            'activity_draft_id' => $draftId,
+            'customer_id' => $customerId,
+            'customer_name' => '紀錄測試客戶',
+            'contact_id' => $contactId,
+            'items' => [],
+        ])->assertSessionHasErrors('items');
+        $this->assertDatabaseCount('crm_orders', 0);
+
+        $this->post('/admin/orders', [
+            'activity_draft_id' => $draftId,
+            'customer_id' => $customerId,
+            'customer_name' => '紀錄測試客戶',
+            'contact_id' => $contactId,
+            'items' => [[
+                'product_id' => $productId,
+                'quantity' => 2,
+                'unit_price' => 800,
+            ]],
+        ])->assertRedirect('/admin/orders');
+
+        $orderId = (int) DB::table('crm_orders')->value('id');
+        $this->delete('/admin/orders/'.$orderId)->assertRedirect();
+
+        $log = file_get_contents($logPath);
+        $this->assertStringContainsString('crm_order_product_selected', $log);
+        $this->assertStringContainsString('crm_order_submit_attempted', $log);
+        $this->assertStringContainsString('crm_order_saved', $log);
+        $this->assertStringContainsString('crm_order_deleted', $log);
+        $this->assertStringContainsString('紀錄測試客戶', $log);
+        $this->assertStringContainsString('紀錄測試接洽人', $log);
+        $this->assertStringContainsString('紀錄測試商品', $log);
+        $this->assertStringContainsString($draftId, $log);
+    }
+
     public function test_matching_phone_overwrites_the_existing_customer_regardless_of_name(): void
     {
         $this->post('/admin/login', ['username' => 'test-admin', 'password' => 'test-password'])
@@ -499,6 +588,17 @@ class CustomerAdminTest extends TestCase
         }
 
         $this->get('/admin/export')->assertOk()
+            ->assertSee('目前客戶總數')
+            ->assertSee('目前訂單總數')
+            ->assertSee('<details class="panel contact-counts">', false)
+            ->assertDontSee('<details class="panel contact-counts" open>', false)
+            ->assertSee('每位接洽人訂單數（點擊展開）')
+            ->assertSee('接洽人甲')
+            ->assertSee('2 張')
+            ->assertSee('接洽人乙')
+            ->assertSee('1 張')
+            ->assertSee('接洽人無訂單')
+            ->assertSee('0 張')
             ->assertSee('依照年份匯出')
             ->assertSee('依照接洽人匯出')
             ->assertSee('依照接洽人全部匯出')

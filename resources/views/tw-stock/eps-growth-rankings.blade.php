@@ -306,35 +306,6 @@
             font-size: 0.72rem;
         }
 
-        .podium-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 12px;
-            margin-bottom: 16px;
-        }
-
-        .podium-card {
-            position: relative;
-            overflow: hidden;
-            padding: 20px;
-            border-radius: 21px;
-            transition: 0.25s ease;
-        }
-
-        .podium-card:hover { transform: translateY(-4px); border-color: var(--line-hot); }
-
-        .podium-rank {
-            color: var(--medal, var(--cyan));
-            font-size: 0.72rem;
-            font-weight: 900;
-            letter-spacing: 0.13em;
-        }
-
-        .podium-name { margin-top: 9px; font-size: 1.35rem; font-weight: 900; }
-        .podium-code { color: var(--muted); font-size: 0.76rem; font-weight: 700; }
-        .podium-score { margin-top: 17px; color: var(--medal, var(--cyan)); font-size: 1.85rem; font-weight: 950; }
-        .podium-score small { font-size: 0.72rem; font-weight: 700; }
-
         .toolbar {
             display: grid;
             grid-template-columns: minmax(240px, 1fr) auto auto;
@@ -536,7 +507,6 @@
             .page-shell { padding-top: 10px; }
             .hero { border-radius: 22px; }
             .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .podium-grid { grid-template-columns: 1fr; }
             .toolbar { grid-template-columns: 1fr; }
             .visible-count { text-align: left; }
             .method-note { grid-template-columns: 1fr; }
@@ -625,21 +595,6 @@
                 <div class="summary-value" style="color: var(--violet)">{{ $summary['positive_all_three'] }}</div>
                 <div class="summary-note">三段年增率均大於 0</div>
             </article>
-        </section>
-
-        <section class="podium-grid" aria-label="前三名">
-            @foreach ($rows->take(3) as $row)
-                @php
-                    $medals = [1 => ['冠軍', '#ffd875'], 2 => ['亞軍', '#dbe7ff'], 3 => ['季軍', '#eeb58f']];
-                    [$medalLabel, $medalColor] = $medals[$row->rank] ?? ['TOP', '#67e8f9'];
-                @endphp
-                <article class="podium-card glass" style="--medal: {{ $medalColor }}">
-                    <div class="podium-rank">{{ $medalLabel }} · #{{ $row->rank }}</div>
-                    <div class="podium-name">{{ $row->stock_name }}</div>
-                    <div class="podium-code">{{ $row->stock_code }} · 收盤 {{ number_format($row->close_price, $row->close_price < 100 ? 2 : 0) }}</div>
-                    <div class="podium-score">{{ number_format($row->growth_sum, 1) }}<small>% 三段合計</small></div>
-                </article>
-            @endforeach
         </section>
 
         <section class="toolbar glass" aria-label="排行篩選">

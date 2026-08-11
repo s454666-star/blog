@@ -164,27 +164,26 @@ class CustomerAdminExportController extends Controller
             $items = $order->items->map(function ($item) {
                 return $item->product_name.' × '.rtrim(rtrim(number_format((float) $item->quantity, 2, '.', ''), '0'), '.');
             })->implode("\n");
+            $phones = collect([$order->customer?->phone, $order->customer?->mobile])
+                ->filter(fn ($phone) => filled($phone))
+                ->unique()
+                ->implode("\n");
 
             return [
-                $order->order_number,
                 $order->order_date?->format('Y-m-d'),
                 $order->customer?->name,
-                $order->contact?->name,
-                $order->payment_status,
-                $order->payment_method,
+                $phones,
+                $order->customer?->address,
                 $items,
-                $this->roundMoney($order->subtotal),
-                $this->roundMoney($order->total),
-                $order->notes,
             ];
         })->all();
 
         $this->addSheet(
             $spreadsheet,
             $title,
-            ['訂單編號', '日期', '客戶', '接洽人', '付款狀態', '付款方式', '商品明細', '小計', '總額', '備註'],
+            ['日期', '人名', '電話', '地址', '品項'],
             $rows,
-            ['H', 'I'],
+            [],
             $filterLabel
         );
     }

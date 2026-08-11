@@ -439,6 +439,9 @@ class CustomerAdminTest extends TestCase
 
         $customerId = DB::table('crm_customers')->insertGetId([
             'name' => '匯出測試客戶',
+            'phone' => '02-1234-5678',
+            'mobile' => '0912-345-678',
+            'address' => '台北市測試路 1 號',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -534,14 +537,18 @@ class CustomerAdminTest extends TestCase
         $expectedContactSheetNames = ['接洽人甲', '接洽人乙', '接洽人無訂單'];
         sort($expectedContactSheetNames);
         $this->assertSame($expectedContactSheetNames, $contactSheetNames);
-        $this->assertSame(['EXPORT-2026-B'], array_column($contactSheetsWorkbook->getSheetByName('接洽人乙')->rangeToArray('A5:A5'), 0));
-        $this->assertSame(['EXPORT-2025-A', 'EXPORT-2026-A'], array_column($contactSheetsWorkbook->getSheetByName('接洽人甲')->rangeToArray('A5:A6'), 0));
+        $this->assertSame(['日期', '人名', '電話', '地址', '品項'], $contactSheetsWorkbook->getSheetByName('接洽人甲')->rangeToArray('A4:E4')[0]);
+        $this->assertSame(['2026-07-01'], array_column($contactSheetsWorkbook->getSheetByName('接洽人乙')->rangeToArray('A5:A5'), 0));
+        $this->assertSame(['2025-06-01', '2026-06-01'], array_column($contactSheetsWorkbook->getSheetByName('接洽人甲')->rangeToArray('A5:A6'), 0));
         $this->assertNull($contactSheetsWorkbook->getSheetByName('接洽人無訂單')->getCell('A5')->getValue());
 
         $selectedContactSheetsResponse = $this->get('/admin/export/xlsx?mode=contact_sheets&contact_id='.$contactA)->assertOk();
         $selectedContactSheetsWorkbook = IOFactory::load($selectedContactSheetsResponse->baseResponse->getFile()->getPathname());
         $this->assertSame(['接洽人甲'], $selectedContactSheetsWorkbook->getSheetNames());
-        $this->assertSame('接洽人甲', $selectedContactSheetsWorkbook->getSheetByName('接洽人甲')->getCell('D5')->getValue());
+        $this->assertSame('匯出測試客戶', $selectedContactSheetsWorkbook->getSheetByName('接洽人甲')->getCell('B5')->getValue());
+        $this->assertSame("02-1234-5678\n0912-345-678", $selectedContactSheetsWorkbook->getSheetByName('接洽人甲')->getCell('C5')->getValue());
+        $this->assertSame('台北市測試路 1 號', $selectedContactSheetsWorkbook->getSheetByName('接洽人甲')->getCell('D5')->getValue());
+        $this->assertSame('匯出測試商品 × 1', $selectedContactSheetsWorkbook->getSheetByName('接洽人甲')->getCell('E5')->getValue());
 
         $this->get('/admin/export/xlsx?mode=year')->assertSessionHasErrors('year');
         $this->get('/admin/export/xlsx?mode=contact_all')->assertSessionHasErrors('contact_id');

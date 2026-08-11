@@ -233,6 +233,13 @@ class CustomerAdminExportController extends Controller
         $sheet = $spreadsheet->createSheet();
         $sheet->setTitle($title);
         $sheet->getPageSetup()->setOrientation(PageSetup::ORIENTATION_LANDSCAPE);
+        $sheet->getPageMargins()
+            ->setTop(0.75)
+            ->setBottom(0.75)
+            ->setLeft(0.25)
+            ->setRight(0.25)
+            ->setHeader(0.3)
+            ->setFooter(0.3);
         $lastColumn = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($headers));
         $sheet->setCellValue('A1', 'STAR CRM｜'.$title.'資料');
         $sheet->mergeCells("A1:{$lastColumn}1");

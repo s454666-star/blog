@@ -50,13 +50,19 @@ class CustomerAdminExportController extends Controller
     public function __invoke(Request $request): BinaryFileResponse
     {
         $filters = $request->validate([
-            'mode' => ['nullable', Rule::in(['all', 'year', 'year_contact', 'contact_all'])],
+            'mode' => ['nullable', Rule::in(['all', 'year', 'year_contact', 'contact_all', 'contact_sheets'])],
             'year' => ['nullable', 'integer', 'min:1900', 'max:2100', Rule::requiredIf(fn () => in_array($request->query('mode'), ['year', 'year_contact'], true))],
             'contact_id' => ['nullable', 'integer', 'exists:crm_contacts,id', Rule::requiredIf(fn () => in_array($request->query('mode'), ['year_contact', 'contact_all'], true))],
         ]);
         $mode = $filters['mode'] ?? 'all';
         $year = in_array($mode, ['year', 'year_contact'], true) ? (int) $filters['year'] : null;
-        $contactId = in_array($mode, ['year_contact', 'contact_all'], true) ? (int) $filters['contact_id'] : null;
+        $contactId = in_array($mode, ['year_contact', 'contact_all', 'contact_sheets'], true) && isset($filters['contact_id'])
+            ? (int) $filters['contact_id']
+            : null;
+
+        if ($mode === 'contact_sheets') {
+            return $this->contactSheetsDownload($contactId);
+        }
         $orders = $this->orderQuery($year, $contactId)
             ->with(['customer', 'contact', 'items'])
             ->orderBy('id')
@@ -101,6 +107,103 @@ class CustomerAdminExportController extends Controller
             ->with(['customer', 'contact'])
             ->when($year, fn (Builder $query) => $query->whereYear('order_date', $year))
             ->when($contactId, fn (Builder $query) => $query->where('contact_id', $contactId));
+    }
+
+    private function contactSheetsDownload(?int $contactId): BinaryFileResponse
+    {
+        $contacts = CrmContact::query()
+            ->when($contactId, fn (Builder $query) => $query->whereKey($contactId))
+            ->with(['orders' => fn ($query) => $query
+                ->with(['customer', 'items'])
+                ->orderBy('order_date')
+                ->orderBy('id')])
+            ->orderBy('name')
+            ->orderBy('id')
+            ->get();
+
+        $spreadsheet = new Spreadsheet;
+        $spreadsheet->removeSheetByIndex(0);
+        $usedTitles = [];
+
+        foreach ($contacts as $contact) {
+            $this->addContactOrdersSheet(
+                $spreadsheet,
+                $this->uniqueSheetTitle($contact->name, $contact->id, $usedTitles),
+                $contact->orders,
+                '接洽人：'.$contact->name
+            );
+        }
+
+        if (! $contactId) {
+            $unassignedOrders = $this->orderQuery()
+                ->whereNull('contact_id')
+                ->with(['customer', 'items'])
+                ->orderBy('order_date')
+                ->orderBy('id')
+                ->get();
+
+            if ($unassignedOrders->isNotEmpty()) {
+                $this->addContactOrdersSheet($spreadsheet, '未指定接洽人', $unassignedOrders, '接洽人：未指定');
+            }
+        }
+
+        if ($spreadsheet->getSheetCount() === 0) {
+            $this->addContactOrdersSheet($spreadsheet, '無接洽人資料', collect(), '目前沒有接洽人資料');
+        }
+
+        $path = storage_path('app/customer-admin-contact-sheets-'.now()->format('Ymd-His').'-'.Str::lower(Str::random(6)).'.xlsx');
+        (new Xlsx($spreadsheet))->save($path);
+        $label = $contactId ? '接洽人'.$contactId : '全部接洽人';
+
+        return response()->download($path, '客戶訂單管理_'.$label.'_分頁_'.now()->format('Ymd_His').'.xlsx')->deleteFileAfterSend();
+    }
+
+    private function addContactOrdersSheet(Spreadsheet $spreadsheet, string $title, Collection $orders, string $filterLabel): void
+    {
+        $rows = $orders->map(function (CrmOrder $order) {
+            $items = $order->items->map(function ($item) {
+                return $item->product_name.' × '.rtrim(rtrim(number_format((float) $item->quantity, 2, '.', ''), '0'), '.');
+            })->implode("\n");
+
+            return [
+                $order->order_number,
+                $order->order_date?->format('Y-m-d'),
+                $order->customer?->name,
+                $order->contact?->name,
+                $order->payment_status,
+                $order->payment_method,
+                $items,
+                $this->roundMoney($order->subtotal),
+                $this->roundMoney($order->total),
+                $order->notes,
+            ];
+        })->all();
+
+        $this->addSheet(
+            $spreadsheet,
+            $title,
+            ['訂單編號', '日期', '客戶', '接洽人', '付款狀態', '付款方式', '商品明細', '小計', '總額', '備註'],
+            $rows,
+            ['H', 'I'],
+            $filterLabel
+        );
+    }
+
+    private function uniqueSheetTitle(string $name, int $contactId, array &$usedTitles): string
+    {
+        $base = trim(preg_replace('/[\\\\\/?*\[\]:]/u', ' ', $name) ?? '');
+        $base = trim($base, " '");
+        $base = mb_substr($base !== '' ? $base : '接洽人'.$contactId, 0, 31);
+        $title = $base;
+        $suffix = '-'.$contactId;
+
+        if (isset($usedTitles[mb_strtolower($title)])) {
+            $title = mb_substr($base, 0, 31 - mb_strlen($suffix)).$suffix;
+        }
+
+        $usedTitles[mb_strtolower($title)] = true;
+
+        return $title;
     }
 
     private function filterLabel(string $mode, ?int $year, ?int $contactId): string

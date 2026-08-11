@@ -147,7 +147,7 @@ class CustomerAdminTest extends TestCase
             'tax' => 333,
         ]);
         $this->get('/admin/orders')->assertOk()
-            ->assertSee('搜尋姓名、市話、手機電話、地址或訂單資料…')
+            ->assertSee('搜尋客戶、接洽人、市話、手機電話、地址或訂單資料…')
             ->assertSee("input.addEventListener('change',submitSearch)", false)
             ->assertSee("event.key==='Enter'", false)
             ->assertSee("document.addEventListener('pointerdown'", false)
@@ -224,7 +224,14 @@ class CustomerAdminTest extends TestCase
             'address' => '台北市信義區更新路 2 號',
         ]);
         $this->assertDatabaseHas('crm_orders', ['customer_id' => $customerId, 'contact_id' => $contactId]);
-        $this->assertSame('2026-07-22', \App\Models\CrmOrder::latest('id')->first()->order_date->toDateString());
+        $contactOrder = \App\Models\CrmOrder::latest('id')->first();
+        $firstOrderNumber = DB::table('crm_orders')->where('id', $firstOrderId)->value('order_number');
+        $this->assertSame('2026-07-22', $contactOrder->order_date->toDateString());
+        $this->get('/admin/orders?search='.urlencode('陳威仁'))->assertOk()
+            ->assertSee('接洽人')
+            ->assertSee('陳威仁')
+            ->assertSee($contactOrder->order_number)
+            ->assertDontSee($firstOrderNumber);
         $this->get('/admin/products/create')->assertOk()
             ->assertSee('value="包"', false)
             ->assertSee('value="罐"', false);
@@ -447,6 +454,12 @@ class CustomerAdminTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        DB::table('crm_contacts')->insert([
+            'customer_id' => $customerId,
+            'name' => '接洽人無訂單',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         $productId = DB::table('crm_products')->insertGetId([
             'name' => '匯出測試商品',
             'price' => 500,
@@ -486,6 +499,8 @@ class CustomerAdminTest extends TestCase
             ->assertSee('依照年份匯出')
             ->assertSee('依照接洽人匯出')
             ->assertSee('依照接洽人全部匯出')
+            ->assertSee('接洽人分頁匯出')
+            ->assertSee('全部接洽人分頁匯出')
             ->assertSee('2026 年')
             ->assertSee('接洽人甲');
         $this->get('/admin/export?year=2026&contact_id='.$contactA)->assertOk()
@@ -493,7 +508,8 @@ class CustomerAdminTest extends TestCase
             ->assertDontSee('EXPORT-2025-A')
             ->assertDontSee('EXPORT-2026-B')
             ->assertSee('mode=year_contact', false)
-            ->assertSee('mode=contact_all', false);
+            ->assertSee('mode=contact_all', false)
+            ->assertSee('mode=contact_sheets', false);
 
         $yearResponse = $this->get('/admin/export/xlsx?mode=year&year=2026')->assertOk();
         $yearWorkbook = IOFactory::load($yearResponse->baseResponse->getFile()->getPathname());
@@ -510,6 +526,22 @@ class CustomerAdminTest extends TestCase
         $this->assertSame(['EXPORT-2025-A', 'EXPORT-2026-A'], array_column($contactAllWorkbook->getSheetByName('訂單')->rangeToArray('A5:A6'), 0));
         $this->assertSame('接洽人甲', $contactAllWorkbook->getSheetByName('接洽人')->getCell('B5')->getValue());
         $this->assertNull($contactAllWorkbook->getSheetByName('接洽人')->getCell('B6')->getValue());
+
+        $contactSheetsResponse = $this->get('/admin/export/xlsx?mode=contact_sheets')->assertOk();
+        $contactSheetsWorkbook = IOFactory::load($contactSheetsResponse->baseResponse->getFile()->getPathname());
+        $contactSheetNames = $contactSheetsWorkbook->getSheetNames();
+        sort($contactSheetNames);
+        $expectedContactSheetNames = ['接洽人甲', '接洽人乙', '接洽人無訂單'];
+        sort($expectedContactSheetNames);
+        $this->assertSame($expectedContactSheetNames, $contactSheetNames);
+        $this->assertSame(['EXPORT-2026-B'], array_column($contactSheetsWorkbook->getSheetByName('接洽人乙')->rangeToArray('A5:A5'), 0));
+        $this->assertSame(['EXPORT-2025-A', 'EXPORT-2026-A'], array_column($contactSheetsWorkbook->getSheetByName('接洽人甲')->rangeToArray('A5:A6'), 0));
+        $this->assertNull($contactSheetsWorkbook->getSheetByName('接洽人無訂單')->getCell('A5')->getValue());
+
+        $selectedContactSheetsResponse = $this->get('/admin/export/xlsx?mode=contact_sheets&contact_id='.$contactA)->assertOk();
+        $selectedContactSheetsWorkbook = IOFactory::load($selectedContactSheetsResponse->baseResponse->getFile()->getPathname());
+        $this->assertSame(['接洽人甲'], $selectedContactSheetsWorkbook->getSheetNames());
+        $this->assertSame('接洽人甲', $selectedContactSheetsWorkbook->getSheetByName('接洽人甲')->getCell('D5')->getValue());
 
         $this->get('/admin/export/xlsx?mode=year')->assertSessionHasErrors('year');
         $this->get('/admin/export/xlsx?mode=contact_all')->assertSessionHasErrors('contact_id');

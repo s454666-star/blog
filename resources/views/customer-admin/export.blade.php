@@ -8,7 +8,7 @@
 @endpush
 
 @section('content')
-<div class="export-help">先在下方選擇年份與接洽人，可查詢預覽；三個匯出按鈕會依各自標示的範圍產生 XLSX。</div>
+<div class="export-help">先在下方選擇年份與接洽人，可查詢預覽；匯出按鈕會依各自標示的範圍產生 XLSX。</div>
 
 <form class="panel query-panel" method="get" action="{{ route('customer-admin.export.index') }}">
     <div class="query-fields">
@@ -23,6 +23,7 @@
     <section class="panel export-card"><h3>依照年份匯出</h3><p>匯出所選年份內，全部接洽人的訂單與相關資料。</p>@if($year)<a class="btn btn-primary" href="{{ route('customer-admin.export.download', ['mode'=>'year','year'=>$year]) }}">⇩ 匯出 {{ $year }} 年</a>@else<button class="btn btn-secondary" type="button" disabled>請先選擇年份</button>@endif</section>
     <section class="panel export-card"><h3>依照接洽人匯出</h3><p>匯出所選接洽人在指定年份內的訂單與相關資料。</p>@if($year && $contactId)<a class="btn btn-primary" href="{{ route('customer-admin.export.download', ['mode'=>'year_contact','year'=>$year,'contact_id'=>$contactId]) }}">⇩ 匯出年份＋接洽人</a>@else<button class="btn btn-secondary" type="button" disabled>請選擇年份與接洽人</button>@endif</section>
     <section class="panel export-card"><h3>依照接洽人全部匯出</h3><p>匯出所選接洽人的全部年份訂單與相關資料。</p>@if($contactId)<a class="btn btn-primary" href="{{ route('customer-admin.export.download', ['mode'=>'contact_all','contact_id'=>$contactId]) }}">⇩ 匯出接洽人全部年份</a>@else<button class="btn btn-secondary" type="button" disabled>請先選擇接洽人</button>@endif</section>
+    <section class="panel export-card"><h3>接洽人分頁匯出</h3><p>有選接洽人時只匯出該人；未選接洽人時全部匯出，一位接洽人一個 Sheet。</p><a class="btn btn-primary" href="{{ route('customer-admin.export.download', array_filter(['mode'=>'contact_sheets','contact_id'=>$contactId])) }}">⇩ {{ $contactId ? '匯出所選接洽人' : '全部接洽人分頁匯出' }}</a></section>
 </div>
 
 @if($orders)

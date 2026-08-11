@@ -6,7 +6,7 @@
     <form class="table-tools" method="get" data-search-form>
         @if(request()->filled('sort'))<input type="hidden" name="sort" value="{{ request('sort') }}">@endif
         @if(request()->filled('direction'))<input type="hidden" name="direction" value="{{ request('direction') }}">@endif
-        <div class="search"><span>⌕</span><input name="search" value="{{ request('search') }}" placeholder="{{ $module === 'orders' ? '搜尋姓名、市話、手機電話、地址或訂單資料…' : '搜尋'.$config['singular'].'資料…' }}" data-search-input></div>
+        <div class="search"><span>⌕</span><input name="search" value="{{ request('search') }}" placeholder="{{ $module === 'orders' ? '搜尋客戶、接洽人、市話、手機電話、地址或訂單資料…' : '搜尋'.$config['singular'].'資料…' }}" data-search-input></div>
         <div class="table-tool-actions">
             <label class="per-page-control">每頁顯示
                 <select name="per_page" data-per-page aria-label="每頁顯示筆數">

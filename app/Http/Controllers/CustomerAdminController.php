@@ -481,9 +481,9 @@ class CustomerAdminController extends Controller
                 ],
             ],
             'orders' => [
-                'title' => '訂單管理', 'singular' => '訂單', 'model' => CrmOrder::class, 'with' => ['customer', 'items'],
+                'title' => '訂單管理', 'singular' => '訂單', 'model' => CrmOrder::class, 'with' => ['customer', 'contact', 'items'],
                 'search' => ['order_number', 'payment_status', 'notes'],
-                'relationship_search' => ['customer' => ['name', 'phone', 'mobile', 'address']],
+                'relationship_search' => ['customer' => ['name', 'phone', 'mobile', 'address'], 'contact' => ['name']],
                 'sortable' => [
                     'order_number' => 'order_number',
                     'order_date' => 'order_date',
@@ -491,7 +491,7 @@ class CustomerAdminController extends Controller
                     'payment_status' => 'payment_status',
                     'total' => 'total',
                 ],
-                'columns' => ['order_number' => '訂單編號', 'order_date' => '訂單日期', 'customer.name' => '客戶', 'payment_status' => '付款', 'total' => '總額'],
+                'columns' => ['order_number' => '訂單編號', 'order_date' => '訂單日期', 'customer.name' => '客戶', 'contact.name' => '接洽人', 'payment_status' => '付款', 'total' => '總額'],
                 'fields' => [
                     'order_number' => ['label' => '訂單編號', 'placeholder' => '留空自動產生'],
                     'order_date' => ['label' => '訂單日期', 'type' => 'date'],

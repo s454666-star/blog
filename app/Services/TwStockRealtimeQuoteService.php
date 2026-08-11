@@ -20,6 +20,10 @@ class TwStockRealtimeQuoteService
     private const YAHOO_TW_QUOTE_URL = 'https://tw.stock.yahoo.com/quote/%s';
     private const TWSE_MARKET_QUOTE_CIRCUIT_KEY = 'tw-stock:official-market-quotes:twse-circuit-open:v1';
 
+    public function __construct(private readonly TwFuturesHourlyPriceFetcher $tradingViewCharts)
+    {
+    }
+
     /**
      * Fetches direct official exchange quotes in parallel for a large stock
      * universe. Unlike the portfolio quote method, this intentionally does not
@@ -1407,6 +1411,32 @@ class TwStockRealtimeQuoteService
                 }
             }
 
+            $needsTradingView = collect($uncached)
+                ->filter(fn (string $code): bool => count($series[$code] ?? []) < 2)
+                ->values()
+                ->all();
+            foreach ($needsTradingView as $code) {
+                try {
+                    $rows = $this->tradingViewCharts->fetchRows(
+                        $date,
+                        $date,
+                        $code,
+                        'TPEX:' . $code,
+                        100,
+                        '5',
+                    );
+                    $points = $this->tradingViewIntradayPoints($rows, $date, $timezone);
+                    if (count($points) < 2) {
+                        continue;
+                    }
+
+                    $series[$code] = $points;
+                    $providerByCode[$code] = 'tradingview';
+                } catch (Throwable $exception) {
+                    $errors['tradingview:' . $code] = $exception->getMessage();
+                }
+            }
+
             foreach ($uncached as $code) {
                 Cache::put($this->intradayCacheKey($date, $code), [
                     'points' => $series[$code] ?? [],
@@ -1427,11 +1457,16 @@ class TwStockRealtimeQuoteService
             ->unique()
             ->values()
             ->all();
-        $sourceLabel = match (true) {
-            $providers === ['yahoo_tw_page'] => 'Yahoo 台股分時',
-            in_array('yahoo_tw_page', $providers, true) => 'CNYES + Yahoo 台股分時',
-            default => 'CNYES 分時',
-        };
+        $sourceBase = collect($providers)
+            ->map(fn (string $provider): string => match ($provider) {
+                'yahoo_tw_page' => 'Yahoo 台股',
+                'tradingview' => 'TradingView 台股',
+                default => 'CNYES',
+            })
+            ->implode(' + ');
+        $sourceLabel = $providers === []
+            ? '台股分時'
+            : $sourceBase . ($providers === ['cnyes'] ? ' 分時' : '分時');
 
         return [
             'servedAt' => $now->toIso8601String(),
@@ -1451,6 +1486,28 @@ class TwStockRealtimeQuoteService
     private function intradayCacheKey(string $date, string $code): string
     {
         return "tw-stock:intraday:v3:{$date}:{$code}";
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     * @return list<array<string, mixed>>
+     */
+    private function tradingViewIntradayPoints(array $rows, string $date, string $timezone): array
+    {
+        $points = collect($rows)
+            ->map(function (array $row): array {
+                return [
+                    'time' => $row['started_at_unix'] ?? null,
+                    'price' => $row['close_price'] ?? null,
+                    'open' => $row['open_price'] ?? null,
+                    'low' => $row['low_price'] ?? null,
+                    'high' => $row['high_price'] ?? null,
+                    'volume' => $row['volume_contracts'] ?? null,
+                ];
+            })
+            ->all();
+
+        return $this->filterIntradayPointsByDate($points, $date, $timezone);
     }
 
     /**

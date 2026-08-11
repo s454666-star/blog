@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Services\TwFuturesHourlyPriceFetcher;
 use App\Services\TwStockRealtimeQuoteService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -839,6 +840,55 @@ class TwStockRealtimeQuoteServiceTest extends TestCase
             $this->assertSame(1150.0, $payload['series']['7861'][2]['price']);
             $this->assertSame([], $payload['missing']);
             Http::assertSentCount(2);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+    public function test_it_falls_back_to_tradingview_for_emerging_intraday_history(): void
+    {
+        $now = CarbonImmutable::parse('2026-08-11 13:08:00', 'Asia/Taipei');
+        CarbonImmutable::setTestNow($now);
+
+        try {
+            Http::fake([
+                'https://ws.api.cnyes.com/ws/api/v1/charting/history*' => Http::response([
+                    'data' => ['s' => 'ok', 't' => [], 'c' => []],
+                ]),
+                'https://tw.stock.yahoo.com/quote/*' => Http::response('<html></html>'),
+            ]);
+            $charts = $this->mock(TwFuturesHourlyPriceFetcher::class);
+            $charts->shouldReceive('fetchRows')
+                ->once()
+                ->with('2026-08-11', '2026-08-11', '7861', 'TPEX:7861', 100, '5')
+                ->andReturn([
+                    [
+                        'started_at_unix' => $now->setTime(9, 0)->getTimestamp(),
+                        'open_price' => '1120.0000',
+                        'high_price' => '1140.0000',
+                        'low_price' => '1115.0000',
+                        'close_price' => '1135.0000',
+                        'volume_contracts' => 120,
+                    ],
+                    [
+                        'started_at_unix' => $now->setTime(9, 5)->getTimestamp(),
+                        'open_price' => '1135.0000',
+                        'high_price' => '1150.0000',
+                        'low_price' => '1130.0000',
+                        'close_price' => '1145.0000',
+                        'volume_contracts' => 80,
+                    ],
+                ]);
+
+            $payload = app(TwStockRealtimeQuoteService::class)->intradayPrices(['7861']);
+
+            $this->assertSame('live', $payload['source']['status']);
+            $this->assertSame('TradingView 台股分時', $payload['source']['label']);
+            $this->assertSame(['tradingview'], $payload['source']['providers']);
+            $this->assertCount(2, $payload['series']['7861']);
+            $this->assertSame(1145.0, $payload['series']['7861'][1]['price']);
+            $this->assertSame(1135.0, $payload['series']['7861'][1]['open']);
+            $this->assertSame([], $payload['missing']);
         } finally {
             CarbonImmutable::setTestNow();
         }

@@ -587,18 +587,19 @@ class CustomerAdminTest extends TestCase
             ]);
         }
 
-        $this->get('/admin/export')->assertOk()
+        $this->get('/admin/orders')->assertOk()
             ->assertSee('目前客戶總數')
             ->assertSee('目前訂單總數')
-            ->assertSee('<details class="panel contact-counts">', false)
-            ->assertDontSee('<details class="panel contact-counts" open>', false)
+            ->assertSee('<details class="panel order-contact-counts">', false)
+            ->assertDontSee('<details class="panel order-contact-counts" open>', false)
             ->assertSee('每位接洽人訂單數（點擊展開）')
             ->assertSee('接洽人甲')
             ->assertSee('2 張')
             ->assertSee('接洽人乙')
             ->assertSee('1 張')
             ->assertSee('接洽人無訂單')
-            ->assertSee('0 張')
+            ->assertSee('0 張');
+        $this->get('/admin/export')->assertOk()
             ->assertSee('依照年份匯出')
             ->assertSee('依照接洽人匯出')
             ->assertSee('依照接洽人全部匯出')

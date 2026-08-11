@@ -1,7 +1,31 @@
 @extends('customer-admin.layout')
 @section('title', $config['title'])
 @section('top-action')<a class="btn btn-primary" href="{{ route('customer-admin.module.create',$module) }}">＋ 新增{{ $config['singular'] }}</a>@endsection
+@if($module==='orders')
+@push('head')
+<style>
+    .order-overview{display:grid;grid-template-columns:repeat(2,minmax(0,220px)) minmax(0,1fr);gap:16px;margin-bottom:20px}.order-overview-total{padding:18px 20px}.order-overview-total small{display:block;color:var(--muted);margin-bottom:7px}.order-overview-total strong{font-size:28px}.order-contact-counts{padding:0;overflow:hidden}.order-contact-counts summary{padding:20px;cursor:pointer;font-size:16px;font-weight:800;list-style:none}.order-contact-counts summary::-webkit-details-marker{display:none}.order-contact-counts summary:after{content:'＋';float:right;color:var(--cyan)}.order-contact-counts[open] summary{border-bottom:1px solid var(--line)}.order-contact-counts[open] summary:after{content:'−'}.order-contact-count-grid{display:flex;flex-wrap:wrap;gap:8px;padding:16px 20px 20px}.order-contact-count{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:10px;background:rgba(54,217,239,.07);border:1px solid rgba(54,217,239,.14);font-size:13px}.order-contact-count b{color:var(--cyan)}@media(max-width:1000px){.order-overview{grid-template-columns:1fr 1fr}.order-contact-counts{grid-column:1/-1}}@media(max-width:700px){.order-overview{grid-template-columns:1fr}.order-contact-counts{grid-column:auto}}
+</style>
+@endpush
+@endif
 @section('content')
+@if($module==='orders')
+<div class="order-overview">
+    <section class="panel order-overview-total"><small>目前客戶總數</small><strong>{{ number_format($orderOverview['customer_count']) }} 個</strong></section>
+    <section class="panel order-overview-total"><small>目前訂單總數</small><strong>{{ number_format($orderOverview['order_count']) }} 張</strong></section>
+    <details class="panel order-contact-counts">
+        <summary>每位接洽人訂單數（點擊展開）</summary>
+        <div class="order-contact-count-grid">
+            @foreach($orderOverview['contact_order_counts'] as $contact)
+                <span class="order-contact-count"><span>{{ $contact->name }}</span><b>{{ number_format($contact->orders_count) }} 張</b></span>
+            @endforeach
+            @if($orderOverview['unassigned_order_count'] > 0)
+                <span class="order-contact-count"><span>未指定接洽人</span><b>{{ number_format($orderOverview['unassigned_order_count']) }} 張</b></span>
+            @endif
+        </div>
+    </details>
+</div>
+@endif
 <section class="panel">
     <form class="table-tools" method="get" data-search-form>
         @if(request()->filled('sort'))<input type="hidden" name="sort" value="{{ request('sort') }}">@endif

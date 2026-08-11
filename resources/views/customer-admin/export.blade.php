@@ -3,28 +3,12 @@
 
 @push('head')
 <style>
-    .export-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:24px}.export-card{padding:20px;display:flex;flex-direction:column;gap:14px}.export-card h3{margin:0;font-size:17px}.export-card p{margin:0;color:var(--muted);font-size:13px;line-height:1.6}.export-card .btn{margin-top:auto}.query-panel{padding:20px;margin-bottom:24px}.query-fields{display:grid;grid-template-columns:1fr 1fr auto auto;gap:12px;align-items:end}.query-fields label{display:block;margin-bottom:8px;color:#cbd2e8;font-size:13px;font-weight:750}.query-summary{color:var(--muted);font-size:13px}.export-help{padding:14px 16px;border-radius:12px;background:rgba(54,217,239,.07);border:1px solid rgba(54,217,239,.16);color:#bceef5;font-size:13px}.export-table-head{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}.export-table-head h3{margin:0}.export-table-head span{color:var(--muted);font-size:13px}.query-overview{display:grid;grid-template-columns:repeat(2,minmax(0,220px)) minmax(0,1fr);gap:16px;margin:18px 0 24px}.query-total{padding:20px}.query-total small{display:block;color:var(--muted);margin-bottom:8px}.query-total strong{font-size:30px}.contact-counts{padding:0;overflow:hidden}.contact-counts summary{padding:20px;cursor:pointer;font-size:16px;font-weight:800;list-style:none}.contact-counts summary::-webkit-details-marker{display:none}.contact-counts summary:after{content:'＋';float:right;color:var(--cyan)}.contact-counts[open] summary{border-bottom:1px solid var(--line)}.contact-counts[open] summary:after{content:'−'}.contact-count-grid{display:flex;flex-wrap:wrap;gap:8px;padding:16px 20px 20px}.contact-count{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:10px;background:rgba(54,217,239,.07);border:1px solid rgba(54,217,239,.14);font-size:13px}.contact-count b{color:var(--cyan)}@media(max-width:1000px){.export-grid{grid-template-columns:1fr}.query-fields{grid-template-columns:1fr 1fr}.query-overview{grid-template-columns:1fr 1fr}.contact-counts{grid-column:1/-1}}@media(max-width:700px){.query-fields{grid-template-columns:1fr}.query-fields .btn{width:100%}.query-overview{grid-template-columns:1fr}.contact-counts{grid-column:auto}}
+    .export-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:24px}.export-card{padding:20px;display:flex;flex-direction:column;gap:14px}.export-card h3{margin:0;font-size:17px}.export-card p{margin:0;color:var(--muted);font-size:13px;line-height:1.6}.export-card .btn{margin-top:auto}.query-panel{padding:20px;margin-bottom:24px}.query-fields{display:grid;grid-template-columns:1fr 1fr auto auto;gap:12px;align-items:end}.query-fields label{display:block;margin-bottom:8px;color:#cbd2e8;font-size:13px;font-weight:750}.query-summary{color:var(--muted);font-size:13px}.export-help{padding:14px 16px;border-radius:12px;background:rgba(54,217,239,.07);border:1px solid rgba(54,217,239,.16);color:#bceef5;font-size:13px}.export-table-head{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}.export-table-head h3{margin:0}.export-table-head span{color:var(--muted);font-size:13px}@media(max-width:1000px){.export-grid{grid-template-columns:1fr}.query-fields{grid-template-columns:1fr 1fr}}@media(max-width:700px){.query-fields{grid-template-columns:1fr}.query-fields .btn{width:100%}}
 </style>
 @endpush
 
 @section('content')
 <div class="export-help">先在下方選擇年份與接洽人，可查詢預覽；匯出按鈕會依各自標示的範圍產生 XLSX。</div>
-
-<div class="query-overview">
-    <section class="panel query-total"><small>目前客戶總數</small><strong>{{ number_format($customerCount) }} 個</strong></section>
-    <section class="panel query-total"><small>目前訂單總數</small><strong>{{ number_format($orderCount) }} 張</strong></section>
-    <details class="panel contact-counts">
-        <summary>每位接洽人訂單數（點擊展開）</summary>
-        <div class="contact-count-grid">
-            @foreach($contactOrderCounts as $contact)
-                <span class="contact-count"><span>{{ $contact->name }}</span><b>{{ number_format($contact->orders_count) }} 張</b></span>
-            @endforeach
-            @if($unassignedOrderCount > 0)
-                <span class="contact-count"><span>未指定接洽人</span><b>{{ number_format($unassignedOrderCount) }} 張</b></span>
-            @endif
-        </div>
-    </details>
-</div>
 
 <form class="panel query-panel" method="get" action="{{ route('customer-admin.export.index') }}">
     <div class="query-fields">

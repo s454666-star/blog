@@ -32,14 +32,6 @@ class CustomerAdminExportController extends Controller
             ->unique()
             ->values();
         $contacts = CrmContact::query()->orderBy('name')->orderBy('id')->get();
-        $customerCount = CrmCustomer::count();
-        $orderCount = CrmOrder::count();
-        $contactOrderCounts = CrmContact::query()
-            ->withCount('orders')
-            ->orderBy('name')
-            ->orderBy('id')
-            ->get();
-        $unassignedOrderCount = CrmOrder::query()->whereNull('contact_id')->count();
         $year = $request->filled('year') ? (int) $request->query('year') : null;
         $contactId = $request->filled('contact_id') ? (int) $request->query('contact_id') : null;
         $orders = null;
@@ -52,17 +44,7 @@ class CustomerAdminExportController extends Controller
                 ->withQueryString();
         }
 
-        return view('customer-admin.export', compact(
-            'years',
-            'contacts',
-            'year',
-            'contactId',
-            'orders',
-            'customerCount',
-            'orderCount',
-            'contactOrderCounts',
-            'unassignedOrderCount',
-        ));
+        return view('customer-admin.export', compact('years', 'contacts', 'year', 'contactId', 'orders'));
     }
 
     public function __invoke(Request $request): BinaryFileResponse

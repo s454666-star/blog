@@ -87,12 +87,24 @@ class CustomerAdminController extends Controller
             $query->latest();
         }
 
+        $orderOverview = $module === 'orders' ? [
+            'customer_count' => CrmCustomer::count(),
+            'order_count' => CrmOrder::count(),
+            'contact_order_counts' => CrmContact::query()
+                ->withCount('orders')
+                ->orderBy('name')
+                ->orderBy('id')
+                ->get(),
+            'unassigned_order_count' => CrmOrder::query()->whereNull('contact_id')->count(),
+        ] : null;
+
         return view('customer-admin.index', [
             'module' => $module,
             'config' => $config,
             'records' => $query->paginate($perPage)->withQueryString(),
             'perPage' => $perPage,
             'perPageOptions' => $perPageOptions,
+            'orderOverview' => $orderOverview,
         ]);
     }
 

@@ -16,7 +16,8 @@ class CalculatePortfolioDividendsCommand extends Command
     protected $signature = 'portfolio:calculate-dividends
         {--broker=all : all、esun 或 yuanta}
         {--from= : 起始除息日 YYYY-MM-DD}
-        {--to= : 結束除息日 YYYY-MM-DD}';
+        {--to= : 結束除息日 YYYY-MM-DD}
+        {--bootstrap-only : 兩券商今年已有計算資料時直接退出，不再查 API}';
 
     protected $description = '依券商持股證據與公開除息資料，新增尚未計算的股息收益。';
 
@@ -28,6 +29,16 @@ class CalculatePortfolioDividendsCommand extends Command
     ): int {
         try {
             [$scheduledFrom, $to] = $this->dateRange();
+            if ((bool) $this->option('bootstrap-only') && collect(['esun', 'yuanta'])->every(
+                fn (string $broker): bool => PortfolioDividendIncome::query()
+                    ->where('broker', $broker)
+                    ->whereYear('ex_dividend_date', $to->year)
+                    ->exists(),
+            )) {
+                $this->info("{$to->year} 兩券商已有股息資料，bootstrap 無需再執行。");
+
+                return self::SUCCESS;
+            }
             $hasExplicitRange = trim((string) $this->option('from')) !== ''
                 || trim((string) $this->option('to')) !== '';
             foreach ($this->brokers() as $broker) {

@@ -55,14 +55,6 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/portfolio_dividends.log'));
 
-        // Self-disables after the first successful 2026 backfill; remove after live verification.
-        $schedule->command('portfolio:calculate-dividends --bootstrap-only --from=2026-01-01 --to=2026-08-13')
-            ->everyMinute()
-            ->name('portfolio-dividends-bootstrap-2026')
-            ->withoutOverlapping(180)
-            ->runInBackground()
-            ->appendOutputTo(storage_path('logs/portfolio_dividends.log'));
-
         $schedule->command('tw-stock:fetch-daily-prices --latest')
             ->dailyAt('15:00')
             ->name('tw-stock-fetch-daily-prices')

@@ -46,14 +46,31 @@ class TwStockHistoricalDividendFetcher
                 ])->throw()->json(),
         );
 
+        $rows = is_array($payload['data'] ?? null) ? $payload['data'] : [];
+        $policies = collect($rows)->contains(
+            fn (mixed $row): bool => is_array($row)
+                && trim((string) ($row[6] ?? '')) !== '息'
+                && str_contains((string) ($row[6] ?? ''), '息'),
+        ) ? $this->twseCashDividendPolicies() : [];
+        $usedPolicies = [];
+
         $events = [];
-        foreach (is_array($payload['data'] ?? null) ? $payload['data'] : [] as $row) {
-            if (!is_array($row) || trim((string) ($row[6] ?? '')) !== '息') {
+        foreach ($rows as $row) {
+            if (!is_array($row) || !str_contains((string) ($row[6] ?? ''), '息')) {
                 continue;
             }
-            $cashDividend = $this->decimal($row[5] ?? null);
             $date = $this->rocDate($row[0] ?? null);
             $code = trim((string) ($row[1] ?? ''));
+            $policy = null;
+            if (trim((string) ($row[6] ?? '')) === '息') {
+                $cashDividend = $this->decimal($row[5] ?? null);
+            } else {
+                [$cashDividend, $policy] = $this->matchingCashDividendPolicy(
+                    $policies[$code] ?? [],
+                    $date,
+                    $usedPolicies,
+                );
+            }
             if ($date === null || $code === '' || $cashDividend <= 0.0) {
                 continue;
             }
@@ -62,12 +79,79 @@ class TwStockHistoricalDividendFetcher
                 'stock_name' => trim((string) ($row[2] ?? '')),
                 'ex_dividend_date' => $date,
                 'cash_dividend_per_share' => $cashDividend,
-                'source' => 'TWSE TWT49U',
-                'source_payload' => $row,
+                'source' => $policy === null ? 'TWSE TWT49U' : 'TWSE TWT49U + MOPS t187ap45_L',
+                'source_payload' => $policy === null ? $row : [
+                    'ex_dividend' => $row,
+                    'dividend_policy' => $policy,
+                ],
             ];
         }
 
         return $events;
+    }
+
+    /** @return array<string, list<array<string, mixed>>> */
+    private function twseCashDividendPolicies(): array
+    {
+        $payload = Cache::remember(
+            'tw-stock:portfolio-dividends:twse-dividend-policies',
+            now()->addHours(8),
+            fn (): array => Http::acceptJson()->timeout(30)->retry(2, 300)
+                ->get('https://openapi.twse.com.tw/v1/opendata/t187ap45_L')
+                ->throw()->json(),
+        );
+
+        $policies = [];
+        foreach ($payload as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $code = trim((string) ($row['公司代號'] ?? ''));
+            $boardDate = $this->compactRocDate($row['董事會（擬議）股利分派日'] ?? null);
+            $cashDividend = $this->decimal($row['股東配發-盈餘分配之現金股利(元/股)'] ?? null)
+                + $this->decimal($row['股東配發-法定盈餘公積發放之現金(元/股)'] ?? null)
+                + $this->decimal($row['股東配發-資本公積發放之現金(元/股)'] ?? null);
+            if ($code === '' || $boardDate === null || $cashDividend <= 0.0) {
+                continue;
+            }
+            $row['_board_date'] = $boardDate;
+            $row['_cash_dividend_per_share'] = $cashDividend;
+            $policies[$code][] = $row;
+        }
+
+        foreach ($policies as &$rows) {
+            usort($rows, fn (array $left, array $right): int => $left['_board_date'] <=> $right['_board_date']);
+        }
+
+        return $policies;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $policies
+     * @param array<string, true> $usedPolicies
+     * @return array{float, array<string, mixed>|null}
+     */
+    private function matchingCashDividendPolicy(array $policies, ?string $exDividendDate, array &$usedPolicies): array
+    {
+        if ($exDividendDate === null) {
+            return [0.0, null];
+        }
+
+        $match = null;
+        foreach ($policies as $policy) {
+            $key = ($policy['公司代號'] ?? '') . ':' . ($policy['_board_date'] ?? '') . ':' . ($policy['期別'] ?? '');
+            if (($policy['_board_date'] ?? '') <= $exDividendDate && !isset($usedPolicies[$key])) {
+                $match = [$key, $policy];
+            }
+        }
+        if ($match === null) {
+            return [0.0, null];
+        }
+
+        [$key, $policy] = $match;
+        $usedPolicies[$key] = true;
+
+        return [(float) $policy['_cash_dividend_per_share'], $policy];
     }
 
     /** @return list<array<string, mixed>> */
@@ -112,6 +196,15 @@ class TwStockHistoricalDividendFetcher
     private function rocDate(mixed $value): ?string
     {
         if (preg_match('/(\d{3})\D*(\d{2})\D*(\d{2})/', (string) $value, $matches) !== 1) {
+            return null;
+        }
+
+        return sprintf('%04d-%s-%s', (int) $matches[1] + 1911, $matches[2], $matches[3]);
+    }
+
+    private function compactRocDate(mixed $value): ?string
+    {
+        if (preg_match('/^(\d{3})(\d{2})(\d{2})$/', trim((string) $value), $matches) !== 1) {
             return null;
         }
 

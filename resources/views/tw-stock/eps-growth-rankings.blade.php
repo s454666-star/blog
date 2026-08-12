@@ -432,12 +432,15 @@
         .stock-meta { margin-top: 3px; color: #7184aa; font-size: 0.67rem; font-weight: 700; }
         .stock-meta a { color: #8eeaff; text-decoration: none; }
 
-        .price { color: #fff; font-weight: 900; }
+        .price { color: #fff; font-weight: 900; text-align: center; }
         .price-value { font-size: 0.94rem; }
         .moving-average-signals {
-            display: grid;
-            gap: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
             margin-top: 7px;
+            flex-wrap: nowrap;
             white-space: nowrap;
         }
         .moving-average-signal {

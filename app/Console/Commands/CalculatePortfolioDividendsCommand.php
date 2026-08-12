@@ -100,11 +100,11 @@ class CalculatePortfolioDividendsCommand extends Command
             $row = PortfolioDividendIncome::query()->firstOrCreate(
                 ['broker' => $broker, 'stock_code' => $stockCode, 'ex_dividend_date' => $exDate],
                 [
-                    'stock_name' => $names->get($stockCode),
+                    'stock_name' => $names->get($stockCode) ?? ($event['stock_name'] ?? null),
                     'cash_dividend_per_share' => $event['cash_dividend_per_share'],
                     'eligible_quantity' => $eligibility['quantity'],
                     'dividend_income' => $income,
-                    'source' => 'FinMind TaiwanStockDividendResult',
+                    'source' => $event['source'] ?? 'public ex-dividend data',
                     'calculation_method' => $eligibility['method'],
                     'source_payload' => $event['source_payload'],
                     'calculated_at' => now(),

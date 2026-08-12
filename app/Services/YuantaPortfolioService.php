@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\PortfolioDividendIncome;
 use App\Models\TwStockCompanyProfile;
 use App\Models\TwStockDailyPrice;
 use App\Models\YuantaPortfolioDailySnapshot;
@@ -74,6 +75,27 @@ class YuantaPortfolioService
 
             throw $exception;
         }
+    }
+
+    /** @return array{inventories: array, unrealizedDetails: array, transactions: array} */
+    public function dividendEvidence(CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        if (!config('yuanta.portfolio_enabled')) {
+            throw new RuntimeException('Yuanta portfolio query is disabled.');
+        }
+
+        $payload = $this->runYuantaScript((string) config('yuanta.query_script'), [
+            ...$this->yuantaProcessEnvironment(),
+            'YUANTA_REALIZED_START' => $from->format('Y/m/d'),
+            'YUANTA_REALIZED_END' => CarbonImmutable::now((string) config('yuanta.timezone', 'Asia/Taipei'))->format('Y/m/d'),
+            'YUANTA_INCLUDE_DIVIDEND_EVIDENCE' => '1',
+        ], 300);
+
+        return [
+            'inventories' => is_array($payload['inventories'] ?? null) ? $payload['inventories'] : [],
+            'unrealizedDetails' => is_array($payload['unrealized_details'] ?? null) ? $payload['unrealized_details'] : [],
+            'transactions' => is_array($payload['transactions'] ?? null) ? $payload['transactions'] : [],
+        ];
     }
 
     public function marketStatus(?CarbonImmutable $now = null): array
@@ -326,6 +348,7 @@ class YuantaPortfolioService
                 'dayTradeYearPnl' => 0,
                 'adjustedRealizedYearPnl' => $yearProfitSummary['realizedYearPnl'],
                 'yearTotalPnl' => $yearProfitSummary['yearTotalPnl'],
+                'dividendIncome' => PortfolioDividendIncome::yearTotal('yuanta', (int) $now->year),
                 'yearReturnBase' => $yearReturnBase,
                 'yearTotalPnlRate' => $yearTotalPnlRate,
                 'yearElapsedDays' => max(1, (int) $now->dayOfYear),

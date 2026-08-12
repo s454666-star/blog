@@ -160,19 +160,49 @@ def main() -> int:
             "GetHisRealizedGainLoss",
         )
 
+        include_dividend_evidence = os.environ.get("YUANTA_INCLUDE_DIVIDEND_EVIDENCE", "") == "1"
+        unrealized_details = []
+        if include_dividend_evidence:
+            for inventory in getattr(store_summary, "StkStoreList", []):
+                detail = response_value(
+                    api.GetUnrealizedGainLossDetailSync(account, inventory.MarketNo, inventory.StkCode, lang),
+                    "GetUnrealizedGainLossDetail",
+                )
+                detail_payload = public_fields(detail)
+                unrealized_details.extend(detail_payload.get("UnGainLossDetailList") or [])
+
         store = public_fields(store_summary)
         balance = public_fields(bank_balance)
         outlay = public_fields(settlements)
         realized_payload = public_fields(realized)
+        transactions = realized_payload.get("RealizedGainLossList") or []
+        if include_dividend_evidence:
+            transactions = []
+            for realized_item in getattr(realized, "RealizedGainLossList", []):
+                transaction = public_fields(realized_item)
+                reversal = response_value(
+                    api.GetStkHistoryReportReversalSync(account, realized_item, lang),
+                    "GetStkHistoryReportReversal",
+                )
+                reversal_payload = public_fields(reversal)
+                transaction["ReversalReports"] = (
+                    reversal_payload.get("ReversalReportList")
+                    or reversal_payload.get("StkHistoryReportReversalList")
+                    or reversal_payload.get("HistoryReportReversalList")
+                    or reversal_payload.get("ReversalList")
+                    or []
+                )
+                transactions.append(transaction)
 
         print(json.dumps({
             "queried_at": datetime.now(timezone.utc).isoformat(),
             "login": login_events[-1] if login_events else None,
             "inventories": store.get("StkStoreList") or [],
+            "unrealized_details": unrealized_details,
             "overseas_inventories": store.get("OVStkStoreList") or [],
             "balance": balance.get("BankBalanceList") or [],
             "settlements": outlay.get("TransactionOutlayList") or [],
-            "transactions": realized_payload.get("RealizedGainLossList") or [],
+            "transactions": transactions,
         }, ensure_ascii=True))
         return 0
     except Exception as exc:

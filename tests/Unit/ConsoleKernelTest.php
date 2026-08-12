@@ -9,6 +9,24 @@ use Tests\TestCase;
 
 class ConsoleKernelTest extends TestCase
 {
+    public function test_portfolio_dividends_run_at_0300_on_weekdays(): void
+    {
+        $schedule = new Schedule(config('app.timezone'));
+        $method = new ReflectionMethod(Kernel::class, 'schedule');
+        $method->invoke($this->app->make(Kernel::class), $schedule);
+
+        $events = collect($schedule->events())
+            ->filter(fn ($event): bool => str_contains((string) $event->command, 'portfolio:calculate-dividends'))
+            ->map(fn ($event): array => ['expression' => $event->expression, 'name' => $event->description])
+            ->values()
+            ->all();
+
+        $this->assertSame([[
+            'expression' => '0 3 * * 1-5',
+            'name' => 'portfolio-calculate-dividends',
+        ]], $events);
+    }
+
     public function test_annual_comparison_schedule_defaults_to_windows_only(): void
     {
         $this->app['config']->set('tw_stock.annual_financial_comparisons_schedule_enabled', null);

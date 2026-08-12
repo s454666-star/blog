@@ -1106,6 +1106,7 @@
             <div class="value" data-summary="yearTotalPnl">--</div>
             <div class="return-rate-line" data-summary="yearTotalPnlRate">今年報酬率 --</div>
             <div class="sub" data-summary="yearTotalPnlBreakdown">{{ $brokerName ?? '玉山' }}已實現 -- · 當日已實現 --</div>
+            <div class="sub" data-summary="dividendIncome">(股息收益：--)</div>
         </div>
         <div class="summary-card capital-card">
             <div class="label">投入總成本</div>
@@ -1404,6 +1405,9 @@ function updateSummaryCards(summary, sourceText) {
     document.querySelector('[data-summary="yearTotalPnlBreakdown"]').textContent =
         `${brokerName}已實現 ${realizedHistoryPnl === null ? '--' : formatMoney(realizedHistoryPnl)} · ` +
         `當日已實現 ${realizedTodayPnl === null ? '--' : formatMoney(realizedTodayPnl)}`;
+    const dividendIncome = finiteNumber(summary.dividendIncome ?? state.lastPayload?.summary?.dividendIncome);
+    document.querySelector('[data-summary="dividendIncome"]').textContent =
+        `(股息收益：${dividendIncome === null ? '--' : formatMoney(dividendIncome)})`;
     document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
     renderInvestmentLevel(investmentLevelRate, bankBalance);
     const marginPrimaryAmount = marginLimitAmount ?? marginUsedAmount;

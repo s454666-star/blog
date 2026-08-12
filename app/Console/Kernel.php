@@ -47,6 +47,14 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_upcoming_dividends.log'));
 
+        $schedule->command('portfolio:calculate-dividends')
+            ->dailyAt('03:00')
+            ->weekdays()
+            ->name('portfolio-calculate-dividends')
+            ->withoutOverlapping(180)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/portfolio_dividends.log'));
+
         $schedule->command('tw-stock:fetch-daily-prices --latest')
             ->dailyAt('15:00')
             ->name('tw-stock-fetch-daily-prices')

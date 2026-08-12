@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\EsunPortfolioDailySnapshot;
+use App\Models\PortfolioDividendIncome;
 use App\Models\TwStockCompanyProfile;
 use App\Models\TwStockDailyPrice;
 use App\Services\Concerns\AnnotatesPortfolioTodayAddedQuantity;
@@ -98,6 +99,21 @@ class EsunPortfolioService
 
             throw $exception;
         }
+    }
+
+    /** @return array{inventories: array, transactions: array} */
+    public function dividendEvidence(CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        $this->snapshot(true);
+        $raw = $this->lastSuccessfulSnapshot('esun:portfolio:inventories:last-success:v5');
+        if (!is_array($raw)) {
+            throw new RuntimeException('E.SUN dividend evidence is unavailable.');
+        }
+
+        return [
+            'inventories' => is_array($raw['inventories'] ?? null) ? $raw['inventories'] : [],
+            'transactions' => is_array($raw['transactions'] ?? null) ? $raw['transactions'] : [],
+        ];
     }
 
     private function isFreshCachedSnapshot(array $raw, CarbonImmutable $now, int $ttl): bool
@@ -709,6 +725,7 @@ class EsunPortfolioService
                 'dayTradeYearPnl' => $yearProfitSummary['dayTradeYearPnl'],
                 'adjustedRealizedYearPnl' => $yearProfitSummary['adjustedRealizedYearPnl'],
                 'yearTotalPnl' => $yearProfitSummary['yearTotalPnl'],
+                'dividendIncome' => PortfolioDividendIncome::yearTotal('esun', (int) $now->year),
                 'yearReturnBase' => $yearReturnBase,
                 'yearTotalPnlRate' => $yearTotalPnlRate,
                 'yearElapsedDays' => $yearElapsedDays,

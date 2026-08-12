@@ -17,6 +17,7 @@ class ConsoleKernelTest extends TestCase
 
         $events = collect($schedule->events())
             ->filter(fn ($event): bool => str_contains((string) $event->command, 'portfolio:calculate-dividends'))
+            ->filter(fn ($event): bool => $event->description === 'portfolio-calculate-dividends')
             ->map(fn ($event): array => ['expression' => $event->expression, 'name' => $event->description])
             ->values()
             ->all();

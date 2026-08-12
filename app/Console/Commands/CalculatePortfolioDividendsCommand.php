@@ -77,9 +77,9 @@ class CalculatePortfolioDividendsCommand extends Command
         $transactions = $evidence['transactions'] ?? [];
         $openLots = $evidence['unrealizedDetails'] ?? [];
         $allRows = array_merge($inventories, $transactions, $openLots);
-        $codes = collect($allRows)->filter('is_array')->map(fn (array $row): string => $this->code($row))
+        $codes = collect($allRows)->filter(fn (mixed $row): bool => is_array($row))->map(fn (array $row): string => $this->code($row))
             ->filter()->unique()->values()->all();
-        $names = collect($allRows)->filter('is_array')->mapWithKeys(function (array $row): array {
+        $names = collect($allRows)->filter(fn (mixed $row): bool => is_array($row))->mapWithKeys(function (array $row): array {
             $code = $this->code($row);
             $name = (string) $this->value($row, 'stk_na', 'stkNa', 'StkName', 'stkName', 'stockName');
 

@@ -60,6 +60,11 @@ if printf '%s\n' "$changed_files" | grep -Eq '^(composer\.json|composer\.lock)$'
   run_as_app env COMPOSER_HOME=/tmp/composer-www-data composer -d "$APP_DIR" install --no-dev --optimize-autoloader --no-interaction
 fi
 
+if printf '%s\n' "$changed_files" | grep -Eq '^database/migrations/.*\.php$'; then
+  log "Running database migrations"
+  run_as_app php "$APP_DIR/artisan" migrate --force --no-interaction
+fi
+
 log "Clearing Laravel cache"
 run_as_app php "$APP_DIR/artisan" optimize:clear > /dev/null
 

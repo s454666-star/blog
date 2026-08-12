@@ -433,6 +433,25 @@
         .stock-meta a { color: #8eeaff; text-decoration: none; }
 
         .price { color: #fff; font-weight: 900; }
+        .price-value { font-size: 0.94rem; }
+        .moving-average-signals {
+            display: grid;
+            gap: 3px;
+            margin-top: 7px;
+            white-space: nowrap;
+        }
+        .moving-average-signal {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.66rem;
+            font-weight: 850;
+            line-height: 1.2;
+        }
+        .moving-average-signal.above { color: var(--up); }
+        .moving-average-signal.below { color: var(--down); }
+        .moving-average-signal.unavailable { color: var(--flat); }
+        .moving-average-arrow { font-size: 0.82rem; line-height: 1; }
         .positive { color: var(--up); font-weight: 850; }
         .negative { color: var(--down); font-weight: 850; }
 
@@ -647,6 +666,10 @@
                             $revenueGrowth2728 = $row->revenue_2027_thousands > 0
                                 ? (($row->revenue_2028_thousands / $row->revenue_2027_thousands) - 1) * 100
                                 : null;
+                            $movingAverageSignals = [
+                                ['label' => '月線', 'days' => 20, 'average' => $row->monthly_moving_average],
+                                ['label' => '季線', 'days' => 60, 'average' => $row->quarterly_moving_average],
+                            ];
                         @endphp
                         <tr class="{{ $row->rank <= 3 ? 'top-' . $row->rank : '' }}"
                             data-search="{{ mb_strtolower($row->stock_code . ' ' . $row->stock_name) }}"
@@ -666,7 +689,23 @@
                                 </div>
                             </td>
                             <td title="前次名次：{{ $row->previous_rank ?? '無' }}"><span class="rank-change {{ $changeClass }}">{{ $changeText }}</span></td>
-                            <td class="price">{{ $row->close_price === null ? '—' : number_format($row->close_price, $row->close_price < 100 ? 2 : ($row->close_price < 1000 ? 1 : 0)) }}</td>
+                            <td class="price">
+                                <div class="price-value">{{ $row->close_price === null ? '—' : number_format($row->close_price, $row->close_price < 100 ? 2 : ($row->close_price < 1000 ? 1 : 0)) }}</div>
+                                <div class="moving-average-signals">
+                                    @foreach ($movingAverageSignals as $signal)
+                                        @if ($row->close_price !== null && $signal['average'] !== null)
+                                            @php($isAbove = $row->close_price >= $signal['average'])
+                                            <span class="moving-average-signal {{ $isAbove ? 'above' : 'below' }}"
+                                                  title="{{ $signal['days'] }} 日均線 {{ number_format($signal['average'], 2) }}">
+                                                <span class="moving-average-arrow" aria-hidden="true">{{ $isAbove ? '↑' : '↓' }}</span>
+                                                {{ $signal['label'] }}{{ $isAbove ? '上' : '下' }}
+                                            </span>
+                                        @else
+                                            <span class="moving-average-signal unavailable">— {{ $signal['label'] }}</span>
+                                        @endif
+                                    @endforeach
+                                </div>
+                            </td>
                             <td>{{ number_format($row->eps_2025, 2) }}</td>
                             <td>{{ number_format($row->eps_2026, 2) }}</td>
                             <td>{{ number_format($row->eps_2027, 2) }}</td>

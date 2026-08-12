@@ -141,6 +141,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             '--sleep-ms' => 0,
             '--minimum-eligible' => 2,
         ])->assertSuccessful();
+        $this->insertMovingAverageHistory('2026-08-18');
 
         $this->get(route('tw-stock.eps-growth-rankings.index'))
             ->assertOk()
@@ -153,7 +154,13 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('2026/08/18')
             ->assertSee('2026/08/11')
             ->assertSee('2222')
-            ->assertSee('+1');
+            ->assertSee('+1')
+            ->assertSee('月線上')
+            ->assertSee('季線上')
+            ->assertSee('月線下')
+            ->assertSee('季線下')
+            ->assertSee('↑')
+            ->assertSee('↓');
 
         $this->get(route('tw-stock.eps-growth-rankings.index', ['run' => $oldRunId]))
             ->assertOk()
@@ -261,6 +268,31 @@ class TwStockEpsGrowthRankingsTest extends TestCase
                 'updated_at' => $now,
             ],
         ]);
+    }
+
+    private function insertMovingAverageHistory(string $priceDate): void
+    {
+        $now = now();
+        $rows = [];
+
+        foreach (range(1, 60) as $daysAgo) {
+            $date = CarbonImmutable::parse($priceDate)->subDays($daysAgo)->toDateString();
+            foreach ([['1111', '甲公司', 90], ['2222', '乙公司', 230]] as [$code, $name, $close]) {
+                $rows[] = [
+                    'exchange' => 'TWSE',
+                    'stock_code' => $code,
+                    'stock_name' => $name,
+                    'trade_date' => $date,
+                    'close_price' => $close,
+                    'volume_lots' => 1,
+                    'volume_shares' => 1000,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+        }
+
+        DB::table('tw_stock_daily_prices')->insertOrIgnore($rows);
     }
 
     private function createTables(): void

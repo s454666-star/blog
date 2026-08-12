@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\TwStockDailyPrice;
 use App\Models\TwStockEpsGrowthRun;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class TwStockEpsGrowthRankingController extends Controller
 {
@@ -27,6 +30,7 @@ class TwStockEpsGrowthRankingController extends Controller
             ->where('rank', '<=', 50)
             ->orderBy('rank')
             ->get() ?? collect();
+        $this->attachMovingAveragePositions($rows, $run?->price_date?->toDateString());
         $previousRun = $run === null ? null : TwStockEpsGrowthRun::query()
             ->whereDate('snapshot_date', '<', $run->snapshot_date->toDateString())
             ->whereNotNull('completed_at')
@@ -50,5 +54,37 @@ class TwStockEpsGrowthRankingController extends Controller
                 )->count(),
             ],
         ]);
+    }
+
+    private function attachMovingAveragePositions(Collection $rows, ?string $priceDate): void
+    {
+        if ($rows->isEmpty() || $priceDate === null) {
+            return;
+        }
+
+        $stockCodes = $rows->pluck('stock_code')->filter()->unique()->values();
+        $rankedPrices = TwStockDailyPrice::query()
+            ->select(['stock_code', 'trade_date', 'close_price'])
+            ->selectRaw('ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY trade_date DESC) AS price_row_number')
+            ->whereIn('stock_code', $stockCodes)
+            ->whereDate('trade_date', '<=', $priceDate);
+        $priceHistories = DB::query()
+            ->fromSub($rankedPrices, 'ranked_prices')
+            ->where('price_row_number', '<=', 60)
+            ->orderBy('stock_code')
+            ->orderByDesc('trade_date')
+            ->get()
+            ->groupBy('stock_code');
+
+        foreach ($rows as $row) {
+            $prices = $priceHistories->get($row->stock_code, collect())
+                ->pluck('close_price')
+                ->filter(fn (mixed $price): bool => is_numeric($price))
+                ->map(fn (mixed $price): float => (float) $price)
+                ->values();
+
+            $row->setAttribute('monthly_moving_average', $prices->count() >= 20 ? $prices->take(20)->avg() : null);
+            $row->setAttribute('quarterly_moving_average', $prices->count() >= 60 ? $prices->take(60)->avg() : null);
+        }
     }
 }

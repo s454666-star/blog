@@ -8,6 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Persistent calculated results make the scheduled command append-only and idempotent.
         Schema::create('portfolio_dividend_incomes', function (Blueprint $table): void {
             $table->id();
             $table->string('broker', 16);

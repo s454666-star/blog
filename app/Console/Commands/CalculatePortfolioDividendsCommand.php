@@ -27,8 +27,18 @@ class CalculatePortfolioDividendsCommand extends Command
         PortfolioDividendCalculator $calculator,
     ): int {
         try {
-            [$from, $to] = $this->dateRange();
+            [$scheduledFrom, $to] = $this->dateRange();
+            $hasExplicitRange = trim((string) $this->option('from')) !== ''
+                || trim((string) $this->option('to')) !== '';
             foreach ($this->brokers() as $broker) {
+                $from = $scheduledFrom;
+                if (!$hasExplicitRange && !PortfolioDividendIncome::query()
+                    ->where('broker', $broker)
+                    ->whereYear('ex_dividend_date', $to->year)
+                    ->exists()) {
+                    $from = $to->startOfYear();
+                    $this->info("{$broker} 尚無今年資料，首次執行自動回補 {$from->toDateString()}~{$to->toDateString()}。");
+                }
                 $evidence = $broker === 'esun'
                     ? $esun->dividendEvidence($from, $to)
                     : $yuanta->dividendEvidence($from, $to);

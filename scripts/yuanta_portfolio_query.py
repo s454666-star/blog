@@ -164,6 +164,7 @@ def main() -> int:
         unrealized_details = []
         if include_dividend_evidence:
             for inventory in getattr(store_summary, "StkStoreList", []):
+                time.sleep(0.4)
                 detail = response_value(
                     api.GetUnrealizedGainLossDetailSync(account, inventory.MarketNo, inventory.StkCode, lang),
                     "GetUnrealizedGainLossDetail",
@@ -180,6 +181,7 @@ def main() -> int:
             transactions = []
             for realized_item in getattr(realized, "RealizedGainLossList", []):
                 transaction = public_fields(realized_item)
+                time.sleep(0.4)
                 reversal = response_value(
                     api.GetStkHistoryReportReversalSync(account, realized_item, lang),
                     "GetStkHistoryReportReversal",

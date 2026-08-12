@@ -96,7 +96,7 @@ RESOURCE_CODE_JSCODEFILEBOT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 RESOURCE_CODE_ZYXFILES_PATTERN = re.compile(
-    r"zyxfiles_[A-Za-z0-9_-]+",
+    r"zyxfiles[_-][A-Za-z0-9_-]+",
     re.IGNORECASE,
 )
 RESOURCE_CODE_IMAGE_COUNT_PATTERN = re.compile(r"(?:图片|圖片)\s*(\d+)\s*(?:个|個)")
@@ -124,6 +124,19 @@ RESOURCE_CODE_REPEAT_CONFIRMATION_KEYWORDS = (
     "请再次发送文件码",
     "請再次發送文件碼",
 )
+
+
+def _resource_code_callback_action(code: str, button_text: str) -> Optional[str]:
+    if any(keyword in button_text for keyword in RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS):
+        return "next_group"
+    if (
+        RESOURCE_CODE_WENJIANJI_PATTERN.fullmatch(code)
+        and any(keyword in button_text for keyword in RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS)
+    ):
+        return "get_all"
+    return None
+
+
 RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS = (
     "You need to become a VIP member",
     "需要成为VIP",
@@ -288,7 +301,7 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
     if RESOURCE_CODE_JSCODEFILEBOT_PATTERN.fullmatch(code):
         return "JScodefilebot_" + code[len("JScodefilebot_"):]
     if RESOURCE_CODE_ZYXFILES_PATTERN.fullmatch(code):
-        return "zyxfiles_" + code[len("zyxfiles_"):]
+        return "zyxfiles" + code[len("zyxfiles"):]
     return None
 
 
@@ -5292,10 +5305,10 @@ async def _resource_code_bot_media(
                 for row in list(getattr(reply_markup, "rows", None) or []):
                     for button in list(getattr(row, "buttons", None) or []):
                         button_text = str(getattr(button, "text", None) or "")
-                        is_get_all = any(keyword in button_text for keyword in RESOURCE_CODE_GET_ALL_BUTTON_KEYWORDS)
-                        is_next_group = any(keyword in button_text for keyword in RESOURCE_CODE_NEXT_GROUP_BUTTON_KEYWORDS)
-                        if not is_get_all and not is_next_group:
+                        callback_action = _resource_code_callback_action(code, button_text)
+                        if callback_action is None:
                             continue
+                        is_get_all = callback_action == "get_all"
                         button_data = getattr(button, "data", None)
                         if button_data is None:
                             continue

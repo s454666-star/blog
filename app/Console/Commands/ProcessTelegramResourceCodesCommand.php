@@ -38,7 +38,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const YYJMQ_CODE_REGEX = '/(?<![A-Za-z0-9_])yyjmq_bot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const BFFILESBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])bffilesbot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const JSCODEFILEBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])JScodefilebot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
-    private const ZYXFILES_CODE_REGEX = '/(?<![A-Za-z0-9_])zyxfiles_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
+    private const ZYXFILES_CODE_REGEX = '/(?<![A-Za-z0-9_])zyxfiles[_-][A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
     private const ACCOUNT_LIMIT_COOLDOWN_SECONDS = 900;
@@ -563,7 +563,7 @@ class ProcessTelegramResourceCodesCommand extends Command
         }
 
         if ($codeType === 8) {
-            return (string) preg_replace('/^zyxfiles_/i', 'zyxfiles_', $code);
+            return (string) preg_replace('/^zyxfiles(?=[_-])/i', 'zyxfiles', $code);
         }
 
         return $code;

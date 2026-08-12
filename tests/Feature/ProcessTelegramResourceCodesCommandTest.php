@@ -530,6 +530,54 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ]);
     }
 
+    public function test_type_eight_accepts_hyphen_delimiter_and_preserves_suffix_case(): void
+    {
+        $forwardCount = 0;
+
+        Http::fake(function ($request) use (&$forwardCount) {
+            if ($request->method() === 'GET') {
+                return Http::response([
+                    'status' => 'ok',
+                    'items' => [[
+                        'id' => 119910,
+                        'text' => implode("\n", [
+                            'ZYXFILES-1v-9p-b991bea8665480cd9ee7a81c',
+                            'notzyxfiles-should-not-match',
+                        ]),
+                    ]],
+                ]);
+            }
+
+            $forwardCount++;
+            $this->assertSame('zyxfiles-1v-9p-b991bea8665480cd9ee7a81c', $request['code']);
+            $this->assertSame('zyxfido_bot', $request['bot_username']);
+
+            return Http::response([
+                'status' => 'ok',
+                'forwarded_count' => 21,
+                'expected_media_count' => 21,
+                'declared_file_count' => 21,
+                'cleanup_complete' => true,
+            ]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--process-limit' => 2,
+            '--code-type' => 8,
+            '--bot-username' => 'zyxfido_bot',
+        ])->assertExitCode(0);
+
+        $this->assertSame(1, $forwardCount);
+        $this->assertDatabaseCount('telegram_resource_codes', 1);
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => 'zyxfiles-1v-9p-b991bea8665480cd9ee7a81c',
+            'code_type' => 8,
+            'status' => TelegramResourceCode::STATUS_COMPLETED,
+            'forwarded_message_count' => 21,
+        ]);
+    }
+
     public function test_type_four_scan_stores_only_jsfile_codes_and_preserves_suffix_case(): void
     {
         Http::fake(Http::response([

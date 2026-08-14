@@ -83,8 +83,8 @@ RESOURCE_CODE_JSFILE_PATTERN = re.compile(
     r"JSfile_bot_[A-Za-z0-9_-]+",
     re.IGNORECASE,
 )
-RESOURCE_CODE_YYJMQ_PATTERN = re.compile(
-    r"yyjmq_bot_[A-Za-z0-9_-]+",
+RESOURCE_CODE_YYJMQH_PATTERN = re.compile(
+    r"yyjmqh_bot_[A-Za-z0-9_-]+",
     re.IGNORECASE,
 )
 RESOURCE_CODE_BFFILESBOT_PATTERN = re.compile(
@@ -294,8 +294,8 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
         return "JSfileeesbot_" + code[len("JSfileeesbot_"):]
     if RESOURCE_CODE_JSFILE_PATTERN.fullmatch(code):
         return "JSfile_bot_" + code[len("JSfile_bot_"):]
-    if RESOURCE_CODE_YYJMQ_PATTERN.fullmatch(code):
-        return "yyjmq_bot_" + code[len("yyjmq_bot_"):]
+    if RESOURCE_CODE_YYJMQH_PATTERN.fullmatch(code):
+        return "yyjmqh_bot_" + code[len("yyjmqh_bot_"):]
     if RESOURCE_CODE_BFFILESBOT_PATTERN.fullmatch(code):
         return "bffilesbot_" + code[len("bffilesbot_"):]
     if RESOURCE_CODE_JSCODEFILEBOT_PATTERN.fullmatch(code):

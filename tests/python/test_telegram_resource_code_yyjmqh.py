@@ -1,0 +1,127 @@
+import asyncio
+import importlib.util
+import os
+import pathlib
+import sys
+import tempfile
+import types
+import unittest
+
+
+TEST_SERVICE_HOME = tempfile.TemporaryDirectory()
+pathlib.Path(TEST_SERVICE_HOME.name, "session").mkdir()
+os.environ["TELEGRAM_SERVICE_HOME"] = TEST_SERVICE_HOME.name
+os.environ["TELEGRAM_SERVICE_SESSION"] = str(
+    pathlib.Path(TEST_SERVICE_HOME.name, "session", "test_account")
+)
+
+MODULE_PATH = pathlib.Path(__file__).resolve().parents[2] / "python" / "telegram_service_shared.py"
+SPEC = importlib.util.spec_from_file_location("telegram_service_shared_yyjmqh", MODULE_PATH)
+MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
+SPEC.loader.exec_module(MODULE)
+
+
+def tearDownModule():
+    MODULE.client.session.close()
+    TEST_SERVICE_HOME.cleanup()
+
+
+class TelegramResourceCodeYyjmqhTest(unittest.TestCase):
+    def test_normalizes_exact_prefix_without_changing_suffix_case(self):
+        self.assertEqual(
+            "yyjmqh_bot_A1-b2_C3",
+            MODULE._normalize_resource_code("YYJMQH_BOT_A1-b2_C3"),
+        )
+        self.assertIsNone(MODULE._normalize_resource_code("yyjmq_bot_A1-b2_C3"))
+        self.assertIsNone(MODULE._normalize_resource_code("notyyjmqh_bot_A1-b2_C3"))
+
+    def test_allows_next_page_but_not_get_all_or_vip_callbacks(self):
+        code = "yyjmqh_bot_A1-b2_C3"
+        self.assertEqual("next_group", MODULE._resource_code_callback_action(code, "下一页"))
+        self.assertEqual("next_group", MODULE._resource_code_callback_action(code, "获取下一组"))
+        self.assertIsNone(MODULE._resource_code_callback_action(code, "全部获取"))
+        self.assertIsNone(MODULE._resource_code_callback_action(code, "推送剩余全部文件"))
+        self.assertIsNone(MODULE._resource_code_callback_action(code, "开通VIP"))
+
+    def test_collects_next_page_without_clicking_get_all(self):
+        clicked = []
+        page = {"value": 1}
+
+        class CallbackMessage(types.SimpleNamespace):
+            async def click(self, data):
+                clicked.append(data)
+                if data == b"next":
+                    page["value"] = 2
+
+        def media(message_id, photo_id):
+            return types.SimpleNamespace(
+                id=message_id,
+                out=False,
+                message="",
+                photo=types.SimpleNamespace(id=photo_id),
+                video=None,
+                document=None,
+                file=None,
+                grouped_id=0,
+                reply_markup=None,
+            )
+
+        page_one_control = CallbackMessage(
+            id=101,
+            out=False,
+            message="",
+            photo=None,
+            video=None,
+            document=None,
+            file=None,
+            reply_markup=types.SimpleNamespace(rows=[
+                types.SimpleNamespace(buttons=[
+                    types.SimpleNamespace(text="全部获取", data=b"get_all"),
+                    types.SimpleNamespace(text="下一页", data=b"next"),
+                    types.SimpleNamespace(text="开通VIP", data=b"vip"),
+                ])
+            ]),
+        )
+        completion = types.SimpleNamespace(
+            id=104,
+            out=False,
+            message="成功发送 2 个",
+            photo=None,
+            video=None,
+            document=None,
+            file=None,
+            reply_markup=None,
+        )
+
+        class FakeClient:
+            async def get_messages(self, _peer, limit, min_id):
+                messages = [page_one_control, media(102, 1002)]
+                if page["value"] == 2:
+                    messages.extend([completion, media(105, 1005)])
+                return messages
+
+        original_client = MODULE.client
+        try:
+            MODULE.client = FakeClient()
+            result = asyncio.run(MODULE._resource_code_bot_media(
+                peer=object(),
+                code="yyjmqh_bot_A1-b2_C3",
+                sent_message_id=100,
+                wait_timeout_seconds=5,
+                poll_interval_seconds=0.01,
+                settle_seconds=0.01,
+            ))
+        finally:
+            MODULE.client = original_client
+
+        media_messages, _reply_ids, outcome, expected_count, declared_count = result
+        self.assertEqual("settled", outcome)
+        self.assertEqual(2, len(media_messages))
+        self.assertEqual(2, expected_count)
+        self.assertIsNone(declared_count)
+        self.assertEqual([b"next"], clicked)
+
+
+if __name__ == "__main__":
+    unittest.main()

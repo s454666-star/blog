@@ -73,6 +73,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('data-cost-history-wave', false)
             ->assertSee('滑鼠移入可查看加減碼日期')
             ->assertSee('showCostHistoryTooltip', false)
+            ->assertSee('.cost-history-axis > .cost-history-tooltip', false)
+            ->assertDontSee('els.costHistoryTooltip.style.left', false)
             ->assertSee('costHistorySnapshots: []', false)
             ->assertSee('const currentCostBasis = state.historyMode ? null : finiteNumber(state.lastPayload?.summary?.costBasis);', false)
             ->assertSee('historyRows.push(currentRow);', false)

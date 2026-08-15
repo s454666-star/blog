@@ -434,6 +434,25 @@
             transform: translateX(-50%) translateY(0);
         }
 
+        .cost-history-axis > .cost-history-tooltip {
+            position: static;
+            top: auto;
+            z-index: auto;
+            flex: 1 1 auto;
+            justify-content: center;
+            min-width: 0;
+            padding: 0 4px;
+            border: 0;
+            background: transparent;
+            box-shadow: none;
+            font-size: 9px;
+            transform: none;
+        }
+
+        .cost-history-axis > .cost-history-tooltip.visible {
+            transform: none;
+        }
+
         .cost-history-tooltip-action.add { color: var(--amber); }
         .cost-history-tooltip-action.reduce { color: var(--cyan); }
 
@@ -1123,11 +1142,14 @@
             <div class="cost-history-panel" data-cost-history-panel>
                 <div class="cost-history-head"><span>近 15 日成本</span><span data-cost-history-meta>讀取中</span></div>
                 <svg class="cost-history-svg" data-cost-history-wave viewBox="0 0 320 58" preserveAspectRatio="none" role="img" aria-label="近 15 日投入總成本走勢，滑鼠移入可查看加減碼日期"></svg>
-                <div class="cost-history-tooltip" data-cost-history-tooltip aria-hidden="true">
-                    <span data-cost-history-tooltip-date>--</span>
-                    <span class="cost-history-tooltip-action" data-cost-history-tooltip-action hidden></span>
+                <div class="cost-history-axis">
+                    <span data-cost-history-start>--</span>
+                    <div class="cost-history-tooltip" data-cost-history-tooltip aria-hidden="true">
+                        <span data-cost-history-tooltip-date>--</span>
+                        <span class="cost-history-tooltip-action" data-cost-history-tooltip-action hidden></span>
+                    </div>
+                    <span data-cost-history-end>--</span>
                 </div>
-                <div class="cost-history-axis"><span data-cost-history-start>--</span><span data-cost-history-end>--</span></div>
             </div>
             <div class="investment-metrics" data-summary="investmentLevel">
                 <div class="investment-line">
@@ -1720,11 +1742,6 @@ function showCostHistoryTooltip(event) {
     actionTarget.className = `cost-history-tooltip-action ${actionClass}`;
     actionTarget.hidden = action === '';
 
-    const panelRect = els.costHistoryPanel.getBoundingClientRect();
-    const tooltipHalfWidth = Math.max(64, els.costHistoryTooltip.offsetWidth / 2);
-    const pointLeft = svgRect.left - panelRect.left + point.x / 320 * svgRect.width;
-    const tooltipLeft = Math.max(tooltipHalfWidth + 4, Math.min(panelRect.width - tooltipHalfWidth - 4, pointLeft));
-    els.costHistoryTooltip.style.left = `${tooltipLeft}px`;
     els.costHistoryTooltip.classList.add('visible');
     els.costHistoryTooltip.setAttribute('aria-hidden', 'false');
 }

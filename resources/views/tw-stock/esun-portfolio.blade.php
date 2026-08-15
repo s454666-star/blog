@@ -1550,9 +1550,10 @@ function renderUnrealizedPnlHistory() {
     const currentUnrealizedPnl = state.historyMode
         ? null
         : finiteNumber(state.currentSummary?.unrealizedPnl ?? state.lastPayload?.summary?.unrealizedPnl);
-    if (currentUnrealizedPnl !== null) {
-        const currentDate = taipeiDateKey();
-        const currentIndex = historyRows.findIndex(row => String(row.date || '') === currentDate);
+    const currentDate = taipeiDateKey();
+    const currentIndex = historyRows.findIndex(row => String(row.date || '') === currentDate);
+    const currentDateIsTradingDay = currentIndex >= 0 || Boolean(state.currentSummary?.marketOpen);
+    if (currentUnrealizedPnl !== null && currentDateIsTradingDay) {
         const currentRow = { date: currentDate, unrealizedPnl: currentUnrealizedPnl };
         if (currentIndex >= 0) {
             historyRows[currentIndex] = { ...historyRows[currentIndex], ...currentRow };

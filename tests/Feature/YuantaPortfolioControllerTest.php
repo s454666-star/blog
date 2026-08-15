@@ -66,6 +66,7 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertSee('.slice(-40);', false)
             ->assertSee('unrealizedPnl: currentUnrealizedPnl', false)
             ->assertSee('state.currentSummary = summary;', false)
+            ->assertSee('currentIndex >= 0 || Boolean(state.currentSummary?.marketOpen)', false)
             ->assertSee('stockWaveHtml', false)
             ->assertSee('intradayRetryAt: 0', false)
             ->assertSee('if (points.length < 2) return;', false)

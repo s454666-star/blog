@@ -323,8 +323,10 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             'items' => [[
                 'id' => 119903,
                 'text' => implode("\n", [
+                    'yyjmqg_bot:87V0P0D_2TZN-NN8C',
+                    'YYJMQG_BOT:a1B2_c3-D4',
                     'yyjmqg_bot_87V0P0D_2TZN-NN8C',
-                    'YYJMQG_BOT_a1B2_c3-D4',
+                    'yyjmqg_bot plain mention',
                     'yyjmq_bot_87V0P0D_2TZN-NN8C',
                     'yyjmqh_bot_87V0P0D_2TZN-NN8C',
                     'yyjmqgbot_87V0P0D_2TZN-NN8C',
@@ -340,10 +342,11 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
             '--bot-username' => 'yyjmqg_bot',
         ])->assertExitCode(0);
 
-        $this->assertDatabaseCount('telegram_resource_codes', 2);
+        $this->assertDatabaseCount('telegram_resource_codes', 3);
         foreach ([
+            'yyjmqg_bot:87V0P0D_2TZN-NN8C',
+            'yyjmqg_bot:a1B2_c3-D4',
             'yyjmqg_bot_87V0P0D_2TZN-NN8C',
-            'yyjmqg_bot_a1B2_c3-D4',
         ] as $code) {
             $this->assertDatabaseHas('telegram_resource_codes', [
                 'code' => $code,
@@ -363,13 +366,13 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
                     'status' => 'ok',
                     'items' => [[
                         'id' => 119906,
-                        'text' => 'yyjmqg_bot_duplicate_A1-b2',
+                        'text' => 'yyjmqg_bot:duplicate_A1-b2',
                     ]],
                 ]);
             }
 
             $forwardCount++;
-            $this->assertSame('yyjmqg_bot_duplicate_A1-b2', $request['code']);
+            $this->assertSame('yyjmqg_bot:duplicate_A1-b2', $request['code']);
             $this->assertSame('yyjmqg_bot', $request['bot_username']);
 
             return Http::response([
@@ -391,7 +394,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         $this->assertSame(1, $forwardCount);
         $this->assertDatabaseCount('telegram_resource_codes', 1);
         $this->assertDatabaseHas('telegram_resource_codes', [
-            'code' => 'yyjmqg_bot_duplicate_A1-b2',
+            'code' => 'yyjmqg_bot:duplicate_A1-b2',
             'code_type' => 5,
             'status' => TelegramResourceCode::STATUS_COMPLETED,
             'attempts' => 1,

@@ -16,7 +16,7 @@ os.environ["TELEGRAM_SERVICE_SESSION"] = str(
 )
 
 MODULE_PATH = pathlib.Path(__file__).resolve().parents[2] / "python" / "telegram_service_shared.py"
-SPEC = importlib.util.spec_from_file_location("telegram_service_shared_yyjmqh", MODULE_PATH)
+SPEC = importlib.util.spec_from_file_location("telegram_service_shared_yyjmqg", MODULE_PATH)
 MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
@@ -27,17 +27,18 @@ def tearDownModule():
     TEST_SERVICE_HOME.cleanup()
 
 
-class TelegramResourceCodeYyjmqhTest(unittest.TestCase):
+class TelegramResourceCodeYyjmqgTest(unittest.TestCase):
     def test_normalizes_exact_prefix_without_changing_suffix_case(self):
         self.assertEqual(
-            "yyjmqh_bot_A1-b2_C3",
-            MODULE._normalize_resource_code("YYJMQH_BOT_A1-b2_C3"),
+            "yyjmqg_bot_A1-b2_C3",
+            MODULE._normalize_resource_code("YYJMQG_BOT_A1-b2_C3"),
         )
         self.assertIsNone(MODULE._normalize_resource_code("yyjmq_bot_A1-b2_C3"))
-        self.assertIsNone(MODULE._normalize_resource_code("notyyjmqh_bot_A1-b2_C3"))
+        self.assertIsNone(MODULE._normalize_resource_code("yyjmqh_bot_A1-b2_C3"))
+        self.assertIsNone(MODULE._normalize_resource_code("notyyjmqg_bot_A1-b2_C3"))
 
     def test_allows_next_page_but_not_get_all_or_vip_callbacks(self):
-        code = "yyjmqh_bot_A1-b2_C3"
+        code = "yyjmqg_bot_A1-b2_C3"
         self.assertEqual("next_group", MODULE._resource_code_callback_action(code, "下一页"))
         self.assertEqual("next_group", MODULE._resource_code_callback_action(code, "获取下一组"))
         self.assertIsNone(MODULE._resource_code_callback_action(code, "全部获取"))
@@ -106,7 +107,7 @@ class TelegramResourceCodeYyjmqhTest(unittest.TestCase):
             MODULE.client = FakeClient()
             result = asyncio.run(MODULE._resource_code_bot_media(
                 peer=object(),
-                code="yyjmqh_bot_A1-b2_C3",
+                code="yyjmqg_bot_A1-b2_C3",
                 sent_message_id=100,
                 wait_timeout_seconds=5,
                 poll_interval_seconds=0.01,

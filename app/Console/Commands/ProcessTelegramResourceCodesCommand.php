@@ -35,7 +35,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const WENJIANJI_CODE_REGEX = '/(?<![A-Za-z0-9_])WenJianJiJibot_(?:[0-9]+[A-Za-z]_)+[A-Za-z0-9]{16}(?![A-Za-z0-9_])/i';
     private const JSFILEEESBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])JSfileeesbot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const JSFILE_CODE_REGEX = '/(?<![A-Za-z0-9_])JSfile_bot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
-    private const YYJMQG_CODE_REGEX = '/(?<![A-Za-z0-9_])yyjmqg_bot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
+    private const YYJMQG_CODE_REGEX = '/(?<![A-Za-z0-9_])yyjmqg_bot[:_][A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const BFFILESBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])bffilesbot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const JSCODEFILEBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])JScodefilebot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const ZYXFILES_CODE_REGEX = '/(?<![A-Za-z0-9_])zyxfiles[_-][A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
@@ -551,7 +551,7 @@ class ProcessTelegramResourceCodesCommand extends Command
         }
 
         if ($codeType === 5) {
-            return (string) preg_replace('/^yyjmqg_bot_/i', 'yyjmqg_bot_', $code);
+            return (string) preg_replace('/^yyjmqg_bot(?=[:_])/i', 'yyjmqg_bot', $code);
         }
 
         if ($codeType === 6) {

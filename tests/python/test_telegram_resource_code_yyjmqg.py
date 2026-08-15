@@ -30,15 +30,20 @@ def tearDownModule():
 class TelegramResourceCodeYyjmqgTest(unittest.TestCase):
     def test_normalizes_exact_prefix_without_changing_suffix_case(self):
         self.assertEqual(
+            "yyjmqg_bot:A1-b2_C3",
+            MODULE._normalize_resource_code("YYJMQG_BOT:A1-b2_C3"),
+        )
+        self.assertEqual(
             "yyjmqg_bot_A1-b2_C3",
             MODULE._normalize_resource_code("YYJMQG_BOT_A1-b2_C3"),
         )
+        self.assertIsNone(MODULE._normalize_resource_code("yyjmqg_bot A1-b2_C3"))
         self.assertIsNone(MODULE._normalize_resource_code("yyjmq_bot_A1-b2_C3"))
         self.assertIsNone(MODULE._normalize_resource_code("yyjmqh_bot_A1-b2_C3"))
         self.assertIsNone(MODULE._normalize_resource_code("notyyjmqg_bot_A1-b2_C3"))
 
     def test_allows_next_page_but_not_get_all_or_vip_callbacks(self):
-        code = "yyjmqg_bot_A1-b2_C3"
+        code = "yyjmqg_bot:A1-b2_C3"
         self.assertEqual("next_group", MODULE._resource_code_callback_action(code, "下一页"))
         self.assertEqual("next_group", MODULE._resource_code_callback_action(code, "获取下一组"))
         self.assertIsNone(MODULE._resource_code_callback_action(code, "全部获取"))
@@ -107,7 +112,7 @@ class TelegramResourceCodeYyjmqgTest(unittest.TestCase):
             MODULE.client = FakeClient()
             result = asyncio.run(MODULE._resource_code_bot_media(
                 peer=object(),
-                code="yyjmqg_bot_A1-b2_C3",
+                code="yyjmqg_bot:A1-b2_C3",
                 sent_message_id=100,
                 wait_timeout_seconds=5,
                 poll_interval_seconds=0.01,

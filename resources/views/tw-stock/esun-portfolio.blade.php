@@ -1091,9 +1091,9 @@
             <div class="value" data-summary="unrealizedPnl">--</div>
             <div class="sub" data-summary="unrealizedPnlRate">--</div>
             <div class="pnl-wave-panel" data-pnl-wave-panel="unrealizedPnl">
-                <div class="pnl-wave-head"><span>當日走勢</span><span data-pnl-wave-meta>讀取中</span></div>
-                <svg class="pnl-wave-svg" data-pnl-wave="unrealizedPnl" viewBox="0 0 320 78" preserveAspectRatio="none" role="img" aria-label="即時累積損益當日走勢"></svg>
-                <div class="pnl-wave-axis"><span>09:00</span><span>現在</span></div>
+                <div class="pnl-wave-head"><span>近 40 個開市日</span><span data-pnl-wave-meta>讀取中</span></div>
+                <svg class="pnl-wave-svg" data-pnl-wave="unrealizedPnl" viewBox="0 0 320 78" preserveAspectRatio="none" role="img" aria-label="即時累積損益近40個開市日走勢"></svg>
+                <div class="pnl-wave-axis"><span data-pnl-wave-axis-start>--</span><span data-pnl-wave-axis-end>--</span></div>
             </div>
         </div>
         <div class="summary-card">
@@ -1233,6 +1233,7 @@ const state = {
     costHistory: [],
     lastQuotePayload: null,
     lastPayload: null,
+    currentSummary: null,
     sort: {
         key: 'unrealizedPnl',
         direction: 'desc',
@@ -1353,6 +1354,7 @@ function updateSummary(payload) {
 }
 
 function updateSummaryCards(summary, sourceText) {
+    state.currentSummary = summary;
     const esunTodayPnl = finiteNumber(summary.esunTodayPnl ?? state.lastPayload?.summary?.todayPnl ?? summary.todayPnl);
     const esunUnrealizedPnl = finiteNumber(summary.esunUnrealizedPnl ?? state.lastPayload?.summary?.unrealizedPnl ?? summary.unrealizedPnl);
     const esunMarketValue = finiteNumber(summary.esunMarketValue ?? state.lastPayload?.summary?.marketValue ?? summary.marketValue);
@@ -1526,19 +1528,59 @@ function waveValueRange(points, formatter) {
 }
 
 function renderPnlWaves() {
-    ['todayPnl', 'unrealizedPnl'].forEach(key => {
-        const svg = document.querySelector(`[data-pnl-wave="${key}"]`);
-        const panel = document.querySelector(`[data-pnl-wave-panel="${key}"]`);
-        if (!svg || !panel) return;
-
-        const points = state.historyMode ? [] : (state.pnlSeries[key] || []);
+    const todaySvg = document.querySelector('[data-pnl-wave="todayPnl"]');
+    const todayPanel = document.querySelector('[data-pnl-wave-panel="todayPnl"]');
+    if (todaySvg && todayPanel) {
+        const points = state.historyMode ? [] : (state.pnlSeries.todayPnl || []);
         const emptyText = state.historyMode ? '僅顯示當日即時走勢' : (state.intradayLoading ? '分時資料讀取中' : '暫無分時資料');
-        svg.innerHTML = waveSvgMarkup(points, 320, 78, { compareZero: true, emptyText });
-        const meta = panel.querySelector('[data-pnl-wave-meta]');
-        meta.textContent = points.length ? waveValueRange(points, formatMoney) : emptyText;
-        const axis = panel.querySelector('.pnl-wave-axis span:last-child');
-        axis.textContent = points.length ? waveTimeLabel(points[points.length - 1].time) : '現在';
-    });
+        todaySvg.innerHTML = waveSvgMarkup(points, 320, 78, { compareZero: true, emptyText });
+        todayPanel.querySelector('[data-pnl-wave-meta]').textContent = points.length ? waveValueRange(points, formatMoney) : emptyText;
+        todayPanel.querySelector('.pnl-wave-axis span:last-child').textContent = points.length ? waveTimeLabel(points[points.length - 1].time) : '現在';
+    }
+
+    renderUnrealizedPnlHistory();
+}
+
+function renderUnrealizedPnlHistory() {
+    const svg = document.querySelector('[data-pnl-wave="unrealizedPnl"]');
+    const panel = document.querySelector('[data-pnl-wave-panel="unrealizedPnl"]');
+    if (!svg || !panel) return;
+
+    const historyRows = [...state.costHistorySnapshots];
+    const currentUnrealizedPnl = state.historyMode
+        ? null
+        : finiteNumber(state.currentSummary?.unrealizedPnl ?? state.lastPayload?.summary?.unrealizedPnl);
+    if (currentUnrealizedPnl !== null) {
+        const currentDate = taipeiDateKey();
+        const currentIndex = historyRows.findIndex(row => String(row.date || '') === currentDate);
+        const currentRow = { date: currentDate, unrealizedPnl: currentUnrealizedPnl };
+        if (currentIndex >= 0) {
+            historyRows[currentIndex] = { ...historyRows[currentIndex], ...currentRow };
+        } else {
+            historyRows.push(currentRow);
+        }
+    }
+
+    const historicalDate = state.historyMode ? String(state.lastPayload?.history?.date || '') : '';
+    const points = historyRows
+        .map(row => {
+            const date = String(row.date || '');
+            const value = finiteNumber(row.unrealizedPnl);
+            const time = Date.parse(`${date}T00:00:00+08:00`) / 1000;
+            return { date, time, value };
+        })
+        .filter(point => point.date && Number.isFinite(point.time) && point.value !== null)
+        .filter(point => !historicalDate || point.date <= historicalDate)
+        .sort((left, right) => left.time - right.time)
+        .slice(-40);
+
+    const emptyText = '暫無累積損益快照';
+    svg.innerHTML = waveSvgMarkup(points, 320, 78, { compareZero: true, emptyText });
+    panel.querySelector('[data-pnl-wave-meta]').textContent = points.length
+        ? `${points.length} 日 · ${waveValueRange(points, formatMoney)}`
+        : emptyText;
+    panel.querySelector('[data-pnl-wave-axis-start]').textContent = points.length ? costHistoryDateLabel(points[0].date) : '--';
+    panel.querySelector('[data-pnl-wave-axis-end]').textContent = points.length ? costHistoryDateLabel(points[points.length - 1].date) : '--';
 }
 
 function renderCostHistory(dates = state.costHistorySnapshots) {
@@ -2414,9 +2456,11 @@ async function loadHistoryDates() {
         const dates = (await response.json()).dates || [];
         renderHistoryDateOptions(dates);
         renderCostHistory(dates);
+        renderPnlWaves();
     } catch (error) {
         els.historyDate.innerHTML = '<option value="">即時</option>';
         renderCostHistory([]);
+        renderPnlWaves();
     }
 }
 

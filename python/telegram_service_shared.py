@@ -148,6 +148,20 @@ RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS = (
     "violated Telegram's Terms of Service",
     "violated Telegram’s Terms of Service",
 )
+RESOURCE_CODE_ACCOUNT_WAIT_PATTERN = re.compile(
+    r"(?:请|請)?\s*等待\s*\d+\s*(?:秒(?:钟|鐘)?|分(?:钟|鐘)?)(?:后|後)?",
+    re.IGNORECASE,
+)
+
+
+def _resource_code_is_account_limited_text(text: str) -> bool:
+    normalized_text = str(text or "")
+    return (
+        any(keyword.lower() in normalized_text.lower() for keyword in RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS)
+        or RESOURCE_CODE_ACCOUNT_WAIT_PATTERN.search(normalized_text) is not None
+    )
+
+
 BACKGROUND_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 900
 GROUP_TELETHON_DOWNLOAD_TIMEOUT_SECONDS = 180
 
@@ -5262,7 +5276,7 @@ async def _resource_code_bot_media(
             all_reply_ids.add(mid)
             if not bool(getattr(msg, "out", False)):
                 message_text = str(getattr(msg, "message", None) or "")
-                if any(keyword.lower() in message_text.lower() for keyword in RESOURCE_CODE_ACCOUNT_LIMIT_KEYWORDS):
+                if _resource_code_is_account_limited_text(message_text):
                     return collected_media(), sorted(all_reply_ids), "account_limited", expected_media_count, declared_file_count
                 if (not repeat_confirmation_sent
                         and any(keyword in message_text for keyword in RESOURCE_CODE_REPEAT_CONFIRMATION_KEYWORDS)):

@@ -50,6 +50,17 @@ class TelegramResourceCodeYyjmqgTest(unittest.TestCase):
         self.assertIsNone(MODULE._resource_code_callback_action(code, "推送剩余全部文件"))
         self.assertIsNone(MODULE._resource_code_callback_action(code, "开通VIP"))
 
+    def test_numeric_wait_reply_switches_decoder_account(self):
+        self.assertTrue(MODULE._resource_code_is_account_limited_text(
+            "你刚刚提取过文件啦，请等待 46 秒后再重新发送文件码啦",
+        ))
+        self.assertTrue(MODULE._resource_code_is_account_limited_text(
+            "請等待 2 分鐘後再重新發送文件碼",
+        ))
+        self.assertFalse(MODULE._resource_code_is_account_limited_text(
+            "文件正在整理，请稍候",
+        ))
+
     def test_collects_next_page_without_clicking_get_all(self):
         clicked = []
         page = {"value": 1}

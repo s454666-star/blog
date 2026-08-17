@@ -322,6 +322,25 @@
             font-size: 9px;
         }
 
+        .pnl-wave-axis > .pnl-history-tooltip {
+            position: static;
+            top: auto;
+            z-index: auto;
+            flex: 1 1 auto;
+            justify-content: center;
+            min-width: 0;
+            padding: 0 4px;
+            border: 0;
+            background: transparent;
+            box-shadow: none;
+            font-size: 8px;
+            transform: none;
+        }
+
+        .pnl-wave-axis > .pnl-history-tooltip.visible {
+            transform: none;
+        }
+
         .wave-empty {
             fill: var(--muted-2);
             font-size: 11px;
@@ -1117,11 +1136,15 @@
             <div class="pnl-wave-panel" data-pnl-wave-panel="unrealizedPnl">
                 <div class="pnl-wave-head"><span>近 40 個開市日</span><span data-pnl-wave-meta>讀取中</span></div>
                 <svg class="pnl-wave-svg" data-pnl-wave="unrealizedPnl" viewBox="0 0 320 78" preserveAspectRatio="none" role="img" aria-label="即時累積損益近40個開市日走勢"></svg>
-                <div class="cost-history-tooltip pnl-history-tooltip" data-pnl-history-tooltip aria-hidden="true">
-                    <span data-pnl-history-tooltip-date>--</span>
-                    <span class="pnl-history-tooltip-value" data-pnl-history-tooltip-value>--</span>
+                <div class="pnl-wave-axis">
+                    <span data-pnl-wave-axis-start>--</span>
+                    <div class="cost-history-tooltip pnl-history-tooltip" data-pnl-history-tooltip aria-hidden="true">
+                        <span data-pnl-history-tooltip-date>--</span>
+                        <span class="pnl-history-tooltip-value" data-pnl-history-tooltip-value>--</span>
+                        <span class="pnl-history-tooltip-change" data-pnl-history-tooltip-change hidden></span>
+                    </div>
+                    <span data-pnl-wave-axis-end>--</span>
                 </div>
-                <div class="pnl-wave-axis"><span data-pnl-wave-axis-start>--</span><span data-pnl-wave-axis-end>--</span></div>
             </div>
         </div>
         <div class="summary-card">
@@ -1781,6 +1804,8 @@ function showPnlHistoryTooltip(event) {
     const point = points.reduce((nearest, candidate) =>
         Math.abs(candidate.x - pointerX) < Math.abs(nearest.x - pointerX) ? candidate : nearest
     );
+    const previous = point.index > 0 ? points[point.index - 1] : null;
+    const delta = previous ? point.value - previous.value : null;
     const hover = svg.querySelector('[data-pnl-history-hover]');
     hover.setAttribute('visibility', 'visible');
     const line = hover.querySelector('[data-pnl-history-hover-line]');
@@ -1794,12 +1819,14 @@ function showPnlHistoryTooltip(event) {
     const valueTarget = tooltip.querySelector('[data-pnl-history-tooltip-value]');
     valueTarget.textContent = formatMoney(point.value);
     valueTarget.className = `pnl-history-tooltip-value ${toneClass(point.value)}`;
+    const changeTarget = tooltip.querySelector('[data-pnl-history-tooltip-change]');
+    const changeText = delta === null
+        ? ''
+        : (delta > 0 ? `增加 ${formatInteger(Math.abs(delta))}` : (delta < 0 ? `減少 ${formatInteger(Math.abs(delta))}` : '持平 0'));
+    changeTarget.textContent = changeText;
+    changeTarget.className = `pnl-history-tooltip-change ${toneClass(delta)}`;
+    changeTarget.hidden = changeText === '';
 
-    const panelRect = panel.getBoundingClientRect();
-    const tooltipHalfWidth = Math.max(64, tooltip.offsetWidth / 2);
-    const pointLeft = svgRect.left - panelRect.left + point.x / 320 * svgRect.width;
-    const tooltipLeft = Math.max(tooltipHalfWidth + 4, Math.min(panelRect.width - tooltipHalfWidth - 4, pointLeft));
-    tooltip.style.left = `${tooltipLeft}px`;
     tooltip.classList.add('visible');
     tooltip.setAttribute('aria-hidden', 'false');
 }

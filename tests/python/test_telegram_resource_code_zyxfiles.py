@@ -28,6 +28,13 @@ def tearDownModule():
 
 
 class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
+    def test_default_decoder_is_zyxfiles2_bot(self):
+        request = MODULE.ProcessResourceCodeRequest(
+            code="zyxfiles_A1-b2_C3",
+            target_peer_id=3967395258,
+        )
+        self.assertEqual("zyxfiles2_bot", request.bot_username)
+
     def test_normalizes_both_supported_delimiters_without_changing_suffix_case(self):
         self.assertEqual(
             "zyxfiles-1v-9p-b991bea8665480cd9ee7a81c",

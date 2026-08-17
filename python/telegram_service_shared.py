@@ -2162,6 +2162,12 @@ async def _get_peer_for_bot(bot_username: str, bot_peer_id: int = 0):
                     resolve_error = retry_error
                     push_log(stage="peer_resolve", result="retry_error", extra={"bot_username": key, "error": str(retry_error), "trace": traceback.format_exc()[:1200]})
 
+    refreshed_peer = await _refresh_peer_for_bot(key)
+    if refreshed_peer is not None:
+        _PEER_CACHE[key] = refreshed_peer
+        _remember_bot_peer_alias(bot_peer_id, key)
+        return refreshed_peer
+
     peer_id = int(bot_peer_id or 0)
     if peer_id > 0:
         peer = await _resolve_any_input_entity_by_id(peer_id)

@@ -1284,6 +1284,7 @@ const state = {
     intradaySeries: {},
     pnlSeries: { todayPnl: [], unrealizedPnl: [] },
     unrealizedPnlHistory: [],
+    pnlHistoryPointerX: null,
     costHistorySnapshots: [],
     costHistory: [],
     lastQuotePayload: null,
@@ -1637,7 +1638,11 @@ function renderUnrealizedPnlHistory() {
             <line data-pnl-history-hover-line y1="5" y2="73" stroke="#e2e8f0" stroke-opacity="0.52" stroke-dasharray="3 3" />
             <circle data-pnl-history-hover-point r="3.5" fill="#0f172a" stroke="#e2e8f0" stroke-width="2" vector-effect="non-scaling-stroke" />
         </g>`;
-    hidePnlHistoryTooltip();
+    if (state.pnlHistoryPointerX === null) {
+        hidePnlHistoryTooltip();
+    } else {
+        showPnlHistoryTooltip({ clientX: state.pnlHistoryPointerX });
+    }
     panel.querySelector('[data-pnl-wave-meta]').textContent = points.length
         ? `${points.length} 日 · ${waveValueRange(points, formatMoney)}`
         : emptyText;
@@ -1800,6 +1805,7 @@ function showPnlHistoryTooltip(event) {
     const svgRect = svg.getBoundingClientRect();
     if (svgRect.width <= 0) return;
 
+    state.pnlHistoryPointerX = event.clientX;
     const pointerX = Math.max(0, Math.min(320, (event.clientX - svgRect.left) / svgRect.width * 320));
     const point = points.reduce((nearest, candidate) =>
         Math.abs(candidate.x - pointerX) < Math.abs(nearest.x - pointerX) ? candidate : nearest
@@ -1832,6 +1838,7 @@ function showPnlHistoryTooltip(event) {
 }
 
 function hidePnlHistoryTooltip() {
+    state.pnlHistoryPointerX = null;
     document.querySelector('[data-pnl-wave="unrealizedPnl"] [data-pnl-history-hover]')?.setAttribute('visibility', 'hidden');
     const tooltip = document.querySelector('[data-pnl-history-tooltip]');
     if (!tooltip) return;

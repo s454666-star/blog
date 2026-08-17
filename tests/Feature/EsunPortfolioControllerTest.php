@@ -50,6 +50,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('renderUnrealizedPnlHistory', false)
             ->assertSee('data-pnl-history-tooltip', false)
             ->assertSee('data-pnl-history-tooltip-change', false)
+            ->assertSee('pnlHistoryPointerX: null', false)
+            ->assertSee('showPnlHistoryTooltip({ clientX: state.pnlHistoryPointerX });', false)
             ->assertSee('setupPnlHistoryHover', false)
             ->assertSee('costHistoryFullDateLabel(point.date)', false)
             ->assertSee("delta > 0 ? `增加", false)

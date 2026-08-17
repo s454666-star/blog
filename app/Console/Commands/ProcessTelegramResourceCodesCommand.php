@@ -521,6 +521,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private function codeRegex(int $codeType): string
     {
         return match ($codeType) {
+            1 => self::ZYXFILES_CODE_REGEX,
             2 => self::WENJIANJI_CODE_REGEX,
             3 => self::JSFILEEESBOT_CODE_REGEX,
             4 => self::JSFILE_CODE_REGEX,
@@ -534,8 +535,8 @@ class ProcessTelegramResourceCodesCommand extends Command
 
     private function normalizeCode(string $code, int $codeType): string
     {
-        if ($codeType === 1) {
-            return strtolower($code);
+        if ($codeType === 1 || $codeType === 8) {
+            return (string) preg_replace('/^zyxfiles(?=[_-])/i', 'zyxfiles', $code);
         }
 
         if ($codeType === 2) {
@@ -560,10 +561,6 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         if ($codeType === 7) {
             return (string) preg_replace('/^JScodefilebot_/i', 'JScodefilebot_', $code);
-        }
-
-        if ($codeType === 8) {
-            return (string) preg_replace('/^zyxfiles(?=[_-])/i', 'zyxfiles', $code);
         }
 
         return $code;
@@ -596,7 +593,16 @@ class ProcessTelegramResourceCodesCommand extends Command
 
             $payload = $response->json();
             if ($response->successful() && is_array($payload)) {
-                return $payload;
+                $status = (string) ($payload['status'] ?? 'ok');
+                if ($status === 'ok') {
+                    return $payload;
+                }
+
+                if ($this->isFloodWait($payload)) {
+                    $this->markCooldown($baseUri, $this->floodWaitSeconds($response, $payload));
+                }
+
+                continue;
             }
 
             if ($response->status() === 429 && is_array($payload)) {

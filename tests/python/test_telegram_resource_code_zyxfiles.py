@@ -6,6 +6,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest.mock import AsyncMock
 
 
 TEST_SERVICE_HOME = tempfile.TemporaryDirectory()
@@ -34,6 +35,31 @@ class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
             target_peer_id=3967395258,
         )
         self.assertEqual("zyxfiles2_bot", request.bot_username)
+
+    def test_uncached_decoder_username_is_refreshed_from_telegram(self):
+        refreshed_peer = object()
+        original_ensure_connected = MODULE._ensure_client_connected
+        original_refresh = MODULE._refresh_peer_for_bot
+        original_client = MODULE.client
+
+        class FakeClient:
+            async def get_input_entity(self, _username):
+                raise ValueError("not in local entity cache")
+
+        MODULE._PEER_CACHE.pop("zyxfiles2_bot", None)
+        try:
+            MODULE.client = FakeClient()
+            MODULE._ensure_client_connected = AsyncMock(return_value=True)
+            MODULE._refresh_peer_for_bot = AsyncMock(return_value=refreshed_peer)
+
+            resolved = asyncio.run(MODULE._get_peer_for_bot("zyxfiles2_bot"))
+        finally:
+            MODULE.client = original_client
+            MODULE._ensure_client_connected = original_ensure_connected
+            MODULE._refresh_peer_for_bot = original_refresh
+            MODULE._PEER_CACHE.pop("zyxfiles2_bot", None)
+
+        self.assertIs(refreshed_peer, resolved)
 
     def test_normalizes_both_supported_delimiters_without_changing_suffix_case(self):
         self.assertEqual(

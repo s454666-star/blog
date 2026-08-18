@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Star 台指期 TradingView 即時橋接",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "共用目前 Chrome TradingView 頁面的登入行情連線，並自動修復會話中斷或停止更新。",
   "permissions": [
     "alarms",

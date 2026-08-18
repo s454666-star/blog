@@ -181,12 +181,14 @@ test('content bridge reconnects only the visible TradingView session-interrupted
     }
     const listeners = {};
     const contentWindow = {
+        location: { pathname: '/settings/' },
         addEventListener(type, listener) {
             listeners[type] = listener;
         },
     };
     const contentDocument = {
         documentElement: {},
+        querySelector: () => null,
         querySelectorAll: () => [unrelatedButton, reconnectButton],
     };
     const script = readFileSync(
@@ -204,6 +206,64 @@ test('content bridge reconnects only the visible TradingView session-interrupted
     });
 
     assert.equal(clicked, 1);
+});
+
+test('content bridge reads a fresh realtime TXF1 DOM quote as a fallback', () => {
+    const sent = [];
+    const realtimeMode = {};
+    const priceElement = {
+        textContent: '45,554',
+        parentElement: {
+            querySelector(selector) {
+                return selector === '.tv-data-mode--realtime' ? realtimeMode : null;
+            },
+        },
+    };
+    const displayedTime = { textContent: '截至今天09:45 [GMT+8]' };
+    class FakeMutationObserver {
+        observe() {}
+    }
+    const script = readFileSync(
+        new URL('../../scripts/taiex-futures-realtime/chrome-extension/content.js', import.meta.url),
+        'utf8',
+    );
+    const now = Date.UTC(2026, 7, 18, 1, 45, 30);
+    class FixedDate extends Date {
+        static now() { return now; }
+    }
+    const context = {
+        window: {
+            location: { pathname: '/symbols/TAIFEX-TXF1!/' },
+            addEventListener() {},
+        },
+        document: {
+            documentElement: {},
+            querySelector(selector) {
+                if (selector === '[data-qa-id="symbol-last-value"].js-symbol-last') return priceElement;
+                if (selector === '.js-symbol-lp-time') return displayedTime;
+                return null;
+            },
+            querySelectorAll: () => [],
+        },
+        MutationObserver: FakeMutationObserver,
+        chrome: {
+            runtime: {
+                sendMessage(message) { sent.push(message); },
+                lastError: null,
+            },
+        },
+        setTimeout() { return 1; },
+        setInterval() { return 1; },
+        Date: FixedDate,
+        Number,
+    };
+    vm.runInNewContext(script, context);
+
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].quote.price, 45554);
+    assert.equal(sent[0].quote.source_quote_at, Date.UTC(2026, 7, 18, 1, 45) / 1000);
+    assert.equal(sent[0].quote.is_tradable, true);
+    assert.equal(context.domQuoteFromPage(now + 76_000), null);
 });
 
 test('background watchdog reloads only for stale quotes during an active session', () => {

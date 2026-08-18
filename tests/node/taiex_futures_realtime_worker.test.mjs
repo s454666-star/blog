@@ -274,7 +274,41 @@ test('background watchdog prefers the dedicated TXF1 TradingView tab', () => {
     const settings = { id: 1, url: 'https://tw.tradingview.com/settings/#active-sessions' };
     const symbol = { id: 2, url: 'https://tw.tradingview.com/symbols/TAIFEX-TXF1!/' };
     assert.equal(context.selectTradingViewBridgeTab([settings, symbol]).id, 2);
-    assert.equal(context.selectTradingViewBridgeTab([settings]).id, 1);
+    assert.equal(context.selectTradingViewBridgeTab([settings]), null);
+});
+
+test('background watchdog prevents Chrome from discarding the dedicated bridge tab', async () => {
+    const backgroundScript = readFileSync(
+        new URL('../../scripts/taiex-futures-realtime/chrome-extension/background.js', import.meta.url),
+        'utf8',
+    );
+    const updates = [];
+    const context = {
+        chrome: {
+            alarms: { onAlarm: { addListener() {} } },
+            runtime: {
+                onInstalled: { addListener() {} },
+                onStartup: { addListener() {} },
+                onMessage: { addListener() {} },
+            },
+            tabs: {
+                update: async (id, properties) => {
+                    updates.push({ id, properties });
+                    return { id, ...properties };
+                },
+            },
+        },
+        fetch: async () => ({ ok: false }),
+        Date,
+        Number,
+    };
+    vm.runInNewContext(backgroundScript, context);
+
+    const tab = await context.protectBridgeTab({ id: 2 });
+    assert.equal(tab.autoDiscardable, false);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].id, 2);
+    assert.equal(updates[0].properties.autoDiscardable, false);
 });
 
 test('only fresh open-session quotes qualify for a one-second Redis refresh', () => {

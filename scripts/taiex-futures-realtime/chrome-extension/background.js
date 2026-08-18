@@ -1,4 +1,4 @@
-const TRADING_VIEW_HOME = 'https://tw.tradingview.com/';
+const TRADING_VIEW_SYMBOL_URL = 'https://tw.tradingview.com/symbols/TAIFEX-TXF1!/';
 const TRADING_VIEW_TAB_MATCH = 'https://tw.tradingview.com/*';
 const LOCAL_QUOTE_ENDPOINT = 'http://127.0.0.1:18765/tradingview-quote';
 const LOCAL_HEALTH_ENDPOINT = 'http://127.0.0.1:18765/health';
@@ -11,8 +11,25 @@ let healthCheckRunning = false;
 
 async function ensureTradingViewTab() {
     const tabs = await chrome.tabs.query({ url: TRADING_VIEW_TAB_MATCH });
-    if (tabs.length === 0) {
-        await chrome.tabs.create({ url: TRADING_VIEW_HOME, active: false });
+    const tab = selectTradingViewBridgeTab(tabs);
+    if (tab) {
+        return protectBridgeTab(tab);
+    }
+
+    const createdTab = await chrome.tabs.create({ url: TRADING_VIEW_SYMBOL_URL, active: false });
+
+    return protectBridgeTab(createdTab);
+}
+
+async function protectBridgeTab(tab) {
+    if (!tab?.id) {
+        return tab;
+    }
+
+    try {
+        return await chrome.tabs.update(tab.id, { autoDiscardable: false });
+    } catch {
+        return tab;
     }
 }
 
@@ -27,16 +44,12 @@ function bridgeHealthIsStale(health, now = Date.now()) {
 
 function selectTradingViewBridgeTab(tabs) {
     return tabs.find((tab) => String(tab.url || '').includes('/symbols/TAIFEX-TXF1'))
-        || tabs.find((tab) => String(tab.url || '').includes('/settings/'))
-        || tabs[0]
         || null;
 }
 
 async function reloadTradingViewBridgeTab() {
-    const tabs = await chrome.tabs.query({ url: TRADING_VIEW_TAB_MATCH });
-    const tab = selectTradingViewBridgeTab(tabs);
+    const tab = await ensureTradingViewTab();
     if (!tab?.id) {
-        await chrome.tabs.create({ url: TRADING_VIEW_HOME, active: false });
         return;
     }
 

@@ -8,8 +8,22 @@ const STALE_QUOTE_MS = 90_000;
 const RELOAD_COOLDOWN_MS = 120_000;
 const LAST_RELOAD_STORAGE_KEY = 'taiexFuturesLastWatchdogReloadAt';
 let healthCheckRunning = false;
+let ensureTradingViewTabPromise = null;
 
-async function ensureTradingViewTab() {
+function ensureTradingViewTab() {
+    if (ensureTradingViewTabPromise !== null) {
+        return ensureTradingViewTabPromise;
+    }
+
+    ensureTradingViewTabPromise = ensureTradingViewTabOnce()
+        .finally(() => {
+            ensureTradingViewTabPromise = null;
+        });
+
+    return ensureTradingViewTabPromise;
+}
+
+async function ensureTradingViewTabOnce() {
     const tabs = await chrome.tabs.query({ url: TRADING_VIEW_TAB_MATCH });
     const tab = selectTradingViewBridgeTab(tabs);
     if (tab) {

@@ -1,5 +1,5 @@
 const PAGE_BRIDGE_SOURCE = 'star-taiex-futures-page-bridge';
-const BRIDGE_VERSION = '1.6.0';
+const BRIDGE_VERSION = '1.7.0';
 const SESSION_INTERRUPTED_TEXT = '會話中斷';
 const SESSION_INTERRUPTED_DETAIL = '您的會話已結束';
 const RECONNECT_BUTTON_TEXT = '連接';

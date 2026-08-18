@@ -420,6 +420,52 @@ test('background watchdog verifies the dedicated tab even while quote health is 
     assert.equal(queryCalls, before + 1);
 });
 
+test('concurrent bridge checks create only one dedicated TradingView tab', async () => {
+    const backgroundScript = readFileSync(
+        new URL('../../scripts/taiex-futures-realtime/chrome-extension/background.js', import.meta.url),
+        'utf8',
+    );
+    const symbol = { id: 2, url: 'https://tw.tradingview.com/symbols/TAIFEX-TXF1!/' };
+    let createCalls = 0;
+    let resolveCreate;
+    const context = {
+        chrome: {
+            alarms: {
+                create: async () => new Promise(() => {}),
+                onAlarm: { addListener() {} },
+            },
+            runtime: {
+                onInstalled: { addListener() {} },
+                onStartup: { addListener() {} },
+                onMessage: { addListener() {} },
+            },
+            tabs: {
+                create: async () => {
+                    createCalls += 1;
+                    return new Promise((resolve) => {
+                        resolveCreate = () => resolve(symbol);
+                    });
+                },
+                query: async () => [],
+                update: async () => symbol,
+            },
+        },
+        fetch: async () => ({ ok: false }),
+        setTimeout() { return 1; },
+        Date,
+        Number,
+    };
+    vm.runInNewContext(backgroundScript, context);
+
+    const first = context.ensureTradingViewTab();
+    const second = context.ensureTradingViewTab();
+    assert.equal(first, second);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(createCalls, 1);
+    resolveCreate();
+    await Promise.all([first, second]);
+});
+
 test('only fresh open-session quotes qualify for a one-second Redis refresh', () => {
     const now = taipeiDate('2026-07-30T11:20:00');
     const quote = {

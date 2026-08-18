@@ -371,6 +371,55 @@ test('background watchdog prevents Chrome from discarding the dedicated bridge t
     assert.equal(updates[0].properties.autoDiscardable, false);
 });
 
+test('background watchdog verifies the dedicated tab even while quote health is fresh', async () => {
+    const backgroundScript = readFileSync(
+        new URL('../../scripts/taiex-futures-realtime/chrome-extension/background.js', import.meta.url),
+        'utf8',
+    );
+    const symbol = { id: 2, url: 'https://tw.tradingview.com/symbols/TAIFEX-TXF1!/' };
+    let queryCalls = 0;
+    const context = {
+        chrome: {
+            alarms: {
+                create: async () => new Promise(() => {}),
+                onAlarm: { addListener() {} },
+            },
+            runtime: {
+                onInstalled: { addListener() {} },
+                onStartup: { addListener() {} },
+                onMessage: { addListener() {} },
+            },
+            storage: { local: { get: async () => ({}), set: async () => {} } },
+            tabs: {
+                create: async () => symbol,
+                query: async () => {
+                    queryCalls += 1;
+                    return [symbol];
+                },
+                reload: async () => {},
+                update: async () => symbol,
+            },
+        },
+        fetch: async () => ({
+            ok: true,
+            json: async () => ({
+                market_session: 'day',
+                last_browser_quote_at: new Date().toISOString(),
+            }),
+        }),
+        setTimeout() { return 1; },
+        Date,
+        Number,
+    };
+    vm.runInNewContext(backgroundScript, context);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const before = queryCalls;
+    await context.maintainBridge();
+    assert.equal(queryCalls, before + 1);
+});
+
 test('only fresh open-session quotes qualify for a one-second Redis refresh', () => {
     const now = taipeiDate('2026-07-30T11:20:00');
     const quote = {

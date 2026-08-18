@@ -89,11 +89,17 @@ async function recoverStaleBridge() {
 }
 
 async function startBridgeWatchdog() {
-    await ensureTradingViewTab();
     await chrome.alarms.create(HEALTH_ALARM_NAME, {
         delayInMinutes: HEALTH_CHECK_PERIOD_MINUTES,
         periodInMinutes: HEALTH_CHECK_PERIOD_MINUTES,
     });
+
+    await maintainBridge();
+}
+
+async function maintainBridge() {
+    await ensureTradingViewTab();
+
     await recoverStaleBridge();
 }
 
@@ -107,8 +113,14 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === HEALTH_ALARM_NAME) {
-        recoverStaleBridge().catch(() => {});
+        maintainBridge().catch(() => {});
     }
+});
+
+chrome.tabs?.onRemoved?.addListener(() => {
+    setTimeout(() => {
+        ensureTradingViewTab().catch(() => {});
+    }, 500);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

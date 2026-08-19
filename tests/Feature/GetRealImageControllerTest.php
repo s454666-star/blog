@@ -11,6 +11,19 @@ use Tests\TestCase;
 
 class GetRealImageControllerTest extends TestCase
 {
+    public function test_it_returns_null_when_a_direct_image_host_is_unavailable(): void
+    {
+        $mock = new MockHandler([
+            new Response(522, ['Content-Type' => 'text/html'], 'Connection timed out'),
+        ]);
+
+        $controller = new GetRealImageController(new Client([
+            'handler' => HandlerStack::create($mock),
+        ]));
+
+        $this->assertNull($controller->processImage('https://ai18.pics/upload/example-FC2.jpg'));
+    }
+
     public function test_it_follows_soft_redirect_before_extracting_the_real_image_url(): void
     {
         $mock = new MockHandler([

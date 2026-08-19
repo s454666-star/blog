@@ -57,7 +57,11 @@ class BlogBtController
         }
 
         try {
-            Artisan::call('bt:reimport', ['url' => $detailUrl]);
+            $exitCode = Artisan::call('bt:reimport', ['url' => $detailUrl]);
+
+            if ((int) $exitCode !== 0) {
+                return back()->with('error', 'BT 重跑失敗，原有資料已保留。');
+            }
         } catch (Throwable $e) {
             report($e);
 

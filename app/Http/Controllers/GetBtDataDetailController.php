@@ -37,12 +37,12 @@ class GetBtDataDetailController
         ]);
     }
 
-    public function fetchDetail(string $detailPageUrl): void
+    public function fetchDetail(string $detailPageUrl, bool $replaceExisting = false): bool
     {
         $detailPageUrl = trim($detailPageUrl);
 
         if ($detailPageUrl === '') {
-            return;
+            return false;
         }
 
         $lock = $this->acquireDetailLock($detailPageUrl);
@@ -52,7 +52,7 @@ class GetBtDataDetailController
                 'url' => $detailPageUrl,
             ]);
 
-            return;
+            return false;
         }
 
         if ($lock === null) {
@@ -60,14 +60,14 @@ class GetBtDataDetailController
                 'url' => $detailPageUrl,
             ]);
 
-            return;
+            return false;
         }
 
         try {
-            if ($this->articleExists($detailPageUrl)) {
+            if (!$replaceExisting && $this->articleExists($detailPageUrl)) {
                 echo "文章已存在，跳過儲存。\r\n";
 
-                return;
+                return false;
             }
 
             $response = $this->client->request('GET', $detailPageUrl, ['verify' => false]);
@@ -123,19 +123,71 @@ class GetBtDataDetailController
                 $htmlContent = $response->getBody()->getContents();
             } while ($attempt < 5);
 
-            DB::transaction(function () use (
+            $resolvedImageUrls = [];
+            $failedImageHosts = [];
+
+            foreach (array_values(array_unique($imageUrls)) as $imageUrl) {
+                $imageHost = strtolower((string) parse_url($imageUrl, PHP_URL_HOST));
+
+                if ($imageHost !== '' && isset($failedImageHosts[$imageHost])) {
+                    continue;
+                }
+
+                try {
+                    $realUrl = $this->getRealImageController->processImage($imageUrl);
+
+                    if ($realUrl) {
+                        $resolvedImageUrls[] = $realUrl;
+                    } elseif ($imageHost !== '') {
+                        $failedImageHosts[$imageHost] = true;
+                    }
+                } catch (Exception $e) {
+                    if ($imageHost !== '') {
+                        $failedImageHosts[$imageHost] = true;
+                    }
+
+                    Log::error('圖片處理失敗', [
+                        'url' => $imageUrl,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            $resolvedImageUrls = array_values(array_unique($resolvedImageUrls));
+
+            if ($resolvedImageUrls === []) {
+                $officialFc2ImageUrl = $this->fetchOfficialFc2ImageUrl($title);
+
+                if ($officialFc2ImageUrl !== null) {
+                    $resolvedImageUrls[] = $officialFc2ImageUrl;
+                }
+            }
+
+            if ($resolvedImageUrls === []) {
+                Log::error('沒有找到可儲存的圖片，保留原有文章', ['url' => $detailPageUrl]);
+
+                return false;
+            }
+
+            return DB::transaction(function () use (
                 $detailPageUrl,
                 $title,
                 $magnetLink,
                 $downloadLink,
                 $articleTimeWithSeconds,
-                $imageUrls
-            ): void {
-                if ($this->articleExists($detailPageUrl)) {
-                    return;
+                $resolvedImageUrls,
+                $replaceExisting
+            ): bool {
+                $article = Article::query()
+                    ->where('source_type', self::SOURCE_TYPE_BT)
+                    ->where('detail_url', $detailPageUrl)
+                    ->first();
+
+                if ($article && !$replaceExisting) {
+                    return false;
                 }
 
-                $article = Article::create([
+                $attributes = [
                     'title' => $title,
                     'password' => $magnetLink,
                     'https_link' => $downloadLink,
@@ -143,45 +195,32 @@ class GetBtDataDetailController
                     'article_time' => $articleTimeWithSeconds,
                     'source_type' => self::SOURCE_TYPE_BT,
                     'is_disabled' => 0,
-                ]);
+                ];
 
-                if ($imageUrls === []) {
-                    Log::error('沒有找到圖片，儲存文章但無圖片', ['url' => $detailPageUrl]);
-
-                    return;
+                if ($article) {
+                    $article->forceFill($attributes)->save();
+                    $article->images()->delete();
+                } else {
+                    $article = new Article();
+                    $article->forceFill($attributes)->save();
                 }
 
-                foreach (array_values(array_unique($imageUrls)) as $imageUrl) {
-                    try {
-                        $realUrl = $this->getRealImageController->processImage($imageUrl);
-
-                        if (!$realUrl) {
-                            continue;
-                        }
-
-                        $existingImage = $article->images()
-                            ->where('image_path', $realUrl)
-                            ->exists();
-
-                        if (!$existingImage) {
-                            $article->images()->create([
-                                'image_name' => basename($realUrl),
-                                'image_path' => $realUrl,
-                            ]);
-                        }
-                    } catch (Exception $e) {
-                        Log::error('圖片處理失敗', [
-                            'url' => $imageUrl,
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
+                foreach ($resolvedImageUrls as $realUrl) {
+                    $article->images()->create([
+                        'image_name' => basename((string) parse_url($realUrl, PHP_URL_PATH)),
+                        'image_path' => $realUrl,
+                    ]);
                 }
+
+                return true;
             });
         } catch (GuzzleException $e) {
             Log::error('請求失敗', [
                 'url' => $detailPageUrl,
                 'error' => $e->getMessage(),
             ]);
+
+            return false;
         } finally {
             $this->releaseDetailLock($lock);
         }
@@ -193,6 +232,52 @@ class GetBtDataDetailController
             ->where('source_type', self::SOURCE_TYPE_BT)
             ->where('detail_url', $detailPageUrl)
             ->exists();
+    }
+
+    private function fetchOfficialFc2ImageUrl(string $title): ?string
+    {
+        if (preg_match('/FC2(?:-PPV)?-(\d+)/i', $title, $matches) !== 1) {
+            return null;
+        }
+
+        $officialUrl = 'https://adult.contents.fc2.com/article/' . $matches[1] . '/?lang=ja';
+
+        try {
+            $response = $this->client->request('GET', $officialUrl, [
+                'verify' => false,
+                'connect_timeout' => 5,
+                'timeout' => 20,
+                'headers' => [
+                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                ],
+            ]);
+
+            $dom = new DOMDocument();
+            @$dom->loadHTML($response->getBody()->getContents());
+            $xpath = new DOMXPath($dom);
+
+            foreach (['//meta[@property="og:image"]', '//meta[@name="twitter:image"]'] as $query) {
+                $node = $xpath->query($query)->item(0);
+                $imageUrl = $node ? trim(html_entity_decode($node->getAttribute('content'), ENT_QUOTES | ENT_HTML5)) : '';
+
+                if (filter_var($imageUrl, FILTER_VALIDATE_URL)) {
+                    Log::info('BT 原圖床無法使用，改用 FC2 官方封面', [
+                        'title' => $title,
+                        'image_url' => $imageUrl,
+                    ]);
+
+                    return $imageUrl;
+                }
+            }
+        } catch (Throwable $e) {
+            Log::warning('FC2 官方封面取得失敗', [
+                'title' => $title,
+                'url' => $officialUrl,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return null;
     }
 
     /**

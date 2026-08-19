@@ -81,6 +81,8 @@ class GetRealImageController
             $response = $this->client->request('GET', $currentUrl, [
                 'verify'      => false,
                 'http_errors' => false,  // 不拋例外
+                'connect_timeout' => 5,
+                'timeout' => 15,
                 'headers'     => [
                     'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                     'Accept'     => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',

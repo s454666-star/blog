@@ -1608,7 +1608,10 @@ function renderUnrealizedPnlHistory() {
         : finiteNumber(state.currentSummary?.unrealizedPnl ?? state.lastPayload?.summary?.unrealizedPnl);
     const currentDate = taipeiDateKey();
     const currentIndex = historyRows.findIndex(row => String(row.date || '') === currentDate);
-    const currentDateIsTradingDay = currentIndex >= 0 || Boolean(state.currentSummary?.marketOpen);
+    const hasCurrentIntradayPnl = (state.pnlSeries.todayPnl || []).length > 0;
+    const currentDateIsTradingDay = currentIndex >= 0
+        || Boolean(state.currentSummary?.marketOpen)
+        || hasCurrentIntradayPnl;
     if (currentUnrealizedPnl !== null && currentDateIsTradingDay) {
         const currentRow = { date: currentDate, unrealizedPnl: currentUnrealizedPnl };
         if (currentIndex >= 0) {

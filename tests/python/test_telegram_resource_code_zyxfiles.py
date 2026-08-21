@@ -29,12 +29,12 @@ def tearDownModule():
 
 
 class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
-    def test_default_decoder_is_zyxfiles2_bot(self):
+    def test_default_decoder_is_zyxfiles3_bot(self):
         request = MODULE.ProcessResourceCodeRequest(
             code="zyxfiles_A1-b2_C3",
             target_peer_id=3967395258,
         )
-        self.assertEqual("zyxfiles2_bot", request.bot_username)
+        self.assertEqual("zyxfiles3_bot", request.bot_username)
 
     def test_uncached_decoder_username_is_refreshed_from_telegram(self):
         refreshed_peer = object()
@@ -46,18 +46,18 @@ class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
             async def get_input_entity(self, _username):
                 raise ValueError("not in local entity cache")
 
-        MODULE._PEER_CACHE.pop("zyxfiles2_bot", None)
+        MODULE._PEER_CACHE.pop("zyxfiles3_bot", None)
         try:
             MODULE.client = FakeClient()
             MODULE._ensure_client_connected = AsyncMock(return_value=True)
             MODULE._refresh_peer_for_bot = AsyncMock(return_value=refreshed_peer)
 
-            resolved = asyncio.run(MODULE._get_peer_for_bot("zyxfiles2_bot"))
+            resolved = asyncio.run(MODULE._get_peer_for_bot("zyxfiles3_bot"))
         finally:
             MODULE.client = original_client
             MODULE._ensure_client_connected = original_ensure_connected
             MODULE._refresh_peer_for_bot = original_refresh
-            MODULE._PEER_CACHE.pop("zyxfiles2_bot", None)
+            MODULE._PEER_CACHE.pop("zyxfiles3_bot", None)
 
         self.assertIs(refreshed_peer, resolved)
 

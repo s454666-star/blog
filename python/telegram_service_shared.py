@@ -62,6 +62,10 @@ DOWNLOAD_SEEN_KEYS: Set[str] = set()
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
 RESOURCE_CODE_LOCK = asyncio.Lock()
 MEDIA_DEDUPE_LOCK = asyncio.Lock()
+RESOURCE_CODE_POLL_READ_TIMEOUT_SECONDS = max(
+    1.0,
+    float(os.environ.get("TELEGRAM_RESOURCE_CODE_POLL_READ_TIMEOUT_SECONDS", "20")),
+)
 MEDIA_DEDUPE_DB_PATH = os.environ.get(
     "TELEGRAM_MEDIA_DEDUPE_DB_PATH",
     "/var/lib/blog-telegram/epan-media-dedupe.sqlite3",
@@ -5255,7 +5259,18 @@ async def _resource_code_bot_media(
         )
 
     while asyncio.get_running_loop().time() < deadline:
-        messages = await client.get_messages(peer, limit=1000, min_id=int(sent_message_id))
+        try:
+            messages = await asyncio.wait_for(
+                client.get_messages(peer, limit=1000, min_id=int(sent_message_id)),
+                timeout=RESOURCE_CODE_POLL_READ_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            push_log(
+                stage="resource_code_process",
+                result="poll_timeout",
+            )
+            await asyncio.sleep(min(1.0, float(poll_interval_seconds)))
+            continue
         media_candidates = [
             msg
             for msg in (messages or [])

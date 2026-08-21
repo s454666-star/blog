@@ -165,6 +165,35 @@ class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
         self.assertIsNone(declared_count)
         self.assertEqual([b"next"], clicked)
 
+    def test_hung_poll_is_bounded_by_the_resource_code_deadline(self):
+        class HungClient:
+            async def get_messages(self, _peer, limit, min_id):
+                await asyncio.Event().wait()
+
+        original_client = MODULE.client
+        original_poll_timeout = MODULE.RESOURCE_CODE_POLL_READ_TIMEOUT_SECONDS
+        try:
+            MODULE.client = HungClient()
+            MODULE.RESOURCE_CODE_POLL_READ_TIMEOUT_SECONDS = 0.01
+            result = asyncio.run(MODULE._resource_code_bot_media(
+                peer=object(),
+                code="zyxfiles_timeout_A1-b2",
+                sent_message_id=100,
+                wait_timeout_seconds=0.04,
+                poll_interval_seconds=0.01,
+                settle_seconds=0.01,
+            ))
+        finally:
+            MODULE.client = original_client
+            MODULE.RESOURCE_CODE_POLL_READ_TIMEOUT_SECONDS = original_poll_timeout
+
+        media_messages, reply_ids, outcome, expected_count, declared_count = result
+        self.assertEqual([], media_messages)
+        self.assertEqual([], reply_ids)
+        self.assertEqual("timeout", outcome)
+        self.assertIsNone(expected_count)
+        self.assertIsNone(declared_count)
+
 
 if __name__ == "__main__":
     unittest.main()

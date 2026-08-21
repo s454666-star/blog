@@ -1,0 +1,27 @@
+{
+  "api_id": 0,
+  "api_hash": "set-locally",
+  "phone": "set-locally",
+  "tdl_path": "C:\\path\\to\\tdl.exe",
+  "tdl_namespace": "account-name",
+  "download_dir": "D:\\tg-temp",
+  "image_target_title": "set-locally",
+  "image_target_peer_id": 0,
+  "sources": [
+    {
+      "alias": "source1",
+      "title": "set-locally",
+      "peer_id": 0,
+      "delete_source": false
+    }
+  ],
+  "tdl_threads": 8,
+  "rescan_seconds": 300,
+  "error_retry_seconds": 300,
+  "state_recovery_scan_max_message_id": 100000,
+  "seven_zip_path": "C:\\Program Files\\7-Zip\\7z.exe",
+  "archive_work_dir": "D:\\tg-temp\\.archive-work",
+  "archive_password_lookup_messages": 2000,
+  "inventory_max_messages": 2000,
+  "archive_password_fallbacks": []
+}

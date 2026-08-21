@@ -3555,7 +3555,7 @@ class RegisterMediaHashRequest(BaseModel):
 
 class ProcessResourceCodeRequest(BaseModel):
     code: str
-    bot_username: str = "zyxfiles2_bot"
+    bot_username: str = "zyxfiles3_bot"
     target_peer_id: int
     wait_timeout_seconds: int = 240
     poll_interval_seconds: float = 1.5

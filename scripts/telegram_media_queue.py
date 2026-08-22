@@ -21,7 +21,7 @@ from typing import Any
 
 from telethon import TelegramClient, utils
 from telethon.errors import FloodWaitError, SessionPasswordNeededError
-from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError, MessageIdInvalidError
+from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError, MessageIdInvalidError, PhotoSaveFileInvalidError
 from telethon.tl.types import (
     DocumentAttributeAnimated,
     DocumentAttributeFilename,
@@ -813,6 +813,19 @@ async def extract_zip_once(archive_path: Path, output_dir: Path, seven_zip: str,
     return process.returncode == 0
 
 
+async def send_archive_image(client: TelegramClient, image_target: Any, path: Path) -> Any:
+    try:
+        return await client.send_file(image_target, str(path), caption=None, force_document=False)
+    except PhotoSaveFileInvalidError:
+        safe_log(
+            "archive_image_document_fallback",
+            kind="image",
+            status="retry_force_document",
+            error_class="PhotoSaveFileInvalidError",
+        )
+        return await client.send_file(image_target, str(path), caption=None, force_document=True)
+
+
 def extracted_file_kind(path: Path) -> str | None:
     extension = path.suffix.lower()
     if extension in VIDEO_FILE_EXTENSIONS:
@@ -964,7 +977,7 @@ async def process_archive(
                     anonymous_name=anonymous_name,
                 )
             else:
-                sent = await client.send_file(image_target, str(path), caption=None)
+                sent = await send_archive_image(client, image_target, path)
                 if isinstance(sent, list):
                     sent = sent[0] if len(sent) == 1 else None
                 target_message_id = int(getattr(sent, "id", 0) or 0)

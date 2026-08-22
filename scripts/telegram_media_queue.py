@@ -21,7 +21,12 @@ from typing import Any
 
 from telethon import TelegramClient, utils
 from telethon.errors import FloodWaitError, SessionPasswordNeededError
-from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError, MessageIdInvalidError, PhotoSaveFileInvalidError
+from telethon.errors.rpcerrorlist import (
+    ChatForwardsRestrictedError,
+    MessageIdInvalidError,
+    PhotoInvalidDimensionsError,
+    PhotoSaveFileInvalidError,
+)
 from telethon.tl.types import (
     DocumentAttributeAnimated,
     DocumentAttributeFilename,
@@ -816,12 +821,12 @@ async def extract_zip_once(archive_path: Path, output_dir: Path, seven_zip: str,
 async def send_archive_image(client: TelegramClient, image_target: Any, path: Path) -> Any:
     try:
         return await client.send_file(image_target, str(path), caption=None, force_document=False)
-    except PhotoSaveFileInvalidError:
+    except (PhotoSaveFileInvalidError, PhotoInvalidDimensionsError) as error:
         safe_log(
             "archive_image_document_fallback",
             kind="image",
             status="retry_force_document",
-            error_class="PhotoSaveFileInvalidError",
+            error_class=error.__class__.__name__,
         )
         return await client.send_file(image_target, str(path), caption=None, force_document=True)
 

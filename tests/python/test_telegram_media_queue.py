@@ -20,19 +20,19 @@ class TelegramMediaQueueTest(unittest.TestCase):
         calls = []
         events = []
 
-        class FixturePhotoSaveFileInvalidError(Exception):
+        class PhotoSaveFileInvalidError(Exception):
             pass
 
         class FixtureClient:
             async def send_file(self, target, path, **kwargs):
                 calls.append(kwargs)
                 if len(calls) == 1:
-                    raise FixturePhotoSaveFileInvalidError()
+                    raise PhotoSaveFileInvalidError()
                 return SimpleNamespace(id=321)
 
         original_error = QUEUE.PhotoSaveFileInvalidError
         original_safe_log = QUEUE.safe_log
-        QUEUE.PhotoSaveFileInvalidError = FixturePhotoSaveFileInvalidError
+        QUEUE.PhotoSaveFileInvalidError = PhotoSaveFileInvalidError
         QUEUE.safe_log = lambda event, **fields: events.append((event, fields))
         try:
             sent = asyncio.run(QUEUE.send_archive_image(FixtureClient(), "fixture-target", Path("fixture.jpg")))
@@ -44,6 +44,35 @@ class TelegramMediaQueueTest(unittest.TestCase):
         self.assertEqual([False, True], [call["force_document"] for call in calls])
         self.assertEqual("archive_image_document_fallback", events[0][0])
         self.assertEqual("PhotoSaveFileInvalidError", events[0][1]["error_class"])
+
+    def test_archive_image_retries_invalid_dimensions_as_document(self):
+        calls = []
+        events = []
+
+        class PhotoInvalidDimensionsError(Exception):
+            pass
+
+        class FixtureClient:
+            async def send_file(self, target, path, **kwargs):
+                calls.append(kwargs)
+                if len(calls) == 1:
+                    raise PhotoInvalidDimensionsError()
+                return SimpleNamespace(id=654)
+
+        original_error = QUEUE.PhotoInvalidDimensionsError
+        original_safe_log = QUEUE.safe_log
+        QUEUE.PhotoInvalidDimensionsError = PhotoInvalidDimensionsError
+        QUEUE.safe_log = lambda event, **fields: events.append((event, fields))
+        try:
+            sent = asyncio.run(QUEUE.send_archive_image(FixtureClient(), "fixture-target", Path("fixture.jpg")))
+        finally:
+            QUEUE.PhotoInvalidDimensionsError = original_error
+            QUEUE.safe_log = original_safe_log
+
+        self.assertEqual(654, sent.id)
+        self.assertEqual([False, True], [call["force_document"] for call in calls])
+        self.assertEqual("archive_image_document_fallback", events[0][0])
+        self.assertEqual("PhotoInvalidDimensionsError", events[0][1]["error_class"])
 
     def test_password_tokens_are_limited_to_explicit_password_labels(self):
         self.assertEqual(["@fixture665"], QUEUE.archive_password_tokens("密碼：@fixture665"))

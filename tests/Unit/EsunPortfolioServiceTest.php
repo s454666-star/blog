@@ -177,6 +177,80 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame('現股', $row['tradeTypeLabel']);
     }
 
+    public function test_it_merges_duplicate_esun_inventory_rows_for_the_same_cash_holding(): void
+    {
+        $service = new EsunPortfolioService();
+        $format = new ReflectionMethod($service, 'formatInventoryRow');
+        $merge = new ReflectionMethod($service, 'mergeInventoryRows');
+        $history = ['previousClose' => 13385.0];
+
+        $first = $format->invoke($service, [
+            'cost_qty' => '4',
+            'cost_sum' => '-54418',
+            'make_a_per' => '5.53',
+            'make_a_sum' => '3010',
+            'price_avg' => '13597.50',
+            'price_evn' => '13664.97',
+            'price_mkt' => '14420',
+            'price_qty_sum' => '54390',
+            'qty_b' => '4',
+            'qty_s' => '0',
+            'stk_dats' => [['qty' => 4]],
+            'stk_na' => '川湖',
+            'stk_no' => '2059',
+            's_type' => 'H',
+            'trade' => '0',
+            'value_mkt' => '57680',
+        ], $history);
+        $second = $format->invoke($service, [
+            'cost_qty' => '10',
+            'cost_sum' => '-141976',
+            'make_a_per' => '0.22',
+            'make_a_sum' => '319',
+            'price_avg' => '14190.00',
+            'price_evn' => '14248.06',
+            'price_mkt' => '14280',
+            'price_qty_sum' => '141900',
+            'qty_b' => '6',
+            'qty_s' => '0',
+            'stk_dats' => [['qty' => 10]],
+            'stk_na' => '川湖',
+            'stk_no' => '2059',
+            's_type' => 'L',
+            'trade' => '0',
+            'value_mkt' => '142800',
+        ], $history);
+
+        $rows = $merge->invoke($service, [$first, $second]);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('2059', $rows[0]['stockNo']);
+        $this->assertSame('0', $rows[0]['tradeType']);
+        $this->assertSame(14.0, $rows[0]['quantity']);
+        $this->assertSame(200480.0, $rows[0]['marketValue']);
+        $this->assertSame(196394.0, $rows[0]['costBasis']);
+        $this->assertSame(3329.0, $rows[0]['unrealizedPnl']);
+        $this->assertSame(13090.0, $rows[0]['todayPnl']);
+        $this->assertSame(14320.0, $rows[0]['currentPrice']);
+        $this->assertEqualsWithDelta(14020.714285, $rows[0]['averagePrice'], 0.000001);
+        $this->assertSame(2, $rows[0]['lotCount']);
+        $this->assertCount(2, $rows[0]['lots']);
+        $this->assertSame('mixed', $rows[0]['positionType']);
+    }
+
+    public function test_it_keeps_cash_and_margin_inventory_rows_separate(): void
+    {
+        $service = new EsunPortfolioService();
+        $merge = new ReflectionMethod($service, 'mergeInventoryRows');
+
+        $rows = $merge->invoke($service, [
+            ['stockNo' => '2059', 'tradeType' => '0', 'quantity' => 10],
+            ['stockNo' => '2059', 'tradeType' => '3', 'quantity' => 20],
+        ]);
+
+        $this->assertCount(2, $rows);
+    }
+
     public function test_it_includes_exchange_badge_metadata(): void
     {
         $service = new EsunPortfolioService();

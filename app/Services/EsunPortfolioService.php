@@ -650,9 +650,10 @@ class EsunPortfolioService
 
                 return $this->formatInventoryRow($row, $history[$stockNo] ?? [], $exchanges[$stockNo] ?? []);
             })
-            ->sortBy('stockNo')
             ->values()
             ->all();
+        $rows = $this->mergeInventoryRows($rows);
+        usort($rows, fn (array $left, array $right): int => strcmp($left['stockNo'], $right['stockNo']));
         $rows = $this->annotateTodayAddedQuantities(
             $rows,
             $this->previousDailySnapshotRows(EsunPortfolioDailySnapshot::class, $now),
@@ -808,6 +809,100 @@ class EsunPortfolioService
                 'marginLoan' => $tradeType === '3' ? max(0.0, $priceAmount - $cashCostBasis) : 0.0,
             ],
         ];
+    }
+
+    /**
+     * E.SUN can return separate board-lot and odd-lot inventory records for the
+     * same holding. The dashboard identifies a position by stock and trade type,
+     * so combine those records before calculating portfolio totals.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function mergeInventoryRows(array $rows): array
+    {
+        return collect($rows)
+            ->groupBy(fn (array $row): string => $this->portfolioPositionKey($row) ?? uniqid('inventory:', true))
+            ->map(function ($group): array {
+                $group = collect($group)->values();
+                $merged = $group->first();
+                if ($group->count() === 1) {
+                    return $merged;
+                }
+
+                $sum = fn (string $field): float => $group->sum(
+                    fn (array $row): float => $this->number($row[$field] ?? 0),
+                );
+                $nullableSum = function (string $field) use ($group, $sum): ?float {
+                    return $group->contains(fn (array $row): bool => ($row[$field] ?? null) !== null)
+                        ? $sum($field)
+                        : null;
+                };
+                $weightedAverage = function (string $field) use ($group): ?float {
+                    $weightedTotal = 0.0;
+                    $totalQuantity = 0.0;
+                    foreach ($group as $row) {
+                        if (($row[$field] ?? null) === null) {
+                            continue;
+                        }
+
+                        $quantity = max(0.0, $this->number($row['quantity'] ?? 0));
+                        $weightedTotal += $this->number($row[$field]) * $quantity;
+                        $totalQuantity += $quantity;
+                    }
+
+                    return $totalQuantity > 0 ? $weightedTotal / $totalQuantity : null;
+                };
+
+                $quantity = $sum('quantity');
+                $currentPrice = $weightedAverage('currentPrice') ?? 0.0;
+                $previousClose = $weightedAverage('previousClose');
+                $costBasis = $sum('costBasis');
+                $unrealizedPnl = $sum('unrealizedPnl');
+
+                foreach ([
+                    'quantity',
+                    'priceAmount',
+                    'marketValue',
+                    'esunMarketValue',
+                    'costBasis',
+                    'signedCostBasis',
+                    'cashCostBasis',
+                    'unrealizedPnl',
+                    'esunUnrealizedPnl',
+                ] as $field) {
+                    $merged[$field] = $sum($field);
+                }
+
+                $merged['currentPrice'] = $currentPrice;
+                $merged['esunCurrentPrice'] = $weightedAverage('esunCurrentPrice') ?? $currentPrice;
+                $merged['realtimePnlBasePrice'] = $weightedAverage('realtimePnlBasePrice') ?? $currentPrice;
+                $merged['previousClose'] = $previousClose;
+                $merged['dayChange'] = $previousClose === null ? null : $currentPrice - $previousClose;
+                $merged['dayChangeRate'] = $previousClose > 0
+                    ? ($currentPrice - $previousClose) / $previousClose * 100
+                    : null;
+                $merged['todayPnl'] = $nullableSum('todayPnl');
+                $merged['esunTodayPnl'] = $nullableSum('esunTodayPnl');
+                $merged['averagePrice'] = $weightedAverage('averagePrice') ?? 0.0;
+                $merged['breakevenPrice'] = $weightedAverage('breakevenPrice') ?? 0.0;
+                $merged['unrealizedPnlRate'] = $costBasis > 0 ? $unrealizedPnl / $costBasis * 100 : null;
+                $merged['lotCount'] = (int) $sum('lotCount');
+                $merged['lots'] = $group->flatMap(fn (array $row): array => $row['lots'] ?? [])->values()->all();
+                $merged['positionType'] = $group->pluck('positionType')->unique()->count() === 1
+                    ? (string) $group->first()['positionType']
+                    : 'mixed';
+                $merged['raw'] = [
+                    'qtyBuy' => $group->sum(fn (array $row): float => $this->number($row['raw']['qtyBuy'] ?? 0)),
+                    'qtySell' => $group->sum(fn (array $row): float => $this->number($row['raw']['qtySell'] ?? 0)),
+                    'apiReturnRate' => $costBasis > 0 ? $unrealizedPnl / $costBasis * 100 : null,
+                    'marginLoan' => $group->sum(fn (array $row): float => $this->number($row['raw']['marginLoan'] ?? 0)),
+                ];
+
+                return $merged;
+            })
+            ->values()
+            ->all();
     }
 
     private function marginSummary(array $rows, array $raw): array

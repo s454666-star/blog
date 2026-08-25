@@ -16,6 +16,8 @@ class TwStockEpsGrowthRankingsTest extends TestCase
 
     private int $forecastPhase = 1;
 
+    private bool $includeNeutralEstimates = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -88,7 +90,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->first();
         $this->assertSame('1111', $firstPlace->stock_code);
         $this->assertEqualsWithDelta(200, (float) $firstPlace->growth_sum, 0.001);
-        $this->assertEqualsWithDelta(70.8333, (float) $firstPlace->weighted_score, 0.001);
+        $this->assertEqualsWithDelta(66.9811, (float) $firstPlace->weighted_score, 0.001);
         $this->assertNull($firstPlace->rank_change);
         $this->assertEqualsWithDelta(100, (float) $firstPlace->close_price, 0.001);
 
@@ -150,7 +152,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('歷史週快照')
             ->assertSee('營收成長預估')
             ->assertSee('加權分')
-            ->assertSee('70.83')
+            ->assertSee('66.98')
             ->assertDontSee('冠軍 · #1')
             ->assertDontSee('亞軍 · #2')
             ->assertDontSee('季軍 · #3')
@@ -219,10 +221,74 @@ class TwStockEpsGrowthRankingsTest extends TestCase
 
         $this->assertSame('1111', $oldFirst->stock_code);
         $this->assertNull($oldFirst->previous_rank);
-        $this->assertEqualsWithDelta(70.8333, (float) $oldFirst->weighted_score, 0.001);
+        $this->assertEqualsWithDelta(66.9811, (float) $oldFirst->weighted_score, 0.001);
         $this->assertSame('2222', $newFirst->stock_code);
         $this->assertSame(2, (int) $newFirst->previous_rank);
         $this->assertSame(1, (int) $newFirst->rank_change);
+    }
+
+    public function test_refresh_includes_requested_neutral_estimates_and_labels_them(): void
+    {
+        $this->includeNeutralEstimates = true;
+        $this->insertPrices('2026-08-11', 100, 200);
+        $this->insertNeutralPrices('2026-08-11');
+
+        $this->artisan('tw-stock:refresh-eps-growth-rankings', [
+            '--date' => '2026-08-11',
+            '--lookback-days' => 35,
+            '--sleep-ms' => 0,
+            '--minimum-eligible' => 4,
+        ])->assertSuccessful();
+
+        $run = DB::table('tw_stock_eps_growth_runs')->first();
+        $this->assertSame(4, (int) $run->forecast_count);
+        $this->assertSame(4, (int) $run->eligible_count);
+
+        $fulltech = DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '2455')->first();
+        $landmark = DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '3081')->first();
+        $this->assertNotNull($fulltech);
+        $this->assertNotNull($landmark);
+        $this->assertSame(1, (int) $fulltech->is_neutral_estimate);
+        $this->assertSame(1, (int) $landmark->is_neutral_estimate);
+        $this->assertEqualsWithDelta(8.2626, (float) $fulltech->eps_2028, 0.001);
+        $this->assertEqualsWithDelta(15.2433, (float) $landmark->eps_2028, 0.001);
+
+        DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '2455')->update(['rank' => 51]);
+        DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '3081')->update(['rank' => 52]);
+
+        $this->get(route('tw-stock.eps-growth-rankings.index'))
+            ->assertOk()
+            ->assertSee('全新')
+            ->assertSee('聯亞')
+            ->assertSee('中性估算')
+            ->assertSee('全新、聯亞的 2028E 參考估算');
+    }
+
+    public function test_backfill_adds_neutral_estimates_without_replacing_snapshots_and_is_idempotent(): void
+    {
+        $this->insertPrices('2026-08-11', 100, 200);
+        $this->insertNeutralPrices('2026-08-11');
+        $this->artisan('tw-stock:refresh-eps-growth-rankings', [
+            '--date' => '2026-08-11',
+            '--lookback-days' => 35,
+            '--sleep-ms' => 0,
+            '--minimum-eligible' => 2,
+        ])->assertSuccessful();
+        $runId = (int) DB::table('tw_stock_eps_growth_runs')->value('id');
+
+        $this->includeNeutralEstimates = true;
+        $this->artisan('tw-stock:backfill-neutral-eps-growth-estimates', ['--sleep-ms' => 0])
+            ->assertSuccessful();
+        $this->artisan('tw-stock:backfill-neutral-eps-growth-estimates', ['--sleep-ms' => 0])
+            ->assertSuccessful();
+
+        $this->assertSame(1, DB::table('tw_stock_eps_growth_runs')->count());
+        $this->assertSame($runId, (int) DB::table('tw_stock_eps_growth_runs')->value('id'));
+        $this->assertSame(4, DB::table('tw_stock_eps_growth_rankings')->count());
+        $this->assertSame(2, DB::table('tw_stock_eps_growth_rankings')->where('is_neutral_estimate', true)->count());
+        $run = DB::table('tw_stock_eps_growth_runs')->first();
+        $this->assertSame(4, (int) $run->forecast_count);
+        $this->assertSame(4, (int) $run->eligible_count);
     }
 
     public function test_incomplete_source_fails_closed_without_creating_a_snapshot(): void
@@ -248,12 +314,18 @@ class TwStockEpsGrowthRankingsTest extends TestCase
                     ? [12, 18, 27]
                     : [30, 45, 67.5];
 
+                $articles = [
+                    $this->forecastArticle(9001 + $this->forecastPhase, '1111', '甲公司', [8, 12, 18]),
+                    $this->forecastArticle(9101 + $this->forecastPhase, '2222', '乙公司', $secondForecast),
+                ];
+                if ($this->includeNeutralEstimates) {
+                    $articles[] = $this->neutralForecastArticle(9201, '2455', '全新', [2.95, 5.39, 7.12], [3426000, 4298000, 5115000]);
+                    $articles[] = $this->neutralForecastArticle(9301, '3081', '聯亞', [4.16, 8.8, 12.56], [2176500, 3181500, 3924500]);
+                }
+
                 return Http::response([
                     'items' => [
-                        'data' => [
-                            $this->forecastArticle(9001 + $this->forecastPhase, '1111', '甲公司', [8, 12, 18]),
-                            $this->forecastArticle(9101 + $this->forecastPhase, '2222', '乙公司', $secondForecast),
-                        ],
+                        'data' => $articles,
                         'last_page' => 1,
                     ],
                 ]);
@@ -261,7 +333,13 @@ class TwStockEpsGrowthRankingsTest extends TestCase
 
             if (str_starts_with($request->url(), 'https://example.test/finmind')) {
                 parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
-                $annualEps = ($query['data_id'] ?? '') === '1111' ? 4.0 : 10.0;
+                $annualEps = match ($query['data_id'] ?? '') {
+                    '1111' => 4.0,
+                    '2222' => 10.0,
+                    '2455' => 2.96,
+                    '3081' => 4.66,
+                    default => 0.0,
+                };
 
                 return Http::response([
                     'data' => collect(range(1, 4))->map(fn (int $quarter): array => [
@@ -294,6 +372,33 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             'publishAt' => 1786467600 + $this->forecastPhase,
             'title' => "鉅亨速報 - Factset 最新調查：{$name}({$code}-TW)EPS預估",
             'content' => '<p>共8位分析師</p>' . $table($eps) . $table([100000, 120000, 150000]),
+        ];
+    }
+
+    /**
+     * @param array{float|int, float|int, float|int} $eps
+     * @param array{float|int, float|int, float|int} $revenue
+     * @return array<string, mixed>
+     */
+    private function neutralForecastArticle(
+        int $newsId,
+        string $code,
+        string $name,
+        array $eps,
+        array $revenue,
+    ): array {
+        $table = static fn (array $values): string => sprintf(
+            '<table><tr><td>預估值</td><td>2025年</td><td>2026年</td><td>2027年</td></tr><tr><td>中位數</td><td>%s</td><td>%s</td><td>%s</td></tr></table>',
+            $values[0],
+            $values[1],
+            $values[2],
+        );
+
+        return [
+            'newsId' => $newsId,
+            'publishAt' => 1786467600 + $this->forecastPhase,
+            'title' => "鉅亨速報 - Factset 最新調查：{$name}({$code}-TW)EPS預估",
+            'content' => '<p>共9位分析師</p>'.$table($eps).$table($revenue),
         ];
     }
 
@@ -351,6 +456,35 @@ class TwStockEpsGrowthRankingsTest extends TestCase
         DB::table('tw_stock_daily_prices')->insertOrIgnore($rows);
     }
 
+    private function insertNeutralPrices(string $date): void
+    {
+        $now = now();
+        DB::table('tw_stock_daily_prices')->insert([
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '2455',
+                'stock_name' => '全新',
+                'trade_date' => $date,
+                'close_price' => 419.5,
+                'volume_lots' => 1,
+                'volume_shares' => 1000,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            [
+                'exchange' => 'TPEx',
+                'stock_code' => '3081',
+                'stock_name' => '聯亞',
+                'trade_date' => $date,
+                'close_price' => 1000,
+                'volume_lots' => 1,
+                'volume_shares' => 1000,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+        ]);
+    }
+
     private function createTables(): void
     {
         Schema::connection('sqlite')->create('tw_stock_daily_prices', function (Blueprint $table): void {
@@ -399,6 +533,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             $table->decimal('growth_2027_2028', 14, 4);
             $table->decimal('growth_sum', 14, 4);
             $table->decimal('weighted_score', 7, 4)->nullable();
+            $table->boolean('is_neutral_estimate')->default(false);
             $table->bigInteger('revenue_2026_thousands')->nullable();
             $table->bigInteger('revenue_2027_thousands')->nullable();
             $table->bigInteger('revenue_2028_thousands')->nullable();

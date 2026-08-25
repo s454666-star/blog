@@ -26,8 +26,12 @@ class TwStockEpsGrowthRankingController extends Controller
             ? $availableRuns->firstWhere('id', $requestedRunId)
             : $availableRuns->first();
 
+        $neutralEstimateCodes = config('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', []);
         $rows = $run?->rankings()
-            ->where('rank', '<=', 50)
+            ->where(function ($query) use ($neutralEstimateCodes): void {
+                $query->where('rank', '<=', 50)
+                    ->orWhereIn('stock_code', $neutralEstimateCodes);
+            })
             ->orderBy('rank')
             ->get() ?? collect();
         $this->attachMovingAveragePositions($rows, $run?->price_date?->toDateString());
@@ -47,6 +51,7 @@ class TwStockEpsGrowthRankingController extends Controller
                 'up' => $rows->where('rank_change', '>', 0)->count(),
                 'down' => $rows->where('rank_change', '<', 0)->count(),
                 'flat' => $rows->filter(fn ($row): bool => $row->rank_change === 0)->count(),
+                'neutral_estimates' => $rows->where('is_neutral_estimate', true)->count(),
                 'positive_all_three' => $rows->filter(fn ($row): bool =>
                     $row->growth_2025_2026 > 0
                     && $row->growth_2026_2027 > 0

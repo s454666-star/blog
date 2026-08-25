@@ -253,7 +253,7 @@
 
         .summary-grid {
             display: grid;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-columns: repeat(6, minmax(0, 1fr));
             gap: 12px;
             margin: 16px 0;
         }
@@ -516,6 +516,19 @@
             font-weight: 850;
         }
 
+        .neutral-estimate {
+            display: inline-flex;
+            margin-left: 5px;
+            padding: 3px 7px;
+            border: 1px solid rgba(196, 167, 255, 0.38);
+            border-radius: 999px;
+            color: #d9c7ff;
+            background: rgba(145, 104, 222, 0.15);
+            font-size: 0.58rem;
+            font-weight: 900;
+            vertical-align: middle;
+        }
+
         .empty-state {
             padding: 70px 24px;
             border-radius: 22px;
@@ -570,7 +583,7 @@
         <h1>台股三年 <span>EPS 成長排行</span></h1>
         <p class="hero-copy">
             將 2025→2026、2026→2027、2027→2028 三段 EPS 年增率換算為百分位分數，
-            依 2.5：2.5：1 加權後以滿分 100 排名，並同步追蹤最新收盤價與前次週排行。
+            依 1.8：2.5：1 加權後以滿分 100 排名，並同步追蹤最新收盤價與前次週排行。
         </p>
 
         <div class="hero-meta">
@@ -633,6 +646,11 @@
                 <div class="summary-label">連續正成長</div>
                 <div class="summary-value" style="color: var(--violet)">{{ $summary['positive_all_three'] }}</div>
                 <div class="summary-note">三段年增率均大於 0</div>
+            </article>
+            <article class="summary-card glass" style="--accent: #d8b4fe">
+                <div class="summary-label">中性情境</div>
+                <div class="summary-value" style="color: #d9c7ff">{{ $summary['neutral_estimates'] }}</div>
+                <div class="summary-note">全新、聯亞的 2028E 參考估算</div>
             </article>
         </section>
 
@@ -701,6 +719,7 @@
                                 <div class="stock-name">
                                     {{ $row->stock_name }}
                                     @if ($row->low_base)<span class="low-base">低基期</span>@endif
+                                    @if ($row->is_neutral_estimate)<span class="neutral-estimate">中性估算</span>@endif
                                 </div>
                                 <div class="stock-meta">
                                     {{ $row->stock_code }}
@@ -757,8 +776,10 @@
             <div>
                 <strong>計算方式：</strong>
                 三段年增率各自在當週完整樣本中換算為 0～100 百分位分數，再以
-                <span class="formula">(25→26分×2.5 + 26→27分×2.5 + 27→28分×1) ÷ 6</span>
+                <span class="formula">(25→26分×1.8 + 26→27分×2.5 + 27→28分×1) ÷ 5.3</span>
                 算出滿分 100 的加權分並排序；同分時以原始加權成長率決勝。2025A 為四季 EPS 加總；2026E～2028E 與營收成長展望為各股票最新可取得的 FactSet 中位數。排行是相對分數，不等於投資品質。
+                全新（2455）與聯亞（3081）若 FactSet 尚缺 2028E，會以最新 2026E、2027E 共識為基礎，將 2026→2027 成長率折半（限制於 0～30%）作為中性 2028E 年增率，並以「中性估算」標示。
+                兩檔為固定參考列；即使實際名次低於第 50 名，仍會顯示在前 50 名表格後方。
             </div>
             <div>資料每週一更新</div>
         </aside>

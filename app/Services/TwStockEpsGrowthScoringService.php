@@ -5,16 +5,16 @@ namespace App\Services;
 class TwStockEpsGrowthScoringService
 {
     private const GROWTH_WEIGHTS = [
-        'growth_2025_2026' => 2.5,
+        'growth_2025_2026' => 1.8,
         'growth_2026_2027' => 2.5,
         'growth_2027_2028' => 1.0,
     ];
 
-    private const TOTAL_WEIGHT = 6.0;
+    private const TOTAL_WEIGHT = 5.3;
 
     /**
      * Convert each growth stage to a 0-100 percentile score, apply the
-     * 2.5:2.5:1 weights, then rank by the resulting weighted score.
+     * 1.8:2.5:1 weights, then rank by the resulting weighted score.
      *
      * @param list<array<string, mixed>> $rows
      * @return list<array<string, mixed>>

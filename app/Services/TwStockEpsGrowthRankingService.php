@@ -105,6 +105,7 @@ class TwStockEpsGrowthRankingService
                         'growth_2027_2028' => $row['growth_2027_2028'],
                         'growth_sum' => $row['growth_sum'],
                         'weighted_score' => $row['weighted_score'],
+                        'is_neutral_estimate' => $row['is_neutral_estimate'],
                         'revenue_2026_thousands' => $row['revenue_2026_thousands'],
                         'revenue_2027_thousands' => $row['revenue_2027_thousands'],
                         'revenue_2028_thousands' => $row['revenue_2028_thousands'],
@@ -127,6 +128,36 @@ class TwStockEpsGrowthRankingService
             'run' => $run,
             'top_rows' => $topRows,
         ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function neutralEstimateRows(
+        CarbonImmutable $snapshotDate,
+        int $lookbackDays,
+        int $sleepMs,
+    ): array {
+        $forecastResult = $this->fetchLatestForecasts($snapshotDate, $lookbackDays);
+        $forecasts = array_filter(
+            $forecastResult['forecasts'],
+            fn (array $forecast): bool => (bool) ($forecast['is_neutral_estimate'] ?? false),
+        );
+        if ($forecasts === []) {
+            return [];
+        }
+
+        $actuals = $this->fetchActualEps(array_keys($forecasts), $sleepMs);
+        $rows = $this->buildEligibleRows($forecasts, $actuals);
+        $priceMap = $this->latestPriceMap(array_column($rows, 'stock_code'), $snapshotDate);
+        foreach ($rows as &$row) {
+            $price = $priceMap[$row['stock_code']] ?? null;
+            $row['price_date'] = $price['price_date'] ?? null;
+            $row['close_price'] = $price['close_price'] ?? null;
+        }
+        unset($row);
+
+        return $rows;
     }
 
     /**
@@ -220,12 +251,20 @@ class TwStockEpsGrowthRankingService
 
         $headerRows = $this->tableRows($tables[0]);
         $header = $headerRows[0] ?? [];
-        if (
-            count($header) < 4
-            || preg_match('/^2026年/u', $header[1]) !== 1
-            || preg_match('/^2027年/u', $header[2]) !== 1
-            || preg_match('/^2028年/u', $header[3]) !== 1
-        ) {
+        $isCompleteForecast = count($header) >= 4
+            && preg_match('/^2026年/u', $header[1]) === 1
+            && preg_match('/^2027年/u', $header[2]) === 1
+            && preg_match('/^2028年/u', $header[3]) === 1;
+        $isNeutralEstimate = in_array(
+            $codeMatch[1],
+            config('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', []),
+            true,
+        )
+            && count($header) >= 4
+            && preg_match('/^2025年/u', $header[1]) === 1
+            && preg_match('/^2026年/u', $header[2]) === 1
+            && preg_match('/^2027年/u', $header[3]) === 1;
+        if (!$isCompleteForecast && !$isNeutralEstimate) {
             return null;
         }
 
@@ -234,6 +273,19 @@ class TwStockEpsGrowthRankingService
             return null;
         }
         $revenue = $this->medianValues($tables[1]);
+
+        $eps2026 = $isNeutralEstimate ? $eps[1] : $eps[0];
+        $eps2027 = $isNeutralEstimate ? $eps[2] : $eps[1];
+        $eps2028 = $isNeutralEstimate
+            ? round($eps2027 * (1 + $this->neutral2028Growth($eps2026, $eps2027)), 4)
+            : $eps[2];
+        $revenue2026 = $revenue === null ? null : ($isNeutralEstimate ? $revenue[1] : $revenue[0]);
+        $revenue2027 = $revenue === null ? null : ($isNeutralEstimate ? $revenue[2] : $revenue[1]);
+        $revenue2028 = $revenue === null
+            ? null
+            : ($isNeutralEstimate
+                ? $revenue2027 * (1 + $this->neutral2028Growth($revenue2026, $revenue2027))
+                : $revenue[2]);
 
         $analystCount = null;
         if (preg_match('/共(\d+)位分析師/u', strip_tags($html), $analystMatch) === 1) {
@@ -256,13 +308,28 @@ class TwStockEpsGrowthRankingService
                 : null,
             'news_id' => isset($article['newsId']) ? (int) $article['newsId'] : null,
             'analyst_count' => $analystCount,
-            'eps_2026' => $eps[0],
-            'eps_2027' => $eps[1],
-            'eps_2028' => $eps[2],
-            'revenue_2026_thousands' => $revenue === null ? null : (int) round($revenue[0]),
-            'revenue_2027_thousands' => $revenue === null ? null : (int) round($revenue[1]),
-            'revenue_2028_thousands' => $revenue === null ? null : (int) round($revenue[2]),
+            'eps_2026' => $eps2026,
+            'eps_2027' => $eps2027,
+            'eps_2028' => $eps2028,
+            'revenue_2026_thousands' => $revenue2026 === null ? null : (int) round($revenue2026),
+            'revenue_2027_thousands' => $revenue2027 === null ? null : (int) round($revenue2027),
+            'revenue_2028_thousands' => $revenue2028 === null ? null : (int) round($revenue2028),
+            'is_neutral_estimate' => $isNeutralEstimate,
         ];
+    }
+
+    private function neutral2028Growth(float $earlierValue, float $laterValue): float
+    {
+        if ($earlierValue <= 0 || $laterValue <= 0) {
+            return 0.0;
+        }
+
+        $growth = (($laterValue / $earlierValue) - 1)
+            * (float) config('tw_stock.eps_growth_ranking.neutral_2028_growth_retention', 0.5);
+        $minimum = (float) config('tw_stock.eps_growth_ranking.neutral_2028_growth_min', 0.0);
+        $maximum = (float) config('tw_stock.eps_growth_ranking.neutral_2028_growth_max', 0.3);
+
+        return min($maximum, max($minimum, $growth));
     }
 
     /**

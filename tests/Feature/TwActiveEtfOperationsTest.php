@@ -318,7 +318,9 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertSee('detail_sort=amount', false)
             ->assertSee('近期主動 ETF 淨增持排行')
             ->assertSee('<option value="5" selected>最近 5 日</option>', false)
-            ->assertSeeInOrder(['力成', '+500 張', '信驊', '+12 張'])
+            ->assertSee('淨增持金額')
+            ->assertSee('按各操作日收盤價換算')
+            ->assertSee('NT$ 6,000.0萬')
             ->assertSee('總金額')
             ->assertSee('1.3億')
             ->assertSee('-2,500 張')
@@ -354,17 +356,37 @@ class TwActiveEtfOperationsTest extends TestCase
         DB::table('tw_active_etf_operation_items')->insert(
             $this->itemRow($secondReportId, '00981A', '主動統一台股增', '2026-06-30', '6239', '力成', 'add', '加碼', 300),
         );
+        $previousReportId = DB::table('tw_active_etf_operation_reports')->insertGetId([
+            'etf_code' => '00403A',
+            'etf_name' => '主動統一升級50',
+            'operation_date' => '2026-06-29',
+            'source_kind' => 'cmoney_dtno',
+            'source_url' => 'https://www.cmoney.tw/forum/stock/00403A',
+            'source_row_count' => 1,
+            'changed_row_count' => 1,
+            'fetched_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        DB::table('tw_active_etf_operation_items')->insert(
+            $this->itemRow($previousReportId, '00403A', '主動統一升級50', '2026-06-29', '6239', '力成', 'add', '加碼', 100),
+        );
+        DB::table('tw_stock_daily_prices')->insert(
+            $this->dailyPriceRow('6239', '力成', '2026-06-29', 100.00),
+        );
 
         $this->get(route('tw-stock.active-etf-operations.index', ['ranking_days' => 10]))
             ->assertOk()
             ->assertSee('<option value="10" selected>最近 10 日</option>', false)
-            ->assertSee('+800 張')
+            ->assertSee('NT$ 1.1億')
+            ->assertSee('title="NT$ 106,000,000"', false)
             ->assertSee('2 檔 ETF')
             ->assertSee('00403A、00981A');
 
         $this->get(route('tw-stock.active-etf-operations.index', ['ranking_days' => 1]))
             ->assertOk()
-            ->assertSee('<option value="1" selected>最近 1 日</option>', false);
+            ->assertSee('<option value="1" selected>最近 1 日</option>', false)
+            ->assertSee('title="NT$ 96,000,000"', false);
     }
 
     private function createTables(): void

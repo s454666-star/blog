@@ -202,6 +202,7 @@ class TwActiveEtfOperationController extends Controller
             'stockIncreaseRankingFrom' => $stockIncreaseRanking['from'],
             'stockIncreaseRankingTo' => $stockIncreaseRanking['to'],
             'stockIncreaseRankingDateCount' => $stockIncreaseRanking['date_count'],
+            'stockIncreaseRankingIncompleteCount' => $stockIncreaseRanking['incomplete_stock_count'],
             'marketSort' => $marketSort,
             'marketDirection' => $marketDirection,
             'detailSort' => $detailSort,
@@ -234,7 +235,7 @@ class TwActiveEtfOperationController extends Controller
     }
 
     /**
-     * @return array{rows: Collection<int, array<string, mixed>>, from: ?string, to: ?string, date_count: int}
+     * @return array{rows: Collection<int, array<string, mixed>>, from: ?string, to: ?string, date_count: int, incomplete_stock_count: int}
      */
     private function buildStockIncreaseRanking(int $days): array
     {
@@ -252,31 +253,53 @@ class TwActiveEtfOperationController extends Controller
                 'from' => null,
                 'to' => null,
                 'date_count' => 0,
+                'incomplete_stock_count' => 0,
             ];
         }
 
         $from = (string) $dates->min();
         $to = (string) $dates->max();
 
-        $rows = TwActiveEtfOperationItem::query()
-            ->whereBetween('operation_date', [$from, $to])
-            ->get(['operation_date', 'etf_code', 'stock_code', 'stock_name', 'change_lots'])
-            ->groupBy('stock_code')
+        $itemsByStock = $this->attachOperationAmounts(
+            TwActiveEtfOperationItem::query()
+                ->whereBetween('operation_date', [$from, $to])
+                ->get(['operation_date', 'etf_code', 'stock_code', 'stock_name', 'change_lots'])
+        )->groupBy('stock_code');
+
+        $incompleteStockCount = $itemsByStock
+            ->filter(fn (Collection $items): bool => $items->contains(
+                fn (TwActiveEtfOperationItem $item): bool => $item->getAttribute('operation_total_amount') === null,
+            ))
+            ->count();
+
+        $rows = $itemsByStock
             ->map(function (Collection $items, string $stockCode): array {
                 $latestItem = $items->sortByDesc('operation_date')->first();
+                $missingPriceCount = $items->filter(
+                    fn (TwActiveEtfOperationItem $item): bool => $item->getAttribute('operation_total_amount') === null,
+                )->count();
+                $netIncreaseAmount = $items->sum(function (TwActiveEtfOperationItem $item): int {
+                    $amount = $item->getAttribute('operation_total_amount');
+                    if ($amount === null) {
+                        return 0;
+                    }
+
+                    return (float) $item->change_lots < 0 ? -(int) $amount : (int) $amount;
+                });
 
                 return [
                     'stock_code' => $stockCode,
                     'stock_name' => (string) $latestItem->stock_name,
-                    'net_change_lots' => (float) $items->sum('change_lots'),
+                    'net_increase_amount' => (int) $netIncreaseAmount,
+                    'missing_price_count' => $missingPriceCount,
                     'etf_count' => $items->pluck('etf_code')->unique()->count(),
                     'etf_codes' => $items->pluck('etf_code')->unique()->sort()->values()->all(),
                     'operation_count' => $items->count(),
                 ];
             })
-            ->filter(fn (array $row): bool => $row['net_change_lots'] > 0)
+            ->filter(fn (array $row): bool => $row['missing_price_count'] === 0 && $row['net_increase_amount'] > 0)
             ->sort(function (array $left, array $right): int {
-                return ($right['net_change_lots'] <=> $left['net_change_lots'])
+                return ($right['net_increase_amount'] <=> $left['net_increase_amount'])
                     ?: ($right['etf_count'] <=> $left['etf_count'])
                     ?: strcmp($left['stock_code'], $right['stock_code']);
             })
@@ -292,6 +315,7 @@ class TwActiveEtfOperationController extends Controller
             'from' => $from,
             'to' => $to,
             'date_count' => $dates->count(),
+            'incomplete_stock_count' => $incompleteStockCount,
         ];
     }
 

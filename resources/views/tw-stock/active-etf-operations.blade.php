@@ -1132,7 +1132,10 @@
                 <h2 class="ledger-title">近期主動 ETF 淨增持排行</h2>
                 <div class="ledger-meta" style="text-align: left; margin-top: 4px;">
                     全部 ETF 加總 · {{ $stockIncreaseRankingFrom ?? 'N/A' }} ~ {{ $stockIncreaseRankingTo ?? 'N/A' }}
-                    （實際 {{ number_format($stockIncreaseRankingDateCount) }} 個報告日）
+                    （實際 {{ number_format($stockIncreaseRankingDateCount) }} 個報告日）· 按各操作日收盤價換算
+                    @if ($stockIncreaseRankingIncompleteCount > 0)
+                        · {{ number_format($stockIncreaseRankingIncompleteCount) }} 檔缺歷史股價未列入
+                    @endif
                 </div>
             </div>
             <form class="ranking-period" method="get" action="{{ route('tw-stock.active-etf-operations.index') }}">
@@ -1152,7 +1155,7 @@
         </div>
 
         @if ($stockIncreaseRanking->isEmpty())
-            <div class="empty">這個區間沒有淨增持大於 0 的股票。</div>
+            <div class="empty">這個區間沒有淨增持金額大於 0 且歷史股價完整的股票。</div>
         @else
             <div class="table-wrap desktop-ledger">
                 <table class="ranking-table">
@@ -1160,7 +1163,7 @@
                     <tr>
                         <th>排名</th>
                         <th>股票</th>
-                        <th class="numeric-cell">淨增持張數</th>
+                        <th class="numeric-cell">淨增持金額</th>
                         <th class="numeric-cell">涵蓋 ETF</th>
                         <th>ETF 明細</th>
                     </tr>
@@ -1175,7 +1178,11 @@
                                     <span>{{ $row['stock_code'] }}</span>
                                 </div>
                             </td>
-                            <td class="numeric-cell"><strong class="change-lots change-positive">+{{ number_format($row['net_change_lots'], 0) }} 張</strong></td>
+                            <td class="numeric-cell">
+                                <strong class="change-lots change-positive" title="NT$ {{ number_format($row['net_increase_amount']) }}">
+                                    NT$ {{ $formatTradeValue($row['net_increase_amount']) }}
+                                </strong>
+                            </td>
                             <td class="numeric-cell">{{ number_format($row['etf_count']) }} 檔 ETF</td>
                             <td class="ranking-etfs" title="{{ implode('、', $row['etf_codes']) }}">{{ implode('、', $row['etf_codes']) }}</td>
                         </tr>
@@ -1192,7 +1199,7 @@
                                 <strong>#{{ $row['rank'] }} {{ $row['stock_name'] }}</strong>
                                 <span>{{ $row['stock_code'] }}</span>
                             </div>
-                            <strong class="change-positive">+{{ number_format($row['net_change_lots'], 0) }} 張</strong>
+                            <strong class="change-positive" title="NT$ {{ number_format($row['net_increase_amount']) }}">NT$ {{ $formatTradeValue($row['net_increase_amount']) }}</strong>
                         </div>
                         <div class="ranking-card-body">
                             <div class="mobile-metric"><span>涵蓋 ETF</span><strong>{{ number_format($row['etf_count']) }} 檔</strong></div>

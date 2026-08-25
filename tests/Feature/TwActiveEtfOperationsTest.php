@@ -316,9 +316,10 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertSee('42.7億')
             ->assertSee('market_sort=price', false)
             ->assertSee('detail_sort=amount', false)
-            ->assertSee('近期主動 ETF 淨增持排行')
+            ->assertSee('近期主動 ETF 買超排行')
+            ->assertSee('<option value="buy" selected>買超排行</option>', false)
             ->assertSee('<option value="5" selected>最近 5 日</option>', false)
-            ->assertSee('淨增持金額')
+            ->assertSee('淨買超金額')
             ->assertSee('按各操作日收盤價換算')
             ->assertSee('NT$ 6,000.0萬')
             ->assertSee('總金額')
@@ -332,6 +333,15 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertSee('mobile-operations', false)
             ->assertDontSee('來源')
             ->assertDontSee('CMoney');
+
+        $this->get(route('tw-stock.active-etf-operations.index', ['ranking_type' => 'sell']))
+            ->assertOk()
+            ->assertSee('近期主動 ETF 賣超排行')
+            ->assertSee('<option value="sell" selected>賣超排行</option>', false)
+            ->assertSee('<option value="5" selected>最近 5 日</option>', false)
+            ->assertSee('淨賣超金額')
+            ->assertSee('title="NT$ 125,000,000"', false)
+            ->assertSeeInOrder(['近期主動 ETF 賣超排行', '頎邦', '台積電']);
 
         $this->get(route('tw-stock.active-etf-operations.index', [
             'from' => '2026-06-30',
@@ -387,6 +397,14 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertOk()
             ->assertSee('<option value="1" selected>最近 1 日</option>', false)
             ->assertSee('title="NT$ 96,000,000"', false);
+
+        $this->get(route('tw-stock.active-etf-operations.index', [
+            'ranking_type' => 'sell',
+            'ranking_days' => 1,
+        ]))
+            ->assertOk()
+            ->assertSee('<option value="sell" selected>賣超排行</option>', false)
+            ->assertSee('<option value="1" selected>最近 1 日</option>', false);
     }
 
     private function createTables(): void

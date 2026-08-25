@@ -16,6 +16,11 @@ class TwActiveEtfOperationController extends Controller
 {
     private const RANKING_DAY_OPTIONS = [1, 5, 10, 20];
 
+    private const RANKING_TYPES = [
+        'buy' => '買超排行',
+        'sell' => '賣超排行',
+    ];
+
     private const ACTIONS = [
         'all' => '全部',
         'new' => '新增',
@@ -56,6 +61,7 @@ class TwActiveEtfOperationController extends Controller
 
         $keyword = trim((string) $request->query('q', ''));
         $rankingDays = $this->resolveRankingDays($request);
+        $rankingType = $this->resolveRankingType($request);
         [$marketSort, $marketDirection] = $this->resolveSort($request, 'market_sort', 'market_dir', self::MARKET_SORTS, 'volume', 'desc');
         [$detailSort, $detailDirection] = $this->resolveSort($request, 'detail_sort', 'detail_dir', self::DETAIL_SORTS, 'amount', 'desc');
 
@@ -187,7 +193,7 @@ class TwActiveEtfOperationController extends Controller
             ->map(fn (Collection $group): int => $group->count());
 
         $etfCards = $this->buildEtfCards($cardReports, $cardItems, $quoteEtfs);
-        $stockIncreaseRanking = $this->buildStockIncreaseRanking($rankingDays);
+        $stockNetRanking = $this->buildStockNetRanking($rankingDays, $rankingType);
 
         return view('tw-stock.active-etf-operations', [
             'from' => $from->toDateString(),
@@ -198,11 +204,13 @@ class TwActiveEtfOperationController extends Controller
             'keyword' => $keyword,
             'rankingDays' => $rankingDays,
             'rankingDayOptions' => self::RANKING_DAY_OPTIONS,
-            'stockIncreaseRanking' => $stockIncreaseRanking['rows'],
-            'stockIncreaseRankingFrom' => $stockIncreaseRanking['from'],
-            'stockIncreaseRankingTo' => $stockIncreaseRanking['to'],
-            'stockIncreaseRankingDateCount' => $stockIncreaseRanking['date_count'],
-            'stockIncreaseRankingIncompleteCount' => $stockIncreaseRanking['incomplete_stock_count'],
+            'rankingType' => $rankingType,
+            'rankingTypes' => self::RANKING_TYPES,
+            'stockNetRanking' => $stockNetRanking['rows'],
+            'stockNetRankingFrom' => $stockNetRanking['from'],
+            'stockNetRankingTo' => $stockNetRanking['to'],
+            'stockNetRankingDateCount' => $stockNetRanking['date_count'],
+            'stockNetRankingIncompleteCount' => $stockNetRanking['incomplete_stock_count'],
             'marketSort' => $marketSort,
             'marketDirection' => $marketDirection,
             'detailSort' => $detailSort,
@@ -234,10 +242,17 @@ class TwActiveEtfOperationController extends Controller
         return in_array($days, self::RANKING_DAY_OPTIONS, true) ? $days : 5;
     }
 
+    private function resolveRankingType(Request $request): string
+    {
+        $type = (string) $request->query('ranking_type', 'buy');
+
+        return array_key_exists($type, self::RANKING_TYPES) ? $type : 'buy';
+    }
+
     /**
      * @return array{rows: Collection<int, array<string, mixed>>, from: ?string, to: ?string, date_count: int, incomplete_stock_count: int}
      */
-    private function buildStockIncreaseRanking(int $days): array
+    private function buildStockNetRanking(int $days, string $rankingType): array
     {
         $dates = TwActiveEtfOperationReport::query()
             ->select('operation_date')
@@ -278,7 +293,7 @@ class TwActiveEtfOperationController extends Controller
                 $missingPriceCount = $items->filter(
                     fn (TwActiveEtfOperationItem $item): bool => $item->getAttribute('operation_total_amount') === null,
                 )->count();
-                $netIncreaseAmount = $items->sum(function (TwActiveEtfOperationItem $item): int {
+                $netAmount = $items->sum(function (TwActiveEtfOperationItem $item): int {
                     $amount = $item->getAttribute('operation_total_amount');
                     if ($amount === null) {
                         return 0;
@@ -290,16 +305,18 @@ class TwActiveEtfOperationController extends Controller
                 return [
                     'stock_code' => $stockCode,
                     'stock_name' => (string) $latestItem->stock_name,
-                    'net_increase_amount' => (int) $netIncreaseAmount,
+                    'net_amount' => (int) $netAmount,
+                    'ranking_amount' => abs((int) $netAmount),
                     'missing_price_count' => $missingPriceCount,
                     'etf_count' => $items->pluck('etf_code')->unique()->count(),
                     'etf_codes' => $items->pluck('etf_code')->unique()->sort()->values()->all(),
                     'operation_count' => $items->count(),
                 ];
             })
-            ->filter(fn (array $row): bool => $row['missing_price_count'] === 0 && $row['net_increase_amount'] > 0)
+            ->filter(fn (array $row): bool => $row['missing_price_count'] === 0
+                && ($rankingType === 'sell' ? $row['net_amount'] < 0 : $row['net_amount'] > 0))
             ->sort(function (array $left, array $right): int {
-                return ($right['net_increase_amount'] <=> $left['net_increase_amount'])
+                return ($right['ranking_amount'] <=> $left['ranking_amount'])
                     ?: ($right['etf_count'] <=> $left['etf_count'])
                     ?: strcmp($left['stock_code'], $right['stock_code']);
             })

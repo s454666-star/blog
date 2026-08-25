@@ -456,6 +456,7 @@
         .ranking-period {
             display: flex;
             align-items: center;
+            flex-wrap: wrap;
             gap: 8px;
         }
 
@@ -1129,21 +1130,27 @@
     <section class="ledger-panel ranking-panel">
         <div class="ledger-head">
             <div>
-                <h2 class="ledger-title">近期主動 ETF 淨增持排行</h2>
+                <h2 class="ledger-title">近期主動 ETF {{ $rankingTypes[$rankingType] }}</h2>
                 <div class="ledger-meta" style="text-align: left; margin-top: 4px;">
-                    全部 ETF 加總 · {{ $stockIncreaseRankingFrom ?? 'N/A' }} ~ {{ $stockIncreaseRankingTo ?? 'N/A' }}
-                    （實際 {{ number_format($stockIncreaseRankingDateCount) }} 個報告日）· 按各操作日收盤價換算
-                    @if ($stockIncreaseRankingIncompleteCount > 0)
-                        · {{ number_format($stockIncreaseRankingIncompleteCount) }} 檔缺歷史股價未列入
+                    全部 ETF 加總 · {{ $stockNetRankingFrom ?? 'N/A' }} ~ {{ $stockNetRankingTo ?? 'N/A' }}
+                    （實際 {{ number_format($stockNetRankingDateCount) }} 個報告日）· 按各操作日收盤價換算
+                    @if ($stockNetRankingIncompleteCount > 0)
+                        · {{ number_format($stockNetRankingIncompleteCount) }} 檔缺歷史股價未列入
                     @endif
                 </div>
             </div>
             <form class="ranking-period" method="get" action="{{ route('tw-stock.active-etf-operations.index') }}">
-                @foreach (request()->except('ranking_days') as $name => $value)
+                @foreach (request()->except(['ranking_type', 'ranking_days']) as $name => $value)
                     @if (is_scalar($value))
                         <input type="hidden" name="{{ $name }}" value="{{ $value }}">
                     @endif
                 @endforeach
+                <label for="ranking_type">排行類型</label>
+                <select id="ranking_type" name="ranking_type" onchange="this.form.submit()">
+                    @foreach ($rankingTypes as $type => $label)
+                        <option value="{{ $type }}" @selected($rankingType === $type)>{{ $label }}</option>
+                    @endforeach
+                </select>
                 <label for="ranking_days">統計區間</label>
                 <select id="ranking_days" name="ranking_days" onchange="this.form.submit()">
                     @foreach ($rankingDayOptions as $days)
@@ -1154,8 +1161,8 @@
             </form>
         </div>
 
-        @if ($stockIncreaseRanking->isEmpty())
-            <div class="empty">這個區間沒有淨增持金額大於 0 且歷史股價完整的股票。</div>
+        @if ($stockNetRanking->isEmpty())
+            <div class="empty">這個區間沒有淨{{ $rankingType === 'sell' ? '賣超' : '買超' }}金額大於 0 且歷史股價完整的股票。</div>
         @else
             <div class="table-wrap desktop-ledger">
                 <table class="ranking-table">
@@ -1163,13 +1170,13 @@
                     <tr>
                         <th>排名</th>
                         <th>股票</th>
-                        <th class="numeric-cell">淨增持金額</th>
+                        <th class="numeric-cell">淨{{ $rankingType === 'sell' ? '賣超' : '買超' }}金額</th>
                         <th class="numeric-cell">涵蓋 ETF</th>
                         <th>ETF 明細</th>
                     </tr>
                     </thead>
                     <tbody>
-                    @foreach ($stockIncreaseRanking as $row)
+                    @foreach ($stockNetRanking as $row)
                         <tr>
                             <td class="rank-number">#{{ $row['rank'] }}</td>
                             <td>
@@ -1179,8 +1186,8 @@
                                 </div>
                             </td>
                             <td class="numeric-cell">
-                                <strong class="change-lots change-positive" title="NT$ {{ number_format($row['net_increase_amount']) }}">
-                                    NT$ {{ $formatTradeValue($row['net_increase_amount']) }}
+                                <strong class="change-lots {{ $rankingType === 'sell' ? 'change-negative' : 'change-positive' }}" title="NT$ {{ number_format($row['ranking_amount']) }}">
+                                    NT$ {{ $formatTradeValue($row['ranking_amount']) }}
                                 </strong>
                             </td>
                             <td class="numeric-cell">{{ number_format($row['etf_count']) }} 檔 ETF</td>
@@ -1192,14 +1199,14 @@
             </div>
 
             <div class="mobile-ranking">
-                @foreach ($stockIncreaseRanking as $row)
+                @foreach ($stockNetRanking as $row)
                     <article class="ranking-card">
                         <div class="ranking-card-head">
                             <div class="stock-line">
                                 <strong>#{{ $row['rank'] }} {{ $row['stock_name'] }}</strong>
                                 <span>{{ $row['stock_code'] }}</span>
                             </div>
-                            <strong class="change-positive" title="NT$ {{ number_format($row['net_increase_amount']) }}">NT$ {{ $formatTradeValue($row['net_increase_amount']) }}</strong>
+                            <strong class="{{ $rankingType === 'sell' ? 'change-negative' : 'change-positive' }}" title="NT$ {{ number_format($row['ranking_amount']) }}">NT$ {{ $formatTradeValue($row['ranking_amount']) }}</strong>
                         </div>
                         <div class="ranking-card-body">
                             <div class="mobile-metric"><span>涵蓋 ETF</span><strong>{{ number_format($row['etf_count']) }} 檔</strong></div>

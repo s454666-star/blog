@@ -472,6 +472,23 @@
             box-shadow: inset 0 0 22px rgba(64, 204, 255, 0.05);
         }
 
+        .weighted-score {
+            display: inline-flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 4px;
+            min-width: 92px;
+            padding: 8px 11px;
+            border: 1px solid rgba(255, 211, 105, 0.42);
+            border-radius: 11px;
+            color: #ffd976;
+            background: linear-gradient(135deg, rgba(255, 194, 71, 0.18), rgba(255, 107, 131, 0.08));
+            font-weight: 950;
+            box-shadow: 0 0 24px rgba(255, 194, 71, 0.1), inset 0 0 18px rgba(255, 223, 133, 0.05);
+        }
+
+        .weighted-score small { color: #9baccc; font-size: 0.62rem; }
+
         .rank-change {
             display: inline-flex;
             align-items: center;
@@ -552,8 +569,8 @@
         <div class="eyebrow">TW EQUITY GROWTH RADAR</div>
         <h1>台股三年 <span>EPS 成長排行</span></h1>
         <p class="hero-copy">
-            將 2025→2026、2026→2027、2027→2028 三段 EPS 年增率分別計算後直接相加。
-            排名聚焦獲利斜率，並以最新收盤價與前次週排行同步追蹤。
+            將 2025→2026、2026→2027、2027→2028 三段 EPS 年增率換算為百分位分數，
+            依 2.5：2.5：1 加權後以滿分 100 排名，並同步追蹤最新收盤價與前次週排行。
         </p>
 
         <div class="hero-meta">
@@ -595,7 +612,7 @@
             <article class="summary-card glass" style="--accent: #67e8f9">
                 <div class="summary-label">本期第一名</div>
                 <div class="summary-value">{{ $rows->first()?->stock_name ?? '—' }}</div>
-                <div class="summary-note">三段合計 {{ number_format($rows->first()?->growth_sum ?? 0, 1) }}%</div>
+                <div class="summary-note">加權分 {{ number_format($rows->first()?->weighted_score ?? 0, 2) }} / 100</div>
             </article>
             <article class="summary-card glass" style="--accent: #ff6b83">
                 <div class="summary-label">排名上升</div>
@@ -651,6 +668,7 @@
                         <th>25→26</th>
                         <th>26→27</th>
                         <th>27→28</th>
+                        <th>加權分</th>
                         <th>三段合計</th>
                         <th>營收成長預估</th>
                         <th>分析師</th>
@@ -716,6 +734,7 @@
                             @foreach ([$row->growth_2025_2026, $row->growth_2026_2027, $row->growth_2027_2028] as $growth)
                                 <td class="{{ $growth >= 0 ? 'positive' : 'negative' }}">{{ $growth >= 0 ? '+' : '' }}{{ number_format($growth, 1) }}%</td>
                             @endforeach
+                            <td><span class="weighted-score">{{ number_format($row->weighted_score, 2) }} <small>/ 100</small></span></td>
                             <td><span class="sum-score">{{ number_format($row->growth_sum, 1) }}%</span></td>
                             <td title="FactSet 營收中位數年增預估">
                                 @if ($revenueGrowth2627 !== null && $revenueGrowth2728 !== null)
@@ -737,8 +756,9 @@
         <aside class="method-note glass">
             <div>
                 <strong>計算方式：</strong>
-                <span class="formula">(2026E÷2025A−1) + (2027E÷2026E−1) + (2028E÷2027E−1)</span>。
-                2025A 為四季 EPS 加總；2026E～2028E 與營收成長展望為各股票最新可取得的 FactSet 中位數。低基期與遠期預估可能放大名次，排行不等於投資品質。
+                三段年增率各自在當週完整樣本中換算為 0～100 百分位分數，再以
+                <span class="formula">(25→26分×2.5 + 26→27分×2.5 + 27→28分×1) ÷ 6</span>
+                算出滿分 100 的加權分並排序；同分時以原始加權成長率決勝。2025A 為四季 EPS 加總；2026E～2028E 與營收成長展望為各股票最新可取得的 FactSet 中位數。排行是相對分數，不等於投資品質。
             </div>
             <div>資料每週一更新</div>
         </aside>

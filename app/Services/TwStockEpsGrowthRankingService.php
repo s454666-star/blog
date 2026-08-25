@@ -13,6 +13,10 @@ use Throwable;
 
 class TwStockEpsGrowthRankingService
 {
+    public function __construct(private readonly TwStockEpsGrowthScoringService $scoring)
+    {
+    }
+
     /**
      * @return array{run: TwStockEpsGrowthRun, top_rows: list<array<string, mixed>>}
      */
@@ -100,6 +104,7 @@ class TwStockEpsGrowthRankingService
                         'growth_2026_2027' => $row['growth_2026_2027'],
                         'growth_2027_2028' => $row['growth_2027_2028'],
                         'growth_sum' => $row['growth_sum'],
+                        'weighted_score' => $row['weighted_score'],
                         'revenue_2026_thousands' => $row['revenue_2026_thousands'],
                         'revenue_2027_thousands' => $row['revenue_2027_thousands'],
                         'revenue_2028_thousands' => $row['revenue_2028_thousands'],
@@ -394,19 +399,7 @@ class TwStockEpsGrowthRankingService
             ];
         }
 
-        usort($rows, function (array $left, array $right): int {
-            $growthComparison = $right['growth_sum'] <=> $left['growth_sum'];
-
-            return $growthComparison !== 0
-                ? $growthComparison
-                : $left['stock_code'] <=> $right['stock_code'];
-        });
-        foreach ($rows as $index => &$row) {
-            $row['rank'] = $index + 1;
-        }
-        unset($row);
-
-        return $rows;
+        return $this->scoring->scoreAndRank($rows);
     }
 
     /**

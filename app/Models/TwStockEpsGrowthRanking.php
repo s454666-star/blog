@@ -23,6 +23,7 @@ class TwStockEpsGrowthRanking extends Model
         'growth_2026_2027' => 'float',
         'growth_2027_2028' => 'float',
         'growth_sum' => 'float',
+        'weighted_score' => 'float',
         'revenue_2026_thousands' => 'integer',
         'revenue_2027_thousands' => 'integer',
         'revenue_2028_thousands' => 'integer',

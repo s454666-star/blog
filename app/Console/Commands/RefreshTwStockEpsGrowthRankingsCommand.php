@@ -16,7 +16,7 @@ class RefreshTwStockEpsGrowthRankingsCommand extends Command
         {--minimum-eligible= : 最少完整可比股票數}
         {--allow-missing-top-prices : 允許前 50 名缺少收盤價，僅供診斷}';
 
-    protected $description = '更新台股 2025A 至 2028E 三段 EPS 成長率排行與上週名次變化。';
+    protected $description = '更新台股 2025A 至 2028E EPS 百分位加權分數排行與上週名次變化。';
 
     public function handle(TwStockEpsGrowthRankingService $service): int
     {
@@ -68,10 +68,11 @@ class RefreshTwStockEpsGrowthRankingsCommand extends Command
 
         foreach (array_slice($result['top_rows'], 0, 5) as $row) {
             $this->line(sprintf(
-                '#%d %s %s sum=%.1f%% close=%s change=%s',
+                '#%d %s %s score=%.2f sum=%.1f%% close=%s change=%s',
                 $row['rank'],
                 $row['stock_code'],
                 $row['stock_name'],
+                $row['weighted_score'],
                 $row['growth_sum'],
                 $row['close_price'] === null ? '-' : number_format($row['close_price'], 2, '.', ''),
                 $row['rank_change'] === null ? '-' : sprintf('%+d', $row['rank_change']),

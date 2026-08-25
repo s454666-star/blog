@@ -88,6 +88,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->first();
         $this->assertSame('1111', $firstPlace->stock_code);
         $this->assertEqualsWithDelta(200, (float) $firstPlace->growth_sum, 0.001);
+        $this->assertEqualsWithDelta(70.8333, (float) $firstPlace->weighted_score, 0.001);
         $this->assertNull($firstPlace->rank_change);
         $this->assertEqualsWithDelta(100, (float) $firstPlace->close_price, 0.001);
 
@@ -148,6 +149,8 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('EPS 三年成長')
             ->assertSee('歷史週快照')
             ->assertSee('營收成長預估')
+            ->assertSee('加權分')
+            ->assertSee('70.83')
             ->assertDontSee('冠軍 · #1')
             ->assertDontSee('亞軍 · #2')
             ->assertDontSee('季軍 · #3')
@@ -167,6 +170,59 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('2026/08/11')
             ->assertSee('1111')
             ->assertSee('200.0%');
+    }
+
+    public function test_recalculate_command_reorders_existing_snapshots_without_replacing_them(): void
+    {
+        $this->insertPrices('2026-08-11', 100, 200);
+        $this->artisan('tw-stock:refresh-eps-growth-rankings', [
+            '--date' => '2026-08-11',
+            '--lookback-days' => 35,
+            '--sleep-ms' => 0,
+            '--minimum-eligible' => 2,
+        ])->assertSuccessful();
+
+        $this->forecastPhase = 2;
+        $this->insertPrices('2026-08-18', 110, 220);
+        $this->artisan('tw-stock:refresh-eps-growth-rankings', [
+            '--date' => '2026-08-18',
+            '--lookback-days' => 35,
+            '--sleep-ms' => 0,
+            '--minimum-eligible' => 2,
+        ])->assertSuccessful();
+
+        $runIds = DB::table('tw_stock_eps_growth_runs')->orderBy('id')->pluck('id')->all();
+        $snapshotDates = DB::table('tw_stock_eps_growth_runs')->orderBy('id')->pluck('snapshot_date')->all();
+        DB::table('tw_stock_eps_growth_rankings')
+            ->whereIn('run_id', $runIds)
+            ->update([
+                'rank' => 99,
+                'previous_rank' => null,
+                'rank_change' => null,
+                'weighted_score' => null,
+            ]);
+
+        $this->artisan('tw-stock:recalculate-eps-growth-rankings')->assertSuccessful();
+
+        $this->assertSame($runIds, DB::table('tw_stock_eps_growth_runs')->orderBy('id')->pluck('id')->all());
+        $this->assertSame($snapshotDates, DB::table('tw_stock_eps_growth_runs')->orderBy('id')->pluck('snapshot_date')->all());
+        $this->assertSame(4, DB::table('tw_stock_eps_growth_rankings')->count());
+
+        $oldFirst = DB::table('tw_stock_eps_growth_rankings')
+            ->where('run_id', $runIds[0])
+            ->where('rank', 1)
+            ->first();
+        $newFirst = DB::table('tw_stock_eps_growth_rankings')
+            ->where('run_id', $runIds[1])
+            ->where('rank', 1)
+            ->first();
+
+        $this->assertSame('1111', $oldFirst->stock_code);
+        $this->assertNull($oldFirst->previous_rank);
+        $this->assertEqualsWithDelta(70.8333, (float) $oldFirst->weighted_score, 0.001);
+        $this->assertSame('2222', $newFirst->stock_code);
+        $this->assertSame(2, (int) $newFirst->previous_rank);
+        $this->assertSame(1, (int) $newFirst->rank_change);
     }
 
     public function test_incomplete_source_fails_closed_without_creating_a_snapshot(): void
@@ -342,6 +398,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             $table->decimal('growth_2026_2027', 14, 4);
             $table->decimal('growth_2027_2028', 14, 4);
             $table->decimal('growth_sum', 14, 4);
+            $table->decimal('weighted_score', 7, 4)->nullable();
             $table->bigInteger('revenue_2026_thousands')->nullable();
             $table->bigInteger('revenue_2027_thousands')->nullable();
             $table->bigInteger('revenue_2028_thousands')->nullable();

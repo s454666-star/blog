@@ -449,6 +449,32 @@
             margin-bottom: 16px;
         }
 
+        .ranking-panel {
+            margin-bottom: 16px;
+        }
+
+        .ranking-period {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ranking-period label {
+            font-weight: 900;
+        }
+
+        .ranking-period select {
+            min-height: 36px;
+            padding: 0 32px 0 10px;
+            border: 1px solid rgba(20, 30, 24, 0.2);
+            border-radius: 8px;
+            color: var(--ink);
+            background: #ffffff;
+            font: inherit;
+            font-weight: 850;
+            cursor: pointer;
+        }
+
         .ledger-head {
             display: flex;
             align-items: center;
@@ -485,6 +511,24 @@
 
         .market-table {
             min-width: 980px;
+        }
+
+        .ranking-table {
+            min-width: 760px;
+        }
+
+        .rank-number {
+            width: 72px;
+            color: #8a6400;
+            font-size: 18px;
+            font-weight: 950;
+        }
+
+        .ranking-etfs {
+            max-width: 420px;
+            overflow: hidden;
+            color: var(--muted-dark);
+            text-overflow: ellipsis;
         }
 
         th,
@@ -619,12 +663,14 @@
         }
 
         .mobile-operations,
-        .mobile-market {
+        .mobile-market,
+        .mobile-ranking {
             display: none;
         }
 
         .operation-card,
-        .market-card {
+        .market-card,
+        .ranking-card {
             border: 1px solid var(--line-dark);
             border-radius: 8px;
             background: #ffffff;
@@ -632,7 +678,8 @@
         }
 
         .operation-card-head,
-        .market-card-head {
+        .market-card-head,
+        .ranking-card-head {
             display: flex;
             align-items: flex-start;
             justify-content: space-between;
@@ -642,7 +689,8 @@
         }
 
         .operation-card-body,
-        .market-card-body {
+        .market-card-body,
+        .ranking-card-body {
             display: grid;
             grid-template-columns: 1fr auto;
             gap: 10px;
@@ -652,6 +700,10 @@
 
         .market-card-body {
             grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .ranking-card-body {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .mobile-metric span {
@@ -801,7 +853,8 @@
             }
 
             .mobile-operations,
-            .mobile-market {
+            .mobile-market,
+            .mobile-ranking {
                 display: grid;
                 grid-template-columns: 1fr;
                 gap: 10px;
@@ -825,6 +878,10 @@
             }
 
             .market-card-body {
+                grid-template-columns: 1fr;
+            }
+
+            .ranking-card-body {
                 grid-template-columns: 1fr;
             }
         }
@@ -1068,6 +1125,84 @@
             @endforeach
         </section>
     @endif
+
+    <section class="ledger-panel ranking-panel">
+        <div class="ledger-head">
+            <div>
+                <h2 class="ledger-title">近期主動 ETF 淨增持排行</h2>
+                <div class="ledger-meta" style="text-align: left; margin-top: 4px;">
+                    全部 ETF 加總 · {{ $stockIncreaseRankingFrom ?? 'N/A' }} ~ {{ $stockIncreaseRankingTo ?? 'N/A' }}
+                    （實際 {{ number_format($stockIncreaseRankingDateCount) }} 個報告日）
+                </div>
+            </div>
+            <form class="ranking-period" method="get" action="{{ route('tw-stock.active-etf-operations.index') }}">
+                @foreach (request()->except('ranking_days') as $name => $value)
+                    @if (is_scalar($value))
+                        <input type="hidden" name="{{ $name }}" value="{{ $value }}">
+                    @endif
+                @endforeach
+                <label for="ranking_days">統計區間</label>
+                <select id="ranking_days" name="ranking_days" onchange="this.form.submit()">
+                    @foreach ($rankingDayOptions as $days)
+                        <option value="{{ $days }}" @selected($rankingDays === $days)>最近 {{ $days }} 日</option>
+                    @endforeach
+                </select>
+                <noscript><button class="submit-button" type="submit">套用</button></noscript>
+            </form>
+        </div>
+
+        @if ($stockIncreaseRanking->isEmpty())
+            <div class="empty">這個區間沒有淨增持大於 0 的股票。</div>
+        @else
+            <div class="table-wrap desktop-ledger">
+                <table class="ranking-table">
+                    <thead>
+                    <tr>
+                        <th>排名</th>
+                        <th>股票</th>
+                        <th class="numeric-cell">淨增持張數</th>
+                        <th class="numeric-cell">涵蓋 ETF</th>
+                        <th>ETF 明細</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach ($stockIncreaseRanking as $row)
+                        <tr>
+                            <td class="rank-number">#{{ $row['rank'] }}</td>
+                            <td>
+                                <div class="stock-line">
+                                    <strong>{{ $row['stock_name'] }}</strong>
+                                    <span>{{ $row['stock_code'] }}</span>
+                                </div>
+                            </td>
+                            <td class="numeric-cell"><strong class="change-lots change-positive">+{{ number_format($row['net_change_lots'], 0) }} 張</strong></td>
+                            <td class="numeric-cell">{{ number_format($row['etf_count']) }} 檔 ETF</td>
+                            <td class="ranking-etfs" title="{{ implode('、', $row['etf_codes']) }}">{{ implode('、', $row['etf_codes']) }}</td>
+                        </tr>
+                    @endforeach
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mobile-ranking">
+                @foreach ($stockIncreaseRanking as $row)
+                    <article class="ranking-card">
+                        <div class="ranking-card-head">
+                            <div class="stock-line">
+                                <strong>#{{ $row['rank'] }} {{ $row['stock_name'] }}</strong>
+                                <span>{{ $row['stock_code'] }}</span>
+                            </div>
+                            <strong class="change-positive">+{{ number_format($row['net_change_lots'], 0) }} 張</strong>
+                        </div>
+                        <div class="ranking-card-body">
+                            <div class="mobile-metric"><span>涵蓋 ETF</span><strong>{{ number_format($row['etf_count']) }} 檔</strong></div>
+                            <div class="mobile-metric"><span>ETF 明細</span><strong>{{ implode('、', $row['etf_codes']) }}</strong></div>
+                        </div>
+                    </article>
+                @endforeach
+            </div>
+        @endif
+    </section>
 
     <section class="ledger-panel market-panel">
         <div class="ledger-head">

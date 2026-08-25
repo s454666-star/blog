@@ -316,6 +316,9 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertSee('42.7億')
             ->assertSee('market_sort=price', false)
             ->assertSee('detail_sort=amount', false)
+            ->assertSee('近期主動 ETF 淨增持排行')
+            ->assertSee('<option value="5" selected>最近 5 日</option>', false)
+            ->assertSeeInOrder(['力成', '+500 張', '信驊', '+12 張'])
             ->assertSee('總金額')
             ->assertSee('1.3億')
             ->assertSee('-2,500 張')
@@ -336,7 +339,7 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertOk()
             ->assertSeeInOrder(['頎邦', '台積電'])
             ->assertSee('頎邦')
-            ->assertDontSee('力成</strong>', false);
+            ->assertDontSee('<span class="action-badge action-new">新增</span>', false);
 
         $this->get(route('tw-stock.active-etf-operations.index', [
             'from' => '2026-06-30',
@@ -346,7 +349,22 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertOk()
             ->assertSee('aria-current="true"', false)
             ->assertSee('頎邦')
-            ->assertDontSee('信驊</strong>', false);
+            ->assertDontSee('<span class="action-badge action-add">加碼</span>', false);
+
+        DB::table('tw_active_etf_operation_items')->insert(
+            $this->itemRow($secondReportId, '00981A', '主動統一台股增', '2026-06-30', '6239', '力成', 'add', '加碼', 300),
+        );
+
+        $this->get(route('tw-stock.active-etf-operations.index', ['ranking_days' => 10]))
+            ->assertOk()
+            ->assertSee('<option value="10" selected>最近 10 日</option>', false)
+            ->assertSee('+800 張')
+            ->assertSee('2 檔 ETF')
+            ->assertSee('00403A、00981A');
+
+        $this->get(route('tw-stock.active-etf-operations.index', ['ranking_days' => 1]))
+            ->assertOk()
+            ->assertSee('<option value="1" selected>最近 1 日</option>', false);
     }
 
     private function createTables(): void

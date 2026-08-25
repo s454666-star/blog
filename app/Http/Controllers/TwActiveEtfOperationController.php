@@ -14,6 +14,8 @@ use Illuminate\Support\Collection;
 
 class TwActiveEtfOperationController extends Controller
 {
+    private const RANKING_DAY_OPTIONS = [1, 5, 10, 20];
+
     private const ACTIONS = [
         'all' => '全部',
         'new' => '新增',
@@ -53,6 +55,7 @@ class TwActiveEtfOperationController extends Controller
         }
 
         $keyword = trim((string) $request->query('q', ''));
+        $rankingDays = $this->resolveRankingDays($request);
         [$marketSort, $marketDirection] = $this->resolveSort($request, 'market_sort', 'market_dir', self::MARKET_SORTS, 'volume', 'desc');
         [$detailSort, $detailDirection] = $this->resolveSort($request, 'detail_sort', 'detail_dir', self::DETAIL_SORTS, 'amount', 'desc');
 
@@ -184,6 +187,7 @@ class TwActiveEtfOperationController extends Controller
             ->map(fn (Collection $group): int => $group->count());
 
         $etfCards = $this->buildEtfCards($cardReports, $cardItems, $quoteEtfs);
+        $stockIncreaseRanking = $this->buildStockIncreaseRanking($rankingDays);
 
         return view('tw-stock.active-etf-operations', [
             'from' => $from->toDateString(),
@@ -192,6 +196,12 @@ class TwActiveEtfOperationController extends Controller
             'selectedEtf' => $selectedEtf,
             'selectedAction' => $selectedAction,
             'keyword' => $keyword,
+            'rankingDays' => $rankingDays,
+            'rankingDayOptions' => self::RANKING_DAY_OPTIONS,
+            'stockIncreaseRanking' => $stockIncreaseRanking['rows'],
+            'stockIncreaseRankingFrom' => $stockIncreaseRanking['from'],
+            'stockIncreaseRankingTo' => $stockIncreaseRanking['to'],
+            'stockIncreaseRankingDateCount' => $stockIncreaseRanking['date_count'],
             'marketSort' => $marketSort,
             'marketDirection' => $marketDirection,
             'detailSort' => $detailSort,
@@ -214,6 +224,75 @@ class TwActiveEtfOperationController extends Controller
                 'latest_fetched_at' => optional($reports->max('fetched_at'))?->format('Y-m-d H:i'),
             ],
         ]);
+    }
+
+    private function resolveRankingDays(Request $request): int
+    {
+        $days = (int) $request->query('ranking_days', 5);
+
+        return in_array($days, self::RANKING_DAY_OPTIONS, true) ? $days : 5;
+    }
+
+    /**
+     * @return array{rows: Collection<int, array<string, mixed>>, from: ?string, to: ?string, date_count: int}
+     */
+    private function buildStockIncreaseRanking(int $days): array
+    {
+        $dates = TwActiveEtfOperationReport::query()
+            ->select('operation_date')
+            ->distinct()
+            ->orderByDesc('operation_date')
+            ->limit($days)
+            ->pluck('operation_date')
+            ->map(fn ($date): string => CarbonImmutable::parse((string) $date)->toDateString());
+
+        if ($dates->isEmpty()) {
+            return [
+                'rows' => collect(),
+                'from' => null,
+                'to' => null,
+                'date_count' => 0,
+            ];
+        }
+
+        $from = (string) $dates->min();
+        $to = (string) $dates->max();
+
+        $rows = TwActiveEtfOperationItem::query()
+            ->whereBetween('operation_date', [$from, $to])
+            ->get(['operation_date', 'etf_code', 'stock_code', 'stock_name', 'change_lots'])
+            ->groupBy('stock_code')
+            ->map(function (Collection $items, string $stockCode): array {
+                $latestItem = $items->sortByDesc('operation_date')->first();
+
+                return [
+                    'stock_code' => $stockCode,
+                    'stock_name' => (string) $latestItem->stock_name,
+                    'net_change_lots' => (float) $items->sum('change_lots'),
+                    'etf_count' => $items->pluck('etf_code')->unique()->count(),
+                    'etf_codes' => $items->pluck('etf_code')->unique()->sort()->values()->all(),
+                    'operation_count' => $items->count(),
+                ];
+            })
+            ->filter(fn (array $row): bool => $row['net_change_lots'] > 0)
+            ->sort(function (array $left, array $right): int {
+                return ($right['net_change_lots'] <=> $left['net_change_lots'])
+                    ?: ($right['etf_count'] <=> $left['etf_count'])
+                    ?: strcmp($left['stock_code'], $right['stock_code']);
+            })
+            ->values()
+            ->map(function (array $row, int $index): array {
+                $row['rank'] = $index + 1;
+
+                return $row;
+            });
+
+        return [
+            'rows' => $rows,
+            'from' => $from,
+            'to' => $to,
+            'date_count' => $dates->count(),
+        ];
     }
 
     /**

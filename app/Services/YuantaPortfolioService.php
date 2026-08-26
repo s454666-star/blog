@@ -277,8 +277,13 @@ class YuantaPortfolioService
         $rows = $inventories
             ->map(function (array $row) use ($history, $exchanges): array {
                 $stockNo = (string) $this->value($row, 'StkCode', 'stkCode', 'stockNo');
+                $stockHistory = $history[$stockNo] ?? [];
+                $exchange = $exchanges[$stockNo] ?? [];
+                if (trim((string) ($stockHistory['stockName'] ?? '')) !== '') {
+                    $exchange['stockName'] = (string) $stockHistory['stockName'];
+                }
 
-                return $this->formatInventoryRow($row, $history[$stockNo] ?? [], $exchanges[$stockNo] ?? []);
+                return $this->formatInventoryRow($row, $stockHistory, $exchange);
             })
             ->sortBy('stockNo')
             ->values()
@@ -965,7 +970,7 @@ class YuantaPortfolioService
     private function mergeHistoricalSummary(array $base, array $fallback): array
     {
         if ($this->fallbackHasNewerPreviousClose($base, $fallback)) {
-            foreach (['previousClose', 'previousCloseDate', 'fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $key) {
+            foreach (['stockName', 'previousClose', 'previousCloseDate', 'fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $key) {
                 if (($fallback[$key] ?? null) !== null) {
                     $base[$key] = $fallback[$key];
                 }
@@ -974,7 +979,7 @@ class YuantaPortfolioService
             return $base;
         }
 
-        foreach (['previousClose', 'fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $key) {
+        foreach (['stockName', 'previousClose', 'fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $key) {
             if (($base[$key] ?? null) === null && ($fallback[$key] ?? null) !== null) {
                 $base[$key] = $fallback[$key];
             }

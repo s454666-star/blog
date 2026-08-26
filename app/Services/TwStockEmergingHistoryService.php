@@ -14,7 +14,7 @@ class TwStockEmergingHistoryService
     private const TPEX_EMERGING_HISTORY_URL = 'https://www.tpex.org.tw/www/zh-tw/emerging/historical';
 
     /**
-     * @return array{previousClose: float|null, previousCloseDate: string|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: null}|null
+     * @return array{stockName: string|null, previousClose: float|null, previousCloseDate: string|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: null}|null
      */
     public function summary(string $stockCode, string $today, string $timezone = 'Asia/Taipei'): ?array
     {
@@ -24,14 +24,14 @@ class TwStockEmergingHistoryService
         }
 
         return Cache::remember(
-            'tw-stock:emerging-history:' . $today . ':' . $stockCode . ':v1',
+            'tw-stock:emerging-history:' . $today . ':' . $stockCode . ':v2',
             now()->addHours(12),
             fn (): ?array => $this->fetchSummary($stockCode, $today, $timezone),
         );
     }
 
     /**
-     * @return array{previousClose: float|null, previousCloseDate: string|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: null}|null
+     * @return array{stockName: string|null, previousClose: float|null, previousCloseDate: string|null, fiveDayReturn: float|null, twentyDayReturn: float|null, sixtyDayReturn: float|null, yearToDateReturn: null}|null
      */
     private function fetchSummary(string $stockCode, string $today, string $timezone): ?array
     {
@@ -71,6 +71,7 @@ class TwStockEmergingHistoryService
         }
 
         $prices = [];
+        $stockName = null;
         foreach ($responses as $response) {
             if (!$response instanceof HttpResponse || !$response->successful()) {
                 continue;
@@ -80,6 +81,11 @@ class TwStockEmergingHistoryService
                 $payload = $response->json();
             } catch (Throwable) {
                 continue;
+            }
+
+            $subtitle = trim((string) ($payload['tables'][0]['subtitle'] ?? ''));
+            if ($stockName === null && preg_match('/\b' . preg_quote($stockCode, '/') . '\s+(.+)$/u', $subtitle, $matches) === 1) {
+                $stockName = trim((string) ($matches[1] ?? '')) ?: null;
             }
 
             $rows = is_array($payload['tables'][0]['data'] ?? null) ? $payload['tables'][0]['data'] : [];
@@ -108,6 +114,7 @@ class TwStockEmergingHistoryService
         $previousClose = $values[0] ?? null;
 
         return [
+            'stockName' => $stockName,
             'previousClose' => $previousClose,
             'previousCloseDate' => $dates[0] ?? null,
             'fiveDayReturn' => $this->returnRate($previousClose, $values[4] ?? null),

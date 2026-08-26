@@ -36,7 +36,10 @@ class TwStockEmergingHistoryServiceTest extends TestCase
         Http::fake([
             'https://www.tpex.org.tw/www/zh-tw/emerging/historical' => Http::response([
                 'stat' => 'ok',
-                'tables' => [['data' => $rows]],
+                'tables' => [[
+                    'subtitle' => '115年07月 7861 逸達生技',
+                    'data' => $rows,
+                ]],
             ]),
         ]);
 
@@ -47,6 +50,7 @@ class TwStockEmergingHistoryServiceTest extends TestCase
         );
 
         $this->assertNotNull($summary);
+        $this->assertSame('逸達生技', $summary['stockName']);
         $this->assertSame(1000.0, $summary['previousClose']);
         $this->assertSame('2026-07-14', $summary['previousCloseDate']);
         $this->assertEqualsWithDelta((1000 - 996) / 996 * 100, $summary['fiveDayReturn'], 0.000001);

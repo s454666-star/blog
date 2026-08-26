@@ -283,6 +283,10 @@ class YuantaPortfolioService
             ->sortBy('stockNo')
             ->values()
             ->all();
+        $rows = $this->restoreUnavailableInventoryRows(
+            $rows,
+            $this->recentDailySnapshotRowsForUnavailablePrices($rows, $now),
+        );
         $rows = $this->annotateTodayAddedQuantities(
             $rows,
             $this->previousDailySnapshotRows(YuantaPortfolioDailySnapshot::class, $now),
@@ -436,9 +440,14 @@ class YuantaPortfolioService
         $taxRatePermille = max(0.0, $this->number($this->value($row, 'TaxRate', 'taxRate')));
         $securityType = (string) $this->value($row, 'StkType1', 'stkType1');
 
+        $stockName = trim((string) $this->value($row, 'StkName', 'stkName', 'stockName'));
+        if ($stockName === '') {
+            $stockName = trim((string) ($exchange['stockName'] ?? ''));
+        }
+
         return [
             'stockNo' => $stockNo,
-            'stockName' => (string) $this->value($row, 'StkName', 'stkName', 'stockName'),
+            'stockName' => $stockName,
             'quantity' => $quantity,
             'currentPrice' => $currentPrice,
             'previousClose' => $previousClose,
@@ -474,6 +483,7 @@ class YuantaPortfolioService
             'exchangeShortLabel' => $exchange['shortLabel'] ?? null,
             'exchangeClass' => $exchange['class'] ?? null,
             'positionType' => '',
+            'inventoryPriceFallback' => false,
             'lotCount' => 1,
             'lots' => [],
             'raw' => [
@@ -486,6 +496,117 @@ class YuantaPortfolioService
                 'securityType' => $securityType,
             ],
         ];
+    }
+
+    /**
+     * A corporate-action suspension can leave a valid holding in the Yuanta
+     * inventory while its name, market price, market value, and PnL are all
+     * returned as zero. Keep the latest economically equivalent valid
+     * position until the broker starts reporting the converted holding.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @param array<int, array<string, mixed>> $snapshotRows
+     * @return array<int, array<string, mixed>>
+     */
+    private function restoreUnavailableInventoryRows(array $rows, array $snapshotRows): array
+    {
+        return array_map(function (array $row) use ($snapshotRows): array {
+            $priceUnavailable = $this->number($row['quantity'] ?? 0) > 0
+                && $this->number($row['currentPrice'] ?? 0) <= 0
+                && $this->number($row['marketValue'] ?? 0) <= 0;
+            if (!$priceUnavailable && trim((string) ($row['stockName'] ?? '')) !== '') {
+                return $row;
+            }
+
+            $key = $this->portfolioPositionKey($row);
+            $fallback = collect($snapshotRows)->first(function (mixed $candidate) use ($row, $key, $priceUnavailable): bool {
+                if (!is_array($candidate) || $key === null || $this->portfolioPositionKey($candidate) !== $key) {
+                    return false;
+                }
+
+                if (!$priceUnavailable) {
+                    return trim((string) ($candidate['stockName'] ?? '')) !== '';
+                }
+
+                $quantity = $this->number($row['quantity'] ?? 0);
+                $fallbackQuantity = $this->number($candidate['quantity'] ?? 0);
+                $costBasis = $this->number($row['costBasis'] ?? 0);
+                $fallbackCostBasis = $this->number($candidate['costBasis'] ?? 0);
+                $costTolerance = max(1.0, abs($costBasis) * 0.001);
+
+                return $this->number($candidate['currentPrice'] ?? 0) > 0
+                    && $this->number($candidate['marketValue'] ?? 0) > 0
+                    && abs($quantity - $fallbackQuantity) < 0.000001
+                    && abs($costBasis - $fallbackCostBasis) <= $costTolerance;
+            });
+            if (!is_array($fallback)) {
+                return $row;
+            }
+
+            if (trim((string) ($row['stockName'] ?? '')) === '') {
+                $row['stockName'] = (string) ($fallback['stockName'] ?? '');
+            }
+            if (!$priceUnavailable) {
+                return $row;
+            }
+
+            $fallbackPrice = $this->number($fallback['currentPrice'] ?? 0);
+            $fallbackMarketValue = $this->number($fallback['marketValue'] ?? 0);
+            $fallbackUnrealizedPnl = $this->numberOrNull($fallback['unrealizedPnl'] ?? null)
+                ?? ($fallbackMarketValue - $this->number($row['costBasis'] ?? 0));
+
+            foreach (['fiveDayReturn', 'twentyDayReturn', 'sixtyDayReturn', 'yearToDateReturn'] as $field) {
+                if (($fallback[$field] ?? null) !== null) {
+                    $row[$field] = $fallback[$field];
+                }
+            }
+
+            return [
+                ...$row,
+                'currentPrice' => $fallbackPrice,
+                'previousClose' => $fallbackPrice,
+                'dayChange' => 0.0,
+                'dayChangeRate' => 0.0,
+                'todayPnl' => 0.0,
+                'esunTodayPnl' => 0.0,
+                'marketValue' => $fallbackMarketValue,
+                'esunCurrentPrice' => $fallbackPrice,
+                'esunMarketValue' => $fallbackMarketValue,
+                'unrealizedPnl' => $fallbackUnrealizedPnl,
+                'esunUnrealizedPnl' => $fallbackUnrealizedPnl,
+                'realtimePnlBasePrice' => $fallbackPrice,
+                'unrealizedPnlRate' => $this->number($row['costBasis'] ?? 0) > 0
+                    ? $fallbackUnrealizedPnl / $this->number($row['costBasis']) * 100
+                    : null,
+                'inventoryPriceFallback' => true,
+            ];
+        }, $rows);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function recentDailySnapshotRowsForUnavailablePrices(array $rows, CarbonImmutable $now): array
+    {
+        $needsFallback = collect($rows)->contains(fn (array $row): bool =>
+            $this->number($row['quantity'] ?? 0) > 0
+            && $this->number($row['currentPrice'] ?? 0) <= 0
+            && $this->number($row['marketValue'] ?? 0) <= 0
+        );
+        if (!$needsFallback) {
+            return [];
+        }
+
+        return YuantaPortfolioDailySnapshot::query()
+            ->where('snapshot_date', '<=', $now->toDateString())
+            ->orderByDesc('snapshot_date')
+            ->limit(90)
+            ->get(['rows'])
+            ->flatMap(fn (YuantaPortfolioDailySnapshot $snapshot): array => is_array($snapshot->rows) ? $snapshot->rows : [])
+            ->filter(fn (mixed $row): bool => is_array($row))
+            ->values()
+            ->all();
     }
 
     private function breakevenPrice(float $costBasis, float $quantity, float $taxRatePermille, bool $isEtf): ?float
@@ -971,7 +1092,7 @@ class YuantaPortfolioService
 
     /**
      * @param Collection<int, string> $stockCodes
-     * @return array<string, array{exchange: string, label: string, shortLabel: string, class: string}>
+     * @return array<string, array{exchange: string, label: string, shortLabel: string, class: string, stockName?: string}>
      */
     private function exchangeMetadata(Collection $stockCodes): array
     {
@@ -981,11 +1102,14 @@ class YuantaPortfolioService
 
         return TwStockCompanyProfile::query()
             ->whereIn('stock_code', $stockCodes->all())
-            ->get(['stock_code', 'exchange'])
+            ->get(['stock_code', 'stock_name', 'exchange'])
             ->mapWithKeys(function (TwStockCompanyProfile $profile): array {
                 $meta = $this->exchangeMeta((string) $profile->exchange);
 
-                return $meta === null ? [] : [(string) $profile->stock_code => $meta];
+                return $meta === null ? [] : [(string) $profile->stock_code => [
+                    ...$meta,
+                    'stockName' => (string) $profile->stock_name,
+                ]];
             })
             ->all();
     }

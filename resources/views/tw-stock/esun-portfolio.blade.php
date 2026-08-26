@@ -1875,7 +1875,9 @@ function stockWaveHtml(row) {
         low: point.low,
         high: point.high,
     }));
-    const emptyText = state.historyMode ? '僅即時' : (state.intradayLoading ? '讀取中' : '暫無資料');
+    const emptyText = row.inventoryPriceFallback
+        ? '停牌／換股'
+        : (state.historyMode ? '僅即時' : (state.intradayLoading ? '讀取中' : '暫無資料'));
     const meta = points.length ? waveValueRange(points, value => formatPrice(value)) : emptyText;
     const lows = points.map(point => finiteNumber(point.low ?? point.value)).filter(value => value !== null);
     const highs = points.map(point => finiteNumber(point.high ?? point.value)).filter(value => value !== null);
@@ -2345,7 +2347,10 @@ async function fetchQuotePayloadForRows(rows) {
 }
 
 function intradayCodes() {
-    return [...new Set(state.rows.map(row => String(row.stockNo || '').trim()).filter(Boolean))].sort();
+    return [...new Set(state.rows
+        .filter(row => !row.inventoryPriceFallback)
+        .map(row => String(row.stockNo || '').trim())
+        .filter(Boolean))].sort();
 }
 
 function taipeiDateKey(value = Date.now()) {
@@ -2435,7 +2440,7 @@ function appendRealtimeIntraday(payload = state.lastQuotePayload) {
     const seen = new Set();
     state.rows.forEach(row => {
         const code = String(row.stockNo || '');
-        if (!code || seen.has(code)) return;
+        if (!code || seen.has(code) || row.inventoryPriceFallback) return;
         seen.add(code);
         appendIntradayPoint(code, timestamp / 1000, row.realtimePrice);
     });
@@ -2694,6 +2699,10 @@ function applyQuotePayloadToRows(rows, payload) {
     let changed = false;
 
     const nextRows = rows.map(row => {
+        if (row.inventoryPriceFallback) {
+            return row;
+        }
+
         const quote = quotes[row.stockNo];
         if (!quote || finiteNumber(quote.price) === null) {
             const quoteContext = quoteContextFromUnconfirmed(payload, row.stockNo);

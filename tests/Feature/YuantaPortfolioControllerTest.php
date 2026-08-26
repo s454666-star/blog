@@ -80,6 +80,8 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertSee('const hasCurrentIntradayPnl = (state.pnlSeries.todayPnl || []).length > 0;', false)
             ->assertSee('|| hasCurrentIntradayPnl;', false)
             ->assertSee('stockWaveHtml', false)
+            ->assertSee("row.inventoryPriceFallback", false)
+            ->assertSee("'停牌／換股'", false)
             ->assertSee('intradayRetryAt: 0', false)
             ->assertSee('if (points.length < 2) return;', false)
             ->assertSee('const hasIncompleteSeries = codes.some', false)

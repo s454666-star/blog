@@ -325,6 +325,82 @@ class YuantaPortfolioServiceTest extends TestCase
         $this->assertSame('emerging', $metadata['7861']['class']);
     }
 
+    public function test_it_restores_a_suspended_corporate_action_holding_from_a_matching_valid_snapshot(): void
+    {
+        $service = new YuantaPortfolioService();
+        $method = new ReflectionMethod($service, 'restoreUnavailableInventoryRows');
+
+        $rows = $method->invoke($service, [[
+            'stockNo' => '6696',
+            'stockName' => '',
+            'tradeType' => '0',
+            'quantity' => 60,
+            'currentPrice' => 0,
+            'previousClose' => 93.7,
+            'dayChange' => -93.7,
+            'dayChangeRate' => -100.0,
+            'todayPnl' => -5622,
+            'esunTodayPnl' => -5622,
+            'marketValue' => 0,
+            'esunCurrentPrice' => 0,
+            'esunMarketValue' => 0,
+            'costBasis' => 44539,
+            'unrealizedPnl' => 0,
+            'esunUnrealizedPnl' => 0,
+            'realtimePnlBasePrice' => 0,
+            'fiveDayReturn' => 60.45,
+            'twentyDayReturn' => 135.72,
+        ]], [[
+            'stockNo' => '6696',
+            'stockName' => '仁新',
+            'tradeType' => '0',
+            'quantity' => 60,
+            'currentPrice' => 937,
+            'marketValue' => 56220,
+            'costBasis' => 44539,
+            'unrealizedPnl' => 11681,
+            'fiveDayReturn' => 10.24,
+            'twentyDayReturn' => 18.53,
+            'sixtyDayReturn' => 15.70,
+        ]]);
+
+        $this->assertSame('仁新', $rows[0]['stockName']);
+        $this->assertSame(937.0, $rows[0]['currentPrice']);
+        $this->assertSame(937.0, $rows[0]['previousClose']);
+        $this->assertSame(56220.0, $rows[0]['marketValue']);
+        $this->assertSame(11681.0, $rows[0]['unrealizedPnl']);
+        $this->assertSame(0.0, $rows[0]['todayPnl']);
+        $this->assertSame(10.24, $rows[0]['fiveDayReturn']);
+        $this->assertTrue($rows[0]['inventoryPriceFallback']);
+    }
+
+    public function test_it_does_not_restore_a_corporate_action_holding_after_the_quantity_changes(): void
+    {
+        $service = new YuantaPortfolioService();
+        $method = new ReflectionMethod($service, 'restoreUnavailableInventoryRows');
+
+        $rows = $method->invoke($service, [[
+            'stockNo' => '6696',
+            'stockName' => '仁新*',
+            'tradeType' => '0',
+            'quantity' => 600,
+            'currentPrice' => 0,
+            'marketValue' => 0,
+            'costBasis' => 44539,
+        ]], [[
+            'stockNo' => '6696',
+            'stockName' => '仁新',
+            'tradeType' => '0',
+            'quantity' => 60,
+            'currentPrice' => 937,
+            'marketValue' => 56220,
+            'costBasis' => 44539,
+        ]]);
+
+        $this->assertSame(0, $rows[0]['currentPrice']);
+        $this->assertFalse($rows[0]['inventoryPriceFallback'] ?? false);
+    }
+
     public function test_it_stores_and_reads_daily_snapshot_payloads(): void
     {
         $this->migrateYuantaDailySnapshotsTable();

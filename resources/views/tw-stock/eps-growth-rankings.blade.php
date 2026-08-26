@@ -429,6 +429,7 @@
         tr.top-3 .rank-orb { color: #2c1606; border-color: #eeb58f; background: linear-gradient(135deg, #f7c5a3, #b9774b); }
 
         .stock-name { color: #fff; font-size: 0.88rem; font-weight: 880; }
+        .stock-group { color: #9fdcf2; font-size: 0.72rem; font-weight: 780; }
         .stock-meta { margin-top: 3px; color: #7184aa; font-size: 0.67rem; font-weight: 700; }
         .stock-meta a { color: #8eeaff; text-decoration: none; }
 
@@ -711,13 +712,13 @@
                             ];
                         @endphp
                         <tr class="{{ $row->rank <= 3 ? 'top-' . $row->rank : '' }}"
-                            data-search="{{ mb_strtolower($row->stock_code . ' ' . $row->stock_name) }}"
+                            data-search="{{ mb_strtolower($row->stock_code . ' ' . $row->stock_name . ' ' . ($row->stock_group ?? '')) }}"
                             data-all-positive="{{ $allPositive ? '1' : '0' }}"
                             data-low-base="{{ $row->low_base ? '1' : '0' }}">
                             <td class="rank-cell"><span class="rank-orb">{{ $row->rank }}</span></td>
                             <td>
                                 <div class="stock-name">
-                                    {{ $row->stock_name }}
+                                    {{ $row->stock_name }}@if($row->stock_group)<span class="stock-group">（{{ $row->stock_group }}）</span>@endif
                                     @if ($row->low_base)<span class="low-base">低基期</span>@endif
                                     @if ($row->is_neutral_estimate)<span class="neutral-estimate">中性估算</span>@endif
                                 </div>

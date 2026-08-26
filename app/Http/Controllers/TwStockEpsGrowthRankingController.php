@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\TwStockCompanyProfile;
 use App\Models\TwStockDailyPrice;
 use App\Models\TwStockEpsGrowthRun;
 use Illuminate\Contracts\View\View;
@@ -34,6 +35,7 @@ class TwStockEpsGrowthRankingController extends Controller
             })
             ->orderBy('rank')
             ->get() ?? collect();
+        $this->attachStockGroups($rows);
         $this->attachMovingAveragePositions($rows, $run?->price_date?->toDateString());
         $previousRun = $run === null ? null : TwStockEpsGrowthRun::query()
             ->whereDate('snapshot_date', '<', $run->snapshot_date->toDateString())
@@ -59,6 +61,27 @@ class TwStockEpsGrowthRankingController extends Controller
                 )->count(),
             ],
         ]);
+    }
+
+    private function attachStockGroups(Collection $rows): void
+    {
+        if ($rows->isEmpty()) {
+            return;
+        }
+
+        $profiles = TwStockCompanyProfile::query()
+            ->whereIn('stock_code', $rows->pluck('stock_code')->filter()->unique()->values())
+            ->orderByDesc('source_date')
+            ->orderByDesc('id')
+            ->get(['stock_code', 'valuation_group', 'industry'])
+            ->unique('stock_code')
+            ->keyBy('stock_code');
+
+        foreach ($rows as $row) {
+            $profile = $profiles->get($row->stock_code);
+            $group = trim((string) ($profile?->valuation_group ?: $profile?->industry));
+            $row->setAttribute('stock_group', $group !== '' ? $group : null);
+        }
     }
 
     private function attachMovingAveragePositions(Collection $rows, ?string $priceDate): void

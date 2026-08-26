@@ -127,6 +127,28 @@ class TwStockEpsGrowthRankingsTest extends TestCase
 
     public function test_page_defaults_to_latest_snapshot_and_can_switch_to_an_older_week(): void
     {
+        DB::table('tw_stock_company_profiles')->insert([
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '1111',
+                'stock_name' => '甲公司',
+                'industry' => '半導體業',
+                'valuation_group' => '記憶體/儲存',
+                'source_date' => '2026-08-18',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '2222',
+                'stock_name' => '乙公司',
+                'industry' => '電子零組件業',
+                'valuation_group' => '電子零組件/PCB',
+                'source_date' => '2026-08-18',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
         $this->insertPrices('2026-08-11', 100, 200);
         $this->artisan('tw-stock:refresh-eps-growth-rankings', [
             '--date' => '2026-08-11',
@@ -153,6 +175,9 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('營收成長預估')
             ->assertSee('加權分')
             ->assertSee('100.00')
+            ->assertSee('甲公司')
+            ->assertSee('（記憶體/儲存）')
+            ->assertSee('電子零組件/PCB')
             ->assertDontSee('冠軍 · #1')
             ->assertDontSee('亞軍 · #2')
             ->assertDontSee('季軍 · #3')
@@ -498,6 +523,17 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             $table->unsignedBigInteger('volume_shares')->default(0);
             $table->timestamps();
             $table->unique(['exchange', 'stock_code', 'trade_date']);
+        });
+
+        Schema::connection('sqlite')->create('tw_stock_company_profiles', function (Blueprint $table): void {
+            $table->id();
+            $table->string('exchange', 16);
+            $table->string('stock_code', 16);
+            $table->string('stock_name');
+            $table->string('industry')->nullable();
+            $table->string('valuation_group')->nullable();
+            $table->date('source_date')->nullable();
+            $table->timestamps();
         });
 
         Schema::connection('sqlite')->create('tw_stock_eps_growth_runs', function (Blueprint $table): void {

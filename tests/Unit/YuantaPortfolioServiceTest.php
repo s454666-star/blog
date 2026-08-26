@@ -332,7 +332,7 @@ class YuantaPortfolioServiceTest extends TestCase
 
         $rows = $method->invoke($service, [[
             'stockNo' => '6696',
-            'stockName' => '',
+            'stockName' => '6696',
             'tradeType' => '0',
             'quantity' => 60,
             'currentPrice' => 0,

@@ -441,7 +441,7 @@ class YuantaPortfolioService
         $securityType = (string) $this->value($row, 'StkType1', 'stkType1');
 
         $stockName = trim((string) $this->value($row, 'StkName', 'stkName', 'stockName'));
-        if ($stockName === '') {
+        if ($stockName === '' || strcasecmp($stockName, $stockNo) === 0) {
             $stockName = trim((string) ($exchange['stockName'] ?? ''));
         }
 
@@ -514,7 +514,9 @@ class YuantaPortfolioService
             $priceUnavailable = $this->number($row['quantity'] ?? 0) > 0
                 && $this->number($row['currentPrice'] ?? 0) <= 0
                 && $this->number($row['marketValue'] ?? 0) <= 0;
-            if (!$priceUnavailable && trim((string) ($row['stockName'] ?? '')) !== '') {
+            $stockName = trim((string) ($row['stockName'] ?? ''));
+            $nameUnavailable = $stockName === '' || strcasecmp($stockName, (string) ($row['stockNo'] ?? '')) === 0;
+            if (!$priceUnavailable && !$nameUnavailable) {
                 return $row;
             }
 
@@ -543,7 +545,7 @@ class YuantaPortfolioService
                 return $row;
             }
 
-            if (trim((string) ($row['stockName'] ?? '')) === '') {
+            if ($nameUnavailable) {
                 $row['stockName'] = (string) ($fallback['stockName'] ?? '');
             }
             if (!$priceUnavailable) {

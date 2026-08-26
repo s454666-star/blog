@@ -16,7 +16,7 @@ class RefreshTwStockEpsGrowthRankingsCommand extends Command
         {--minimum-eligible= : 最少完整可比股票數}
         {--allow-missing-top-prices : 允許前 50 名缺少收盤價，僅供診斷}';
 
-    protected $description = '更新台股 2025A 至 2028E EPS 百分位加權分數排行與上週名次變化。';
+    protected $description = '更新台股 2025A 至 2028E EPS 原始加權成長率百分位排行與上週名次變化。';
 
     public function handle(TwStockEpsGrowthRankingService $service): int
     {

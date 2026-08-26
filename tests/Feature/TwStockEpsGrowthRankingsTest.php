@@ -90,7 +90,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->first();
         $this->assertSame('1111', $firstPlace->stock_code);
         $this->assertEqualsWithDelta(200, (float) $firstPlace->growth_sum, 0.001);
-        $this->assertEqualsWithDelta(66.9811, (float) $firstPlace->weighted_score, 0.001);
+        $this->assertEqualsWithDelta(100, (float) $firstPlace->weighted_score, 0.001);
         $this->assertNull($firstPlace->rank_change);
         $this->assertEqualsWithDelta(100, (float) $firstPlace->close_price, 0.001);
 
@@ -152,7 +152,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('歷史週快照')
             ->assertSee('營收成長預估')
             ->assertSee('加權分')
-            ->assertSee('66.98')
+            ->assertSee('100.00')
             ->assertDontSee('冠軍 · #1')
             ->assertDontSee('亞軍 · #2')
             ->assertDontSee('季軍 · #3')
@@ -221,7 +221,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
 
         $this->assertSame('1111', $oldFirst->stock_code);
         $this->assertNull($oldFirst->previous_rank);
-        $this->assertEqualsWithDelta(66.9811, (float) $oldFirst->weighted_score, 0.001);
+        $this->assertEqualsWithDelta(100, (float) $oldFirst->weighted_score, 0.001);
         $this->assertSame('2222', $newFirst->stock_code);
         $this->assertSame(2, (int) $newFirst->previous_rank);
         $this->assertSame(1, (int) $newFirst->rank_change);

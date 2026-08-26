@@ -13,8 +13,8 @@ class TwStockEpsGrowthScoringService
     private const TOTAL_WEIGHT = 5.3;
 
     /**
-     * Convert each growth stage to a 0-100 percentile score, apply the
-     * 1.8:2.5:1 weights, then rank by the resulting weighted score.
+     * Apply the 1.8:2.5:1 weights to the raw growth rates first, then convert
+     * that composite growth value to a 0-100 percentile score for ranking.
      *
      * @param list<array<string, mixed>> $rows
      * @return list<array<string, mixed>>
@@ -25,24 +25,21 @@ class TwStockEpsGrowthScoringService
             return [];
         }
 
-        $percentiles = [];
-        foreach (array_keys(self::GROWTH_WEIGHTS) as $field) {
-            $percentiles[$field] = $this->percentileScores(array_map(
-                fn (array $row): float => (float) $row[$field],
-                $rows,
-            ));
-        }
-
+        $weightedGrowthValues = [];
         foreach ($rows as $index => &$row) {
-            $weightedPercentile = 0.0;
             $weightedGrowth = 0.0;
             foreach (self::GROWTH_WEIGHTS as $field => $weight) {
-                $weightedPercentile += $percentiles[$field][$index] * $weight;
                 $weightedGrowth += (float) $row[$field] * $weight;
             }
 
-            $row['weighted_score'] = round($weightedPercentile / self::TOTAL_WEIGHT, 4);
-            $row['_weighted_growth'] = $weightedGrowth;
+            $row['_weighted_growth'] = $weightedGrowth / self::TOTAL_WEIGHT;
+            $weightedGrowthValues[$index] = $row['_weighted_growth'];
+        }
+        unset($row);
+
+        $percentiles = $this->percentileScores($weightedGrowthValues);
+        foreach ($rows as $index => &$row) {
+            $row['weighted_score'] = round($percentiles[$index], 4);
         }
         unset($row);
 

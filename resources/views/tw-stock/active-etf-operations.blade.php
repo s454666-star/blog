@@ -449,6 +449,30 @@
             margin-bottom: 16px;
         }
 
+        .market-toggle {
+            cursor: pointer;
+            list-style-position: inside;
+        }
+
+        .market-toggle-label {
+            display: inline-block;
+            margin-left: 8px;
+            color: var(--accent-dark);
+            font-weight: 900;
+        }
+
+        .market-toggle-label .when-open {
+            display: none;
+        }
+
+        .market-panel[open] .market-toggle-label .when-closed {
+            display: none;
+        }
+
+        .market-panel[open] .market-toggle-label .when-open {
+            display: inline;
+        }
+
         .ranking-panel {
             margin-bottom: 16px;
         }
@@ -1050,49 +1074,6 @@
         </div>
     </form>
 
-    <section class="summary-grid" aria-label="摘要">
-        <article class="summary-card">
-            <div class="summary-label">報告數</div>
-            <div class="summary-value">{{ number_format($summary['report_count']) }}</div>
-            <div class="summary-note">ETF / 日期組合</div>
-        </article>
-        <article class="summary-card">
-            <div class="summary-label">ETF 數</div>
-            <div class="summary-value">{{ number_format($summary['etf_count']) }}</div>
-            <div class="summary-note">區間內有報告</div>
-        </article>
-        <article class="summary-card">
-            <div class="summary-label">操作筆數</div>
-            <div class="summary-value">{{ number_format($summary['item_count']) }}</div>
-            <div class="summary-note">符合目前篩選</div>
-        </article>
-        <article class="summary-card">
-            <div class="summary-label">新增</div>
-            <div class="summary-value value-new">{{ number_format($summary['new_count']) }}</div>
-            <div class="summary-note">新建倉標的</div>
-        </article>
-        <article class="summary-card">
-            <div class="summary-label">加碼</div>
-            <div class="summary-value value-add">{{ number_format($summary['add_count']) }}</div>
-            <div class="summary-note">持股張數增加</div>
-        </article>
-        <article class="summary-card">
-            <div class="summary-label">減碼</div>
-            <div class="summary-value value-reduce">{{ number_format($summary['reduce_count']) }}</div>
-            <div class="summary-note">持股張數降低</div>
-        </article>
-        <article class="summary-card">
-            <div class="summary-label">刪除</div>
-            <div class="summary-value value-remove">{{ number_format($summary['remove_count']) }}</div>
-            <div class="summary-note">清出成分股</div>
-        </article>
-        <article class="summary-card">
-            <div class="summary-label">無異動</div>
-            <div class="summary-value">{{ number_format($summary['no_change_count']) }}</div>
-            <div class="summary-note">無標籤變動報告</div>
-        </article>
-    </section>
-
     @if ($selectedEtfModel)
         <section id="etf-detail" class="ledger-panel holdings-panel">
             <div class="ledger-head">
@@ -1253,6 +1234,10 @@
         @endif
     </section>
 
+    @include('tw-stock.partials.active-etf-operation-details')
+
+    @include('tw-stock.partials.active-etf-operation-summary')
+
     @if ($etfCards->isNotEmpty())
         <section class="etf-grid" aria-label="ETF 操作概況">
             @foreach ($etfCards as $card)
@@ -1296,14 +1281,18 @@
         </section>
     @endif
 
-    <section class="ledger-panel market-panel">
-        <div class="ledger-head">
+    <details class="ledger-panel market-panel">
+        <summary class="ledger-head market-toggle">
             <h2 class="ledger-title">ETF 行情列表</h2>
             <div class="ledger-meta">
                 共 {{ number_format($marketEtfs->count()) }} 檔，
                 行情日：{{ optional($marketEtfs->firstWhere('quote_date', '!=', null)?->quote_date)->toDateString() ?? 'N/A' }}
+                <span class="market-toggle-label">
+                    <span class="when-closed">展開</span>
+                    <span class="when-open">收合</span>
+                </span>
             </div>
-        </div>
+        </summary>
 
         @if ($marketEtfs->isEmpty())
             <div class="empty">目前沒有符合條件的主動式 ETF 行情。</div>
@@ -1397,115 +1386,8 @@
                 @endforeach
             </div>
         @endif
-    </section>
+    </details>
 
-    <section class="ledger-panel">
-        <div class="ledger-head">
-            <h2 class="ledger-title">操作明細</h2>
-            <div class="ledger-meta">
-                共 {{ number_format($items->count()) }} 筆異動，
-                {{ $reports->filter(fn ($report): bool => (int) $report->items_count === 0)->count() }} 份報告無成分股異動
-            </div>
-        </div>
-
-        @if ($items->isEmpty())
-            <div class="empty">目前篩選條件下沒有操作異動。</div>
-        @else
-            <div class="table-wrap desktop-ledger">
-                <table>
-                    <thead>
-                    <tr>
-                        <th>
-                            <a class="sort-link {{ $detailSort === 'date' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'date', $detailSort, $detailDirection) }}">
-                                日期 <span class="sort-mark">{{ $sortMark('date', $detailSort, $detailDirection) }}</span>
-                            </a>
-                        </th>
-                        <th>
-                            <a class="sort-link {{ $detailSort === 'etf' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'etf', $detailSort, $detailDirection) }}">
-                                ETF <span class="sort-mark">{{ $sortMark('etf', $detailSort, $detailDirection) }}</span>
-                            </a>
-                        </th>
-                        <th>
-                            <a class="sort-link {{ $detailSort === 'action' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'action', $detailSort, $detailDirection) }}">
-                                操作 <span class="sort-mark">{{ $sortMark('action', $detailSort, $detailDirection) }}</span>
-                            </a>
-                        </th>
-                        <th class="numeric-cell">
-                            <a class="sort-link {{ $detailSort === 'change_lots' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'change_lots', $detailSort, $detailDirection) }}">
-                                變動張數 <span class="sort-mark">{{ $sortMark('change_lots', $detailSort, $detailDirection) }}</span>
-                            </a>
-                        </th>
-                        <th class="numeric-cell">
-                            <a class="sort-link {{ $detailSort === 'amount' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'amount', $detailSort, $detailDirection) }}">
-                                總金額 <span class="sort-mark">{{ $sortMark('amount', $detailSort, $detailDirection) }}</span>
-                            </a>
-                        </th>
-                        <th>
-                            <a class="sort-link {{ $detailSort === 'stock' ? 'active' : '' }}" href="{{ $sortUrl('detail', 'stock', $detailSort, $detailDirection) }}">
-                                成分股 <span class="sort-mark">{{ $sortMark('stock', $detailSort, $detailDirection) }}</span>
-                            </a>
-                        </th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    @foreach ($items as $item)
-                        <tr>
-                            <td>{{ $item->operation_date->toDateString() }}</td>
-                            <td>
-                                <div class="etf-line">
-                                    <strong>{{ $item->etf_code }}</strong>
-                                    <span>{{ $item->etf_name }}</span>
-                                </div>
-                            </td>
-                            <td><span class="action-badge {{ $actionClass($item->action) }}">{{ $item->action_label }}</span></td>
-                            <td class="numeric-cell"><span class="change-lots {{ $changeClass($item->change_lots) }}">{{ $formatLots($item->change_lots) }}</span></td>
-                            <td class="numeric-cell amount-cell">
-                                <span class="amount-main {{ $changeClass($item->change_lots) }}">{{ $formatTradeValue($item->operation_total_amount) }}</span>
-                                <span class="amount-sub">{{ $formatAmountPrice($item->operation_close_price, $item->operation_price_date) }}</span>
-                            </td>
-                            <td>
-                                <div class="stock-line">
-                                    <strong>{{ $item->stock_name }}</strong>
-                                    <span>{{ $item->stock_code }}</span>
-                                </div>
-                            </td>
-                        </tr>
-                    @endforeach
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="mobile-operations">
-                @foreach ($items as $item)
-                    <article class="operation-card">
-                        <div class="operation-card-head">
-                            <div class="etf-line">
-                                <strong>{{ $item->etf_code }} {{ $item->etf_name }}</strong>
-                                <span>{{ $item->operation_date->toDateString() }}</span>
-                            </div>
-                            <span class="action-badge {{ $actionClass($item->action) }}">{{ $item->action_label }}</span>
-                        </div>
-                        <div class="operation-card-body">
-                            <div class="stock-line">
-                                <strong>{{ $item->stock_name }}</strong>
-                                <span>{{ $item->stock_code }}</span>
-                            </div>
-                            <div class="operation-metrics">
-                                <div class="mobile-metric">
-                                    <span>張數</span>
-                                    <strong class="{{ $changeClass($item->change_lots) }}">{{ $formatLots($item->change_lots) }}</strong>
-                                </div>
-                                <div class="mobile-metric">
-                                    <span>總金額</span>
-                                    <strong class="{{ $changeClass($item->change_lots) }}">{{ $formatTradeValue($item->operation_total_amount) }}</strong>
-                                </div>
-                            </div>
-                        </div>
-                    </article>
-                @endforeach
-            </div>
-        @endif
-    </section>
 </main>
 </body>
 </html>

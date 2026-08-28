@@ -343,7 +343,7 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertSee('market_sort=price', false)
             ->assertSee('detail_sort=amount', false)
             ->assertSee('近期主動 ETF 買超排行')
-            ->assertSeeInOrder(['class="ledger-panel ranking-panel"', 'class="ledger-panel operations-panel"', 'class="summary-grid"', 'class="etf-grid"'], false)
+            ->assertSeeInOrder(['class="ledger-panel ranking-panel"', 'class="filter-tool"', 'class="ledger-panel operations-panel"', 'class="summary-grid"', 'class="etf-grid"'], false)
             ->assertSee('<details class="ledger-panel market-panel">', false)
             ->assertSee('<summary class="ledger-head market-toggle">', false)
             ->assertSee('<span class="when-closed">展開</span>', false)

@@ -1036,44 +1036,6 @@
         </nav>
     </header>
 
-    <form class="filter-tool" method="get" action="{{ route('tw-stock.active-etf-operations.index') }}">
-        <input type="hidden" name="market_sort" value="{{ $marketSort }}">
-        <input type="hidden" name="market_dir" value="{{ $marketDirection }}">
-        <input type="hidden" name="detail_sort" value="{{ $detailSort }}">
-        <input type="hidden" name="detail_dir" value="{{ $detailDirection }}">
-        <div class="field">
-            <label for="from">起始日期</label>
-            <input id="from" name="from" type="date" value="{{ $from }}">
-        </div>
-        <div class="field">
-            <label for="to">結束日期</label>
-            <input id="to" name="to" type="date" value="{{ $to }}">
-        </div>
-        <div class="field">
-            <label for="etf">ETF</label>
-            <select id="etf" name="etf">
-                <option value="">全部主動式 ETF</option>
-                @foreach ($activeEtfs as $etf)
-                    <option value="{{ $etf->stock_code }}" @selected($selectedEtf === $etf->stock_code)>
-                        {{ $etf->stock_code }} {{ $etf->stock_name }}{{ $etf->exchange ? ' / ' . $etf->exchange : '' }}
-                    </option>
-                @endforeach
-            </select>
-        </div>
-        <div class="field">
-            <label for="q">關鍵字</label>
-            <input id="q" name="q" type="search" value="{{ $keyword }}" placeholder="代碼或名稱">
-        </div>
-        <button class="submit-button" type="submit">套用</button>
-        <div class="action-tabs" role="group" aria-label="操作類型">
-            @foreach ($actions as $action => $label)
-                <button class="{{ $selectedAction === $action ? 'active' : '' }}" type="submit" name="action" value="{{ $action }}">
-                    {{ $label }}
-                </button>
-            @endforeach
-        </div>
-    </form>
-
     @if ($selectedEtfModel)
         <section id="etf-detail" class="ledger-panel holdings-panel">
             <div class="ledger-head">
@@ -1233,6 +1195,44 @@
             </div>
         @endif
     </section>
+
+    <form class="filter-tool" method="get" action="{{ route('tw-stock.active-etf-operations.index') }}">
+        <input type="hidden" name="market_sort" value="{{ $marketSort }}">
+        <input type="hidden" name="market_dir" value="{{ $marketDirection }}">
+        <input type="hidden" name="detail_sort" value="{{ $detailSort }}">
+        <input type="hidden" name="detail_dir" value="{{ $detailDirection }}">
+        <div class="field">
+            <label for="from">起始日期</label>
+            <input id="from" name="from" type="date" value="{{ $from }}">
+        </div>
+        <div class="field">
+            <label for="to">結束日期</label>
+            <input id="to" name="to" type="date" value="{{ $to }}">
+        </div>
+        <div class="field">
+            <label for="etf">ETF</label>
+            <select id="etf" name="etf">
+                <option value="">全部主動式 ETF</option>
+                @foreach ($activeEtfs as $etf)
+                    <option value="{{ $etf->stock_code }}" @selected($selectedEtf === $etf->stock_code)>
+                        {{ $etf->stock_code }} {{ $etf->stock_name }}{{ $etf->exchange ? ' / ' . $etf->exchange : '' }}
+                    </option>
+                @endforeach
+            </select>
+        </div>
+        <div class="field">
+            <label for="q">關鍵字</label>
+            <input id="q" name="q" type="search" value="{{ $keyword }}" placeholder="代碼或名稱">
+        </div>
+        <button class="submit-button" type="submit">套用</button>
+        <div class="action-tabs" role="group" aria-label="操作類型">
+            @foreach ($actions as $action => $label)
+                <button class="{{ $selectedAction === $action ? 'active' : '' }}" type="submit" name="action" value="{{ $action }}">
+                    {{ $label }}
+                </button>
+            @endforeach
+        </div>
+    </form>
 
     @include('tw-stock.partials.active-etf-operation-details')
 

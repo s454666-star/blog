@@ -26,7 +26,10 @@ class TwActiveEtf extends Model
         'trade_value' => 'integer',
         'transaction_count' => 'integer',
         'quote_payload' => 'array',
+        'holding_date' => 'date',
+        'holding_items' => 'array',
         'fetched_at' => 'datetime',
         'quote_fetched_at' => 'datetime',
+        'holding_fetched_at' => 'datetime',
     ];
 }

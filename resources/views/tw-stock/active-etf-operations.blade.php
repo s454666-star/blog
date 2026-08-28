@@ -453,6 +453,15 @@
             margin-bottom: 16px;
         }
 
+        .holdings-panel {
+            margin-bottom: 16px;
+            scroll-margin-top: 16px;
+        }
+
+        .holdings-table {
+            min-width: 720px;
+        }
+
         .ranking-period {
             display: flex;
             align-items: center;
@@ -1084,12 +1093,81 @@
         </article>
     </section>
 
+    @if ($selectedEtfModel)
+        <section id="etf-detail" class="ledger-panel holdings-panel">
+            <div class="ledger-head">
+                <div>
+                    <h2 class="ledger-title">{{ $selectedEtfModel->stock_code }} {{ $selectedEtfModel->stock_name }} 持股明細</h2>
+                    <div class="ledger-meta" style="text-align: left; margin-top: 4px;">
+                        持股日：{{ optional($selectedEtfModel->holding_date)->toDateString() ?? 'N/A' }} · 依市值占比由高到低
+                    </div>
+                </div>
+            </div>
+
+            @if ($selectedEtfHoldings->isEmpty())
+                <div class="empty">目前尚無這檔 ETF 的持股快照，請等待下一次資料更新。</div>
+            @else
+                <div class="table-wrap desktop-ledger">
+                    <table class="holdings-table">
+                        <thead>
+                        <tr>
+                            <th>排名</th>
+                            <th>持股標的</th>
+                            <th>商品種類</th>
+                            <th class="numeric-cell">市值占比</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach ($selectedEtfHoldings as $holding)
+                            <tr>
+                                <td class="rank-number">#{{ $loop->iteration }}</td>
+                                <td>
+                                    <div class="stock-line">
+                                        <strong>{{ $holding['target_name'] }}</strong>
+                                        <span>{{ $holding['target_code'] }}</span>
+                                    </div>
+                                </td>
+                                <td>{{ $holding['asset_type'] ?: 'N/A' }}</td>
+                                <td class="numeric-cell"><strong>{{ number_format((float) $holding['market_value_percent'], 2) }}%</strong></td>
+                            </tr>
+                        @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mobile-ranking">
+                    @foreach ($selectedEtfHoldings as $holding)
+                        <article class="ranking-card">
+                            <div class="ranking-card-head">
+                                <div class="stock-line">
+                                    <strong>#{{ $loop->iteration }} {{ $holding['target_name'] }}</strong>
+                                    <span>{{ $holding['target_code'] }}</span>
+                                </div>
+                                <strong>{{ number_format((float) $holding['market_value_percent'], 2) }}%</strong>
+                            </div>
+                            <div class="ranking-card-body">
+                                <div class="mobile-metric"><span>商品種類</span><strong>{{ $holding['asset_type'] ?: 'N/A' }}</strong></div>
+                                <div class="mobile-metric"><span>排序依據</span><strong>市值占比</strong></div>
+                            </div>
+                        </article>
+                    @endforeach
+                </div>
+            @endif
+        </section>
+    @endif
+
     <section class="ledger-panel ranking-panel">
         <div class="ledger-head">
             <div>
-                <h2 class="ledger-title">近期主動 ETF {{ $rankingTypes[$rankingType] }}</h2>
+                <h2 class="ledger-title">
+                    @if ($selectedEtfModel)
+                        {{ $selectedEtfModel->stock_code }} {{ $selectedEtfModel->stock_name }} 最近操作 {{ $rankingTypes[$rankingType] }}
+                    @else
+                        近期主動 ETF {{ $rankingTypes[$rankingType] }}
+                    @endif
+                </h2>
                 <div class="ledger-meta" style="text-align: left; margin-top: 4px;">
-                    全部 ETF 加總 · {{ $stockNetRankingFrom ?? 'N/A' }} ~ {{ $stockNetRankingTo ?? 'N/A' }}
+                    {{ $selectedEtfModel ? '單一 ETF' : '全部 ETF 加總' }} · {{ $stockNetRankingFrom ?? 'N/A' }} ~ {{ $stockNetRankingTo ?? 'N/A' }}
                     （實際 {{ number_format($stockNetRankingDateCount) }} 個報告日）· 按各操作日收盤價換算
                     @if ($stockNetRankingIncompleteCount > 0)
                         · {{ number_format($stockNetRankingIncompleteCount) }} 檔缺歷史股價未列入
@@ -1182,7 +1260,7 @@
                     $isFocused = $selectedEtf === $card['etf_code'];
                     $cardUrl = $isFocused
                         ? $withQuery(['etf' => null])
-                        : $withQuery(['etf' => $card['etf_code']]);
+                        : $withQuery(['etf' => $card['etf_code']]) . '#etf-detail';
                 @endphp
                 <a class="etf-card {{ $isFocused ? 'active' : '' }}" href="{{ $cardUrl }}" @if ($isFocused) aria-current="true" @endif>
                     <div class="etf-kicker">{{ $card['latest_operation_date'] ?? 'N/A' }} · {{ number_format($card['report_count']) }} 份報告</div>

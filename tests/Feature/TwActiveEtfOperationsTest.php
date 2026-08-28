@@ -159,15 +159,28 @@ class TwActiveEtfOperationsTest extends TestCase
                 ],
             ]),
             'https://www.cmoney.tw/forum/stock/00403A*' => Http::response('<html><script>tokens:{at:"guest-token"}</script></html>'),
-            'https://customreport.cmoney.tw/app/v2/dtno/JsonCsv' => Http::response([
-                'columns' => ['日期', '變動狀態', '變動標的代號', '變動標的名稱', '持股變動數', '持股變動數(張)', '標籤'],
-                'rows' => [
-                    ['20260630', '變更', '2368', '金像電', -150000, -150, '減碼'],
-                    ['20260630', '新增', '6239', '力成', 500000, 500, '新增'],
-                    ['20260630', '變更', '2330', '台積電', 0, 0, ''],
-                    ['20260629', '刪除', '3105', '穩懋', -1000, -1, '刪除'],
-                ],
-            ]),
+            'https://customreport.cmoney.tw/app/v2/dtno/JsonCsv' => function ($request) {
+                if ((int) (($request->data())['Dtno'] ?? 0) === 81997059) {
+                    return Http::response([
+                        'columns' => ['日期', '標的代號', '標的名稱', '商品種類', '權重(%)'],
+                        'rows' => [
+                            ['20260701', '2330', '台積電', '股票', 12.35],
+                            ['20260701', '2308', '台達電', '股票', 7.25],
+                            ['20260701', 'C_NTD', 'CASH', '現金', null],
+                        ],
+                    ]);
+                }
+
+                return Http::response([
+                    'columns' => ['日期', '變動狀態', '變動標的代號', '變動標的名稱', '持股變動數', '持股變動數(張)', '標籤'],
+                    'rows' => [
+                        ['20260630', '變更', '2368', '金像電', -150000, -150, '減碼'],
+                        ['20260630', '新增', '6239', '力成', 500000, 500, '新增'],
+                        ['20260630', '變更', '2330', '台積電', 0, 0, ''],
+                        ['20260629', '刪除', '3105', '穩懋', -1000, -1, '刪除'],
+                    ],
+                ]);
+            },
         ]);
 
         $this->artisan('tw-stock:fetch-active-etf-operations', [
@@ -194,6 +207,8 @@ class TwActiveEtfOperationsTest extends TestCase
         $this->assertEquals(11.15, (float) $quote->close_price);
         $this->assertEquals(0.13, (float) $quote->price_change_amount);
         $this->assertEquals(381613, (int) $quote->volume_lots);
+        $this->assertSame('2026-07-01', substr((string) $quote->holding_date, 0, 10));
+        $this->assertSame('2330', json_decode((string) $quote->holding_items, true)[0]['target_code']);
         $this->assertDatabaseCount('tw_active_etf_operation_reports', 2);
         $this->assertDatabaseCount('tw_active_etf_operation_items', 3);
         $this->assertDatabaseHas('tw_active_etf_operation_reports', [
@@ -241,6 +256,13 @@ class TwActiveEtfOperationsTest extends TestCase
                 'trade_value' => 4270000000,
                 'quote_source' => 'TWSE MIS stockInfo',
                 'quote_fetched_at' => $now,
+                'holding_date' => '2026-06-30',
+                'holding_items' => json_encode([
+                    ['target_code' => '6239', 'target_name' => '力成', 'asset_type' => '股票', 'market_value_percent' => 6.5],
+                    ['target_code' => '6147', 'target_name' => '頎邦', 'asset_type' => '股票', 'market_value_percent' => 8.25],
+                ]),
+                'holding_source' => 'CMoney ETF constituents',
+                'holding_fetched_at' => $now,
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
@@ -262,6 +284,10 @@ class TwActiveEtfOperationsTest extends TestCase
                 'trade_value' => 9840000000,
                 'quote_source' => 'TWSE MIS stockInfo',
                 'quote_fetched_at' => $now,
+                'holding_date' => null,
+                'holding_items' => null,
+                'holding_source' => null,
+                'holding_fetched_at' => null,
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
@@ -361,7 +387,13 @@ class TwActiveEtfOperationsTest extends TestCase
         ]))
             ->assertOk()
             ->assertSee('aria-current="true"', false)
+            ->assertSee('00403A 主動統一升級50 持股明細')
+            ->assertSee('依市值占比由高到低')
+            ->assertSeeInOrder(['#1 頎邦', '#2 力成'])
+            ->assertSee('00403A 主動統一升級50 最近操作 買超排行')
+            ->assertSee('單一 ETF')
             ->assertSee('頎邦')
+            ->assertDontSee('信驊')
             ->assertDontSee('<span class="action-badge action-add">加碼</span>', false);
 
         DB::table('tw_active_etf_operation_items')->insert(
@@ -433,6 +465,10 @@ class TwActiveEtfOperationsTest extends TestCase
             $table->string('quote_source')->nullable();
             $table->json('quote_payload')->nullable();
             $table->timestamp('quote_fetched_at')->nullable();
+            $table->date('holding_date')->nullable();
+            $table->json('holding_items')->nullable();
+            $table->string('holding_source')->nullable();
+            $table->timestamp('holding_fetched_at')->nullable();
             $table->timestamps();
         });
 

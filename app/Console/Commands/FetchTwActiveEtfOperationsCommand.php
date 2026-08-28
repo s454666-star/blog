@@ -64,6 +64,7 @@ class FetchTwActiveEtfOperationsCommand extends Command
         $token = null;
         $savedReports = 0;
         $savedItems = 0;
+        $savedHoldingSnapshots = 0;
         $failed = 0;
 
         foreach ($etfs as $etf) {
@@ -72,6 +73,10 @@ class FetchTwActiveEtfOperationsCommand extends Command
 
             try {
                 $token ??= $fetcher->fetchCmoneyGuestToken($code);
+                $holdingSnapshot = $fetcher->fetchHoldingSnapshot($code, $token);
+                if ($fetcher->syncHoldingSnapshot($code, $holdingSnapshot)) {
+                    $savedHoldingSnapshots++;
+                }
                 $reports = $fetcher->fetchOperationReports($code, $name, $from, $to, $token);
 
                 foreach ($reports as $reportPayload) {
@@ -81,9 +86,10 @@ class FetchTwActiveEtfOperationsCommand extends Command
                 }
 
                 $this->line(sprintf(
-                    '%s %s saved_reports=%d changed_items=%d',
+                    '%s %s holdings=%d saved_reports=%d changed_items=%d',
                     $code,
                     $name,
+                    count($holdingSnapshot['holding_items']),
                     count($reports),
                     array_sum(array_map(static fn (array $report): int => (int) $report['changed_row_count'], $reports)),
                 ));
@@ -104,9 +110,10 @@ class FetchTwActiveEtfOperationsCommand extends Command
 
         $this->newLine();
         $this->info(sprintf(
-            '完成：synced_etfs=%d processed_etfs=%d saved_reports=%d saved_items=%d failed=%d range=%s~%s',
+            '完成：synced_etfs=%d processed_etfs=%d holding_snapshots=%d saved_reports=%d saved_items=%d failed=%d range=%s~%s',
             $synced,
             count($etfs),
+            $savedHoldingSnapshots,
             $savedReports,
             $savedItems,
             $failed,

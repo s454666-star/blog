@@ -156,6 +156,10 @@ class TwActiveEtfOperationController extends Controller
                 'transaction_count',
                 'quote_source',
                 'quote_fetched_at',
+                'holding_date',
+                'holding_items',
+                'holding_source',
+                'holding_fetched_at',
             ])
             ->keyBy('stock_code');
 
@@ -193,7 +197,11 @@ class TwActiveEtfOperationController extends Controller
             ->map(fn (Collection $group): int => $group->count());
 
         $etfCards = $this->buildEtfCards($cardReports, $cardItems, $quoteEtfs);
-        $stockNetRanking = $this->buildStockNetRanking($rankingDays, $rankingType);
+        $selectedEtfModel = $selectedEtf === '' ? null : $quoteEtfs->get($selectedEtf);
+        $selectedEtfHoldings = collect($selectedEtfModel?->holding_items ?? [])
+            ->sortByDesc(fn (array $item): float => (float) ($item['market_value_percent'] ?? 0))
+            ->values();
+        $stockNetRanking = $this->buildStockNetRanking($rankingDays, $rankingType, $selectedEtf);
 
         return view('tw-stock.active-etf-operations', [
             'from' => $from->toDateString(),
@@ -211,6 +219,8 @@ class TwActiveEtfOperationController extends Controller
             'stockNetRankingTo' => $stockNetRanking['to'],
             'stockNetRankingDateCount' => $stockNetRanking['date_count'],
             'stockNetRankingIncompleteCount' => $stockNetRanking['incomplete_stock_count'],
+            'selectedEtfModel' => $selectedEtfModel,
+            'selectedEtfHoldings' => $selectedEtfHoldings,
             'marketSort' => $marketSort,
             'marketDirection' => $marketDirection,
             'detailSort' => $detailSort,
@@ -252,9 +262,14 @@ class TwActiveEtfOperationController extends Controller
     /**
      * @return array{rows: Collection<int, array<string, mixed>>, from: ?string, to: ?string, date_count: int, incomplete_stock_count: int}
      */
-    private function buildStockNetRanking(int $days, string $rankingType): array
+    private function buildStockNetRanking(int $days, string $rankingType, string $selectedEtf = ''): array
     {
-        $dates = TwActiveEtfOperationReport::query()
+        $dateQuery = TwActiveEtfOperationReport::query();
+        if ($selectedEtf !== '') {
+            $dateQuery->where('etf_code', $selectedEtf);
+        }
+
+        $dates = $dateQuery
             ->select('operation_date')
             ->distinct()
             ->orderByDesc('operation_date')
@@ -275,10 +290,14 @@ class TwActiveEtfOperationController extends Controller
         $from = (string) $dates->min();
         $to = (string) $dates->max();
 
+        $rankingItemQuery = TwActiveEtfOperationItem::query()
+            ->whereBetween('operation_date', [$from, $to]);
+        if ($selectedEtf !== '') {
+            $rankingItemQuery->where('etf_code', $selectedEtf);
+        }
+
         $itemsByStock = $this->attachOperationAmounts(
-            TwActiveEtfOperationItem::query()
-                ->whereBetween('operation_date', [$from, $to])
-                ->get(['operation_date', 'etf_code', 'stock_code', 'stock_name', 'change_lots'])
+            $rankingItemQuery->get(['operation_date', 'etf_code', 'stock_code', 'stock_name', 'change_lots'])
         )->groupBy('stock_code');
 
         $incompleteStockCount = $itemsByStock

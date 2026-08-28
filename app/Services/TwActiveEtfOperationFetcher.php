@@ -30,6 +30,8 @@ class TwActiveEtfOperationFetcher
 
     private const CMONEY_ACTIVE_ETF_OPERATION_DTNO = 140141644;
 
+    private const CMONEY_ETF_HOLDINGS_DTNO = 81997059;
+
     private const CMONEY_TOKEN_CACHE_SECONDS = 1200;
 
     private const TPEX_ETF_TYPES = [
@@ -591,6 +593,82 @@ class TwActiveEtfOperationFetcher
         krsort($reports);
 
         return array_values($reports);
+    }
+
+    /**
+     * @return array{holding_date: ?string, holding_items: list<array<string, mixed>>, holding_source: string, holding_fetched_at: mixed}
+     */
+    public function fetchHoldingSnapshot(string $etfCode, ?string $bearerToken = null): array
+    {
+        $code = strtoupper(trim($etfCode));
+        $token = $bearerToken ?: $this->fetchCmoneyGuestToken($code);
+        $payload = $this->http()
+            ->withToken($token)
+            ->asJson()
+            ->post(self::CMONEY_DTNO_URL, [
+                'Dtno' => self::CMONEY_ETF_HOLDINGS_DTNO,
+                'Params' => 'AssignID=' . $code,
+            ])
+            ->throw()
+            ->json();
+
+        if (!is_array($payload) || !isset($payload['rows']) || !is_array($payload['rows'])) {
+            throw new RuntimeException('CMoney ETF 持股明細回應格式不正確。');
+        }
+
+        $holdingDate = null;
+        $items = [];
+        foreach ($payload['rows'] as $row) {
+            if (!is_array($row) || count($row) < 5) {
+                continue;
+            }
+
+            $date = $this->parseYmdDate((string) $row[0]);
+            $weight = $this->parseDecimal($row[4] ?? null);
+            $targetCode = trim((string) ($row[1] ?? ''));
+            $targetName = trim((string) ($row[2] ?? ''));
+            if ($date === null || $targetCode === '' || $targetName === '' || $weight === null || $weight <= 0) {
+                continue;
+            }
+
+            $dateKey = $date->toDateString();
+            if ($holdingDate === null || $dateKey > $holdingDate) {
+                $holdingDate = $dateKey;
+                $items = [];
+            }
+            if ($dateKey !== $holdingDate) {
+                continue;
+            }
+
+            $items[] = [
+                'target_code' => $targetCode,
+                'target_name' => $targetName,
+                'asset_type' => trim((string) ($row[3] ?? '')),
+                'market_value_percent' => $weight,
+            ];
+        }
+
+        usort($items, static fn (array $left, array $right): int =>
+            ($right['market_value_percent'] <=> $left['market_value_percent'])
+            ?: strcmp($left['target_code'], $right['target_code'])
+        );
+
+        return [
+            'holding_date' => $holdingDate,
+            'holding_items' => $items,
+            'holding_source' => 'CMoney ETF constituents',
+            'holding_fetched_at' => now(),
+        ];
+    }
+
+    /**
+     * @param array{holding_date: ?string, holding_items: list<array<string, mixed>>, holding_source: string, holding_fetched_at: mixed} $snapshot
+     */
+    public function syncHoldingSnapshot(string $etfCode, array $snapshot): bool
+    {
+        return TwActiveEtf::query()
+            ->where('stock_code', strtoupper(trim($etfCode)))
+            ->update($snapshot) === 1;
     }
 
     /**

@@ -348,7 +348,7 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertSee('<summary class="ledger-head market-toggle">', false)
             ->assertSee('<span class="when-closed">展開</span>', false)
             ->assertSee('<option value="buy" selected>買超排行</option>', false)
-            ->assertSee('<option value="5" selected>最近 5 日</option>', false)
+            ->assertSee('<option value="1" selected>最近 1 日</option>', false)
             ->assertSee('淨買超金額')
             ->assertSee('按各操作日收盤價換算')
             ->assertSee('NT$ 6,000.0萬')
@@ -368,7 +368,7 @@ class TwActiveEtfOperationsTest extends TestCase
             ->assertOk()
             ->assertSee('近期主動 ETF 賣超排行')
             ->assertSee('<option value="sell" selected>賣超排行</option>', false)
-            ->assertSee('<option value="5" selected>最近 5 日</option>', false)
+            ->assertSee('<option value="1" selected>最近 1 日</option>', false)
             ->assertSee('淨賣超金額')
             ->assertSee('title="NT$ 125,000,000"', false)
             ->assertSeeInOrder(['近期主動 ETF 賣超排行', '頎邦', '台積電']);

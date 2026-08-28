@@ -247,9 +247,9 @@ class TwActiveEtfOperationController extends Controller
 
     private function resolveRankingDays(Request $request): int
     {
-        $days = (int) $request->query('ranking_days', 5);
+        $days = (int) $request->query('ranking_days', 1);
 
-        return in_array($days, self::RANKING_DAY_OPTIONS, true) ? $days : 5;
+        return in_array($days, self::RANKING_DAY_OPTIONS, true) ? $days : 1;
     }
 
     private function resolveRankingType(Request $request): string

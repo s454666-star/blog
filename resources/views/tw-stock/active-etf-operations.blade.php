@@ -1084,49 +1084,6 @@
         </article>
     </section>
 
-    @if ($etfCards->isNotEmpty())
-        <section class="etf-grid" aria-label="ETF 操作概況">
-            @foreach ($etfCards as $card)
-                @php
-                    $isFocused = $selectedEtf === $card['etf_code'];
-                    $cardUrl = $isFocused
-                        ? $withQuery(['etf' => null])
-                        : $withQuery(['etf' => $card['etf_code']]);
-                @endphp
-                <a class="etf-card {{ $isFocused ? 'active' : '' }}" href="{{ $cardUrl }}" @if ($isFocused) aria-current="true" @endif>
-                    <div class="etf-kicker">{{ $card['latest_operation_date'] ?? 'N/A' }} · {{ number_format($card['report_count']) }} 份報告</div>
-                    <div class="etf-title">
-                        <div class="etf-code">{{ $card['etf_code'] }}</div>
-                        <div class="etf-name" title="{{ $card['etf_name'] }}">{{ $card['etf_name'] }}</div>
-                    </div>
-                    <div class="quote-strip" aria-label="行情">
-                        <div class="quote-pill">
-                            <span>股價</span>
-                            <strong>{{ $formatPrice($card['close_price']) }}</strong>
-                        </div>
-                        <div class="quote-pill">
-                            <span>漲跌幅</span>
-                            <strong class="{{ $changeClass($card['price_change_amount']) }}">
-                                {{ $formatSignedNumber($card['price_change_amount']) }}
-                                <span class="quote-sub">{{ $formatPercent($card['price_change_percent']) }}</span>
-                            </strong>
-                        </div>
-                        <div class="quote-pill">
-                            <span>成交金額</span>
-                            <strong>{{ $formatTradeValue($card['trade_value']) }}</strong>
-                        </div>
-                    </div>
-                    <div class="etf-meter">
-                        <div class="mini-stat"><span>新增</span><strong class="value-new">{{ number_format($card['new_count']) }}</strong></div>
-                        <div class="mini-stat"><span>加碼</span><strong class="value-add">{{ number_format($card['add_count']) }}</strong></div>
-                        <div class="mini-stat"><span>減碼</span><strong class="value-reduce">{{ number_format($card['reduce_count']) }}</strong></div>
-                        <div class="mini-stat"><span>刪除</span><strong class="value-remove">{{ number_format($card['remove_count']) }}</strong></div>
-                    </div>
-                </a>
-            @endforeach
-        </section>
-    @endif
-
     <section class="ledger-panel ranking-panel">
         <div class="ledger-head">
             <div>
@@ -1217,6 +1174,49 @@
             </div>
         @endif
     </section>
+
+    @if ($etfCards->isNotEmpty())
+        <section class="etf-grid" aria-label="ETF 操作概況">
+            @foreach ($etfCards as $card)
+                @php
+                    $isFocused = $selectedEtf === $card['etf_code'];
+                    $cardUrl = $isFocused
+                        ? $withQuery(['etf' => null])
+                        : $withQuery(['etf' => $card['etf_code']]);
+                @endphp
+                <a class="etf-card {{ $isFocused ? 'active' : '' }}" href="{{ $cardUrl }}" @if ($isFocused) aria-current="true" @endif>
+                    <div class="etf-kicker">{{ $card['latest_operation_date'] ?? 'N/A' }} · {{ number_format($card['report_count']) }} 份報告</div>
+                    <div class="etf-title">
+                        <div class="etf-code">{{ $card['etf_code'] }}</div>
+                        <div class="etf-name" title="{{ $card['etf_name'] }}">{{ $card['etf_name'] }}</div>
+                    </div>
+                    <div class="quote-strip" aria-label="行情">
+                        <div class="quote-pill">
+                            <span>股價</span>
+                            <strong>{{ $formatPrice($card['close_price']) }}</strong>
+                        </div>
+                        <div class="quote-pill">
+                            <span>漲跌幅</span>
+                            <strong class="{{ $changeClass($card['price_change_amount']) }}">
+                                {{ $formatSignedNumber($card['price_change_amount']) }}
+                                <span class="quote-sub">{{ $formatPercent($card['price_change_percent']) }}</span>
+                            </strong>
+                        </div>
+                        <div class="quote-pill">
+                            <span>成交金額</span>
+                            <strong>{{ $formatTradeValue($card['trade_value']) }}</strong>
+                        </div>
+                    </div>
+                    <div class="etf-meter">
+                        <div class="mini-stat"><span>新增</span><strong class="value-new">{{ number_format($card['new_count']) }}</strong></div>
+                        <div class="mini-stat"><span>加碼</span><strong class="value-add">{{ number_format($card['add_count']) }}</strong></div>
+                        <div class="mini-stat"><span>減碼</span><strong class="value-reduce">{{ number_format($card['reduce_count']) }}</strong></div>
+                        <div class="mini-stat"><span>刪除</span><strong class="value-remove">{{ number_format($card['remove_count']) }}</strong></div>
+                    </div>
+                </a>
+            @endforeach
+        </section>
+    @endif
 
     <section class="ledger-panel market-panel">
         <div class="ledger-head">

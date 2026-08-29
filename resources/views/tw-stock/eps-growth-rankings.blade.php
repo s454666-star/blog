@@ -602,7 +602,7 @@
 
         <div class="hero-meta">
             <span class="meta-pill">快照 <strong>{{ $run?->snapshot_date?->format('Y/m/d') ?? '尚未建立' }}</strong></span>
-            <span class="meta-pill">股價日 <strong>{{ $run?->price_date?->format('Y/m/d') ?? '—' }}</strong></span>
+            <span class="meta-pill">{{ $usesLatestPrices ? '最新股價日' : '快照股價最晚日' }} <strong>{{ $displayPriceDate ? \Illuminate\Support\Carbon::parse($displayPriceDate)->format('Y/m/d') : '—' }}</strong></span>
             <span class="meta-pill">比較前週 <strong>{{ $previousRun?->snapshot_date?->format('Y/m/d') ?? '首次快照' }}</strong></span>
             <span class="meta-pill">完整樣本 <strong>{{ number_format($run?->eligible_count ?? 0) }} 檔</strong></span>
         </div>
@@ -704,7 +704,7 @@
                         <th>名次</th>
                         <th>股票</th>
                         <th>{{ $epsBasis === 'actual' ? '相較預估' : '週排名' }}</th>
-                        <th>當期收盤</th>
+                        <th>{{ $usesLatestPrices ? '最新收盤' : '當期收盤' }}</th>
                         <th>2027預期價格</th>
                         <th>2025A</th>
                         <th>{{ $epsBasis === 'actual' ? '2026實際推估' : '2026E' }}</th>
@@ -758,6 +758,7 @@
                             <td title="{{ $epsBasis === 'actual' ? '預估2026名次' : '前次名次' }}：{{ $row->previous_rank ?? '無' }}"><span class="rank-change {{ $changeClass }}">{{ $changeText }}</span></td>
                             <td class="price">
                                 <div class="price-value">{{ $row->close_price === null ? '—' : number_format($row->close_price, $row->close_price < 100 ? 2 : ($row->close_price < 1000 ? 1 : 0)) }}</div>
+                                <div class="stock-meta">{{ $row->price_date?->format('m/d') ?? '—' }}</div>
                                 <div class="moving-average-signals">
                                     @foreach ($movingAverageSignals as $signal)
                                         @if ($row->close_price !== null && $signal['average'] !== null)
@@ -773,7 +774,7 @@
                                     @endforeach
                                 </div>
                             </td>
-                            <td class="price" title="{{ $row->stock_group ?? '族群' }}平均本益比 {{ $row->valuation_group_pe === null ? '—' : number_format($row->valuation_group_pe, 1) . ' 倍' }} × 2027E EPS {{ number_format($row->eps_2027, 2) }}；相對當期收盤 {{ $row->close_price === null ? '—' : number_format($row->close_price, 2) }}">
+                            <td class="price" title="{{ $row->stock_group ?? '族群' }}平均本益比 {{ $row->valuation_group_pe === null ? '—' : number_format($row->valuation_group_pe, 1) . ' 倍' }} × 2027E EPS {{ number_format($row->eps_2027, 2) }}；相對{{ $usesLatestPrices ? '最新' : '當期' }}收盤 {{ $row->close_price === null ? '—' : number_format($row->close_price, 2) }}">
                                 <div class="price-value expected-price-value">
                                     <span>{{ $row->expected_price_2027 === null ? '—' : number_format($row->expected_price_2027, $row->expected_price_2027 < 100 ? 2 : ($row->expected_price_2027 < 1000 ? 1 : 0)) }}</span>
                                     @if ($row->expected_price_2027_return_percentage !== null)
@@ -826,7 +827,7 @@
                 先依
                 <span class="formula">(25→26年增率×1.8 + 26→27年增率×2.5 + 27→28年增率×1) ÷ 5.3</span>
                 算出原始加權成長率，再將該結果換算成當週完整樣本中的 0～100 百分位分數並排序。這可確保權重直接作用於原始成長率，不會因三段各自先轉百分位而扭曲。預設「預估2026」使用 FactSet 2026E；切換「實際2026」時以已公告的 H1 EPS × 2 取代 2026E，重新計算 25→26、26→27、加權分數及排行，27→28 仍沿用原預估。缺少完整 H1 或年化 EPS 不為正數的股票不納入實際模式排行。2025A 為四季 EPS 加總；2027E～2028E 與營收成長展望為各股票最新可取得的 FactSet 中位數。排行是相對分數，不等於投資品質。
-                2027預期價格以<span class="formula">該股票族群平均本益比 × 2027E EPS</span>計算；旁邊百分比為<span class="formula">（2027預期價格 ÷ 當期收盤價 − 1）× 100%</span>，僅供估值參考。
+                2027預期價格以<span class="formula">該股票族群平均本益比 × 2027E EPS</span>計算；旁邊百分比為<span class="formula">（2027預期價格 ÷ 顯示收盤價 − 1）× 100%</span>。最新一期使用每日股價表的最新官方收盤，歷史週快照則保留該週收盤，僅供估值參考。
                 全新（2455）與聯亞（3081）若 FactSet 尚缺 2028E，會以最新 2026E、2027E 共識為基礎，將 2026→2027 成長率折半（限制於 0～30%）作為中性 2028E 年增率，並以「中性估算」標示。
                 兩檔為固定參考列；即使實際名次低於第 50 名，仍會顯示在前 50 名表格後方。
             </div>

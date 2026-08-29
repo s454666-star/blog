@@ -170,6 +170,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             '--minimum-eligible' => 2,
         ])->assertSuccessful();
         $this->insertMovingAverageHistory('2026-08-18');
+        $this->insertPrices('2026-08-19', 120, 210);
         DB::table('tw_stock_q1_financial_reports')->insert([
             ['fiscal_year' => 2026, 'quarter' => 1, 'stock_code' => '1111', 'q1_eps' => 1.25],
             ['fiscal_year' => 2026, 'quarter' => 2, 'stock_code' => '1111', 'q1_eps' => 2.75],
@@ -183,6 +184,9 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('歷史週快照')
             ->assertSee('營收成長預估')
             ->assertSee('2027預期價格')
+            ->assertSee('最新收盤')
+            ->assertSee('最新股價日')
+            ->assertSee('2026/08/19')
             ->assertSee('預估2026')
             ->assertSee('實際2026（H1×2）')
             ->assertSee('族群平均本益比 × 2027E EPS')
@@ -190,11 +194,11 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('目前 Q1+Q2：7.00')
             ->assertSee('456.0')
             ->assertSee('90.00')
-            ->assertSee('（+314.5%）')
-            ->assertSee('（-59.1%）')
+            ->assertSee('（+280.0%）')
+            ->assertSee('（-57.1%）')
             ->assertDontSee('潛在獲利')
             ->assertDontSee('潛在虧損')
-            ->assertSee('（2027預期價格 ÷ 當期收盤價 − 1）× 100%')
+            ->assertSee('（2027預期價格 ÷ 顯示收盤價 − 1）× 100%')
             ->assertSee('加權分')
             ->assertSee('100.00')
             ->assertSee('甲公司')
@@ -232,6 +236,10 @@ class TwStockEpsGrowthRankingsTest extends TestCase
         $this->get(route('tw-stock.eps-growth-rankings.index', ['run' => $oldRunId]))
             ->assertOk()
             ->assertSee('2026/08/11')
+            ->assertSee('當期收盤')
+            ->assertSee('快照股價最晚日')
+            ->assertSee('（+356.0%）')
+            ->assertSee('（-82.0%）')
             ->assertSee('1111')
             ->assertSee('200.0%');
     }

@@ -32,6 +32,7 @@ class TwStockEpsGrowthRankingController extends Controller
         $run = $requestedRunId > 0
             ? $availableRuns->firstWhere('id', $requestedRunId)
             : $availableRuns->first();
+        $usesLatestPrices = $run !== null && $run->id === $availableRuns->first()?->id;
 
         $epsBasis = $request->query('eps_basis') === 'actual' ? 'actual' : 'forecast';
         $neutralEstimateCodes = config('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', []);
@@ -45,8 +46,11 @@ class TwStockEpsGrowthRankingController extends Controller
         $rows = $rows
             ->filter(fn ($row): bool => $row->rank <= 50 || in_array($row->stock_code, $neutralEstimateCodes, true))
             ->values();
+        $displayPriceDate = $usesLatestPrices
+            ? $this->attachLatestClosingPrices($rows)
+            : $run?->price_date?->toDateString();
         $this->attachStockGroups($rows);
-        $this->attachMovingAveragePositions($rows, $run?->price_date?->toDateString());
+        $this->attachMovingAveragePositions($rows, $usesLatestPrices ? null : $run?->price_date?->toDateString());
         $previousRun = $run === null ? null : TwStockEpsGrowthRun::query()
             ->whereDate('snapshot_date', '<', $run->snapshot_date->toDateString())
             ->whereNotNull('completed_at')
@@ -60,6 +64,8 @@ class TwStockEpsGrowthRankingController extends Controller
             'availableRuns' => $availableRuns,
             'rows' => $rows,
             'epsBasis' => $epsBasis,
+            'usesLatestPrices' => $usesLatestPrices,
+            'displayPriceDate' => $displayPriceDate,
             'summary' => [
                 'up' => $rows->where('rank_change', '>', 0)->count(),
                 'down' => $rows->where('rank_change', '<', 0)->count(),
@@ -72,6 +78,38 @@ class TwStockEpsGrowthRankingController extends Controller
                 )->count(),
             ],
         ]);
+    }
+
+    private function attachLatestClosingPrices(Collection $rows): ?string
+    {
+        if ($rows->isEmpty()) {
+            return null;
+        }
+
+        $rankedPrices = TwStockDailyPrice::query()
+            ->select(['stock_code', 'trade_date', 'close_price'])
+            ->selectRaw('ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY trade_date DESC, id DESC) AS price_row_number')
+            ->whereIn('stock_code', $rows->pluck('stock_code')->filter()->unique()->values())
+            ->whereNotNull('close_price');
+        $latestPrices = DB::query()
+            ->fromSub($rankedPrices, 'ranked_prices')
+            ->where('price_row_number', 1)
+            ->get()
+            ->keyBy('stock_code');
+        $priceDates = [];
+
+        foreach ($rows as $row) {
+            $price = $latestPrices->get($row->stock_code);
+            if ($price === null) {
+                continue;
+            }
+
+            $row->setAttribute('close_price', (float) $price->close_price);
+            $row->setAttribute('price_date', $price->trade_date);
+            $priceDates[] = (string) $price->trade_date;
+        }
+
+        return $priceDates === [] ? null : max($priceDates);
     }
 
     private function applyAnnualizedHalfYearEps(Collection $rows): Collection
@@ -179,7 +217,7 @@ class TwStockEpsGrowthRankingController extends Controller
 
     private function attachMovingAveragePositions(Collection $rows, ?string $priceDate): void
     {
-        if ($rows->isEmpty() || $priceDate === null) {
+        if ($rows->isEmpty()) {
             return;
         }
 
@@ -187,8 +225,10 @@ class TwStockEpsGrowthRankingController extends Controller
         $rankedPrices = TwStockDailyPrice::query()
             ->select(['stock_code', 'trade_date', 'close_price'])
             ->selectRaw('ROW_NUMBER() OVER (PARTITION BY stock_code ORDER BY trade_date DESC) AS price_row_number')
-            ->whereIn('stock_code', $stockCodes)
-            ->whereDate('trade_date', '<=', $priceDate);
+            ->whereIn('stock_code', $stockCodes);
+        if ($priceDate !== null) {
+            $rankedPrices->whereDate('trade_date', '<=', $priceDate);
+        }
         $priceHistories = DB::query()
             ->fromSub($rankedPrices, 'ranked_prices')
             ->where('price_row_number', '<=', 60)

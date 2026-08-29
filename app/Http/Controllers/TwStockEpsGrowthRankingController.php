@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\TwStockCompanyProfile;
 use App\Models\TwStockDailyPrice;
 use App\Models\TwStockEpsGrowthRun;
+use App\Models\TwStockQ1FinancialReport;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -36,6 +37,7 @@ class TwStockEpsGrowthRankingController extends Controller
             ->orderBy('rank')
             ->get() ?? collect();
         $this->attachStockGroups($rows);
+        $this->attachReportedHalfYearEps($rows, $run?->forecast_year_1);
         $this->attachMovingAveragePositions($rows, $run?->price_date?->toDateString());
         $previousRun = $run === null ? null : TwStockEpsGrowthRun::query()
             ->whereDate('snapshot_date', '<', $run->snapshot_date->toDateString())
@@ -61,6 +63,31 @@ class TwStockEpsGrowthRankingController extends Controller
                 )->count(),
             ],
         ]);
+    }
+
+    private function attachReportedHalfYearEps(Collection $rows, ?int $fiscalYear): void
+    {
+        if ($rows->isEmpty() || $fiscalYear === null) {
+            return;
+        }
+
+        $quarterlyEpsByStock = TwStockQ1FinancialReport::query()
+            ->where('fiscal_year', $fiscalYear)
+            ->whereIn('quarter', [1, 2])
+            ->whereIn('stock_code', $rows->pluck('stock_code')->filter()->unique()->values())
+            ->whereNotNull('q1_eps')
+            ->get(['stock_code', 'quarter', 'q1_eps'])
+            ->groupBy('stock_code');
+
+        foreach ($rows as $row) {
+            $quarterlyEps = $quarterlyEpsByStock->get($row->stock_code, collect())->keyBy('quarter');
+            $q1 = $quarterlyEps->get(1)?->q1_eps;
+            $q2 = $quarterlyEps->get(2)?->q1_eps;
+            $row->setAttribute(
+                'reported_half_year_eps',
+                $q1 !== null && $q2 !== null ? (float) $q1 + (float) $q2 : null,
+            );
+        }
     }
 
     private function attachStockGroups(Collection $rows): void

@@ -755,7 +755,10 @@
                                 @endif
                             </td>
                             <td>{{ number_format($row->eps_2025, 2) }}</td>
-                            <td>{{ number_format($row->eps_2026, 2) }}</td>
+                            <td>
+                                <div>{{ number_format($row->eps_2026, 2) }}</div>
+                                <div class="stock-meta">（目前 Q1+Q2：{{ $row->reported_half_year_eps === null ? '—' : number_format($row->reported_half_year_eps, 2) }}）</div>
+                            </td>
                             <td>{{ number_format($row->eps_2027, 2) }}</td>
                             <td>{{ number_format($row->eps_2028, 2) }}</td>
                             @foreach ([$row->growth_2025_2026, $row->growth_2026_2027, $row->growth_2027_2028] as $growth)
@@ -785,7 +788,7 @@
                 <strong>計算方式：</strong>
                 先依
                 <span class="formula">(25→26年增率×1.8 + 26→27年增率×2.5 + 27→28年增率×1) ÷ 5.3</span>
-                算出原始加權成長率，再將該結果換算成當週完整樣本中的 0～100 百分位分數並排序。這可確保權重直接作用於原始成長率，不會因三段各自先轉百分位而扭曲。2025A 為四季 EPS 加總；2026E～2028E 與營收成長展望為各股票最新可取得的 FactSet 中位數。排行是相對分數，不等於投資品質。
+                算出原始加權成長率，再將該結果換算成當週完整樣本中的 0～100 百分位分數並排序。這可確保權重直接作用於原始成長率，不會因三段各自先轉百分位而扭曲。2025A 為四季 EPS 加總；2026E～2028E 與營收成長展望為各股票最新可取得的 FactSet 中位數。2026E 下方的「目前 Q1+Q2」為 2026 年已公告的兩季單季 EPS 加總。排行是相對分數，不等於投資品質。
                 2027預期價格以<span class="formula">該股票族群平均本益比 × 2027E EPS</span>計算，僅供估值參考。
                 全新（2455）與聯亞（3081）若 FactSet 尚缺 2028E，會以最新 2026E、2027E 共識為基礎，將 2026→2027 成長率折半（限制於 0～30%）作為中性 2028E 年增率，並以「中性估算」標示。
                 兩檔為固定參考列；即使實際名次低於第 50 名，仍會顯示在前 50 名表格後方。

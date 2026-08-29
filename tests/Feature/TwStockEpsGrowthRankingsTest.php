@@ -58,6 +58,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
 
         Schema::connection('sqlite')->dropIfExists('tw_stock_eps_growth_rankings');
         Schema::connection('sqlite')->dropIfExists('tw_stock_eps_growth_runs');
+        Schema::connection('sqlite')->dropIfExists('tw_stock_q1_financial_reports');
         Schema::connection('sqlite')->dropIfExists('tw_stock_daily_prices');
 
         Carbon::setTestNow();
@@ -169,6 +170,12 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             '--minimum-eligible' => 2,
         ])->assertSuccessful();
         $this->insertMovingAverageHistory('2026-08-18');
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            ['fiscal_year' => 2026, 'quarter' => 1, 'stock_code' => '1111', 'q1_eps' => 1.25],
+            ['fiscal_year' => 2026, 'quarter' => 2, 'stock_code' => '1111', 'q1_eps' => 2.75],
+            ['fiscal_year' => 2026, 'quarter' => 1, 'stock_code' => '2222', 'q1_eps' => 3.00],
+            ['fiscal_year' => 2026, 'quarter' => 2, 'stock_code' => '2222', 'q1_eps' => 4.00],
+        ]);
 
         $this->get(route('tw-stock.eps-growth-rankings.index'))
             ->assertOk()
@@ -177,6 +184,8 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('營收成長預估')
             ->assertSee('2027預期價格')
             ->assertSee('族群平均本益比 × 2027E EPS')
+            ->assertSee('目前 Q1+Q2：4.00')
+            ->assertSee('目前 Q1+Q2：7.00')
             ->assertSee('456.0')
             ->assertSee('900.0')
             ->assertSee('加權分')
@@ -541,6 +550,15 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             $table->decimal('valuation_group_pe', 8, 4)->nullable();
             $table->date('source_date')->nullable();
             $table->timestamps();
+        });
+
+        Schema::connection('sqlite')->create('tw_stock_q1_financial_reports', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedSmallInteger('fiscal_year');
+            $table->unsignedTinyInteger('quarter');
+            $table->string('stock_code', 12);
+            $table->decimal('q1_eps', 10, 4)->nullable();
+            $table->unique(['fiscal_year', 'quarter', 'stock_code']);
         });
 
         Schema::connection('sqlite')->create('tw_stock_eps_growth_runs', function (Blueprint $table): void {

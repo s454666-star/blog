@@ -6,6 +6,7 @@ use App\Models\TwStockCompanyProfile;
 use App\Models\TwStockDailyPrice;
 use App\Models\TwStockEpsGrowthRun;
 use App\Models\TwStockQ1FinancialReport;
+use App\Services\TwStockEpsGrowthScoringService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -13,6 +14,10 @@ use Illuminate\Support\Facades\DB;
 
 class TwStockEpsGrowthRankingController extends Controller
 {
+    public function __construct(
+        private readonly TwStockEpsGrowthScoringService $scoring,
+    ) {}
+
     public function index(Request $request): View
     {
         $availableRuns = TwStockEpsGrowthRun::query()
@@ -28,16 +33,19 @@ class TwStockEpsGrowthRankingController extends Controller
             ? $availableRuns->firstWhere('id', $requestedRunId)
             : $availableRuns->first();
 
+        $epsBasis = $request->query('eps_basis') === 'actual' ? 'actual' : 'forecast';
         $neutralEstimateCodes = config('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', []);
         $rows = $run?->rankings()
-            ->where(function ($query) use ($neutralEstimateCodes): void {
-                $query->where('rank', '<=', 50)
-                    ->orWhereIn('stock_code', $neutralEstimateCodes);
-            })
             ->orderBy('rank')
             ->get() ?? collect();
-        $this->attachStockGroups($rows);
         $this->attachReportedHalfYearEps($rows, $run?->forecast_year_1);
+        if ($epsBasis === 'actual') {
+            $rows = $this->applyAnnualizedHalfYearEps($rows);
+        }
+        $rows = $rows
+            ->filter(fn ($row): bool => $row->rank <= 50 || in_array($row->stock_code, $neutralEstimateCodes, true))
+            ->values();
+        $this->attachStockGroups($rows);
         $this->attachMovingAveragePositions($rows, $run?->price_date?->toDateString());
         $previousRun = $run === null ? null : TwStockEpsGrowthRun::query()
             ->whereDate('snapshot_date', '<', $run->snapshot_date->toDateString())
@@ -51,6 +59,7 @@ class TwStockEpsGrowthRankingController extends Controller
             'previousRun' => $previousRun,
             'availableRuns' => $availableRuns,
             'rows' => $rows,
+            'epsBasis' => $epsBasis,
             'summary' => [
                 'up' => $rows->where('rank_change', '>', 0)->count(),
                 'down' => $rows->where('rank_change', '<', 0)->count(),
@@ -63,6 +72,50 @@ class TwStockEpsGrowthRankingController extends Controller
                 )->count(),
             ],
         ]);
+    }
+
+    private function applyAnnualizedHalfYearEps(Collection $rows): Collection
+    {
+        $eligibleRows = $rows->filter(fn ($row): bool =>
+            $row->reported_half_year_eps !== null
+            && $row->reported_half_year_eps > 0
+            && $row->eps_2025 > 0
+            && $row->eps_2027 > 0
+        );
+
+        $scoredRows = $this->scoring->scoreAndRank($eligibleRows
+            ->map(function ($row): array {
+                $annualizedEps2026 = (float) $row->reported_half_year_eps * 2;
+                $growth2025To2026 = (($annualizedEps2026 / $row->eps_2025) - 1) * 100;
+                $growth2026To2027 = (($row->eps_2027 / $annualizedEps2026) - 1) * 100;
+
+                return [
+                    'stock_code' => $row->stock_code,
+                    'growth_2025_2026' => round($growth2025To2026, 4),
+                    'growth_2026_2027' => round($growth2026To2027, 4),
+                    'growth_2027_2028' => (float) $row->growth_2027_2028,
+                    'annualized_eps_2026' => $annualizedEps2026,
+                    'growth_sum' => round($growth2025To2026 + $growth2026To2027 + $row->growth_2027_2028, 4),
+                ];
+            })
+            ->values()
+            ->all());
+        $rowsByCode = $eligibleRows->keyBy('stock_code');
+
+        return collect($scoredRows)->map(function (array $scoredRow) use ($rowsByCode) {
+            $row = $rowsByCode->get($scoredRow['stock_code']);
+            $forecastRank = (int) $row->rank;
+            $row->setAttribute('eps_2026', $scoredRow['annualized_eps_2026']);
+            $row->setAttribute('growth_2025_2026', $scoredRow['growth_2025_2026']);
+            $row->setAttribute('growth_2026_2027', $scoredRow['growth_2026_2027']);
+            $row->setAttribute('growth_sum', $scoredRow['growth_sum']);
+            $row->setAttribute('weighted_score', $scoredRow['weighted_score']);
+            $row->setAttribute('rank', $scoredRow['rank']);
+            $row->setAttribute('previous_rank', $forecastRank);
+            $row->setAttribute('rank_change', $forecastRank - $scoredRow['rank']);
+
+            return $row;
+        });
     }
 
     private function attachReportedHalfYearEps(Collection $rows, ?int $fiscalYear): void

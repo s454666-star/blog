@@ -308,7 +308,7 @@
 
         .toolbar {
             display: grid;
-            grid-template-columns: minmax(240px, 1fr) auto auto;
+            grid-template-columns: minmax(240px, 1fr) auto auto auto auto;
             gap: 10px;
             align-items: center;
             margin-bottom: 12px;
@@ -337,6 +337,12 @@
         }
 
         .search-box input::placeholder { color: #6f80a3; }
+
+        .eps-basis-picker {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
 
         .toggle {
             display: inline-flex;
@@ -610,6 +616,7 @@
         @if ($availableRuns->isNotEmpty())
             <form class="snapshot-picker" method="get" action="{{ route('tw-stock.eps-growth-rankings.index') }}">
                 <label for="snapshotRun">歷史週快照 · 每週資料永久保留，可切換回看</label>
+                <input type="hidden" name="eps_basis" value="{{ $epsBasis }}">
                 <select id="snapshotRun" name="run" onchange="this.form.submit()">
                     @foreach ($availableRuns as $availableRun)
                         <option value="{{ $availableRun->id }}" @selected($run?->id === $availableRun->id)>
@@ -631,7 +638,7 @@
             <article class="summary-card glass" style="--accent: #ff6b83">
                 <div class="summary-label">排名上升</div>
                 <div class="summary-value" style="color: var(--up)">+{{ $summary['up'] }}</div>
-                <div class="summary-note">相較 {{ $previousRun?->snapshot_date?->format('m/d') ?? '首次快照' }}</div>
+                <div class="summary-note">{{ $epsBasis === 'actual' ? '相較預估2026排行' : '相較 ' . ($previousRun?->snapshot_date?->format('m/d') ?? '首次快照') }}</div>
             </article>
             <article class="summary-card glass" style="--accent: #45d6a4">
                 <div class="summary-label">排名下降</div>
@@ -660,6 +667,17 @@
                 <span aria-hidden="true">⌕</span>
                 <input id="rankingSearch" type="search" placeholder="搜尋股票代號或名稱…" autocomplete="off">
             </label>
+            <form class="eps-basis-picker" method="get" action="{{ route('tw-stock.eps-growth-rankings.index') }}">
+                @if ($run !== null)<input type="hidden" name="run" value="{{ $run->id }}">@endif
+                <label class="toggle">
+                    <input type="radio" name="eps_basis" value="forecast" @checked($epsBasis === 'forecast') onchange="this.form.submit()">
+                    預估2026
+                </label>
+                <label class="toggle">
+                    <input type="radio" name="eps_basis" value="actual" @checked($epsBasis === 'actual') onchange="this.form.submit()">
+                    實際2026（H1×2）
+                </label>
+            </form>
             <label class="toggle">
                 <input id="positiveOnly" type="checkbox">
                 只看三段均正成長
@@ -678,11 +696,11 @@
                     <tr>
                         <th>名次</th>
                         <th>股票</th>
-                        <th>週排名</th>
+                        <th>{{ $epsBasis === 'actual' ? '相較預估' : '週排名' }}</th>
                         <th>當期收盤</th>
                         <th>2027預期價格</th>
                         <th>2025A</th>
-                        <th>2026E</th>
+                        <th>{{ $epsBasis === 'actual' ? '2026實際推估' : '2026E' }}</th>
                         <th>2027E</th>
                         <th>2028E</th>
                         <th>25→26</th>
@@ -730,7 +748,7 @@
                                     @endif
                                 </div>
                             </td>
-                            <td title="前次名次：{{ $row->previous_rank ?? '無' }}"><span class="rank-change {{ $changeClass }}">{{ $changeText }}</span></td>
+                            <td title="{{ $epsBasis === 'actual' ? '預估2026名次' : '前次名次' }}：{{ $row->previous_rank ?? '無' }}"><span class="rank-change {{ $changeClass }}">{{ $changeText }}</span></td>
                             <td class="price">
                                 <div class="price-value">{{ $row->close_price === null ? '—' : number_format($row->close_price, $row->close_price < 100 ? 2 : ($row->close_price < 1000 ? 1 : 0)) }}</div>
                                 <div class="moving-average-signals">
@@ -757,7 +775,11 @@
                             <td>{{ number_format($row->eps_2025, 2) }}</td>
                             <td>
                                 <div>{{ number_format($row->eps_2026, 2) }}</div>
-                                <div class="stock-meta">（目前 Q1+Q2：{{ $row->reported_half_year_eps === null ? '—' : number_format($row->reported_half_year_eps, 2) }}）</div>
+                                @if ($epsBasis === 'actual')
+                                    <div class="stock-meta">（H1 {{ number_format($row->reported_half_year_eps, 2) }} × 2）</div>
+                                @else
+                                    <div class="stock-meta">（目前 Q1+Q2：{{ $row->reported_half_year_eps === null ? '—' : number_format($row->reported_half_year_eps, 2) }}）</div>
+                                @endif
                             </td>
                             <td>{{ number_format($row->eps_2027, 2) }}</td>
                             <td>{{ number_format($row->eps_2028, 2) }}</td>
@@ -788,7 +810,7 @@
                 <strong>計算方式：</strong>
                 先依
                 <span class="formula">(25→26年增率×1.8 + 26→27年增率×2.5 + 27→28年增率×1) ÷ 5.3</span>
-                算出原始加權成長率，再將該結果換算成當週完整樣本中的 0～100 百分位分數並排序。這可確保權重直接作用於原始成長率，不會因三段各自先轉百分位而扭曲。2025A 為四季 EPS 加總；2026E～2028E 與營收成長展望為各股票最新可取得的 FactSet 中位數。2026E 下方的「目前 Q1+Q2」為 2026 年已公告的兩季單季 EPS 加總。排行是相對分數，不等於投資品質。
+                算出原始加權成長率，再將該結果換算成當週完整樣本中的 0～100 百分位分數並排序。這可確保權重直接作用於原始成長率，不會因三段各自先轉百分位而扭曲。預設「預估2026」使用 FactSet 2026E；切換「實際2026」時以已公告的 H1 EPS × 2 取代 2026E，重新計算 25→26、26→27、加權分數及排行，27→28 仍沿用原預估。缺少完整 H1 或年化 EPS 不為正數的股票不納入實際模式排行。2025A 為四季 EPS 加總；2027E～2028E 與營收成長展望為各股票最新可取得的 FactSet 中位數。排行是相對分數，不等於投資品質。
                 2027預期價格以<span class="formula">該股票族群平均本益比 × 2027E EPS</span>計算，僅供估值參考。
                 全新（2455）與聯亞（3081）若 FactSet 尚缺 2028E，會以最新 2026E、2027E 共識為基礎，將 2026→2027 成長率折半（限制於 0～30%）作為中性 2028E 年增率，並以「中性估算」標示。
                 兩檔為固定參考列；即使實際名次低於第 50 名，仍會顯示在前 50 名表格後方。

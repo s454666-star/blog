@@ -183,6 +183,8 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('歷史週快照')
             ->assertSee('營收成長預估')
             ->assertSee('2027預期價格')
+            ->assertSee('預估2026')
+            ->assertSee('實際2026（H1×2）')
             ->assertSee('族群平均本益比 × 2027E EPS')
             ->assertSee('目前 Q1+Q2：4.00')
             ->assertSee('目前 Q1+Q2：7.00')
@@ -206,6 +208,21 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('季線下')
             ->assertSee('↑')
             ->assertSee('↓');
+
+        $this->get(route('tw-stock.eps-growth-rankings.index', ['eps_basis' => 'actual']))
+            ->assertOk()
+            ->assertSee('2026實際推估')
+            ->assertSee('相較預估')
+            ->assertSee('（H1 4.00 × 2）')
+            ->assertSee('（H1 7.00 × 2）')
+            ->assertSee('8.00')
+            ->assertSee('14.00')
+            ->assertSee('+100.0%')
+            ->assertSee('+40.0%')
+            ->assertSee('+50.0%')
+            ->assertSee('+221.4%')
+            ->assertSee('實際2026')
+            ->assertSee('重新計算 25→26、26→27、加權分數及排行');
 
         $this->get(route('tw-stock.eps-growth-rankings.index', ['run' => $oldRunId]))
             ->assertOk()

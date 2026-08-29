@@ -73,14 +73,21 @@ class TwStockEpsGrowthRankingController extends Controller
             ->whereIn('stock_code', $rows->pluck('stock_code')->filter()->unique()->values())
             ->orderByDesc('source_date')
             ->orderByDesc('id')
-            ->get(['stock_code', 'valuation_group', 'industry'])
+            ->get(['stock_code', 'valuation_group', 'valuation_group_pe', 'industry'])
             ->unique('stock_code')
             ->keyBy('stock_code');
 
         foreach ($rows as $row) {
             $profile = $profiles->get($row->stock_code);
             $group = trim((string) ($profile?->valuation_group ?: $profile?->industry));
+            $groupPe = $profile?->valuation_group_pe;
+            $expectedPrice2027 = $groupPe !== null && $groupPe > 0 && $row->eps_2027 > 0
+                ? (float) $row->eps_2027 * $groupPe
+                : null;
+
             $row->setAttribute('stock_group', $group !== '' ? $group : null);
+            $row->setAttribute('valuation_group_pe', $groupPe);
+            $row->setAttribute('expected_price_2027', $expectedPrice2027);
         }
     }
 

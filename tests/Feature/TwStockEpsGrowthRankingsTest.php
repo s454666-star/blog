@@ -134,6 +134,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
                 'stock_name' => '甲公司',
                 'industry' => '半導體業',
                 'valuation_group' => '記憶體/儲存',
+                'valuation_group_pe' => 38,
                 'source_date' => '2026-08-18',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -144,6 +145,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
                 'stock_name' => '乙公司',
                 'industry' => '電子零組件業',
                 'valuation_group' => '電子零組件/PCB',
+                'valuation_group_pe' => 20,
                 'source_date' => '2026-08-18',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -173,6 +175,10 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('EPS 三年成長')
             ->assertSee('歷史週快照')
             ->assertSee('營收成長預估')
+            ->assertSee('2027預期價格')
+            ->assertSee('族群平均本益比 × 2027E EPS')
+            ->assertSee('456.0')
+            ->assertSee('900.0')
             ->assertSee('加權分')
             ->assertSee('100.00')
             ->assertSee('甲公司')
@@ -532,6 +538,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             $table->string('stock_name');
             $table->string('industry')->nullable();
             $table->string('valuation_group')->nullable();
+            $table->decimal('valuation_group_pe', 8, 4)->nullable();
             $table->date('source_date')->nullable();
             $table->timestamps();
         });

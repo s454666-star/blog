@@ -179,6 +179,33 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_daily_prices.log'));
 
+        // Official daily quotes can be published after the first post-close pulls.
+        // Retry later the same evening and once the next morning so the live ranking
+        // page consistently receives the latest completed trading session.
+        $schedule->command('tw-stock:fetch-daily-prices --latest')
+            ->dailyAt('18:35')
+            ->weekdays()
+            ->name('tw-stock-fetch-daily-prices-evening')
+            ->withoutOverlapping(120)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_daily_prices.log'));
+
+        $schedule->command('tw-stock:fetch-daily-prices --latest')
+            ->dailyAt('22:35')
+            ->weekdays()
+            ->name('tw-stock-fetch-daily-prices-night')
+            ->withoutOverlapping(120)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_daily_prices.log'));
+
+        $schedule->command('tw-stock:fetch-daily-prices --latest')
+            ->dailyAt('08:05')
+            ->weekdays()
+            ->name('tw-stock-fetch-daily-prices-next-morning')
+            ->withoutOverlapping(120)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_daily_prices.log'));
+
         $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=1 --market-data-only --min-volume-lots=1000 --sleep-ms=80 --skip-non-trading-day --keep-missing-market-data')
             ->dailyAt('16:15')
             ->name('tw-stock-refresh-q1-market-data-late')

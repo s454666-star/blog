@@ -164,10 +164,16 @@ class TwStockEpsGrowthRankingController extends Controller
             $expectedPrice2027 = $groupPe !== null && $groupPe > 0 && $row->eps_2027 > 0
                 ? (float) $row->eps_2027 * $groupPe
                 : null;
+            $expectedPrice2027ReturnPercentage = $expectedPrice2027 !== null
+                && $row->close_price !== null
+                && $row->close_price > 0
+                    ? (($expectedPrice2027 / $row->close_price) - 1) * 100
+                    : null;
 
             $row->setAttribute('stock_group', $group !== '' ? $group : null);
             $row->setAttribute('valuation_group_pe', $groupPe);
             $row->setAttribute('expected_price_2027', $expectedPrice2027);
+            $row->setAttribute('expected_price_2027_return_percentage', $expectedPrice2027ReturnPercentage);
         }
     }
 

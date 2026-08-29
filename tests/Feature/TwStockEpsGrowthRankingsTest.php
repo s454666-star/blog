@@ -146,7 +146,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
                 'stock_name' => '乙公司',
                 'industry' => '電子零組件業',
                 'valuation_group' => '電子零組件/PCB',
-                'valuation_group_pe' => 20,
+                'valuation_group_pe' => 2,
                 'source_date' => '2026-08-18',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -189,7 +189,10 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('目前 Q1+Q2：4.00')
             ->assertSee('目前 Q1+Q2：7.00')
             ->assertSee('456.0')
-            ->assertSee('900.0')
+            ->assertSee('90.00')
+            ->assertSee('（潛在獲利 +314.5%）')
+            ->assertSee('（潛在虧損 -59.1%）')
+            ->assertSee('（2027預期價格 ÷ 當期收盤價 − 1）× 100%')
             ->assertSee('加權分')
             ->assertSee('100.00')
             ->assertSee('甲公司')

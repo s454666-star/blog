@@ -135,8 +135,8 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
 
     public function test_production_profiles_scan_and_route_only_the_four_current_prefixes(): void
     {
-        config()->set('telegram.resource_codes.processing_profiles', '9:XDJMQBot,10:XllchaJSbot,11:PxxqzjzJSbot,12:NWdrivesbot');
-        config()->set('telegram.resource_codes.scan_code_types', '9,10,11,12');
+        config()->set('telegram.resource_codes.processing_profiles', '9:XDJMQBot,10:XllchaJSbot,11:PxxqzjzJSbot');
+        config()->set('telegram.resource_codes.scan_code_types', '9,10,11');
 
         $sent = [];
 
@@ -172,17 +172,16 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
 
         $this->artisan('telegram:process-resource-codes', [
             '--once' => true,
-            '--process-limit' => 4,
+            '--process-limit' => 3,
         ])->assertExitCode(0);
 
         $expected = [
             ['yyjmq_active_A1-b2', 9, 'XDJMQBot'],
             ['XVNgkllbot:AbC-123', 10, 'XllchaJSbot'],
             ['PxxqzjzJSbot_file_X9-y8', 11, 'PxxqzjzJSbot'],
-            ['NW7X-9_token', 12, 'NWdrivesbot'],
         ];
 
-        $this->assertDatabaseCount('telegram_resource_codes', 4);
+        $this->assertDatabaseCount('telegram_resource_codes', 3);
         foreach ($expected as [$code, $codeType, $botUsername]) {
             $this->assertDatabaseHas('telegram_resource_codes', [
                 'code' => $code,
@@ -193,8 +192,9 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         }
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'zyxfiles_disabled_A1-b2']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'JSfileeesbot_disabled_A1-b2']);
+        $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'NW7X-9_token']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => '4DC6EB55EE68F197A332CA4802AAF14420F76D74']);
-        Http::assertSentCount(12);
+        Http::assertSentCount(9);
     }
 
     public function test_scan_limits_a_forum_source_to_its_configured_topic(): void

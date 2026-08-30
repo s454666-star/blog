@@ -39,6 +39,10 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const BFFILESBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])bffilesbot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const JSCODEFILEBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])JScodefilebot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const ZYXFILES_CODE_REGEX = '/(?<![A-Za-z0-9_])zyxfiles[_-][A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
+    private const YYJMQ_CODE_REGEX = '/(?<![A-Za-z0-9_])yyjmq[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
+    private const XVNGKLLBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])XVNgkllbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
+    private const PXXQZJZJSBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])PxxqzjzJSbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
+    private const NW_CODE_REGEX = '/(?<![A-Za-z0-9_])NW[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
     private const ACCOUNT_LIMIT_COOLDOWN_SECONDS = 900;
@@ -529,6 +533,10 @@ class ProcessTelegramResourceCodesCommand extends Command
             6 => self::BFFILESBOT_CODE_REGEX,
             7 => self::JSCODEFILEBOT_CODE_REGEX,
             8 => self::ZYXFILES_CODE_REGEX,
+            9 => self::YYJMQ_CODE_REGEX,
+            10 => self::XVNGKLLBOT_CODE_REGEX,
+            11 => self::PXXQZJZJSBOT_CODE_REGEX,
+            12 => self::NW_CODE_REGEX,
             default => self::HEX_CODE_REGEX,
         };
     }
@@ -561,6 +569,22 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         if ($codeType === 7) {
             return (string) preg_replace('/^JScodefilebot_/i', 'JScodefilebot_', $code);
+        }
+
+        if ($codeType === 9) {
+            return (string) preg_replace('/^yyjmq/i', 'yyjmq', $code);
+        }
+
+        if ($codeType === 10) {
+            return (string) preg_replace('/^XVNgkllbot/i', 'XVNgkllbot', $code);
+        }
+
+        if ($codeType === 11) {
+            return (string) preg_replace('/^PxxqzjzJSbot/i', 'PxxqzjzJSbot', $code);
+        }
+
+        if ($codeType === 12) {
+            return (string) preg_replace('/^NW/i', 'NW', $code);
         }
 
         return $code;

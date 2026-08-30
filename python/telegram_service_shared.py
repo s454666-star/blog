@@ -103,6 +103,22 @@ RESOURCE_CODE_ZYXFILES_PATTERN = re.compile(
     r"zyxfiles[_-][A-Za-z0-9_-]+",
     re.IGNORECASE,
 )
+RESOURCE_CODE_YYJMQ_PATTERN = re.compile(
+    r"yyjmq[A-Za-z0-9_:-]+",
+    re.IGNORECASE,
+)
+RESOURCE_CODE_XVNGKLLBOT_PATTERN = re.compile(
+    r"XVNgkllbot[A-Za-z0-9_:-]+",
+    re.IGNORECASE,
+)
+RESOURCE_CODE_PXXQZJZJSBOT_PATTERN = re.compile(
+    r"PxxqzjzJSbot[A-Za-z0-9_:-]+",
+    re.IGNORECASE,
+)
+RESOURCE_CODE_NW_PATTERN = re.compile(
+    r"NW[A-Za-z0-9_:-]+",
+    re.IGNORECASE,
+)
 RESOURCE_CODE_IMAGE_COUNT_PATTERN = re.compile(r"(?:图片|圖片)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_VIDEO_COUNT_PATTERN = re.compile(r"(?:视频|視頻|影片)\s*(\d+)\s*(?:个|個)")
 RESOURCE_CODE_FILE_COUNT_PATTERN = re.compile(r"(?:文件|档案|檔案)\s*(\d+)\s*(?:个|個)")
@@ -312,6 +328,8 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
         return "JSfileeesbot_" + code[len("JSfileeesbot_"):]
     if RESOURCE_CODE_JSFILE_PATTERN.fullmatch(code):
         return "JSfile_bot_" + code[len("JSfile_bot_"):]
+    if RESOURCE_CODE_YYJMQ_PATTERN.fullmatch(code):
+        return "yyjmq" + code[len("yyjmq"):]
     if RESOURCE_CODE_YYJMQG_PATTERN.fullmatch(code):
         return "yyjmqg_bot" + code[len("yyjmqg_bot"):]
     if RESOURCE_CODE_BFFILESBOT_PATTERN.fullmatch(code):
@@ -320,6 +338,12 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
         return "JScodefilebot_" + code[len("JScodefilebot_"):]
     if RESOURCE_CODE_ZYXFILES_PATTERN.fullmatch(code):
         return "zyxfiles" + code[len("zyxfiles"):]
+    if RESOURCE_CODE_XVNGKLLBOT_PATTERN.fullmatch(code):
+        return "XVNgkllbot" + code[len("XVNgkllbot"):]
+    if RESOURCE_CODE_PXXQZJZJSBOT_PATTERN.fullmatch(code):
+        return "PxxqzjzJSbot" + code[len("PxxqzjzJSbot"):]
+    if RESOURCE_CODE_NW_PATTERN.fullmatch(code):
+        return "NW" + code[len("NW"):]
     return None
 
 
@@ -3559,7 +3583,7 @@ class RegisterMediaHashRequest(BaseModel):
 
 class ProcessResourceCodeRequest(BaseModel):
     code: str
-    bot_username: str = "zyxfiles3_bot"
+    bot_username: str = "XDJMQBot"
     target_peer_id: int
     wait_timeout_seconds: int = 240
     poll_interval_seconds: float = 1.5

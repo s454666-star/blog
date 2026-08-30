@@ -28,18 +28,24 @@ def tearDownModule():
 
 
 class TelegramResourceCodeYyjmqgTest(unittest.TestCase):
-    def test_normalizes_exact_prefix_without_changing_suffix_case(self):
+    def test_normalizes_current_yyjmq_family_without_changing_suffix_case(self):
         self.assertEqual(
-            "yyjmqg_bot:A1-b2_C3",
+            "yyjmqG_BOT:A1-b2_C3",
             MODULE._normalize_resource_code("YYJMQG_BOT:A1-b2_C3"),
         )
         self.assertEqual(
-            "yyjmqg_bot_A1-b2_C3",
+            "yyjmqG_BOT_A1-b2_C3",
             MODULE._normalize_resource_code("YYJMQG_BOT_A1-b2_C3"),
         )
         self.assertIsNone(MODULE._normalize_resource_code("yyjmqg_bot A1-b2_C3"))
-        self.assertIsNone(MODULE._normalize_resource_code("yyjmq_bot_A1-b2_C3"))
-        self.assertIsNone(MODULE._normalize_resource_code("yyjmqh_bot_A1-b2_C3"))
+        self.assertEqual(
+            "yyjmq_BOT_A1-b2_C3",
+            MODULE._normalize_resource_code("YYJMQ_BOT_A1-b2_C3"),
+        )
+        self.assertEqual(
+            "yyjmqH_BOT_A1-b2_C3",
+            MODULE._normalize_resource_code("YYJMQH_BOT_A1-b2_C3"),
+        )
         self.assertIsNone(MODULE._normalize_resource_code("notyyjmqg_bot_A1-b2_C3"))
 
     def test_allows_next_page_but_not_get_all_or_vip_callbacks(self):

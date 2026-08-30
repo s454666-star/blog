@@ -29,12 +29,12 @@ def tearDownModule():
 
 
 class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
-    def test_default_decoder_is_zyxfiles3_bot(self):
+    def test_default_decoder_is_current_yyjmq_decoder(self):
         request = MODULE.ProcessResourceCodeRequest(
-            code="zyxfiles_A1-b2_C3",
+            code="yyjmq_A1-b2_C3",
             target_peer_id=3967395258,
         )
-        self.assertEqual("zyxfiles3_bot", request.bot_username)
+        self.assertEqual("XDJMQBot", request.bot_username)
 
     def test_uncached_decoder_username_is_refreshed_from_telegram(self):
         refreshed_peer = object()
@@ -74,6 +74,30 @@ class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
     def test_rejects_invalid_zyxfiles_prefix_forms(self):
         self.assertIsNone(MODULE._normalize_resource_code("zyxfiles1v-9p-token"))
         self.assertIsNone(MODULE._normalize_resource_code("zyxfile-1v-9p-token"))
+
+    def test_normalizes_all_current_prefixes_and_preserves_suffix_case(self):
+        cases = {
+            "YYJMQ_A1-b2": "yyjmq_A1-b2",
+            "xvngkllbot:AbC-123": "XVNgkllbot:AbC-123",
+            "PXXQZJZJSBOT_file_X9-y8": "PxxqzjzJSbot_file_X9-y8",
+            "nw7X-9_token": "NW7X-9_token",
+        }
+        for raw_code, expected in cases.items():
+            with self.subTest(raw_code=raw_code):
+                self.assertEqual(expected, MODULE._normalize_resource_code(raw_code))
+
+    def test_current_prefixes_allow_only_safe_next_page_callbacks(self):
+        for code in (
+            "yyjmq_A1-b2",
+            "XVNgkllbot:AbC-123",
+            "PxxqzjzJSbot_file_X9-y8",
+            "NW7X-9_token",
+        ):
+            with self.subTest(code=code):
+                self.assertEqual("next_group", MODULE._resource_code_callback_action(code, "下一页"))
+                self.assertEqual("next_group", MODULE._resource_code_callback_action(code, "下一頁"))
+                self.assertIsNone(MODULE._resource_code_callback_action(code, "推送剩余全部文件"))
+                self.assertIsNone(MODULE._resource_code_callback_action(code, "开通VIP"))
 
     def test_zyxfiles_allows_next_page_but_not_get_all_or_vip_callbacks(self):
         code = "zyxfiles-1v-9p-b991bea8665480cd9ee7a81c"

@@ -133,29 +133,33 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         $this->assertFalse(Schema::connection('sqlite')->hasColumn('telegram_resource_codes', 'message_text'));
     }
 
-    public function test_production_profiles_process_type_one_zyxfiles_but_ignore_legacy_hex_and_disabled_prefixes(): void
+    public function test_production_profiles_scan_and_route_only_the_four_current_prefixes(): void
     {
-        config()->set('telegram.resource_codes.processing_profiles', '1:zyxfiles3_bot,3:JScodefilebot,5:yyjmqg_bot,7:JScodefilebot');
-        config()->set('telegram.resource_codes.scan_code_types', '1,3,5,7');
+        config()->set('telegram.resource_codes.processing_profiles', '9:XDJMQBot,10:XllchaJSbot,11:PxxqzjzJSbot,12:NWdrivesbot');
+        config()->set('telegram.resource_codes.scan_code_types', '9,10,11,12');
 
-        Http::fake(function ($request) {
+        $sent = [];
+
+        Http::fake(function ($request) use (&$sent) {
             if ($request->method() === 'GET') {
                 return Http::response([
                     'status' => 'ok',
                     'items' => [[
                         'id' => 104801,
                         'text' => implode(' ', [
-                            'ZYXFILES_active_A1-b2',
+                            'YYJMQ_active_A1-b2',
+                            'xvngkllbot:AbC-123',
+                            'PXXQZJZJSBOT_file_X9-y8',
+                            'nw7X-9_token',
+                            'zyxfiles_disabled_A1-b2',
+                            'JSfileeesbot_disabled_A1-b2',
                             '4DC6EB55EE68F197A332CA4802AAF14420F76D74',
-                            'yyjmq_bot_disabled_A1-b2',
-                            'bffilesbot_disabled_A1-b2',
                         ]),
                     ]],
                 ]);
             }
 
-            $this->assertSame('zyxfiles_active_A1-b2', $request['code']);
-            $this->assertSame('zyxfiles3_bot', $request['bot_username']);
+            $sent[] = [$request['code'], $request['bot_username']];
 
             return Http::response([
                 'status' => 'ok',
@@ -168,16 +172,29 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
 
         $this->artisan('telegram:process-resource-codes', [
             '--once' => true,
-            '--process-limit' => 1,
+            '--process-limit' => 4,
         ])->assertExitCode(0);
 
-        $this->assertDatabaseCount('telegram_resource_codes', 1);
-        $this->assertDatabaseHas('telegram_resource_codes', [
-            'code' => 'zyxfiles_active_A1-b2',
-            'code_type' => 1,
-            'status' => TelegramResourceCode::STATUS_COMPLETED,
-        ]);
-        Http::assertSentCount(9);
+        $expected = [
+            ['yyjmq_active_A1-b2', 9, 'XDJMQBot'],
+            ['XVNgkllbot:AbC-123', 10, 'XllchaJSbot'],
+            ['PxxqzjzJSbot_file_X9-y8', 11, 'PxxqzjzJSbot'],
+            ['NW7X-9_token', 12, 'NWdrivesbot'],
+        ];
+
+        $this->assertDatabaseCount('telegram_resource_codes', 4);
+        foreach ($expected as [$code, $codeType, $botUsername]) {
+            $this->assertDatabaseHas('telegram_resource_codes', [
+                'code' => $code,
+                'code_type' => $codeType,
+                'status' => TelegramResourceCode::STATUS_COMPLETED,
+            ]);
+            $this->assertContains([$code, $botUsername], $sent);
+        }
+        $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'zyxfiles_disabled_A1-b2']);
+        $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'JSfileeesbot_disabled_A1-b2']);
+        $this->assertDatabaseMissing('telegram_resource_codes', ['code' => '4DC6EB55EE68F197A332CA4802AAF14420F76D74']);
+        Http::assertSentCount(12);
     }
 
     public function test_scan_limits_a_forum_source_to_its_configured_topic(): void

@@ -80,7 +80,7 @@ class ConsoleKernelTest extends TestCase
         ], $monthlyRevenueEvents);
     }
 
-    public function test_active_etf_operations_schedule_runs_daily_at_1740(): void
+    public function test_active_etf_operations_schedule_runs_in_the_evening_and_next_morning(): void
     {
         $schedule = new Schedule(config('app.timezone'));
         $method = new ReflectionMethod(Kernel::class, 'schedule');
@@ -101,6 +101,10 @@ class ConsoleKernelTest extends TestCase
             [
                 'expression' => '40 17 * * *',
                 'name' => 'tw-stock-fetch-active-etf-operations',
+            ],
+            [
+                'expression' => '10 6 * * *',
+                'name' => 'tw-stock-fetch-active-etf-operations-next-morning',
             ],
         ], $activeEtfEvents);
     }

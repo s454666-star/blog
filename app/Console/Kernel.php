@@ -107,6 +107,15 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_active_etf_operations.log'));
 
+        // CMoney publishes some funds' operation reports after the first evening pull.
+        // Retry the same rolling window next morning so yesterday's dashboard is complete.
+        $schedule->command('tw-stock:fetch-active-etf-operations --backfill-days=31 --sleep-ms=450')
+            ->dailyAt('06:10')
+            ->name('tw-stock-fetch-active-etf-operations-next-morning')
+            ->withoutOverlapping(180)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_active_etf_operations.log'));
+
         $schedule->command('yuanta:portfolio-capture-daily')
             ->dailyAt('17:55')
             ->weekdays()

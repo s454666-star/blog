@@ -1,6 +1,14 @@
 <?php
 
 return [
+    // Confirmed share conversions; prices before effective_date are unadjusted.
+    // TPEx 2026-08-28 announcement: 6696 resumes on 2026-08-31, par NT$10 -> NT$1.
+    // https://m.moneydj.com/f1a.aspx?a=5bec5886-b656-44a4-95db-9d6a6bb0e249&c=MB06
+    'share_conversions' => [
+        '6696' => [
+            ['effective_date' => '2026-08-31', 'shares_per_old_share' => 10],
+        ],
+    ],
     'annual_financial_comparisons_schedule_enabled' => env('TW_STOCK_ANNUAL_COMPARISONS_SCHEDULE_ENABLED'),
     'taiex_futures_tradingview_auth_token' => env('TRADINGVIEW_AUTH_TOKEN'),
     'taiex_futures_four_hour_ma5_notify_times' => [

@@ -848,11 +848,17 @@ class YuantaPortfolioService
     private function historicalPriceSummary(Collection $prices, string $today, string $startOfYear): array
     {
         $normalized = $prices
-            ->map(function (TwStockDailyPrice|array $row): array {
+            ->map(function (TwStockDailyPrice|array $row) use ($today): array {
                 if ($row instanceof TwStockDailyPrice) {
+                    $tradeDate = $row->trade_date?->toDateString();
+                    $closePrice = $this->numberOrNull($row->close_price);
                     return [
-                        'tradeDate' => $row->trade_date?->toDateString(),
-                        'closePrice' => $row->close_price,
+                        'tradeDate' => $tradeDate,
+                        'closePrice' => $tradeDate !== null && $closePrice !== null
+                            ? app(TwStockPriceAdjustmentService::class)->historicalPrice(
+                                (string) $row->stock_code, $tradeDate, $today, $closePrice,
+                            )
+                            : $closePrice,
                     ];
                 }
 

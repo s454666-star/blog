@@ -10,6 +10,38 @@ use Tests\TestCase;
 
 class TwStockEmergingHistoryServiceTest extends TestCase
 {
+    public function test_share_conversion_adjusts_prior_average_and_cross_date_returns(): void
+    {
+        Cache::flush();
+        $rows = [
+            ['115/08/31', '0', '0', '0', '0', '100.50'],
+            ['115/08/19', '0', '0', '0', '0', '930.93'],
+            ['115/08/18', '0', '0', '0', '0', '907.17'],
+            ['115/08/17', '0', '0', '0', '0', '945.37'],
+            ['115/08/14', '0', '0', '0', '0', '876.77'],
+            ['115/08/13', '0', '0', '0', '0', '841.00'],
+        ];
+        Http::fake([
+            'https://www.tpex.org.tw/www/zh-tw/emerging/historical' => Http::response([
+                'stat' => 'ok', 'tables' => [['subtitle' => '115年08月 6696 仁新*', 'data' => $rows]],
+            ]),
+        ]);
+        // The old cache must not keep serving the unadjusted comparison price.
+        Cache::put('tw-stock:emerging-history:2026-08-31:6696:v2', ['previousClose' => 930.93], 600);
+        $service = app(TwStockEmergingHistoryService::class);
+        $before = $service->summary('6696', '2026-08-28');
+        $reopening = $service->summary('6696', '2026-08-31');
+        $nextDay = $service->summary('6696', '2026-09-01');
+
+        $this->assertSame(930.93, $before['previousClose']);
+        $this->assertEqualsWithDelta(93.093, $reopening['previousClose'], 0.000001);
+        $this->assertSame('2026-08-19', $reopening['previousCloseDate']);
+        $this->assertEqualsWithDelta($before['fiveDayReturn'], $reopening['fiveDayReturn'], 0.000001);
+        $this->assertSame(100.5, $nextDay['previousClose']);
+        $this->assertSame('2026-08-31', $nextDay['previousCloseDate']);
+        $this->assertEqualsWithDelta((100.5 / 87.677 - 1) * 100, $nextDay['fiveDayReturn'], 0.000001);
+    }
+
     public function test_it_builds_emerging_stock_returns_from_tpex_monthly_history(): void
     {
         Cache::flush();

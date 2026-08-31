@@ -24,7 +24,7 @@ class TwStockEmergingHistoryService
         }
 
         return Cache::remember(
-            'tw-stock:emerging-history:' . $today . ':' . $stockCode . ':v2',
+            'tw-stock:emerging-history:' . $today . ':' . $stockCode . ':v3',
             now()->addHours(12),
             fn (): ?array => $this->fetchSummary($stockCode, $today, $timezone),
         );
@@ -100,7 +100,9 @@ class TwStockEmergingHistoryService
                     continue;
                 }
 
-                $prices[$tradeDate] = $averagePrice;
+                $prices[$tradeDate] = app(TwStockPriceAdjustmentService::class)->historicalPrice(
+                    $stockCode, $tradeDate, $today, $averagePrice,
+                );
             }
         }
 

@@ -107,6 +107,122 @@ class TelegramMediaQueueTest(unittest.TestCase):
             finally:
                 QUEUE.PROCESSED_DB_PATH = original_path
 
+    def test_existing_failed_message_is_skipped_without_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original_path = QUEUE.PROCESSED_DB_PATH
+            original_kind = QUEUE.message_kind
+            original_peer_id = QUEUE.marked_peer_id
+            original_download = QUEUE.download_video
+            original_save_state = QUEUE.save_state
+            original_safe_log = QUEUE.safe_log
+            calls = []
+            events = []
+
+            async def download_video(*args, **kwargs):
+                calls.append((args, kwargs))
+
+            QUEUE.PROCESSED_DB_PATH = Path(directory) / "processed.sqlite3"
+            QUEUE.message_kind = lambda message: "video"
+            QUEUE.marked_peer_id = lambda source: -1001
+            QUEUE.download_video = download_video
+            QUEUE.save_state = lambda state, status: None
+            QUEUE.safe_log = lambda event, **fields: events.append((event, fields))
+            try:
+                QUEUE.begin_processed_message(-1001, 42, "fixture", "video")
+                QUEUE.fail_processed_message(-1001, 42, "download_failed")
+                state = {
+                    "sources": {
+                        "fixture": {
+                            "last_scanned_id": 0,
+                            "videos": 0,
+                            "images": 0,
+                            "pending": {"42": {"kind": "video"}},
+                        }
+                    }
+                }
+
+                asyncio.run(
+                    QUEUE.process_message(
+                        None,
+                        SimpleNamespace(),
+                        None,
+                        SimpleNamespace(id=42),
+                        "fixture",
+                        {"sources": [{"alias": "fixture", "delete_source": True}]},
+                        state,
+                    )
+                )
+
+                self.assertEqual([], calls)
+                self.assertEqual(42, state["sources"]["fixture"]["last_scanned_id"])
+                self.assertNotIn("42", state["sources"]["fixture"]["pending"])
+                self.assertEqual("failed", QUEUE.processed_message_status(-1001, 42))
+                self.assertEqual("processed_message_skipped", events[-1][0])
+                self.assertEqual("failed", events[-1][1]["status"])
+            finally:
+                QUEUE.PROCESSED_DB_PATH = original_path
+                QUEUE.message_kind = original_kind
+                QUEUE.marked_peer_id = original_peer_id
+                QUEUE.download_video = original_download
+                QUEUE.save_state = original_save_state
+                QUEUE.safe_log = original_safe_log
+
+    def test_new_message_failure_is_recorded_and_skipped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            original_path = QUEUE.PROCESSED_DB_PATH
+            original_kind = QUEUE.message_kind
+            original_peer_id = QUEUE.marked_peer_id
+            original_download = QUEUE.download_video
+            original_save_state = QUEUE.save_state
+            original_safe_log = QUEUE.safe_log
+            events = []
+
+            async def download_video(*args, **kwargs):
+                raise RuntimeError("download_failed")
+
+            QUEUE.PROCESSED_DB_PATH = Path(directory) / "processed.sqlite3"
+            QUEUE.message_kind = lambda message: "video"
+            QUEUE.marked_peer_id = lambda source: -1001
+            QUEUE.download_video = download_video
+            QUEUE.save_state = lambda state, status: None
+            QUEUE.safe_log = lambda event, **fields: events.append((event, fields))
+            try:
+                state = {
+                    "sources": {
+                        "fixture": {
+                            "last_scanned_id": 0,
+                            "videos": 0,
+                            "images": 0,
+                            "pending": {"42": {"kind": "video"}},
+                        }
+                    }
+                }
+
+                asyncio.run(
+                    QUEUE.process_message(
+                        None,
+                        SimpleNamespace(),
+                        None,
+                        SimpleNamespace(id=42),
+                        "fixture",
+                        {"sources": [{"alias": "fixture", "delete_source": True}]},
+                        state,
+                    )
+                )
+
+                self.assertEqual(42, state["sources"]["fixture"]["last_scanned_id"])
+                self.assertNotIn("42", state["sources"]["fixture"]["pending"])
+                self.assertEqual("failed", QUEUE.processed_message_status(-1001, 42))
+                self.assertEqual("message_failed", events[-1][0])
+                self.assertEqual("skipped", events[-1][1]["disposition"])
+            finally:
+                QUEUE.PROCESSED_DB_PATH = original_path
+                QUEUE.message_kind = original_kind
+                QUEUE.marked_peer_id = original_peer_id
+                QUEUE.download_video = original_download
+                QUEUE.save_state = original_save_state
+                QUEUE.safe_log = original_safe_log
+
     def test_zip_header_validation_rejects_parent_traversal(self):
         with tempfile.TemporaryDirectory() as directory:
             archive_path = Path(directory) / "unsafe.zip"

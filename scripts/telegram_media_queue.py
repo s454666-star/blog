@@ -170,7 +170,7 @@ def open_processed_db() -> sqlite3.Connection:
     return connection
 
 
-def processed_message_complete(source_peer_id: int, message_id: int) -> bool:
+def processed_message_status(source_peer_id: int, message_id: int) -> str | None:
     connection = open_processed_db()
     try:
         row = connection.execute(
@@ -179,7 +179,11 @@ def processed_message_complete(source_peer_id: int, message_id: int) -> bool:
         ).fetchone()
     finally:
         connection.close()
-    return row is not None and str(row["status"]) == "completed"
+    return str(row["status"]) if row is not None else None
+
+
+def processed_message_complete(source_peer_id: int, message_id: int) -> bool:
+    return processed_message_status(source_peer_id, message_id) == "completed"
 
 
 def begin_processed_message(source_peer_id: int, message_id: int, source_alias: str, kind: str) -> None:
@@ -1095,10 +1099,18 @@ async def process_message(
         return
     source_state = state["sources"][source_alias]
     peer_id = marked_peer_id(source)
-    if processed_message_complete(peer_id, message_id):
+    existing_status = processed_message_status(peer_id, message_id)
+    if existing_status in {"completed", "failed"}:
+        source_state["pending"].pop(str(message_id), None)
         source_state["last_scanned_id"] = max(int(source_state["last_scanned_id"]), message_id)
         save_state(state, "running")
-        safe_log("processed_message_skipped", source=source_alias, status="completed", kind=kind, message_id=message_id)
+        safe_log(
+            "processed_message_skipped",
+            source=source_alias,
+            status=existing_status,
+            kind=kind,
+            message_id=message_id,
+        )
         return
     begin_processed_message(peer_id, message_id, source_alias, kind)
     try:
@@ -1137,6 +1149,9 @@ async def process_message(
             else type(error).__name__
         )
         fail_processed_message(peer_id, message_id, error_class)
+        source_state["pending"].pop(str(message_id), None)
+        source_state["last_scanned_id"] = max(int(source_state["last_scanned_id"]), message_id)
+        save_state(state, "running")
         safe_log(
             "message_failed",
             source=source_alias,
@@ -1144,8 +1159,8 @@ async def process_message(
             kind=kind,
             message_id=message_id,
             error_class=error_class,
+            disposition="skipped",
         )
-        raise
 
 
 async def process_source(

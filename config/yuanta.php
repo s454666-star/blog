@@ -12,6 +12,8 @@ return [
     'environment' => env('YUANTA_API_ENVIRONMENT', 'PROD'),
     'account' => env('YUANTA_ACCOUNT', ''),
     'password' => env('YUANTA_PASSWORD', ''),
+    'futures_account' => env('YUANTA_FUTURES_ACCOUNT', ''),
+    'futures_password' => env('YUANTA_FUTURES_PASSWORD', env('YUANTA_PASSWORD', '')),
     'pfx_path' => env('YUANTA_PFX_PATH', ''),
     'pfx_password' => env('YUANTA_PFX_PASSWORD', ''),
 

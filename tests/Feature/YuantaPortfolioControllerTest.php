@@ -55,6 +55,7 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertSee('可用額度')
             ->assertSee('維持率')
             ->assertSee('元大已實現')
+            ->assertSee('* 期貨已實現')
             ->assertSee('apiUrl', false)
             ->assertSee('quoteUrl', false)
             ->assertSee('intradayUrl', false)
@@ -64,7 +65,9 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertSee('當日走勢')
             ->assertSee('近 40 個開市日')
             ->assertSee('data-pnl-wave="unrealizedPnl"', false)
+            ->assertSee('data-pnl-wave="yearTotalPnl"', false)
             ->assertSee('renderUnrealizedPnlHistory', false)
+            ->assertSee('renderYearTotalPnlHistory', false)
             ->assertSee('data-pnl-history-tooltip', false)
             ->assertSee('data-pnl-history-tooltip-change', false)
             ->assertSee('pnlHistoryPointerX: null', false)
@@ -76,6 +79,7 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertDontSee('tooltip.style.left', false)
             ->assertSee('.slice(-40);', false)
             ->assertSee('unrealizedPnl: currentUnrealizedPnl', false)
+            ->assertSee('yearTotalPnl: currentYearTotalPnl', false)
             ->assertSee('state.currentSummary = summary;', false)
             ->assertSee('const hasCurrentIntradayPnl = (state.pnlSeries.todayPnl || []).length > 0;', false)
             ->assertSee('|| hasCurrentIntradayPnl;', false)
@@ -206,6 +210,7 @@ class YuantaPortfolioControllerTest extends TestCase
                 'costBasis' => 130000.0,
                 'todayPnl' => 16000.0,
                 'unrealizedPnl' => -12000.0,
+                'yearTotalPnl' => 88000.0,
             ],
         ]);
         $this->app->instance(YuantaPortfolioService::class, $service);
@@ -214,7 +219,8 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('dates.0.date', '2026-07-03')
             ->assertJsonPath('dates.0.costBasis', 130000)
-            ->assertJsonPath('dates.0.todayPnl', 16000);
+            ->assertJsonPath('dates.0.todayPnl', 16000)
+            ->assertJsonPath('dates.0.yearTotalPnl', 88000);
     }
 
     public function test_history_endpoint_returns_requested_snapshot(): void

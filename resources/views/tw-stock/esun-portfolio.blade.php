@@ -313,7 +313,8 @@
             overflow: visible;
         }
 
-        [data-pnl-wave="unrealizedPnl"] {
+        [data-pnl-wave="unrealizedPnl"],
+        [data-pnl-wave="yearTotalPnl"] {
             cursor: crosshair;
             touch-action: pan-y;
         }
@@ -1152,12 +1153,30 @@
             <div class="value neutral" data-summary="marketValue">--</div>
             <div class="sub" data-summary="costBasis">成本 --</div>
         </div>
-        <div class="summary-card">
+        <div class="summary-card pnl-summary-card">
             <div class="label">今年總損益</div>
             <div class="value" data-summary="yearTotalPnl">--</div>
             <div class="return-rate-line" data-summary="yearTotalPnlRate">今年報酬率 --</div>
             <div class="sub" data-summary="yearTotalPnlBreakdown">{{ $brokerName ?? '玉山' }}已實現 -- · 當日已實現 --</div>
+            @if (($brokerName ?? '玉山') === '元大')
+                <div class="sub" data-summary="futuresRealizedPnl">* 期貨已實現：--</div>
+            @endif
             <div class="sub" data-summary="dividendIncome">(股息收益：--)</div>
+            @if (($brokerName ?? '玉山') === '元大')
+                <div class="pnl-wave-panel" data-pnl-wave-panel="yearTotalPnl">
+                    <div class="pnl-wave-head"><span>近 40 個開市日</span><span data-pnl-wave-meta>讀取中</span></div>
+                    <svg class="pnl-wave-svg" data-pnl-wave="yearTotalPnl" viewBox="0 0 320 78" preserveAspectRatio="none" role="img" aria-label="今年總損益近40個開市日走勢"></svg>
+                    <div class="pnl-wave-axis">
+                        <span data-pnl-wave-axis-start>--</span>
+                        <div class="cost-history-tooltip pnl-history-tooltip" data-year-pnl-history-tooltip aria-hidden="true">
+                            <span data-pnl-history-tooltip-date>--</span>
+                            <span class="pnl-history-tooltip-value" data-pnl-history-tooltip-value>--</span>
+                            <span class="pnl-history-tooltip-change" data-pnl-history-tooltip-change hidden></span>
+                        </div>
+                        <span data-pnl-wave-axis-end>--</span>
+                    </div>
+                </div>
+            @endif
         </div>
         <div class="summary-card capital-card">
             <div class="label">投入總成本</div>
@@ -1285,6 +1304,8 @@ const state = {
     pnlSeries: { todayPnl: [], unrealizedPnl: [] },
     unrealizedPnlHistory: [],
     pnlHistoryPointerX: null,
+    yearTotalPnlHistory: [],
+    yearPnlHistoryPointerX: null,
     costHistorySnapshots: [],
     costHistory: [],
     lastQuotePayload: null,
@@ -1463,6 +1484,14 @@ function updateSummaryCards(summary, sourceText) {
     document.querySelector('[data-summary="yearTotalPnlBreakdown"]').textContent =
         `${brokerName}已實現 ${realizedHistoryPnl === null ? '--' : formatMoney(realizedHistoryPnl)} · ` +
         `當日已實現 ${realizedTodayPnl === null ? '--' : formatMoney(realizedTodayPnl)}`;
+    const futuresRealizedTarget = document.querySelector('[data-summary="futuresRealizedPnl"]');
+    if (futuresRealizedTarget) {
+        const futuresRealizedYearPnl = finiteNumber(summary.futuresRealizedYearPnl ?? state.lastPayload?.summary?.futuresRealizedYearPnl);
+        const trackingSince = String(summary.futuresRealizedTrackingSince ?? state.lastPayload?.summary?.futuresRealizedTrackingSince ?? '');
+        const trackingLabel = trackingSince ? `（自 ${costHistoryDateLabel(trackingSince)} 累計）` : '';
+        futuresRealizedTarget.textContent = `* 期貨已實現${trackingLabel}：${futuresRealizedYearPnl === null ? '--' : formatMoney(futuresRealizedYearPnl)}`;
+        futuresRealizedTarget.className = `sub ${toneClass(futuresRealizedYearPnl)}`;
+    }
     const dividendIncome = finiteNumber(summary.dividendIncome ?? state.lastPayload?.summary?.dividendIncome);
     document.querySelector('[data-summary="dividendIncome"]').textContent =
         `(股息收益：${dividendIncome === null ? '--' : formatMoney(dividendIncome)})`;
@@ -1595,6 +1624,7 @@ function renderPnlWaves() {
     }
 
     renderUnrealizedPnlHistory();
+    renderYearTotalPnlHistory();
 }
 
 function renderUnrealizedPnlHistory() {
@@ -1645,6 +1675,62 @@ function renderUnrealizedPnlHistory() {
         hidePnlHistoryTooltip();
     } else {
         showPnlHistoryTooltip({ clientX: state.pnlHistoryPointerX });
+    }
+    panel.querySelector('[data-pnl-wave-meta]').textContent = points.length
+        ? `${points.length} 日 · ${waveValueRange(points, formatMoney)}`
+        : emptyText;
+    panel.querySelector('[data-pnl-wave-axis-start]').textContent = points.length ? costHistoryDateLabel(points[0].date) : '--';
+    panel.querySelector('[data-pnl-wave-axis-end]').textContent = points.length ? costHistoryDateLabel(points[points.length - 1].date) : '--';
+}
+
+function renderYearTotalPnlHistory() {
+    const svg = document.querySelector('[data-pnl-wave="yearTotalPnl"]');
+    const panel = document.querySelector('[data-pnl-wave-panel="yearTotalPnl"]');
+    if (!svg || !panel) return;
+
+    const historyRows = [...state.costHistorySnapshots];
+    const currentYearTotalPnl = state.historyMode
+        ? null
+        : finiteNumber(state.currentSummary?.yearTotalPnl ?? state.lastPayload?.summary?.yearTotalPnl);
+    const currentDate = taipeiDateKey();
+    const currentIndex = historyRows.findIndex(row => String(row.date || '') === currentDate);
+    const hasCurrentIntradayPnl = (state.pnlSeries.todayPnl || []).length > 0;
+    const currentDateIsTradingDay = currentIndex >= 0
+        || Boolean(state.currentSummary?.marketOpen)
+        || hasCurrentIntradayPnl;
+    if (currentYearTotalPnl !== null && currentDateIsTradingDay) {
+        const currentRow = { date: currentDate, yearTotalPnl: currentYearTotalPnl };
+        if (currentIndex >= 0) {
+            historyRows[currentIndex] = { ...historyRows[currentIndex], ...currentRow };
+        } else {
+            historyRows.push(currentRow);
+        }
+    }
+
+    const historicalDate = state.historyMode ? String(state.lastPayload?.history?.date || '') : '';
+    const points = historyRows
+        .map(row => {
+            const date = String(row.date || '');
+            const value = finiteNumber(row.yearTotalPnl);
+            const time = Date.parse(`${date}T00:00:00+08:00`) / 1000;
+            return { date, time, value };
+        })
+        .filter(point => point.date && Number.isFinite(point.time) && point.value !== null)
+        .filter(point => !historicalDate || point.date <= historicalDate)
+        .sort((left, right) => left.time - right.time)
+        .slice(-40);
+
+    const emptyText = '暫無今年總損益快照';
+    state.yearTotalPnlHistory = points;
+    svg.innerHTML = `${waveSvgMarkup(points, 320, 78, { compareZero: true, emptyText })}
+        <g data-pnl-history-hover visibility="hidden" pointer-events="none">
+            <line data-pnl-history-hover-line y1="5" y2="73" stroke="#e2e8f0" stroke-opacity="0.52" stroke-dasharray="3 3" />
+            <circle data-pnl-history-hover-point r="3.5" fill="#0f172a" stroke="#e2e8f0" stroke-width="2" vector-effect="non-scaling-stroke" />
+        </g>`;
+    if (state.yearPnlHistoryPointerX === null) {
+        hideYearPnlHistoryTooltip();
+    } else {
+        showYearPnlHistoryTooltip({ clientX: state.yearPnlHistoryPointerX });
     }
     panel.querySelector('[data-pnl-wave-meta]').textContent = points.length
         ? `${points.length} 日 · ${waveValueRange(points, formatMoney)}`
@@ -1861,6 +1947,73 @@ function setupPnlHistoryHover() {
     document.addEventListener('pointermove', event => {
         if (!panel.contains(event.target)) {
             hidePnlHistoryTooltip();
+        }
+    });
+}
+
+function showYearPnlHistoryTooltip(event) {
+    const points = costHistoryGeometry(state.yearTotalPnlHistory, 320, 78);
+    const svg = document.querySelector('[data-pnl-wave="yearTotalPnl"]');
+    const panel = document.querySelector('[data-pnl-wave-panel="yearTotalPnl"]');
+    const tooltip = document.querySelector('[data-year-pnl-history-tooltip]');
+    if (!points.length || !svg || !panel || !tooltip) return;
+
+    const svgRect = svg.getBoundingClientRect();
+    if (svgRect.width <= 0) return;
+
+    state.yearPnlHistoryPointerX = event.clientX;
+    const pointerX = Math.max(0, Math.min(320, (event.clientX - svgRect.left) / svgRect.width * 320));
+    const point = points.reduce((nearest, candidate) =>
+        Math.abs(candidate.x - pointerX) < Math.abs(nearest.x - pointerX) ? candidate : nearest
+    );
+    const previous = point.index > 0 ? points[point.index - 1] : null;
+    const delta = previous ? point.value - previous.value : null;
+    const hover = svg.querySelector('[data-pnl-history-hover]');
+    hover.setAttribute('visibility', 'visible');
+    const line = hover.querySelector('[data-pnl-history-hover-line]');
+    line.setAttribute('x1', point.x.toFixed(2));
+    line.setAttribute('x2', point.x.toFixed(2));
+    const circle = hover.querySelector('[data-pnl-history-hover-point]');
+    circle.setAttribute('cx', point.x.toFixed(2));
+    circle.setAttribute('cy', point.y.toFixed(2));
+
+    tooltip.querySelector('[data-pnl-history-tooltip-date]').textContent = costHistoryFullDateLabel(point.date);
+    const valueTarget = tooltip.querySelector('[data-pnl-history-tooltip-value]');
+    valueTarget.textContent = formatMoney(point.value);
+    valueTarget.className = `pnl-history-tooltip-value ${toneClass(point.value)}`;
+    const changeTarget = tooltip.querySelector('[data-pnl-history-tooltip-change]');
+    const changeText = delta === null
+        ? ''
+        : (delta > 0 ? `增加 ${formatInteger(Math.abs(delta))}` : (delta < 0 ? `減少 ${formatInteger(Math.abs(delta))}` : '持平 0'));
+    changeTarget.textContent = changeText;
+    changeTarget.className = `pnl-history-tooltip-change ${toneClass(delta)}`;
+    changeTarget.hidden = changeText === '';
+
+    tooltip.classList.add('visible');
+    tooltip.setAttribute('aria-hidden', 'false');
+}
+
+function hideYearPnlHistoryTooltip() {
+    state.yearPnlHistoryPointerX = null;
+    document.querySelector('[data-pnl-wave="yearTotalPnl"] [data-pnl-history-hover]')?.setAttribute('visibility', 'hidden');
+    const tooltip = document.querySelector('[data-year-pnl-history-tooltip]');
+    if (!tooltip) return;
+    tooltip.classList.remove('visible');
+    tooltip.setAttribute('aria-hidden', 'true');
+}
+
+function setupYearPnlHistoryHover() {
+    const svg = document.querySelector('[data-pnl-wave="yearTotalPnl"]');
+    const panel = document.querySelector('[data-pnl-wave-panel="yearTotalPnl"]');
+    if (!svg || !panel) return;
+    svg.addEventListener('pointermove', showYearPnlHistoryTooltip);
+    svg.addEventListener('pointerdown', showYearPnlHistoryTooltip);
+    svg.addEventListener('pointerleave', hideYearPnlHistoryTooltip);
+    panel.addEventListener('pointerleave', hideYearPnlHistoryTooltip);
+    panel.addEventListener('mouseleave', hideYearPnlHistoryTooltip);
+    document.addEventListener('pointermove', event => {
+        if (!panel.contains(event.target)) {
+            hideYearPnlHistoryTooltip();
         }
     });
 }
@@ -3214,6 +3367,7 @@ els.sortButtons.forEach(button => {
 setupSilentCopy();
 setupCostHistoryHover();
 setupPnlHistoryHover();
+setupYearPnlHistoryHover();
 updateSortIndicators();
 renderPnlWaves();
 renderCostHistory();

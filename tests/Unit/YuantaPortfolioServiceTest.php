@@ -33,7 +33,7 @@ class YuantaPortfolioServiceTest extends TestCase
 
         if ($schema->hasTable('yuanta_portfolio_daily_snapshots')) {
             $database->table('yuanta_portfolio_daily_snapshots')
-                ->where('snapshot_date', '2099-07-03')
+                ->whereIn('snapshot_date', ['2099-07-02', '2099-07-03'])
                 ->delete();
         }
 
@@ -426,6 +426,7 @@ class YuantaPortfolioServiceTest extends TestCase
                 'costBasis' => 130000,
                 'todayPnl' => 16000,
                 'unrealizedPnl' => -12000,
+                'yearTotalPnl' => 88000,
                 'bankBalance' => 7506,
                 'marginUsedAmount' => 603000,
                 'marginAvailableAmount' => 397000,
@@ -447,6 +448,7 @@ class YuantaPortfolioServiceTest extends TestCase
         $this->assertSame('2099-07-03', $dates[0]['date']);
         $this->assertSame(130000.0, $dates[0]['costBasis']);
         $this->assertSame(16000.0, $dates[0]['todayPnl']);
+        $this->assertSame(88000.0, $dates[0]['yearTotalPnl']);
 
         $payload = $service->dailySnapshotPayload('2099-07-03');
         $this->assertSame('historical', $payload['source']['status']);
@@ -457,6 +459,38 @@ class YuantaPortfolioServiceTest extends TestCase
         $this->assertSame('2303', $payload['rows'][0]['stockNo']);
     }
 
+    public function test_it_adds_tracked_futures_realized_profit_to_yuanta_year_total(): void
+    {
+        $service = new YuantaPortfolioService();
+        $service->storeDailySnapshot([
+            'servedAt' => '2099-07-02T21:30:00+08:00',
+            'summary' => [
+                'futuresRealizedTodayPnl' => 3000,
+            ],
+            'rows' => [],
+        ], CarbonImmutable::parse('2099-07-02', 'Asia/Taipei'));
+
+        $method = new ReflectionMethod($service, 'yearProfitSummary');
+        $summary = $method->invoke($service, [
+            'transactions' => [
+                ['TradeDate' => '2099/07/01', 'ProfitLoss' => 8000],
+                ['TradeDate' => '2099/07/03', 'ProfitLoss' => 2000],
+            ],
+            'todayTransactions' => [
+                ['TradeDate' => '2099/07/03', 'ProfitLoss' => 2000],
+            ],
+            'futuresInterest' => [
+                ['Grantal' => -500],
+            ],
+        ], CarbonImmutable::parse('2099-07-03 12:00:00', 'Asia/Taipei'));
+
+        $this->assertSame(10000.0, $summary['realizedYearPnl']);
+        $this->assertSame(-500.0, $summary['futuresRealizedTodayPnl']);
+        $this->assertSame(2500.0, $summary['futuresRealizedYearPnl']);
+        $this->assertSame('2099-07-02', $summary['futuresRealizedTrackingSince']);
+        $this->assertSame(12500.0, $summary['yearTotalPnl']);
+    }
+
     private function migrateYuantaDailySnapshotsTable(): void
     {
         $schema = Schema::connection('sqlite');
@@ -464,7 +498,7 @@ class YuantaPortfolioServiceTest extends TestCase
 
         if ($schema->hasTable('yuanta_portfolio_daily_snapshots')) {
             $database->table('yuanta_portfolio_daily_snapshots')
-                ->where('snapshot_date', '2099-07-03')
+                ->whereIn('snapshot_date', ['2099-07-02', '2099-07-03'])
                 ->delete();
 
             return;

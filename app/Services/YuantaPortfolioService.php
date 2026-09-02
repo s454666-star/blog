@@ -162,7 +162,7 @@ class YuantaPortfolioService
     }
 
     /**
-     * @return array<int, array{date: string, capturedAt: string|null, costBasis: float|null, todayPnl: float|null, unrealizedPnl: float|null}>
+     * @return array<int, array{date: string, capturedAt: string|null, costBasis: float|null, todayPnl: float|null, unrealizedPnl: float|null, yearTotalPnl: float|null}>
      */
     public function dailySnapshotDates(int $limit = 90): array
     {
@@ -176,6 +176,7 @@ class YuantaPortfolioService
                 'costBasis' => $snapshot->cost_basis,
                 'todayPnl' => $snapshot->today_pnl,
                 'unrealizedPnl' => $snapshot->unrealized_pnl,
+                'yearTotalPnl' => $this->numberOrNull(($snapshot->summary ?? [])['yearTotalPnl'] ?? null),
             ])
             ->filter(fn (array $row): bool => $row['date'] !== '')
             ->values()
@@ -253,6 +254,7 @@ class YuantaPortfolioService
             'settlements' => is_array($payload['settlements'] ?? null) ? $payload['settlements'] : [],
             'transactions' => is_array($payload['transactions'] ?? null) ? $payload['transactions'] : [],
             'todayTransactions' => $this->todayTransactions($payload['transactions'] ?? [], $today),
+            'futuresInterest' => is_array($payload['futures_interest'] ?? null) ? $payload['futures_interest'] : [],
         ];
     }
 
@@ -303,7 +305,7 @@ class YuantaPortfolioService
         $totalTodayPnl = array_sum(array_column($rows, 'todayPnl'));
         $marginSummary = $this->marginSummary($rows, $raw);
         $balanceSummary = $this->balanceSummary($raw, $totalCostBasis, $now);
-        $yearProfitSummary = $this->yearProfitSummary($raw);
+        $yearProfitSummary = $this->yearProfitSummary($raw, $now);
         $totalCapital = $balanceSummary['bankBalance'] === null ? null : $totalCostBasis + $balanceSummary['bankBalance'];
         $yearReturnBase = $totalCapital === null ? null : $totalCapital - $yearProfitSummary['yearTotalPnl'];
         $yearTotalPnlRate = $yearReturnBase !== null && $yearReturnBase > 0
@@ -354,6 +356,10 @@ class YuantaPortfolioService
                 'realizedHistoryPnl' => $yearProfitSummary['realizedHistoryPnl'],
                 'realizedTodayPnl' => $yearProfitSummary['realizedTodayPnl'],
                 'realizedYearPnl' => $yearProfitSummary['realizedYearPnl'],
+                'stockYearTotalPnl' => $yearProfitSummary['realizedYearPnl'],
+                'futuresRealizedTodayPnl' => $yearProfitSummary['futuresRealizedTodayPnl'],
+                'futuresRealizedYearPnl' => $yearProfitSummary['futuresRealizedYearPnl'],
+                'futuresRealizedTrackingSince' => $yearProfitSummary['futuresRealizedTrackingSince'],
                 'dayTradeYearPnl' => 0,
                 'adjustedRealizedYearPnl' => $yearProfitSummary['realizedYearPnl'],
                 'yearTotalPnl' => $yearProfitSummary['yearTotalPnl'],
@@ -734,18 +740,42 @@ class YuantaPortfolioService
             ->sum(fn (array $settlement): float => $this->number($this->value($settlement, 'SettlementAmt', 'settlementAmt')));
     }
 
-    private function yearProfitSummary(array $raw): array
+    private function yearProfitSummary(array $raw, CarbonImmutable $now): array
     {
         $transactions = collect($raw['transactions'] ?? [])->filter(fn (mixed $row): bool => is_array($row));
         $todayTransactions = collect($raw['todayTransactions'] ?? [])->filter(fn (mixed $row): bool => is_array($row));
         $realizedYearPnl = $transactions->sum(fn (array $row): float => $this->number($this->value($row, 'ProfitLoss', 'profitLoss')));
         $realizedTodayPnl = $todayTransactions->sum(fn (array $row): float => $this->number($this->value($row, 'ProfitLoss', 'profitLoss')));
+        $futuresInterest = collect($raw['futuresInterest'] ?? [])->filter(fn (mixed $row): bool => is_array($row));
+        $futuresRealizedTodayPnl = $futuresInterest->isEmpty()
+            ? null
+            : $futuresInterest->sum(fn (array $row): float => $this->number($this->value($row, 'Grantal', 'grantal')));
+        $historicalFutures = YuantaPortfolioDailySnapshot::query()
+            ->whereDate('snapshot_date', '>=', $now->startOfYear()->toDateString())
+            ->whereDate('snapshot_date', '<', $now->toDateString())
+            ->orderBy('snapshot_date')
+            ->get(['snapshot_date', 'summary'])
+            ->filter(fn (YuantaPortfolioDailySnapshot $snapshot): bool => array_key_exists(
+                'futuresRealizedTodayPnl',
+                is_array($snapshot->summary) ? $snapshot->summary : [],
+            ));
+        $historicalFuturesPnl = $historicalFutures->sum(fn (YuantaPortfolioDailySnapshot $snapshot): float => $this->number(
+            ($snapshot->summary ?? [])['futuresRealizedTodayPnl'] ?? 0,
+        ));
+        $futuresRealizedYearPnl = $futuresRealizedTodayPnl === null
+            ? ($historicalFutures->isEmpty() ? null : $historicalFuturesPnl)
+            : $historicalFuturesPnl + $futuresRealizedTodayPnl;
+        $trackingSince = $historicalFutures->first()?->snapshot_date?->toDateString()
+            ?? ($futuresRealizedTodayPnl === null ? null : $now->toDateString());
 
         return [
             'realizedHistoryPnl' => $realizedYearPnl - $realizedTodayPnl,
             'realizedTodayPnl' => $realizedTodayPnl,
             'realizedYearPnl' => $realizedYearPnl,
-            'yearTotalPnl' => $realizedYearPnl,
+            'futuresRealizedTodayPnl' => $futuresRealizedTodayPnl,
+            'futuresRealizedYearPnl' => $futuresRealizedYearPnl,
+            'futuresRealizedTrackingSince' => $trackingSince,
+            'yearTotalPnl' => $realizedYearPnl + ($futuresRealizedYearPnl ?? 0),
         ];
     }
 
@@ -1241,6 +1271,8 @@ class YuantaPortfolioService
             'YUANTA_API_ENVIRONMENT' => config('yuanta.environment'),
             'YUANTA_ACCOUNT' => config('yuanta.account'),
             'YUANTA_PASSWORD' => config('yuanta.password'),
+            'YUANTA_FUTURES_ACCOUNT' => config('yuanta.futures_account'),
+            'YUANTA_FUTURES_PASSWORD' => config('yuanta.futures_password'),
             'YUANTA_PFX_PATH' => config('yuanta.pfx_path'),
             'YUANTA_PFX_PASSWORD' => config('yuanta.pfx_password'),
         ];

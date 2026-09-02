@@ -149,6 +149,43 @@ def main() -> int:
             if msg_code not in {"0001", "00001"} and int(status.get("Count") or 0) <= 0:
                 return fail("Yuanta login failed: " + str(status.get("MsgContent", msg_code)), 7)
 
+        futures_interest = []
+        login_accounts = login_events[-1].get("LoginList", []) if login_events else []
+        futures_accounts = [
+            str(item.get("Account", ""))
+            for item in login_accounts
+            if isinstance(item, dict) and str(item.get("Account", "")).startswith("F")
+        ]
+        configured_futures_account = os.environ.get("YUANTA_FUTURES_ACCOUNT", "").strip()
+        if configured_futures_account and configured_futures_account not in futures_accounts:
+            prior_login_count = len(login_events)
+            futures_accepted = bool(api.Login(
+                str(pfx_path),
+                os.environ["YUANTA_PFX_PASSWORD"],
+                configured_futures_account,
+                os.environ.get("YUANTA_FUTURES_PASSWORD") or os.environ["YUANTA_PASSWORD"],
+            ))
+            time.sleep(float(os.environ.get("YUANTA_LOGIN_WAIT_SECONDS", "6")))
+            if futures_accepted and len(login_events) > prior_login_count:
+                futures_status = login_events[-1].get("LoginStatus", {})
+                futures_code = str(futures_status.get("MsgCode", ""))
+                if futures_code in {"0001", "00001"} or int(futures_status.get("Count") or 0) > 0:
+                    futures_accounts.append(configured_futures_account)
+
+        futures_accounts = list(dict.fromkeys(futures_accounts))
+        for futures_account in futures_accounts:
+            try:
+                interest = response_value(
+                    api.GetFutInterestStoreSync(futures_account, "1", "TWD", lang),
+                    "GetFutInterestStore",
+                )
+                interest_payload = public_fields(interest)
+                if int(interest_payload.get("ReplyCode") or 0) == 0:
+                    futures_interest.append(interest_payload)
+            except Exception:
+                # A linked futures account must never make the securities dashboard fail.
+                continue
+
         store_summary = response_value(api.GetStoreSummarySync(account, lang), "GetStoreSummary")
         bank_balance = response_value(api.GetBankBalanceSync(account, lang), "GetBankBalance")
         settlements = response_value(api.GetStkTransactionOutlaySync(account, lang), "GetStkTransactionOutlay")
@@ -205,6 +242,7 @@ def main() -> int:
             "balance": balance.get("BankBalanceList") or [],
             "settlements": outlay.get("TransactionOutlayList") or [],
             "transactions": transactions,
+            "futures_interest": futures_interest,
         }, ensure_ascii=True))
         return 0
     except Exception as exc:

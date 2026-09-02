@@ -46,6 +46,7 @@ class TwStockEpsGrowthRankingController extends Controller
         $rows = $rows
             ->filter(fn ($row): bool => $row->rank <= 50 || in_array($row->stock_code, $neutralEstimateCodes, true))
             ->values();
+        $this->attachManualForecastSources($rows);
         $displayPriceDate = $usesLatestPrices
             ? $this->attachLatestClosingPrices($rows)
             : $run?->price_date?->toDateString();
@@ -110,6 +111,20 @@ class TwStockEpsGrowthRankingController extends Controller
         }
 
         return $priceDates === [] ? null : max($priceDates);
+    }
+
+    private function attachManualForecastSources(Collection $rows): void
+    {
+        $sources = config('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []);
+        foreach ($rows as $row) {
+            $source = $sources[$row->stock_code] ?? null;
+            if (!is_array($source)) {
+                continue;
+            }
+
+            $row->setAttribute('forecast_source_label', $source['source_label'] ?? null);
+            $row->setAttribute('forecast_source_url', $source['source_url'] ?? null);
+        }
     }
 
     private function applyAnnualizedHalfYearEps(Collection $rows): Collection

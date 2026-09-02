@@ -222,10 +222,88 @@ class TwStockEpsGrowthRankingService
             }
         }
 
+        foreach ($this->configuredNeutralForecasts($snapshotDate) as $code => $forecast) {
+            if (!isset($latest[$code])) {
+                $latest[$code] = $forecast;
+            }
+        }
+
         return [
             'article_count' => count($articles),
             'forecasts' => $latest,
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function expectedNeutralEstimateCodes(CarbonImmutable $snapshotDate): array
+    {
+        $manualForecasts = config('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []);
+        $codes = array_values(array_filter(
+            config('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', []),
+            function (string $code) use ($manualForecasts, $snapshotDate): bool {
+                if (!isset($manualForecasts[$code])) {
+                    return true;
+                }
+
+                $forecastDate = $manualForecasts[$code]['forecast_date'] ?? null;
+
+                return is_string($forecastDate)
+                    && $forecastDate !== ''
+                    && CarbonImmutable::parse($forecastDate, 'Asia/Taipei')->startOfDay()->lessThanOrEqualTo($snapshotDate->startOfDay());
+            },
+        ));
+        sort($codes);
+
+        return $codes;
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function configuredNeutralForecasts(CarbonImmutable $snapshotDate): array
+    {
+        $forecasts = [];
+        foreach (config('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []) as $code => $configured) {
+            $forecastDate = $configured['forecast_date'] ?? null;
+            $eps2026 = $configured['eps_2026'] ?? null;
+            $eps2027 = $configured['eps_2027'] ?? null;
+            if (!is_string($forecastDate)
+                || $forecastDate === ''
+                || !is_numeric($eps2026)
+                || !is_numeric($eps2027)
+                || (float) $eps2026 <= 0
+                || (float) $eps2027 <= 0
+            ) {
+                continue;
+            }
+
+            $publishedAt = CarbonImmutable::parse($forecastDate, 'Asia/Taipei')->startOfDay();
+            if ($publishedAt->greaterThan($snapshotDate->startOfDay())) {
+                continue;
+            }
+
+            $eps2026 = (float) $eps2026;
+            $eps2027 = (float) $eps2027;
+            $forecasts[(string) $code] = [
+                'stock_code' => (string) $code,
+                'stock_name' => (string) ($configured['stock_name'] ?? $code),
+                'publish_at' => $publishedAt->timestamp,
+                'forecast_date' => $publishedAt->toDateString(),
+                'news_id' => null,
+                'analyst_count' => isset($configured['analyst_count']) ? (int) $configured['analyst_count'] : null,
+                'eps_2026' => $eps2026,
+                'eps_2027' => $eps2027,
+                'eps_2028' => round($eps2027 * (1 + $this->neutral2028Growth($eps2026, $eps2027)), 4),
+                'revenue_2026_thousands' => null,
+                'revenue_2027_thousands' => null,
+                'revenue_2028_thousands' => null,
+                'is_neutral_estimate' => true,
+            ];
+        }
+
+        return $forecasts;
     }
 
     /**
@@ -426,6 +504,14 @@ class TwStockEpsGrowthRankingService
                 fn (array $row): float => (float) $row['value'],
                 $epsRows,
             )), 4);
+        }
+
+        $configuredForecasts = config('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []);
+        foreach ($stockCodes as $stockCode) {
+            $configuredActual = $configuredForecasts[$stockCode]['eps_2025'] ?? null;
+            if (($actuals[$stockCode] ?? 0) <= 0 && is_numeric($configuredActual) && (float) $configuredActual > 0) {
+                $actuals[$stockCode] = round((float) $configuredActual, 4);
+            }
         }
 
         return $actuals;

@@ -36,6 +36,8 @@ class TwStockEpsGrowthRankingsTest extends TestCase
         ]);
         config()->set('tw_stock.eps_growth_ranking.cnyes_url', 'https://example.test/cnyes');
         config()->set('tw_stock.eps_growth_ranking.finmind_url', 'https://example.test/finmind');
+        config()->set('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', ['2455', '3081']);
+        config()->set('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []);
 
         DB::purge('sqlite');
         DB::reconnect('sqlite');
@@ -333,7 +335,108 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('全新')
             ->assertSee('聯亞')
             ->assertSee('中性估算')
-            ->assertSee('全新、聯亞的 2028E 參考估算');
+            ->assertSee('4 檔固定參考股的 2028E 中性估算');
+    }
+
+    public function test_configured_reference_forecasts_include_iet_and_asrock_rack_in_both_modes(): void
+    {
+        config()->set('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', ['4971', '7711']);
+        config()->set('tw_stock.eps_growth_ranking.manual_neutral_forecasts', [
+            '4971' => [
+                'stock_name' => 'IET-KY',
+                'forecast_date' => '2026-08-31',
+                'eps_2026' => 6.10,
+                'eps_2027' => 10.94,
+                'analyst_count' => 1,
+                'source_label' => '法人預估',
+                'source_url' => 'https://example.test/iet-forecast',
+            ],
+            '7711' => [
+                'stock_name' => '永擎',
+                'forecast_date' => '2026-04-23',
+                'eps_2025' => 13.04,
+                'eps_2026' => 31.31,
+                'eps_2027' => 42.11,
+                'analyst_count' => 1,
+                'source_label' => '元大預估',
+                'source_url' => 'https://example.test/asrock-rack-forecast',
+            ],
+        ]);
+
+        $this->insertPrices('2026-08-31', 100, 200);
+        DB::table('tw_stock_daily_prices')->insert([
+            [
+                'exchange' => 'TPEx',
+                'stock_code' => '4971',
+                'stock_name' => 'IET-KY',
+                'trade_date' => '2026-08-31',
+                'close_price' => 600,
+                'volume_lots' => 1,
+                'volume_shares' => 1000,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'exchange' => 'TWSE',
+                'stock_code' => '7711',
+                'stock_name' => '永擎',
+                'trade_date' => '2026-08-31',
+                'close_price' => 535,
+                'volume_lots' => 1,
+                'volume_shares' => 1000,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            ['fiscal_year' => 2026, 'quarter' => 1, 'stock_code' => '4971', 'q1_eps' => 1.97],
+            ['fiscal_year' => 2026, 'quarter' => 2, 'stock_code' => '4971', 'q1_eps' => 0.43],
+            ['fiscal_year' => 2026, 'quarter' => 1, 'stock_code' => '7711', 'q1_eps' => 7.68],
+            ['fiscal_year' => 2026, 'quarter' => 2, 'stock_code' => '7711', 'q1_eps' => 9.76],
+        ]);
+
+        $this->artisan('tw-stock:refresh-eps-growth-rankings', [
+            '--date' => '2026-08-31',
+            '--lookback-days' => 35,
+            '--sleep-ms' => 0,
+            '--minimum-eligible' => 4,
+        ])->assertSuccessful();
+
+        $iet = DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '4971')->first();
+        $asrockRack = DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '7711')->first();
+        $this->assertNotNull($iet);
+        $this->assertNotNull($asrockRack);
+        $this->assertEqualsWithDelta(1.61, (float) $iet->eps_2025, 0.001);
+        $this->assertEqualsWithDelta(14.222, (float) $iet->eps_2028, 0.001);
+        $this->assertEqualsWithDelta(13.04, (float) $asrockRack->eps_2025, 0.001);
+        $this->assertEqualsWithDelta(
+            round(42.11 * (1 + (((42.11 / 31.31) - 1) * 0.5)), 4),
+            (float) $asrockRack->eps_2028,
+            0.001,
+        );
+
+        DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '4971')->update(['rank' => 51]);
+        DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '7711')->update(['rank' => 52]);
+
+        $this->get(route('tw-stock.eps-growth-rankings.index'))
+            ->assertOk()
+            ->assertSee('IET-KY')
+            ->assertSee('永擎')
+            ->assertSee('法人預估')
+            ->assertSee('元大預估')
+            ->assertSee('https://example.test/iet-forecast', false)
+            ->assertSee('https://example.test/asrock-rack-forecast', false)
+            ->assertSee('IET-KY（4971）')
+            ->assertSee('永擎（7711）');
+
+        $this->get(route('tw-stock.eps-growth-rankings.index', ['eps_basis' => 'actual']))
+            ->assertOk()
+            ->assertSee('（H1 2.40 ＋ H1×1.05）')
+            ->assertSee('（H1 17.44 ＋ H1×1.05）')
+            ->assertSee('4.92')
+            ->assertSee('35.75')
+            ->assertSee('IET-KY')
+            ->assertSee('永擎');
     }
 
     public function test_backfill_adds_neutral_estimates_without_replacing_snapshots_and_is_idempotent(): void
@@ -410,6 +513,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
                     '2222' => 10.0,
                     '2455' => 2.96,
                     '3081' => 4.66,
+                    '4971' => 1.61,
                     default => 0.0,
                 };
 

@@ -665,7 +665,7 @@
             <article class="summary-card glass" style="--accent: #d8b4fe">
                 <div class="summary-label">中性情境</div>
                 <div class="summary-value" style="color: #d9c7ff">{{ $summary['neutral_estimates'] }}</div>
-                <div class="summary-note">全新、聯亞的 2028E 參考估算</div>
+                <div class="summary-note">4 檔固定參考股的 2028E 中性估算</div>
             </article>
         </section>
 
@@ -752,6 +752,8 @@
                                     {{ $row->stock_code }}
                                     @if ($row->news_id)
                                         · <a href="https://news.cnyes.com/news/id/{{ $row->news_id }}" target="_blank" rel="noopener">FactSet ↗</a>
+                                    @elseif ($row->forecast_source_url)
+                                        · <a href="{{ $row->forecast_source_url }}" target="_blank" rel="noopener">{{ $row->forecast_source_label ?? '預估來源' }} ↗</a>
                                     @endif
                                 </div>
                             </td>
@@ -826,10 +828,10 @@
                 <strong>計算方式：</strong>
                 先依
                 <span class="formula">(25→26年增率×1.8 + 26→27年增率×2.5 + 27→28年增率×1) ÷ 5.3</span>
-                算出原始加權成長率，再將該結果換算成當週完整樣本中的 0～100 百分位分數並排序。這可確保權重直接作用於原始成長率，不會因三段各自先轉百分位而扭曲。預設「預估2026」使用 FactSet 2026E；切換「實際2026」時以已公告的 <span class="formula">H1 EPS ＋ H1 EPS × 1.05</span> 取代 2026E，下半年以上半年的 1.05 倍估算，重新計算 25→26、26→27、加權分數及排行，27→28 仍沿用原預估。缺少完整 H1 或年化 EPS 不為正數的股票不納入實際模式排行。2025A 為四季 EPS 加總；2027E～2028E 與營收成長展望為各股票最新可取得的 FactSet 中位數。排行是相對分數，不等於投資品質。
+                算出原始加權成長率，再將該結果換算成當週完整樣本中的 0～100 百分位分數並排序。這可確保權重直接作用於原始成長率，不會因三段各自先轉百分位而扭曲。預設「預估2026」使用 FactSet 2026E；切換「實際2026」時以已公告的 <span class="formula">H1 EPS ＋ H1 EPS × 1.05</span> 取代 2026E，下半年以上半年的 1.05 倍估算，重新計算 25→26、26→27、加權分數及排行，27→28 仍沿用原預估。缺少完整 H1 或年化 EPS 不為正數的股票不納入實際模式排行。2025A 原則上為四季 EPS 加總；永擎因 FinMind 僅回傳上市後的三筆資料，採用 2025 年度公開 EPS 13.04 元。2027E～2028E 與營收成長展望為各股票最新可取得的 FactSet 中位數或下述固定參考來源。排行是相對分數，不等於投資品質。
                 2027預期價格以<span class="formula">該股票族群平均本益比 × 2027E EPS</span>計算；旁邊百分比為<span class="formula">（2027預期價格 ÷ 顯示收盤價 − 1）× 100%</span>。最新一期使用每日股價表的最新官方收盤，歷史週快照則保留該週收盤，僅供估值參考。
-                全新（2455）與聯亞（3081）若 FactSet 尚缺 2028E，會以最新 2026E、2027E 共識為基礎，將 2026→2027 成長率折半（限制於 0～30%）作為中性 2028E 年增率，並以「中性估算」標示。
-                兩檔為固定參考列；即使實際名次低於第 50 名，仍會顯示在前 50 名表格後方。
+                全新（2455）與聯亞（3081）若 FactSet 尚缺 2028E，會以最新 2026E、2027E 共識為基礎；IET-KY（4971）因 FactSet 頁面未提供 EPS 共識，改用 2026/8/31 公開法人預估的 2026E 6.10 元、2027E 10.94 元；永擎（7711）使用 2026/4/23 元大投顧預估的 2026E 31.31 元、2027E 42.11 元。四檔的 2028E 均將 2026→2027 成長率折半（限制於 0～30%）作為中性年增率，並以「中性估算」標示。
+                四檔為固定參考列；即使實際名次低於第 50 名，仍會顯示在前 50 名表格後方。
             </div>
             <div>資料每週一更新</div>
         </aside>

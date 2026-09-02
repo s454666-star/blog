@@ -34,16 +34,19 @@ class BackfillNeutralTwStockEpsGrowthEstimatesCommand extends Command
             return self::SUCCESS;
         }
 
-        $expectedCodes = config('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', []);
-        sort($expectedCodes);
+        $allExpectedCodes = [];
         $lookbackDays = (int) config('tw_stock.eps_growth_ranking.lookback_days', 400);
         $sleepMs = max(0, (int) $this->option('sleep-ms'));
         $prepared = [];
 
         try {
             foreach ($runs as $run) {
+                $snapshotDate = CarbonImmutable::parse($run->snapshot_date->toDateString(), 'Asia/Taipei');
+                $expectedCodes = $rankingService->expectedNeutralEstimateCodes($snapshotDate);
+                $allExpectedCodes = array_values(array_unique([...$allExpectedCodes, ...$expectedCodes]));
+                sort($allExpectedCodes);
                 $rows = $rankingService->neutralEstimateRows(
-                    CarbonImmutable::parse($run->snapshot_date->toDateString(), 'Asia/Taipei'),
+                    $snapshotDate,
                     $lookbackDays,
                     $sleepMs,
                 );
@@ -131,7 +134,7 @@ class BackfillNeutralTwStockEpsGrowthEstimatesCommand extends Command
         $this->info(sprintf(
             '中性估算補入完成：runs=%d stocks=%s rows=%d',
             $runs->count(),
-            implode(',', $expectedCodes),
+            implode(',', $allExpectedCodes),
             TwStockEpsGrowthRanking::query()->count(),
         ));
 

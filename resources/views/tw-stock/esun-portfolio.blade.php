@@ -1159,7 +1159,7 @@
             <div class="return-rate-line" data-summary="yearTotalPnlRate">今年報酬率 --</div>
             <div class="sub" data-summary="yearTotalPnlBreakdown">{{ $brokerName ?? '玉山' }}已實現 -- · 當日已實現 --</div>
             @if (($brokerName ?? '玉山') === '元大')
-                <div class="sub" data-summary="futuresRealizedPnl">* 期貨已實現：--</div>
+                <div class="sub" data-summary="futuresRealizedPnl" hidden></div>
             @endif
             <div class="sub" data-summary="dividendIncome">(股息收益：--)</div>
             @if (($brokerName ?? '玉山') === '元大')
@@ -1489,7 +1489,10 @@ function updateSummaryCards(summary, sourceText) {
         const futuresRealizedYearPnl = finiteNumber(summary.futuresRealizedYearPnl ?? state.lastPayload?.summary?.futuresRealizedYearPnl);
         const trackingSince = String(summary.futuresRealizedTrackingSince ?? state.lastPayload?.summary?.futuresRealizedTrackingSince ?? '');
         const trackingLabel = trackingSince ? `（自 ${costHistoryDateLabel(trackingSince)} 累計）` : '';
-        futuresRealizedTarget.textContent = `* 期貨已實現${trackingLabel}：${futuresRealizedYearPnl === null ? '--' : formatMoney(futuresRealizedYearPnl)}`;
+        futuresRealizedTarget.hidden = futuresRealizedYearPnl === null;
+        futuresRealizedTarget.textContent = futuresRealizedYearPnl === null
+            ? ''
+            : `* 期貨已實現${trackingLabel}：${formatMoney(futuresRealizedYearPnl)}`;
         futuresRealizedTarget.className = `sub ${toneClass(futuresRealizedYearPnl)}`;
     }
     const dividendIncome = finiteNumber(summary.dividendIncome ?? state.lastPayload?.summary?.dividendIncome);

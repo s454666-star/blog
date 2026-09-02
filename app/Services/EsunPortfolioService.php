@@ -227,7 +227,7 @@ class EsunPortfolioService
     }
 
     /**
-     * @return array<int, array{date: string, capturedAt: string|null, costBasis: float|null, todayPnl: float|null, unrealizedPnl: float|null}>
+     * @return array<int, array{date: string, capturedAt: string|null, costBasis: float|null, todayPnl: float|null, unrealizedPnl: float|null, yearTotalPnl: float|null}>
      */
     public function dailySnapshotDates(int $limit = 90): array
     {
@@ -241,6 +241,7 @@ class EsunPortfolioService
                 'costBasis' => $snapshot->cost_basis,
                 'todayPnl' => $snapshot->today_pnl,
                 'unrealizedPnl' => $snapshot->unrealized_pnl,
+                'yearTotalPnl' => $this->numberOrNull(($snapshot->summary ?? [])['yearTotalPnl'] ?? null),
             ])
             ->filter(fn (array $row): bool => $row['date'] !== '')
             ->values()

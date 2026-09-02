@@ -1162,21 +1162,19 @@
                 <div class="sub" data-summary="futuresRealizedPnl" hidden></div>
             @endif
             <div class="sub" data-summary="dividendIncome">(股息收益：--)</div>
-            @if (($brokerName ?? '玉山') === '元大')
-                <div class="pnl-wave-panel" data-pnl-wave-panel="yearTotalPnl">
-                    <div class="pnl-wave-head"><span>近 40 個開市日</span><span data-pnl-wave-meta>讀取中</span></div>
-                    <svg class="pnl-wave-svg" data-pnl-wave="yearTotalPnl" viewBox="0 0 320 78" preserveAspectRatio="none" role="img" aria-label="今年總損益近40個開市日走勢"></svg>
-                    <div class="pnl-wave-axis">
-                        <span data-pnl-wave-axis-start>--</span>
-                        <div class="cost-history-tooltip pnl-history-tooltip" data-year-pnl-history-tooltip aria-hidden="true">
-                            <span data-pnl-history-tooltip-date>--</span>
-                            <span class="pnl-history-tooltip-value" data-pnl-history-tooltip-value>--</span>
-                            <span class="pnl-history-tooltip-change" data-pnl-history-tooltip-change hidden></span>
-                        </div>
-                        <span data-pnl-wave-axis-end>--</span>
+            <div class="pnl-wave-panel" data-pnl-wave-panel="yearTotalPnl">
+                <div class="pnl-wave-head"><span>近 40 個開市日</span><span data-pnl-wave-meta>讀取中</span></div>
+                <svg class="pnl-wave-svg" data-pnl-wave="yearTotalPnl" viewBox="0 0 320 78" preserveAspectRatio="none" role="img" aria-label="今年總損益近40個開市日走勢"></svg>
+                <div class="pnl-wave-axis">
+                    <span data-pnl-wave-axis-start>--</span>
+                    <div class="cost-history-tooltip pnl-history-tooltip" data-year-pnl-history-tooltip aria-hidden="true">
+                        <span data-pnl-history-tooltip-date>--</span>
+                        <span class="pnl-history-tooltip-value" data-pnl-history-tooltip-value>--</span>
+                        <span class="pnl-history-tooltip-change" data-pnl-history-tooltip-change hidden></span>
                     </div>
+                    <span data-pnl-wave-axis-end>--</span>
                 </div>
-            @endif
+            </div>
         </div>
         <div class="summary-card capital-card">
             <div class="label">投入總成本</div>

@@ -982,6 +982,7 @@ class EsunPortfolioServiceTest extends TestCase
                 'costBasis' => 130000,
                 'todayPnl' => 16000,
                 'unrealizedPnl' => -12000,
+                'yearTotalPnl' => 88000,
                 'bankBalance' => 7506,
                 'marginUsedAmount' => 603000,
                 'marginAvailableAmount' => 397000,
@@ -1003,6 +1004,7 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertSame('2099-07-03', $dates[0]['date']);
         $this->assertSame(130000.0, $dates[0]['costBasis']);
         $this->assertSame(16000.0, $dates[0]['todayPnl']);
+        $this->assertSame(88000.0, $dates[0]['yearTotalPnl']);
 
         $payload = $service->dailySnapshotPayload('2099-07-03');
         $this->assertSame('historical', $payload['source']['status']);

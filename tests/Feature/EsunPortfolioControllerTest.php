@@ -48,6 +48,9 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('近 40 個開市日')
             ->assertSee('即時累積損益近40個開市日走勢')
             ->assertSee('renderUnrealizedPnlHistory', false)
+            ->assertSee('data-pnl-wave="yearTotalPnl"', false)
+            ->assertSee('renderYearTotalPnlHistory', false)
+            ->assertSee('yearTotalPnl: currentYearTotalPnl', false)
             ->assertSee('data-pnl-history-tooltip', false)
             ->assertSee('data-pnl-history-tooltip-change', false)
             ->assertSee('pnlHistoryPointerX: null', false)
@@ -295,6 +298,7 @@ class EsunPortfolioControllerTest extends TestCase
                 'costBasis' => 130000.0,
                 'todayPnl' => 16000.0,
                 'unrealizedPnl' => -12000.0,
+                'yearTotalPnl' => 88000.0,
             ],
         ]);
         $this->app->instance(EsunPortfolioService::class, $service);
@@ -303,7 +307,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertOk()
             ->assertJsonPath('dates.0.date', '2026-07-03')
             ->assertJsonPath('dates.0.costBasis', 130000)
-            ->assertJsonPath('dates.0.todayPnl', 16000);
+            ->assertJsonPath('dates.0.todayPnl', 16000)
+            ->assertJsonPath('dates.0.yearTotalPnl', 88000);
     }
 
     public function test_history_endpoint_returns_requested_snapshot(): void

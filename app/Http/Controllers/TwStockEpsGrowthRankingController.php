@@ -123,7 +123,8 @@ class TwStockEpsGrowthRankingController extends Controller
 
         $scoredRows = $this->scoring->scoreAndRank($eligibleRows
             ->map(function ($row): array {
-                $annualizedEps2026 = (float) $row->reported_half_year_eps * 2;
+                $reportedHalfYearEps = (float) $row->reported_half_year_eps;
+                $annualizedEps2026 = $reportedHalfYearEps + ($reportedHalfYearEps * 1.05);
                 $growth2025To2026 = (($annualizedEps2026 / $row->eps_2025) - 1) * 100;
                 $growth2026To2027 = (($row->eps_2027 / $annualizedEps2026) - 1) * 100;
 

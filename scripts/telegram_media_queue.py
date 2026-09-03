@@ -1187,7 +1187,7 @@ async def process_source(
     source_alias: str,
     config: dict[str, Any],
     state: dict[str, Any],
-) -> None:
+) -> bool:
     source_state = state["sources"][source_alias]
     latest = await client.get_messages(source, limit=1)
     snapshot_max = int(latest[0].id) if latest else int(source_state["last_scanned_id"])
@@ -1215,10 +1215,11 @@ async def process_source(
             # Keep the actual cursor, not snapshot_max: unvisited items belong to the next round.
             save_state(state, "source_yielded")
             safe_log("source_scan_yielded", source=source_alias, status="source_yielded", count=processed)
-            return
+            return True
     source_state["last_scanned_id"] = max(int(source_state["last_scanned_id"]), snapshot_max)
     save_state(state, "source_complete")
     safe_log("source_scan_complete", source=source_alias, status="source_complete", count=processed)
+    return False
 
 
 async def login(config: dict[str, Any]) -> None:
@@ -1258,16 +1259,18 @@ async def run_worker(config: dict[str, Any], once: bool) -> None:
         dialogs = await resolve_exact_dialogs(client, config)
         while True:
             try:
+                backlog_remaining = False
                 for item in config["sources"]:
                     alias = str(item["alias"])
-                    await process_source(client, dialogs[alias], dialogs["image_target"], alias, config, state)
+                    yielded = await process_source(client, dialogs[alias], dialogs["image_target"], alias, config, state)
+                    backlog_remaining = backlog_remaining or yielded
                 state["cycle"] = int(state.get("cycle") or 0) + 1
                 state["active_source"] = None
                 save_state(state, "idle")
                 safe_log("cycle_complete", status="idle", count=state["cycle"])
                 if once:
                     return
-                await asyncio.sleep(int(config.get("rescan_seconds", 300)))
+                await asyncio.sleep(1 if backlog_remaining else int(config.get("rescan_seconds", 300)))
             except FloodWaitError as error:
                 wait_seconds = max(1, int(getattr(error, "seconds", 60) or 60)) + 5
                 save_state(state, "flood_wait")

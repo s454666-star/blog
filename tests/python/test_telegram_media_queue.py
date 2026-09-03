@@ -368,10 +368,10 @@ class TelegramMediaQueueDeadlineTest(unittest.IsolatedAsyncioTestCase):
         self.patch("process_message", process)
         state = self.state()
         config = {"source_batch_size": 2}
-        await QUEUE.process_source(Client(), None, None, "fixture", config, state)
+        self.assertTrue(await QUEUE.process_source(Client(), None, None, "fixture", config, state))
         self.assertEqual([10, 20], visited)
         self.assertEqual(20, state["sources"]["fixture"]["last_scanned_id"])
-        await QUEUE.process_source(Client(), None, None, "fixture", config, state)
+        self.assertFalse(await QUEUE.process_source(Client(), None, None, "fixture", config, state))
         self.assertEqual([10, 20, 30], visited)
         self.assertEqual(99, state["sources"]["fixture"]["last_scanned_id"])
 
@@ -394,6 +394,25 @@ class TelegramMediaQueueDeadlineTest(unittest.IsolatedAsyncioTestCase):
         await QUEUE.process_source(Client(), None, None, "fixture", {"source_time_slice_seconds": 1}, state)
         self.assertEqual(10, state["sources"]["fixture"]["last_scanned_id"])
         self.assertEqual("source_scan_yielded", self.events[-1][0])
+
+    async def test_worker_waits_five_minutes_only_after_backlog_is_drained(self):
+        for yielded, expected_delay in ((True, 1), (False, 300)):
+            with self.subTest(yielded=yielded):
+                client = SimpleNamespace(
+                    connect=AsyncMock(), is_user_authorized=AsyncMock(return_value=True), disconnect=AsyncMock()
+                )
+                sleep = AsyncMock(side_effect=asyncio.CancelledError)
+                with (
+                    patch.object(QUEUE, "load_state", return_value=self.state()),
+                    patch.object(QUEUE, "TelegramClient", return_value=client),
+                    patch.object(QUEUE, "resolve_exact_dialogs", AsyncMock(return_value={"fixture": None, "image_target": None})),
+                    patch.object(QUEUE, "process_source", AsyncMock(return_value=yielded)),
+                    patch.object(QUEUE.asyncio, "sleep", sleep),
+                ):
+                    with self.assertRaises(asyncio.CancelledError):
+                        await QUEUE.run_worker({"api_id": 1, "api_hash": "fixture", "sources": [{"alias": "fixture"}]}, False)
+                sleep.assert_awaited_once_with(expected_delay)
+                client.disconnect.assert_awaited_once()
 
 
 if __name__ == "__main__":

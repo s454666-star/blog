@@ -307,6 +307,7 @@ def safe_log(event: str, **fields: Any) -> None:
         "attempt",
         "return_code",
         "error_class",
+        "disposition",
         "pid",
     }
     row = {"at": utc_now(), "event": event}
@@ -562,13 +563,20 @@ async def run_tdl(command: list[str], state: dict[str, Any], source_alias: str) 
     save_state(state, "downloading")
     safe_log("download_started", source=source_alias, status="downloading", pid=process.pid)
     communication = asyncio.create_task(process.communicate())
-    while not communication.done():
-        done, _ = await asyncio.wait({communication}, timeout=30)
-        if not done:
-            safe_log("download_heartbeat", source=source_alias, status="downloading", pid=process.pid)
-    stdout, stderr = await communication
-    state.pop("tdl_pid", None)
-    save_state(state, "running")
+    try:
+        while not communication.done():
+            done, _ = await asyncio.wait({communication}, timeout=30)
+            if not done:
+                safe_log("download_heartbeat", source=source_alias, status="downloading", pid=process.pid)
+        stdout, stderr = await asyncio.shield(communication)
+    finally:
+        # Reap the exact child before staging cleanup or advancing to another item.
+        if process.returncode is None:
+            process.kill()
+        if not communication.done():
+            await asyncio.shield(communication)
+        state.pop("tdl_pid", None)
+        save_state(state, "running")
     if process.returncode == 0:
         safe_log("download_command_finished", source=source_alias, status="running", return_code=0)
         return
@@ -818,7 +826,14 @@ async def extract_zip_once(archive_path: Path, output_dir: Path, seven_zip: str,
         stderr=asyncio.subprocess.DEVNULL,
         creationflags=creationflags,
     )
-    await process.communicate()
+    communication = asyncio.create_task(process.communicate())
+    try:
+        await asyncio.shield(communication)
+    finally:
+        if process.returncode is None:
+            process.kill()
+        if not communication.done():
+            await asyncio.shield(communication)
     return process.returncode == 0
 
 
@@ -1114,19 +1129,20 @@ async def process_message(
         return
     begin_processed_message(peer_id, message_id, source_alias, kind)
     try:
-        counts = {"video": 0, "image": 0}
-        if kind == "video":
-            await download_video(client, source, message, source_alias, config, state)
-            counts["video"] = 1
-        elif kind == "image":
-            await forward_image(client, source, image_target, message, source_alias, state)
-            counts["image"] = 1
-        else:
-            counts = await process_archive(client, source, image_target, message, source_alias, config, state)
-        source_config = next(item for item in config["sources"] if str(item["alias"]) == source_alias)
-        delete_source = bool(source_config.get("delete_source", True))
-        if delete_source:
-            await delete_and_verify(client, source, message_id)
+        async with asyncio.timeout(max(0.01, float(config.get("message_timeout_seconds", 600)))):
+            counts = {"video": 0, "image": 0}
+            if kind == "video":
+                await download_video(client, source, message, source_alias, config, state)
+                counts["video"] = 1
+            elif kind == "image":
+                await forward_image(client, source, image_target, message, source_alias, state)
+                counts["image"] = 1
+            else:
+                counts = await process_archive(client, source, image_target, message, source_alias, config, state)
+            source_config = next(item for item in config["sources"] if str(item["alias"]) == source_alias)
+            delete_source = bool(source_config.get("delete_source", True))
+            if delete_source:
+                await delete_and_verify(client, source, message_id)
         finish_processed_message(peer_id, message_id, counts["video"] + counts["image"])
         source_state["pending"].pop(str(message_id), None)
         source_state["last_scanned_id"] = max(int(source_state["last_scanned_id"]), message_id)
@@ -1143,11 +1159,12 @@ async def process_message(
         )
     except Exception as error:
         runtime_code = str(error)
-        error_class = (
-            runtime_code
-            if isinstance(error, RuntimeError) and re.fullmatch(r"[a-z0-9_]{3,120}", runtime_code)
-            else type(error).__name__
-        )
+        if isinstance(error, TimeoutError):
+            error_class = "message_timeout"
+        elif isinstance(error, RuntimeError) and re.fullmatch(r"[a-z0-9_]{3,120}", runtime_code):
+            error_class = runtime_code
+        else:
+            error_class = type(error).__name__
         fail_processed_message(peer_id, message_id, error_class)
         source_state["pending"].pop(str(message_id), None)
         source_state["last_scanned_id"] = max(int(source_state["last_scanned_id"]), message_id)
@@ -1178,6 +1195,9 @@ async def process_source(
     save_state(state, "scanning")
     safe_log("source_scan_started", source=source_alias, status="scanning", message_id=snapshot_max)
     processed = 0
+    batch_limit = max(1, int(config.get("source_batch_size", 10)))
+    slice_seconds = max(1, float(config.get("source_time_slice_seconds", 60)))
+    started = asyncio.get_running_loop().time()
     async for message in client.iter_messages(
         source,
         min_id=int(source_state["last_scanned_id"]),
@@ -1191,6 +1211,11 @@ async def process_source(
             if message_id % 100 == 0:
                 save_state(state, "scanning")
         processed += 1
+        if processed >= batch_limit or asyncio.get_running_loop().time() - started >= slice_seconds:
+            # Keep the actual cursor, not snapshot_max: unvisited items belong to the next round.
+            save_state(state, "source_yielded")
+            safe_log("source_scan_yielded", source=source_alias, status="source_yielded", count=processed)
+            return
     source_state["last_scanned_id"] = max(int(source_state["last_scanned_id"]), snapshot_max)
     save_state(state, "source_complete")
     safe_log("source_scan_complete", source=source_alias, status="source_complete", count=processed)

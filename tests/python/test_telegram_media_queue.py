@@ -6,6 +6,7 @@ import unittest
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 
 MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "telegram_media_queue.py"
@@ -264,6 +265,135 @@ class TelegramMediaQueueTest(unittest.TestCase):
             self.assertTrue(
                 asyncio.run(QUEUE.extract_zip_once(protected, protected_output, str(seven_zip), "fixture-secret"))
             )
+
+
+class TelegramMediaQueueDeadlineTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.events = []
+        self.patch("PROCESSED_DB_PATH", Path(directory.name) / "processed.sqlite3")
+        self.patch("save_state", lambda *args: None)
+        self.patch("safe_log", lambda event, **fields: self.events.append((event, fields)))
+
+    def patch(self, name, value):
+        patcher = patch.object(QUEUE, name, value)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def state(self):
+        return {"sources": {"fixture": {"last_scanned_id": 0, "pending": {}, "videos": 0, "images": 0}}}
+
+    def stalled_child(self):
+        class Child:
+            pid = 12345
+            returncode = None
+            reaped = False
+
+            def __init__(self):
+                self.done = asyncio.Event()
+
+            async def communicate(self):
+                await self.done.wait()
+                self.reaped = True
+                return b"", b""
+
+            def kill(self):
+                self.returncode = -9
+                self.done.set()
+
+        return Child()
+
+    async def test_tdl_timeout_kills_and_reaps_exact_child(self):
+        child = self.stalled_child()
+        state = self.state()
+        with patch.object(QUEUE.asyncio, "create_subprocess_exec", AsyncMock(return_value=child)):
+            with self.assertRaises(TimeoutError):
+                await asyncio.wait_for(QUEUE.run_tdl(["fixture"], state, "fixture"), 0.02)
+        self.assertEqual(-9, child.returncode)
+        self.assertTrue(child.reaped)
+        self.assertNotIn("tdl_pid", state)
+
+    async def test_extractor_timeout_kills_and_reaps_exact_child(self):
+        child = self.stalled_child()
+        with patch.object(QUEUE.asyncio, "create_subprocess_exec", AsyncMock(return_value=child)):
+            with self.assertRaises(TimeoutError):
+                await asyncio.wait_for(
+                    QUEUE.extract_zip_once(Path("fixture.zip"), Path("fixture-out"), "fixture-7z", None), 0.02
+                )
+        self.assertEqual(-9, child.returncode)
+        self.assertTrue(child.reaped)
+
+    async def test_message_deadline_skips_hung_item_and_next_item_completes(self):
+        calls = []
+
+        async def download(client, source, message, *args):
+            calls.append(message.id)
+            if message.id == 42:
+                await asyncio.Event().wait()
+
+        self.patch("message_kind", lambda message: "video")
+        self.patch("marked_peer_id", lambda source: -1001)
+        self.patch("download_video", download)
+        config = {"sources": [{"alias": "fixture", "delete_source": False}], "message_timeout_seconds": 0.02}
+        state = self.state()
+        for message_id in (42, 42, 43):
+            await QUEUE.process_message(None, None, None, SimpleNamespace(id=message_id), "fixture", config, state)
+        self.assertEqual([42, 43], calls)
+        self.assertEqual("failed", QUEUE.processed_message_status(-1001, 42))
+        self.assertEqual("completed", QUEUE.processed_message_status(-1001, 43))
+        self.assertEqual(43, state["sources"]["fixture"]["last_scanned_id"])
+        failures = [fields for event, fields in self.events if event == "message_failed"]
+        self.assertEqual(1, len(failures))
+        self.assertEqual("message_timeout", failures[0]["error_class"])
+        self.assertEqual("skipped", failures[0]["disposition"])
+
+    async def test_source_batch_yields_without_skipping_unvisited_messages(self):
+        class Client:
+            async def get_messages(self, *args, **kwargs):
+                return [SimpleNamespace(id=99)]
+
+            async def iter_messages(self, source, min_id, **kwargs):
+                for message_id in (10, 20, 30):
+                    if message_id > min_id:
+                        yield SimpleNamespace(id=message_id)
+
+        visited = []
+
+        async def process(client, source, target, message, alias, config, state):
+            visited.append(message.id)
+            state["sources"][alias]["last_scanned_id"] = message.id
+
+        self.patch("message_kind", lambda message: "video")
+        self.patch("process_message", process)
+        state = self.state()
+        config = {"source_batch_size": 2}
+        await QUEUE.process_source(Client(), None, None, "fixture", config, state)
+        self.assertEqual([10, 20], visited)
+        self.assertEqual(20, state["sources"]["fixture"]["last_scanned_id"])
+        await QUEUE.process_source(Client(), None, None, "fixture", config, state)
+        self.assertEqual([10, 20, 30], visited)
+        self.assertEqual(99, state["sources"]["fixture"]["last_scanned_id"])
+
+    async def test_source_time_slice_yields_at_item_boundary(self):
+        class Client:
+            async def get_messages(self, *args, **kwargs):
+                return [SimpleNamespace(id=99)]
+
+            async def iter_messages(self, *args, **kwargs):
+                yield SimpleNamespace(id=10)
+                yield SimpleNamespace(id=20)
+
+        async def process(client, source, target, message, alias, config, state):
+            await asyncio.sleep(1.01)
+            state["sources"][alias]["last_scanned_id"] = message.id
+
+        self.patch("message_kind", lambda message: "video")
+        self.patch("process_message", process)
+        state = self.state()
+        await QUEUE.process_source(Client(), None, None, "fixture", {"source_time_slice_seconds": 1}, state)
+        self.assertEqual(10, state["sources"]["fixture"]["last_scanned_id"])
+        self.assertEqual("source_scan_yielded", self.events[-1][0])
 
 
 if __name__ == "__main__":

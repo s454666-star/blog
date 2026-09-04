@@ -314,6 +314,7 @@
         }
 
         [data-pnl-wave="unrealizedPnl"],
+        [data-pnl-wave="totalPnl"],
         [data-pnl-wave="yearTotalPnl"] {
             cursor: crosshair;
             touch-action: pan-y;
@@ -1148,10 +1149,23 @@
                 </div>
             </div>
         </div>
-        <div class="summary-card">
+        <div class="summary-card pnl-summary-card">
             <div class="label">股票市值</div>
             <div class="value neutral" data-summary="marketValue">--</div>
             <div class="sub" data-summary="costBasis">成本 --</div>
+            <div class="pnl-wave-panel" data-pnl-wave-panel="totalPnl">
+                <div class="pnl-wave-head"><span>已實現＋未實現 · 近 60 個開市日</span><span data-pnl-wave-meta>讀取中</span></div>
+                <svg class="pnl-wave-svg" data-pnl-wave="totalPnl" viewBox="0 0 320 78" preserveAspectRatio="none" role="img" aria-label="已實現加未實現近60個開市日走勢"></svg>
+                <div class="pnl-wave-axis">
+                    <span data-pnl-wave-axis-start>--</span>
+                    <div class="cost-history-tooltip pnl-history-tooltip" data-total-pnl-history-tooltip aria-hidden="true">
+                        <span data-pnl-history-tooltip-date>--</span>
+                        <span class="pnl-history-tooltip-value" data-pnl-history-tooltip-value>--</span>
+                        <span class="pnl-history-tooltip-change" data-pnl-history-tooltip-change hidden></span>
+                    </div>
+                    <span data-pnl-wave-axis-end>--</span>
+                </div>
+            </div>
         </div>
         <div class="summary-card pnl-summary-card">
             <div class="label">今年總損益</div>
@@ -1302,6 +1316,8 @@ const state = {
     pnlSeries: { todayPnl: [], unrealizedPnl: [] },
     unrealizedPnlHistory: [],
     pnlHistoryPointerX: null,
+    totalPnlHistory: [],
+    totalPnlHistoryPointerX: null,
     yearTotalPnlHistory: [],
     yearPnlHistoryPointerX: null,
     costHistorySnapshots: [],
@@ -1625,6 +1641,7 @@ function renderPnlWaves() {
     }
 
     renderUnrealizedPnlHistory();
+    renderTotalPnlHistory();
     renderYearTotalPnlHistory();
 }
 
@@ -1676,6 +1693,76 @@ function renderUnrealizedPnlHistory() {
         hidePnlHistoryTooltip();
     } else {
         showPnlHistoryTooltip({ clientX: state.pnlHistoryPointerX });
+    }
+    panel.querySelector('[data-pnl-wave-meta]').textContent = points.length
+        ? `${points.length} 日 · ${waveValueRange(points, formatMoney)}`
+        : emptyText;
+    panel.querySelector('[data-pnl-wave-axis-start]').textContent = points.length ? costHistoryDateLabel(points[0].date) : '--';
+    panel.querySelector('[data-pnl-wave-axis-end]').textContent = points.length ? costHistoryDateLabel(points[points.length - 1].date) : '--';
+}
+
+function renderTotalPnlHistory() {
+    const svg = document.querySelector('[data-pnl-wave="totalPnl"]');
+    const panel = document.querySelector('[data-pnl-wave-panel="totalPnl"]');
+    if (!svg || !panel) return;
+
+    const historyRows = [...state.costHistorySnapshots];
+    const currentUnrealizedPnl = state.historyMode
+        ? null
+        : finiteNumber(state.currentSummary?.unrealizedPnl ?? state.lastPayload?.summary?.unrealizedPnl);
+    const currentYearTotalPnl = state.historyMode
+        ? null
+        : finiteNumber(state.currentSummary?.yearTotalPnl ?? state.lastPayload?.summary?.yearTotalPnl);
+    const currentDate = taipeiDateKey();
+    const currentIndex = historyRows.findIndex(row => String(row.date || '') === currentDate);
+    const hasCurrentIntradayPnl = (state.pnlSeries.todayPnl || []).length > 0;
+    const currentDateIsTradingDay = currentIndex >= 0
+        || Boolean(state.currentSummary?.marketOpen)
+        || hasCurrentIntradayPnl;
+    if (currentUnrealizedPnl !== null && currentYearTotalPnl !== null && currentDateIsTradingDay) {
+        const currentRow = {
+            date: currentDate,
+            unrealizedPnl: currentUnrealizedPnl,
+            yearTotalPnl: currentYearTotalPnl,
+        };
+        if (currentIndex >= 0) {
+            historyRows[currentIndex] = { ...historyRows[currentIndex], ...currentRow };
+        } else {
+            historyRows.push(currentRow);
+        }
+    }
+
+    const historicalDate = state.historyMode ? String(state.lastPayload?.history?.date || '') : '';
+    const points = historyRows
+        .map(row => {
+            const date = String(row.date || '');
+            const unrealizedPnl = finiteNumber(row.unrealizedPnl);
+            const yearTotalPnl = finiteNumber(row.yearTotalPnl);
+            const time = Date.parse(`${date}T00:00:00+08:00`) / 1000;
+            return {
+                date,
+                time,
+                value: unrealizedPnl !== null && yearTotalPnl !== null
+                    ? unrealizedPnl + yearTotalPnl
+                    : null,
+            };
+        })
+        .filter(point => point.date && Number.isFinite(point.time) && point.value !== null)
+        .filter(point => !historicalDate || point.date <= historicalDate)
+        .sort((left, right) => left.time - right.time)
+        .slice(-60);
+
+    const emptyText = '暫無已實現＋未實現快照';
+    state.totalPnlHistory = points;
+    svg.innerHTML = `${waveSvgMarkup(points, 320, 78, { compareZero: true, emptyText })}
+        <g data-pnl-history-hover visibility="hidden" pointer-events="none">
+            <line data-pnl-history-hover-line y1="5" y2="73" stroke="#e2e8f0" stroke-opacity="0.52" stroke-dasharray="3 3" />
+            <circle data-pnl-history-hover-point r="3.5" fill="#0f172a" stroke="#e2e8f0" stroke-width="2" vector-effect="non-scaling-stroke" />
+        </g>`;
+    if (state.totalPnlHistoryPointerX === null) {
+        hideTotalPnlHistoryTooltip();
+    } else {
+        showTotalPnlHistoryTooltip({ clientX: state.totalPnlHistoryPointerX });
     }
     panel.querySelector('[data-pnl-wave-meta]').textContent = points.length
         ? `${points.length} 日 · ${waveValueRange(points, formatMoney)}`
@@ -1948,6 +2035,73 @@ function setupPnlHistoryHover() {
     document.addEventListener('pointermove', event => {
         if (!panel.contains(event.target)) {
             hidePnlHistoryTooltip();
+        }
+    });
+}
+
+function showTotalPnlHistoryTooltip(event) {
+    const points = costHistoryGeometry(state.totalPnlHistory, 320, 78);
+    const svg = document.querySelector('[data-pnl-wave="totalPnl"]');
+    const panel = document.querySelector('[data-pnl-wave-panel="totalPnl"]');
+    const tooltip = document.querySelector('[data-total-pnl-history-tooltip]');
+    if (!points.length || !svg || !panel || !tooltip) return;
+
+    const svgRect = svg.getBoundingClientRect();
+    if (svgRect.width <= 0) return;
+
+    state.totalPnlHistoryPointerX = event.clientX;
+    const pointerX = Math.max(0, Math.min(320, (event.clientX - svgRect.left) / svgRect.width * 320));
+    const point = points.reduce((nearest, candidate) =>
+        Math.abs(candidate.x - pointerX) < Math.abs(nearest.x - pointerX) ? candidate : nearest
+    );
+    const previous = point.index > 0 ? points[point.index - 1] : null;
+    const delta = previous ? point.value - previous.value : null;
+    const hover = svg.querySelector('[data-pnl-history-hover]');
+    hover.setAttribute('visibility', 'visible');
+    const line = hover.querySelector('[data-pnl-history-hover-line]');
+    line.setAttribute('x1', point.x.toFixed(2));
+    line.setAttribute('x2', point.x.toFixed(2));
+    const circle = hover.querySelector('[data-pnl-history-hover-point]');
+    circle.setAttribute('cx', point.x.toFixed(2));
+    circle.setAttribute('cy', point.y.toFixed(2));
+
+    tooltip.querySelector('[data-pnl-history-tooltip-date]').textContent = costHistoryFullDateLabel(point.date);
+    const valueTarget = tooltip.querySelector('[data-pnl-history-tooltip-value]');
+    valueTarget.textContent = formatMoney(point.value);
+    valueTarget.className = `pnl-history-tooltip-value ${toneClass(point.value)}`;
+    const changeTarget = tooltip.querySelector('[data-pnl-history-tooltip-change]');
+    const changeText = delta === null
+        ? ''
+        : (delta > 0 ? `增加 ${formatInteger(Math.abs(delta))}` : (delta < 0 ? `減少 ${formatInteger(Math.abs(delta))}` : '持平 0'));
+    changeTarget.textContent = changeText;
+    changeTarget.className = `pnl-history-tooltip-change ${toneClass(delta)}`;
+    changeTarget.hidden = changeText === '';
+
+    tooltip.classList.add('visible');
+    tooltip.setAttribute('aria-hidden', 'false');
+}
+
+function hideTotalPnlHistoryTooltip() {
+    state.totalPnlHistoryPointerX = null;
+    document.querySelector('[data-pnl-wave="totalPnl"] [data-pnl-history-hover]')?.setAttribute('visibility', 'hidden');
+    const tooltip = document.querySelector('[data-total-pnl-history-tooltip]');
+    if (!tooltip) return;
+    tooltip.classList.remove('visible');
+    tooltip.setAttribute('aria-hidden', 'true');
+}
+
+function setupTotalPnlHistoryHover() {
+    const svg = document.querySelector('[data-pnl-wave="totalPnl"]');
+    const panel = document.querySelector('[data-pnl-wave-panel="totalPnl"]');
+    if (!svg || !panel) return;
+    svg.addEventListener('pointermove', showTotalPnlHistoryTooltip);
+    svg.addEventListener('pointerdown', showTotalPnlHistoryTooltip);
+    svg.addEventListener('pointerleave', hideTotalPnlHistoryTooltip);
+    panel.addEventListener('pointerleave', hideTotalPnlHistoryTooltip);
+    panel.addEventListener('mouseleave', hideTotalPnlHistoryTooltip);
+    document.addEventListener('pointermove', event => {
+        if (!panel.contains(event.target)) {
+            hideTotalPnlHistoryTooltip();
         }
     });
 }
@@ -3368,6 +3522,7 @@ els.sortButtons.forEach(button => {
 setupSilentCopy();
 setupCostHistoryHover();
 setupPnlHistoryHover();
+setupTotalPnlHistoryHover();
 setupYearPnlHistoryHover();
 updateSortIndicators();
 renderPnlWaves();

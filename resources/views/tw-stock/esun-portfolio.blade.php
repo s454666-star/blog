@@ -1502,10 +1502,11 @@ function updateSummaryCards(summary, sourceText) {
         const futuresRealizedYearPnl = finiteNumber(summary.futuresRealizedYearPnl ?? state.lastPayload?.summary?.futuresRealizedYearPnl);
         const trackingSince = String(summary.futuresRealizedTrackingSince ?? state.lastPayload?.summary?.futuresRealizedTrackingSince ?? '');
         const trackingLabel = trackingSince ? `（自 ${costHistoryDateLabel(trackingSince)} 累計）` : '';
-        futuresRealizedTarget.hidden = futuresRealizedYearPnl === null;
-        futuresRealizedTarget.textContent = futuresRealizedYearPnl === null
-            ? ''
-            : `* 期貨已實現${trackingLabel}：${formatMoney(futuresRealizedYearPnl)}`;
+        const hasFuturesRealizedPnl = futuresRealizedYearPnl !== null && futuresRealizedYearPnl !== 0;
+        futuresRealizedTarget.hidden = !hasFuturesRealizedPnl;
+        futuresRealizedTarget.textContent = hasFuturesRealizedPnl
+            ? `* 期貨已實現${trackingLabel}：${formatMoney(futuresRealizedYearPnl)}`
+            : '';
         futuresRealizedTarget.className = `sub ${toneClass(futuresRealizedYearPnl)}`;
     }
     document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);

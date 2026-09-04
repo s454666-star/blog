@@ -55,6 +55,7 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertSee('可用額度')
             ->assertSee('維持率')
             ->assertSee('元大已實現')
+            ->assertDontSee('data-summary="dividendIncome"', false)
             ->assertSee('data-summary="futuresRealizedPnl" hidden', false)
             ->assertSee('futuresRealizedTarget.hidden = futuresRealizedYearPnl === null;', false)
             ->assertDontSee('* 期貨已實現：--')

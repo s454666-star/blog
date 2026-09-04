@@ -84,6 +84,7 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('累積損益')
             ->assertSee('股票市值')
             ->assertSee('今年總損益')
+            ->assertDontSee('data-summary="dividendIncome"', false)
             ->assertSee('今年報酬率')
             ->assertSee('近 15 日成本')
             ->assertSee('data-cost-history-wave', false)

@@ -1175,7 +1175,6 @@
             @if (($brokerName ?? '玉山') === '元大')
                 <div class="sub" data-summary="futuresRealizedPnl" hidden></div>
             @endif
-            <div class="sub" data-summary="dividendIncome">(股息收益：--)</div>
             <div class="pnl-wave-panel" data-pnl-wave-panel="yearTotalPnl">
                 <div class="pnl-wave-head"><span>近 40 個開市日</span><span data-pnl-wave-meta>讀取中</span></div>
                 <svg class="pnl-wave-svg" data-pnl-wave="yearTotalPnl" viewBox="0 0 320 78" preserveAspectRatio="none" role="img" aria-label="今年總損益近40個開市日走勢"></svg>
@@ -1509,9 +1508,6 @@ function updateSummaryCards(summary, sourceText) {
             : `* 期貨已實現${trackingLabel}：${formatMoney(futuresRealizedYearPnl)}`;
         futuresRealizedTarget.className = `sub ${toneClass(futuresRealizedYearPnl)}`;
     }
-    const dividendIncome = finiteNumber(summary.dividendIncome ?? state.lastPayload?.summary?.dividendIncome);
-    document.querySelector('[data-summary="dividendIncome"]').textContent =
-        `(股息收益：${dividendIncome === null ? '--' : formatMoney(dividendIncome)})`;
     document.querySelector('[data-summary="investedCost"]').textContent = formatInteger(costBasis);
     renderInvestmentLevel(investmentLevelRate, bankBalance);
     const marginPrimaryAmount = marginLimitAmount ?? marginUsedAmount;

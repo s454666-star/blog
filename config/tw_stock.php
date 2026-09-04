@@ -16,6 +16,12 @@ return [
     ],
     'annual_financial_comparisons_schedule_enabled' => env('TW_STOCK_ANNUAL_COMPARISONS_SCHEDULE_ENABLED'),
     'taiex_futures_tradingview_auth_token' => env('TRADINGVIEW_AUTH_TOKEN'),
+    // Bound each request's in-memory chart history while retaining every row in MySQL.
+    'taiex_futures_kline_history_limits' => [
+        '5' => 12000,
+        '15' => 12000,
+        '60' => 3000,
+    ],
     'taiex_futures_four_hour_ma5_notify_times' => [
         '08:45',
         '12:45',

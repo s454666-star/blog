@@ -476,6 +476,11 @@ class TwFuturesHourlyPriceController extends Controller
      */
     private function priceRows(string $symbol, string $interval): Collection
     {
+        $limit = max(1, (int) config(
+            'tw_stock.taiex_futures_kline_history_limits.' . $interval,
+            12000,
+        ));
+
         return TwFuturesHourlyPrice::query()
             ->where('symbol', $symbol)
             ->where('interval', $interval)
@@ -491,9 +496,12 @@ class TwFuturesHourlyPriceController extends Controller
                 'close_price',
                 'volume_contracts',
             ])
-            ->orderBy('started_at')
+            ->orderByDesc('started_at')
+            ->limit($limit)
             ->toBase()
-            ->get();
+            ->get()
+            ->reverse()
+            ->values();
     }
 
     /**

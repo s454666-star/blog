@@ -436,6 +436,52 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertStringContainsString('no-store', (string) $unchangedResponse->headers->get('Cache-Control'));
     }
 
+    public function test_taiex_futures_kline_data_loads_only_the_latest_configured_history_rows(): void
+    {
+        config()->set('tw_stock.taiex_futures_kline_history_limits', [
+            '5' => 500,
+            '15' => 400,
+            '60' => 100,
+        ]);
+        $this->seedHourlyRows();
+
+        $expectedFirstStartedAt = DB::table('tw_futures_hourly_prices')
+            ->where('symbol', 'TXF1!')
+            ->where('interval', '15')
+            ->orderByDesc('started_at')
+            ->limit(400)
+            ->get()
+            ->last()
+            ->started_at;
+
+        $response = $this->getJson(route('tw-stock.taiex-futures.kline.data'));
+
+        $response
+            ->assertOk()
+            ->assertJsonCount(400, 'chartRows')
+            ->assertJsonCount(100, 'hourlyChartRows')
+            ->assertJsonPath('stats.rowCount', 400)
+            ->assertJsonPath(
+                'stats.firstDateTime',
+                CarbonImmutable::parse($expectedFirstStartedAt, 'Asia/Taipei')
+                    ->addMinutes(15)
+                    ->format('Y-m-d H:i'),
+            );
+
+        $this->assertGreaterThan(
+            400,
+            DB::table('tw_futures_hourly_prices')->where('interval', '15')->count(),
+        );
+        $this->assertGreaterThan(
+            500,
+            DB::table('tw_futures_hourly_prices')->where('interval', '5')->count(),
+        );
+        $this->assertGreaterThan(
+            100,
+            DB::table('tw_futures_hourly_prices')->where('interval', '60')->count(),
+        );
+    }
+
     public function test_taiex_futures_kline_data_uses_fresh_authenticated_redis_quote(): void
     {
         $this->seedHourlyRows();

@@ -113,6 +113,40 @@ class EsunPortfolioServiceTest extends TestCase
         $this->assertEqualsWithDelta(10.0, $row['dayChangeRate'], 0.0001);
     }
 
+    public function test_it_reverses_today_pnl_for_short_inventory_without_reversing_price_change(): void
+    {
+        $service = new EsunPortfolioService();
+        $method = new ReflectionMethod($service, 'formatInventoryRow');
+
+        $row = $method->invoke($service, [
+            'cost_qty' => '10000',
+            'cost_sum' => '-324000',
+            'make_a_per' => '-0.17',
+            'make_a_sum' => '-536',
+            'price_avg' => '36.00',
+            'price_evn' => '35.89',
+            'price_mkt' => '35.95',
+            'price_qty_sum' => '360000',
+            'qty_b' => '0',
+            'qty_s' => '10000',
+            'stk_dats' => [],
+            'stk_na' => '元大台灣50正2',
+            'stk_no' => '00631L',
+            's_type' => 'H',
+            'trade' => '4',
+            'value_mkt' => '359500',
+        ], ['previousClose' => 35.41]);
+
+        $this->assertSame('4', $row['tradeType']);
+        $this->assertSame('融券', $row['tradeTypeLabel']);
+        $this->assertEqualsWithDelta(-5400.0, $row['todayPnl'], 0.000001);
+        $this->assertEqualsWithDelta(-5400.0, $row['esunTodayPnl'], 0.000001);
+        $this->assertEqualsWithDelta(0.54, $row['dayChange'], 0.000001);
+        $this->assertEqualsWithDelta(1.52499, $row['dayChangeRate'], 0.00001);
+        $this->assertSame(-536.0, $row['unrealizedPnl']);
+        $this->assertSame(-0.17, $row['unrealizedPnlRate']);
+    }
+
     public function test_it_marks_only_the_quantity_added_since_the_previous_daily_snapshot(): void
     {
         $service = new EsunPortfolioService();

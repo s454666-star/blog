@@ -81,6 +81,8 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertSee('ensureCurrentIntradayDate', false)
             ->assertSee("String(payload?.date || '') !== responseDate", false)
             ->assertSee('ensureIntradaySeries', false)
+            ->assertSee("String(row?.tradeType || '') === '4' ? -1 : 1", false)
+            ->assertSee('(price - pnlBasePrice) * quantity * pnlDirection', false)
             ->assertSee('累積損益')
             ->assertSee('股票市值')
             ->assertSee('今年總損益')

@@ -756,16 +756,16 @@ class EsunPortfolioService
             $costBasis = abs($this->number($this->value($row, 'price_evn', 'priceEvn')) * $quantity);
         }
 
+        $tradeType = (string) $this->value($row, 'trade');
+        $pnlDirection = $tradeType === '4' ? -1 : 1;
         $previousClose = $history['previousClose'] ?? null;
-        $todayPnl = $previousClose === null ? null : ($currentPrice - $previousClose) * $quantity;
+        $todayPnl = $previousClose === null ? null : ($currentPrice - $previousClose) * $quantity * $pnlDirection;
         $todayPnlRate = $previousClose > 0 ? ($currentPrice - $previousClose) / $previousClose * 100 : null;
 
         $lots = collect($this->value($row, 'stk_dats', 'stkDats') ?? [])
             ->map(fn (array $lot): array => $this->formatLot($stockNo, (string) $this->value($row, 'stk_na', 'stkNa'), $lot))
             ->values()
             ->all();
-
-        $tradeType = (string) $this->value($row, 'trade');
 
         return [
             'stockNo' => $stockNo,

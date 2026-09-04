@@ -2272,6 +2272,10 @@ function tradeTypeLabel(tradeType) {
     }
 }
 
+function positionPnlDirection(row) {
+    return String(row?.tradeType || '') === '4' ? -1 : 1;
+}
+
 function tradeBadgeClass(tradeType) {
     switch (String(tradeType || '')) {
         case '0': return 'cash';
@@ -2792,15 +2796,16 @@ function rebuildPnlSeries() {
             if (price === null) return;
 
             const quantity = number(row.quantity);
+            const pnlDirection = positionPnlDirection(row);
             const previousClose = finiteNumber(row.realtimePreviousClose) ?? finiteNumber(row.previousClose);
-            todayValue += previousClose === null ? number(row.todayPnl) : (price - previousClose) * quantity;
+            todayValue += previousClose === null ? number(row.todayPnl) : (price - previousClose) * quantity * pnlDirection;
 
             const basePrice = finiteNumber(row.realtimePnlBasePrice)
                 ?? finiteNumber(row.esunCurrentPrice)
                 ?? finiteNumber(row.currentPrice)
                 ?? price;
             const basePnl = finiteNumber(row.esunUnrealizedPnl) ?? number(row.unrealizedPnl);
-            unrealizedValue += basePnl + (price - basePrice) * quantity;
+            unrealizedValue += basePnl + (price - basePrice) * quantity * pnlDirection;
         });
 
         todayPnl.push({ time, value: todayValue });
@@ -3185,6 +3190,7 @@ function applyQuoteToRow(row, quote) {
     const rowPreviousClose = finiteNumber(row.previousClose);
     const previousClose = rowPreviousClose ?? quotePreviousClose;
     const quantity = number(row.quantity);
+    const pnlDirection = positionPnlDirection(row);
     const costBasis = number(row.costBasis);
     const esunMarketValue = finiteNumber(row.esunMarketValue) ?? number(row.marketValue);
     const esunUnrealizedPnl = finiteNumber(row.esunUnrealizedPnl) ?? number(row.unrealizedPnl);
@@ -3194,12 +3200,12 @@ function applyQuoteToRow(row, quote) {
     const esunDayChange = previousClose === null ? row.dayChange : esunCurrentPrice - previousClose;
     const todayPnl = previousClose === null
         ? row.todayPnl
-        : dayChange * quantity;
+        : dayChange * quantity * pnlDirection;
     const esunTodayPnl = previousClose === null
         ? row.esunTodayPnl
-        : esunDayChange * quantity;
+        : esunDayChange * quantity * pnlDirection;
     const marketValue = price * quantity;
-    const unrealizedPnl = esunUnrealizedPnl + (price - pnlBasePrice) * quantity;
+    const unrealizedPnl = esunUnrealizedPnl + (price - pnlBasePrice) * quantity * pnlDirection;
 
     return {
         ...row,
@@ -3269,6 +3275,7 @@ function applyPreviousCloseToRow(row, quote) {
     const esunUnrealizedPnl = finiteNumber(row.esunUnrealizedPnl) ?? number(row.unrealizedPnl);
     const pnlBasePrice = finiteNumber(row.realtimePnlBasePrice) ?? esunCurrentPrice;
     const quantity = number(row.quantity);
+    const pnlDirection = positionPnlDirection(row);
     const esunDayChange = esunCurrentPrice - previousClose;
     const hasRealtimePrice = finiteNumber(row.realtimePrice) !== null;
 
@@ -3281,8 +3288,8 @@ function applyPreviousCloseToRow(row, quote) {
         previousClose,
         dayChange: esunDayChange,
         dayChangeRate: previousClose > 0 ? esunDayChange / previousClose * 100 : row.dayChangeRate,
-        esunTodayPnl: esunDayChange * quantity,
-        todayPnl: hasRealtimePrice ? row.todayPnl : esunDayChange * quantity,
+        esunTodayPnl: esunDayChange * quantity * pnlDirection,
+        todayPnl: hasRealtimePrice ? row.todayPnl : esunDayChange * quantity * pnlDirection,
         realtimePreviousClose: row.realtimePreviousClose ?? previousClose,
     };
 }

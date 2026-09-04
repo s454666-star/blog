@@ -40,7 +40,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const JSCODEFILEBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])JScodefilebot_[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const ZYXFILES_CODE_REGEX = '/(?<![A-Za-z0-9_])zyxfiles[_-][A-Za-z0-9_-]+(?![A-Za-z0-9_-])/i';
     private const YYJMQ_CODE_REGEX = '/(?<![A-Za-z0-9_])yyjmq[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
-    private const XVNGKLLBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])XVNgkllbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
+    private const PXXXA_DECODER_CODE_REGEX = '/(?<![A-Za-z0-9_])(?:XVNgkllbot|PxxxaJSbot)[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const PXXQZJZJSBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])PxxqzjzJSbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const NW_CODE_REGEX = '/(?<![A-Za-z0-9_])NW[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const STALE_PROCESSING_MINUTES = 30;
@@ -534,7 +534,7 @@ class ProcessTelegramResourceCodesCommand extends Command
             7 => self::JSCODEFILEBOT_CODE_REGEX,
             8 => self::ZYXFILES_CODE_REGEX,
             9 => self::YYJMQ_CODE_REGEX,
-            10 => self::XVNGKLLBOT_CODE_REGEX,
+            10 => self::PXXXA_DECODER_CODE_REGEX,
             11 => self::PXXQZJZJSBOT_CODE_REGEX,
             12 => self::NW_CODE_REGEX,
             default => self::HEX_CODE_REGEX,
@@ -576,7 +576,11 @@ class ProcessTelegramResourceCodesCommand extends Command
         }
 
         if ($codeType === 10) {
-            return (string) preg_replace('/^XVNgkllbot/i', 'XVNgkllbot', $code);
+            if (preg_match('/^XVNgkllbot/i', $code) === 1) {
+                return (string) preg_replace('/^XVNgkllbot/i', 'XVNgkllbot', $code);
+            }
+
+            return (string) preg_replace('/^PxxxaJSbot/i', 'PxxxaJSbot', $code);
         }
 
         if ($codeType === 11) {

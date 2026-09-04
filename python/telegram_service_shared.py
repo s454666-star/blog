@@ -111,6 +111,10 @@ RESOURCE_CODE_XVNGKLLBOT_PATTERN = re.compile(
     r"XVNgkllbot[A-Za-z0-9_:-]+",
     re.IGNORECASE,
 )
+RESOURCE_CODE_PXXXAJSBOT_PATTERN = re.compile(
+    r"PxxxaJSbot[A-Za-z0-9_:-]+",
+    re.IGNORECASE,
+)
 RESOURCE_CODE_PXXQZJZJSBOT_PATTERN = re.compile(
     r"PxxqzjzJSbot[A-Za-z0-9_:-]+",
     re.IGNORECASE,
@@ -340,6 +344,8 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
         return "zyxfiles" + code[len("zyxfiles"):]
     if RESOURCE_CODE_XVNGKLLBOT_PATTERN.fullmatch(code):
         return "XVNgkllbot" + code[len("XVNgkllbot"):]
+    if RESOURCE_CODE_PXXXAJSBOT_PATTERN.fullmatch(code):
+        return "PxxxaJSbot" + code[len("PxxxaJSbot"):]
     if RESOURCE_CODE_PXXQZJZJSBOT_PATTERN.fullmatch(code):
         return "PxxqzjzJSbot" + code[len("PxxqzjzJSbot"):]
     if RESOURCE_CODE_NW_PATTERN.fullmatch(code):

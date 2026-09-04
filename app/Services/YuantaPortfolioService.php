@@ -438,7 +438,8 @@ class YuantaPortfolioService
         }
 
         $unrealizedPnl = $this->number($this->value($row, 'ReturnAmt', 'returnAmt', 'unrealizedPnl'));
-        $costBasis = abs($this->number($this->value($row, 'Cost', 'cost', 'costBasis')));
+        $reportedCostBasis = abs($this->number($this->value($row, 'Cost', 'cost', 'costBasis')));
+        $costBasis = $reportedCostBasis;
         if ($costBasis <= 0) {
             $costBasis = abs($marketValue - $unrealizedPnl);
         }
@@ -450,6 +451,13 @@ class YuantaPortfolioService
         $averagePrice = $this->number($this->value($row, 'Price', 'price'));
         $taxRatePermille = max(0.0, $this->number($this->value($row, 'TaxRate', 'taxRate')));
         $securityType = (string) $this->value($row, 'StkType1', 'stkType1');
+        $loan = max(0.0, $this->number($this->value($row, 'Loan', 'loan')));
+        $breakevenCostBasis = $costBasis;
+        if ($tradeType === '3') {
+            $breakevenCostBasis = $reportedCostBasis > 0 && $loan > 0
+                ? $reportedCostBasis + $loan
+                : ($averagePrice > 0 ? $averagePrice * $quantity : $costBasis);
+        }
 
         $stockName = trim((string) $this->value($row, 'StkName', 'stkName', 'stockName'));
         if ($stockName === '' || strcasecmp($stockName, $stockNo) === 0) {
@@ -468,7 +476,7 @@ class YuantaPortfolioService
             'esunTodayPnl' => $todayPnl,
             'averagePrice' => $averagePrice,
             'breakevenPrice' => $this->breakevenPrice(
-                $costBasis,
+                $breakevenCostBasis,
                 $quantity,
                 $taxRatePermille,
                 $securityType === '12',
@@ -502,7 +510,7 @@ class YuantaPortfolioService
                 'tradingQty' => $this->number($this->value($row, 'TradingQty', 'tradingQty')),
                 'buyPrice' => $this->number($this->value($row, 'BuyPrice', 'buyPrice')),
                 'sellPrice' => $this->number($this->value($row, 'SellPrice', 'sellPrice')),
-                'loan' => $this->number($this->value($row, 'Loan', 'loan')),
+                'loan' => $loan,
                 'taxRatePermille' => $taxRatePermille,
                 'securityType' => $securityType,
             ],

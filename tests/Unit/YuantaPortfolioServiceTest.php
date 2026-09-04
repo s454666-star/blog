@@ -236,10 +236,27 @@ class YuantaPortfolioServiceTest extends TestCase
             'StkType1' => 12,
             'TradeKind' => '0',
         ], []);
+        $marginStock = $method->invoke($service, [
+            'StkCode' => '3231',
+            'StkName' => '緯創',
+            'StockQty' => 8000,
+            'MarketPrice' => 195.5,
+            'MarketAmt' => 1564000,
+            'ReturnAmt' => -5531,
+            'Cost' => 627611,
+            'Loan' => 935000,
+            'Price' => 195.3264,
+            'TaxRate' => 3,
+            'StkType1' => 0,
+            'TradeKind' => '3',
+        ], []);
 
         $this->assertSame(4870.0, $stock['breakevenPrice']);
         $this->assertSame(37.5, $smallEtf['breakevenPrice']);
         $this->assertSame(57.5, $etfAboveFifty['breakevenPrice']);
+        $this->assertSame(196.5, $marginStock['breakevenPrice']);
+        $this->assertSame(627611.0, $marginStock['costBasis']);
+        $this->assertSame(935000.0, $marginStock['raw']['loan']);
     }
 
     public function test_it_fills_missing_yuanta_etf_returns_from_yahoo_history(): void

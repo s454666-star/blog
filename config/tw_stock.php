@@ -8,6 +8,11 @@ return [
         '6696' => [
             ['effective_date' => '2026-08-31', 'shares_per_old_share' => 10],
         ],
+        // TPEx conversion record date 2026-09-04; trading resumes 2026-09-07.
+        // Broker inventory switched to the new NT$0.50 basis on the record date.
+        '6949' => [
+            ['effective_date' => '2026-09-04', 'shares_per_old_share' => 20],
+        ],
     ],
     'annual_financial_comparisons_schedule_enabled' => env('TW_STOCK_ANNUAL_COMPARISONS_SCHEDULE_ENABLED'),
     'taiex_futures_tradingview_auth_token' => env('TRADINGVIEW_AUTH_TOKEN'),

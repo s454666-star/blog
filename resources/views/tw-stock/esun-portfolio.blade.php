@@ -3075,6 +3075,15 @@ function quoteCanRepriceRow(row, quote) {
         return true;
     }
 
+    // During a share conversion, public quote providers can keep returning the
+    // pre-conversion price after the broker inventory has moved to the new basis.
+    // Taiwan stocks cannot legitimately move more than 10% in one session, so a
+    // price outside this wider band is a different price basis, not a live tick.
+    const inventoryPriceRatio = quotePrice / esunPrice;
+    if (esunPrice <= 0 || inventoryPriceRatio < 0.8 || inventoryPriceRatio > 1.2) {
+        return false;
+    }
+
     if (rowLooksParkedAtPreviousClose(row, quote)) {
         return true;
     }

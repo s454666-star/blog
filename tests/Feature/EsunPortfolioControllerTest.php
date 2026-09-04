@@ -133,6 +133,7 @@ class EsunPortfolioControllerTest extends TestCase
             ->assertDontSee('整分鐘校準玉山')
             ->assertDontSee('玉山每分鐘校準')
             ->assertSee('quoteCanRepriceRow', false)
+            ->assertSee('inventoryPriceRatio < 0.8 || inventoryPriceRatio > 1.2', false)
             ->assertSee('quoteCanUpdatePnl', false)
             ->assertSee("priceType || quote?.source || '').toLowerCase() !== 'provisional'", false)
             ->assertSee('rowLooksParkedAtPreviousClose', false)

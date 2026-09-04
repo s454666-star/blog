@@ -105,6 +105,7 @@ class YuantaPortfolioControllerTest extends TestCase
             ->assertSee('brokerName', false)
             ->assertSee('A provisional price can carry a previousClose from only one source.', false)
             ->assertSee('if (!quoteCanUpdatePnl(quote)) {', false)
+            ->assertSee('inventoryPriceRatio < 0.8 || inventoryPriceRatio > 1.2', false)
             ->assertSee('formatQuantity', false)
             ->assertSee('todayAddedQuantity', false)
             ->assertSee("numeric <= -40) return 'stop-loss-row-danger'", false)

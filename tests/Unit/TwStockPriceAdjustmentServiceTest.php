@@ -19,6 +19,10 @@ class TwStockPriceAdjustmentServiceTest extends TestCase
         $this->assertSame(930.93, $service->historicalPrice('6696', '2026-08-19', '2026-08-28', 930.93));
         $this->assertSame(100.5, $service->historicalPrice('6696', '2026-08-31', '2026-09-01', 100.5));
         $this->assertSame(930.93, $service->historicalPrice('3081', '2026-08-19', '2026-08-31', 930.93));
+
+        $this->assertSame(74.5, $service->historicalPrice('6949', '2026-08-26', '2026-09-04', 1490.0));
+        $this->assertSame(1490.0, $service->historicalPrice('6949', '2026-08-26', '2026-09-03', 1490.0));
+        $this->assertSame(74.5, $service->historicalPrice('6949', '2026-09-04', '2026-09-04', 74.5));
     }
 
     public function test_both_brokers_adjust_raw_history_without_adjusting_yahoo_history_twice(): void
@@ -58,5 +62,23 @@ class TwStockPriceAdjustmentServiceTest extends TestCase
         $this->assertSame(44539.0, $row['costBasis']);
         $this->assertSame(15496.0, $row['unrealizedPnl']);
         $this->assertFalse($row['inventoryPriceFallback']);
+    }
+
+    public function test_6949_conversion_keeps_broker_inventory_and_uses_adjusted_previous_close(): void
+    {
+        $previousClose = (new TwStockPriceAdjustmentService())->historicalPrice('6949', '2026-08-26', '2026-09-04', 1490.0);
+        $service = new YuantaPortfolioService();
+        $row = (new ReflectionMethod($service, 'formatInventoryRow'))->invoke($service, [
+            'StkCode' => '6949', 'StkName' => '沛爾生醫-創', 'TradeKind' => 0,
+            'StockQty' => 200, 'MarketPrice' => 74.5, 'MarketAmt' => 14900,
+            'ReturnAmt' => 3928, 'Cost' => 10907, 'Price' => 54.535,
+        ], ['previousClose' => $previousClose]);
+
+        $this->assertSame(74.5, $row['previousClose']);
+        $this->assertSame(0.0, $row['todayPnl']);
+        $this->assertSame(200.0, $row['quantity']);
+        $this->assertSame(14900.0, $row['marketValue']);
+        $this->assertSame(10907.0, $row['costBasis']);
+        $this->assertSame(3928.0, $row['unrealizedPnl']);
     }
 }

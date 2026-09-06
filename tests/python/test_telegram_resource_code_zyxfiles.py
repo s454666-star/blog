@@ -80,8 +80,9 @@ class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
             "YYJMQ_A1-b2": "yyjmq_A1-b2",
             "xvngkllbot:AbC-123": "XVNgkllbot:AbC-123",
             "PXXXAJSBOT_file_N7-z6": "PxxxaJSbot_file_N7-z6",
+            "QZCCUJSBOT_file_N7-z6": "QzccuJSbot_file_N7-z6",
             "PXXQZJZJSBOT_file_X9-y8": "PxxqzjzJSbot_file_X9-y8",
-            "nw7X-9_token": "NW7X-9_token",
+            "nw_file_X7-y9": "NW_file_X7-y9",
         }
         for raw_code, expected in cases.items():
             with self.subTest(raw_code=raw_code):
@@ -92,8 +93,9 @@ class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
             "yyjmq_A1-b2",
             "XVNgkllbot:AbC-123",
             "PxxxaJSbot_file_N7-z6",
+            "QzccuJSbot_file_N7-z6",
             "PxxqzjzJSbot_file_X9-y8",
-            "NW7X-9_token",
+            "NW_file_X7-y9",
         ):
             with self.subTest(code=code):
                 self.assertEqual("next_group", MODULE._resource_code_callback_action(code, "下一页"))

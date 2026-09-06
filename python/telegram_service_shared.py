@@ -115,12 +115,16 @@ RESOURCE_CODE_PXXXAJSBOT_PATTERN = re.compile(
     r"PxxxaJSbot[A-Za-z0-9_:-]+",
     re.IGNORECASE,
 )
+RESOURCE_CODE_QZCCUJSBOT_PATTERN = re.compile(
+    r"QzccuJSbot[A-Za-z0-9_:-]+",
+    re.IGNORECASE,
+)
 RESOURCE_CODE_PXXQZJZJSBOT_PATTERN = re.compile(
     r"PxxqzjzJSbot[A-Za-z0-9_:-]+",
     re.IGNORECASE,
 )
 RESOURCE_CODE_NW_PATTERN = re.compile(
-    r"NW[A-Za-z0-9_:-]+",
+    r"NW_[A-Za-z0-9_:-]+",
     re.IGNORECASE,
 )
 RESOURCE_CODE_IMAGE_COUNT_PATTERN = re.compile(r"(?:图片|圖片)\s*(\d+)\s*(?:个|個)")
@@ -346,10 +350,12 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
         return "XVNgkllbot" + code[len("XVNgkllbot"):]
     if RESOURCE_CODE_PXXXAJSBOT_PATTERN.fullmatch(code):
         return "PxxxaJSbot" + code[len("PxxxaJSbot"):]
+    if RESOURCE_CODE_QZCCUJSBOT_PATTERN.fullmatch(code):
+        return "QzccuJSbot" + code[len("QzccuJSbot"):]
     if RESOURCE_CODE_PXXQZJZJSBOT_PATTERN.fullmatch(code):
         return "PxxqzjzJSbot" + code[len("PxxqzjzJSbot"):]
     if RESOURCE_CODE_NW_PATTERN.fullmatch(code):
-        return "NW" + code[len("NW"):]
+        return "NW_" + code[len("NW_"):]
     return None
 
 

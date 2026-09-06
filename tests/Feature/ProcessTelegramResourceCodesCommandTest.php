@@ -133,10 +133,10 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         $this->assertFalse(Schema::connection('sqlite')->hasColumn('telegram_resource_codes', 'message_text'));
     }
 
-    public function test_production_profile_routes_only_the_two_new_prefixes_to_the_shared_decoder(): void
+    public function test_production_profiles_route_only_qzccu_and_nw_underscore_prefixes(): void
     {
-        config()->set('telegram.resource_codes.processing_profiles', '10:PxxxaJSbot');
-        config()->set('telegram.resource_codes.scan_code_types', '10');
+        config()->set('telegram.resource_codes.processing_profiles', '13:QzccuJSbot,14:NWdrivebot');
+        config()->set('telegram.resource_codes.scan_code_types', '13,14');
 
         $sent = [];
 
@@ -148,10 +148,10 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
                         'id' => 104801,
                         'text' => implode(' ', [
                             'YYJMQ_active_A1-b2',
-                            'xvngkllbot:AbC-123',
-                            'PXXXAJSBOT_file_N7-z6',
+                            'QZCCUJSBOT_file_N7-z6',
                             'PXXQZJZJSBOT_file_X9-y8',
-                            'nw7X-9_token',
+                            'NW_file_X7-y9',
+                            'NW7X-9_token',
                             'zyxfiles_disabled_A1-b2',
                             'JSfileeesbot_disabled_A1-b2',
                             '4DC6EB55EE68F197A332CA4802AAF14420F76D74',
@@ -177,8 +177,8 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ])->assertExitCode(0);
 
         $expected = [
-            ['XVNgkllbot:AbC-123', 10, 'PxxxaJSbot'],
-            ['PxxxaJSbot_file_N7-z6', 10, 'PxxxaJSbot'],
+            ['QzccuJSbot_file_N7-z6', 13, 'QzccuJSbot'],
+            ['NW_file_X7-y9', 14, 'NWdrivebot'],
         ];
 
         $this->assertDatabaseCount('telegram_resource_codes', 2);
@@ -193,10 +193,12 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'zyxfiles_disabled_A1-b2']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'JSfileeesbot_disabled_A1-b2']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'NW7X-9_token']);
+        $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'XVNgkllbot:AbC-123']);
+        $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'PxxxaJSbot_file_N7-z6']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'yyjmq_active_A1-b2']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'PxxqzjzJSbot_file_X9-y8']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => '4DC6EB55EE68F197A332CA4802AAF14420F76D74']);
-        Http::assertSentCount(4);
+        Http::assertSentCount(6);
     }
 
     public function test_scan_limits_a_forum_source_to_its_configured_topic(): void

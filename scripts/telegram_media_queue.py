@@ -18,6 +18,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from types import SimpleNamespace
 
 from telethon import TelegramClient, utils
 from telethon.errors import FloodWaitError, SessionPasswordNeededError
@@ -36,11 +37,19 @@ from telethon.tl.types import (
 
 
 APP_DIR = Path(__file__).resolve().parent
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
+import telegram_file_features as file_features
+
 CONFIG_PATH = APP_DIR / "config.json"
 STATE_PATH = APP_DIR / "state.json"
 LOG_PATH = APP_DIR / "monitor.jsonl"
 SESSION_PATH = APP_DIR / "s4546666.session"
 PROCESSED_DB_PATH = APP_DIR / "processed.sqlite3"
+
+
+def feature_api():
+    return SimpleNamespace(**globals())
 
 VIDEO_FILE_EXTENSIONS = frozenset(
     {
@@ -641,6 +650,7 @@ async def download_video(
     source_alias: str,
     config: dict[str, Any],
     state: dict[str, Any],
+    prepared_path: Path | None = None,
 ) -> dict[str, Any]:
     peer_id = marked_peer_id(source)
     message_id = int(message.id)
@@ -650,6 +660,21 @@ async def download_video(
         raise RuntimeError("invalid_expected_size")
     target_dir = Path(config["download_dir"])
     target_dir.mkdir(parents=True, exist_ok=True)
+    if prepared_path is not None:
+        anonymous_name = anonymous_video_name(peer_id, message_id, str(document.mime_type or ""), prepared_path)
+        destination = target_dir / anonymous_name
+        if prepared_path.resolve() != destination.resolve():
+            if destination.exists():
+                if file_features.digest_file(destination) != file_features.digest_file(prepared_path):
+                    raise RuntimeError("destination_collision")
+            else:
+                shutil.move(str(prepared_path), str(destination))
+        if not destination.is_file() or destination.stat().st_size != expected_size:
+            raise RuntimeError("destination_verification_failed")
+        result = {"kind": "video", "anonymous_name": anonymous_name, "expected_size": expected_size}
+        state["sources"][source_alias].setdefault("pending", {})[str(message_id)] = result
+        save_state(state, "running")
+        return result
     pending = state["sources"][source_alias].setdefault("pending", {}).get(str(message_id))
     if pending and pending.get("kind") == "video":
         destination = target_dir / str(pending.get("anonymous_name") or "")
@@ -872,6 +897,8 @@ async def process_archive(
     source_alias: str,
     config: dict[str, Any],
     state: dict[str, Any],
+    prepared_path: Path | None = None,
+    fingerprint_only: bool = False,
 ) -> dict[str, int]:
     peer_id = marked_peer_id(source)
     message_id = int(message.id)
@@ -887,50 +914,10 @@ async def process_archive(
 
     with tempfile.TemporaryDirectory(prefix="tg-archive-", dir=str(work_root)) as temp_name:
         staging = Path(temp_name)
-        export_path = staging / "item.json"
-        download_path = staging / "download"
-        download_path.mkdir()
-        export_command = [
-            str(config["tdl_path"]),
-            "chat",
-            "export",
-            "-n",
-            str(config["tdl_namespace"]),
-            "-c",
-            str(tdl_peer_id(peer_id)),
-            "-T",
-            "id",
-            "-i",
-            f"{message_id},{message_id}",
-            "-o",
-            str(export_path),
-        ]
-        await run_tdl(export_command, state, source_alias)
-        exported = json.loads(export_path.read_text(encoding="utf-8"))
-        exported_ids = [int(item.get("id") or 0) for item in exported.get("messages", [])]
-        if int(exported.get("id") or 0) != tdl_peer_id(peer_id) or exported_ids != [message_id]:
-            raise RuntimeError("single_message_export_verification_failed")
-        download_command = [
-            str(config["tdl_path"]),
-            "download",
-            "-n",
-            str(config["tdl_namespace"]),
-            "-f",
-            str(export_path),
-            "-d",
-            str(download_path),
-            "--skip-same",
-            "-t",
-            str(config.get("tdl_threads", 8)),
-            "-l",
-            "1",
-        ]
-        await run_tdl(download_command, state, source_alias)
-        downloaded_files = [path for path in download_path.rglob("*") if path.is_file()]
-        exact_files = [path for path in downloaded_files if path.stat().st_size == expected_size]
-        if len(exact_files) != 1:
-            raise RuntimeError("download_size_verification_failed")
-        archive_path = exact_files[0]
+        archive_path = prepared_path
+        if archive_path is None:
+            archive_path = await file_features.download_document(
+                feature_api(), peer_id, message, source_alias, config, state, staging)
         validate_zip_headers(archive_path)
 
         extracted_root: Path | None = None
@@ -967,6 +954,17 @@ async def process_archive(
                 f"{peer_id}:{message_id}:{ordinal}:{relative_token}:{expected_item_size}".encode("ascii")
             ).hexdigest()[:32]
             existing = archive_item_row(peer_id, message_id, item_key)
+            feature_digest = None
+            if file_features.enabled(config, source_alias):
+                feature_digest, feature_size = await asyncio.to_thread(file_features.digest_file, path)
+                duplicate = file_features.register(feature_api(), feature_digest, feature_size,
+                                                    delivered=fingerprint_only or existing is not None)
+                if fingerprint_only or duplicate:
+                    if not fingerprint_only and existing is None:
+                        finish_archive_item(peer_id, message_id, item_key, kind, expected_item_size)
+                    file_features.child_feature(feature_api(), peer_id, message_id, item_key, feature_digest)
+                    counts[kind] += 1
+                    continue
             if existing is not None:
                 if kind == "video":
                     destination = destination_dir / str(existing["anonymous_name"] or "")
@@ -978,6 +976,8 @@ async def process_archive(
                     if target_probe is None or message_kind(target_probe) != "image":
                         raise RuntimeError("archive_item_ledger_verification_failed")
                 counts[kind] += 1
+                if feature_digest:
+                    file_features.child_feature(feature_api(), peer_id, message_id, item_key, feature_digest)
                 continue
             if kind == "video":
                 extension = path.suffix.lower()
@@ -1016,6 +1016,9 @@ async def process_archive(
                     expected_item_size,
                     target_message_id=target_message_id,
                 )
+            if feature_digest:
+                file_features.child_feature(feature_api(), peer_id, message_id, item_key, feature_digest)
+                file_features.mark_delivered(feature_api(), feature_digest)
             counts[kind] += 1
         if counts["video"] + counts["image"] <= 0:
             raise RuntimeError("archive_no_supported_media")
@@ -1037,6 +1040,7 @@ async def forward_image(
     message: Any,
     source_alias: str,
     state: dict[str, Any],
+    prepared_path: Path | None = None,
 ) -> dict[str, Any]:
     message_id = int(message.id)
     pending = state["sources"][source_alias].setdefault("pending", {}).get(str(message_id))
@@ -1070,7 +1074,7 @@ async def forward_image(
             )
         with tempfile.TemporaryDirectory(prefix="tg-image-", dir=str(APP_DIR)) as temp_name:
             local_path = Path(temp_name) / f"image{extension.lower()}"
-            downloaded_path = await client.download_media(message, file=str(local_path))
+            downloaded_path = str(prepared_path) if prepared_path else await client.download_media(message, file=str(local_path))
             downloaded = Path(str(downloaded_path or local_path))
             if not downloaded.is_file() or downloaded.stat().st_size <= 0:
                 raise RuntimeError("protected_image_download_failed")
@@ -1128,22 +1132,39 @@ async def process_message(
         )
         return
     begin_processed_message(peer_id, message_id, source_alias, kind)
+    feature = None
     try:
+        if file_features.enabled(config, source_alias):
+            feature = await file_features.prepare(feature_api(), client, source, message, source_alias, config, state)
         async with asyncio.timeout(max(0.01, float(config.get("message_timeout_seconds", 600)))):
             counts = {"video": 0, "image": 0}
-            if kind == "video":
-                await download_video(client, source, message, source_alias, config, state)
+            if feature and feature["duplicate"]:
+                safe_log("duplicate_content_skipped", source=source_alias, message_id=message_id, status="completed")
+            elif kind == "video":
+                if feature:
+                    await download_video(client, source, message, source_alias, config, state, prepared_path=feature["path"])
+                else:
+                    await download_video(client, source, message, source_alias, config, state)
                 counts["video"] = 1
             elif kind == "image":
-                await forward_image(client, source, image_target, message, source_alias, state)
+                if feature:
+                    await forward_image(client, source, image_target, message, source_alias, state, prepared_path=feature["path"])
+                else:
+                    await forward_image(client, source, image_target, message, source_alias, state)
                 counts["image"] = 1
             else:
-                counts = await process_archive(client, source, image_target, message, source_alias, config, state)
+                if feature:
+                    counts = await process_archive(client, source, image_target, message, source_alias, config, state, prepared_path=feature["path"])
+                else:
+                    counts = await process_archive(client, source, image_target, message, source_alias, config, state)
             source_config = next(item for item in config["sources"] if str(item["alias"]) == source_alias)
             delete_source = bool(source_config.get("delete_source", True))
             if delete_source:
                 await delete_and_verify(client, source, message_id)
         finish_processed_message(peer_id, message_id, counts["video"] + counts["image"])
+        if feature:
+            file_features.mark_delivered(feature_api(), feature["digest"])
+            file_features.cleanup(feature_api(), config, peer_id, message_id)
         source_state["pending"].pop(str(message_id), None)
         source_state["last_scanned_id"] = max(int(source_state["last_scanned_id"]), message_id)
         source_state["videos"] += counts["video"]
@@ -1157,6 +1178,9 @@ async def process_message(
             message_id=message_id,
             count=counts["video"] + counts["image"],
         )
+    except FloodWaitError:
+        # Do not turn a rate limit into a terminal failed row or advance cursor.
+        raise
     except Exception as error:
         runtime_code = str(error)
         if isinstance(error, TimeoutError):
@@ -1247,6 +1271,8 @@ async def login(config: dict[str, Any]) -> None:
 async def run_worker(config: dict[str, Any], once: bool) -> None:
     state = load_state()
     state["worker_pid"] = os.getpid()
+    if config.get("file_fingerprints_enabled"):
+        file_features.connect(feature_api()).close()
     save_state(state, "starting")
     client = TelegramClient(str(SESSION_PATH.with_suffix("")), int(config["api_id"]), str(config["api_hash"]))
     await client.connect()
@@ -1264,10 +1290,16 @@ async def run_worker(config: dict[str, Any], once: bool) -> None:
                     alias = str(item["alias"])
                     yielded = await process_source(client, dialogs[alias], dialogs["image_target"], alias, config, state)
                     backlog_remaining = backlog_remaining or yielded
+                    if file_features.enabled(config, alias):
+                        feature_work = await file_features.backfill_batch(
+                            feature_api(), client, dialogs[alias], dialogs["image_target"], alias, config, state)
+                        backlog_remaining = backlog_remaining or feature_work
                 state["cycle"] = int(state.get("cycle") or 0) + 1
                 state["active_source"] = None
                 save_state(state, "idle")
                 safe_log("cycle_complete", status="idle", count=state["cycle"])
+                if (APP_DIR / "stop-after-cycle.flag").exists():
+                    return
                 if once:
                     return
                 await asyncio.sleep(1 if backlog_remaining else int(config.get("rescan_seconds", 300)))
@@ -1454,6 +1486,8 @@ def run_resilient(config: dict[str, Any]) -> None:
     while True:
         try:
             asyncio.run(run_worker(config, False))
+            if (APP_DIR / "stop-after-cycle.flag").exists():
+                return
         except Exception as error:
             retry_seconds = max(60, int(config.get("error_retry_seconds", 300)))
             safe_log(
@@ -1470,6 +1504,7 @@ def main() -> None:
     parser.add_argument("--login", action="store_true")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--status", action="store_true")
+    parser.add_argument("--fingerprint-status", action="store_true")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--candidates", action="store_true")
     parser.add_argument("--inventory", action="store_true")
@@ -1479,6 +1514,9 @@ def main() -> None:
         print_status()
         return
     config = load_config()
+    if args.fingerprint_status:
+        print(json.dumps(file_features.report(feature_api(), config), ensure_ascii=False))
+        return
     if args.check:
         asyncio.run(check_ready(config))
         return
@@ -1493,10 +1531,25 @@ def main() -> None:
         return
     if args.login:
         asyncio.run(login(config))
-    elif args.once:
-        asyncio.run(run_worker(config, True))
     else:
-        run_resilient(config)
+        # Lock belongs to the process and is released by Windows on any exit.
+        with (APP_DIR / "worker.lock").open("a+b") as lock:
+            if os.name == "nt":
+                import msvcrt
+                lock.seek(0)
+                if lock.read(1) == b"":
+                    lock.write(b"0")
+                    lock.flush()
+                lock.seek(0)
+                try:
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                except OSError:
+                    safe_log("duplicate_worker_refused", status="locked")
+                    return
+            if args.once:
+                asyncio.run(run_worker(config, True))
+            else:
+                run_resilient(config)
 
 
 if __name__ == "__main__":

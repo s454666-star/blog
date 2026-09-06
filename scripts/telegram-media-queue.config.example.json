@@ -16,6 +16,10 @@
     }
   ],
   "tdl_threads": 8,
+  "file_fingerprints_enabled": false,
+  "fingerprint_source_aliases": ["source1"],
+  "fingerprint_work_dir": "D:\\tg-feature-temp",
+  "fingerprint_batch_size": 3,
   "message_timeout_seconds": 600,
   "source_batch_size": 10,
   "source_time_slice_seconds": 60,

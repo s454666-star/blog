@@ -25,6 +25,8 @@ class TwStockMonthlyRevenueController extends Controller
         'cumulative' => 'cumulative_yoy_percent',
         'day_change' => 'one_day_change_percent',
         'five_day' => 'five_day_change_percent',
+        'close_price' => 'latest_close_price',
+        'announced_date' => 'announced_date',
     ];
 
     public function index(Request $request): View
@@ -40,6 +42,7 @@ class TwStockMonthlyRevenueController extends Controller
         $baseQuery = TwStockMonthlyRevenue::query()
             ->where('revenue_year', $year)
             ->where('revenue_month', $month)
+            ->where('latest_close_price', '>=', 100)
             ->whereNotNull('monthly_revenue_thousands')
             ->whereNotNull('month_over_month_percent')
             ->whereNotNull('year_over_year_percent')

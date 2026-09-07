@@ -192,6 +192,46 @@ class TwStockMonthlyRevenuesTest extends TestCase
             ->assertDontSee('9001</span>', false);
     }
 
+    public function test_page_filters_prices_before_count_and_limit_and_displays_dates(): void
+    {
+        $rows = [];
+        for ($index = 0; $index < 101; $index++) {
+            $rows[] = $this->monthlyRevenueRow([
+                'stock_code' => (string) (8000 + $index),
+                'latest_close_price' => 99.99,
+                'mom_yoy_sum_percent' => 999,
+            ]);
+        }
+        $rows[] = $this->monthlyRevenueRow(['stock_code' => '7000', 'latest_close_price' => null]);
+        $rows[] = $this->monthlyRevenueRow(['stock_code' => '7001', 'latest_close_price' => 100]);
+        $rows[] = $this->monthlyRevenueRow([
+            'stock_code' => '7002',
+            'latest_close_price' => 123.45,
+            'announced_date' => '2026-07-02',
+        ]);
+        DB::table('tw_stock_monthly_revenues')->insert($rows);
+
+        $this->get(route('tw-stock.monthly-revenues.index', ['sort' => 'close_price']))
+            ->assertOk()
+            ->assertSee('共 2 筆符合條件')
+            ->assertSeeInOrder(['7002</span>', '7001</span>'], false)
+            ->assertSee('100.00 元')
+            ->assertSee('123.45 元')
+            ->assertSee('2026-07-01')
+            ->assertSee('2026-07-02')
+            ->assertSee('MOPS 出表日')
+            ->assertDontSee('7000</span>', false)
+            ->assertDontSee('8000</span>', false);
+
+        $this->get(route('tw-stock.monthly-revenues.index', [
+            'sort' => 'announced_date', 'direction' => 'asc',
+        ]))->assertOk()->assertSeeInOrder(['7001</span>', '7002</span>'], false);
+
+        DB::table('tw_stock_monthly_revenues')->whereIn('stock_code', ['7001', '7002'])->delete();
+        $this->get(route('tw-stock.monthly-revenues.index'))
+            ->assertOk()->assertSee('共 0 筆符合條件')->assertSee('colspan="11"', false);
+    }
+
     public function test_command_skips_outside_monthly_window(): void
     {
         Carbon::setTestNow('2026-07-20 12:00:00');

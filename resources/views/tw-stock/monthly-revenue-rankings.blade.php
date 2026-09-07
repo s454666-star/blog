@@ -558,7 +558,9 @@
             <h1>每月營收排行</h1>
             <div class="meta">
                 {{ $periodLabel }} 已公告上市櫃公司，預設月增 &gt; {{ $thresholdText($thresholds['mom']) }}%、
-                年增 &gt; {{ $thresholdText($thresholds['yoy']) }}%、月增+年增 &gt; {{ $thresholdText($thresholds['sum']) }}%，最多顯示前 100 筆。
+                年增 &gt; {{ $thresholdText($thresholds['yoy']) }}%、月增+年增 &gt; {{ $thresholdText($thresholds['sum']) }}%，收盤股價 ≥ 100 元，最多顯示前 100 筆。
+                <br>收盤價採已取得的最近交易日資料，日期標示於各股下方；尚無收盤價者不列入排行。
+                <br>營收公布日期目前採 MOPS 出表日期，非公司首次公告日期。
             </div>
         </div>
         <nav class="nav-actions" aria-label="台股頁面">
@@ -609,6 +611,8 @@
                 <option value="cumulative" {{ $sort === 'cumulative' ? 'selected' : '' }}>累計年增</option>
                 <option value="day_change" {{ $sort === 'day_change' ? 'selected' : '' }}>一日漲跌</option>
                 <option value="five_day" {{ $sort === 'five_day' ? 'selected' : '' }}>五日漲跌</option>
+                <option value="close_price" {{ $sort === 'close_price' ? 'selected' : '' }}>收盤股價</option>
+                <option value="announced_date" {{ $sort === 'announced_date' ? 'selected' : '' }}>營收公布日期（出表日）</option>
             </select>
         </div>
         <input type="hidden" name="direction" value="{{ $direction }}">
@@ -658,6 +662,8 @@
                 <tr>
                     <th>#</th>
                     <th><a href="{{ $sortUrl('stock') }}">股票 {{ $sortMark('stock') }}</a></th>
+                    <th><a href="{{ $sortUrl('close_price') }}">當日收盤股價 {{ $sortMark('close_price') }}</a></th>
+                    <th><a href="{{ $sortUrl('announced_date') }}">營收公布日期 {{ $sortMark('announced_date') }}</a><span class="stock-name">MOPS 出表日</span></th>
                     <th><a href="{{ $sortUrl('revenue') }}">當月營收 {{ $sortMark('revenue') }}</a></th>
                     <th><a href="{{ $sortUrl('mom') }}">月增 {{ $sortMark('mom') }}</a></th>
                     <th><a href="{{ $sortUrl('yoy') }}">年增 {{ $sortMark('yoy') }}</a></th>
@@ -685,6 +691,11 @@
                                 </span>
                             </span>
                         </td>
+                        <td data-label="當日收盤股價" class="num">
+                            {{ number_format($row->latest_close_price, 2) }} 元
+                            <span class="stock-name">{{ $row->latest_price_date?->format('Y-m-d') ?? '日期未提供' }}</span>
+                        </td>
+                        <td data-label="營收公布日期（MOPS 出表日）" class="num">{{ $row->announced_date?->format('Y-m-d') ?? '-' }}</td>
                         <td data-label="當月營收" class="num">{{ $fmtRevenue($row->monthly_revenue_thousands) }}</td>
                         <td data-label="月增" class="num {{ $tone($row->month_over_month_percent) }}">{{ $fmtPct($row->month_over_month_percent, true) }}</td>
                         <td data-label="年增" class="num {{ $tone($row->year_over_year_percent) }}">{{ $fmtPct($row->year_over_year_percent, true) }}</td>
@@ -695,7 +706,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td class="empty" colspan="9">目前沒有符合條件的已公告資料。</td>
+                        <td class="empty" colspan="11">目前沒有符合條件的已公告資料。</td>
                     </tr>
                 @endforelse
             </tbody>

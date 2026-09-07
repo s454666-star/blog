@@ -155,9 +155,9 @@ class TwStockMonthlyRevenuesTest extends TestCase
 
         $rows[] = $this->monthlyRevenueRow([
             'stock_code' => '8123',
-            'stock_name' => '低於門檻',
-            'month_over_month_percent' => 20,
-            'year_over_year_percent' => 120,
+            'stock_name' => '低於年增門檻',
+            'month_over_month_percent' => 120,
+            'year_over_year_percent' => 20,
             'mom_yoy_sum_percent' => 140,
             'created_at' => $now,
             'updated_at' => $now,
@@ -168,7 +168,8 @@ class TwStockMonthlyRevenuesTest extends TestCase
         $this->get(route('tw-stock.monthly-revenues.index'))
             ->assertOk()
             ->assertSee('每月營收排行')
-            ->assertSee('月增 &gt; 30%', false)
+            ->assertDontSee('月增 &gt; %', false)
+            ->assertSee('年增 &gt; 30%', false)
             ->assertSee('最近5日漲跌')
             ->assertSee('exchange-badge--twse', false)
             ->assertSee('即時')
@@ -176,12 +177,11 @@ class TwStockMonthlyRevenuesTest extends TestCase
             ->assertSee('顯示前 100 筆')
             ->assertSeeInOrder(['9001', '9002', '9003'])
             ->assertDontSee('上市/櫃')
-            ->assertDontSee('低於門檻')
+            ->assertDontSee('低於年增門檻')
             ->assertDontSee('9105');
 
         $this->get(route('tw-stock.monthly-revenues.index', [
             'period' => '2026-06',
-            'mom_gt' => 0,
             'yoy_gt' => 0,
             'sum_gt' => 0,
             'sort' => 'revenue',
@@ -230,6 +230,35 @@ class TwStockMonthlyRevenuesTest extends TestCase
         DB::table('tw_stock_monthly_revenues')->whereIn('stock_code', ['7001', '7002'])->delete();
         $this->get(route('tw-stock.monthly-revenues.index'))
             ->assertOk()->assertSee('共 0 筆符合條件')->assertSee('colspan="11"', false);
+    }
+
+    public function test_page_does_not_filter_by_month_over_month_growth(): void
+    {
+        DB::table('tw_stock_monthly_revenues')->insert([
+            $this->monthlyRevenueRow([
+                'stock_code' => '3167',
+                'stock_name' => '大量',
+                'month_over_month_percent' => 6.3706,
+                'year_over_year_percent' => 152.9787,
+                'mom_yoy_sum_percent' => 159.3493,
+                'latest_close_price' => 803,
+            ]),
+            $this->monthlyRevenueRow([
+                'stock_code' => '3693',
+                'stock_name' => '營邦',
+                'exchange' => 'TPEx',
+                'month_over_month_percent' => 3.4173,
+                'year_over_year_percent' => 171.0145,
+                'mom_yoy_sum_percent' => 174.4318,
+                'latest_close_price' => 682,
+            ]),
+        ]);
+
+        $this->get(route('tw-stock.monthly-revenues.index'))
+            ->assertOk()
+            ->assertSee('大量')
+            ->assertSee('營邦')
+            ->assertSee('共 2 筆符合條件');
     }
 
     public function test_command_skips_outside_monthly_window(): void

@@ -9,8 +9,6 @@ use Illuminate\Support\Collection;
 
 class TwStockMonthlyRevenueController extends Controller
 {
-    private const DEFAULT_MOM_THRESHOLD = 30.0;
-
     private const DEFAULT_YOY_THRESHOLD = 30.0;
 
     private const DEFAULT_SUM_THRESHOLD = 60.0;
@@ -34,7 +32,6 @@ class TwStockMonthlyRevenueController extends Controller
         [$year, $month] = $this->resolvePeriod($request);
         [$sort, $direction] = $this->resolveSort($request);
         $thresholds = [
-            'mom' => $this->threshold($request->query('mom_gt'), self::DEFAULT_MOM_THRESHOLD),
             'yoy' => $this->threshold($request->query('yoy_gt'), self::DEFAULT_YOY_THRESHOLD),
             'sum' => $this->threshold($request->query('sum_gt'), self::DEFAULT_SUM_THRESHOLD),
         ];
@@ -47,7 +44,6 @@ class TwStockMonthlyRevenueController extends Controller
             ->whereNotNull('month_over_month_percent')
             ->whereNotNull('year_over_year_percent')
             ->whereNotNull('mom_yoy_sum_percent')
-            ->where('month_over_month_percent', '>', $thresholds['mom'])
             ->where('year_over_year_percent', '>', $thresholds['yoy'])
             ->where('mom_yoy_sum_percent', '>', $thresholds['sum']);
 

@@ -185,7 +185,7 @@
 
         .filter-panel {
             display: grid;
-            grid-template-columns: repeat(5, minmax(130px, 1fr)) auto;
+            grid-template-columns: repeat(4, minmax(130px, 1fr)) auto;
             gap: 12px;
             align-items: end;
             margin-bottom: 16px;
@@ -536,7 +536,6 @@
     $thresholdText = fn (float $value): string => rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
     $queryBase = [
         'period' => $periodValue,
-        'mom_gt' => $thresholdText($thresholds['mom']),
         'yoy_gt' => $thresholdText($thresholds['yoy']),
         'sum_gt' => $thresholdText($thresholds['sum']),
     ];
@@ -557,8 +556,8 @@
             <div class="eyebrow">MOPS 月營收</div>
             <h1>每月營收排行</h1>
             <div class="meta">
-                {{ $periodLabel }} 已公告上市櫃公司，預設月增 &gt; {{ $thresholdText($thresholds['mom']) }}%、
-                年增 &gt; {{ $thresholdText($thresholds['yoy']) }}%、月增+年增 &gt; {{ $thresholdText($thresholds['sum']) }}%，收盤股價 ≥ 100 元，最多顯示前 100 筆。
+                {{ $periodLabel }} 已公告上市櫃公司，預設年增 &gt; {{ $thresholdText($thresholds['yoy']) }}%、
+                月增+年增 &gt; {{ $thresholdText($thresholds['sum']) }}%，收盤股價 ≥ 100 元，最多顯示前 100 筆。
                 <br>收盤價採已取得的最近交易日資料，日期標示於各股下方；尚無收盤價者不列入排行。
                 <br>營收公布日期目前採 MOPS 出表日期，非公司首次公告日期。
             </div>
@@ -588,10 +587,6 @@
                     <option value="{{ $periodValue }}">{{ $periodLabel }}</option>
                 @endforelse
             </select>
-        </div>
-        <div class="field">
-            <label for="mom_gt">月增 &gt; %</label>
-            <input id="mom_gt" name="mom_gt" type="number" step="0.01" value="{{ $thresholdText($thresholds['mom']) }}">
         </div>
         <div class="field">
             <label for="yoy_gt">年增 &gt; %</label>

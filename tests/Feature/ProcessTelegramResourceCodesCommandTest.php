@@ -133,10 +133,10 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         $this->assertFalse(Schema::connection('sqlite')->hasColumn('telegram_resource_codes', 'message_text'));
     }
 
-    public function test_production_profiles_route_only_qzccu_and_nw_underscore_prefixes(): void
+    public function test_production_profiles_route_only_yyjmq_and_qzccu_prefixes(): void
     {
-        config()->set('telegram.resource_codes.processing_profiles', '13:QzccuJSbot,14:NWdrivebot');
-        config()->set('telegram.resource_codes.scan_code_types', '13,14');
+        config()->set('telegram.resource_codes.processing_profiles', '9:zdhnsbot,13:QzccuJSbot');
+        config()->set('telegram.resource_codes.scan_code_types', '9,13');
 
         $sent = [];
 
@@ -177,8 +177,8 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ])->assertExitCode(0);
 
         $expected = [
+            ['yyjmq_active_A1-b2', 9, 'zdhnsbot'],
             ['QzccuJSbot_file_N7-z6', 13, 'QzccuJSbot'],
-            ['NW_file_X7-y9', 14, 'NWdrivebot'],
         ];
 
         $this->assertDatabaseCount('telegram_resource_codes', 2);
@@ -192,10 +192,10 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         }
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'zyxfiles_disabled_A1-b2']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'JSfileeesbot_disabled_A1-b2']);
+        $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'NW_file_X7-y9']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'NW7X-9_token']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'XVNgkllbot:AbC-123']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'PxxxaJSbot_file_N7-z6']);
-        $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'yyjmq_active_A1-b2']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'PxxqzjzJSbot_file_X9-y8']);
         $this->assertDatabaseMissing('telegram_resource_codes', ['code' => '4DC6EB55EE68F197A332CA4802AAF14420F76D74']);
         Http::assertSentCount(6);

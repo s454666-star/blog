@@ -34,6 +34,7 @@ return [
         '08:45',
         '15:00',
     ],
+    'taiex_futures_expected_gap_notify_time' => '13:30',
     'eps_growth_ranking' => [
         'base_year' => 2025,
         'forecast_years' => [2026, 2027, 2028],

@@ -27,7 +27,7 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
         {--max-alerts=8 : Maximum alerts to send per run}
         {--dry-run : Print messages without sending Telegram notifications or writing cache}';
 
-    protected $description = 'Send Telegram notifications for 台指期差值、乖離率、開盤差值 and 4H MA5 alerts.';
+    protected $description = 'Send Telegram notifications for 台指期差值、預期差值、乖離率、開盤差值 and 4H MA5 alerts.';
 
     public function handle(
         TwFuturesHourlyPriceController $controller,
@@ -119,6 +119,14 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
     private function isPriceAlertRefreshTime(CarbonImmutable $now): bool
     {
         return ((int) $now->format('i')) % 15 === 0;
+    }
+
+    private function isExpectedGapNotifyTime(CarbonImmutable $now): bool
+    {
+        return $now->format('H:i') === (string) config(
+            'tw_stock.taiex_futures_expected_gap_notify_time',
+            '13:30',
+        );
     }
 
     private function requiredPriceAlertLocalTime(CarbonImmutable $now): ?string
@@ -289,6 +297,27 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
             }
         }
 
+        if ($this->option('dry-run') || $this->isExpectedGapNotifyTime($now)) {
+            $requiredExpectedGapLocalTime = $this->option('dry-run')
+                ? null
+                : $now->format('Y-m-d H:i');
+            foreach ($payload['chartRows'] ?? [] as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+
+                $alert = $this->expectedGapAlert(
+                    $row,
+                    $payload['chartRows'] ?? [],
+                    $minTimestamp,
+                    $requiredExpectedGapLocalTime,
+                );
+                if ($alert !== null) {
+                    $alerts[] = $alert;
+                }
+            }
+        }
+
         foreach ($payload['fourHourMa5Rows'] ?? [] as $row) {
             if (! is_array($row)) {
                 continue;
@@ -381,6 +410,91 @@ class NotifyTaiexFuturesLineAlertsCommand extends Command
 
         return [
             'key' => 'price:' . $time . ':' . substr(sha1(implode('|', $conditionKeys)), 0, 10),
+            'time' => $time,
+            'message' => implode("\n", $lines),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @param array<int, mixed> $chartRows
+     * @return array{key: string, time: int, message: string}|null
+     */
+    private function expectedGapAlert(
+        array $row,
+        array $chartRows,
+        int $minTimestamp,
+        ?string $requiredLocalTime = null,
+    ): ?array {
+        $time = $this->priceAlertTime($row);
+        $localTime = $this->priceAlertLocalTime($row);
+        $notifyClock = (string) config('tw_stock.taiex_futures_expected_gap_notify_time', '13:30');
+        if ($time < $minTimestamp || substr($localTime, -5) !== $notifyClock) {
+            return null;
+        }
+
+        if ($requiredLocalTime !== null && $localTime !== $requiredLocalTime) {
+            return null;
+        }
+
+        $currentPrice = $this->numeric($row['close'] ?? null);
+        $movingAverage = $this->numeric($row['movingAverage'] ?? null);
+        $tradeDate = (string) ($row['tradeDate'] ?? '');
+        if ($currentPrice === null || $movingAverage === null || $tradeDate === '') {
+            return null;
+        }
+
+        $dailyCloseByTradeDate = [];
+        foreach ($chartRows as $historicalRow) {
+            if (! is_array($historicalRow) || (int) ($historicalRow['time'] ?? 0) >= $time) {
+                continue;
+            }
+
+            $historicalTradeDate = (string) ($historicalRow['tradeDate'] ?? '');
+            $historicalClose = $this->numeric($historicalRow['close'] ?? null);
+            if (
+                $historicalTradeDate === ''
+                || $historicalTradeDate === $tradeDate
+                || $historicalClose === null
+            ) {
+                continue;
+            }
+
+            $dailyCloseByTradeDate[$historicalTradeDate] = $historicalClose;
+        }
+
+        ksort($dailyCloseByTradeDate);
+        $previousCloses = array_slice(array_values($dailyCloseByTradeDate), -3);
+        if (count($previousCloses) !== 3) {
+            return null;
+        }
+
+        $expectedDailyMa5 = (($currentPrice * 2) + array_sum($previousCloses)) / 5;
+        $expectedGap = $expectedDailyMa5 - $movingAverage;
+        $previousCloses = array_reverse($previousCloses);
+        $lines = [
+            '台指期 預期差值通知 ' . $localTime,
+            '預期差值 ' . $this->formatNumber($expectedGap, 0, true) . '點',
+            sprintf(
+                '預期日MA5 %s / 真五日（15K MA380）%s',
+                $this->formatNumber($expectedDailyMa5, 0),
+                $this->formatNumber($movingAverage, 0),
+            ),
+            sprintf(
+                '13:30價格 %s×2 / 前1日 %s / 前2日 %s / 前3日 %s',
+                $this->formatNumber($currentPrice, 0),
+                $this->formatNumber($previousCloses[0], 0),
+                $this->formatNumber($previousCloses[1], 0),
+                $this->formatNumber($previousCloses[2], 0),
+            ),
+            ...isset($row['quoteLocalTime'])
+                ? ['即時報價時間 ' . (string) $row['quoteLocalTime']]
+                : [],
+            $this->dashboardUrl(),
+        ];
+
+        return [
+            'key' => 'expected-gap:' . $time,
             'time' => $time,
             'message' => implode("\n", $lines),
         ];

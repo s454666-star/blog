@@ -686,6 +686,148 @@ class TwFuturesHourlyPricesTest extends TestCase
         ));
     }
 
+    public function test_taiex_futures_expected_gap_alert_uses_1330_price_twice_and_previous_three_trade_days(): void
+    {
+        config()->set('app.url', 'https://stock.mystar.monster');
+        config()->set('tw_stock.taiex_futures_expected_gap_notify_time', '13:30');
+
+        $command = new NotifyTaiexFuturesLineAlertsCommand();
+        $method = new ReflectionMethod(NotifyTaiexFuturesLineAlertsCommand::class, 'expectedGapAlert');
+        $method->setAccessible(true);
+        $chartRows = [
+            [
+                'time' => CarbonImmutable::parse('2026-07-17 13:45:00', 'Asia/Taipei')->timestamp,
+                'localTime' => '2026-07-17 13:45',
+                'tradeDate' => '2026-07-17',
+                'close' => 40000,
+            ],
+            [
+                'time' => CarbonImmutable::parse('2026-07-20 13:45:00', 'Asia/Taipei')->timestamp,
+                'localTime' => '2026-07-20 13:45',
+                'tradeDate' => '2026-07-20',
+                'close' => 40100,
+            ],
+            [
+                'time' => CarbonImmutable::parse('2026-07-21 13:45:00', 'Asia/Taipei')->timestamp,
+                'localTime' => '2026-07-21 13:45',
+                'tradeDate' => '2026-07-21',
+                'close' => 40200,
+            ],
+            [
+                'time' => CarbonImmutable::parse('2026-07-22 13:30:00', 'Asia/Taipei')->timestamp,
+                'localTime' => '2026-07-22 13:30',
+                'tradeDate' => '2026-07-22',
+                'close' => 40500,
+                'movingAverage' => 39500.5263,
+                'quoteLocalTime' => '2026-07-22 13:30:01',
+            ],
+        ];
+        $row = $chartRows[array_key_last($chartRows)];
+        $minTimestamp = CarbonImmutable::parse('2026-07-22 13:00:00', 'Asia/Taipei')->timestamp;
+
+        $alert = $method->invoke(
+            $command,
+            $row,
+            $chartRows,
+            $minTimestamp,
+            '2026-07-22 13:30',
+        );
+
+        $this->assertIsArray($alert);
+        $this->assertSame('expected-gap:' . $row['time'], $alert['key']);
+        $this->assertStringContainsString('台指期 預期差值通知 2026-07-22 13:30', $alert['message']);
+        $this->assertStringContainsString('預期差值 +759點', $alert['message']);
+        $this->assertStringContainsString('預期日MA5 40,260 / 真五日（15K MA380）39,501', $alert['message']);
+        $this->assertStringContainsString(
+            '13:30價格 40,500×2 / 前1日 40,200 / 前2日 40,100 / 前3日 40,000',
+            $alert['message'],
+        );
+        $this->assertStringContainsString('即時報價時間 2026-07-22 13:30:01', $alert['message']);
+        $this->assertNull($method->invoke(
+            $command,
+            $row,
+            $chartRows,
+            $minTimestamp,
+            '2026-07-22 13:35',
+        ));
+    }
+
+    public function test_taiex_futures_expected_gap_alert_sends_once_at_1330_without_regular_thresholds(): void
+    {
+        Cache::flush();
+        Carbon::setTestNow('2026-07-22 13:30:00');
+        CarbonImmutable::setTestNow('2026-07-22 13:30:00');
+
+        $this->mock(TwFuturesHourlyPriceFetcher::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('fetchRows')->twice()->andReturn([]);
+            $mock->shouldReceive('upsertRows')->twice()->with([])->andReturn(0);
+            $mock->shouldReceive('fetchCurrentTaifexQuoteSnapshot')->twice()->andReturn(null);
+        });
+        $this->mock(TwFuturesHourlyPriceController::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('lineAlertPayload')->twice()->andReturn([
+                'chartRows' => [
+                    [
+                        'time' => CarbonImmutable::parse('2026-07-17 13:45:00', 'Asia/Taipei')->timestamp,
+                        'localTime' => '2026-07-17 13:45',
+                        'tradeDate' => '2026-07-17',
+                        'close' => 40000,
+                    ],
+                    [
+                        'time' => CarbonImmutable::parse('2026-07-20 13:45:00', 'Asia/Taipei')->timestamp,
+                        'localTime' => '2026-07-20 13:45',
+                        'tradeDate' => '2026-07-20',
+                        'close' => 40100,
+                    ],
+                    [
+                        'time' => CarbonImmutable::parse('2026-07-21 13:45:00', 'Asia/Taipei')->timestamp,
+                        'localTime' => '2026-07-21 13:45',
+                        'tradeDate' => '2026-07-21',
+                        'close' => 40200,
+                    ],
+                    [
+                        'time' => CarbonImmutable::parse('2026-07-22 13:30:00', 'Asia/Taipei')->timestamp,
+                        'localTime' => '2026-07-22 13:30',
+                        'tradeDate' => '2026-07-22',
+                        'close' => 40500,
+                        'movingAverage' => 39500.5263,
+                        'gap' => 10,
+                        'isSessionOpen' => false,
+                        'biasRate' => 0.01,
+                    ],
+                ],
+                'fourHourMa5Rows' => [],
+                'stats' => ['latestGap' => 10],
+            ]);
+        });
+
+        config()->set('app.url', 'https://stock.mystar.monster');
+        config()->set('tw_stock.taiex_futures_expected_gap_notify_time', '13:30');
+        config()->set('telegram.line_mirror.enabled', true);
+        config()->set('telegram.line_mirror.routes.yuanta', [
+            'bot_token' => 'yuanta-telegram-token',
+            'chat_id' => '-100222',
+        ]);
+        Http::fake([
+            'https://api.telegram.org/*' => Http::response([
+                'ok' => true,
+                'result' => ['message_id' => 123],
+            ]),
+        ]);
+
+        $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
+        $this->artisan('tw-stock:notify-taiex-futures-line')->assertExitCode(0);
+
+        Http::assertSentCount(1);
+        Http::assertSent(function ($request): bool {
+            $message = (string) ($request->data()['text'] ?? '');
+
+            return str_contains($message, '台指期 預期差值通知 2026-07-22 13:30')
+                && str_contains($message, '預期差值 +759點')
+                && ! str_contains($message, '台指期通知 2026-07-22 13:30');
+        });
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'api.line.me'));
+    }
+
     public function test_taiex_futures_line_alert_sends_gap_and_bias_at_each_15k_boundary(): void
     {
         Cache::flush();

@@ -414,6 +414,42 @@ class TelegramMediaQueueDeadlineTest(unittest.IsolatedAsyncioTestCase):
                 sleep.assert_awaited_once_with(expected_delay)
                 client.disconnect.assert_awaited_once()
 
+    async def test_worker_reconnects_after_connection_error(self):
+        client = SimpleNamespace(
+            connect=AsyncMock(), is_user_authorized=AsyncMock(return_value=True), disconnect=AsyncMock()
+        )
+        dialogs = {"fixture": None, "image_target": None}
+        resolve = AsyncMock(return_value=dialogs)
+        process = AsyncMock(side_effect=[ConnectionError(), asyncio.CancelledError()])
+        sleep = AsyncMock()
+        with (
+            patch.object(QUEUE, "load_state", return_value=self.state()),
+            patch.object(QUEUE, "TelegramClient", return_value=client),
+            patch.object(QUEUE, "resolve_exact_dialogs", resolve),
+            patch.object(QUEUE, "process_source", process),
+            patch.object(QUEUE.asyncio, "sleep", sleep),
+        ):
+            with self.assertRaises(asyncio.CancelledError):
+                await QUEUE.run_worker(
+                    {
+                        "api_id": 1,
+                        "api_hash": "fixture",
+                        "error_retry_seconds": 60,
+                        "sources": [{"alias": "fixture"}],
+                    },
+                    False,
+                )
+
+        self.assertEqual(2, client.connect.await_count)
+        self.assertEqual(2, client.disconnect.await_count)
+        self.assertEqual(2, resolve.await_count)
+        sleep.assert_awaited_once_with(60)
+        self.assertIn(
+            ("connection_retry_wait", {"status": "retry_wait", "error_class": "ConnectionError", "wait_seconds": 60}),
+            self.events,
+        )
+        self.assertIn(("connection_recovered", {"status": "running"}), self.events)
+
 
 if __name__ == "__main__":
     unittest.main()

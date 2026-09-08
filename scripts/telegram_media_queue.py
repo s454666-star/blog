@@ -1309,6 +1309,23 @@ async def run_worker(config: dict[str, Any], once: bool) -> None:
                 safe_log("flood_wait", status="flood_wait", wait_seconds=wait_seconds)
                 await asyncio.sleep(wait_seconds)
                 save_state(state, "running")
+            except ConnectionError:
+                retry_seconds = max(60, int(config.get("error_retry_seconds", 300)))
+                save_state(state, "retry_wait")
+                safe_log(
+                    "connection_retry_wait",
+                    status="retry_wait",
+                    error_class="ConnectionError",
+                    wait_seconds=retry_seconds,
+                )
+                await client.disconnect()
+                await asyncio.sleep(retry_seconds)
+                await client.connect()
+                if not await client.is_user_authorized():
+                    raise RuntimeError("authorization_lost_after_reconnect")
+                dialogs = await resolve_exact_dialogs(client, config)
+                save_state(state, "running")
+                safe_log("connection_recovered", status="running")
             except Exception as error:
                 error_class = type(error).__name__
                 retry_seconds = max(60, int(config.get("error_retry_seconds", 300)))

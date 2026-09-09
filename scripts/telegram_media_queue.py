@@ -1134,9 +1134,9 @@ async def process_message(
     begin_processed_message(peer_id, message_id, source_alias, kind)
     feature = None
     try:
-        if file_features.enabled(config, source_alias):
-            feature = await file_features.prepare(feature_api(), client, source, message, source_alias, config, state)
-        async with asyncio.timeout(max(0.01, float(config.get("message_timeout_seconds", 600)))):
+        async with asyncio.timeout(max(0.01, float(config.get("message_timeout_seconds", 1200)))):
+            if file_features.enabled(config, source_alias):
+                feature = await file_features.prepare(feature_api(), client, source, message, source_alias, config, state)
             counts = {"video": 0, "image": 0}
             if feature and feature["duplicate"]:
                 safe_log("duplicate_content_skipped", source=source_alias, message_id=message_id, status="completed")

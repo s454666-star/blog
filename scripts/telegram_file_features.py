@@ -95,7 +95,7 @@ def register(q, digest, size, delivered=False, key=None):
         db.close()
 
 
-def record_job(q, peer, mid, alias, digest=None, method=None, error=None):
+def record_job(q, peer, mid, alias, digest=None, method=None, error=None, skipped=False):
     db = connect(q)
     try:
         with db:
@@ -104,8 +104,8 @@ def record_job(q, peer, mid, alias, digest=None, method=None, error=None):
                 status=excluded.status,fingerprint_base64=excluded.fingerprint_base64,
                 method=excluded.method,error_class=excluded.error_class,
                 retry_at=excluded.retry_at,updated_at=excluded.updated_at""",
-                (peer, mid, alias, "completed" if digest else "failed", digest, method,
-                 error, time.time() + 3600 if error else 0, q.utc_now()))
+                (peer, mid, alias, "completed" if digest else ("skipped" if skipped else "failed"), digest, method,
+                 error, 0 if skipped else (time.time() + 3600 if error else 0), q.utc_now()))
             if digest:
                 db.execute("UPDATE processed_messages SET fingerprint_base64=? WHERE source_peer_id=? AND message_id=?", (digest, peer, mid))
     finally:
@@ -234,6 +234,7 @@ async def backfill_batch(q, client, source, image_target, alias, config, state):
         rows = db.execute("""SELECT p.message_id,j.status FROM processed_messages p
             LEFT JOIN fingerprint_jobs j ON j.source_peer_id=p.source_peer_id AND j.message_id=p.message_id
             WHERE p.source_peer_id=? AND p.status='completed'
+            AND COALESCE(j.status,'') <> 'skipped'
             AND (p.fingerprint_base64 IS NULL OR j.status='failed')
             AND (j.retry_at IS NULL OR j.retry_at<=?) ORDER BY p.message_id LIMIT ?""",
             (peer, time.time(), max(1, int(config.get("fingerprint_batch_size", 3))))).fetchall()
@@ -245,19 +246,24 @@ async def backfill_batch(q, client, source, image_target, alias, config, state):
         state["active_source"] = alias
         q.save_state(state, "fingerprint_backfill")
         try:
-            message = await client.get_messages(source, ids=mid)
-            if not message or q.message_kind(message) is None:
-                raise RuntimeError("fingerprint_source_unavailable")
-            result = await prepare(q, client, source, message, alias, config, state, historical=True,
-                                   force_path=row[1] == "failed")
-            # Historical archive children are indexed only from an available ZIP.
-            # Their delivery records stay intact and no output is sent again.
-            if q.message_kind(message) == "archive" and result["path"]:
-                await q.process_archive(client, source, image_target, message, alias, config, state,
-                                        prepared_path=result["path"], fingerprint_only=True)
-            cleanup(q, config, peer, mid)
+            async with asyncio.timeout(max(0.01, float(config.get("message_timeout_seconds", 1200)))):
+                message = await client.get_messages(source, ids=mid)
+                if not message or q.message_kind(message) is None:
+                    raise RuntimeError("fingerprint_source_unavailable")
+                result = await prepare(q, client, source, message, alias, config, state, historical=True,
+                                       force_path=row[1] == "failed")
+                # Historical archive children are indexed only from an available ZIP.
+                # Their delivery records stay intact and no output is sent again.
+                if q.message_kind(message) == "archive" and result["path"]:
+                    await q.process_archive(client, source, image_target, message, alias, config, state,
+                                            prepared_path=result["path"], fingerprint_only=True)
+                cleanup(q, config, peer, mid)
         except FloodWaitError:
             raise
+        except TimeoutError:
+            record_job(q, peer, mid, alias, error="fingerprint_timeout", skipped=True)
+            q.safe_log("fingerprint_failed", source=alias, message_id=mid,
+                       error_class="fingerprint_timeout", status="skipped")
         except Exception as error:
             code = str(error) if isinstance(error, RuntimeError) and q.re.fullmatch(r"[a-z0-9_]{3,120}", str(error)) else type(error).__name__
             record_job(q, peer, mid, alias, error=code)
@@ -284,7 +290,9 @@ def report(q, config):
             counts = db.execute("""SELECT COUNT(*),
                 COUNT(CASE WHEN p.fingerprint_base64 IS NOT NULL AND COALESCE(j.status,'completed') <> 'failed' THEN 1 END),
                 MAX(p.message_id), MAX(CASE WHEN p.fingerprint_base64 IS NOT NULL THEN p.message_id END),
-                MIN(CASE WHEN p.fingerprint_base64 IS NULL OR j.status='failed' THEN p.message_id END)
+                MIN(CASE WHEN COALESCE(j.status,'') <> 'skipped'
+                    AND (p.fingerprint_base64 IS NULL OR j.status='failed') THEN p.message_id END),
+                COUNT(CASE WHEN j.status='skipped' THEN 1 END)
                 FROM processed_messages p LEFT JOIN fingerprint_jobs j
                 ON j.source_peer_id=p.source_peer_id AND j.message_id=p.message_id
                 WHERE p.source_peer_id=? AND p.status='completed'""", (peer,)).fetchone()
@@ -296,7 +304,7 @@ def report(q, config):
                 WHERE source_peer_id=? AND status='completed' AND fingerprint_base64 IS NOT NULL
                 AND (? IS NULL OR message_id < ?)""", (peer, counts[4], counts[4])).fetchone()[0]
             out.append({"source": src["alias"], "total_completed_media": counts[0], "written": counts[1],
-                "pending": counts[0]-counts[1], "covered_through_id": through,
+                "skipped": counts[5], "pending": counts[0]-counts[1]-counts[5], "covered_through_id": through,
                 "highest_written_id": counts[3] or 0, "first_missing_id": counts[4],
                 "backfill_scanned_id": progress[0] if progress else 0, "failed": failed})
     finally:

@@ -348,6 +348,20 @@ class TelegramMediaQueueDeadlineTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("message_timeout", failures[0]["error_class"])
         self.assertEqual("skipped", failures[0]["disposition"])
 
+    async def test_message_deadline_includes_fingerprint_download(self):
+        self.patch("message_kind", lambda message: "video")
+        self.patch("marked_peer_id", lambda source: -1001)
+        async def stalled_prepare(*args, **kwargs):
+            await asyncio.Event().wait()
+        config = {"sources": [{"alias": "fixture", "delete_source": False}], "message_timeout_seconds": 0.02}
+        state = self.state()
+        with patch.object(QUEUE.file_features, "enabled", lambda config, alias: True), \
+             patch.object(QUEUE.file_features, "prepare", stalled_prepare):
+            await QUEUE.process_message(None, None, None, SimpleNamespace(id=44), "fixture", config, state)
+        self.assertEqual("failed", QUEUE.processed_message_status(-1001, 44))
+        failures = [fields for event, fields in self.events if event == "message_failed"]
+        self.assertEqual("message_timeout", failures[-1]["error_class"])
+
     async def test_source_batch_yields_without_skipping_unvisited_messages(self):
         class Client:
             async def get_messages(self, *args, **kwargs):

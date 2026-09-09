@@ -126,6 +126,31 @@ class FileFeaturesTest(unittest.TestCase):
         report=F.report(Q.feature_api(),self.cfg)[0]
         self.assertEqual(0,report["pending"]);self.assertEqual(2,report["covered_through_id"])
 
+    def test_backfill_timeout_is_terminal_skip_and_next_item_completes(self):
+        self.cfg["message_timeout_seconds"] = 0.02
+        self.completed(1,1,"a");self.completed(1,2,"a")
+        client=SimpleNamespace(get_messages=AsyncMock(side_effect=lambda source,ids:self.message(ids)))
+        digest=base64.b64encode(hashlib.sha256(b"abc").digest()).decode()
+        calls=[]
+        async def prepare(q,client,source,message,alias,config,state,**kwargs):
+            calls.append(message.id)
+            if message.id==1:
+                path=F.job_staging(q,config,source,1);path.mkdir(parents=True,exist_ok=True);(path/"partial").write_bytes(b"a")
+                await asyncio.Event().wait()
+            F.register(q,digest,3,True);F.record_job(q,source,message.id,alias,digest,"fixture")
+            return {"digest":digest,"path":None}
+        with patch.object(F,"prepare",prepare):
+            asyncio.run(F.backfill_batch(Q.feature_api(),client,1,None,"a",self.cfg,self.state))
+            asyncio.run(F.backfill_batch(Q.feature_api(),client,1,None,"a",self.cfg,self.state))
+        self.assertEqual([1,2],calls)
+        db=F.connect(Q.feature_api())
+        status=db.execute("SELECT status,error_class,retry_at FROM fingerprint_jobs WHERE source_peer_id=1 AND message_id=1").fetchone()
+        db.close()
+        self.assertEqual(("skipped","fingerprint_timeout",0),tuple(status))
+        report=F.report(Q.feature_api(),self.cfg)[0]
+        self.assertEqual(1,report["skipped"]);self.assertEqual(0,report["pending"])
+        self.assertTrue(F.job_staging(Q.feature_api(),self.cfg,1,1).exists())
+
     def test_zip_children_dedupe_with_and_without_password(self):
         seven=Path(r"C:\Program Files\7-Zip\7z.exe")
         if not seven.exists():

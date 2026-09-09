@@ -135,7 +135,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
 
     public function test_production_profiles_route_only_yyjmq_and_qzccu_prefixes(): void
     {
-        config()->set('telegram.resource_codes.processing_profiles', '9:zdhnsbot,13:QzccuJSbot');
+        config()->set('telegram.resource_codes.processing_profiles', '9:nsxkbot,13:QzccuJSbot');
         config()->set('telegram.resource_codes.scan_code_types', '9,13');
 
         $sent = [];
@@ -177,7 +177,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ])->assertExitCode(0);
 
         $expected = [
-            ['yyjmq_active_A1-b2', 9, 'zdhnsbot'],
+            ['yyjmq_active_A1-b2', 9, 'nsxkbot'],
             ['QzccuJSbot_file_N7-z6', 13, 'QzccuJSbot'],
         ];
 

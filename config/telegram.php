@@ -39,7 +39,7 @@
             'target_peer_id' => (int) env('TELEGRAM_RESOURCE_CODE_TARGET_PEER_ID', 3967395258),
             'bot_username' => env('TELEGRAM_RESOURCE_CODE_BOT_USERNAME', 'XDJMQBot'),
             'code_type' => (int) env('TELEGRAM_RESOURCE_CODE_TYPE', 10),
-            'processing_profiles' => env('TELEGRAM_RESOURCE_CODE_PROCESSING_PROFILES', '9:zdhnsbot,13:QzccuJSbot'),
+            'processing_profiles' => env('TELEGRAM_RESOURCE_CODE_PROCESSING_PROFILES', '9:nsxkbot,13:QzccuJSbot'),
             'scan_code_types' => env('TELEGRAM_RESOURCE_CODE_SCAN_TYPES', '9,13'),
             'initial_scan_limit' => (int) env('TELEGRAM_RESOURCE_CODE_INITIAL_SCAN_LIMIT', 1000),
             'scan_batch_size' => (int) env('TELEGRAM_RESOURCE_CODE_SCAN_BATCH_SIZE', 500),

@@ -87,6 +87,8 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertDontSee('15K MA380')
             ->assertSee('60K MA95')
             ->assertSee('日 MA5')
+            ->assertSee('預期 MA5')
+            ->assertSee('（目前價格×2＋前三個交易日收盤）÷5')
             ->assertSee('差值')
             ->assertSee('乖離')
             ->assertDontSee('乖離-差值')
@@ -109,6 +111,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('type="checkbox" checked disabled data-toggle-series="candles"', false)
             ->assertSee('type="checkbox" checked data-toggle-series="movingAverage"', false)
             ->assertSee('type="checkbox" checked data-toggle-series="dailyMa5"', false)
+            ->assertSee('type="checkbox" checked data-toggle-series="expectedDailyMa5"', false)
             ->assertSee('type="checkbox" checked data-toggle-series="gap"', false)
             ->assertSee('type="checkbox" data-toggle-series="bias"', false)
             ->assertDontSee('type="checkbox" data-toggle-series="biasGapDiff"', false)
@@ -117,6 +120,7 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertSee('candles: true', false)
             ->assertSee('movingAverage: true', false)
             ->assertSee('dailyMa5: true', false)
+            ->assertSee('expectedDailyMa5: true', false)
             ->assertSee('gap: true', false)
             ->assertSee('bias: false', false)
             ->assertDontSee('biasGapDiff: false', false)
@@ -276,6 +280,10 @@ class TwFuturesHourlyPricesTest extends TestCase
             $dailyRows,
             fn (array $row): bool => $row['bias'] !== null && $row['biasRate'] !== null,
         ));
+        $this->assertNotEmpty(array_filter(
+            $dailyRows,
+            fn (array $row): bool => $row['expectedDailyMa5'] !== null,
+        ));
         $this->assertArrayNotHasKey('biasGapDiff', $dailyRows[array_key_first($dailyRows)]);
 
         preg_match('/const hourlyChartRows = (.*);/', $content, $hourlyMatches);
@@ -289,6 +297,10 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertNotEmpty(array_filter(
             $hourlyRows,
             fn (array $row): bool => $row['bias'] !== null && $row['biasRate'] !== null,
+        ));
+        $this->assertNotEmpty(array_filter(
+            $hourlyRows,
+            fn (array $row): bool => $row['expectedDailyMa5'] !== null,
         ));
         $this->assertArrayNotHasKey('biasGapDiff', $hourlyRows[array_key_first($hourlyRows)]);
 
@@ -345,6 +357,7 @@ class TwFuturesHourlyPricesTest extends TestCase
                         'volume',
                         'movingAverage',
                         'dailyMa5',
+                        'expectedDailyMa5',
                         'gap',
                         'bias',
                         'biasRate',
@@ -372,6 +385,7 @@ class TwFuturesHourlyPricesTest extends TestCase
                     'latestClose',
                     'latestGap',
                     'latestDailyMa5',
+                    'latestExpectedDailyMa5',
                     'latestMovingAverage',
                     'latestBias',
                     'latestBiasRate',
@@ -533,6 +547,7 @@ class TwFuturesHourlyPricesTest extends TestCase
         $this->assertSame(30130.0, (float) $firstRows[array_key_last($firstRows)]['high']);
         $this->assertSame(30090.0, (float) $firstRows[array_key_last($firstRows)]['low']);
         $this->assertSame('2026-01-08 05:30', $firstRows[array_key_last($firstRows)]['localTime']);
+        $this->assertIsNumeric($firstRows[array_key_last($firstRows)]['expectedDailyMa5']);
 
         $secondResponse = $this->getJson(route('tw-stock.taiex-futures.kline.data', [
             'revision' => $firstResponse->json('dataRevision'),
@@ -544,6 +559,11 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->assertJsonPath('realtimeDelta', true)
             ->assertJsonPath('stats.latestClose', 30125)
             ->assertJsonPath('realtimeQuote.price', 30125);
+        $this->assertEqualsWithDelta(
+            (float) $firstResponse->json('stats.latestExpectedDailyMa5') + 0.8,
+            (float) $secondResponse->json('stats.latestExpectedDailyMa5'),
+            0.0001,
+        );
         $this->assertCount(1, array_filter([
             $secondResponse->json('latestChartRow'),
         ]));
@@ -1304,10 +1324,19 @@ class TwFuturesHourlyPricesTest extends TestCase
             ->where('started_at_unix', (int) $janFiveRow['time'] - 300)
             ->value('close_price');
         $expected = ($previousFiveMinuteCloses->sum() + $currentFiveMinuteClose) / 5;
+        $expectedProjected = (
+            $previousFiveMinuteCloses->slice(-3)->sum()
+            + ($currentFiveMinuteClose * 2)
+        ) / 5;
 
         $this->assertEqualsWithDelta($expected, (float) $janFiveRow['dailyMa5'], 0.0001);
+        $this->assertEqualsWithDelta($expectedProjected, (float) $janFiveRow['expectedDailyMa5'], 0.0001);
         $this->assertNotEquals(30020.0, (float) $janFiveRow['dailyMa5']);
         $this->assertNotEquals((float) $janFiveRow['dailyMa5'], (float) $janFiveLastRow['dailyMa5']);
+        $this->assertNotEquals(
+            (float) $janFiveRow['expectedDailyMa5'],
+            (float) $janFiveLastRow['expectedDailyMa5'],
+        );
     }
 
     public function test_taiex_futures_daily_fetcher_stores_rows_verified_by_self_calculation(): void

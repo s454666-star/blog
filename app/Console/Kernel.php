@@ -215,6 +215,13 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_daily_prices.log'));
 
+        $schedule->command('tw-stock:refresh-eps-growth-rankings')
+            ->weeklyOn(1, '09:00')
+            ->name('tw-stock-refresh-eps-growth-rankings-weekly')
+            ->withoutOverlapping(240)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_eps_growth_rankings.log'));
+
         $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=1 --market-data-only --min-volume-lots=1000 --sleep-ms=80 --skip-non-trading-day --keep-missing-market-data')
             ->dailyAt('16:15')
             ->name('tw-stock-refresh-q1-market-data-late')

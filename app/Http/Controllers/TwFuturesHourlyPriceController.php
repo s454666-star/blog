@@ -124,9 +124,14 @@ class TwFuturesHourlyPriceController extends Controller
         $movingAverage = (float) $latestMovingAverage
             + (($price - (float) $latestClose) / self::FIFTEEN_MINUTE_MA_WINDOW);
         $dailyMa5 = $payload['stats']['latestDailyMa5'] ?? null;
+        $expectedDailyMa5 = $payload['stats']['latestExpectedDailyMa5'] ?? null;
         $latestFiveMinuteClose = $payload['stats']['latestFiveMinuteClose'] ?? null;
         if (is_numeric($dailyMa5) && is_numeric($latestFiveMinuteClose)) {
             $dailyMa5 = (float) $dailyMa5 + (($price - (float) $latestFiveMinuteClose) / 5);
+        }
+        if (is_numeric($expectedDailyMa5) && is_numeric($latestFiveMinuteClose)) {
+            $expectedDailyMa5 = (float) $expectedDailyMa5
+                + ((($price - (float) $latestFiveMinuteClose) * 2) / 5);
         }
 
         $bias = $price - $movingAverage;
@@ -140,6 +145,7 @@ class TwFuturesHourlyPriceController extends Controller
             'close' => round($price, 4),
             'movingAverage' => round($movingAverage, 4),
             'dailyMa5' => is_numeric($dailyMa5) ? round((float) $dailyMa5, 4) : null,
+            'expectedDailyMa5' => is_numeric($expectedDailyMa5) ? round((float) $expectedDailyMa5, 4) : null,
             'gap' => $gap === null ? null : round($gap, 4),
             'bias' => round($bias, 4),
             'biasRate' => round($biasRate, 8),
@@ -160,9 +166,19 @@ class TwFuturesHourlyPriceController extends Controller
         $rows = $this->priceRows(self::SYMBOL, self::PRIMARY_INTERVAL);
         $fiveMinuteRows = $this->priceRows(self::SYMBOL, self::DAILY_MA_SOURCE_INTERVAL);
         $hourlyRows = $this->priceRows(self::SYMBOL, '60');
-        $dailyMa5ByTimestamp = $this->fiveMinuteDailyMa5ByTimestamp($fiveMinuteRows);
-        $indicatorRows = $this->indicatorRows($rows, self::FIFTEEN_MINUTE_MA_WINDOW, $dailyMa5ByTimestamp);
-        $hourlyIndicatorRows = $this->indicatorRows($hourlyRows, self::HOURLY_MA_WINDOW, $dailyMa5ByTimestamp);
+        $dailyAveragesByTimestamp = $this->fiveMinuteDailyAveragesByTimestamp($fiveMinuteRows);
+        $indicatorRows = $this->indicatorRows(
+            $rows,
+            self::FIFTEEN_MINUTE_MA_WINDOW,
+            $dailyAveragesByTimestamp['dailyMa5'],
+            $dailyAveragesByTimestamp['expectedDailyMa5'],
+        );
+        $hourlyIndicatorRows = $this->indicatorRows(
+            $hourlyRows,
+            self::HOURLY_MA_WINDOW,
+            $dailyAveragesByTimestamp['dailyMa5'],
+            $dailyAveragesByTimestamp['expectedDailyMa5'],
+        );
         $fourHourMa5Rows = $this->fourHourMa5Rows($hourlyIndicatorRows['chartRows'], $indicatorRows['chartRows']);
         $latest = $rows->last();
         $latestFiveMinute = $fiveMinuteRows->last();
@@ -186,6 +202,7 @@ class TwFuturesHourlyPriceController extends Controller
                 'latestClose' => $latest === null ? null : round((float) $latest->close_price, 2),
                 'latestGap' => $indicatorRows['latestGap'],
                 'latestDailyMa5' => $indicatorRows['latestDailyMa5'],
+                'latestExpectedDailyMa5' => $indicatorRows['latestExpectedDailyMa5'],
                 'latestFiveMinuteClose' => $latestFiveMinute === null
                     ? null
                     : round((float) $latestFiveMinute->close_price, 2),
@@ -356,6 +373,7 @@ class TwFuturesHourlyPriceController extends Controller
         $payload['stats']['latestClose'] = round($price, 2);
         $payload['stats']['latestGap'] = $liveRow['gap'];
         $payload['stats']['latestDailyMa5'] = $liveRow['dailyMa5'];
+        $payload['stats']['latestExpectedDailyMa5'] = $liveRow['expectedDailyMa5'];
         $payload['stats']['latestMovingAverage'] = $liveRow['movingAverage'];
         $payload['stats']['latestBias'] = $liveRow['bias'];
         $payload['stats']['latestBiasRate'] = $liveRow['biasRate'];
@@ -432,10 +450,15 @@ class TwFuturesHourlyPriceController extends Controller
             : null;
 
         $dailyMa5 = $payload['stats']['latestDailyMa5'] ?? null;
+        $expectedDailyMa5 = $payload['stats']['latestExpectedDailyMa5'] ?? null;
         $latestFiveMinuteClose = $payload['stats']['latestFiveMinuteClose'] ?? null;
         if (is_numeric($dailyMa5) && is_numeric($latestFiveMinuteClose)) {
             $dailyMa5 = (float) $dailyMa5
                 + (($realtimeQuote['price'] - (float) $latestFiveMinuteClose) / 5);
+        }
+        if (is_numeric($expectedDailyMa5) && is_numeric($latestFiveMinuteClose)) {
+            $expectedDailyMa5 = (float) $expectedDailyMa5
+                + ((($realtimeQuote['price'] - (float) $latestFiveMinuteClose) * 2) / 5);
         }
 
         $gap = is_numeric($dailyMa5) && $movingAverage !== null
@@ -461,6 +484,7 @@ class TwFuturesHourlyPriceController extends Controller
             'volume' => $replaceLatest ? (int) ($latestRow['volume'] ?? 0) : 0,
             'movingAverage' => $movingAverage === null ? null : round($movingAverage, 4),
             'dailyMa5' => is_numeric($dailyMa5) ? round((float) $dailyMa5, 4) : null,
+            'expectedDailyMa5' => is_numeric($expectedDailyMa5) ? round((float) $expectedDailyMa5, 4) : null,
             'gap' => $gap === null ? null : round($gap, 4),
             'bias' => $bias === null ? null : round($bias, 4),
             'biasRate' => $biasRate === null ? null : round($biasRate, 8),
@@ -506,27 +530,34 @@ class TwFuturesHourlyPriceController extends Controller
 
     /**
      * @param Collection<int, object> $rows
-     * @return array<int, float>
+     * @return array{dailyMa5: array<int, float>, expectedDailyMa5: array<int, float>}
      */
-    private function fiveMinuteDailyMa5ByTimestamp(Collection $rows): array
+    private function fiveMinuteDailyAveragesByTimestamp(Collection $rows): array
     {
         $previousDailyCloses = $this->previousComputedDailyCloses($rows);
         $dailyMa5ByTimestamp = [];
+        $expectedDailyMa5ByTimestamp = [];
 
         foreach ($rows as $row) {
             $tradeDate = $this->tradeDateString($row);
             $previous = $tradeDate !== null ? ($previousDailyCloses[$tradeDate] ?? []) : [];
-            if (count($previous) !== 4) {
-                continue;
+            $time = $this->displayTimestamp($row);
+            $close = (float) $row->close_price;
+            if (count($previous) === 4) {
+                $dailyMa5ByTimestamp[$time] = round((array_sum($previous) + $close) / 5, 4);
             }
-
-            $dailyMa5ByTimestamp[$this->displayTimestamp($row)] = round(
-                (array_sum($previous) + (float) $row->close_price) / 5,
-                4,
-            );
+            if (count($previous) >= 3) {
+                $expectedDailyMa5ByTimestamp[$time] = round(
+                    (array_sum(array_slice($previous, -3)) + ($close * 2)) / 5,
+                    4,
+                );
+            }
         }
 
-        return $dailyMa5ByTimestamp;
+        return [
+            'dailyMa5' => $dailyMa5ByTimestamp,
+            'expectedDailyMa5' => $expectedDailyMa5ByTimestamp,
+        ];
     }
 
     /**
@@ -563,6 +594,7 @@ class TwFuturesHourlyPriceController extends Controller
     /**
      * @param Collection<int, object> $rows
      * @param array<int, float> $dailyMa5ByTimestamp
+     * @param array<int, float> $expectedDailyMa5ByTimestamp
      * @return array{
      *     chartRows: list<array<string, mixed>>,
      *     dailyChartRows: list<array<string, mixed>>,
@@ -571,6 +603,7 @@ class TwFuturesHourlyPriceController extends Controller
      *     sessionGapRows: list<array<string, mixed>>,
      *     latestGap: float|null,
      *     latestDailyMa5: float|null,
+     *     latestExpectedDailyMa5: float|null,
      *     latestMovingAverage: float|null,
      *     latestBias: float|null,
      *     latestBiasRate: float|null,
@@ -578,7 +611,12 @@ class TwFuturesHourlyPriceController extends Controller
      *     minGap: float|null
      * }
      */
-    private function indicatorRows(Collection $rows, int $movingAverageWindowSize, array $dailyMa5ByTimestamp = []): array
+    private function indicatorRows(
+        Collection $rows,
+        int $movingAverageWindowSize,
+        array $dailyMa5ByTimestamp = [],
+        array $expectedDailyMa5ByTimestamp = [],
+    ): array
     {
         $previousDailyCloses = $this->previousComputedDailyCloses($rows);
 
@@ -601,6 +639,7 @@ class TwFuturesHourlyPriceController extends Controller
         $gaps = [];
         $latestGap = null;
         $latestDailyMa5 = null;
+        $latestExpectedDailyMa5 = null;
         $latestMovingAverage = null;
         $latestBias = null;
         $latestBiasRate = null;
@@ -623,6 +662,10 @@ class TwFuturesHourlyPriceController extends Controller
             $previous = $tradeDate !== null ? ($previousDailyCloses[$tradeDate] ?? []) : [];
             $dailyMa5 = $dailyMa5ByTimestamp[$time]
                 ?? (count($previous) === 4 ? (array_sum($previous) + $close) / 5 : null);
+            $expectedDailyMa5 = $expectedDailyMa5ByTimestamp[$time]
+                ?? (count($previous) >= 3
+                    ? (array_sum(array_slice($previous, -3)) + ($close * 2)) / 5
+                    : null);
             $gap = $dailyMa5 !== null && $movingAverage !== null ? $dailyMa5 - $movingAverage : null;
             $bias = $movingAverage !== null ? $close - $movingAverage : null;
             $biasRate = $bias !== null && $close !== 0.0 ? $bias / $close : null;
@@ -638,6 +681,10 @@ class TwFuturesHourlyPriceController extends Controller
                 $latestMovingAverage = $movingAverage;
                 $latestBias = $bias;
                 $latestBiasRate = $biasRate;
+            }
+
+            if ($expectedDailyMa5 !== null) {
+                $latestExpectedDailyMa5 = $expectedDailyMa5;
             }
 
             if ($gap !== null) {
@@ -696,6 +743,7 @@ class TwFuturesHourlyPriceController extends Controller
                 'volume' => (int) $row->volume_contracts,
                 'movingAverage' => $movingAverage === null ? null : round($movingAverage, 4),
                 'dailyMa5' => $dailyMa5 === null ? null : round($dailyMa5, 4),
+                'expectedDailyMa5' => $expectedDailyMa5 === null ? null : round($expectedDailyMa5, 4),
                 'gap' => $gap === null ? null : round($gap, 4),
                 'bias' => $bias === null ? null : round($bias, 4),
                 'biasRate' => $biasRate === null ? null : round($biasRate, 8),
@@ -713,6 +761,7 @@ class TwFuturesHourlyPriceController extends Controller
             'sessionGapRows' => array_slice(array_reverse($sessionGapRows), 0, 18),
             'latestGap' => $latestGap === null ? null : round($latestGap, 2),
             'latestDailyMa5' => $latestDailyMa5 === null ? null : round($latestDailyMa5, 2),
+            'latestExpectedDailyMa5' => $latestExpectedDailyMa5 === null ? null : round($latestExpectedDailyMa5, 2),
             'latestMovingAverage' => $latestMovingAverage === null ? null : round($latestMovingAverage, 2),
             'latestBias' => $latestBias === null ? null : round($latestBias, 2),
             'latestBiasRate' => $latestBiasRate === null ? null : round($latestBiasRate, 6),
@@ -743,6 +792,7 @@ class TwFuturesHourlyPriceController extends Controller
                     'volume' => 0,
                     'movingAverage' => null,
                     'dailyMa5' => null,
+                    'expectedDailyMa5' => null,
                     'gap' => null,
                     'bias' => null,
                     'biasRate' => null,
@@ -759,6 +809,9 @@ class TwFuturesHourlyPriceController extends Controller
             }
             if ($row['dailyMa5'] !== null) {
                 $groups[$tradeDate]['dailyMa5'] = (float) $row['dailyMa5'];
+            }
+            if ($row['expectedDailyMa5'] !== null) {
+                $groups[$tradeDate]['expectedDailyMa5'] = (float) $row['expectedDailyMa5'];
             }
             if ($row['gap'] !== null) {
                 $groups[$tradeDate]['gap'] = (float) $row['gap'];
@@ -777,6 +830,7 @@ class TwFuturesHourlyPriceController extends Controller
         foreach ($groups as $tradeDate => $group) {
             $close = (float) $group['close'];
             $dailyMa5 = $group['dailyMa5'] === null ? null : (float) $group['dailyMa5'];
+            $expectedDailyMa5 = $group['expectedDailyMa5'] === null ? null : (float) $group['expectedDailyMa5'];
             $movingAverage = $group['movingAverage'] === null ? null : (float) $group['movingAverage'];
             $gap = $group['gap'] === null ? null : (float) $group['gap'];
             $bias = $group['bias'] === null ? null : (float) $group['bias'];
@@ -795,6 +849,7 @@ class TwFuturesHourlyPriceController extends Controller
                 'volume' => (int) $group['volume'],
                 'movingAverage' => $movingAverage === null ? null : round($movingAverage, 4),
                 'dailyMa5' => $dailyMa5 === null ? null : round($dailyMa5, 4),
+                'expectedDailyMa5' => $expectedDailyMa5 === null ? null : round($expectedDailyMa5, 4),
                 'gap' => $gap === null ? null : round($gap, 4),
                 'bias' => $bias === null ? null : round($bias, 4),
                 'biasRate' => $biasRate === null ? null : round($biasRate, 8),

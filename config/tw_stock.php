@@ -40,8 +40,18 @@ return [
         'forecast_years' => [2026, 2027, 2028],
         'lookback_days' => 400,
         'minimum_eligible' => 50,
-        'neutral_estimate_stock_codes' => ['2455', '3081', '4971', '7711'],
+        'neutral_estimate_stock_codes' => ['2455', '3081', '3167', '4971', '7711'],
         'manual_neutral_forecasts' => [
+            '3167' => [
+                'stock_name' => '大量',
+                'forecast_date' => '2026-06-11',
+                'eps_2025' => 8.13,
+                'eps_2026' => 19.53,
+                'eps_2027' => 30.59,
+                'analyst_count' => 1,
+                'source_label' => '富果研究員預估',
+                'source_url' => 'https://www.monsonwu.com/2026/07/3167.two.html',
+            ],
             '4971' => [
                 'stock_name' => 'IET-KY',
                 'forecast_date' => '2026-08-31',

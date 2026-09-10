@@ -17,6 +17,7 @@
             --red: #ef5350;
             --yellow: #facc15;
             --pink: #f472b6;
+            --emerald: #34d399;
             --blue: #60a5fa;
             --orange: #f59e0b;
             --violet: #a78bfa;
@@ -486,6 +487,7 @@
                 <span class="legend-item" data-series-control="candles"><label class="legend-toggle"><input type="checkbox" checked disabled data-toggle-series="candles" aria-label="K 線固定顯示"><span class="swatch" style="background: var(--blue)"></span>週期 <strong data-legend-timeframe>15分K</strong></label></span>
                 <span class="legend-item" data-series-control="movingAverage"><label class="legend-toggle"><input type="checkbox" checked data-toggle-series="movingAverage" aria-label="顯示均線"><span class="swatch" style="background: var(--yellow)"></span><span data-legend-ma-label>15K</span> <strong data-legend-ma>--</strong></label></span>
                 <span class="legend-item" data-series-control="dailyMa5"><label class="legend-toggle"><input type="checkbox" checked data-toggle-series="dailyMa5" aria-label="顯示日 MA5"><span class="swatch" style="background: var(--pink)"></span>日 MA5 <strong data-legend-daily-ma5>--</strong></label></span>
+                <span class="legend-item" data-series-control="expectedDailyMa5" title="（目前價格×2＋前三個交易日收盤）÷5"><label class="legend-toggle"><input type="checkbox" checked data-toggle-series="expectedDailyMa5" aria-label="顯示預期 MA5"><span class="swatch" style="background: var(--emerald)"></span>預期 MA5 <strong data-legend-expected-daily-ma5>--</strong></label></span>
                 <span class="legend-item" data-series-control="gap"><label class="legend-toggle"><input type="checkbox" checked data-toggle-series="gap" aria-label="顯示差值"><span class="swatch" style="background: var(--orange)"></span>差值 <strong data-legend-gap>--</strong></label></span>
                 <span class="legend-item" data-series-control="bias"><label class="legend-toggle"><input type="checkbox" data-toggle-series="bias" aria-label="顯示乖離"><span class="swatch" style="background: var(--violet)"></span>乖離 <strong data-legend-bias>--</strong></label></span>
                 <span class="legend-item" data-series-control="biasRate"><label class="legend-toggle"><input type="checkbox" checked data-toggle-series="biasRate" aria-label="顯示乖離率"><span class="swatch" style="background: var(--cyan)"></span>乖離率 <strong data-legend-bias-rate>--</strong></label></span>
@@ -598,6 +600,7 @@
         candles: true,
         movingAverage: true,
         dailyMa5: true,
+        expectedDailyMa5: true,
         gap: true,
         bias: false,
         biasRate: true
@@ -720,6 +723,14 @@
     const dailyMa5Series = chart.addLineSeries({
         color: '#f472b6',
         lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: false
+    });
+
+    const expectedDailyMa5Series = chart.addLineSeries({
+        color: '#34d399',
+        lineWidth: 2,
+        lineStyle: LightweightCharts.LineStyle.Dashed,
         priceLineVisible: false,
         lastValueVisible: false
     });
@@ -1226,6 +1237,7 @@
         candles: [candleSeries, volumeSeries],
         movingAverage: [movingAverageSeries],
         dailyMa5: [dailyMa5Series],
+        expectedDailyMa5: [expectedDailyMa5Series],
         gap: [gapSeries, gapHistogramSeries, gapZeroSeries],
         bias: [biasSeries],
         biasRate: [biasRateSeries]
@@ -1526,6 +1538,7 @@
         movingAverageLabel: document.querySelector('[data-legend-ma-label]'),
         movingAverage: document.querySelector('[data-legend-ma]'),
         dailyMa5: document.querySelector('[data-legend-daily-ma5]'),
+        expectedDailyMa5: document.querySelector('[data-legend-expected-daily-ma5]'),
         gap: document.querySelector('[data-legend-gap]'),
         bias: document.querySelector('[data-legend-bias]'),
         biasRate: document.querySelector('[data-legend-bias-rate]')
@@ -1713,12 +1726,14 @@
         volumeSeries.update(volumeData([row])[0]);
         const movingAveragePoint = lineData([row], 'movingAverage')[0];
         const dailyMa5Point = lineData([row], 'dailyMa5')[0];
+        const expectedDailyMa5Point = lineData([row], 'expectedDailyMa5')[0];
         const gapPoint = lineData([row], 'gap')[0];
         const biasPoint = lineData([row], 'bias')[0];
         const biasRatePoint = lineData([row], 'biasRate')[0];
         const gapZeroPoint = gapZeroData([row])[0];
         if (movingAveragePoint) movingAverageSeries.update(movingAveragePoint);
         if (dailyMa5Point) dailyMa5Series.update(dailyMa5Point);
+        if (expectedDailyMa5Point) expectedDailyMa5Series.update(expectedDailyMa5Point);
         if (gapPoint) {
             gapSeries.update(gapPoint);
             gapHistogramSeries.update(gapHistogramData([gapPoint])[0]);
@@ -1792,6 +1807,7 @@
         fields.close.textContent = format(row?.close);
         fields.movingAverage.textContent = format(row?.movingAverage);
         fields.dailyMa5.textContent = format(row?.dailyMa5);
+        fields.expectedDailyMa5.textContent = format(row?.expectedDailyMa5);
         fields.gap.textContent = format(row?.gap, 0, true);
         fields.gap.className = Number(row?.gap || 0) >= 0 ? 'positive' : 'negative';
         fields.bias.textContent = format(row?.bias, 0, true);
@@ -1858,6 +1874,7 @@
         volumeSeries.setData(volumeData(currentRows));
         movingAverageSeries.setData(movingAverageData);
         dailyMa5Series.setData(lineData(currentRows, 'dailyMa5'));
+        expectedDailyMa5Series.setData(lineData(currentRows, 'expectedDailyMa5'));
         gapSeries.setData(gapData);
         biasSeries.setData(lineData(currentRows, 'bias'));
         biasRateSeries.setData(lineData(currentRows, 'biasRate'));

@@ -335,7 +335,64 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('全新')
             ->assertSee('聯亞')
             ->assertSee('中性估算')
-            ->assertSee('4 檔固定參考股的 2028E 中性估算');
+            ->assertSee('5 檔固定參考股的 2028E 中性估算');
+    }
+
+    public function test_large_is_included_as_a_ranked_neutral_estimate(): void
+    {
+        config()->set('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', ['3167']);
+        config()->set('tw_stock.eps_growth_ranking.manual_neutral_forecasts', [
+            '3167' => [
+                'stock_name' => '大量',
+                'forecast_date' => '2026-06-11',
+                'eps_2025' => 8.13,
+                'eps_2026' => 19.53,
+                'eps_2027' => 30.59,
+                'analyst_count' => 1,
+                'source_label' => '富果研究員預估',
+                'source_url' => 'https://example.test/taliang-forecast',
+            ],
+        ]);
+        $this->insertPrices('2026-08-11', 100, 200);
+        DB::table('tw_stock_daily_prices')->insert([
+            'exchange' => 'TWSE',
+            'stock_code' => '3167',
+            'stock_name' => '大量',
+            'trade_date' => '2026-08-11',
+            'close_price' => 500,
+            'volume_lots' => 1,
+            'volume_shares' => 1000,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->artisan('tw-stock:refresh-eps-growth-rankings', [
+            '--date' => '2026-08-11',
+            '--lookback-days' => 35,
+            '--sleep-ms' => 0,
+            '--minimum-eligible' => 3,
+        ])->assertSuccessful();
+
+        $large = DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '3167')->first();
+        $this->assertNotNull($large);
+        $this->assertSame(1, (int) $large->rank);
+        $this->assertSame(1, (int) $large->is_neutral_estimate);
+        $this->assertEqualsWithDelta(8.13, (float) $large->eps_2025, 0.001);
+        $this->assertEqualsWithDelta(19.53, (float) $large->eps_2026, 0.001);
+        $this->assertEqualsWithDelta(30.59, (float) $large->eps_2027, 0.001);
+        $this->assertEqualsWithDelta(
+            round(30.59 * (1 + (((30.59 / 19.53) - 1) * 0.5)), 4),
+            (float) $large->eps_2028,
+            0.001,
+        );
+
+        $this->get(route('tw-stock.eps-growth-rankings.index'))
+            ->assertOk()
+            ->assertSee('大量')
+            ->assertSee('3167')
+            ->assertSee('中性估算')
+            ->assertSee('富果研究員預估')
+            ->assertSee('https://example.test/taliang-forecast', false);
     }
 
     public function test_configured_reference_forecasts_include_iet_and_asrock_rack_in_both_modes(): void

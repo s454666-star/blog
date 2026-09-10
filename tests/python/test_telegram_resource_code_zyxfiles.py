@@ -81,6 +81,7 @@ class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
             "xvngkllbot:AbC-123": "XVNgkllbot:AbC-123",
             "PXXXAJSBOT_file_N7-z6": "PxxxaJSbot_file_N7-z6",
             "QZCCUJSBOT_file_N7-z6": "QzccuJSbot_file_N7-z6",
+            "SHUTTLE67BOT_file_S8-a3": "shuttle67bot_file_S8-a3",
             "PXXQZJZJSBOT_file_X9-y8": "PxxqzjzJSbot_file_X9-y8",
             "nw_file_X7-y9": "NW_file_X7-y9",
         }
@@ -94,6 +95,7 @@ class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
             "XVNgkllbot:AbC-123",
             "PxxxaJSbot_file_N7-z6",
             "QzccuJSbot_file_N7-z6",
+            "shuttle67bot_file_S8-a3",
             "PxxqzjzJSbot_file_X9-y8",
             "NW_file_X7-y9",
         ):

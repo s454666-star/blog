@@ -45,6 +45,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const PXXQZJZJSBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])PxxqzjzJSbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const NW_CODE_REGEX = '/(?<![A-Za-z0-9_])NW[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const NW_UNDERSCORE_CODE_REGEX = '/(?<![A-Za-z0-9_])NW_[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
+    private const SHUTTLE67BOT_CODE_REGEX = '/(?<![A-Za-z0-9_])shuttle67bot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
     private const ACCOUNT_LIMIT_COOLDOWN_SECONDS = 900;
@@ -541,6 +542,7 @@ class ProcessTelegramResourceCodesCommand extends Command
             12 => self::NW_CODE_REGEX,
             13 => self::QZCCUJSBOT_CODE_REGEX,
             14 => self::NW_UNDERSCORE_CODE_REGEX,
+            15 => self::SHUTTLE67BOT_CODE_REGEX,
             default => self::HEX_CODE_REGEX,
         };
     }
@@ -601,6 +603,10 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         if ($codeType === 14) {
             return (string) preg_replace('/^NW_/i', 'NW_', $code);
+        }
+
+        if ($codeType === 15) {
+            return (string) preg_replace('/^shuttle67bot/i', 'shuttle67bot', $code);
         }
 
         return $code;

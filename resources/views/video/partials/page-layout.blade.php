@@ -1,8 +1,9 @@
 <!-- === 主面人臉開關按鈕 === -->
-<button id="toggle-master-faces" title="展開 / 收合主面人臉">☰</button>
+<a class="library-skip-link" href="#videos-list">跳至影片列表</a>
+<button id="toggle-master-faces" type="button" title="展開 / 收合主面人臉" aria-label="展開 / 收合主面人臉" aria-controls="master-faces-panel">☰</button>
 
 <!-- ===== 主面人臉側欄 ===== -->
-<div class="master-faces">
+<aside class="master-faces" id="master-faces-panel" aria-label="主面人臉">
     <div class="master-faces-header">
         <div class="master-faces-title-wrap">
             <h5>主面人臉</h5>
@@ -10,25 +11,55 @@
     </div>
     <div id="master-faces-status" class="master-faces-status">主面人臉載入中...</div>
     <div class="master-face-images"></div>
-</div>
+</aside>
 
 <!-- ===== 內容區 ===== -->
-<div class="container mt-4">
-    <div id="message-container" class="message-container"></div>
+<main class="container mt-4">
+    <header class="library-header">
+        <div>
+            <span class="library-eyebrow">VIDEO LIBRARY</span>
+            <h1>影片資料庫</h1>
+            <p>瀏覽、搜尋與整理，在同一個地方完成。</p>
+        </div>
+        <nav class="library-actions" aria-label="列表工具">
+            <button type="button" id="library-search" class="library-button library-button--primary">搜尋影片</button>
+            <button type="button" id="library-settings" class="library-button">顯示設定</button>
+        </nav>
+    </header>
+    <div class="library-summary" aria-label="目前篩選條件">
+        <strong>{{ number_format($videos->total()) }} 部影片</strong>
+        <span>類別 {{ $videoType }}</span>
+        <span>{{ $sortBy === 'duration' ? '依時長' : '依先後' }} · {{ $sortDir === 'asc' ? '由小到大' : '由大到小' }}</span>
+        @if($missingOnly)<span>未選主面</span>@endif
+        @if($keyword !== '')<span>搜尋：{{ $keyword }}</span>@endif
+    </div>
+    <div id="message-container" class="message-container" role="status" aria-live="polite" aria-relevant="additions"></div>
 
-    <div id="videos-list">
+    <div id="videos-list" tabindex="-1" aria-label="影片列表" aria-busy="false">
+        @if($videos->isEmpty())
+            <section class="library-empty">
+                <span class="library-empty-mark" aria-hidden="true">⌕</span>
+                <h2>目前沒有符合條件的影片</h2>
+                <p>試試其他關鍵字，或調整類別與篩選條件。</p>
+                <a class="library-button" href="{{ route('video.index') }}">重設篩選</a>
+            </section>
+        @endif
         @include('video.partials.video_rows', ['videos' => $videos])
     </div>
 
-    <div id="load-more" class="text-center my-4" style="display:none">
+    <div id="load-more" class="text-center my-4" role="status" aria-live="polite" style="display:none">
         <p>正在載入更多影片...</p>
     </div>
-</div>
+    <div id="load-retry" class="library-load-retry" hidden>
+        <span>暫時無法載入影片，已保留目前的列表。</span>
+        <button type="button" class="library-button">重新載入</button>
+    </div>
+</main>
 
 <!-- ===== 全螢幕控制按鈕 ===== -->
 <div id="fullscreen-controls" class="fullscreen-controls">
-    <button id="prev-video-btn" class="prev-video-btn">❮</button>
-    <button id="next-video-btn" class="next-video-btn">❯</button>
+    <button id="prev-video-btn" class="prev-video-btn" aria-label="上一部影片">❮</button>
+    <button id="next-video-btn" class="next-video-btn" aria-label="下一部影片">❯</button>
 </div>
 
 <!-- ===== 控制列開關 ===== -->

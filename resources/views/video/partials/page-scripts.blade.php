@@ -11,6 +11,7 @@
     let nextPage = {{ $nextPage ?? 'null' }};
     let prevPage = {{ $prevPage ?? 'null' }};
     let loading = false;
+    let failedPageLoad = null;
 
     let videoList = [];
     let currentVideoIndex = 0;
@@ -77,7 +78,7 @@
             $msg.fadeOut(500, () => {
                 $msg.remove();
             });
-        }, 1000);
+        }, type === 'success' ? 3500 : 7000);
     }
 
     function getCurrentFocusedVideoId() {
@@ -403,7 +404,10 @@
         }
 
         loading = true;
-        $('#load-more').show();
+        failedPageLoad = null;
+        $('#load-retry').prop('hidden', true);
+        $('#videos-list').attr('aria-busy', 'true');
+        $('#load-more').text('正在載入更多影片…').show();
 
         const data = buildListingQueryParams({
             page: target ?? (dir === 'down' ? nextPage : prevPage),
@@ -413,6 +417,7 @@
         $.ajax({
             url: "{{ route('video.loadMore') }}",
             method: 'GET',
+            timeout: 20000,
             data,
             success(res) {
                 if (res && res.success && res.data.trim()) {
@@ -444,8 +449,13 @@
             },
             error() {
                 showMessage('error', '載入失敗，請稍後再試。');
+                failedPageLoad = { dir, target };
+                $('#load-retry').prop('hidden', false);
                 loading = false;
                 $('#load-more').hide();
+            },
+            complete() {
+                $('#videos-list').attr('aria-busy', 'false');
             }
         });
     }
@@ -833,9 +843,20 @@
         $(document).on('ended', 'video', onVideoEnded);
 
         /* --- 捲動載入更多 --- */
-        $(window).scroll(() => {
-            if ($(window).scrollTop() <= 100) loadMoreVideos('up');
-            if ($(window).scrollTop() + $(window).height() >= $(document).height() - 100) loadMoreVideos('down');
+        let scrollFramePending = false;
+        window.addEventListener('scroll', () => {
+            if (scrollFramePending || loading || failedPageLoad) return;
+            scrollFramePending = true;
+            requestAnimationFrame(() => {
+                scrollFramePending = false;
+                if (loading || failedPageLoad) return;
+                const top = window.scrollY;
+                if (top <= 100) loadMoreVideos('up');
+                if (top + window.innerHeight >= document.documentElement.scrollHeight - 100) loadMoreVideos('down');
+            });
+        }, { passive: true });
+        $('#load-retry button').on('click', () => {
+            if (failedPageLoad) loadMoreVideos(failedPageLoad.dir, failedPageLoad.target);
         });
 
         /* --- 全螢幕變動 --- */
@@ -1365,6 +1386,13 @@
         const $masterSearchContextState = $('#master-search-context-state');
         let controlsOpen = false;
         let masterSearchOpen = normalizeKeyword(searchKeyword) !== '';
+        $('#library-search').on('click', function (event) {
+            event.stopPropagation();
+            openMasterSearchPanel(true);
+        });
+        $('#library-settings').on('click', () => {
+            updateControlsToggleState(!controlsOpen);
+        });
 
         function syncMasterSearchState() {
             const activeKeyword = normalizeKeyword(searchKeyword);
@@ -1372,7 +1400,8 @@
 
             $masterSearchPanel
                 .toggleClass('is-open', masterSearchOpen)
-                .attr('aria-hidden', String(!masterSearchOpen));
+                .attr('aria-hidden', String(!masterSearchOpen))
+                .prop('inert', !masterSearchOpen);
 
             $masterSearchToggle
                 .toggleClass('is-active', masterSearchOpen || activeKeyword !== '')
@@ -1443,8 +1472,8 @@
             }
         }
 
-        // 預設展開（You can set collapsed=true if you want）
-        let collapsed = false;
+        // 手機先收合側欄，保留列表的可用空間。
+        let collapsed = window.matchMedia('(max-width: 768px)').matches;
         updateToggleState(collapsed);
         syncMasterSearchState();
 
@@ -1519,6 +1548,8 @@
 
         // const $btnToggle = $('#toggle-master-faces');
         function updateBtnPos(collapsed) {
+            $btnToggle.attr('aria-expanded', String(!collapsed));
+            $sidebar.prop('inert', collapsed);
             collapsed ? $btnToggle.removeClass('inside')
                 : $btnToggle.addClass('inside');
         }
@@ -1527,6 +1558,7 @@
             controlsOpen = !!open;
 
             $controls.toggleClass('controls-open', controlsOpen);
+            $controls.prop('inert', !controlsOpen);
             $content.toggleClass('controls-open', controlsOpen);
             $masterSearchShell.toggleClass('controls-open', controlsOpen);
             $controlsToggle

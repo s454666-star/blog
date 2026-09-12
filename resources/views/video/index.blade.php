@@ -2,6 +2,7 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>影片列表</title>
 
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css">
@@ -9,6 +10,7 @@
 
     <style>
 @include('video.partials.page-styles')
+@include('video.partials.library-styles')
     </style>
 </head>
 <body>

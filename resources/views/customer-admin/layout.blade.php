@@ -47,13 +47,15 @@
         @media(max-width:700px){.app{display:block}.sidebar{position:fixed;z-index:20;bottom:0;top:auto;width:100%;height:70px;display:flex;padding:8px;background:rgba(8,10,25,.95);border:0;border-top:1px solid var(--line)}.brand,.nav-label,.logout{display:none}.sidebar nav{display:flex;width:100%;justify-content:space-around}.nav-link{margin:0;padding:10px 12px}.content{padding:22px 14px 95px}.topbar{align-items:flex-start}.page-title{font-size:24px}.top-actions{flex-wrap:wrap;justify-content:flex-end}.stat-grid{grid-template-columns:1fr 1fr;gap:10px}.stat{padding:16px}.stat-value{font-size:22px}.form-grid{grid-template-columns:1fr}.field.wide{grid-column:auto}.customer-lookup{grid-column:auto}.customer-lookup-head{grid-template-columns:1fr}.customer-info{grid-template-columns:1fr 1fr}.input-with-action{grid-template-columns:1fr}.date-actions .btn{flex:1}.date-picker-popover{left:0;right:auto;width:min(320px,100%)}.item-row{grid-template-columns:1fr 1fr}.item-row>div:first-child{grid-column:1/-1}.table-tools{flex-direction:column}.search{max-width:none;width:100%}.table-tool-actions{width:100%;justify-content:space-between}.form-panel{padding:17px}.pagination{padding:12px}.crm-pagination{grid-template-columns:auto minmax(0,1fr) auto;gap:8px}.crm-pagination-pages{justify-content:flex-start;overflow-x:auto;padding:2px}.crm-pagination-link{min-height:34px;padding:0 9px}.crm-pagination-page{min-width:34px;flex:0 0 auto}}
     </style>
     @stack('head')
+    @include('customer-admin.experience')
 </head>
 <body>
+<a class="skip-link" href="#main-content">跳至主要內容</a>
 <div class="app">
     <aside class="sidebar">
         <a class="brand" href="{{ route('customer-admin.dashboard') }}"><b class="brand-mark">S</b><span>STAR CRM</span></a>
         <div class="nav-label">工作空間</div>
-        <nav>
+        <nav aria-label="主要導覽">
             <a class="nav-link {{ request()->routeIs('customer-admin.dashboard') ? 'active' : '' }}" href="{{ route('customer-admin.dashboard') }}"><b class="nav-icon">⌂</b><span>總覽</span></a>
             @foreach(['contacts'=>['◇','接洽人'],'products'=>['◆','商品'],'orders'=>['▣','訂單']] as $key=>$nav)
                 <a class="nav-link {{ request()->route('module') === $key ? 'active' : '' }}" href="{{ route('customer-admin.module.index', $key) }}"><b class="nav-icon">{{ $nav[0] }}</b><span>{{ $nav[1] }}</span></a>
@@ -61,7 +63,7 @@
         </nav>
         <form class="logout" method="post" action="{{ route('customer-admin.logout') }}">@csrf<button type="submit">↪ <span>安全登出</span></button></form>
     </aside>
-    <main class="content">
+    <main class="content" id="main-content">
         <header class="topbar">
             <div><div class="eyebrow">Customer relationship management</div><h1 class="page-title">@yield('title', '營運總覽')</h1></div>
             <div class="top-actions">
@@ -69,11 +71,12 @@
                 @yield('top-action')
             </div>
         </header>
-        @if(session('success'))<div class="flash">✓ {{ session('success') }}</div>@endif
-        @if($errors->any())<div class="errors"><strong>請確認以下欄位：</strong><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
+        @if(session('success'))<div class="flash" role="status">✓ {{ session('success') }}</div>@endif
+        @if($errors->any())<div class="errors" role="alert"><strong>請確認以下欄位：</strong><ul>@foreach($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>@endif
         @yield('content')
     </main>
 </div>
 @stack('scripts')
+@include('customer-admin.experience-script')
 </body>
 </html>

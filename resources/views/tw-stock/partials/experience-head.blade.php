@@ -5,5 +5,5 @@
         ? 'https://mystar.monster/'
         : rtrim(asset(''), '/') . '/';
 @endphp
-<link rel="stylesheet" href="{{ $stockExperienceAssetRoot }}css/tw-stock-experience.css?v=20260912-1">
-<script src="{{ $stockExperienceAssetRoot }}js/tw-stock-experience.js?v=20260912-1" defer></script>
+<link rel="stylesheet" href="{{ $stockExperienceAssetRoot }}css/tw-stock-experience.css?v=20260913-1">
+<script src="{{ $stockExperienceAssetRoot }}js/tw-stock-experience.js?v=20260913-1" defer></script>

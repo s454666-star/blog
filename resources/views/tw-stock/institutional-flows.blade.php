@@ -401,8 +401,9 @@
         }
 @include('tw-stock.partials.shared-shell-width')
     </style>
+    @include('tw-stock.partials.experience-head')
 </head>
-<body>
+<body class="tw-stock-experience">
 @php
     $format100m = static function ($value): string {
         return $value === null ? 'N/A' : number_format((float) $value, 2);

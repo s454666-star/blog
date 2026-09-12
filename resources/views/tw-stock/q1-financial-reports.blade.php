@@ -1096,8 +1096,9 @@
         }
 @include('tw-stock.partials.shared-shell-width')
     </style>
+    @include('tw-stock.partials.experience-head')
 </head>
-<body>
+<body class="tw-stock-experience">
 @php
     $fmt = fn ($value, int $decimals = 2): string => $value === null ? '--' : number_format((float) $value, $decimals);
     $pctText = fn ($value): string => $value === null ? '--' : number_format((float) $value, 2, '.', '') . '%';

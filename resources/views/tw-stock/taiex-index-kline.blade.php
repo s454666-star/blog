@@ -319,8 +319,9 @@
 
         @include('tw-stock.partials.shared-shell-width')
     </style>
+    @include('tw-stock.partials.experience-head')
 </head>
-<body>
+<body class="tw-stock-experience">
 <main class="shell">
     <header class="topbar">
         <div class="title-row">

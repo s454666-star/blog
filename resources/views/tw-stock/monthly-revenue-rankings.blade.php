@@ -504,8 +504,9 @@
             h1 { font-size: 30px; }
         }
     </style>
+    @include('tw-stock.partials.experience-head')
 </head>
-<body>
+<body class="tw-stock-experience">
 @php
     $periodLabel = sprintf('%04d/%02d', $year, $month);
     $periodValue = sprintf('%04d-%02d', $year, $month);

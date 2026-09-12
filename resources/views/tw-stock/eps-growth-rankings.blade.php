@@ -586,8 +586,9 @@
 
         @include('tw-stock.partials.shared-shell-width')
     </style>
+    @include('tw-stock.partials.experience-head')
 </head>
-<body>
+<body class="tw-stock-experience">
 <div class="aurora one"></div>
 <div class="aurora two"></div>
 

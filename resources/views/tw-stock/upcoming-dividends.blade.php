@@ -421,8 +421,9 @@
         }
 @include('tw-stock.partials.shared-shell-width')
     </style>
+    @include('tw-stock.partials.experience-head')
 </head>
-<body>
+<body class="tw-stock-experience">
 @php
     $formatPrice = static fn ($value): string => $value === null ? 'N/A' : number_format((float) $value, 2);
     $formatDividend = static fn ($value): string => $value === null ? 'N/A' : number_format((float) $value, 4);

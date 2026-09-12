@@ -1,0 +1,133 @@
+/* Shared market workspace. Only explicitly opted-in pages receive these styles. */
+body.tw-stock-experience {
+    --sx-mint: #8be3cd;
+    --sx-gold: #efcf88;
+    --sx-line: rgba(169, 209, 194, .2);
+    --sx-surface: #152923;
+    background: radial-gradient(ellipse at 85% 0, #1c3b32 0, transparent 46%), #0c1916;
+    font-family: "Segoe UI", "Microsoft JhengHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+.tw-stock-experience::before { animation: none; opacity: .25; background-size: 64px 64px; }
+.tw-stock-experience::after { display: none; }
+.tw-stock-experience .aurora { display: none; }
+.tw-stock-experience :is(.shell, .page-shell) { padding-top: 28px; padding-bottom: 100px; }
+.tw-stock-experience :is(.topbar, .hero) {
+    display: flex; flex-direction: column; align-items: stretch; gap: 16px;
+    padding: clamp(20px, 2vw, 28px); margin-bottom: 24px;
+    background: linear-gradient(120deg, rgba(34, 65, 53, .92), rgba(17, 34, 29, .96));
+    border: 1px solid var(--sx-line); border-radius: 24px;
+    box-shadow: 0 20px 70px #0002, inset 0 1px #ffffff08;
+    overflow: visible; position: relative; color: #eff7f3;
+}
+.tw-stock-experience .hero::before { display: none; }
+.tw-stock-experience .hero :is(h1, .hero-copy, .hero-meta, .snapshot-picker) { margin-top: 0; margin-bottom: 0; }
+.tw-stock-experience :is(.topbar, .hero) h1 { color: #f2f8f5; font-size: clamp(26px, 3vw, 44px); line-height: 1.25; letter-spacing: -.035em; text-wrap: balance; }
+.tw-stock-experience :is(.topbar .meta, .hero-copy) { color: #b5c8bf; font-size: 13px; line-height: 1.8; max-width: 100ch; }
+.tw-stock-experience .eyebrow { color: #c5e5d8; font-size: 11px; letter-spacing: .13em; background: transparent; border: 0; padding: 0; box-shadow: none; }
+.tw-stock-experience .eyebrow::before { box-shadow: none; background: var(--sx-gold); }
+.tw-stock-experience :is(.nav-actions, nav.nav) {
+    display: flex; flex-wrap: nowrap; gap: 5px; justify-content: flex-start;
+    width: 100%; max-width: none; margin: 0; padding: 6px;
+    background: #09181280; border: 1px solid var(--sx-line); border-radius: 15px;
+    overflow-x: auto; scrollbar-width: thin; scrollbar-color: #5c8d78 transparent;
+    scroll-padding-inline: 6px;
+}
+.tw-stock-experience :is(.nav-actions, nav.nav) a {
+    flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+    min-height: 44px; padding: 10px 17px; border: 1px solid transparent;
+    border-radius: 10px; color: #b8cfc3; background: transparent;
+    font-size: 13px; line-height: 1.4; font-weight: 650; white-space: nowrap;
+    box-shadow: none; text-decoration: none; position: relative;
+    transition: color .16s, background-color .16s, border-color .16s;
+}
+.tw-stock-experience :is(.nav-actions, nav.nav) a:hover { color: #fff; background: #ffffff0e; transform: none; border-color: #c3e2d125; }
+.tw-stock-experience :is(.nav-actions, nav.nav) a.active {
+    background: linear-gradient(125deg, #eed79c, #9fdfbd); color: #11291e;
+    border-color: #e5e9b5; box-shadow: 0 3px 14px #9edfb91a;
+}
+.tw-stock-experience .sx-utilities { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 0; }
+.tw-stock-experience .sx-utilities button, .tw-stock-experience .sx-top {
+    display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 13px;
+    border: 1px solid #739a853d; border-radius: 10px; background: #12281f;
+    color: #d3e5db; font: 600 12px/1.4 "Segoe UI", "Microsoft JhengHei", sans-serif; cursor: pointer;
+    transition: border-color .16s, background-color .16s;
+}
+.tw-stock-experience .sx-utilities button:hover, .tw-stock-experience .sx-top:hover { background: #284b3b; border-color: #9ed4ba; }
+.tw-stock-experience .sx-utilities button[aria-pressed="true"] { border-color: var(--sx-mint); color: var(--sx-mint); }
+.tw-stock-experience .sx-utility-note { color: #9cb5a8; font-size: 11px; margin-left: auto; }
+.tw-stock-experience kbd { font: 11px/1.4 "Segoe UI", sans-serif; border: 1px solid #7aa38b55; border-radius: 5px; padding: 2px 5px; color: #d2e5d9; }
+.tw-stock-experience :is(.summary-card, .etf-card, .stock-card) { border-radius: 18px; box-shadow: 0 8px 22px #0000000c; transition: border-color .18s, box-shadow .18s, transform .18s; }
+.tw-stock-experience :is(.summary-card, .etf-card)::before { animation: none; }
+.tw-stock-experience .summary-card { border-top: 3px solid #90b8a2; }
+.tw-stock-experience .summary-card:nth-child(3n + 2) { border-top-color: #d9bc7d; }
+.tw-stock-experience .summary-card:nth-child(3n) { border-top-color: #8ab3c1; }
+.tw-stock-experience :is(.summary-card .label, .summary-label) { font-size: 11px; letter-spacing: .04em; }
+.tw-stock-experience :is(.value, .summary-value, .num, td) { font-variant-numeric: tabular-nums; }
+.tw-stock-experience :is(.summary-card .value, .summary-value) { letter-spacing: -.025em; }
+.tw-stock-experience :is(.filter-panel, .control-panel, .filter-tool, .toolbar) { border-radius: 18px; box-shadow: 0 6px 24px #00000012; }
+.tw-stock-experience :is(.filter-panel, .control-panel, .filter-tool, .toolbar)::before { animation: none; }
+.tw-stock-experience :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]), select, .submit-button) { border-radius: 9px; min-height: 42px; }
+.tw-stock-experience :is(input[type="checkbox"], input[type="radio"]) { accent-color: #347b58; }
+.tw-stock-experience .check:has(input:checked) { border-color: #669d7b; box-shadow: 0 0 0 1px #669d7b44; }
+/* Annual comparison has nine summary metrics; keep them below the filters instead of squeezing the form. */
+.tw-stock-experience .control-panel[data-filter-form] { grid-template-columns: minmax(0, 1fr); }
+.tw-stock-experience .control-panel[data-filter-form] > .summary { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); align-items: start; }
+.tw-stock-experience .control-panel[data-filter-form] .stat { border-radius: 12px; padding: 12px; background: #f4f8f5; border-color: #d6e3da; }
+.tw-stock-experience :is(input, select) { transition: box-shadow .16s, border-color .16s; }
+.tw-stock-experience :is(input, select):focus { box-shadow: 0 0 0 3px #68b79a33; }
+.tw-stock-experience :is(.table-panel, .ledger-panel, .chart-panel) { border-radius: 18px; box-shadow: 0 10px 32px #00000012; }
+.tw-stock-experience :is(.table-panel, .ledger-panel)::before { animation: none; }
+.tw-stock-experience :is(.table-head, .table-headline, .panel-head) { padding-top: 18px; padding-bottom: 18px; }
+.tw-stock-experience th { font-size: 12px; letter-spacing: .015em; }
+.tw-stock-experience th a { text-underline-offset: 4px; }
+.tw-stock-experience th a:hover { text-decoration: underline; }
+.tw-stock-experience td { transition: box-shadow .14s; }
+.tw-stock-experience tbody tr:hover > td { box-shadow: inset 0 1px #72a88b35, inset 0 -1px #72a88b35; }
+.tw-stock-experience tbody tr:focus-within > td { box-shadow: inset 0 2px #689e80, inset 0 -2px #689e80; }
+.tw-stock-experience .etf-card.active { outline: 2px solid #75a98a; outline-offset: 3px; }
+.tw-stock-experience .sx-table-scroll { scrollbar-width: thin; scrollbar-color: #779989 #e4ece6; }
+.tw-stock-experience .sx-scroll-note { display: flex; align-items: center; gap: 7px; width: fit-content; margin: 8px 0; padding: 6px 10px; color: #244b38; background: #e8f3ec; border: 1px solid #c0d6c8; border-radius: 8px; font-size: 11px; }
+.tw-stock-experience .sx-progress { position: fixed; inset: 0 auto auto 0; height: 3px; width: 100%; background: linear-gradient(90deg, #eacf88, #69cbb0); transform-origin: left; transform: scaleX(0); z-index: 9998; pointer-events: none; }
+.tw-stock-experience .sx-top { position: fixed; bottom: max(24px, env(safe-area-inset-bottom)); right: 24px; z-index: 500; min-height: 44px; box-shadow: 0 6px 24px #0004; }
+.tw-stock-experience .sx-skip { position: fixed; top: -100px; left: 16px; z-index: 9999; padding: 12px 16px; background: #eff7f1; color: #183d2a; border-radius: 8px; }
+.tw-stock-experience .sx-skip:focus { top: 12px; }
+.tw-stock-experience :is(button, a, input, select, summary, [tabindex]):focus-visible { outline: 3px solid #bd934a; outline-offset: 3px; }
+.tw-stock-experience [hidden] { display: none !important; }
+/* Native dialog supplies focus containment and Escape without a document-wide focus trap. */
+.tw-stock-experience .sx-dialog { width: min(540px, calc(100vw - 32px)); max-height: min(640px, 85dvh); padding: 0; border: 1px solid #567962; border-radius: 22px; background: #12251d; color: #edf6ef; box-shadow: 0 28px 100px #0009; }
+.tw-stock-experience .sx-dialog::backdrop { background: #06150dc7; }
+.tw-stock-experience .sx-dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 22px 10px; }
+.tw-stock-experience .sx-dialog h2 { font-size: 18px; margin: 0; color: #edf6ef; }
+.tw-stock-experience .sx-dialog-close { border: 1px solid #62867066; background: transparent; color: #d5e7db; border-radius: 8px; min-width: 44px; min-height: 44px; font-size: 20px; cursor: pointer; }
+.tw-stock-experience .sx-dialog label { display: block; margin: 0 22px 8px; color: #b0c7b8; font-size: 12px; }
+.tw-stock-experience .sx-dialog input { display: block; width: calc(100% - 44px); margin: 0 22px 12px; padding: 12px; background: #091b12; border: 1px solid #587760; color: #f0f6f1; font-size: 16px; }
+.tw-stock-experience .sx-destinations { display: grid; gap: 4px; margin: 0; padding: 0 14px 14px; list-style: none; max-height: 44dvh; overflow-y: auto; }
+.tw-stock-experience .sx-destinations a { display: flex; justify-content: space-between; gap: 12px; padding: 13px 12px; border: 1px solid transparent; border-radius: 10px; color: #d8e8de; text-decoration: none; font-size: 14px; }
+.tw-stock-experience .sx-destinations a::after { content: '↗'; color: #a0b8a7; }
+.tw-stock-experience .sx-destinations a:hover, .tw-stock-experience .sx-destinations a:focus { background: #284635; border-color: #658c73; }
+.tw-stock-experience .sx-dialog-status { color: #b3c8bc; padding: 0 22px 16px; font-size: 12px; }
+.tw-stock-experience .sx-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 40px); padding: 12px 18px; border-radius: 12px; background: #e7f5ec; color: #193f2a; box-shadow: 0 6px 32px #0004; font-size: 13px; z-index: 9999; }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .tw-stock-experience :is(.summary-card, .etf-card):hover { transform: translateY(-3px); box-shadow: 0 10px 25px #0002; }
+    .tw-stock-experience .sx-dialog[open] { animation: sx-dialog-in .18s ease-out; }
+    @keyframes sx-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
+}
+@media (min-width: 901px) {
+    .tw-stock-experience.sx-compact :is(td, th) { padding-top: 7px; padding-bottom: 7px; }
+    .tw-stock-experience.sx-compact .summary-card { padding-top: 12px; padding-bottom: 12px; }
+}
+@media (max-width: 900px) {
+    .tw-stock-experience :is(.topbar, .hero) { padding: 20px 16px; border-radius: 18px; gap: 16px; }
+    .tw-stock-experience :is(.nav-actions, nav.nav) { width: 100%; max-width: 100%; }
+    .tw-stock-experience :is(.nav-actions, nav.nav) a { padding: 9px 13px; font-size: 12px; }
+    .tw-stock-experience .sx-utility-note { display: none; }
+    .tw-stock-experience :is(input, select) { font-size: 16px; }
+    .tw-stock-experience .sx-top { right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .tw-stock-experience *, .tw-stock-experience *::before, .tw-stock-experience *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+@media print {
+    .tw-stock-experience :is(.sx-utilities, .sx-top, .sx-progress, .sx-toast, .sx-scroll-note, .sx-dialog) { display: none !important; }
+}

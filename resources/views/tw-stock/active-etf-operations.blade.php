@@ -921,8 +921,9 @@
         }
 @include('tw-stock.partials.shared-shell-width')
     </style>
+    @include('tw-stock.partials.experience-head')
 </head>
-<body>
+<body class="tw-stock-experience">
 @php
     $formatLots = static function ($value): string {
         if ($value === null) {

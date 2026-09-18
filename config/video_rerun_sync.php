@@ -2,7 +2,7 @@
 
 return [
     'db_disk' => env('VIDEO_RERUN_SYNC_DB_DISK', 'videos'),
-    'rerun_root' => env('VIDEO_RERUN_SYNC_RERUN_ROOT', 'H:\\video(重跑)'),
+    'rerun_root' => env('VIDEO_RERUN_SYNC_RERUN_ROOT', 'M:\\video(重跑)'),
     'eagle' => [
         'base_url' => env('VIDEO_RERUN_SYNC_EAGLE_BASE_URL', 'http://localhost:41595'),
         'library_name' => env('VIDEO_RERUN_SYNC_EAGLE_LIBRARY_NAME', '重跑資源'),

@@ -34,7 +34,7 @@ class TelegramResourceCodeZyxfilesTest(unittest.TestCase):
             code="yyjmq_A1-b2_C3",
             target_peer_id=3967395258,
         )
-        self.assertEqual("WWEYYBot", request.bot_username)
+        self.assertEqual("QzccxYYbot", request.bot_username)
 
     def test_uncached_decoder_username_is_refreshed_from_telegram(self):
         refreshed_peer = object()

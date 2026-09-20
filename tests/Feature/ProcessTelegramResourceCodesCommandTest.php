@@ -133,9 +133,9 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         $this->assertFalse(Schema::connection('sqlite')->hasColumn('telegram_resource_codes', 'message_text'));
     }
 
-    public function test_production_profiles_route_only_yyjmq_prefixes_to_wweyy(): void
+    public function test_production_profiles_route_only_yyjmq_prefixes_to_qzccxyy(): void
     {
-        config()->set('telegram.resource_codes.processing_profiles', '9:WWEYYBot');
+        config()->set('telegram.resource_codes.processing_profiles', '9:QzccxYYbot');
         config()->set('telegram.resource_codes.scan_code_types', '9');
 
         $sent = [];
@@ -178,7 +178,7 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         ])->assertExitCode(0);
 
         $expected = [
-            ['yyjmq_active_A1-b2', 9, 'WWEYYBot'],
+            ['yyjmq_active_A1-b2', 9, 'QzccxYYbot'],
         ];
 
         $this->assertDatabaseCount('telegram_resource_codes', 1);

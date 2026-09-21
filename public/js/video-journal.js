@@ -26,6 +26,56 @@
         $('#delete-title').textContent = button.dataset.deleteTitle;
         $('#delete-dialog').showModal();
     }));
+    const picker = $('#video-picker');
+    if (picker) {
+        let currentPath = '', parentPath = '', browseSequence = 0, searchTimer;
+        async function browse(path = '', search = '') {
+            const sequence = ++browseSequence;
+            $('#picker-items').replaceChildren();
+            $('#picker-status').textContent = '正在讀取資料夾…';
+            $('#picker-parent').disabled = true;
+            const url = new URL(picker.dataset.browseUrl);
+            url.searchParams.set('path', path); url.searchParams.set('q', search);
+            try {
+                const response = await fetch(url, {headers: {Accept: 'application/json'}});
+                const data = await response.json();
+                if (sequence !== browseSequence) return;
+                if (!response.ok) throw new Error(Object.values(data.errors || {}).flat()[0] || '無法讀取資料夾，請稍後重試。');
+                currentPath = data.path; parentPath = data.parent;
+                $('#picker-path').value = currentPath;
+                $('#picker-parent').disabled = parentPath === null;
+                $('#picker-status').textContent = data.truncated ? '目前顯示前 300 項，請輸入檔名縮小範圍。' : data.items.length ? (currentPath ? '點選影片即可帶入原始檔名' : '選擇影片所在的磁碟') : '此資料夾沒有符合的影片或資料夾。';
+                for (const item of data.items) {
+                    const button = document.createElement('button');
+                    button.type = 'button'; button.className = 'picker-item';
+                    const icon = document.createElement('span'); icon.className = 'picker-icon'; icon.textContent = item.directory ? '▤' : '▷'; icon.setAttribute('aria-hidden', 'true');
+                    const name = document.createElement('span'); name.textContent = item.name;
+                    const hint = document.createElement('span'); hint.className = 'picker-hint'; hint.textContent = item.directory ? '開啟 →' : '選取 ↗';
+                    button.append(icon, name, hint);
+                    button.addEventListener('click', () => {
+                        if (item.directory) { $('#picker-search').value = ''; browse(item.path); }
+                        else {
+                            $('#new-source').value = item.path;
+                            $('#new-title').value = Array.from(item.name).slice(0, 200).join('');
+                            picker.close(); $('#new-title').focus();
+                        }
+                    });
+                    $('#picker-items').append(button);
+                }
+            } catch (error) {
+                if (sequence === browseSequence) $('#picker-status').textContent = error.message;
+            }
+        }
+        $('#choose-video').addEventListener('click', () => { picker.showModal(); $('#picker-search').value = ''; browse(currentPath); });
+        $('#picker-location').addEventListener('submit', event => { event.preventDefault(); clearTimeout(searchTimer); $('#picker-search').value = ''; browse($('#picker-path').value); });
+        $('#picker-roots').addEventListener('click', () => { clearTimeout(searchTimer); $('#picker-search').value = ''; browse(''); });
+        $('#picker-parent').addEventListener('click', () => { clearTimeout(searchTimer); $('#picker-search').value = ''; browse(parentPath || ''); });
+        $('#picker-search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => browse(currentPath, $('#picker-search').value), 250); });
+        picker.addEventListener('close', () => { clearTimeout(searchTimer); ++browseSequence; });
+        $('#create-dialog form').addEventListener('submit', event => {
+            if (!$('#new-source').value) { event.preventDefault(); toast('請先選擇影片。', true); $('#choose-video').focus(); }
+        });
+    }
     const story = $('#story');
     if (!story) return;
     const video = $('#journal-video');

@@ -64,6 +64,7 @@ Route::prefix('video-journal')->name('video-journal.')->middleware(\App\Http\Mid
     $controller = \App\Http\Controllers\VideoJournalController::class;
     Route::get('/', [$controller, 'index'])->name('index');
     Route::post('/', [$controller, 'store'])->name('store');
+    Route::get('/browse', [$controller, 'browse'])->name('browse');
     Route::get('/{id}', [$controller, 'show'])->whereNumber('id')->name('show');
     Route::put('/{id}', [$controller, 'update'])->whereNumber('id')->name('update');
     Route::delete('/{id}', [$controller, 'destroy'])->whereNumber('id')->name('destroy');

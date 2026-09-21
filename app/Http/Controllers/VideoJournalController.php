@@ -9,6 +9,40 @@ use Illuminate\Validation\ValidationException;
 
 class VideoJournalController extends Controller
 {
+    public function browse(Request $request)
+    {
+        $data = $request->validate(['path' => 'nullable|string|max:4096', 'q' => 'nullable|string|max:200']);
+        $path = trim($data['path'] ?? '', " \t\n\r\0\x0B\"");
+        if ($path === '') {
+            $roots = PHP_OS_FAMILY === 'Windows' ? array_map(fn ($drive) => $drive.':/', range('C', 'Z')) : ['/'];
+            return response()->json(['path' => '', 'parent' => null, 'items' => array_values(array_map(
+                fn ($root) => ['name' => $root, 'path' => $root, 'directory' => true],
+                array_filter($roots, fn ($root) => is_dir($root))
+            )), 'truncated' => false]);
+        }
+        $resolved = realpath($path);
+        if ($resolved === false || !is_dir($resolved) || !is_readable($resolved)) {
+            throw ValidationException::withMessages(['path' => '無法開啟此資料夾，請確認磁碟已連接且有存取權限。']);
+        }
+        $names = @scandir($resolved);
+        if ($names === false) {
+            throw ValidationException::withMessages(['path' => '無法讀取此資料夾。']);
+        }
+        $items = [];
+        $search = trim($data['q'] ?? '');
+        foreach ($names as $name) {
+            if (str_starts_with($name, '.')) continue;
+            $full = rtrim($resolved, '/\\').DIRECTORY_SEPARATOR.$name;
+            $directory = is_dir($full);
+            if (!$directory && !in_array(strtolower(pathinfo($name, PATHINFO_EXTENSION)), ['mp4', 'webm', 'ogv', 'mov', 'm4v'], true)) continue;
+            if ($search !== '' && mb_stripos($name, $search) === false) continue;
+            $items[] = ['name' => $name, 'path' => $full, 'directory' => $directory];
+        }
+        usort($items, fn ($a, $b) => ($b['directory'] <=> $a['directory']) ?: strnatcasecmp($a['name'], $b['name']));
+        $parent = dirname($resolved);
+        return response()->json(['path' => $resolved, 'parent' => $parent === $resolved ? '' : $parent, 'items' => array_slice($items, 0, 300), 'truncated' => count($items) > 300]);
+    }
+
     public function index(Request $request)
     {
         $search = mb_substr(trim((string) $request->query('q', '')), 0, 200);
@@ -20,7 +54,7 @@ class VideoJournalController extends Controller
 
     public function store(Request $request)
     {
-        $data = $request->validate(['title' => 'required|string|max:200', 'source' => 'required|string|max:4096']);
+        $data = $request->validate(['title' => 'nullable|string|max:200', 'source' => 'required|string|max:4096']);
         $data['source'] = trim($data['source'], " \t\n\r\0\x0B\"");
         $source = $data['source'];
         if (!filter_var($source, FILTER_VALIDATE_URL) || !in_array(strtolower(parse_url($source, PHP_URL_SCHEME) ?? ''), ['http', 'https'], true)) {
@@ -30,6 +64,9 @@ class VideoJournalController extends Controller
                 throw ValidationException::withMessages(['source' => '請輸入存在的影片完整路徑，或 http / https 影片直連網址。']);
             }
         }
+        $remote = preg_match('~^https?://~i', $source) === 1;
+        $filename = basename(str_replace('\\', '/', $remote ? (parse_url($source, PHP_URL_PATH) ?: 'video') : $source));
+        $data['title'] = trim($data['title'] ?? '') ?: mb_substr($remote ? rawurldecode($filename) : $filename, 0, 200);
         $entry = VideoJournalEntry::create($data + ['body' => '']);
         return redirect()->route('video-journal.show', $entry->id)->with('status', '影片已加入，開始寫下你的故事。');
     }

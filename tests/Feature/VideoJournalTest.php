@@ -13,6 +13,7 @@ class VideoJournalTest extends TestCase
 {
     private string $video;
     private string $srt;
+    private string $directory;
 
     protected function setUp(): void
     {
@@ -22,7 +23,9 @@ class VideoJournalTest extends TestCase
         Schema::connection('video_journal')->create('video_journal_entries', function (Blueprint $table) {
             $table->id(); $table->string('title'); $table->text('source'); $table->longText('body')->default(''); $table->timestamps();
         });
-        $this->video = sys_get_temp_dir().DIRECTORY_SEPARATOR.'journal-test-'.bin2hex(random_bytes(8)).'.mp4';
+        $this->directory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'journal-test-'.bin2hex(random_bytes(8));
+        mkdir($this->directory);
+        $this->video = $this->directory.DIRECTORY_SEPARATOR.'原始%20影片.mp4';
         $this->srt = substr($this->video, 0, -4).'.srt';
         file_put_contents($this->video, 'synthetic-video-content');
         file_put_contents($this->srt, "\xEF\xBB\xBF1\r\n00:00:00,000 --> 00:00:01,500\r\n測試字幕\r\n");
@@ -34,6 +37,7 @@ class VideoJournalTest extends TestCase
         foreach ([$this->video, $this->srt] as $file) {
             if (is_file($file)) unlink($file);
         }
+        rmdir($this->directory);
         DB::purge('video_journal');
         parent::tearDown();
     }
@@ -55,6 +59,28 @@ class VideoJournalTest extends TestCase
         $this->assertFileExists($this->video);
         $this->assertFileExists($this->srt);
         $this->get('https://blog/video-journal/'.$entry->id)->assertNotFound();
+    }
+
+    public function test_picker_lists_only_folders_and_videos_and_preserves_original_filename(): void
+    {
+        $folder = $this->directory.DIRECTORY_SEPARATOR.'nested';
+        mkdir($folder);
+        try {
+            $url = 'https://blog/video-journal/browse?'.http_build_query(['path' => $this->directory]);
+            $this->getJson($url)->assertOk()->assertJsonCount(2, 'items')
+                ->assertJsonPath('items.0.name', 'nested')->assertJsonPath('items.0.directory', true)
+                ->assertJsonPath('items.1.name', '原始%20影片.mp4')->assertJsonPath('items.1.path', $this->video)
+                ->assertJsonPath('items.1.directory', false)->assertJsonPath('truncated', false);
+            $this->getJson($url.'&q='.urlencode('影片'))->assertOk()->assertJsonCount(1, 'items');
+            $this->getJson('https://blog/video-journal/browse?path='.urlencode($this->video))->assertUnprocessable();
+            $this->getJson('https://mystar.monster/video-journal/browse')->assertForbidden();
+            $this->post('https://blog/video-journal', ['source' => $this->video])->assertRedirect();
+            $entry = VideoJournalEntry::sole();
+            $this->assertSame('原始%20影片.mp4', $entry->title);
+            $this->assertSame($this->video, $entry->source);
+        } finally {
+            rmdir($folder);
+        }
     }
 
     public function test_media_supports_ranges_and_same_name_srt_is_webvtt(): void

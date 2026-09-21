@@ -22,7 +22,7 @@
     <div class="entry-grid">
         @foreach($entries as $entry)
         <article class="entry-card palette-{{ $entry->id % 4 }}">
-            <a class="card-art" href="{{ route('video-journal.show', $entry->id) }}" aria-label="開啟 {{ $entry->title }}"><span class="card-orbit"></span><span class="card-number">FRAME {{ str_pad($entry->id, 3, '0', STR_PAD_LEFT) }}</span><span class="card-play">↗</span><span class="card-caption">A STORY WORTH KEEPING</span></a>
+            <a class="card-art {{ $entry->has_image ? 'has-cover' : '' }}" href="{{ route('video-journal.show', $entry->id) }}" aria-label="開啟 {{ $entry->title }}">@if($entry->has_image)<img class="card-cover" src="{{ route('video-journal.cover', $entry->id) }}" alt="{{ $entry->title }} 的文章封面" loading="lazy" decoding="async">@else<span class="card-orbit"></span><span class="card-number">FRAME {{ str_pad($entry->id, 3, '0', STR_PAD_LEFT) }}</span><span class="card-caption">A STORY WORTH KEEPING</span>@endif<span class="card-play">↗</span></a>
             <div class="card-body"><span class="card-date">{{ $entry->updated_at->format('Y.m.d') }} <span>・ 影片手記</span></span><h3><a href="{{ route('video-journal.show', $entry->id) }}">{{ $entry->title }}</a></h3><div class="card-bottom"><a href="{{ route('video-journal.show', $entry->id) }}">閱讀故事 <span>↗</span></a><button type="button" class="delete-trigger" data-delete-url="{{ route('video-journal.destroy', $entry->id) }}" data-delete-title="{{ $entry->title }}" aria-label="刪除 {{ $entry->title }}">刪除</button></div></div>
         </article>
         @endforeach

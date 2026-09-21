@@ -131,4 +131,42 @@ class VideoJournalTest extends TestCase
         $this->get('https://blog/video-journal/'.$entry->id.'/media')->assertNotFound();
         $this->get('https://blog/video-journal/'.$entry->id.'/subtitles')->assertNotFound();
     }
+
+    public function test_twenty_mb_image_survives_html_sanitizing_and_database_save(): void
+    {
+        $entry = VideoJournalEntry::create(['title' => 'Large image', 'source' => $this->video]);
+        // A valid GIF with comment blocks sized to exactly the supported limit.
+        $gif = substr(base64_decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'), 0, -1)."\x21\xFE";
+        $remaining = VideoJournalContent::IMAGE_BYTES - strlen($gif) - 2;
+        $gif .= str_repeat("\xFF".str_repeat('a', 255), intdiv($remaining, 256));
+        $tail = $remaining % 256;
+        if ($tail > 1) $gif .= chr($tail - 1).str_repeat('a', $tail - 1);
+        $gif .= "\x00\x3B";
+        $this->assertSame(VideoJournalContent::IMAGE_BYTES, strlen($gif));
+        $src = 'data:image/gif;base64,'.base64_encode($gif);
+        $expected = hash('sha256', $src);
+        $this->putJson('https://blog/video-journal/'.$entry->id, ['title' => 'Large image', 'body' => '<p>Preserved</p><img src="'.$src.'">'])->assertOk();
+        $stored = $entry->fresh()->body;
+        $this->assertStringStartsWith('<p>Preserved</p><img src="', $stored);
+        $start = strpos($stored, 'src="') + 5;
+        $this->assertSame($expected, hash('sha256', substr($stored, $start, strpos($stored, '"', $start) - $start)));
+        unset($stored, $src);
+        $this->putJson('https://blog/video-journal/'.$entry->id, ['title' => 'Rejected', 'body' => '<img src="data:image/gif;base64,'.base64_encode($gif.'x').'">'])
+            ->assertUnprocessable()->assertJsonValidationErrors('body');
+        $this->assertSame('Large image', $entry->fresh()->title);
+    }
+
+    public function test_listing_uses_first_article_image_and_falls_back_when_removed(): void
+    {
+        $first = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        $second = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB1sAAAAASUVORK5CYII=';
+        $entry = VideoJournalEntry::create(['title' => 'Cover test', 'source' => $this->video, 'body' => (new VideoJournalContent)->sanitize('<p>Text before images</p><img src="'.$first.'"><img src="'.$second.'">')]);
+        $this->get('https://blog/video-journal')->assertOk()->assertSee('Cover test')->assertSee('/video-journal/'.$entry->id.'/cover', false)->assertDontSee($first, false);
+        $response = $this->get('https://blog/video-journal/'.$entry->id.'/cover')->assertOk()->assertHeader('Content-Type', 'image/gif');
+        $this->assertSame(base64_decode(substr($first, strpos($first, ',') + 1)), $response->getContent());
+        $entry->update(['body' => '<p>No image</p>']);
+        $this->get('https://blog/video-journal')->assertOk()->assertSee('Cover test')->assertDontSee('/video-journal/'.$entry->id.'/cover', false);
+        $this->get('https://blog/video-journal/'.$entry->id.'/cover')->assertNotFound();
+        $this->get('https://mystar.monster/video-journal/'.$entry->id.'/cover')->assertForbidden();
+    }
 }

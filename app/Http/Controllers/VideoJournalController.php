@@ -47,6 +47,7 @@ class VideoJournalController extends Controller
     {
         $search = mb_substr(trim((string) $request->query('q', '')), 0, 200);
         $entries = VideoJournalEntry::query()->select(['id', 'title', 'created_at', 'updated_at'])
+            ->selectRaw('instr(body, ?) > 0 AS has_image', ['<img src="'])
             ->when($search !== '', fn ($query) => $query->where('title', 'like', '%'.$search.'%'))
             ->orderByDesc('updated_at')->orderByDesc('id')->paginate(12)->withQueryString();
         return view('video-journal.index', ['entries' => $entries, 'search' => $search, 'total' => VideoJournalEntry::count()]);
@@ -78,9 +79,22 @@ class VideoJournalController extends Controller
         return view('video-journal.show', compact('entry', 'remote'));
     }
 
+    public function cover(int $id)
+    {
+        // Return only the first image from SQLite, not the entire rich-text article.
+        $start = 'instr(body, \'<img src="\') + 10';
+        $entry = VideoJournalEntry::query()->whereKey($id)
+            ->selectRaw('substr(body, '.$start.', instr(substr(body, '.$start.'), \'"\') - 1) AS cover')
+            ->whereRaw('instr(body, ?) > 0', ['<img src="'])->firstOrFail();
+        abort_unless(preg_match('~^data:(image/(?:png|jpeg|gif|webp));base64,~', $entry->cover, $match), 404);
+        $bytes = base64_decode(substr($entry->cover, strlen($match[0])), true);
+        abort_unless($bytes !== false, 404);
+        return response($bytes, 200, ['Content-Type' => $match[1]]);
+    }
+
     public function update(Request $request, int $id, VideoJournalContent $content)
     {
-        $data = $request->validate(['title' => 'required|string|max:200', 'body' => 'nullable|string|max:12000000']);
+        $data = $request->validate(['title' => 'required|string|max:200', 'body' => 'nullable|string|max:'.VideoJournalContent::BODY_BYTES]);
         $entry = VideoJournalEntry::findOrFail($id);
         $entry->update(['title' => $data['title'], 'body' => $content->sanitize($data['body'] ?? '')]);
         return response()->json(['message' => '已儲存所有變更', 'updated_at' => $entry->updated_at->format('Y.m.d H:i'), 'body' => $entry->body]);

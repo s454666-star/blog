@@ -580,6 +580,18 @@ h2 {
     right:-30px;
     transform:rotate(-30deg)
 }
+.card-cover {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.card-art.has-cover::after { display: none; }
+.card-art.has-cover .card-play {
+    color: #fff;
+    background: #25332966;
+    border-color: #ffffff77;
+}
 .card-orbit {
     position:absolute;
     border:1px solid #7d937950;

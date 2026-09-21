@@ -200,7 +200,7 @@
     function insertHtml(html) { restoreSelection(); document.execCommand('insertHTML', false, html); markDirty(); }
     async function readImage(file) {
         if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) throw new Error('請使用 PNG、JPEG、WebP 或 GIF 圖片。');
-        if (file.size > 2 * 1024 * 1024) throw new Error('每張圖片請小於 2 MB。');
+        if (file.size > 20 * 1024 * 1024) throw new Error('每張圖片最多 20 MB。');
         return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error('圖片讀取失敗')); reader.readAsDataURL(file); });
     }
     function imageBusy(value) { imageWork += value; $('#save-button').disabled = imageWork > 0; }
@@ -254,7 +254,7 @@
     $('#save-button').addEventListener('click', async () => {
         if (!title.value.trim()) { toast('請填寫文章標題。', true); title.focus(); return; }
         clearImage();
-        if (new Blob([editor.innerHTML]).size > 12000000) { toast('文章含圖片請小於 12 MB。', true); return; }
+        if (new Blob([editor.innerHTML]).size > 64 * 1024 * 1024) { toast('文章含圖片最多 64 MB。', true); return; }
         const payload = { title: title.value.trim(), body: editor.innerHTML };
         $('#save-button').disabled = true; $('#save-state').textContent = '正在儲存文字與圖片…';
         try {

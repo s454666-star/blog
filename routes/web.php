@@ -69,6 +69,7 @@ Route::prefix('video-journal')->name('video-journal.')->middleware(\App\Http\Mid
     Route::put('/{id}', [$controller, 'update'])->whereNumber('id')->name('update');
     Route::delete('/{id}', [$controller, 'destroy'])->whereNumber('id')->name('destroy');
     Route::get('/{id}/media', [$controller, 'media'])->whereNumber('id')->name('media');
+    Route::get('/{id}/cover', [$controller, 'cover'])->whereNumber('id')->name('cover');
     Route::get('/{id}/subtitles', [$controller, 'subtitles'])->whereNumber('id')->name('subtitles');
 });
 

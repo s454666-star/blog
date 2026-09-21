@@ -4,11 +4,18 @@ namespace App\Services;
 
 class VideoJournalContent
 {
+    public const IMAGE_BYTES = 20 * 1024 * 1024;
+    public const BODY_BYTES = 64 * 1024 * 1024;
+
     public function sanitize(string $html): string
     {
+        if (strlen($html) > self::BODY_BYTES) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['body' => '文章含圖片最多 64 MB。']);
+        }
         $dom = new \DOMDocument('1.0', 'UTF-8');
         $previous = libxml_use_internal_errors(true);
-        $dom->loadHTML('<?xml encoding="UTF-8"><html><body>'.$html.'</body></html>', LIBXML_NONET);
+        // Base64 for a 20 MB image exceeds libxml's default attribute limit.
+        $dom->loadHTML('<?xml encoding="UTF-8"><html><body>'.$html.'</body></html>', LIBXML_NONET | LIBXML_PARSEHUGE);
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
         $body = $dom->getElementsByTagName('body')->item(0);
@@ -34,8 +41,11 @@ class VideoJournalContent
                 $src = $child->getAttribute('src');
                 if (preg_match('~^data:image/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/=\r\n]+)$~D', $src, $match)) {
                     $bytes = base64_decode($match[2], true);
+                    if ($bytes !== false && strlen($bytes) > self::IMAGE_BYTES) {
+                        throw \Illuminate\Validation\ValidationException::withMessages(['body' => '每張圖片最多 20 MB。']);
+                    }
                     $info = $bytes === false ? false : @getimagesizefromstring($bytes);
-                    if ($info && $info['mime'] === 'image/'.$match[1] && strlen($bytes) <= 2 * 1024 * 1024) {
+                    if ($info && $info['mime'] === 'image/'.$match[1]) {
                         $out .= '<img src="'.htmlspecialchars($src, ENT_QUOTES).'" alt="貼上的圖片">';
                     }
                 }

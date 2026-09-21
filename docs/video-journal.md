@@ -1,0 +1,24 @@
+# 本地影片誌 / 映記
+
+入口：`https://blog/video-journal`。本機 `https://blog/` 也會導向此頁。
+
+## 初始化
+
+執行 `php artisan video-journal:install`，只建立 `storage/app/video-journal.sqlite` 內的 `video_journal_entries`。重複執行會保留所有文章，不會連接或修改預設 MySQL 資料庫。資料庫位於 Git 忽略的 storage 目錄，備份時需另外保存此檔。
+
+## 使用
+
+- 在列表新增影片，填寫標題及本機完整路徑或 HTTP(S) 影片直連網址。影片不會上傳，也不會複製到資料庫。
+- 本機同資料夾、同名 `.srt` 會轉成 WebVTT 載入；支援 UTF-8、Big5。也能手動選擇 SRT / VTT，手動字幕只適用於本次播放。
+- 遠端影片必須可由瀏覽器直接播放。同名遠端字幕透過瀏覽器讀取，需要來源允許 CORS；失敗時可手動選取。
+- 進入明細後點「編輯文章」。支援文字格式、文字／圖片貼上與圖片檔選取。PNG、JPEG、WebP、GIF 每張最多 2 MB，整篇含圖片最多 12 MB；外部圖片連結不會當作已保存的圖片，請複製圖片本身或選取檔案。
+- 圖片以 Base64 data URI 內嵌於清理過的 HTML，一起存入 `body` 欄位，沒有另外的圖片檔案依賴。
+- 閱讀模式下滑鼠移到圖片會在整個視窗放大，移開／Esc 收起。觸控裝置可點圖片，再點背景或關閉鈕收起。
+- 編輯模式顯示縮圖，點選後可替換或刪除；按「儲存文章」才寫入 DB。支援 Ctrl/Cmd+S 與未儲存離頁提醒。
+- 列表刪除只刪除指定文章，保留原始影片與字幕。
+
+## 邊界與驗證
+
+所有功能路由要求本地 Host 及 loopback 來源位址。公網網域不能讀取此模組或任意本機影片。保留 Laravel CSRF 保護；影片使用支援 HTTP Range 的 BinaryFileResponse；內文採 HTML 元素白名單，圖片只接受有效的內嵌點陣圖，移除腳本與事件屬性。
+
+`tests/Feature/VideoJournalTest.php` 使用獨立記憶體 SQLite 和合成檔案，涵蓋 CRUD、搜尋、來源保留、HTML 清理、圖片替換／刪除、字幕轉換、Range 及本地存取限制。請使用 blog-test-environment-check 的隔離 PHPUnit wrapper 執行。

@@ -60,6 +60,17 @@ use App\Http\Controllers\VideoRerunSyncController;
 */
 Route::get('/page-favicons/{slug}.svg', [PageFaviconController::class, 'show'])->name('page-favicon');
 
+Route::prefix('video-journal')->name('video-journal.')->middleware(\App\Http\Middleware\LocalVideoJournal::class)->group(function () {
+    $controller = \App\Http\Controllers\VideoJournalController::class;
+    Route::get('/', [$controller, 'index'])->name('index');
+    Route::post('/', [$controller, 'store'])->name('store');
+    Route::get('/{id}', [$controller, 'show'])->whereNumber('id')->name('show');
+    Route::put('/{id}', [$controller, 'update'])->whereNumber('id')->name('update');
+    Route::delete('/{id}', [$controller, 'destroy'])->whereNumber('id')->name('destroy');
+    Route::get('/{id}/media', [$controller, 'media'])->whereNumber('id')->name('media');
+    Route::get('/{id}/subtitles', [$controller, 'subtitles'])->whereNumber('id')->name('subtitles');
+});
+
 Route::get('/tg-video-review', [TgVideoReviewController::class, 'index'])->name('tg-video-review.index');
 Route::get('/tg-video-review/{record}/image', [TgVideoReviewController::class, 'image'])->whereNumber('record')->name('tg-video-review.image');
 Route::post('/tg-video-review/actions', [TgVideoReviewController::class, 'batchAction'])->name('tg-video-review.actions');
@@ -150,6 +161,9 @@ Route::domain('stock.mystar.monster')
     ->name('stock.home');
 
 Route::get('/', function () {
+    if (request()->getHost() === 'blog' && in_array(request()->server('REMOTE_ADDR'), ['127.0.0.1', '::1'], true)) {
+        return redirect()->route('video-journal.index');
+    }
     return response('', 200);
 })->name('home');
 

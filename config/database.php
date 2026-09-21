@@ -35,6 +35,15 @@ return [
 
     'connections' => [
 
+        // Local video journal never uses the shared MySQL connection.
+        'video_journal' => [
+            'driver' => 'sqlite',
+            'database' => storage_path('app/video-journal.sqlite'),
+            'prefix' => '',
+            'foreign_key_constraints' => true,
+            'busy_timeout' => 5000,
+        ],
+
         'sqlite' => [
             'driver' => 'sqlite',
             'url' => env('DATABASE_URL'),

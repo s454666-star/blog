@@ -256,7 +256,7 @@
         clearImage();
         if (new Blob([editor.innerHTML]).size > 64 * 1024 * 1024) { toast('文章含圖片最多 64 MB。', true); return; }
         const payload = { title: title.value.trim(), body: editor.innerHTML };
-        $('#save-button').disabled = true; $('#save-state').textContent = '正在儲存文字與圖片…';
+        $('#save-button').disabled = true; $('#save-state').textContent = '正在壓縮圖片並儲存文章…';
         try {
             const response = await fetch(story.dataset.saveUrl, { method: 'PUT', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').content }, body: JSON.stringify(payload) });
             let data;

@@ -46,6 +46,7 @@ class VideoJournalContent
                     }
                     $info = $bytes === false ? false : @getimagesizefromstring($bytes);
                     if ($info && $info['mime'] === 'image/'.$match[1]) {
+                        $src = $this->fitImage($src, $bytes, $info[0], $info[1]);
                         $out .= '<img src="'.htmlspecialchars($src, ENT_QUOTES).'" alt="貼上的圖片">';
                     }
                 }
@@ -56,6 +57,38 @@ class VideoJournalContent
             $out .= in_array($tag, $allowed, true) ? '<'.$tag.'>'.$inner.($tag === 'br' ? '' : '</'.$tag.'>') : $inner;
         }
         return $out;
+    }
+
+    private function fitImage(string $original, string $bytes, int $width, int $height): string
+    {
+        $scale = min(1, 1920 / $width, 1080 / $height);
+        if ($scale >= 1) return $original;
+
+        $limit = ini_parse_quantity(ini_get('memory_limit'));
+        if ($limit > 0 && memory_get_usage(true) + $width * $height * 8 + 64 * 1024 * 1024 > $limit) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['body' => '圖片像素過大，請先縮小圖片後再儲存。']);
+        }
+        $image = @imagecreatefromstring($bytes);
+        if ($image === false) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['body' => '無法解碼圖片，請重新選擇圖片後再儲存。']);
+        }
+        $target = imagecreatetruecolor(max(1, (int) floor($width * $scale)), max(1, (int) floor($height * $scale)));
+        imagealphablending($target, false);
+        imagesavealpha($target, true);
+        imagefill($target, 0, 0, imagecolorallocatealpha($target, 0, 0, 0, 127));
+        imagecopyresampled($target, $image, 0, 0, 0, 0, imagesx($target), imagesy($target), $width, $height);
+        ob_start();
+        try {
+            $encoded = imagewebp($target, null, 85);
+            $compressed = ob_get_contents();
+        } finally {
+            ob_end_clean();
+            unset($target, $image);
+        }
+        if (!$encoded || $compressed === '') {
+            throw \Illuminate\Validation\ValidationException::withMessages(['body' => '圖片壓縮失敗，請重試。']);
+        }
+        return 'data:image/webp;base64,'.base64_encode($compressed);
     }
 
     public function subtitles(string $srt): string

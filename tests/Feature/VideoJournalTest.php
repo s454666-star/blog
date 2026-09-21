@@ -169,4 +169,28 @@ class VideoJournalTest extends TestCase
         $this->get('https://blog/video-journal/'.$entry->id.'/cover')->assertNotFound();
         $this->get('https://mystar.monster/video-journal/'.$entry->id.'/cover')->assertForbidden();
     }
+
+    public function test_save_resizes_images_to_full_hd_and_cover_uses_compressed_image(): void
+    {
+        $entry = VideoJournalEntry::create(['title' => 'Resize test', 'source' => $this->video]);
+        foreach ([[3840, 2160, 1920, 1080], [2000, 3000, 720, 1080]] as [$width, $height, $expectedWidth, $expectedHeight]) {
+            $image = imagecreatetruecolor($width, $height);
+            imagealphablending($image, false);
+            imagesavealpha($image, true);
+            imagefill($image, 0, 0, imagecolorallocatealpha($image, 0, 0, 0, 127));
+            imagefilledellipse($image, (int) ($width / 2), (int) ($height / 2), 400, 400, imagecolorallocatealpha($image, 220, 100, 70, 0));
+            ob_start(); imagepng($image); $png = ob_get_clean(); unset($image);
+            $body = '<p>Keep text</p><img src="data:image/png;base64,'.base64_encode($png).'">';
+            $this->putJson('https://blog/video-journal/'.$entry->id, ['title' => 'Resize test', 'body' => $body])->assertOk();
+            $stored = $entry->fresh()->body;
+            $this->assertStringContainsString('<p>Keep text</p><img src="data:image/webp;base64,', $stored);
+            $cover = $this->get('https://blog/video-journal/'.$entry->id.'/cover')->assertOk()->assertHeader('Content-Type', 'image/webp')->getContent();
+            $size = getimagesizefromstring($cover);
+            $this->assertSame([$expectedWidth, $expectedHeight], [$size[0], $size[1]]);
+            $decoded = imagecreatefromstring($cover);
+            $this->assertSame(127, imagecolorsforindex($decoded, imagecolorat($decoded, 0, 0))['alpha']);
+            unset($decoded);
+            $this->assertSame($stored, (new VideoJournalContent)->sanitize($stored), 'Already resized images must not be re-encoded.');
+        }
+    }
 }

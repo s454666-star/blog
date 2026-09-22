@@ -23,6 +23,7 @@ class VideoJournalTest extends TestCase
         Schema::connection('video_journal')->create('video_journal_entries', function (Blueprint $table) {
             $table->id(); $table->string('title'); $table->text('source'); $table->longText('body')->default(''); $table->timestamps();
         });
+        $this->artisan('video-journal:install')->assertSuccessful();
         $this->directory = sys_get_temp_dir().DIRECTORY_SEPARATOR.'journal-test-'.bin2hex(random_bytes(8));
         mkdir($this->directory);
         $this->video = $this->directory.DIRECTORY_SEPARATOR.'原始%20影片.mp4';
@@ -192,5 +193,71 @@ class VideoJournalTest extends TestCase
             unset($decoded);
             $this->assertSame($stored, (new VideoJournalContent)->sanitize($stored), 'Already resized images must not be re-encoded.');
         }
+    }
+
+    public function test_tags_portraits_limits_search_and_future_identity_fields(): void
+    {
+        $entry = VideoJournalEntry::create(['title' => 'Portrait fixture', 'source' => $this->video]);
+        $image = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        $tags = ['旅行', '日常', '收藏', '城市', '記錄'];
+        $url = 'https://blog/video-journal/'.$entry->id;
+        $payload = ['title' => $entry->title, 'body' => '', 'tags' => $tags, 'portraits' => array_fill(0, 5, $image)];
+        $this->putJson($url, $payload)->assertOk()->assertJsonPath('tags', $tags)->assertJsonCount(5, 'portraits');
+        $faces = $entry->faces()->get();
+        $this->assertCount(5, $faces);
+        $this->assertSame('pending', $faces[0]->feature_status);
+        $this->assertNull($faces[0]->person_id);
+        $this->assertNull($faces[0]->embedding);
+        $this->assertSame(64, strlen($faces[0]->image_sha256));
+        $this->get($url.'/portraits/0')->assertOk()->assertHeader('Content-Type', 'image/gif');
+        $this->get($url.'/portraits/5')->assertNotFound();
+        $list = $this->get('https://blog/video-journal?q='.urlencode('城市'))->assertOk()->assertSee($entry->title)->assertSee($url.'/portraits/0', false);
+        foreach ($tags as $tag) $list->assertSee('# '.$tag);
+        $this->get($url)->assertOk()->assertSee('人臉特寫')->assertSee('journal-metadata', false);
+        $this->putJson($url, array_replace($payload, ['tags' => [...$tags, '第六個']]))->assertUnprocessable();
+        $this->putJson($url, array_replace($payload, ['portraits' => array_fill(0, 6, $image)]))->assertUnprocessable();
+        $this->putJson($url, array_replace($payload, ['portraits' => ['data:image/png;base64,aGVsbG8=']]))->assertUnprocessable();
+        $this->assertSame(5, $entry->faces()->count());
+        $this->artisan('video-journal:install')->assertSuccessful();
+        $this->assertSame(5, $entry->faces()->count());
+        $this->assertTrue(Schema::connection('video_journal')->hasColumns('video_journal_faces', ['embedding', 'embedding_model', 'embedding_version', 'embedding_dimensions', 'face_box', 'landmarks', 'person_id', 'preprocessing_version', 'quality_score', 'processed_at']));
+        $this->assertTrue(Schema::connection('video_journal')->hasTable('video_journal_people'));
+        $this->assertTrue(Schema::connection('video_journal')->hasTable('video_journal_person_entries'));
+        $this->assertSame(0, DB::connection('video_journal')->table('video_journal_people')->count());
+        $this->putJson($url, ['title' => $entry->title, 'body' => ''])->assertOk();
+        $this->assertSame($tags, $entry->fresh()->tags); // Older clients cannot erase new metadata.
+        $this->assertSame(5, $entry->faces()->count());
+        $this->putJson($url, ['title' => $entry->title, 'body' => '', 'tags' => [], 'portraits' => []])->assertOk();
+        $this->assertSame([], $entry->fresh()->tags);
+        $this->assertSame(0, $entry->faces()->count());
+    }
+
+    public function test_portrait_resize_stable_ids_reordering_and_replacement(): void
+    {
+        $entry = VideoJournalEntry::create(['title' => 'Portrait resize', 'source' => $this->video]);
+        $canvas = imagecreatetruecolor(2400, 3200);
+        ob_start(); imagepng($canvas); $large = 'data:image/png;base64,'.base64_encode(ob_get_clean()); unset($canvas);
+        $small = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        $url = 'https://blog/video-journal/'.$entry->id;
+        $this->putJson($url, ['title' => $entry->title, 'portraits' => [$large, $small]])->assertOk();
+        $faces = $entry->faces()->get();
+        $firstId = $faces[0]->id;
+        $secondId = $faces[1]->id;
+        $image = $this->get($url.'/portraits/0')->assertOk()->assertHeader('Content-Type', 'image/webp')->getContent();
+        $size = getimagesizefromstring($image);
+        $this->assertSame([810, 1080], [$size[0], $size[1]]);
+        // Synthetic future features must remain attached to the same image, not its position.
+        DB::connection('video_journal')->table('video_journal_faces')->where('id', $firstId)->update(['embedding_model' => 'test-model', 'feature_status' => 'ready']);
+        $this->putJson($url, ['title' => $entry->title, 'portraits' => [$small, $faces[0]->image]])->assertOk();
+        $reordered = $entry->faces()->get();
+        $this->assertSame([$secondId, $firstId], $reordered->pluck('id')->all());
+        $this->assertSame('test-model', $reordered[1]->embedding_model);
+        $this->putJson($url, ['title' => $entry->title, 'portraits' => [$small, $small]])->assertOk();
+        $replacement = $entry->faces()->get()[1];
+        $this->assertNotSame($firstId, $replacement->id);
+        $this->assertNull($replacement->embedding_model);
+        $this->assertSame('pending', $replacement->feature_status);
+        $this->delete($url)->assertRedirect();
+        $this->assertSame(0, DB::connection('video_journal')->table('video_journal_faces')->where('entry_id', $entry->id)->count());
     }
 }

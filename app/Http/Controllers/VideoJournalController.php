@@ -6,6 +6,7 @@ use App\Models\VideoJournalEntry;
 use App\Services\VideoJournalContent;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\DB;
 
 class VideoJournalController extends Controller
 {
@@ -46,9 +47,12 @@ class VideoJournalController extends Controller
     public function index(Request $request)
     {
         $search = mb_substr(trim((string) $request->query('q', '')), 0, 200);
-        $entries = VideoJournalEntry::query()->select(['id', 'title', 'created_at', 'updated_at'])
+        $entries = VideoJournalEntry::query()->select(['id', 'title', 'tags', 'created_at', 'updated_at'])
             ->selectRaw('instr(body, ?) > 0 AS has_image', ['<img src="'])
-            ->when($search !== '', fn ($query) => $query->where('title', 'like', '%'.$search.'%'))
+            ->selectRaw('EXISTS (SELECT 1 FROM video_journal_faces WHERE entry_id = video_journal_entries.id) AS has_portrait')
+            ->when($search !== '', fn ($query) => $query->where(function ($query) use ($search) {
+                $query->where('title', 'like', '%'.$search.'%')->orWhereRaw('EXISTS (SELECT 1 FROM json_each(video_journal_entries.tags) WHERE value LIKE ?)', ['%'.$search.'%']);
+            }))
             ->orderByDesc('updated_at')->orderByDesc('id')->paginate(12)->withQueryString();
         return view('video-journal.index', ['entries' => $entries, 'search' => $search, 'total' => VideoJournalEntry::count()]);
     }
@@ -94,10 +98,45 @@ class VideoJournalController extends Controller
 
     public function update(Request $request, int $id, VideoJournalContent $content)
     {
-        $data = $request->validate(['title' => 'required|string|max:200', 'body' => 'nullable|string|max:'.VideoJournalContent::BODY_BYTES]);
+        $data = $request->validate([
+            'title' => 'required|string|max:200', 'body' => 'nullable|string|max:'.VideoJournalContent::BODY_BYTES,
+            'tags' => 'sometimes|array|max:5', 'tags.*' => 'required|string|max:40|distinct',
+            'portraits' => 'sometimes|array|max:5', 'portraits.*' => 'required|string|max:28000000',
+        ]);
+        $total = strlen($data['body'] ?? '') + array_sum(array_map('strlen', $data['portraits'] ?? []));
+        if ($total > VideoJournalContent::BODY_BYTES) {
+            throw ValidationException::withMessages(['portraits' => '文章與大頭照合計最多 64 MB。']);
+        }
         $entry = VideoJournalEntry::findOrFail($id);
-        $entry->update(['title' => $data['title'], 'body' => $content->sanitize($data['body'] ?? '')]);
-        return response()->json(['message' => '已儲存所有變更', 'updated_at' => $entry->updated_at->format('Y.m.d H:i'), 'body' => $entry->body]);
+        $changes = ['title' => $data['title'], 'body' => $content->sanitize($data['body'] ?? '')];
+        if (array_key_exists('tags', $data)) $changes['tags'] = array_values(array_unique(array_filter(array_map('trim', $data['tags']), fn ($tag) => $tag !== '')));
+        $portraits = array_key_exists('portraits', $data) ? array_map(fn ($image) => $content->portrait($image), array_values($data['portraits'])) : null;
+        DB::connection('video_journal')->transaction(function () use ($entry, $changes, $portraits) {
+            $entry->update($changes);
+            if ($portraits === null) return;
+            $existing = $entry->faces()->get();
+            $kept = [];
+            foreach ($portraits as $position => $image) {
+                $hash = hash('sha256', base64_decode(substr($image, strpos($image, ',') + 1), true));
+                // Preserve stable IDs and future features only for unchanged image bytes.
+                $face = $existing->first(fn ($face) => $face->image_sha256 === $hash && !in_array($face->id, $kept, true));
+                if ($face) $face->update(['position' => $position]);
+                else $face = $entry->faces()->create(['position' => $position, 'image' => $image, 'image_sha256' => $hash]);
+                $kept[] = $face->id;
+            }
+            $entry->faces()->whereNotIn('id', $kept)->delete();
+        });
+        return response()->json(['message' => '已儲存所有變更', 'updated_at' => $entry->updated_at->format('Y.m.d H:i'), 'body' => $entry->body, 'tags' => $entry->tags ?? [], 'portraits' => $entry->portraits ?? []]);
+    }
+
+    public function portrait(int $id, int $position)
+    {
+        abort_unless($position >= 0 && $position < 5, 404);
+        $face = \App\Models\VideoJournalFace::where('entry_id', $id)->where('position', $position)->firstOrFail();
+        abort_unless(preg_match('~^data:(image/(?:png|jpeg|gif|webp));base64,~', $face->image, $match), 404);
+        $bytes = base64_decode(substr($face->image, strlen($match[0])), true);
+        abort_if($bytes === false, 404);
+        return response($bytes, 200, ['Content-Type' => $match[1]]);
     }
 
     public function destroy(int $id)

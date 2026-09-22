@@ -15,7 +15,7 @@
 </section>
 <section class="library" aria-labelledby="library-title">
     <div class="library-heading"><div><p class="eyebrow">THE COLLECTION</p><h2 id="library-title">我的影片誌 <span class="count">{{ $total }}</span></h2></div>
-        <form class="search" method="get" action="{{ route('video-journal.index') }}"><span aria-hidden="true">⌕</span><input aria-label="搜尋影片標題" name="q" value="{{ $search }}" placeholder="尋找某個片刻…" maxlength="200">@if($search)<a href="{{ route('video-journal.index') }}" aria-label="清除搜尋">×</a>@endif<button type="submit">搜尋</button></form>
+        <form class="search" method="get" action="{{ route('video-journal.index') }}"><span aria-hidden="true">⌕</span><input aria-label="搜尋影片標題或標籤" name="q" value="{{ $search }}" placeholder="搜尋標題或標籤…" maxlength="200">@if($search)<a href="{{ route('video-journal.index') }}" aria-label="清除搜尋">×</a>@endif<button type="submit">搜尋</button></form>
     </div>
     <div class="collection-meta"><span>{{ $search ? '搜尋結果 · '.$entries->total().' 篇' : '所有收藏 · '.$total.' 篇故事' }}</span><span>最近編輯 <span aria-hidden="true">↓</span></span></div>
     @if($entries->count())
@@ -23,7 +23,9 @@
         @foreach($entries as $entry)
         <article class="entry-card palette-{{ $entry->id % 4 }}">
             <a class="card-art {{ $entry->has_image ? 'has-cover' : '' }}" href="{{ route('video-journal.show', $entry->id) }}" aria-label="開啟 {{ $entry->title }}">@if($entry->has_image)<img class="card-cover" src="{{ route('video-journal.cover', $entry->id) }}" alt="{{ $entry->title }} 的文章封面" loading="lazy" decoding="async">@else<span class="card-orbit"></span><span class="card-number">FRAME {{ str_pad($entry->id, 3, '0', STR_PAD_LEFT) }}</span><span class="card-caption">A STORY WORTH KEEPING</span>@endif<span class="card-play">↗</span></a>
-            <div class="card-body"><span class="card-date">{{ $entry->updated_at->format('Y.m.d') }} <span>・ 影片手記</span></span><h3><a href="{{ route('video-journal.show', $entry->id) }}">{{ $entry->title }}</a></h3><div class="card-bottom"><a href="{{ route('video-journal.show', $entry->id) }}">閱讀故事 <span>↗</span></a><button type="button" class="delete-trigger" data-delete-url="{{ route('video-journal.destroy', $entry->id) }}" data-delete-title="{{ $entry->title }}" aria-label="刪除 {{ $entry->title }}">刪除</button></div></div>
+            <div class="card-body"><div class="card-identity"><div><span class="card-date">{{ $entry->updated_at->format('Y.m.d') }} <span>・ 影片手記</span></span><h3><a href="{{ route('video-journal.show', $entry->id) }}">{{ $entry->title }}</a></h3></div>@if($entry->has_portrait)<a href="{{ route('video-journal.show', $entry->id) }}" class="card-portrait"><img src="{{ route('video-journal.portrait', [$entry->id, 0]) }}" alt="{{ $entry->title }} 的大頭照" loading="lazy" decoding="async"></a>@endif</div>
+            @if($entry->tags)<div class="tag-list card-tags">@foreach($entry->tags as $tag)<a class="tag-chip" href="{{ route('video-journal.index', ['q' => $tag]) }}"># {{ $tag }}</a>@endforeach</div>@endif
+            <div class="card-bottom"><a href="{{ route('video-journal.show', $entry->id) }}">閱讀故事 <span>↗</span></a><button type="button" class="delete-trigger" data-delete-url="{{ route('video-journal.destroy', $entry->id) }}" data-delete-title="{{ $entry->title }}" aria-label="刪除 {{ $entry->title }}">刪除</button></div></div>
         </article>
         @endforeach
     </div>

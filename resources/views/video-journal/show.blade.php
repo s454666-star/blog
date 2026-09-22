@@ -10,6 +10,15 @@
     <aside class="story-aside"><span class="eyebrow">THE STORY</span><span class="aside-line"></span><p>映像之外，<br>還有想記住的事。</p><span class="aside-flower">✳</span><p class="aside-date">建立於<br>{{ $entry->created_at->format('Y.m.d') }}</p></aside>
     <div class="story-main"><div class="story-toolbar"><span class="story-date">最後編輯 <span id="updated-at">{{ $entry->updated_at->format('Y.m.d H:i') }}</span></span><button id="edit-toggle" class="button secondary small" type="button">✎ 編輯文章</button></div>
         <label class="visually-hidden" for="story-title">文章標題</label><input id="story-title" class="story-title" value="{{ $entry->title }}" maxlength="200" readonly aria-label="文章標題">
+        <script type="application/json" id="journal-metadata">@json(['tags' => $entry->tags ?? [], 'portraits' => $entry->portraits ?? []])</script>
+        <section class="journal-metadata" aria-label="標籤與大頭照">
+            <div class="metadata-heading"><h3>標籤</h3><span id="tag-count">0 / 5</span></div>
+            <div id="tag-list" class="tag-list"></div><p id="tags-empty" class="muted">尚未加入標籤</p>
+            <div id="tag-controls" class="tag-controls" hidden><input id="tag-input" class="field" maxlength="40" placeholder="輸入標籤，按 Enter 新增" aria-label="新增標籤"><button id="add-tag" class="button secondary small" type="button">＋ 加入標籤</button></div>
+            <div class="metadata-heading"><h3>人臉特寫</h3><span id="portrait-count">0 / 5</span></div>
+            <div id="portrait-list" class="portrait-list"></div><p id="portraits-empty" class="muted">尚未加入大頭照</p>
+            <div id="portrait-controls" hidden><button type="button" id="add-portrait" class="button secondary small">▧ 加入大頭照</button><input type="file" id="portrait-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden><p class="field-help">最多 5 張，每張最多 20 MB；自動等比例縮至 1080P。第一張會顯示在查詢卡片，可指定其他照片。</p></div>
+        </section>
         <div id="editor-tools" class="editor-tools" hidden role="toolbar" aria-label="文字格式"><button type="button" data-command="bold" aria-label="粗體"><b>B</b></button><button type="button" data-command="italic" aria-label="斜體"><i>I</i></button><button type="button" data-command="underline" aria-label="底線"><u>U</u></button><span class="tool-divider"></span><button type="button" data-command="formatBlock" data-value="h2" aria-label="段落標題">H₂</button><button type="button" data-command="formatBlock" data-value="p" aria-label="一般段落">¶</button><button type="button" data-command="insertUnorderedList" aria-label="項目清單">☷</button><button type="button" data-command="formatBlock" data-value="blockquote" aria-label="引言">❞</button><span class="tool-divider"></span><button type="button" id="insert-image">▧ 插入圖片</button><input type="file" id="image-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden><span class="paste-hint">也可以直接貼上文字與圖片</span></div>
         <div id="story-body" class="prose" role="textbox" aria-label="文章內文" aria-multiline="true" contenteditable="false" data-placeholder="寫下這段影片的故事，或貼上喜歡的圖片…">{!! $entry->body !!}</div>
         <p id="empty-body" class="body-empty" @if($entry->body) hidden @endif>故事還留著空白。點選「編輯文章」，為這段映像寫下第一句話。</p>

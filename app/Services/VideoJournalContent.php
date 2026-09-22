@@ -59,6 +59,19 @@ class VideoJournalContent
         return $out;
     }
 
+    public function portrait(string $source): string
+    {
+        if (!preg_match('~^data:image/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/=\r\n]+)$~D', $source, $match)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['portraits' => '大頭照請使用 PNG、JPEG、WebP 或 GIF 圖片。']);
+        }
+        $bytes = base64_decode($match[2], true);
+        $info = $bytes === false ? false : @getimagesizefromstring($bytes);
+        if (!$info || $info['mime'] !== 'image/'.$match[1] || strlen($bytes) > self::IMAGE_BYTES) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['portraits' => '大頭照必須是有效圖片，每張最多 20 MB。']);
+        }
+        return $this->fitImage($source, $bytes, $info[0], $info[1]);
+    }
+
     private function fitImage(string $original, string $bytes, int $width, int $height): string
     {
         $scale = min(1, 1920 / $width, 1080 / $height);

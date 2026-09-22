@@ -19,6 +19,23 @@
 - 編輯模式顯示縮圖，點選後可替換或刪除；按「儲存文章」才寫入 DB。支援 Ctrl/Cmd+S 與未儲存離頁提醒。
 - 列表刪除只刪除指定文章，保留原始影片與字幕。
 
+## 標籤與人臉特寫
+
+- 在明細編輯模式新增最多 5 個標籤（每個最多 40 字），按 Enter 或「加入標籤」。列表顯示全部標籤，搜尋同時比對標題和標籤。
+- 可選取最多 5 張大頭照，每張原圖最多 20 MB。前端先等比例縮入 1920×1080，後端再次驗證尺寸與格式，再存入本地 DB。可以替換、刪除、指定首張；第一張會另外顯示在列表卡片，文章封面維持使用內文第一張圖。
+- 文章與大頭照編碼資料合計上限 64 MB。瀏覽舊文章時未傳入新欄位的客戶端不會清空已有標籤或照片。
+
+## 預留人臉識別資料結構（尚未執行識別／分組）
+
+`video-journal:install` 以新增欄位與資料表的方式更新本地 SQLite，重複執行保留資料：
+
+- `video_journal_entries.tags`：標籤 JSON。
+- `video_journal_faces`：每張大頭照的獨立 ID、文章 ID、順序、圖像與 `image_sha256`；預留 `person_id`、`feature_status`、`embedding`、`embedding_model`、`embedding_version`、`embedding_dimensions`、`preprocessing_version`、`face_box`、`landmarks`、`detection_confidence`、`quality_score`、`match_distance`、`processed_at`。
+- `video_journal_people`：未來人物／群組 ID、標籤、審核狀態，以及代表特徵向量與模型版本欄位。
+- `video_journal_person_entries`：人物與影片的多對多關係，預留判定方式、信心值、審核狀態與時間。已建 `(person_id, entry_id)` 唯一索引與反向索引，以便分組完成後快速找同一人的影片。
+- 照片表已建影像指紋、處理狀態、人物與影片、模型版本索引；尚未選定特徵模型，因此向量以 JSON 預留，向量近鄰索引等實際識別流程留待後續開發。
+- 同一張照片改順序時保留 ID 與未來特徵；換成不同圖片會建立新的照片 ID，特徵為空、狀態 `pending`，移除被替換照片，不沿用舊特徵。刪除文章只連帶刪除其照片與人物關聯。人物識別與關聯表目前不自動建立任何分組。
+
 ## 邊界與驗證
 
 所有功能路由要求本地 Host 及 loopback 來源位址。公網網域不能讀取此模組或任意本機影片。保留 Laravel CSRF 保護；影片使用支援 HTTP Range 的 BinaryFileResponse；內文採 HTML 元素白名單，圖片只接受有效的內嵌點陣圖，移除腳本與事件屬性。

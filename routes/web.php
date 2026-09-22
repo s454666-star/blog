@@ -70,6 +70,7 @@ Route::prefix('video-journal')->name('video-journal.')->middleware(\App\Http\Mid
     Route::delete('/{id}', [$controller, 'destroy'])->whereNumber('id')->name('destroy');
     Route::get('/{id}/media', [$controller, 'media'])->whereNumber('id')->name('media');
     Route::get('/{id}/cover', [$controller, 'cover'])->whereNumber('id')->name('cover');
+    Route::get('/{id}/portraits/{position}', [$controller, 'portrait'])->whereNumber('id')->whereNumber('position')->name('portrait');
     Route::get('/{id}/subtitles', [$controller, 'subtitles'])->whereNumber('id')->name('subtitles');
 });
 

@@ -1502,3 +1502,26 @@ dialog::backdrop {
         scroll-behavior:auto!important
     }
 }
+.journal-metadata { margin: 0 0 28px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: #fffdf780; }
+.metadata-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.metadata-heading h3 { font-size: 13px; font-weight: 600; margin: 0; }
+.metadata-heading span { color: var(--muted); font-size: 10px; }
+.metadata-heading:not(:first-child) { margin-top: 23px; }
+.tag-list { display: flex; gap: 7px; flex-wrap: wrap; }
+.tag-chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 20px; background: #e7edde; color: #657959; padding: 6px 11px; font-size: 11px; max-width: 100%; overflow-wrap: anywhere; }
+.tag-chip button { background: transparent; color: inherit; padding: 0 3px; font-size: 15px; }
+.tag-controls { display: flex; align-items: center; gap: 9px; margin-top: 13px; }
+.tag-controls input { min-width: 0; }
+.portrait-list { display: flex; gap: 12px; flex-wrap: wrap; }
+.portrait-item { width: 126px; border: 1px solid var(--line); border-radius: 9px; background: var(--white); overflow: hidden; }
+.portrait-item img { display: block; width: 100%; height: 130px; object-fit: contain; background: #eaeee2; cursor: zoom-in; }
+.portrait-label { display: block; font-size: 9px; color: #8b967d; padding: 7px 8px; }
+.portrait-actions { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 7px 8px; }
+.portrait-actions button { background: #f1f0e6; color: #7f785e; border-radius: 4px; font-size: 10px; padding: 5px; }
+#portrait-controls { margin-top: 14px; }
+.card-identity { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.card-identity > div { min-width: 0; }
+.card-portrait { flex: 0 0 70px; height: 82px; border-radius: 9px; overflow: hidden; border: 3px solid #e8edde; }
+.card-portrait img { width: 100%; height: 100%; object-fit: cover; }
+.card-tags { margin: 0 0 18px; }
+@media(max-width: 480px) { .tag-controls { flex-direction: column; align-items: stretch; } .portrait-item { width: calc(50% - 6px); } .card-identity { gap: 8px; } .card-portrait { flex-basis: 58px; height: 68px; } }

@@ -71,7 +71,7 @@ Route::prefix('video-journal')->name('video-journal.')->middleware(\App\Http\Mid
     Route::put('/{id}', [$controller, 'update'])->whereNumber('id')->name('update');
     Route::delete('/{id}', [$controller, 'destroy'])->whereNumber('id')->name('destroy');
     Route::get('/{id}/media', [$controller, 'media'])->whereNumber('id')->name('media');
-    Route::get('/{id}/cover', [$controller, 'cover'])->whereNumber('id')->name('cover');
+    Route::get('/{id}/cover/{position?}', [$controller, 'cover'])->whereNumber('id')->whereNumber('position')->name('cover');
     Route::get('/{id}/portraits/{position}', [$controller, 'portrait'])->whereNumber('id')->whereNumber('position')->name('portrait');
     Route::get('/{id}/subtitles', [$controller, 'subtitles'])->whereNumber('id')->name('subtitles');
 });

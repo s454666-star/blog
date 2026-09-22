@@ -157,17 +157,32 @@ class VideoJournalTest extends TestCase
         $this->assertSame('Large image', $entry->fresh()->title);
     }
 
-    public function test_listing_uses_first_article_image_and_falls_back_when_removed(): void
+    public function test_selected_covers_are_independent_limited_and_removable(): void
     {
         $first = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
         $second = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB1sAAAAASUVORK5CYII=';
-        $entry = VideoJournalEntry::create(['title' => 'Cover test', 'source' => $this->video, 'body' => (new VideoJournalContent)->sanitize('<p>Text before images</p><img src="'.$first.'"><img src="'.$second.'">')]);
-        $this->get('https://blog/video-journal')->assertOk()->assertSee('Cover test')->assertSee('/video-journal/'.$entry->id.'/cover', false)->assertDontSee($first, false);
-        $response = $this->get('https://blog/video-journal/'.$entry->id.'/cover')->assertOk()->assertHeader('Content-Type', 'image/gif');
-        $this->assertSame(base64_decode(substr($first, strpos($first, ',') + 1)), $response->getContent());
-        $entry->update(['body' => '<p>No image</p>']);
-        $this->get('https://blog/video-journal')->assertOk()->assertSee('Cover test')->assertDontSee('/video-journal/'.$entry->id.'/cover', false);
-        $this->get('https://blog/video-journal/'.$entry->id.'/cover')->assertNotFound();
+        $body = '<img src="'.$first.'">';
+        $entry = VideoJournalEntry::create(['title' => 'Cover test', 'source' => $this->video, 'body' => $body]);
+        $url = 'https://blog/video-journal/'.$entry->id;
+        $payload = ['title' => 'Cover test', 'body' => $body];
+        $this->get($url.'/cover')->assertNotFound();
+        $this->get('https://blog/video-journal')->assertDontSee($url.'/cover', false);
+        $this->putJson($url, $payload + ['covers' => [$first, $second]])->assertOk()->assertJsonCount(2, 'covers');
+        $this->get('https://blog/video-journal')->assertOk()->assertSee($url.'/cover/0', false)->assertSee($url.'/cover/1', false)->assertDontSee($first, false);
+        $this->assertSame(base64_decode(explode(',', $first)[1]), $this->get($url.'/cover/0')->assertOk()->assertHeader('Content-Type', 'image/gif')->getContent());
+        $this->get($url.'/cover/1')->assertOk()->assertHeader('Content-Type', 'image/png');
+        $this->get($url.'/cover/2')->assertNotFound();
+        $this->putJson($url, $payload)->assertOk()->assertJsonCount(2, 'covers');
+        $this->putJson($url, $payload + ['covers' => [$second, $first]])->assertOk()->assertJsonPath('covers.0', $second);
+        $this->putJson($url, $payload + ['covers' => [$first, $first, $first]])->assertUnprocessable()->assertJsonValidationErrors('covers');
+        $this->putJson($url, $payload + ['covers' => ['data:image/png;base64,AAAA']])->assertUnprocessable()->assertJsonValidationErrors('covers');
+        $this->assertSame([$second, $first], $entry->fresh()->covers);
+        $this->putJson($url, $payload + ['covers' => [$first]])->assertOk()->assertJsonCount(1, 'covers');
+        $this->get($url.'/cover/1')->assertNotFound();
+        $this->putJson($url, $payload + ['covers' => []])->assertOk()->assertJsonCount(0, 'covers');
+        $this->assertSame((new VideoJournalContent)->sanitize($body), $entry->fresh()->body);
+        $this->get($url.'/cover')->assertNotFound();
+        $this->get('https://blog/video-journal')->assertDontSee($url.'/cover', false);
         $this->get('https://mystar.monster/video-journal/'.$entry->id.'/cover')->assertForbidden();
     }
 
@@ -182,7 +197,7 @@ class VideoJournalTest extends TestCase
             imagefilledellipse($image, (int) ($width / 2), (int) ($height / 2), 400, 400, imagecolorallocatealpha($image, 220, 100, 70, 0));
             ob_start(); imagepng($image); $png = ob_get_clean(); unset($image);
             $body = '<p>Keep text</p><img src="data:image/png;base64,'.base64_encode($png).'">';
-            $this->putJson('https://blog/video-journal/'.$entry->id, ['title' => 'Resize test', 'body' => $body])->assertOk();
+            $this->putJson('https://blog/video-journal/'.$entry->id, ['title' => 'Resize test', 'body' => $body, 'covers' => ['data:image/png;base64,'.base64_encode($png)] ])->assertOk();
             $stored = $entry->fresh()->body;
             $this->assertStringContainsString('<p>Keep text</p><img src="data:image/webp;base64,', $stored);
             $cover = $this->get('https://blog/video-journal/'.$entry->id.'/cover')->assertOk()->assertHeader('Content-Type', 'image/webp')->getContent();

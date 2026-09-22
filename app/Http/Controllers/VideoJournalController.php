@@ -49,7 +49,7 @@ class VideoJournalController extends Controller
     {
         $search = mb_substr(trim((string) $request->query('q', '')), 0, 200);
         $entries = VideoJournalEntry::query()->select(['id', 'title', 'tags', 'created_at', 'updated_at'])
-            ->selectRaw('instr(body, ?) > 0 AS has_image', ['<img src="'])
+            ->selectRaw('json_array_length(covers) AS cover_count')
             ->selectRaw('EXISTS (SELECT 1 FROM video_journal_faces WHERE entry_id = video_journal_entries.id) AS has_portrait')
             ->when($search !== '', fn ($query) => $query->where(function ($query) use ($search) {
                 $query->where('title', 'like', '%'.$search.'%')->orWhereRaw('EXISTS (SELECT 1 FROM json_each(video_journal_entries.tags) WHERE value LIKE ?)', ['%'.$search.'%']);
@@ -150,14 +150,13 @@ class VideoJournalController extends Controller
         return view('video-journal.show', compact('entry', 'remote'));
     }
 
-    public function cover(int $id)
+    public function cover(int $id, int $position = 0)
     {
-        // Return only the first image from SQLite, not the entire rich-text article.
-        $start = 'instr(body, \'<img src="\') + 10';
+        abort_unless($position >= 0 && $position < 2, 404);
+        // Fetch only the requested cover, without loading article or other images.
         $entry = VideoJournalEntry::query()->whereKey($id)
-            ->selectRaw('substr(body, '.$start.', instr(substr(body, '.$start.'), \'"\') - 1) AS cover')
-            ->whereRaw('instr(body, ?) > 0', ['<img src="'])->firstOrFail();
-        abort_unless(preg_match('~^data:(image/(?:png|jpeg|gif|webp));base64,~', $entry->cover, $match), 404);
+            ->selectRaw('json_extract(covers, ?) AS cover', ['$['.$position.']'])->firstOrFail();
+        abort_unless(preg_match('~^data:(image/(?:png|jpeg|gif|webp));base64,~', $entry->cover ?? '', $match), 404);
         $bytes = base64_decode(substr($entry->cover, strlen($match[0])), true);
         abort_unless($bytes !== false, 404);
         return response($bytes, 200, ['Content-Type' => $match[1]]);
@@ -168,15 +167,17 @@ class VideoJournalController extends Controller
         $data = $request->validate([
             'title' => 'required|string|max:200', 'body' => 'nullable|string|max:'.VideoJournalContent::BODY_BYTES,
             'tags' => 'sometimes|array|max:5', 'tags.*' => 'required|string|max:40|distinct',
+            'covers' => 'sometimes|array|max:2', 'covers.*' => 'required|string|max:28000000',
             'portraits' => 'sometimes|array|max:5', 'portraits.*' => 'required|string|max:28000000',
         ]);
-        $total = strlen($data['body'] ?? '') + array_sum(array_map('strlen', $data['portraits'] ?? []));
+        $total = strlen($data['body'] ?? '') + array_sum(array_map('strlen', [...($data['portraits'] ?? []), ...($data['covers'] ?? [])]));
         if ($total > VideoJournalContent::BODY_BYTES) {
-            throw ValidationException::withMessages(['portraits' => '文章與大頭照合計最多 64 MB。']);
+            throw ValidationException::withMessages(['portraits' => '文章、封面與大頭照合計最多 64 MB。']);
         }
         $entry = VideoJournalEntry::findOrFail($id);
         $changes = ['title' => $data['title'], 'body' => $content->sanitize($data['body'] ?? '')];
         if (array_key_exists('tags', $data)) $changes['tags'] = array_values(array_unique(array_filter(array_map('trim', $data['tags']), fn ($tag) => $tag !== '')));
+        if (array_key_exists('covers', $data)) $changes['covers'] = array_map(fn ($image) => $content->portrait($image, 'covers', '封面'), array_values($data['covers']));
         $portraits = array_key_exists('portraits', $data) ? array_map(fn ($image) => $content->portrait($image), array_values($data['portraits'])) : null;
         DB::connection('video_journal')->transaction(function () use ($entry, $changes, $portraits) {
             $entry->update($changes);
@@ -193,7 +194,7 @@ class VideoJournalController extends Controller
             }
             $entry->faces()->whereNotIn('id', $kept)->delete();
         });
-        return response()->json(['message' => '已儲存所有變更', 'updated_at' => $entry->updated_at->format('Y.m.d H:i'), 'body' => $entry->body, 'tags' => $entry->tags ?? [], 'portraits' => $entry->portraits ?? []]);
+        return response()->json(['message' => '已儲存所有變更', 'updated_at' => $entry->updated_at->format('Y.m.d H:i'), 'body' => $entry->body, 'tags' => $entry->tags ?? [], 'covers' => $entry->covers ?? [], 'portraits' => $entry->portraits ?? []]);
     }
 
     public function portrait(int $id, int $position)

@@ -28,7 +28,7 @@ class InstallVideoJournal extends Command
                 $table->timestamps();
             });
         }
-        foreach (['tags'] as $column) {
+        foreach (['tags', 'covers'] as $column) {
             if (!$schema->hasColumn('video_journal_entries', $column)) {
                 $schema->table('video_journal_entries', function (Blueprint $table) use ($column) {
                     $table->longText($column)->default('[]');

@@ -1535,3 +1535,14 @@ dialog::backdrop {
 .drop-row > span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
 .drop-row small { display: block; color: var(--muted); font-size: 10px; margin-top: 4px; }
 .drop-row button { padding: 7px; font-size: 10px; white-space: nowrap; color: #6f815d; background: #e8eddf; border-radius: 5px; }
+
+/* Spacious covers, with both selected images visible without cropping. */
+.entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 30px; }
+.card-art { height: 310px; }
+.card-covers { display: grid; grid-template-columns: repeat(var(--cover-count), minmax(0, 1fr)); gap: 4px; height: 100%; background: #e7e9df; }
+.card-covers .card-cover { object-fit: contain; min-width: 0; background: #f0f1e9; }
+.cover-item { width: 210px; }
+.cover-item img { height: 160px; }
+#cover-controls { margin-top: 14px; }
+@media (max-width: 760px) { .entry-grid { grid-template-columns: 1fr; } .card-art { height: 290px; } }
+@media (max-width: 480px) { .card-art { height: 240px; } .cover-item { width: calc(50% - 6px); } }

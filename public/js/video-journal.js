@@ -231,6 +231,7 @@
     const metadata = JSON.parse($('#journal-metadata').textContent);
     $('#journal-metadata').remove();
     let tags = metadata.tags, portraits = metadata.portraits, replacingPortrait = null;
+    let covers = metadata.covers, replacingCover = null;
     const imageActions = document.createElement('div');
     imageActions.className = 'image-actions'; imageActions.hidden = true;
     imageActions.innerHTML = '<img alt="已選取圖片的縮圖"><span>已選取圖片</span><button type="button" data-image-replace>替換圖片</button><button type="button" data-image-delete>刪除圖片</button>';
@@ -257,6 +258,10 @@
     editor.addEventListener('pointerout', event => { if (event.target.tagName === 'IMG') closePreview(); });
     function markDirty() { dirty = true; $('#save-state').textContent = '有尚未儲存的變更'; }
     function renderMetadata() {
+        $('#cover-count').textContent = covers.length + ' / 2';
+        $('#covers-empty').hidden = covers.length > 0;
+        $('#cover-controls').hidden = !editing;
+        $('#add-cover').disabled = covers.length >= 2 || imageWork > 0;
         $('#tag-count').textContent = tags.length + ' / 5';
         $('#portrait-count').textContent = portraits.length + ' / 5';
         $('#tags-empty').hidden = tags.length > 0;
@@ -289,6 +294,23 @@
                 item.append(actions);
             }
             $('#portrait-list').append(item);
+        });
+        $('#cover-list').replaceChildren();
+        covers.forEach((src, index) => {
+            const item = document.createElement('div'); item.className = 'portrait-item cover-item';
+            const img = document.createElement('img'); img.src = src; img.alt = '封面 ' + (index + 1);
+            img.addEventListener('click', () => showPreview(img, true));
+            const label = document.createElement('span'); label.className = 'portrait-label'; label.textContent = '封面 ' + (index + 1);
+            item.append(img, label);
+            if (editing) {
+                const actions = document.createElement('div'); actions.className = 'portrait-actions';
+                const action = (text, callback) => { const button = document.createElement('button'); button.type = 'button'; button.textContent = text; button.disabled = imageWork > 0; button.addEventListener('click', callback); actions.append(button); };
+                action('替換', () => { replacingCover = index; $('#cover-file').multiple = false; $('#cover-file').click(); });
+                action('刪除', () => { covers.splice(index, 1); markDirty(); renderMetadata(); });
+                if (index > 0) action('設為首張', () => { covers.unshift(covers.splice(index, 1)[0]); markDirty(); renderMetadata(); });
+                item.append(actions);
+            }
+            $('#cover-list').append(item);
         });
     }
     function addTag() {
@@ -326,6 +348,31 @@
             markDirty(); renderMetadata();
         } catch (error) { toast('大頭照處理失敗：' + error.message, true); }
         finally { imageBusy(-1); event.target.value = ''; replacingPortrait = null; }
+    });
+    $('#add-cover').addEventListener('click', () => { replacingCover = null; $('#cover-file').multiple = true; $('#cover-file').click(); });
+    $('#cover-file').addEventListener('change', async event => {
+        const files = Array.from(event.target.files);
+        if (!files.length) return;
+        if (replacingCover === null && covers.length + files.length > 2) { toast('每篇最多 2 張封面。', true); event.target.value = ''; return; }
+        imageBusy(1);
+        try {
+            const pending = [];
+            for (const file of files) {
+                await readImage(file); // Same file type and 20 MB limits as article images.
+                const bitmap = await createImageBitmap(file);
+                try {
+                    const scale = Math.min(1, 1920 / bitmap.width, 1080 / bitmap.height);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.floor(bitmap.width * scale)); canvas.height = Math.max(1, Math.floor(bitmap.height * scale));
+                    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                    pending.push(canvas.toDataURL('image/webp', .85));
+                } finally { bitmap.close(); }
+            }
+            if (replacingCover === null) covers.push(...pending);
+            else covers[replacingCover] = pending[0];
+            markDirty(); renderMetadata();
+        } catch (error) { toast('封面處理失敗：' + error.message, true); }
+        finally { imageBusy(-1); event.target.value = ''; replacingCover = null; }
     });
     renderMetadata();
     function clearImage() {
@@ -372,6 +419,7 @@
         imageWork += value; $('#save-button').disabled = imageWork > 0 || saving; $('#edit-toggle').disabled = imageWork > 0;
         document.querySelectorAll('.portrait-actions button').forEach(button => { button.disabled = imageWork > 0; });
         $('#add-portrait').disabled = imageWork > 0 || portraits.length >= 5;
+        $('#add-cover').disabled = imageWork > 0 || covers.length >= 2;
     }
     $('#insert-image').addEventListener('click', () => { replacing = false; $('#image-file').multiple = true; $('#image-file').click(); });
     imageActions.querySelector('[data-image-replace]').addEventListener('click', () => { replacing = true; $('#image-file').multiple = false; $('#image-file').click(); });
@@ -425,8 +473,8 @@
         if (!addTag()) return;
         if (!title.value.trim()) { toast('請填寫文章標題。', true); title.focus(); return; }
         clearImage();
-        if (new Blob([editor.innerHTML, ...portraits]).size > 64 * 1024 * 1024) { toast('文章與大頭照合計最多 64 MB。', true); return; }
-        const payload = { title: title.value.trim(), body: editor.innerHTML, tags: [...tags], portraits: [...portraits] };
+        if (new Blob([editor.innerHTML, ...portraits, ...covers]).size > 64 * 1024 * 1024) { toast('文章、封面與大頭照合計最多 64 MB。', true); return; }
+        const payload = { title: title.value.trim(), body: editor.innerHTML, tags: [...tags], portraits: [...portraits], covers: [...covers] };
         saving = true; $('#save-button').disabled = true; $('#save-state').textContent = '正在壓縮圖片並儲存文章…';
         try {
             const response = await fetch(story.dataset.saveUrl, { method: 'PUT', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').content }, body: JSON.stringify(payload) });
@@ -435,8 +483,8 @@
             if (!response.ok) throw new Error(response.status === 419 ? '頁面已過期，請先複製內文備份，再重新整理。' : Object.values(data.errors || {}).flat()[0] || '儲存失敗，請稍後重試。');
             const unchanged = title.value.trim() === payload.title && editor.innerHTML === payload.body
                 && JSON.stringify(tags) === JSON.stringify(payload.tags) && portraits.length === payload.portraits.length
-                && portraits.every((src, i) => src === payload.portraits[i]) && !$('#tag-input').value.trim();
-            if (unchanged) { editor.innerHTML = data.body; tags = data.tags; portraits = data.portraits; dirty = false; setEditing(false); }
+                && portraits.every((src, i) => src === payload.portraits[i]) && covers.length === payload.covers.length && covers.every((src, i) => src === payload.covers[i]) && !$('#tag-input').value.trim();
+            if (unchanged) { editor.innerHTML = data.body; tags = data.tags; portraits = data.portraits; covers = data.covers; dirty = false; setEditing(false); }
             $('#updated-at').textContent = data.updated_at;
             document.title = payload.title + ' — FRAME / 影片生活誌';
             $('#save-state').textContent = unchanged ? '所有變更已儲存' : '有尚未儲存的變更';

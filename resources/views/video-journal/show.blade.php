@@ -10,8 +10,11 @@
     <aside class="story-aside"><span class="eyebrow">THE STORY</span><span class="aside-line"></span><p>映像之外，<br>還有想記住的事。</p><span class="aside-flower">✳</span><p class="aside-date">建立於<br>{{ $entry->created_at->format('Y.m.d') }}</p></aside>
     <div class="story-main"><div class="story-toolbar"><span class="story-date">最後編輯 <span id="updated-at">{{ $entry->updated_at->format('Y.m.d H:i') }}</span></span><button id="edit-toggle" class="button secondary small" type="button">✎ 編輯文章</button></div>
         <label class="visually-hidden" for="story-title">文章標題</label><input id="story-title" class="story-title" value="{{ $entry->title }}" maxlength="200" readonly aria-label="文章標題">
-        <script type="application/json" id="journal-metadata">@json(['tags' => $entry->tags ?? [], 'portraits' => $entry->portraits ?? []])</script>
-        <section class="journal-metadata" aria-label="標籤與大頭照">
+        <script type="application/json" id="journal-metadata">@json(['tags' => $entry->tags ?? [], 'portraits' => $entry->portraits ?? [], 'covers' => $entry->covers ?? []])</script>
+        <section class="journal-metadata" aria-label="封面、標籤與大頭照">
+            <div class="metadata-heading"><h3>自選封面</h3><span id="cover-count">0 / 2</span></div>
+            <div id="cover-list" class="portrait-list cover-list"></div><p id="covers-empty" class="muted">尚未設定封面</p>
+            <div id="cover-controls" hidden><button type="button" id="add-cover" class="button secondary small">▧ 選擇封面</button><input type="file" id="cover-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden><p class="field-help">可自選 2 張，查詢時會一起顯示。每張最多 20 MB，自動等比例縮至最高 1080P。</p></div>
             <div class="metadata-heading"><h3>標籤</h3><span id="tag-count">0 / 5</span></div>
             <div id="tag-list" class="tag-list"></div><p id="tags-empty" class="muted">尚未加入標籤</p>
             <div id="tag-controls" class="tag-controls" hidden><input id="tag-input" class="field" maxlength="40" placeholder="輸入標籤，按 Enter 新增" aria-label="新增標籤"><button id="add-tag" class="button secondary small" type="button">＋ 加入標籤</button></div>

@@ -29,6 +29,7 @@ class VideoJournalController extends Controller
         if ($names === false) {
             throw ValidationException::withMessages(['path' => '無法讀取此資料夾。']);
         }
+        $request->session()->put('video_journal.folders', array_slice(array_values(array_unique([$resolved, ...$request->session()->get('video_journal.folders', [])])), 0, 20));
         $items = [];
         $search = trim($data['q'] ?? '');
         foreach ($names as $name) {
@@ -57,11 +58,63 @@ class VideoJournalController extends Controller
         return view('video-journal.index', ['entries' => $entries, 'search' => $search, 'total' => VideoJournalEntry::count()]);
     }
 
+    public function resolveDrop(Request $request)
+    {
+        $data = $request->validate(['name' => 'required|string|max:255', 'size' => 'required|integer|min:0', 'fingerprint' => 'required|string|regex:/^[a-f0-9]{64}$/', 'path' => 'nullable|string|max:4096', 'folder' => 'nullable|string|max:4096']);
+        if (preg_match('~[/\\\\\x00]~', $data['name']) || !in_array(strtolower(pathinfo($data['name'], PATHINFO_EXTENSION)), ['mp4', 'webm', 'ogv', 'mov', 'm4v'], true)) {
+            throw ValidationException::withMessages(['name' => '請拖入 MP4、WebM、OGV、MOV 或 M4V 影片。']);
+        }
+        $folders = $request->session()->get('video_journal.folders', []);
+        foreach (VideoJournalEntry::query()->orderByDesc('updated_at')->limit(100)->pluck('source') as $source) {
+            if (!preg_match('~^https?://~i', $source)) $folders[] = dirname($source);
+        }
+        if (!empty($data['folder'])) $folders = [$data['folder']];
+        if (!empty($data['path'])) $folders = [];
+        $candidates = empty($data['path']) ? [] : [$data['path']];
+        foreach (array_unique($folders) as $folder) $candidates[] = rtrim($folder, '/\\').DIRECTORY_SEPARATOR.$data['name'];
+        $matches = [];
+        foreach (array_unique($candidates) as $path) {
+            if (!preg_match('~^(?:[A-Za-z]:[\\\\/]|/|\\\\\\\\)~', $path)) continue;
+            if (strcasecmp(basename(str_replace('\\', '/', $path)), $data['name']) !== 0) continue;
+            $resolved = realpath($path);
+            if ($resolved && is_file($resolved) && filesize($resolved) === (int) $data['size'] && hash_equals($data['fingerprint'], $this->sampleFingerprint($resolved, (int) $data['size']))) {
+                $matches[strtolower($resolved)] = ['name' => basename(str_replace('\\', '/', $resolved)), 'path' => $resolved];
+            }
+        }
+        return response()->json(['matches' => array_values($matches)]);
+    }
+
+    private function sampleFingerprint(string $path, int $size): string
+    {
+        $stream = @fopen($path, 'rb');
+        if (!$stream) return '';
+        $hash = hash_init('sha256');
+        try {
+            foreach ([0, max(0, (int) floor(($size - 65536) / 2)), max(0, $size - 65536)] as $offset) {
+                if (fseek($stream, $offset) !== 0) return '';
+                $chunk = fread($stream, 65536);
+                if ($chunk === false) return '';
+                hash_update($hash, $chunk);
+            }
+            return hash_final($hash);
+        } finally { fclose($stream); }
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate(['title' => 'nullable|string|max:200', 'source' => 'required|string|max:4096']);
         $data['source'] = trim($data['source'], " \t\n\r\0\x0B\"");
         $source = $data['source'];
+        $this->validateSource($source);
+        $remote = preg_match('~^https?://~i', $source) === 1;
+        $filename = basename(str_replace('\\', '/', $remote ? (parse_url($source, PHP_URL_PATH) ?: 'video') : $source));
+        $data['title'] = trim($data['title'] ?? '') ?: mb_substr($remote ? rawurldecode($filename) : $filename, 0, 200);
+        $entry = VideoJournalEntry::create($data + ['body' => '']);
+        return redirect()->route('video-journal.show', $entry->id)->with('status', '影片已加入，開始寫下你的故事。');
+    }
+
+    private function validateSource(string $source): void
+    {
         if (!filter_var($source, FILTER_VALIDATE_URL) || !in_array(strtolower(parse_url($source, PHP_URL_SCHEME) ?? ''), ['http', 'https'], true)) {
             if (!preg_match('~^(?:[A-Za-z]:[\\\\/]|/|\\\\\\\\)~', $source)
                 || !in_array(strtolower(pathinfo($source, PATHINFO_EXTENSION)), ['mp4', 'webm', 'ogv', 'mov', 'm4v'], true)
@@ -69,11 +122,25 @@ class VideoJournalController extends Controller
                 throw ValidationException::withMessages(['source' => '請輸入存在的影片完整路徑，或 http / https 影片直連網址。']);
             }
         }
-        $remote = preg_match('~^https?://~i', $source) === 1;
-        $filename = basename(str_replace('\\', '/', $remote ? (parse_url($source, PHP_URL_PATH) ?: 'video') : $source));
-        $data['title'] = trim($data['title'] ?? '') ?: mb_substr($remote ? rawurldecode($filename) : $filename, 0, 200);
-        $entry = VideoJournalEntry::create($data + ['body' => '']);
-        return redirect()->route('video-journal.show', $entry->id)->with('status', '影片已加入，開始寫下你的故事。');
+    }
+
+    public function storeBatch(Request $request)
+    {
+        $data = $request->validate(['items' => 'required|array|min:1|max:50', 'items.*.source' => 'required|string|max:4096|distinct', 'items.*.title' => 'nullable|string|max:200', 'items.*.size' => 'required|integer|min:0', 'items.*.fingerprint' => 'required|string|regex:/^[a-f0-9]{64}$/']);
+        $rows = [];
+        foreach ($data['items'] as $item) {
+            $source = trim($item['source']);
+            $this->validateSource($source);
+            if (preg_match('~^https?://~i', $source) || !is_file($source) || filesize($source) !== (int) $item['size'] || !hash_equals($item['fingerprint'], $this->sampleFingerprint($source, (int) $item['size']))) {
+                throw ValidationException::withMessages(['items' => '影片來源已變動，請重新確認拖入的影片。']);
+            }
+            $rows[] = ['source' => $source, 'title' => trim($item['title'] ?? '') ?: mb_substr(basename(str_replace('\\', '/', $source)), 0, 200), 'body' => ''];
+        }
+        DB::connection('video_journal')->transaction(function () use ($rows) {
+            foreach ($rows as $row) VideoJournalEntry::create($row);
+        });
+        $request->session()->flash('status', '已新增 '.count($rows).' 篇影片誌。');
+        return response()->json(['count' => count($rows), 'redirect' => route('video-journal.index')]);
     }
 
     public function show(int $id)

@@ -65,6 +65,8 @@ Route::prefix('video-journal')->name('video-journal.')->middleware(\App\Http\Mid
     Route::get('/', [$controller, 'index'])->name('index');
     Route::post('/', [$controller, 'store'])->name('store');
     Route::get('/browse', [$controller, 'browse'])->name('browse');
+    Route::post('/resolve-drop', [$controller, 'resolveDrop'])->name('resolve-drop');
+    Route::post('/batch', [$controller, 'storeBatch'])->name('batch');
     Route::get('/{id}', [$controller, 'show'])->whereNumber('id')->name('show');
     Route::put('/{id}', [$controller, 'update'])->whereNumber('id')->name('update');
     Route::delete('/{id}', [$controller, 'destroy'])->whereNumber('id')->name('destroy');

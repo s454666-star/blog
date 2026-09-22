@@ -29,6 +29,79 @@
     const picker = $('#video-picker');
     if (picker) {
         let currentPath = '', parentPath = '', browseSequence = 0, searchTimer;
+        let dropped = [], dropGeneration = 0, resolving = 0, batchSaving = false;
+        const dropzone = $('#video-dropzone');
+        const createButton = $('#create-dialog button[type="submit"]');
+        function renderDropped() {
+            $('#drop-matches').replaceChildren();
+            $('#new-title').readOnly = dropped.length > 1;
+            if (!dropped.length) { createButton.textContent = '建立影片誌 ↗'; $('#new-source').value = ''; $('#new-title').value = ''; $('#video-drop-status').textContent = ''; return; }
+            const ready = dropped.filter(item => item.source).length;
+            $('#new-source').value = dropped.length === 1 ? (dropped[0].source || '') : `已選 ${dropped.length} 部影片`;
+            $('#new-title').value = dropped.length === 1 ? Array.from(dropped[0].file.name).slice(0, 200).join('') : '各自使用原始檔案名稱';
+            createButton.textContent = `建立 ${dropped.length} 篇影片誌 ↗`;
+            $('#video-drop-status').textContent = resolving ? '正在確認影片來源…' : ready === dropped.length ? `${ready} 部影片已準備好，點選下方按鈕一起新增。` : `${ready} / ${dropped.length} 部來源已確認。瀏覽器未提供完整路徑的影片，請確認一次所在資料夾。`;
+            dropped.forEach((item, index) => {
+                const row = document.createElement('div'); row.className = 'drop-row';
+                const info = document.createElement('span'); info.textContent = item.file.name;
+                const state = document.createElement('small'); state.textContent = item.source ? '✓ 已確認來源' : (item.error || '待確認所在資料夾'); info.append(state);
+                const locate = document.createElement('button'); locate.type = 'button'; locate.textContent = item.source ? '重新確認' : '確認資料夾'; locate.disabled = batchSaving || resolving > 0;
+                locate.addEventListener('click', () => { picker.showModal(); $('#picker-search').value = ''; browse(currentPath); });
+                const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', '移除 ' + item.file.name); remove.disabled = batchSaving || resolving > 0;
+                remove.addEventListener('click', () => { dropped.splice(index, 1); renderDropped(); });
+                row.append(info, locate, remove); $('#drop-matches').append(row);
+            });
+        }
+        async function resolveDropped(folder = '') {
+            const generation = ++dropGeneration;
+            const queue = dropped.filter(item => !item.source || folder);
+            resolving++; renderDropped();
+            let next = 0;
+            try {
+                await Promise.all(Array.from({length: Math.min(4, queue.length)}, async () => {
+                    while (next < queue.length) {
+                        const item = queue[next++];
+                        try {
+                            if (!item.fingerprint) {
+                                const chunks = await Promise.all([0, Math.max(0, Math.floor((item.file.size - 65536) / 2)), Math.max(0, item.file.size - 65536)].map(offset => item.file.slice(offset, offset + 65536).arrayBuffer()));
+                                const sample = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.byteLength, 0));
+                                let offset = 0; for (const chunk of chunks) { sample.set(new Uint8Array(chunk), offset); offset += chunk.byteLength; }
+                                item.fingerprint = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', sample)), byte => byte.toString(16).padStart(2, '0')).join('');
+                            }
+                            const response = await fetch(dropzone.dataset.resolveUrl, {method:'POST', headers:{'Content-Type':'application/json', Accept:'application/json', 'X-CSRF-TOKEN':$('meta[name="csrf-token"]').content}, body:JSON.stringify({name:item.file.name, size:item.file.size, fingerprint:item.fingerprint, folder:folder || undefined, path:!folder && typeof item.file.path === 'string' ? item.file.path : undefined})});
+                            const data = await response.json();
+                            if (generation !== dropGeneration) return;
+                            if (!response.ok) throw new Error(Object.values(data.errors || {}).flat()[0] || '來源確認失敗');
+                            if (data.matches.length === 1) { item.source = data.matches[0].path; item.error = ''; }
+                            else if (!item.source) item.error = data.matches.length > 1 ? '有多個同名來源，請確認資料夾' : '請確認所在資料夾';
+                        } catch (error) { if (generation === dropGeneration) item.error = error.message; }
+                    }
+                }));
+            } finally {
+                resolving--; renderDropped();
+                if (generation === dropGeneration && dropped.length && dropped.every(item => item.source) && picker.open) picker.close();
+            }
+        }
+        let dragDepth = 0;
+        dropzone.addEventListener('dragenter', event => { event.preventDefault(); dragDepth++; dropzone.classList.add('drag-over'); });
+        dropzone.addEventListener('dragover', event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; });
+        dropzone.addEventListener('dragleave', () => { if (--dragDepth <= 0) dropzone.classList.remove('drag-over'); });
+        function acceptDropped(files) {
+            if (batchSaving) return;
+            if (!files.length || files.some(file => !/\.(mp4|webm|ogv|mov|m4v)$/i.test(file.name))) { toast('請拖入影片檔案，不支援資料夾或其他檔案。', true); return; }
+            if (files.length > 50) { toast('每次最多新增 50 部影片。', true); return; }
+            dropped = files.map(file => ({file, source:'', error:''}));
+            resolveDropped();
+        }
+        dropzone.addEventListener('drop', event => {
+            event.preventDefault(); event.stopPropagation(); dragDepth = 0; dropzone.classList.remove('drag-over');
+            acceptDropped(Array.from(event.dataTransfer.files));
+        });
+        $('#dropped-files').addEventListener('change', event => { acceptDropped(Array.from(event.target.files)); event.target.value = ''; });
+        dropzone.addEventListener('click', () => $('#dropped-files').click());
+        dropzone.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); $('#dropped-files').click(); } });
+        $('#create-dialog').addEventListener('dragover', event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); });
+        $('#create-dialog').addEventListener('drop', event => event.preventDefault());
         async function browse(path = '', search = '') {
             const sequence = ++browseSequence;
             $('#picker-items').replaceChildren();
@@ -42,6 +115,7 @@
                 if (sequence !== browseSequence) return;
                 if (!response.ok) throw new Error(Object.values(data.errors || {}).flat()[0] || '無法讀取資料夾，請稍後重試。');
                 currentPath = data.path; parentPath = data.parent;
+                if (dropped.length && currentPath) resolveDropped(currentPath);
                 $('#picker-path').value = currentPath;
                 $('#picker-parent').disabled = parentPath === null;
                 $('#picker-status').textContent = data.truncated ? '目前顯示前 300 項，請輸入檔名縮小範圍。' : data.items.length ? (currentPath ? '點選影片即可帶入原始檔名' : '選擇影片所在的磁碟') : '此資料夾沒有符合的影片或資料夾。';
@@ -55,6 +129,7 @@
                     button.addEventListener('click', () => {
                         if (item.directory) { $('#picker-search').value = ''; browse(item.path); }
                         else {
+                            if (dropped.length) { resolveDropped(currentPath); return; }
                             $('#new-source').value = item.path;
                             $('#new-title').value = Array.from(item.name).slice(0, 200).join('');
                             picker.close(); $('#new-title').focus();
@@ -72,7 +147,21 @@
         $('#picker-parent').addEventListener('click', () => { clearTimeout(searchTimer); $('#picker-search').value = ''; browse(parentPath || ''); });
         $('#picker-search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => browse(currentPath, $('#picker-search').value), 250); });
         picker.addEventListener('close', () => { clearTimeout(searchTimer); ++browseSequence; });
-        $('#create-dialog form').addEventListener('submit', event => {
+        $('#create-dialog form').addEventListener('submit', async event => {
+            if (dropped.length) {
+                event.preventDefault();
+                if (batchSaving || resolving) return;
+                if (dropped.some(item => !item.source)) { toast('請先確認清單中每部影片的所在資料夾。', true); return; }
+                batchSaving = true; createButton.disabled = true;
+                const customTitle = $('#new-title').value.trim(); renderDropped();
+                try {
+                    const response = await fetch(dropzone.dataset.batchUrl, {method:'POST', headers:{'Content-Type':'application/json', Accept:'application/json', 'X-CSRF-TOKEN':$('meta[name="csrf-token"]').content}, body:JSON.stringify({items:dropped.map(item => ({source:item.source, size:item.file.size, fingerprint:item.fingerprint, title:dropped.length === 1 ? customTitle : Array.from(item.file.name).slice(0,200).join('')}))})});
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(Object.values(data.errors || {}).flat()[0] || '新增失敗，請重試。');
+                    location.assign(data.redirect);
+                } catch (error) { toast(error.message, true); batchSaving = false; createButton.disabled = false; renderDropped(); }
+                return;
+            }
             if (!$('#new-source').value) { event.preventDefault(); toast('請先選擇影片。', true); $('#choose-video').focus(); }
         });
     }

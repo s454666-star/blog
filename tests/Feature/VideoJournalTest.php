@@ -260,4 +260,30 @@ class VideoJournalTest extends TestCase
         $this->delete($url)->assertRedirect();
         $this->assertSame(0, DB::connection('video_journal')->table('video_journal_faces')->where('entry_id', $entry->id)->count());
     }
+
+    public function test_dropped_video_resolution_and_atomic_batch_creation(): void
+    {
+        $second = $this->directory.DIRECTORY_SEPARATOR.'第二部.mp4';
+        file_put_contents($second, 'second-synthetic-video');
+        $firstFingerprint = hash('sha256', str_repeat(file_get_contents($this->video), 3));
+        $secondFingerprint = hash('sha256', str_repeat(file_get_contents($second), 3));
+        try {
+            $resolve = ['name' => basename($this->video), 'size' => filesize($this->video), 'fingerprint' => $firstFingerprint];
+            $this->postJson('https://blog/video-journal/resolve-drop', $resolve)->assertOk()->assertJsonCount(0, 'matches');
+            $this->getJson('https://blog/video-journal/browse?path='.urlencode($this->directory))->assertOk();
+            $this->postJson('https://blog/video-journal/resolve-drop', $resolve)->assertOk()->assertJsonPath('matches.0.path', $this->video);
+            $this->postJson('https://blog/video-journal/resolve-drop', array_replace($resolve, ['fingerprint' => str_repeat('0', 64)]))->assertOk()->assertJsonCount(0, 'matches');
+            $this->postJson('https://mystar.monster/video-journal/resolve-drop', $resolve)->assertForbidden();
+            $items = [['source' => $this->video, 'size' => filesize($this->video), 'fingerprint' => $firstFingerprint], ['source' => $second, 'size' => filesize($second), 'fingerprint' => $secondFingerprint]];
+            $invalid = $items; $invalid[1]['fingerprint'] = str_repeat('0', 64);
+            $this->postJson('https://blog/video-journal/batch', ['items' => $invalid])->assertUnprocessable();
+            $this->assertSame(0, VideoJournalEntry::count());
+            $this->postJson('https://blog/video-journal/batch', ['items' => [$items[0], $items[0]]])->assertUnprocessable();
+            $this->postJson('https://blog/video-journal/batch', ['items' => array_fill(0, 51, $items[0])])->assertUnprocessable();
+            $this->postJson('https://blog/video-journal/batch', ['items' => $items])->assertOk()->assertJsonPath('count', 2);
+            $this->assertSame([basename($this->video), basename($second)], VideoJournalEntry::orderBy('id')->pluck('title')->all());
+            $this->assertFileExists($this->video);
+            $this->assertFileExists($second);
+        } finally { unlink($second); }
+    }
 }

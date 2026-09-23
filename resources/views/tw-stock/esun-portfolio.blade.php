@@ -1753,6 +1753,7 @@ function renderTotalPnlHistory() {
     state.totalPnlHistory = points;
     svg.innerHTML = `${waveSvgMarkup(points, 320, 78, { compareZero: true, emptyText })}
         <g data-pnl-history-hover visibility="hidden" pointer-events="none">
+            <line data-total-pnl-history-level-line x1="5" x2="315" stroke="#fbbf24" stroke-opacity="0.78" stroke-dasharray="5 4" vector-effect="non-scaling-stroke" />
             <line data-pnl-history-hover-line y1="5" y2="73" stroke="#e2e8f0" stroke-opacity="0.52" stroke-dasharray="3 3" />
             <circle data-pnl-history-hover-point r="3.5" fill="#0f172a" stroke="#e2e8f0" stroke-width="2" vector-effect="non-scaling-stroke" />
         </g>`;
@@ -2058,6 +2059,9 @@ function showTotalPnlHistoryTooltip(event) {
     const line = hover.querySelector('[data-pnl-history-hover-line]');
     line.setAttribute('x1', point.x.toFixed(2));
     line.setAttribute('x2', point.x.toFixed(2));
+    const levelLine = hover.querySelector('[data-total-pnl-history-level-line]');
+    levelLine.setAttribute('y1', point.y.toFixed(2));
+    levelLine.setAttribute('y2', point.y.toFixed(2));
     const circle = hover.querySelector('[data-pnl-history-hover-point]');
     circle.setAttribute('cx', point.x.toFixed(2));
     circle.setAttribute('cy', point.y.toFixed(2));

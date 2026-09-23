@@ -1,7 +1,7 @@
 {
   "name": "frame-video-journal",
   "version": "1.0.0",
-  "description": "Local FRAME video journal desktop client",
+  "description": "美少女映像管 — local soft-girl CRT video archive desktop client",
   "private": true,
   "main": "main.cjs",
   "scripts": {

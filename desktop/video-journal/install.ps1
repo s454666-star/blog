@@ -8,10 +8,10 @@ New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
 Copy-Item -Path (Join-Path $packageRoot '*') -Destination $installRoot -Recurse -Force
 $installedExe = Join-Path $installRoot 'FrameJournal.exe'
 $desktopRoot = [Environment]::GetFolderPath('Desktop')
-$shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $desktopRoot '映記影片誌.lnk'))
+$shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $desktopRoot '美少女映像管.lnk'))
 $shortcut.TargetPath = $installedExe
 $shortcut.WorkingDirectory = $installRoot
-$shortcut.Description = '映記影片誌 - 拖曳影片自動辨識來源路徑'
+$shortcut.Description = '美少女映像管 - 本機甜蜜映像庫，拖曳影片自動辨識來源路徑'
 $shortcut.Save()
 Write-Output "Installed: $installedExe"
-Write-Output "Shortcut: $(Join-Path $desktopRoot '映記影片誌.lnk')"
+Write-Output "Shortcut: $(Join-Path $desktopRoot '美少女映像管.lnk')"

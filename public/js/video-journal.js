@@ -39,11 +39,11 @@
             $('#confirm-drop-folder').disabled = batchSaving || resolving > 0;
             $('#drop-folder-controls').hidden = !dropped.some(item => !item.source);
             $('#new-title').readOnly = dropped.length > 1;
-            if (!dropped.length) { createButton.textContent = '建立影片誌 ↗'; $('#new-source').value = ''; $('#new-title').value = ''; $('#video-drop-status').textContent = ''; return; }
+            if (!dropped.length) { createButton.textContent = '建立映像 ↗'; $('#new-source').value = ''; $('#new-title').value = ''; $('#video-drop-status').textContent = ''; return; }
             const ready = dropped.filter(item => item.source).length;
             $('#new-source').value = dropped.length === 1 ? (dropped[0].source || '') : `已選 ${dropped.length} 部影片`;
             $('#new-title').value = dropped.length === 1 ? Array.from(dropped[0].file.name).slice(0, 200).join('') : '各自使用原始檔案名稱';
-            createButton.textContent = ready === dropped.length ? `建立 ${dropped.length} 篇影片誌 ↗` : '先確認影片位置 ↗';
+            createButton.textContent = ready === dropped.length ? `建立 ${dropped.length} 則映像 ↗` : '先確認影片位置 ↗';
             $('#video-drop-status').textContent = resolving ? '正在確認影片來源…' : ready === dropped.length ? `${ready} 部影片已準備好，點選下方按鈕一起新增。` : `${ready} / ${dropped.length} 部來源已確認。瀏覽器未提供完整路徑的影片，請確認一次所在資料夾。`;
             dropped.forEach((item, index) => {
                 const row = document.createElement('div'); row.className = 'drop-row';
@@ -425,7 +425,7 @@
         editor.contentEditable = String(value); title.readOnly = !value;
         $('#editor-tools').hidden = !value; $('#save-bar').hidden = !value;
         $('#empty-body').hidden = value || Boolean(editor.textContent.trim() || editor.querySelector('img'));
-        $('#edit-toggle').textContent = value ? '◉ 預覽文章' : '✎ 編輯文章';
+        $('#edit-toggle').textContent = value ? '◉ 預覽小記' : '✎ 編輯小記';
         renderMetadata();
     }
     $('#edit-toggle').addEventListener('click', () => setEditing(!editing));
@@ -510,7 +510,7 @@
         clearImage();
         if (new Blob([editor.innerHTML, ...portraits, ...covers]).size > 64 * 1024 * 1024) { toast('文章、封面與大頭照合計最多 64 MB。', true); return; }
         const payload = { title: title.value.trim(), body: editor.innerHTML, tags: [...tags], portraits: [...portraits], covers: [...covers] };
-        saving = true; $('#save-button').disabled = true; $('#save-state').textContent = '正在壓縮圖片並儲存文章…';
+        saving = true; $('#save-button').disabled = true; $('#save-state').textContent = '正在壓縮圖片並儲存小記…';
         try {
             const response = await fetch(story.dataset.saveUrl, { method: 'PUT', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').content }, body: JSON.stringify(payload) });
             let data;
@@ -521,9 +521,9 @@
                 && portraits.every((src, i) => src === payload.portraits[i]) && covers.length === payload.covers.length && covers.every((src, i) => src === payload.covers[i]) && !$('#tag-input').value.trim();
             if (unchanged) { editor.innerHTML = data.body; tags = data.tags; portraits = data.portraits; covers = data.covers; dirty = false; setEditing(false); }
             $('#updated-at').textContent = data.updated_at;
-            document.title = payload.title + ' — FRAME / 影片生活誌';
+            document.title = payload.title + ' — 美少女映像管';
             $('#save-state').textContent = unchanged ? '所有變更已儲存' : '有尚未儲存的變更';
-            toast(unchanged ? '文章已儲存，文字與圖片都收藏好了。' : '先前變更已儲存，後續編輯請再次儲存。');
+            toast(unchanged ? '小記已儲存，溫柔地收好了。' : '先前變更已儲存，後續編輯請再次儲存。');
         } catch (error) { $('#save-state').textContent = '儲存失敗，內容仍保留在畫面'; toast(error.message, true); }
         finally { saving = false; $('#save-button').disabled = imageWork > 0; }
     });

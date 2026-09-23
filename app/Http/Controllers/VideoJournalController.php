@@ -110,7 +110,7 @@ class VideoJournalController extends Controller
         $filename = basename(str_replace('\\', '/', $remote ? (parse_url($source, PHP_URL_PATH) ?: 'video') : $source));
         $data['title'] = trim($data['title'] ?? '') ?: mb_substr($remote ? rawurldecode($filename) : $filename, 0, 200);
         $entry = VideoJournalEntry::create($data + ['body' => '']);
-        return redirect()->route('video-journal.show', $entry->id)->with('status', '影片已加入，開始寫下你的故事。');
+        return redirect()->route('video-journal.show', $entry->id)->with('status', '映像已收進映像管，可以寫下小記了。');
     }
 
     private function validateSource(string $source): void
@@ -139,7 +139,7 @@ class VideoJournalController extends Controller
         DB::connection('video_journal')->transaction(function () use ($rows) {
             foreach ($rows as $row) VideoJournalEntry::create($row);
         });
-        $request->session()->flash('status', '已新增 '.count($rows).' 篇影片誌。');
+        $request->session()->flash('status', '已收進 '.count($rows).' 則映像。');
         return response()->json(['count' => count($rows), 'redirect' => route('video-journal.index')]);
     }
 
@@ -210,7 +210,7 @@ class VideoJournalController extends Controller
     public function destroy(int $id)
     {
         VideoJournalEntry::findOrFail($id)->delete();
-        return redirect()->route('video-journal.index')->with('status', '文章已刪除，原始影片保留。');
+        return redirect()->route('video-journal.index')->with('status', '已從映像管拿掉，原始影片仍保留。');
     }
 
     public function media(int $id)

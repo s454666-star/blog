@@ -56,4 +56,3 @@ test('web browser retains manual submit and missing native sources never auto-cr
     assert.equal((await dropScenario(false)).batches,0);
     assert.equal((await dropScenario(true,true)).batches,0);
 });
-

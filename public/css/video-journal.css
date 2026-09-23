@@ -1616,6 +1616,83 @@ dialog::backdrop {
 .cover-item { width: 210px; }
 .cover-item img { height: 160px; }
 #cover-controls { margin-top: 14px; }
+.metadata-upload-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; }
+.image-paste-zone {
+    flex: 1 1 220px;
+    min-height: 54px;
+    display: grid;
+    place-items: center;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1.5px dashed #e8b8d2;
+    border-radius: 14px;
+    background: linear-gradient(160deg, #fff7fb, #fceef6);
+    color: #9078a0;
+    cursor: text;
+    outline: none;
+    transition: border-color .2s, background .2s, box-shadow .2s;
+}
+.image-paste-zone.is-focused, .image-paste-zone:focus-visible {
+    border-color: var(--accent);
+    background: linear-gradient(160deg, #ffe8f2, #f3e4ef);
+    box-shadow: 0 0 0 3px #f0629222;
+}
+.image-paste-zone.has-staging {
+    border-style: solid;
+    background: linear-gradient(160deg, #fff5fa, #ebe0f5);
+}
+.image-paste-zone.is-busy { opacity: .55; pointer-events: none; }
+.image-paste-idle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 11px;
+    line-height: 1.6;
+    text-align: center;
+}
+.image-paste-icon { font-size: 16px; color: #f06292; }
+.image-paste-staging {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+}
+.image-paste-thumb {
+    width: 72px;
+    border: 1px solid #f0d4e4;
+    border-radius: 9px;
+    overflow: hidden;
+    background: #fff8fc;
+}
+.image-paste-thumb img {
+    display: block;
+    width: 100%;
+    height: 58px;
+    object-fit: contain;
+    background: #f4e8f2;
+}
+.image-paste-thumb span {
+    display: block;
+    font-size: 8px;
+    color: #8b967d;
+    padding: 4px 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.image-paste-ready {
+    margin: 0;
+    flex: 1 1 140px;
+    font-size: 10px;
+    line-height: 1.7;
+    color: #7a5d90;
+}
+@media (max-width: 480px) {
+    .metadata-upload-row { flex-direction: column; align-items: stretch; }
+}
+
 @media (max-width: 760px) { .entry-grid { grid-template-columns: 1fr; } .card-art { height: 290px; } }
 @media (max-width: 480px) { .card-art { height: 240px; } .cover-item { width: calc(50% - 6px); } }
 

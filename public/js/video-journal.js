@@ -260,23 +260,44 @@
     video.addEventListener('error', () => { $('#player-error').hidden = false; });
     if (video.error) $('#player-error').hidden = false;
     async function captureCurrentFrame() {
-        if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+        // Capture ONLY decoded video pixels — never player-shell, caption bar, CRT overlays, or native controls.
+        if (!video || !(video instanceof HTMLVideoElement) || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
             toast('影片尚未就緒，請稍候再截圖。', true);
             return;
         }
         const canvas = document.createElement('canvas');
         canvas.width = 1920; canvas.height = 1080;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        if (!ctx) { toast('截圖失敗，請稍後再試。', true); return; }
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, 1920, 1080);
-        const scale = Math.min(1920 / video.videoWidth, 1080 / video.videoHeight);
-        const drawW = video.videoWidth * scale;
-        const drawH = video.videoHeight * scale;
+        const vw = video.videoWidth, vh = video.videoHeight;
+        const scale = Math.min(1920 / vw, 1080 / vh);
+        const drawW = vw * scale, drawH = vh * scale;
+        const dx = (1920 - drawW) / 2, dy = (1080 - drawH) / 2;
+        const hadControls = video.controls;
+        const trackModes = [];
         try {
-            ctx.drawImage(video, (1920 - drawW) / 2, (1080 - drawH) / 2, drawW, drawH);
+            video.controls = false;
+            if (video.textTracks) {
+                for (let i = 0; i < video.textTracks.length; i++) {
+                    trackModes[i] = video.textTracks[i].mode;
+                    video.textTracks[i].mode = 'hidden';
+                }
+            }
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            // Explicit source rect = pure frame bitmap; UI chrome is not part of this drawable.
+            ctx.drawImage(video, 0, 0, vw, vh, dx, dy, drawW, drawH);
         } catch {
             toast('無法截取畫面（可能是跨來源影片限制）。', true);
             return;
+        } finally {
+            video.controls = hadControls;
+            if (video.textTracks) {
+                for (let i = 0; i < video.textTracks.length; i++) {
+                    if (trackModes[i] != null) video.textTracks[i].mode = trackModes[i];
+                }
+            }
         }
         let blob;
         try {
@@ -290,7 +311,7 @@
         try {
             if (!navigator.clipboard || !window.ClipboardItem) throw new Error('unsupported');
             await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-            toast('已複製到剪貼簿，可貼到下方內文');
+            toast('已複製純影片畫面（不含控制列／字幕列），可貼到封面、大頭照或內文');
         } catch (error) {
             const insecure = typeof window.isSecureContext === 'boolean' && !window.isSecureContext;
             toast(insecure
@@ -348,6 +369,8 @@
         $('#covers-empty').hidden = covers.length > 0;
         $('#cover-controls').hidden = !editing;
         $('#add-cover').disabled = covers.length >= 2 || imageWork > 0;
+        const coverZone = $('#cover-paste-zone');
+        if (coverZone) coverZone.classList.toggle('is-busy', imageWork > 0 || covers.length >= 2);
         $('#tag-count').textContent = tags.length + ' / 5';
         $('#portrait-count').textContent = portraits.length + ' / 5';
         $('#tags-empty').hidden = tags.length > 0;
@@ -355,6 +378,8 @@
         $('#tag-controls').hidden = !editing;
         $('#portrait-controls').hidden = !editing;
         $('#add-portrait').disabled = portraits.length >= 5 || imageWork > 0;
+        const portraitZone = $('#portrait-paste-zone');
+        if (portraitZone) portraitZone.classList.toggle('is-busy', imageWork > 0 || portraits.length >= 5);
         $('#tag-list').replaceChildren();
         tags.forEach((tag, index) => {
             const chip = document.createElement('span'); chip.className = 'tag-chip'; chip.textContent = '# ' + tag;
@@ -410,56 +435,163 @@
     $('#add-tag').addEventListener('click', addTag);
     $('#tag-input').addEventListener('input', markDirty);
     $('#tag-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); addTag(); } });
-    $('#add-portrait').addEventListener('click', () => { replacingPortrait = null; $('#portrait-file').multiple = true; $('#portrait-file').click(); });
-    $('#portrait-file').addEventListener('change', async event => {
-        const files = Array.from(event.target.files);
-        if (!files.length) return;
-        if (replacingPortrait === null && portraits.length + files.length > 5) { toast('每篇最多 5 張大頭照。', true); event.target.value = ''; return; }
+    async function scaleImageFile(file) {
+        await readImage(file); // Same file type and 20 MB limits as article images.
+        const bitmap = await createImageBitmap(file);
+        try {
+            const scale = Math.min(1, 1920 / bitmap.width, 1080 / bitmap.height);
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.floor(bitmap.width * scale)); canvas.height = Math.max(1, Math.floor(bitmap.height * scale));
+            canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+            return canvas.toDataURL('image/webp', .85);
+        } finally { bitmap.close(); }
+    }
+    async function processPortraitFiles(files, replaceIndex = null) {
+        if (!files.length) return false;
+        if (replaceIndex === null && portraits.length + files.length > 5) { toast('每篇最多 5 張大頭照。', true); return false; }
         imageBusy(1);
         try {
             const pending = [];
-            for (const file of files) {
-                await readImage(file); // Same file type and 20 MB limits as article images.
-                const bitmap = await createImageBitmap(file);
-                try {
-                    const scale = Math.min(1, 1920 / bitmap.width, 1080 / bitmap.height);
-                    const canvas = document.createElement('canvas');
-                    canvas.width = Math.max(1, Math.floor(bitmap.width * scale)); canvas.height = Math.max(1, Math.floor(bitmap.height * scale));
-                    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-                    pending.push(canvas.toDataURL('image/webp', .85));
-                } finally { bitmap.close(); }
-            }
-            if (replacingPortrait === null) portraits.push(...pending);
-            else portraits[replacingPortrait] = pending[0];
+            for (const file of files) pending.push(await scaleImageFile(file));
+            if (replaceIndex === null) portraits.push(...pending);
+            else portraits[replaceIndex] = pending[0];
             markDirty(); renderMetadata();
-        } catch (error) { toast('大頭照處理失敗：' + error.message, true); }
-        finally { imageBusy(-1); event.target.value = ''; replacingPortrait = null; }
+            return true;
+        } catch (error) { toast('大頭照處理失敗：' + error.message, true); return false; }
+        finally { imageBusy(-1); }
+    }
+    async function processCoverFiles(files, replaceIndex = null) {
+        if (!files.length) return false;
+        if (replaceIndex === null && covers.length + files.length > 2) { toast('每篇最多 2 張封面。', true); return false; }
+        imageBusy(1);
+        try {
+            const pending = [];
+            for (const file of files) pending.push(await scaleImageFile(file));
+            if (replaceIndex === null) covers.push(...pending);
+            else covers[replaceIndex] = pending[0];
+            markDirty(); renderMetadata();
+            return true;
+        } catch (error) { toast('封面處理失敗：' + error.message, true); return false; }
+        finally { imageBusy(-1); }
+    }
+    function clipboardImageFiles(clipboard) {
+        if (!clipboard) return [];
+        const fromFiles = Array.from(clipboard.files || []).filter(file => file.type.startsWith('image/'));
+        if (fromFiles.length) return fromFiles;
+        const fromItems = [];
+        for (const item of Array.from(clipboard.items || [])) {
+            if (item.kind === 'file' && item.type.startsWith('image/')) {
+                const file = item.getAsFile();
+                if (file) fromItems.push(file);
+            }
+        }
+        return fromItems;
+    }
+    const coverPaste = { files: [], urls: [] };
+    const portraitPaste = { files: [], urls: [] };
+    function clearPasteStage(stage) {
+        stage.urls.forEach(url => URL.revokeObjectURL(url));
+        stage.files = [];
+        stage.urls = [];
+    }
+    function renderPasteStage(kind) {
+        const stage = kind === 'cover' ? coverPaste : portraitPaste;
+        const staging = kind === 'cover' ? $('#cover-paste-staging') : $('#portrait-paste-staging');
+        const idle = kind === 'cover' ? $('#cover-paste-idle') : $('#portrait-paste-idle');
+        const zone = kind === 'cover' ? $('#cover-paste-zone') : $('#portrait-paste-zone');
+        if (!staging || !idle || !zone) return;
+        staging.replaceChildren();
+        if (!stage.files.length) {
+            staging.hidden = true; idle.hidden = false; zone.classList.remove('has-staging');
+            return;
+        }
+        idle.hidden = true; staging.hidden = false; zone.classList.add('has-staging');
+        stage.files.forEach((file, index) => {
+            const thumb = document.createElement('div'); thumb.className = 'image-paste-thumb';
+            const img = document.createElement('img'); img.src = stage.urls[index]; img.alt = '待上傳預覽';
+            const caption = document.createElement('span'); caption.textContent = file.name || ('貼上圖片 ' + (index + 1));
+            thumb.append(img, caption); staging.append(thumb);
+        });
+        const hint = document.createElement('p'); hint.className = 'image-paste-ready'; hint.textContent = '已貼上 ' + stage.files.length + ' 張，按 Enter 上傳（Esc 取消）';
+        staging.append(hint);
+    }
+    function stagePasteFiles(kind, files) {
+        const max = kind === 'cover' ? 2 : 5;
+        const current = kind === 'cover' ? covers.length : portraits.length;
+        const stage = kind === 'cover' ? coverPaste : portraitPaste;
+        const room = max - current;
+        if (room <= 0) { toast(kind === 'cover' ? '每篇最多 2 張封面。' : '每篇最多 5 張大頭照。', true); return; }
+        const accepted = files.slice(0, room);
+        if (files.length > room) toast('僅保留剩餘可上傳的 ' + room + ' 張。', true);
+        clearPasteStage(stage);
+        stage.files = accepted;
+        stage.urls = accepted.map(file => URL.createObjectURL(file));
+        renderPasteStage(kind);
+        toast('已暫存貼上圖片，按 Enter 上傳。');
+    }
+    async function commitPasteStage(kind) {
+        const stage = kind === 'cover' ? coverPaste : portraitPaste;
+        if (!stage.files.length || imageWork > 0) return;
+        const files = [...stage.files];
+        clearPasteStage(stage); renderPasteStage(kind);
+        if (kind === 'cover') await processCoverFiles(files, null);
+        else await processPortraitFiles(files, null);
+    }
+    function bindPasteZone(kind) {
+        const zone = kind === 'cover' ? $('#cover-paste-zone') : $('#portrait-paste-zone');
+        if (!zone) return;
+        const block = zone.closest('.metadata-block');
+        if (block) {
+            block.addEventListener('click', event => {
+                if (!editing) return;
+                if (event.target.closest('button, input, a, .portrait-actions, .tag-chip')) return;
+                zone.focus();
+            });
+        }
+        zone.addEventListener('click', event => { event.stopPropagation(); if (editing) zone.focus(); });
+        zone.addEventListener('focus', () => zone.classList.add('is-focused'));
+        zone.addEventListener('blur', () => zone.classList.remove('is-focused'));
+        zone.addEventListener('paste', event => {
+            if (!editing) return;
+            const files = clipboardImageFiles(event.clipboardData);
+            if (!files.length) { toast('剪貼簿沒有可用圖片，請複製圖片本身再貼上。', true); return; }
+            event.preventDefault();
+            event.stopPropagation();
+            stagePasteFiles(kind, files);
+        });
+        zone.addEventListener('keydown', event => {
+            if (!editing || event.isComposing) return;
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                event.stopPropagation();
+                commitPasteStage(kind);
+            } else if (event.key === 'Escape' && (kind === 'cover' ? coverPaste : portraitPaste).files.length) {
+                event.preventDefault();
+                clearPasteStage(kind === 'cover' ? coverPaste : portraitPaste);
+                renderPasteStage(kind);
+            }
+        });
+    }
+    $('#add-portrait').addEventListener('click', () => { replacingPortrait = null; $('#portrait-file').multiple = true; $('#portrait-file').click(); });
+    $('#portrait-file').addEventListener('change', async event => {
+        const files = Array.from(event.target.files);
+        const replaceIndex = replacingPortrait;
+        replacingPortrait = null;
+        event.target.value = '';
+        if (!files.length) return;
+        await processPortraitFiles(files, replaceIndex);
     });
     $('#add-cover').addEventListener('click', () => { replacingCover = null; $('#cover-file').multiple = true; $('#cover-file').click(); });
     $('#cover-file').addEventListener('change', async event => {
         const files = Array.from(event.target.files);
+        const replaceIndex = replacingCover;
+        replacingCover = null;
+        event.target.value = '';
         if (!files.length) return;
-        if (replacingCover === null && covers.length + files.length > 2) { toast('每篇最多 2 張封面。', true); event.target.value = ''; return; }
-        imageBusy(1);
-        try {
-            const pending = [];
-            for (const file of files) {
-                await readImage(file); // Same file type and 20 MB limits as article images.
-                const bitmap = await createImageBitmap(file);
-                try {
-                    const scale = Math.min(1, 1920 / bitmap.width, 1080 / bitmap.height);
-                    const canvas = document.createElement('canvas');
-                    canvas.width = Math.max(1, Math.floor(bitmap.width * scale)); canvas.height = Math.max(1, Math.floor(bitmap.height * scale));
-                    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-                    pending.push(canvas.toDataURL('image/webp', .85));
-                } finally { bitmap.close(); }
-            }
-            if (replacingCover === null) covers.push(...pending);
-            else covers[replacingCover] = pending[0];
-            markDirty(); renderMetadata();
-        } catch (error) { toast('封面處理失敗：' + error.message, true); }
-        finally { imageBusy(-1); event.target.value = ''; replacingCover = null; }
+        await processCoverFiles(files, replaceIndex);
     });
+    bindPasteZone('cover');
+    bindPasteZone('portrait');
     renderMetadata();
     function clearImage() {
         selectedImage?.classList.remove('selected-image'); selectedImage = null; imageActions.hidden = true;
@@ -473,6 +605,10 @@
     });
     function setEditing(value) {
         editing = value; closePreview(); clearImage();
+        if (!value) {
+            clearPasteStage(coverPaste); renderPasteStage('cover');
+            clearPasteStage(portraitPaste); renderPasteStage('portrait');
+        }
         editor.contentEditable = String(value); title.readOnly = !value;
         $('#editor-tools').hidden = !value; $('#save-bar').hidden = !value;
         $('#empty-body').hidden = value || Boolean(editor.textContent.trim() || editor.querySelector('img'));
@@ -506,6 +642,10 @@
         document.querySelectorAll('.portrait-actions button').forEach(button => { button.disabled = imageWork > 0; });
         $('#add-portrait').disabled = imageWork > 0 || portraits.length >= 5;
         $('#add-cover').disabled = imageWork > 0 || covers.length >= 2;
+        const coverZone = $('#cover-paste-zone');
+        const portraitZone = $('#portrait-paste-zone');
+        if (coverZone) coverZone.classList.toggle('is-busy', imageWork > 0 || covers.length >= 2);
+        if (portraitZone) portraitZone.classList.toggle('is-busy', imageWork > 0 || portraits.length >= 5);
     }
     $('#insert-image').addEventListener('click', () => { replacing = false; $('#image-file').multiple = true; $('#image-file').click(); });
     imageActions.querySelector('[data-image-replace]').addEventListener('click', () => { replacing = true; $('#image-file').multiple = false; $('#image-file').click(); });

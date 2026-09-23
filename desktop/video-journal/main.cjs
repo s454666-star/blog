@@ -85,7 +85,8 @@ else {
             {label: '顯示', submenu: [{role: 'resetZoom'}, {role: 'zoomIn'}, {role: 'zoomOut'}, {role: 'togglefullscreen'}]}
         ]));
         if (smoke) setTimeout(() => finishSmoke({ok: false, error: 'TIMEOUT'}), 30000).unref();
-        loadJournal();
+        // Drop stale Chromium HTTP/CSS/JS cache so blog web fixes (e.g. pure-frame screenshot) reach this shell.
+        contents.session.clearCache().finally(() => loadJournal());
     });
     app.on('window-all-closed', () => app.quit());
 }

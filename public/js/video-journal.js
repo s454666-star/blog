@@ -260,63 +260,90 @@
     video.addEventListener('error', () => { $('#player-error').hidden = false; });
     if (video.error) $('#player-error').hidden = false;
     async function captureCurrentFrame() {
-        // Capture ONLY decoded video pixels — never player-shell, caption bar, CRT overlays, or native controls.
-        if (!video || !(video instanceof HTMLVideoElement) || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+        // Pure decoded frame only via canvas.drawImage(HTMLVideoElement). Never DOM/shell/caption/controls.
+        const el = document.getElementById('journal-video');
+        if (!(el instanceof HTMLVideoElement) || el.readyState < 2 || !el.videoWidth || !el.videoHeight) {
             toast('影片尚未就緒，請稍候再截圖。', true);
             return;
         }
-        const canvas = document.createElement('canvas');
-        canvas.width = 1920; canvas.height = 1080;
-        const ctx = canvas.getContext('2d', { alpha: false });
-        if (!ctx) { toast('截圖失敗，請稍後再試。', true); return; }
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, 1920, 1080);
-        const vw = video.videoWidth, vh = video.videoHeight;
-        const scale = Math.min(1920 / vw, 1080 / vh);
-        const drawW = vw * scale, drawH = vh * scale;
-        const dx = (1920 - drawW) / 2, dy = (1080 - drawH) / 2;
-        const hadControls = video.controls;
+        const vw = el.videoWidth | 0, vh = el.videoHeight | 0;
+        if (vw < 2 || vh < 2) {
+            toast('影片尚未就緒，請稍候再截圖。', true);
+            return;
+        }
+
+        // Call clipboard.write during the user-gesture with a Promise-backed PNG (survives async encode).
+        let settleBlob;
+        const blobPromise = new Promise((resolve, reject) => { settleBlob = { resolve, reject }; });
+        let writePromise = null;
+        if (navigator.clipboard && window.ClipboardItem) {
+            try {
+                writePromise = navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })]);
+            } catch {
+                writePromise = null;
+            }
+        }
+
         const trackModes = [];
         try {
-            video.controls = false;
-            if (video.textTracks) {
-                for (let i = 0; i < video.textTracks.length; i++) {
-                    trackModes[i] = video.textTracks[i].mode;
-                    video.textTracks[i].mode = 'hidden';
+            if (el.textTracks) {
+                for (let i = 0; i < el.textTracks.length; i++) {
+                    trackModes[i] = el.textTracks[i].mode;
+                    el.textTracks[i].mode = 'hidden';
                 }
             }
-            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-            // Explicit source rect = pure frame bitmap; UI chrome is not part of this drawable.
-            ctx.drawImage(video, 0, 0, vw, vh, dx, dy, drawW, drawH);
-        } catch {
-            toast('無法截取畫面（可能是跨來源影片限制）。', true);
-            return;
-        } finally {
-            video.controls = hadControls;
-            if (video.textTracks) {
-                for (let i = 0; i < video.textTracks.length; i++) {
-                    if (trackModes[i] != null) video.textTracks[i].mode = trackModes[i];
-                }
-            }
-        }
-        let blob;
-        try {
-            blob = await new Promise((resolve, reject) => {
-                canvas.toBlob(result => result ? resolve(result) : reject(new Error('empty')), 'image/png');
+
+            // 1:1 decoded bitmap (destination size = videoWidth×videoHeight ⇒ full frame, no CSS box).
+            const frame = document.createElement('canvas');
+            frame.width = vw;
+            frame.height = vh;
+            const fctx = frame.getContext('2d', { alpha: false });
+            if (!fctx) throw new Error('no-2d');
+            fctx.drawImage(el, 0, 0, vw, vh);
+
+            // Letterbox/pillarbox to 1920×1080 on black.
+            const out = document.createElement('canvas');
+            out.width = 1920;
+            out.height = 1080;
+            const ctx = out.getContext('2d', { alpha: false });
+            if (!ctx) throw new Error('no-2d');
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, 1920, 1080);
+            const scale = Math.min(1920 / vw, 1080 / vh);
+            const drawW = vw * scale, drawH = vh * scale;
+            ctx.drawImage(frame, (1920 - drawW) / 2, (1080 - drawH) / 2, drawW, drawH);
+
+            const blob = await new Promise((resolve, reject) => {
+                out.toBlob(result => result ? resolve(result) : reject(new Error('empty')), 'image/png');
             });
-        } catch {
-            toast('截圖失敗，請稍後再試。', true);
-            return;
-        }
-        try {
-            if (!navigator.clipboard || !window.ClipboardItem) throw new Error('unsupported');
-            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            settleBlob.resolve(blob);
+            if (writePromise) {
+                await writePromise;
+            } else if (navigator.clipboard && window.ClipboardItem) {
+                await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            } else {
+                throw new Error('unsupported');
+            }
             toast('已複製純影片畫面（不含控制列／字幕列），可貼到封面、大頭照或內文');
         } catch (error) {
-            const insecure = typeof window.isSecureContext === 'boolean' && !window.isSecureContext;
-            toast(insecure
-                ? '剪貼簿需要 HTTPS（或本機安全環境）才能寫入。'
-                : '無法寫入剪貼簿，請確認瀏覽器權限後再試。', true);
+            try { settleBlob.reject(error instanceof Error ? error : new Error('capture')); } catch {}
+            const msg = String(error && error.message || error || '');
+            if (/cross-origin|tainted|SecurityError/i.test(msg)) {
+                toast('無法截取畫面（可能是跨來源影片限制）。', true);
+            } else {
+                const insecure = typeof window.isSecureContext === 'boolean' && !window.isSecureContext;
+                toast(insecure
+                    ? '剪貼簿需要 HTTPS（或本機安全環境）才能寫入。'
+                    : (writePromise || (navigator.clipboard && window.ClipboardItem)
+                        ? '無法寫入剪貼簿，請確認瀏覽器權限後再試。'
+                        : '截圖失敗，請稍後再試。'), true);
+            }
+        } finally {
+            if (el.textTracks) {
+                for (let i = 0; i < el.textTracks.length; i++) {
+                    if (trackModes[i] != null) el.textTracks[i].mode = trackModes[i];
+                }
+            }
         }
     }
     const captureButton = $('#capture-frame');
@@ -679,16 +706,18 @@
         if (!editing) return;
         event.preventDefault();
         const clipboard = event.clipboardData;
-        const files = Array.from(clipboard.files).filter(file => file.type.startsWith('image/'));
+        const files = Array.from(clipboard.files || []).filter(file => file.type.startsWith('image/'));
         imageBusy(1);
         try {
+            // Prefer real image files (e.g. 截圖 PNG) over leftover text/html from a prior DOM copy.
+            if (files.length) {
+                for (const file of files) insertHtml('<img src="' + await readImage(file) + '" alt="貼上的圖片"><p><br></p>');
+                return;
+            }
             const html = clipboard.getData('text/html');
             const plain = clipboard.getData('text/plain');
             if (html) insertHtml(safePaste(html));
             else if (plain) { restoreSelection(); document.execCommand('insertText', false, plain); markDirty(); }
-            if (!html || !/src=["']data:image\//i.test(html)) {
-                for (const file of files) insertHtml('<img src="' + await readImage(file) + '" alt="貼上的圖片"><p><br></p>');
-            }
         } catch (error) { toast(error.message, true); }
         finally { imageBusy(-1); }
     });

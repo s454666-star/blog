@@ -31,6 +31,7 @@
         let currentPath = '', parentPath = '', browseSequence = 0, searchTimer;
         let dropped = [], dropGeneration = 0, resolving = 0, batchSaving = false;
         const dropzone = $('#video-dropzone');
+        if (window.videoJournalDesktop) dropzone.querySelector('span:last-child').textContent = '桌面版 · 拖入即新增 · 最多 50 部 · 不上傳、不複製';
         const createButton = $('#create-dialog button[type="submit"]');
         function renderDropped() {
             $('#drop-matches').replaceChildren();
@@ -71,7 +72,7 @@
                                 let offset = 0; for (const chunk of chunks) { sample.set(new Uint8Array(chunk), offset); offset += chunk.byteLength; }
                                 item.fingerprint = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', sample)), byte => byte.toString(16).padStart(2, '0')).join('');
                             }
-                            const response = await fetch(dropzone.dataset.resolveUrl, {method:'POST', headers:{'Content-Type':'application/json', Accept:'application/json', 'X-CSRF-TOKEN':$('meta[name="csrf-token"]').content}, body:JSON.stringify({name:item.file.name, size:item.file.size, fingerprint:item.fingerprint, folder:folder || undefined, path:!folder && typeof item.file.path === 'string' ? item.file.path : undefined})});
+                            const response = await fetch(dropzone.dataset.resolveUrl, {method:'POST', headers:{'Content-Type':'application/json', Accept:'application/json', 'X-CSRF-TOKEN':$('meta[name="csrf-token"]').content}, body:JSON.stringify({name:item.file.name, size:item.file.size, fingerprint:item.fingerprint, folder:folder || undefined, path:!folder ? (window.videoJournalDesktop?.pathForFile(item.file) || (typeof item.file.path === 'string' ? item.file.path : undefined)) : undefined})});
                             const data = await response.json();
                             if (generation !== dropGeneration) return;
                             if (!response.ok) throw new Error(Object.values(data.errors || {}).flat()[0] || '來源確認失敗');
@@ -84,7 +85,8 @@
                 resolving--; renderDropped();
                 if (generation === dropGeneration && dropped.length && dropped.every(item => item.source)) {
                     if (picker.open) picker.close();
-                    createButton.focus();
+                    if (window.videoJournalDesktop && !batchSaving) $('#create-dialog form').requestSubmit();
+                    else createButton.focus();
                 }
             }
         }
@@ -105,6 +107,7 @@
         dropzone.addEventListener('dragleave', () => { if (--dragDepth <= 0) dropzone.classList.remove('drag-over'); });
         function acceptDropped(files) {
             if (batchSaving) return;
+            if (resolving) { $('#video-drop-status').textContent = '正在處理上一批影片，請完成後再拖入。'; return; }
             if (!files.length || files.some(file => !/\.(mp4|webm|ogv|mov|m4v)$/i.test(file.name))) { toast('請拖入影片檔案，不支援資料夾或其他檔案。', true); return; }
             if (files.length > 50) { toast('每次最多新增 50 部影片。', true); return; }
             dropped = files.map(file => ({file, source:'', error:''}));
@@ -115,6 +118,17 @@
             acceptDropped(Array.from(event.dataTransfer.files));
         });
         $('#dropped-files').addEventListener('change', event => { acceptDropped(Array.from(event.target.files)); event.target.value = ''; });
+        if (window.videoJournalDesktop) {
+            document.addEventListener('dragover', event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); });
+            document.addEventListener('drop', event => {
+                if (!event.dataTransfer.files.length) return;
+                event.preventDefault();
+                if (batchSaving) return;
+                if (!$('#create-dialog').open) $('#create-dialog').showModal();
+                acceptDropped(Array.from(event.dataTransfer.files));
+            });
+        }
+
         dropzone.addEventListener('click', () => $('#dropped-files').click());
         dropzone.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); $('#dropped-files').click(); } });
         $('#create-dialog').addEventListener('dragover', event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); });

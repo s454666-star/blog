@@ -55,3 +55,7 @@
 `video-journal:install` 以新增欄位方式加入 `video_journal_entries.covers`（JSON 圖片陣列，預設 `[]`），保留既有文章與人臉資料。查詢只讀封面數量，圖片由 `/video-journal/{id}/cover/{position}` 按需傳回；位置為 0 或 1，省略時為 0。更新 API 省略 covers 會保留既有封面，傳入空陣列則清除封面。
 
 - 拖曳後若無法取得完整路徑，新增視窗會顯示「影片所在資料夾」，可貼上檔案總管位址列並按「確認位置」（或 Enter），同資料夾影片會一起確認。未確認前主按鈕顯示「先確認影片位置」，點擊會聚焦資料夾欄位並顯示提示。分別確認不同資料夾時，已確認的來源保留。
+
+## Windows 桌面版
+
+`desktop/video-journal` 提供共用本機網站與 DB 的 Electron 客戶端。桌面查詢頁拖入影片會直接辨識完整路徑並自動批次新增，不必確認；純瀏覽器保留原有手動確認流程。安裝與打包方式見 `desktop/video-journal/README.md`。

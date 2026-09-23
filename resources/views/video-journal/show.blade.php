@@ -4,7 +4,7 @@
 <div class="detail-top"><a class="back-link" href="{{ route('video-journal.index') }}">← 返回映像庫</a><span class="eyebrow">TUBE {{ str_pad($entry->id, 3, '0', STR_PAD_LEFT) }} / SOFT PLAYBACK</span></div>
 <section class="player-section" aria-label="影片播放器">
     <div class="player-shell"><video id="journal-video" controls playsinline preload="metadata" src="{{ $remote ? $entry->source : route('video-journal.media', $entry->id) }}" data-subtitles="{{ $remote ? '' : route('video-journal.subtitles', $entry->id) }}" data-remote="{{ $remote ? '1' : '0' }}">你的瀏覽器不支援 HTML5 影片。</video><div id="player-error" class="player-error" role="alert" hidden>暫時無法播放。請確認來源還在、網路正常，且編碼可由瀏覽器播放（建議 MP4 / H.264）。</div></div>
-    <div class="player-caption"><span><i class="status-dot"></i><span id="subtitle-status">正在尋找同名字幕…</span></span><label class="subtitle-button" for="subtitle-file">CC <span>載入字幕</span><input type="file" id="subtitle-file" accept=".srt,.vtt" class="visually-hidden"></label></div>
+    <div class="player-caption"><span><i class="status-dot"></i><span id="subtitle-status">正在尋找同名字幕…</span></span><div class="player-caption-actions"><button type="button" id="capture-frame" class="capture-button" title="截取目前畫面到剪貼簿（快捷鍵 -）">▣ 截圖</button><label class="subtitle-button" for="subtitle-file">CC <span>載入字幕</span><input type="file" id="subtitle-file" accept=".srt,.vtt" class="visually-hidden"></label></div></div>
 </section>
 <section class="story-section" id="story" data-save-url="{{ route('video-journal.update', $entry->id) }}">
     <aside class="story-aside"><span class="eyebrow">THE NOTE</span><span class="aside-line"></span><p>映像之外，<br>還有一點點心動備忘。</p><span class="aside-flower">✿</span><p class="aside-date">建立於<br>{{ $entry->created_at->format('Y.m.d') }}</p></aside>

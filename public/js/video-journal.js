@@ -259,6 +259,57 @@
     });
     video.addEventListener('error', () => { $('#player-error').hidden = false; });
     if (video.error) $('#player-error').hidden = false;
+    async function captureCurrentFrame() {
+        if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
+            toast('影片尚未就緒，請稍候再截圖。', true);
+            return;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = 1920; canvas.height = 1080;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, 1920, 1080);
+        const scale = Math.min(1920 / video.videoWidth, 1080 / video.videoHeight);
+        const drawW = video.videoWidth * scale;
+        const drawH = video.videoHeight * scale;
+        try {
+            ctx.drawImage(video, (1920 - drawW) / 2, (1080 - drawH) / 2, drawW, drawH);
+        } catch {
+            toast('無法截取畫面（可能是跨來源影片限制）。', true);
+            return;
+        }
+        let blob;
+        try {
+            blob = await new Promise((resolve, reject) => {
+                canvas.toBlob(result => result ? resolve(result) : reject(new Error('empty')), 'image/png');
+            });
+        } catch {
+            toast('截圖失敗，請稍後再試。', true);
+            return;
+        }
+        try {
+            if (!navigator.clipboard || !window.ClipboardItem) throw new Error('unsupported');
+            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            toast('已複製到剪貼簿，可貼到下方內文');
+        } catch (error) {
+            const insecure = typeof window.isSecureContext === 'boolean' && !window.isSecureContext;
+            toast(insecure
+                ? '剪貼簿需要 HTTPS（或本機安全環境）才能寫入。'
+                : '無法寫入剪貼簿，請確認瀏覽器權限後再試。', true);
+        }
+    }
+    const captureButton = $('#capture-frame');
+    if (captureButton) captureButton.addEventListener('click', () => { captureCurrentFrame(); });
+    document.addEventListener('keydown', event => {
+        if (event.key !== '-' || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+        const target = event.target;
+        if (target instanceof HTMLElement) {
+            if (target.closest('input, textarea, select, [contenteditable="true"]') || target.isContentEditable) return;
+        }
+        if (!captureButton) return;
+        event.preventDefault();
+        captureCurrentFrame();
+    });
     const editor = $('#story-body');
     const title = $('#story-title');
     let editing = false, dirty = false, savedRange = null, selectedImage = null, replacing = false;

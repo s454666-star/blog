@@ -34,19 +34,22 @@
         const createButton = $('#create-dialog button[type="submit"]');
         function renderDropped() {
             $('#drop-matches').replaceChildren();
+            createButton.disabled = batchSaving || resolving > 0;
+            $('#confirm-drop-folder').disabled = batchSaving || resolving > 0;
+            $('#drop-folder-controls').hidden = !dropped.some(item => !item.source);
             $('#new-title').readOnly = dropped.length > 1;
             if (!dropped.length) { createButton.textContent = '建立影片誌 ↗'; $('#new-source').value = ''; $('#new-title').value = ''; $('#video-drop-status').textContent = ''; return; }
             const ready = dropped.filter(item => item.source).length;
             $('#new-source').value = dropped.length === 1 ? (dropped[0].source || '') : `已選 ${dropped.length} 部影片`;
             $('#new-title').value = dropped.length === 1 ? Array.from(dropped[0].file.name).slice(0, 200).join('') : '各自使用原始檔案名稱';
-            createButton.textContent = `建立 ${dropped.length} 篇影片誌 ↗`;
+            createButton.textContent = ready === dropped.length ? `建立 ${dropped.length} 篇影片誌 ↗` : '先確認影片位置 ↗';
             $('#video-drop-status').textContent = resolving ? '正在確認影片來源…' : ready === dropped.length ? `${ready} 部影片已準備好，點選下方按鈕一起新增。` : `${ready} / ${dropped.length} 部來源已確認。瀏覽器未提供完整路徑的影片，請確認一次所在資料夾。`;
             dropped.forEach((item, index) => {
                 const row = document.createElement('div'); row.className = 'drop-row';
                 const info = document.createElement('span'); info.textContent = item.file.name;
                 const state = document.createElement('small'); state.textContent = item.source ? '✓ 已確認來源' : (item.error || '待確認所在資料夾'); info.append(state);
                 const locate = document.createElement('button'); locate.type = 'button'; locate.textContent = item.source ? '重新確認' : '確認資料夾'; locate.disabled = batchSaving || resolving > 0;
-                locate.addEventListener('click', () => { picker.showModal(); $('#picker-search').value = ''; browse(currentPath); });
+                locate.addEventListener('click', () => { item.source = ''; renderDropped(); picker.showModal(); $('#picker-search').value = ''; browse(currentPath); });
                 const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', '移除 ' + item.file.name); remove.disabled = batchSaving || resolving > 0;
                 remove.addEventListener('click', () => { dropped.splice(index, 1); renderDropped(); });
                 row.append(info, locate, remove); $('#drop-matches').append(row);
@@ -54,7 +57,7 @@
         }
         async function resolveDropped(folder = '') {
             const generation = ++dropGeneration;
-            const queue = dropped.filter(item => !item.source || folder);
+            const queue = dropped.filter(item => !item.source);
             resolving++; renderDropped();
             let next = 0;
             try {
@@ -79,9 +82,23 @@
                 }));
             } finally {
                 resolving--; renderDropped();
-                if (generation === dropGeneration && dropped.length && dropped.every(item => item.source) && picker.open) picker.close();
+                if (generation === dropGeneration && dropped.length && dropped.every(item => item.source)) {
+                    if (picker.open) picker.close();
+                    createButton.focus();
+                }
             }
         }
+        async function confirmDropFolder() {
+            if (batchSaving || resolving || !dropped.length) return;
+            const folder = $('#drop-folder').value.trim().replace(/^"|"$/g, '');
+            if (!folder) { $('#drop-folder').focus(); $('#video-drop-status').textContent = '請貼上影片所在資料夾的完整路徑。'; return; }
+            await resolveDropped(folder);
+            if (dropped.some(item => !item.source)) $('#video-drop-status').textContent = '尚有影片未確認位置。請檢查資料夾路徑；不同資料夾的影片需分別確認。';
+        }
+        $('#confirm-drop-folder').addEventListener('click', confirmDropFolder);
+        $('#drop-folder').addEventListener('keydown', event => {
+            if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); confirmDropFolder(); }
+        });
         let dragDepth = 0;
         dropzone.addEventListener('dragenter', event => { event.preventDefault(); dragDepth++; dropzone.classList.add('drag-over'); });
         dropzone.addEventListener('dragover', event => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; });
@@ -151,7 +168,11 @@
             if (dropped.length) {
                 event.preventDefault();
                 if (batchSaving || resolving) return;
-                if (dropped.some(item => !item.source)) { toast('請先確認清單中每部影片的所在資料夾。', true); return; }
+                if (dropped.some(item => !item.source)) {
+                    if ($('#drop-folder').value.trim()) await confirmDropFolder();
+                    else { $('#drop-folder').focus(); $('#video-drop-status').textContent = '請貼上影片所在資料夾路徑，或點選「確認資料夾」。'; }
+                    return;
+                }
                 batchSaving = true; createButton.disabled = true;
                 const customTitle = $('#new-title').value.trim(); renderDropped();
                 try {

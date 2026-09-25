@@ -6,7 +6,6 @@
 *.md diff=markdown
 *.php diff=php
 
-public/kansaienkou/** -diff -text
 
 /.github export-ignore
 CHANGELOG.md export-ignore

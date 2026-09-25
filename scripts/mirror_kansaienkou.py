@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -318,6 +319,35 @@ def translate_items(items: list[str], cache: dict[str, str]) -> None:
         print(f"translated_unique={len(cache)} remaining={len(missing) - start}", flush=True)
 
 
+def refine_kana_spans(cache: dict[str, str]) -> None:
+    pattern = re.compile(r"[\u3040-\u30ffー]+")
+    def has_letter(value: str) -> bool:
+        return any("\u3040" <= ch <= "\u30ff" and unicodedata.category(ch) == "Lo" for ch in value)
+
+    spans = list(dict.fromkeys(span for value in cache.values() for span in pattern.findall(value) if has_letter(span)))
+    map_path = CACHE / "kana_spans.json"
+    mapping = json.loads(map_path.read_text(encoding="utf-8")) if map_path.exists() else {}
+    missing = [span for span in spans if span not in mapping]
+    for start in range(0, len(missing), 20):
+        batch = missing[start:start + 20]
+        try:
+            translated = translate_batch(batch, no_kana=True)
+        except (ValueError, urllib.error.URLError, TimeoutError):
+            translated = [translate_batch([span], no_kana=True)[0] for span in batch]
+        for source, target in zip(batch, translated):
+            if has_letter(target):
+                target = translate_batch([source], no_kana=True)[0]
+            if not has_letter(target) and re.search(r"[\u3400-\u9fff]", target) and len(target) <= max(12, len(source) * 5):
+                mapping[source] = target
+        map_path.write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+        print(f"refined_kana_spans={min(start + len(batch), len(missing))}/{len(missing)}", flush=True)
+    for source, target in cache.items():
+        cache[source] = pattern.sub(lambda match: mapping.get(match.group(0), match.group(0)), target)
+    if any(has_letter(target) for target in cache.values()):
+        raise ValueError("UntranslatedKanaLetters")
+    (CACHE / "translations.json").write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--inventory", action="store_true")
@@ -335,6 +365,7 @@ def main() -> None:
     cache_path = CACHE / "translations.json"
     cache = json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() else {}
     translate_items(unique, cache)
+    refine_kana_spans(cache)
     failed: set[str] = set()
     prefetch_assets(pages, failed)
     for index, (url, data) in enumerate(pages.items(), 1):

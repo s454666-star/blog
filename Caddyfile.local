@@ -28,6 +28,12 @@
 		file_server
 	}
 
+	@seihekibox path /seihekibox /seihekibox/*
+	handle @seihekibox {
+		root * C:/Users/USER/Documents/project/blog/public
+		file_server
+	}
+
 	handle {
 		encode zstd gzip
 		root * C:/Users/USER/Documents/project/blog/public

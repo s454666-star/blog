@@ -31,6 +31,8 @@
 	@seihekibox path /seihekibox /seihekibox/*
 	handle @seihekibox {
 		root * C:/Users/USER/Documents/project/blog/public
+		@seihekibox_card_game query seihekibox_card_game=1
+		respond @seihekibox_card_game 404
 		@seihekibox_after query llav_extra_page_slug=after
 		rewrite @seihekibox_after /seihekibox/after/
 		@seihekibox_information query llav_extra_page_slug=information

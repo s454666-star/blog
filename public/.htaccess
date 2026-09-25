@@ -5,6 +5,9 @@
 
     RewriteEngine On
 
+    # These static mirrors are available only through the local Caddy site.
+    RewriteRule ^(?:kansaienkou|seihekibox)(?:/|$) - [R=404,L,NC]
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]

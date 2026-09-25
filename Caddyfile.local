@@ -31,6 +31,16 @@
 	@seihekibox path /seihekibox /seihekibox/*
 	handle @seihekibox {
 		root * C:/Users/USER/Documents/project/blog/public
+		@seihekibox_after query llav_extra_page_slug=after
+		rewrite @seihekibox_after /seihekibox/after/
+		@seihekibox_information query llav_extra_page_slug=information
+		rewrite @seihekibox_information /seihekibox/information/
+		@seihekibox_list query llav_extra_page_slug=list
+		rewrite @seihekibox_list /seihekibox/list/
+		@seihekibox_question query llav_extra_page_slug=question
+		rewrite @seihekibox_question /seihekibox/question/
+		@seihekibox_vocabulary query llav_extra_page_slug=vocabulary
+		rewrite @seihekibox_vocabulary /seihekibox/vocabulary/
 		file_server
 	}
 

@@ -170,7 +170,36 @@ def asset_file(url: str) -> Path:
     if parsed.query:
         stem, suffix = os.path.splitext(components[-1])
         components[-1] = stem + "-" + hashlib.sha256(parsed.query.encode()).hexdigest()[:10] + suffix
-    return ROOT / "assets" / group / re.sub(r'[^A-Za-z0-9._-]', '_', parsed.hostname or "unknown") / Path(*components)
+    target = ROOT / "assets" / group / re.sub(r'[^A-Za-z0-9._-]', '_', parsed.hostname or "unknown") / Path(*components)
+    if group == "images" and not target.suffix:
+        for suffix in (".png", ".jpg", ".gif", ".webp", ".svg", ".avif", ".ico"):
+            candidate = target.with_suffix(suffix)
+            if candidate.exists():
+                return candidate
+        if target.exists():
+            suffix = image_extension(target.open("rb").read(16), "")
+            if suffix:
+                renamed = target.with_suffix(suffix)
+                target.rename(renamed)
+                return renamed
+    return target
+
+
+def image_extension(header: bytes, content_type: str) -> str:
+    kind = content_type.split(";", 1)[0].lower().strip()
+    if header.startswith(b"\x89PNG\r\n\x1a\n") or kind == "image/png":
+        return ".png"
+    if header.startswith(b"\xff\xd8\xff") or kind == "image/jpeg":
+        return ".jpg"
+    if header.startswith((b"GIF87a", b"GIF89a")) or kind == "image/gif":
+        return ".gif"
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP" or kind == "image/webp":
+        return ".webp"
+    if kind == "image/svg+xml":
+        return ".svg"
+    if kind == "image/avif":
+        return ".avif"
+    return ""
 
 
 def local_asset(url: str, base: str, failed: set[str]) -> str:
@@ -187,7 +216,11 @@ def local_asset(url: str, base: str, failed: set[str]) -> str:
     target = asset_file(absolute)
     if not target.exists():
         try:
-            data, _ = fetch(absolute)
+            data, content_type = fetch(absolute)
+            if absolute in IMAGE_URLS and not target.suffix:
+                suffix = image_extension(data[:16], content_type)
+                if suffix:
+                    target = target.with_suffix(suffix)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
         except (urllib.error.URLError, TimeoutError, ValueError) as exc:
@@ -225,7 +258,8 @@ def prefetch_assets(pages: dict[str, Path], failed: set[str]) -> None:
             for attr in asset_attrs:
                 if tag.has_attr(attr):
                     resolved = urllib.parse.urljoin(base, tag[attr])
-                    if normalized_page(resolved) not in pages:
+                    can_be_page = tag.name in {"div", "figure"} or (tag.name == "img" and not urllib.parse.urlparse(resolved).query)
+                    if not can_be_page or normalized_page(resolved) not in pages:
                         urls.add(resolved)
             for attr in ("srcset", "data-srcset"):
                 if tag.has_attr(attr):
@@ -281,7 +315,9 @@ def rewrite_assets_and_links(soup: BeautifulSoup, base: str, pages: set[str], fa
             asset_attrs = ("poster",)
         for attr in asset_attrs:
             if tag.has_attr(attr):
-                nested = normalized_page(urllib.parse.urljoin(base, tag[attr]))
+                resolved = urllib.parse.urljoin(base, tag[attr])
+                can_be_page = tag.name in {"div", "figure"} or (tag.name == "img" and not urllib.parse.urlparse(resolved).query)
+                nested = normalized_page(resolved) if can_be_page else None
                 tag[attr] = local_page_url(nested) if nested in pages else local_asset(tag[attr], base, failed)
         for attr in ("srcset", "data-srcset"):
             if tag.has_attr(attr):

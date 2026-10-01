@@ -379,7 +379,7 @@
 
         table {
             width: 100%;
-            min-width: 1500px;
+            min-width: 1400px;
             border-collapse: separate;
             border-spacing: 0;
             font-variant-numeric: tabular-nums;
@@ -471,20 +471,6 @@
         .moving-average-arrow { font-size: 0.82rem; line-height: 1; }
         .positive { color: var(--up); font-weight: 850; }
         .negative { color: var(--down); font-weight: 850; }
-
-        .sum-score {
-            display: inline-flex;
-            align-items: center;
-            justify-content: flex-end;
-            min-width: 86px;
-            padding: 7px 10px;
-            border: 1px solid rgba(103, 232, 249, 0.22);
-            border-radius: 10px;
-            color: var(--cyan);
-            background: rgba(54, 205, 239, 0.08);
-            font-weight: 950;
-            box-shadow: inset 0 0 22px rgba(64, 204, 255, 0.05);
-        }
 
         .weighted-score {
             display: inline-flex;
@@ -715,8 +701,7 @@
                         <th>26→27</th>
                         <th>27→28</th>
                         <th>加權分</th>
-                        <th>三段合計</th>
-                        <th>營收成長預估</th>
+                        <th title="被同業取代、訂單轉移的結構性風險；靜態參考">掉單風險</th>
                         <th>分析師</th>
                         <th>預估日期</th>
                     </tr>
@@ -727,12 +712,6 @@
                             $allPositive = $row->growth_2025_2026 > 0 && $row->growth_2026_2027 > 0 && $row->growth_2027_2028 > 0;
                             $changeClass = $row->rank_change > 0 ? 'up' : ($row->rank_change < 0 ? 'down' : 'flat');
                             $changeText = $row->rank_change > 0 ? '+' . $row->rank_change : ($row->rank_change < 0 ? (string) $row->rank_change : '-');
-                            $revenueGrowth2627 = $row->revenue_2026_thousands > 0
-                                ? (($row->revenue_2027_thousands / $row->revenue_2026_thousands) - 1) * 100
-                                : null;
-                            $revenueGrowth2728 = $row->revenue_2027_thousands > 0
-                                ? (($row->revenue_2028_thousands / $row->revenue_2027_thousands) - 1) * 100
-                                : null;
                             $movingAverageSignals = [
                                 ['label' => '月線', 'days' => 20, 'average' => $row->monthly_moving_average],
                                 ['label' => '季線', 'days' => 60, 'average' => $row->quarterly_moving_average],
@@ -806,13 +785,12 @@
                                 <td class="{{ $growth >= 0 ? 'positive' : 'negative' }}">{{ $growth >= 0 ? '+' : '' }}{{ number_format($growth, 1) }}%</td>
                             @endforeach
                             <td><span class="weighted-score">{{ number_format($row->weighted_score, 2) }} <small>/ 100</small></span></td>
-                            <td><span class="sum-score">{{ number_format($row->growth_sum, 1) }}%</span></td>
-                            <td title="FactSet 營收中位數年增預估">
-                                @if ($revenueGrowth2627 !== null && $revenueGrowth2728 !== null)
-                                    <span class="{{ $revenueGrowth2627 >= 0 ? 'positive' : 'negative' }}">27E {{ $revenueGrowth2627 >= 0 ? '+' : '' }}{{ number_format($revenueGrowth2627, 1) }}%</span>
-                                    <span class="stock-meta">28E {{ $revenueGrowth2728 >= 0 ? '+' : '' }}{{ number_format($revenueGrowth2728, 1) }}%</span>
-                                @else
-                                    —
+                            <td class="order-loss-risk" title="{{ $row->order_loss_risk_basis ?? '尚無足夠依據，待人工評估' }}">{{ $row->order_loss_risk ?? '待評估' }}
+                                @if ($row->order_loss_risk_source_url || $row->order_loss_risk_assessed_at)
+                                    <div class="stock-meta">
+                                        @if ($row->order_loss_risk_source_url)<a href="{{ $row->order_loss_risk_source_url }}" target="_blank" rel="noopener">依據 ↗</a>@endif
+                                        {{ $row->order_loss_risk_assessed_at }}
+                                    </div>
                                 @endif
                             </td>
                             <td>{{ $row->analyst_count ?? '—' }}</td>
@@ -829,12 +807,13 @@
                 <strong>計算方式：</strong>
                 先依
                 <span class="formula">(25→26年增率×1.8 + 26→27年增率×2.5 + 27→28年增率×1) ÷ 5.3</span>
-                算出原始加權成長率，再將該結果換算成當週完整樣本中的 0～100 百分位分數並排序。這可確保權重直接作用於原始成長率，不會因三段各自先轉百分位而扭曲。預設「預估2026」使用 FactSet 2026E；切換「實際2026」時以已公告的 <span class="formula">H1 EPS ＋ H1 EPS × 1.05</span> 取代 2026E，下半年以上半年的 1.05 倍估算，重新計算 25→26、26→27、加權分數及排行，27→28 仍沿用原預估。缺少完整 H1 或年化 EPS 不為正數的股票不納入實際模式排行。2025A 原則上為四季 EPS 加總；永擎因 FinMind 僅回傳上市後的三筆資料，採用 2025 年度公開 EPS 13.04 元。2027E～2028E 與營收成長展望為各股票最新可取得的 FactSet 中位數或下述固定參考來源。排行是相對分數，不等於投資品質。
+                算出原始加權成長率，再將該結果換算成當週完整樣本中的 0～100 百分位分數並排序。這可確保權重直接作用於原始成長率，不會因三段各自先轉百分位而扭曲。預設「預估2026」使用 FactSet 2026E；切換「實際2026」時以已公告的 <span class="formula">H1 EPS ＋ H1 EPS × 1.05</span> 取代 2026E，下半年以上半年的 1.05 倍估算，重新計算 25→26、26→27、加權分數及排行，27→28 仍沿用原預估。缺少完整 H1 或年化 EPS 不為正數的股票不納入實際模式排行。2025A 原則上為四季 EPS 加總；永擎因 FinMind 僅回傳上市後的三筆資料，採用 2025 年度公開 EPS 13.04 元。2027E～2028E 為各股票最新可取得的 FactSet 中位數或下述固定參考來源。排行是相對分數，不等於投資品質。
                 2027預期價格以<span class="formula">該股票族群平均本益比 × 2027E EPS</span>計算；旁邊百分比為<span class="formula">（2027預期價格 ÷ 顯示收盤價 − 1）× 100%</span>。最新一期使用每日股價表的最新官方收盤，歷史週快照則保留該週收盤，僅供估值參考。
                 全新（2455）與聯亞（3081）若 FactSet 尚缺 2028E，會以最新 2026E、2027E 共識為基礎；大量（3167）使用 2026/6/11 富果研究員預估的 2026E 19.53 元、2027E 30.59 元；IET-KY（4971）因 FactSet 頁面未提供 EPS 共識，改用 2026/8/31 公開法人預估的 2026E 6.10 元、2027E 10.94 元；永擎（7711）使用 2026/4/23 元大投顧預估的 2026E 31.31 元、2027E 42.11 元。五檔的 2028E 均將 2026→2027 成長率折半（限制於 0～30%）作為中性年增率，並以「中性估算」標示。
                 五檔為固定參考列；即使實際名次低於第 50 名，仍會顯示在前 50 名表格後方。
+                <br><strong>掉單風險：</strong>被同業取代、訂單轉移的結構性風險，分為極高／高／中／低／極低；越高代表越容易被取代。人工固定分級，僅反映結構性替代風險，不代表近期訂單流失預測，不影響 EPS 排名；歷史週也顯示同一份固定參考。評級為人工質性判斷，來源支持產品與技術事實，各產品線及客戶可能不同。缺乏依據者顯示「待評估」。
             </div>
-            <div>資料每週一更新</div>
+            <div>EPS 排行每週一更新<br>掉單風險為固定參考，不隨週更重評</div>
         </aside>
     @else
         <section class="empty-state glass">

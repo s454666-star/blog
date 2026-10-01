@@ -51,6 +51,7 @@ class TwStockEpsGrowthRankingController extends Controller
             ? $this->attachLatestClosingPrices($rows)
             : $run?->price_date?->toDateString();
         $this->attachStockGroups($rows);
+        $this->attachOrderLossRisk($rows);
         $this->attachMovingAveragePositions($rows, $usesLatestPrices ? null : $run?->price_date?->toDateString());
         $previousRun = $run === null ? null : TwStockEpsGrowthRun::query()
             ->whereDate('snapshot_date', '<', $run->snapshot_date->toDateString())
@@ -79,6 +80,26 @@ class TwStockEpsGrowthRankingController extends Controller
                 )->count(),
             ],
         ]);
+    }
+
+    private function attachOrderLossRisk(Collection $rows): void
+    {
+        // Presentation-only references: weekly refresh/recalculation never writes these.
+        $references = config('tw_stock_order_loss_risk.stocks', []);
+        foreach ($rows as $row) {
+            $reference = $references[$row->stock_code] ?? [];
+            $level = $reference['level'] ?? null;
+            $basis = trim((string) ($reference['basis'] ?? ''));
+            $isValid = in_array($level, ['極高', '高', '中', '低', '極低'], true) && $basis !== '';
+            $row->setAttribute('order_loss_risk', $isValid ? $level : null);
+            $row->setAttribute('order_loss_risk_basis', $isValid ? $basis : null);
+            $sourceUrl = $reference['source_url'] ?? null;
+            $isValidUrl = is_string($sourceUrl)
+                && filter_var($sourceUrl, FILTER_VALIDATE_URL)
+                && in_array(parse_url($sourceUrl, PHP_URL_SCHEME), ['http', 'https'], true);
+            $row->setAttribute('order_loss_risk_source_url', $isValid && $isValidUrl ? $sourceUrl : null);
+            $row->setAttribute('order_loss_risk_assessed_at', $isValid ? ($reference['assessed_at'] ?? null) : null);
+        }
     }
 
     private function attachLatestClosingPrices(Collection $rows): ?string

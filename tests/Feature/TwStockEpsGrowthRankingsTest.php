@@ -38,6 +38,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
         config()->set('tw_stock.eps_growth_ranking.finmind_url', 'https://example.test/finmind');
         config()->set('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', ['2455', '3081']);
         config()->set('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []);
+        config()->set('tw_stock_order_loss_risk.stocks', []);
 
         DB::purge('sqlite');
         DB::reconnect('sqlite');
@@ -184,7 +185,10 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertOk()
             ->assertSee('EPS 三年成長')
             ->assertSee('歷史週快照')
-            ->assertSee('營收成長預估')
+            ->assertDontSee('營收成長預估')
+            ->assertDontSee('三段合計')
+            ->assertSee('掉單風險')
+            ->assertSee('待評估')
             ->assertSee('2027預期價格')
             ->assertSee('最新收盤')
             ->assertSee('最新股價日')
@@ -232,7 +236,6 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('+43.5%')
             ->assertSee('+46.3%')
             ->assertSee('+50.0%')
-            ->assertSee('+213.6%')
             ->assertSee('實際2026')
             ->assertSee('H1 EPS ＋ H1 EPS × 1.05')
             ->assertSee('重新計算 25→26、26→27、加權分數及排行');
@@ -245,7 +248,55 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertSee('（+356.0%）')
             ->assertSee('（-82.0%）')
             ->assertSee('1111')
-            ->assertSee('200.0%');
+            ->assertSee('+100.0%');
+    }
+
+    public function test_fixed_order_loss_risk_survives_refresh_and_is_shared_by_both_modes_and_weeks(): void
+    {
+        config()->set('tw_stock_order_loss_risk.stocks', [
+            '1111' => ['level' => '低', 'basis' => '測試用人工依據', 'source_url' => 'https://example.test/company', 'assessed_at' => '2026-10-01'],
+        ]);
+        foreach (['2026-08-11', '2026-08-18'] as $date) {
+            $this->insertPrices($date, 100, 200);
+            $this->artisan('tw-stock:refresh-eps-growth-rankings', [
+                '--date' => $date, '--lookback-days' => 35,
+                '--sleep-ms' => 0, '--minimum-eligible' => 2,
+            ])->assertSuccessful();
+        }
+        $this->artisan('tw-stock:recalculate-eps-growth-rankings')->assertSuccessful();
+        foreach (['1111', '2222'] as $code) {
+            foreach ([1, 2] as $quarter) {
+                DB::table('tw_stock_q1_financial_reports')->insert([
+                    'fiscal_year' => 2026, 'quarter' => $quarter,
+                    'stock_code' => $code, 'q1_eps' => 1,
+                ]);
+            }
+        }
+        foreach (DB::table('tw_stock_eps_growth_runs')->pluck('id') as $runId) {
+            foreach (['forecast', 'actual'] as $basis) {
+                $response = $this->get(route('tw-stock.eps-growth-rankings.index', [
+                    'run' => $runId, 'eps_basis' => $basis,
+                ]))->assertOk()->assertDontSee('三段合計')->assertDontSee('營收成長預估')
+                    ->assertSee('不隨週更重評')->assertSee('測試用人工依據')
+                    ->assertSee('人工固定分級，僅反映結構性替代風險，不代表近期訂單流失預測')
+                    ->assertSee('https://example.test/company')->assertSee('2026-10-01');
+                $response->assertSee('class="order-loss-risk" title="測試用人工依據">低', false);
+                $this->assertSame(1, substr_count($response->getContent(), 'title="尚無足夠依據，待人工評估">待評估'));
+            }
+        }
+
+        foreach (['極高', '高', '中', '低', '極低'] as $level) {
+            config()->set('tw_stock_order_loss_risk.stocks.1111.level', $level);
+            $this->get(route('tw-stock.eps-growth-rankings.index'))->assertOk()
+                ->assertSee('class="order-loss-risk" title="測試用人工依據">'.$level, false);
+        }
+        config()->set('tw_stock_order_loss_risk.stocks.1111.source_url', 'javascript:alert(1)');
+        $this->get(route('tw-stock.eps-growth-rankings.index'))->assertOk()->assertDontSee('javascript:');
+        foreach ([['level' => '未知', 'basis' => '有依據'], ['level' => '高'], ['level' => '低', 'basis' => '  ']] as $invalid) {
+            config()->set('tw_stock_order_loss_risk.stocks.1111', $invalid);
+            $response = $this->get(route('tw-stock.eps-growth-rankings.index'))->assertOk();
+            $this->assertSame(2, substr_count($response->getContent(), 'title="尚無足夠依據，待人工評估">待評估'));
+        }
     }
 
     public function test_recalculate_command_reorders_existing_snapshots_without_replacing_them(): void

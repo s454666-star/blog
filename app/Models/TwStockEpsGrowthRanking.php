@@ -12,6 +12,7 @@ class TwStockEpsGrowthRanking extends Model
     protected $guarded = [];
 
     protected $casts = [
+        'forecast_metadata' => 'array',
         'rank' => 'integer',
         'previous_rank' => 'integer',
         'rank_change' => 'integer',

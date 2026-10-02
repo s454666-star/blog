@@ -36,6 +36,8 @@ return [
     ],
     'taiex_futures_expected_gap_notify_time' => '13:30',
     'eps_growth_ranking' => [
+        'factset_eps_url' => 'https://marketinfo.api.cnyes.com/mi/api/v1/financialIndicator/estimateProfit/TWS:{code}:STOCK?type=eps',
+        'max_source_age_days' => 90,
         'base_year' => 2025,
         'forecast_years' => [2026, 2027, 2028],
         'lookback_days' => 400,

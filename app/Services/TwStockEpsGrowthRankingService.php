@@ -13,6 +13,8 @@ use Throwable;
 
 class TwStockEpsGrowthRankingService
 {
+    private array $actualSources = [];
+
     public function __construct(private readonly TwStockEpsGrowthScoringService $scoring)
     {
     }
@@ -26,6 +28,7 @@ class TwStockEpsGrowthRankingService
         int $sleepMs,
         int $minimumEligible,
         bool $requireTopPrices = true,
+        bool $dryRun = false,
     ): array {
         $forecastResult = $this->fetchLatestForecasts($snapshotDate, $lookbackDays);
         $forecasts = $forecastResult['forecasts'];
@@ -43,6 +46,20 @@ class TwStockEpsGrowthRankingService
             ));
         }
 
+        $eligibleCodes = array_column($rows, 'stock_code');
+        $audit = [];
+        foreach ($forecasts as $code => $forecast) {
+            $audit[] = [
+                'stock_code' => (string) $code, 'stock_name' => $forecast['stock_name'],
+                'eps_2025' => $actuals[$code] ?? null,
+                'actual_source' => $this->actualSources[$code] ?? '未取得完整 2025 年度實績',
+                'years' => $forecast['forecast_metadata'],
+                'rankable' => in_array((string) $code, $eligibleCodes, true),
+            ];
+        }
+        if ($dryRun) {
+            return ['run' => null, 'top_rows' => $rows, 'audit' => $audit];
+        }
         $priceMap = $this->latestPriceMap(array_column($rows, 'stock_code'), $snapshotDate);
         foreach ($rows as &$row) {
             $price = $priceMap[$row['stock_code']] ?? null;
@@ -71,8 +88,9 @@ class TwStockEpsGrowthRankingService
 
         $priceDates = array_values(array_filter(array_column($topRows, 'price_date')));
         sort($priceDates);
-        $run = DB::transaction(function () use ($snapshotDate, $forecastResult, $rows, $priceDates): TwStockEpsGrowthRun {
+        $run = DB::transaction(function () use ($snapshotDate, $forecastResult, $rows, $priceDates, $audit): TwStockEpsGrowthRun {
             $run = TwStockEpsGrowthRun::query()->create([
+                'forecast_audit' => $audit,
                 'snapshot_date' => $snapshotDate->toDateString(),
                 'price_date' => $priceDates === [] ? null : end($priceDates),
                 'base_year' => 2025,
@@ -96,6 +114,7 @@ class TwStockEpsGrowthRankingService
                         'rank_change' => $row['rank_change'],
                         'stock_code' => $row['stock_code'],
                         'stock_name' => $row['stock_name'],
+                        'forecast_metadata' => json_encode($row['forecast_metadata'], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
                         'eps_2025' => $row['eps_2025'],
                         'eps_2026' => $row['eps_2026'],
                         'eps_2027' => $row['eps_2027'],
@@ -128,36 +147,6 @@ class TwStockEpsGrowthRankingService
             'run' => $run,
             'top_rows' => $topRows,
         ];
-    }
-
-    /**
-     * @return list<array<string, mixed>>
-     */
-    public function neutralEstimateRows(
-        CarbonImmutable $snapshotDate,
-        int $lookbackDays,
-        int $sleepMs,
-    ): array {
-        $forecastResult = $this->fetchLatestForecasts($snapshotDate, $lookbackDays);
-        $forecasts = array_filter(
-            $forecastResult['forecasts'],
-            fn (array $forecast): bool => (bool) ($forecast['is_neutral_estimate'] ?? false),
-        );
-        if ($forecasts === []) {
-            return [];
-        }
-
-        $actuals = $this->fetchActualEps(array_keys($forecasts), $sleepMs);
-        $rows = $this->buildEligibleRows($forecasts, $actuals);
-        $priceMap = $this->latestPriceMap(array_column($rows, 'stock_code'), $snapshotDate);
-        foreach ($rows as &$row) {
-            $price = $priceMap[$row['stock_code']] ?? null;
-            $row['price_date'] = $price['price_date'] ?? null;
-            $row['close_price'] = $price['close_price'] ?? null;
-        }
-        unset($row);
-
-        return $rows;
     }
 
     /**
@@ -209,259 +198,13 @@ class TwStockEpsGrowthRankingService
             $cursor = $windowEnd;
         }
 
-        $latest = [];
-        foreach ($articles as $article) {
-            $parsed = $this->parseForecastArticle($article);
-            if ($parsed === null) {
-                continue;
-            }
-
-            $code = $parsed['stock_code'];
-            if (!isset($latest[$code]) || $parsed['publish_at'] > $latest[$code]['publish_at']) {
-                $latest[$code] = $parsed;
-            }
+        $latestRun = TwStockEpsGrowthRun::query()->whereNotNull('completed_at')->orderByDesc('snapshot_date')->orderByDesc('id')->first();
+        $universe = $latestRun?->rankings()->pluck('stock_name', 'stock_code')->all() ?? [];
+        foreach ($latestRun?->forecast_audit ?? [] as $audited) {
+            $universe[$audited['stock_code']] = $audited['stock_name'];
         }
-
-        foreach ($this->configuredNeutralForecasts($snapshotDate) as $code => $forecast) {
-            if (!isset($latest[$code])) {
-                $latest[$code] = $forecast;
-            }
-        }
-
-        return [
-            'article_count' => count($articles),
-            'forecasts' => $latest,
-        ];
-    }
-
-    /**
-     * @return list<string>
-     */
-    public function expectedNeutralEstimateCodes(CarbonImmutable $snapshotDate): array
-    {
-        $manualForecasts = config('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []);
-        $codes = array_values(array_filter(
-            config('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', []),
-            function (string $code) use ($manualForecasts, $snapshotDate): bool {
-                if (!isset($manualForecasts[$code])) {
-                    return true;
-                }
-
-                $forecastDate = $manualForecasts[$code]['forecast_date'] ?? null;
-
-                return is_string($forecastDate)
-                    && $forecastDate !== ''
-                    && CarbonImmutable::parse($forecastDate, 'Asia/Taipei')->startOfDay()->lessThanOrEqualTo($snapshotDate->startOfDay());
-            },
-        ));
-        sort($codes);
-
-        return $codes;
-    }
-
-    /**
-     * @return array<string, array<string, mixed>>
-     */
-    private function configuredNeutralForecasts(CarbonImmutable $snapshotDate): array
-    {
-        $forecasts = [];
-        foreach (config('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []) as $code => $configured) {
-            $forecastDate = $configured['forecast_date'] ?? null;
-            $eps2026 = $configured['eps_2026'] ?? null;
-            $eps2027 = $configured['eps_2027'] ?? null;
-            if (!is_string($forecastDate)
-                || $forecastDate === ''
-                || !is_numeric($eps2026)
-                || !is_numeric($eps2027)
-                || (float) $eps2026 <= 0
-                || (float) $eps2027 <= 0
-            ) {
-                continue;
-            }
-
-            $publishedAt = CarbonImmutable::parse($forecastDate, 'Asia/Taipei')->startOfDay();
-            if ($publishedAt->greaterThan($snapshotDate->startOfDay())) {
-                continue;
-            }
-
-            $eps2026 = (float) $eps2026;
-            $eps2027 = (float) $eps2027;
-            $forecasts[(string) $code] = [
-                'stock_code' => (string) $code,
-                'stock_name' => (string) ($configured['stock_name'] ?? $code),
-                'publish_at' => $publishedAt->timestamp,
-                'forecast_date' => $publishedAt->toDateString(),
-                'news_id' => null,
-                'analyst_count' => isset($configured['analyst_count']) ? (int) $configured['analyst_count'] : null,
-                'eps_2026' => $eps2026,
-                'eps_2027' => $eps2027,
-                'eps_2028' => round($eps2027 * (1 + $this->neutral2028Growth($eps2026, $eps2027)), 4),
-                'revenue_2026_thousands' => null,
-                'revenue_2027_thousands' => null,
-                'revenue_2028_thousands' => null,
-                'is_neutral_estimate' => true,
-            ];
-        }
-
-        return $forecasts;
-    }
-
-    /**
-     * @param array<string, mixed> $article
-     * @return array<string, mixed>|null
-     */
-    private function parseForecastArticle(array $article): ?array
-    {
-        $title = (string) ($article['title'] ?? '');
-        if (preg_match('/\((\d{4})-TW\).*EPS預估/u', $title, $codeMatch) !== 1) {
-            return null;
-        }
-
-        $html = html_entity_decode((string) ($article['content'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        if (!str_contains($html, '<table')) {
-            $html = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        }
-        preg_match_all('/<table\b[^>]*>.*?<\/table>/si', $html, $tableMatches);
-        $tables = $tableMatches[0] ?? [];
-        if (count($tables) < 2) {
-            return null;
-        }
-
-        $headerRows = $this->tableRows($tables[0]);
-        $header = $headerRows[0] ?? [];
-        $isCompleteForecast = count($header) >= 4
-            && preg_match('/^2026年/u', $header[1]) === 1
-            && preg_match('/^2027年/u', $header[2]) === 1
-            && preg_match('/^2028年/u', $header[3]) === 1;
-        $isNeutralEstimate = in_array(
-            $codeMatch[1],
-            config('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', []),
-            true,
-        )
-            && count($header) >= 4
-            && preg_match('/^2025年/u', $header[1]) === 1
-            && preg_match('/^2026年/u', $header[2]) === 1
-            && preg_match('/^2027年/u', $header[3]) === 1;
-        if (!$isCompleteForecast && !$isNeutralEstimate) {
-            return null;
-        }
-
-        $eps = $this->medianValues($tables[0]);
-        if ($eps === null || min($eps) <= 0) {
-            return null;
-        }
-        $revenue = $this->medianValues($tables[1]);
-
-        $eps2026 = $isNeutralEstimate ? $eps[1] : $eps[0];
-        $eps2027 = $isNeutralEstimate ? $eps[2] : $eps[1];
-        $eps2028 = $isNeutralEstimate
-            ? round($eps2027 * (1 + $this->neutral2028Growth($eps2026, $eps2027)), 4)
-            : $eps[2];
-        $revenue2026 = $revenue === null ? null : ($isNeutralEstimate ? $revenue[1] : $revenue[0]);
-        $revenue2027 = $revenue === null ? null : ($isNeutralEstimate ? $revenue[2] : $revenue[1]);
-        $revenue2028 = $revenue === null
-            ? null
-            : ($isNeutralEstimate
-                ? $revenue2027 * (1 + $this->neutral2028Growth($revenue2026, $revenue2027))
-                : $revenue[2]);
-
-        $analystCount = null;
-        if (preg_match('/共(\d+)位分析師/u', strip_tags($html), $analystMatch) === 1) {
-            $analystCount = (int) $analystMatch[1];
-        }
-
-        $stockName = $codeMatch[1];
-        if (preg_match('/調查：(.+?)\(/u', $title, $nameMatch) === 1) {
-            $stockName = trim($nameMatch[1]);
-        }
-
-        $publishAt = (int) ($article['publishAt'] ?? 0);
-
-        return [
-            'stock_code' => $codeMatch[1],
-            'stock_name' => $stockName,
-            'publish_at' => $publishAt,
-            'forecast_date' => $publishAt > 0
-                ? CarbonImmutable::createFromTimestampUTC($publishAt)->setTimezone('Asia/Taipei')->toDateString()
-                : null,
-            'news_id' => isset($article['newsId']) ? (int) $article['newsId'] : null,
-            'analyst_count' => $analystCount,
-            'eps_2026' => $eps2026,
-            'eps_2027' => $eps2027,
-            'eps_2028' => $eps2028,
-            'revenue_2026_thousands' => $revenue2026 === null ? null : (int) round($revenue2026),
-            'revenue_2027_thousands' => $revenue2027 === null ? null : (int) round($revenue2027),
-            'revenue_2028_thousands' => $revenue2028 === null ? null : (int) round($revenue2028),
-            'is_neutral_estimate' => $isNeutralEstimate,
-        ];
-    }
-
-    private function neutral2028Growth(float $earlierValue, float $laterValue): float
-    {
-        if ($earlierValue <= 0 || $laterValue <= 0) {
-            return 0.0;
-        }
-
-        $growth = (($laterValue / $earlierValue) - 1)
-            * (float) config('tw_stock.eps_growth_ranking.neutral_2028_growth_retention', 0.5);
-        $minimum = (float) config('tw_stock.eps_growth_ranking.neutral_2028_growth_min', 0.0);
-        $maximum = (float) config('tw_stock.eps_growth_ranking.neutral_2028_growth_max', 0.3);
-
-        return min($maximum, max($minimum, $growth));
-    }
-
-    /**
-     * @return list<list<string>>
-     */
-    private function tableRows(string $table): array
-    {
-        preg_match_all('/<tr\b[^>]*>(.*?)<\/tr>/si', $table, $rowMatches);
-        $rows = [];
-        foreach ($rowMatches[1] ?? [] as $rowHtml) {
-            preg_match_all('/<t[dh]\b[^>]*>(.*?)<\/t[dh]>/si', $rowHtml, $cellMatches);
-            $rows[] = array_map(function (string $cell): string {
-                $text = html_entity_decode(strip_tags($cell), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-
-                return trim((string) preg_replace('/\s+/u', ' ', $text));
-            }, $cellMatches[1] ?? []);
-        }
-
-        return $rows;
-    }
-
-    /**
-     * @return array{float, float, float}|null
-     */
-    private function medianValues(string $table): ?array
-    {
-        foreach ($this->tableRows($table) as $cells) {
-            if (count($cells) < 4 || $cells[0] !== '中位數') {
-                continue;
-            }
-
-            $values = [
-                $this->number($cells[1]),
-                $this->number($cells[2]),
-                $this->number($cells[3]),
-            ];
-            if (in_array(null, $values, true)) {
-                return null;
-            }
-
-            return [$values[0], $values[1], $values[2]];
-        }
-
-        return null;
-    }
-
-    private function number(mixed $value): ?float
-    {
-        $text = str_replace(',', '', trim((string) $value));
-        if (preg_match('/^-?\d+(?:\.\d+)?/', $text, $matches) !== 1) {
-            return null;
-        }
-
-        return (float) $matches[0];
+        $forecasts = app(TwStockEpsForecastSource::class)->latest(array_values($articles), $universe, $snapshotDate);
+        return ['article_count' => count($articles), 'forecasts' => $forecasts];
     }
 
     /**
@@ -471,6 +214,7 @@ class TwStockEpsGrowthRankingService
     private function fetchActualEps(array $stockCodes, int $sleepMs): array
     {
         $actuals = [];
+        $this->actualSources = [];
         $url = (string) config('tw_stock.eps_growth_ranking.finmind_url');
         sort($stockCodes);
 
@@ -494,12 +238,15 @@ class TwStockEpsGrowthRankingService
                 is_array($payload['data'] ?? null) ? $payload['data'] : [],
                 fn (mixed $row): bool => is_array($row)
                     && ($row['type'] ?? null) === 'EPS'
+                    && str_starts_with((string) ($row['date'] ?? ''), '2025-')
                     && is_numeric($row['value'] ?? null),
             ));
-            if (count($epsRows) !== 4) {
+            $quarters = array_unique(array_map(fn ($row) => isset($row['date']) ? CarbonImmutable::parse($row['date'])->format('Y').'-'.CarbonImmutable::parse($row['date'])->quarter : '', $epsRows));
+            if (count($epsRows) !== 4 || count($quarters) !== 4) {
                 continue;
             }
 
+            $this->actualSources[$stockCode] = 'FinMind TaiwanStockFinancialStatements：2025 Q1–Q4 公告 EPS 加總（元／股）';
             $actuals[$stockCode] = round(array_sum(array_map(
                 fn (array $row): float => (float) $row['value'],
                 $epsRows,
@@ -509,8 +256,9 @@ class TwStockEpsGrowthRankingService
         $configuredForecasts = config('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []);
         foreach ($stockCodes as $stockCode) {
             $configuredActual = $configuredForecasts[$stockCode]['eps_2025'] ?? null;
-            if (($actuals[$stockCode] ?? 0) <= 0 && is_numeric($configuredActual) && (float) $configuredActual > 0) {
+            if (!array_key_exists($stockCode, $actuals) && is_numeric($configuredActual) && (float) $configuredActual > 0) {
                 $actuals[$stockCode] = round((float) $configuredActual, 4);
+                $this->actualSources[$stockCode] = '既有年度實績參考（FinMind 四季不完整）：'.($configuredForecasts[$stockCode]['source_url'] ?? '未註明');
             }
         }
 
@@ -531,6 +279,9 @@ class TwStockEpsGrowthRankingService
                 continue;
             }
 
+            if (count(array_filter($forecast['forecast_metadata'] ?? [], fn ($year) => $year['status'] === 'current')) !== 3) {
+                continue;
+            }
             $eps2026 = (float) $forecast['eps_2026'];
             $eps2027 = (float) $forecast['eps_2027'];
             $eps2028 = (float) $forecast['eps_2028'];

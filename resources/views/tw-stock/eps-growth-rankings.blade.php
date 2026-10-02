@@ -579,6 +579,9 @@
 <div class="aurora two"></div>
 
 <main class="page-shell">
+    @php
+        $hasAudit = !empty($run?->forecast_audit);
+    @endphp
     <header class="hero glass">
         <div class="eyebrow">TW EQUITY GROWTH RADAR</div>
         <h1>台股三年 <span>EPS 成長排行</span></h1>
@@ -650,9 +653,9 @@
                 <div class="summary-note">三段年增率均大於 0</div>
             </article>
             <article class="summary-card glass" style="--accent: #d8b4fe">
-                <div class="summary-label">中性情境</div>
-                <div class="summary-value" style="color: #d9c7ff">{{ $summary['neutral_estimates'] }}</div>
-                <div class="summary-note">5 檔固定參考股的 2028E 中性估算</div>
+                <div class="summary-label">{{ $hasAudit ? '逐年查核' : '中性情境' }}</div>
+                <div class="summary-value" style="color: #d9c7ff">{{ $hasAudit ? count($run->forecast_audit) : $summary['neutral_estimates'] }}</div>
+                <div class="summary-note">{{ $hasAudit ? '含缺值與過期來源，詳見下方查核表' : '5 檔固定參考股的 2028E 中性估算' }}</div>
             </article>
         </section>
 
@@ -744,7 +747,9 @@
                                 <div class="moving-average-signals">
                                     @foreach ($movingAverageSignals as $signal)
                                         @if ($row->close_price !== null && $signal['average'] !== null)
-                                            @php($isAbove = $row->close_price >= $signal['average'])
+                                            @php
+$isAbove = $row->close_price >= $signal['average'];
+@endphp
                                             <span class="moving-average-signal {{ $isAbove ? 'above' : 'below' }}"
                                                   title="{{ $signal['days'] }} 日均線 {{ number_format($signal['average'], 2) }}">
                                                 <span class="moving-average-arrow" aria-hidden="true">{{ $isAbove ? '↑' : '↓' }}</span>
@@ -760,7 +765,9 @@
                                 <div class="price-value expected-price-value">
                                     <span>{{ $row->expected_price_2027 === null ? '—' : number_format($row->expected_price_2027, $row->expected_price_2027 < 100 ? 2 : ($row->expected_price_2027 < 1000 ? 1 : 0)) }}</span>
                                     @if ($row->expected_price_2027_return_percentage !== null)
-                                        @php($isPotentialProfit = $row->expected_price_2027_return_percentage >= 0)
+                                        @php
+                                            $isPotentialProfit = $row->expected_price_2027_return_percentage >= 0;
+                                        @endphp
                                         <span class="potential-return {{ $isPotentialProfit ? 'positive' : 'negative' }}">（{{ $isPotentialProfit ? '+' : '' }}{{ number_format($row->expected_price_2027_return_percentage, 1) }}%）</span>
                                     @else
                                         <span class="potential-return stock-meta">（—）</span>
@@ -770,17 +777,22 @@
                                     <div class="stock-meta">族群 {{ number_format($row->valuation_group_pe, 1) }}x</div>
                                 @endif
                             </td>
-                            <td>{{ number_format($row->eps_2025, 2) }}</td>
+                            <td>{{ number_format($row->eps_2025, 2) }}@if($hasAudit)<div class="stock-meta">2025 年度實績</div>@endif</td>
                             <td>
                                 <div>{{ number_format($row->eps_2026, 2) }}</div>
+                                @if($epsBasis === 'forecast')
+                                    @include('tw-stock.partials.eps-forecast-provenance', ['source' => $row->forecast_metadata[2026] ?? null])
+                                @elseif($hasAudit)
+                                    <div class="stock-meta">本站年化情境，非全年實績</div>
+                                @endif
                                 @if ($epsBasis === 'actual')
                                     <div class="stock-meta">（H1 {{ number_format($row->reported_half_year_eps, 2) }} ＋ H1×1.05）</div>
                                 @else
                                     <div class="stock-meta">（目前 Q1+Q2：{{ $row->reported_half_year_eps === null ? '—' : number_format($row->reported_half_year_eps, 2) }}）</div>
                                 @endif
                             </td>
-                            <td>{{ number_format($row->eps_2027, 2) }}</td>
-                            <td>{{ number_format($row->eps_2028, 2) }}</td>
+                            <td>{{ number_format($row->eps_2027, 2) }}@include('tw-stock.partials.eps-forecast-provenance', ['source' => $row->forecast_metadata[2027] ?? null])</td>
+                            <td>{{ number_format($row->eps_2028, 2) }}@include('tw-stock.partials.eps-forecast-provenance', ['source' => $row->forecast_metadata[2028] ?? null])</td>
                             @foreach ([$row->growth_2025_2026, $row->growth_2026_2027, $row->growth_2027_2028] as $growth)
                                 <td class="{{ $growth >= 0 ? 'positive' : 'negative' }}">{{ $growth >= 0 ? '+' : '' }}{{ number_format($growth, 1) }}%</td>
                             @endforeach
@@ -793,14 +805,43 @@
                                     </div>
                                 @endif
                             </td>
-                            <td>{{ $row->analyst_count ?? '—' }}</td>
-                            <td>{{ $row->forecast_date?->format('m/d') ?? '—' }}</td>
+                            <td>{{ $hasAudit ? '依年度標示' : ($row->analyst_count ?? '—') }}</td>
+                            <td>{{ $hasAudit ? '依年度標示' : ($row->forecast_date?->format('m/d') ?? '—') }}</td>
                         </tr>
                     @endforeach
                     </tbody>
                 </table>
             </div>
         </section>
+
+        @if($hasAudit)
+            <details class="glass" style="margin-top:16px;padding:18px;border-radius:18px" id="epsSourceAudit">
+                <summary style="cursor:pointer">全部 {{ count($run->forecast_audit) }} 家逐年 EPS 查核（含未納入排名公司）</summary>
+                <p>單位：新台幣元／股。查核快照 {{ $run->snapshot_date->format('Y-m-d') }}；各年度來源日另列。此表保留共識資料，不隨上方年化情境切換。</p>
+                <div class="table-scroll">
+                    <table style="min-width:900px">
+                        <thead><tr><th>公司</th><th>2025A</th><th>2026E</th><th>2027E</th><th>2028E</th><th>完整排名</th></tr></thead>
+                        <tbody>
+                        @foreach(collect($run->forecast_audit)->sortBy('stock_code') as $audited)
+                            <tr data-audit-code="{{ $audited['stock_code'] }}">
+                                <td>{{ $audited['stock_code'] }} {{ $audited['stock_name'] }}</td>
+                                <td title="{{ $audited['actual_source'] }}">{{ $audited['eps_2025'] === null ? '缺值' : number_format($audited['eps_2025'], 2) }}<div class="stock-meta">2025 年度實績</div></td>
+                                @foreach([2026, 2027, 2028] as $year)
+                                    @php
+                                        $source = $audited['years'][$year];
+                                    @endphp
+                                    <td>{{ $source['value'] === null ? '缺值' : number_format($source['value'], 2) }}
+                                        @include('tw-stock.partials.eps-forecast-provenance', ['source' => $source])
+                                    </td>
+                                @endforeach
+                                <td>{{ $audited['rankable'] ? '符合完整樣本條件' : '未納入：缺值／過期／非正值' }}</td>
+                            </tr>
+                        @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        @endif
 
         <aside class="method-note glass">
             <div>
@@ -809,8 +850,13 @@
                 <span class="formula">(25→26年增率×1.8 + 26→27年增率×2.5 + 27→28年增率×1) ÷ 5.3</span>
                 算出原始加權成長率，再將該結果換算成當週完整樣本中的 0～100 百分位分數並排序。這可確保權重直接作用於原始成長率，不會因三段各自先轉百分位而扭曲。預設「預估2026」使用 FactSet 2026E；切換「實際2026」時以已公告的 <span class="formula">H1 EPS ＋ H1 EPS × 1.05</span> 取代 2026E，下半年以上半年的 1.05 倍估算，重新計算 25→26、26→27、加權分數及排行，27→28 仍沿用原預估。缺少完整 H1 或年化 EPS 不為正數的股票不納入實際模式排行。2025A 原則上為四季 EPS 加總；永擎因 FinMind 僅回傳上市後的三筆資料，採用 2025 年度公開 EPS 13.04 元。2027E～2028E 為各股票最新可取得的 FactSet 中位數或下述固定參考來源。排行是相對分數，不等於投資品質。
                 2027預期價格以<span class="formula">該股票族群平均本益比 × 2027E EPS</span>計算；旁邊百分比為<span class="formula">（2027預期價格 ÷ 顯示收盤價 − 1）× 100%</span>。最新一期使用每日股價表的最新官方收盤，歷史週快照則保留該週收盤，僅供估值參考。
+                @if($hasAudit)
+                    各年度分別核對 FactSet 中位數與具日期的原始新聞；日期標示為調查資料日或新聞發布日，不代表本站查核日。相同數值轉載保留原始資料日；同日數值不同時優先採原始資料。樣本僅 1 位會特別標示。
+                    缺少可信年度資料不外推；來源超過 90 天標示過期。僅 2025A 與三年預估皆為正值且來源未過期的公司納入完整排名，其餘留在查核表。2026「實際」模式仍為本站年化情境，並非全年實績。
+                @else
                 全新（2455）與聯亞（3081）若 FactSet 尚缺 2028E，會以最新 2026E、2027E 共識為基礎；大量（3167）使用 2026/6/11 富果研究員預估的 2026E 19.53 元、2027E 30.59 元；IET-KY（4971）因 FactSet 頁面未提供 EPS 共識，改用 2026/8/31 公開法人預估的 2026E 6.10 元、2027E 10.94 元；永擎（7711）使用 2026/4/23 元大投顧預估的 2026E 31.31 元、2027E 42.11 元。五檔的 2028E 均將 2026→2027 成長率折半（限制於 0～30%）作為中性年增率，並以「中性估算」標示。
                 五檔為固定參考列；即使實際名次低於第 50 名，仍會顯示在前 50 名表格後方。
+                @endif
                 <br><strong>掉單風險：</strong>被同業取代、訂單轉移的結構性風險，分為極高／高／中／低／極低；越高代表越容易被取代。人工固定分級，僅反映結構性替代風險，不代表近期訂單流失預測，不影響 EPS 排名；歷史週也顯示同一份固定參考。評級為人工質性判斷，來源支持產品與技術事實，各產品線及客戶可能不同。缺乏依據者顯示「待評估」。
             </div>
             <div>EPS 排行每週一更新<br>掉單風險為固定參考，不隨週更重評</div>

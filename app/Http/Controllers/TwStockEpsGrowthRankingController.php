@@ -138,7 +138,7 @@ class TwStockEpsGrowthRankingController extends Controller
     {
         $sources = config('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []);
         foreach ($rows as $row) {
-            $source = $sources[$row->stock_code] ?? null;
+            $source = $row->forecast_metadata[2026] ?? $sources[$row->stock_code] ?? null;
             if (!is_array($source)) {
                 continue;
             }

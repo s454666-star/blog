@@ -18,6 +18,8 @@ class TwStockEpsGrowthRankingsTest extends TestCase
 
     private bool $includeNeutralEstimates = false;
 
+    private array $feedRows = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -34,6 +36,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             'prefix' => '',
             'foreign_key_constraints' => true,
         ]);
+        config()->set('tw_stock.eps_growth_ranking.factset_eps_url', 'https://example.test/eps/{code}');
         config()->set('tw_stock.eps_growth_ranking.cnyes_url', 'https://example.test/cnyes');
         config()->set('tw_stock.eps_growth_ranking.finmind_url', 'https://example.test/finmind');
         config()->set('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', ['2455', '3081']);
@@ -352,226 +355,75 @@ class TwStockEpsGrowthRankingsTest extends TestCase
         $this->assertSame(1, (int) $newFirst->rank_change);
     }
 
-    public function test_refresh_includes_requested_neutral_estimates_and_labels_them(): void
+    public function test_incomplete_years_remain_visible_without_invented_2028_in_both_modes(): void
     {
         $this->includeNeutralEstimates = true;
         $this->insertPrices('2026-08-11', 100, 200);
-        $this->insertNeutralPrices('2026-08-11');
-
         $this->artisan('tw-stock:refresh-eps-growth-rankings', [
-            '--date' => '2026-08-11',
-            '--lookback-days' => 35,
-            '--sleep-ms' => 0,
-            '--minimum-eligible' => 4,
+            '--date' => '2026-08-11', '--lookback-days' => 35,
+            '--sleep-ms' => 0, '--minimum-eligible' => 2,
         ])->assertSuccessful();
-
         $run = DB::table('tw_stock_eps_growth_runs')->first();
+        $audit = collect(json_decode($run->forecast_audit, true))->keyBy('stock_code');
         $this->assertSame(4, (int) $run->forecast_count);
-        $this->assertSame(4, (int) $run->eligible_count);
-
-        $fulltech = DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '2455')->first();
-        $landmark = DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '3081')->first();
-        $this->assertNotNull($fulltech);
-        $this->assertNotNull($landmark);
-        $this->assertSame(1, (int) $fulltech->is_neutral_estimate);
-        $this->assertSame(1, (int) $landmark->is_neutral_estimate);
-        $this->assertEqualsWithDelta(8.2626, (float) $fulltech->eps_2028, 0.001);
-        $this->assertEqualsWithDelta(15.2433, (float) $landmark->eps_2028, 0.001);
-
-        DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '2455')->update(['rank' => 51]);
-        DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '3081')->update(['rank' => 52]);
-
-        $this->get(route('tw-stock.eps-growth-rankings.index'))
-            ->assertOk()
-            ->assertSee('全新')
-            ->assertSee('聯亞')
-            ->assertSee('中性估算')
-            ->assertSee('5 檔固定參考股的 2028E 中性估算');
+        $this->assertSame(2, (int) $run->eligible_count);
+        $this->assertNull($audit['2455']['years'][2028]['value']);
+        $this->assertSame('missing', $audit['3081']['years'][2028]['status']);
+        $this->assertFalse($audit['2455']['rankable']);
+        foreach (['forecast', 'actual'] as $basis) {
+            $this->get(route('tw-stock.eps-growth-rankings.index', ['eps_basis' => $basis]))
+                ->assertOk()->assertSee('全新')->assertSee('聯亞')
+                ->assertSee('未取得此年度估值，不外推')->assertDontSee('8.2626');
+        }
     }
 
-    public function test_large_is_included_as_a_ranked_neutral_estimate(): void
+    public function test_live_consensus_replaces_manual_forecast_and_labels_small_sample(): void
     {
-        config()->set('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', ['3167']);
         config()->set('tw_stock.eps_growth_ranking.manual_neutral_forecasts', [
-            '3167' => [
-                'stock_name' => '大量',
-                'forecast_date' => '2026-06-11',
-                'eps_2025' => 8.13,
-                'eps_2026' => 19.53,
-                'eps_2027' => 30.59,
-                'analyst_count' => 1,
-                'source_label' => '富果研究員預估',
-                'source_url' => 'https://example.test/taliang-forecast',
-            ],
+            '3167' => ['stock_name' => '大量', 'forecast_date' => '2026-08-10',
+                'eps_2026' => 19.53, 'eps_2027' => 30.59, 'source_label' => '單一研究',
+                'source_url' => 'https://example.test/old'],
         ]);
+        $this->feedRows['3167'] = array_map(fn ($year, $value) => [
+            'code' => '3167', 'financialYear' => $year, 'feMedian' => $value,
+            'feMean' => 999, 'rateDate' => '2026-08-09', 'numEst' => 1, 'currency' => 'TWD',
+        ], [2026, 2027, 2028], [24.77, 45.4, 53.54]);
         $this->insertPrices('2026-08-11', 100, 200);
-        DB::table('tw_stock_daily_prices')->insert([
-            'exchange' => 'TWSE',
-            'stock_code' => '3167',
-            'stock_name' => '大量',
-            'trade_date' => '2026-08-11',
-            'close_price' => 500,
-            'volume_lots' => 1,
-            'volume_shares' => 1000,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
         $this->artisan('tw-stock:refresh-eps-growth-rankings', [
-            '--date' => '2026-08-11',
-            '--lookback-days' => 35,
-            '--sleep-ms' => 0,
-            '--minimum-eligible' => 3,
+            '--date' => '2026-08-11', '--lookback-days' => 35, '--sleep-ms' => 0,
+            '--minimum-eligible' => 3, '--allow-missing-top-prices' => true,
         ])->assertSuccessful();
-
-        $large = DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '3167')->first();
-        $this->assertNotNull($large);
-        $this->assertSame(1, (int) $large->rank);
-        $this->assertSame(1, (int) $large->is_neutral_estimate);
-        $this->assertEqualsWithDelta(8.13, (float) $large->eps_2025, 0.001);
-        $this->assertEqualsWithDelta(19.53, (float) $large->eps_2026, 0.001);
-        $this->assertEqualsWithDelta(30.59, (float) $large->eps_2027, 0.001);
-        $this->assertEqualsWithDelta(
-            round(30.59 * (1 + (((30.59 / 19.53) - 1) * 0.5)), 4),
-            (float) $large->eps_2028,
-            0.001,
-        );
-
-        $this->get(route('tw-stock.eps-growth-rankings.index'))
-            ->assertOk()
-            ->assertSee('大量')
-            ->assertSee('3167')
-            ->assertSee('中性估算')
-            ->assertSee('富果研究員預估')
-            ->assertSee('https://example.test/taliang-forecast', false);
+        $row = DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '3167')->first();
+        $this->assertEquals(53.54, $row->eps_2028);
+        $this->assertFalse((bool) $row->is_neutral_estimate);
+        $this->get(route('tw-stock.eps-growth-rankings.index'))->assertOk()
+            ->assertSee('小樣本')->assertSee('2026-08-09')->assertDontSee('https://example.test/old', false);
     }
 
-    public function test_configured_reference_forecasts_include_iet_and_asrock_rack_in_both_modes(): void
+    public function test_dry_run_never_writes_and_preserves_stale_values_as_stale(): void
     {
-        config()->set('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', ['4971', '7711']);
-        config()->set('tw_stock.eps_growth_ranking.manual_neutral_forecasts', [
-            '4971' => [
-                'stock_name' => 'IET-KY',
-                'forecast_date' => '2026-08-31',
-                'eps_2026' => 6.10,
-                'eps_2027' => 10.94,
-                'analyst_count' => 1,
-                'source_label' => '法人預估',
-                'source_url' => 'https://example.test/iet-forecast',
-            ],
-            '7711' => [
-                'stock_name' => '永擎',
-                'forecast_date' => '2026-04-23',
-                'eps_2025' => 13.04,
-                'eps_2026' => 31.31,
-                'eps_2027' => 42.11,
-                'analyst_count' => 1,
-                'source_label' => '元大預估',
-                'source_url' => 'https://example.test/asrock-rack-forecast',
-            ],
-        ]);
-
-        $this->insertPrices('2026-08-31', 100, 200);
-        DB::table('tw_stock_daily_prices')->insert([
-            [
-                'exchange' => 'TPEx',
-                'stock_code' => '4971',
-                'stock_name' => 'IET-KY',
-                'trade_date' => '2026-08-31',
-                'close_price' => 600,
-                'volume_lots' => 1,
-                'volume_shares' => 1000,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
-            [
-                'exchange' => 'TWSE',
-                'stock_code' => '7711',
-                'stock_name' => '永擎',
-                'trade_date' => '2026-08-31',
-                'close_price' => 535,
-                'volume_lots' => 1,
-                'volume_shares' => 1000,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
-        ]);
-        DB::table('tw_stock_q1_financial_reports')->insert([
-            ['fiscal_year' => 2026, 'quarter' => 1, 'stock_code' => '4971', 'q1_eps' => 1.97],
-            ['fiscal_year' => 2026, 'quarter' => 2, 'stock_code' => '4971', 'q1_eps' => 0.43],
-            ['fiscal_year' => 2026, 'quarter' => 1, 'stock_code' => '7711', 'q1_eps' => 7.68],
-            ['fiscal_year' => 2026, 'quarter' => 2, 'stock_code' => '7711', 'q1_eps' => 9.76],
-        ]);
-
-        $this->artisan('tw-stock:refresh-eps-growth-rankings', [
-            '--date' => '2026-08-31',
-            '--lookback-days' => 35,
-            '--sleep-ms' => 0,
-            '--minimum-eligible' => 4,
-        ])->assertSuccessful();
-
-        $iet = DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '4971')->first();
-        $asrockRack = DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '7711')->first();
-        $this->assertNotNull($iet);
-        $this->assertNotNull($asrockRack);
-        $this->assertEqualsWithDelta(1.61, (float) $iet->eps_2025, 0.001);
-        $this->assertEqualsWithDelta(14.222, (float) $iet->eps_2028, 0.001);
-        $this->assertEqualsWithDelta(13.04, (float) $asrockRack->eps_2025, 0.001);
-        $this->assertEqualsWithDelta(
-            round(42.11 * (1 + (((42.11 / 31.31) - 1) * 0.5)), 4),
-            (float) $asrockRack->eps_2028,
-            0.001,
+        $this->feedRows['1111'] = [['code' => '1111', 'financialYear' => 2028,
+            'feMedian' => 18.0, 'rateDate' => '2026-01-01', 'numEst' => 1, 'currency' => 'TWD']];
+        $result = app(\App\Services\TwStockEpsGrowthRankingService::class)->refresh(
+            CarbonImmutable::parse('2026-08-11'), 35, 0, 1, false, true,
         );
-
-        DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '4971')->update(['rank' => 51]);
-        DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '7711')->update(['rank' => 52]);
-
-        $this->get(route('tw-stock.eps-growth-rankings.index'))
-            ->assertOk()
-            ->assertSee('IET-KY')
-            ->assertSee('永擎')
-            ->assertSee('法人預估')
-            ->assertSee('元大預估')
-            ->assertSee('https://example.test/iet-forecast', false)
-            ->assertSee('https://example.test/asrock-rack-forecast', false)
-            ->assertSee('IET-KY（4971）')
-            ->assertSee('永擎（7711）');
-
-        $this->get(route('tw-stock.eps-growth-rankings.index', ['eps_basis' => 'actual']))
-            ->assertOk()
-            ->assertSee('（H1 2.40 ＋ H1×1.05）')
-            ->assertSee('（H1 17.44 ＋ H1×1.05）')
-            ->assertSee('4.92')
-            ->assertSee('35.75')
-            ->assertSee('IET-KY')
-            ->assertSee('永擎');
+        $audit = collect($result['audit'])->keyBy('stock_code');
+        $this->assertSame('stale', $audit['1111']['years'][2028]['status']);
+        $this->assertFalse($audit['1111']['rankable']);
+        $this->assertSame(0, DB::table('tw_stock_eps_growth_runs')->count());
     }
 
-    public function test_backfill_adds_neutral_estimates_without_replacing_snapshots_and_is_idempotent(): void
+    public function test_legacy_backfill_refuses_to_rewrite_historical_snapshots(): void
     {
         $this->insertPrices('2026-08-11', 100, 200);
-        $this->insertNeutralPrices('2026-08-11');
         $this->artisan('tw-stock:refresh-eps-growth-rankings', [
-            '--date' => '2026-08-11',
-            '--lookback-days' => 35,
-            '--sleep-ms' => 0,
-            '--minimum-eligible' => 2,
+            '--date' => '2026-08-11', '--lookback-days' => 35,
+            '--sleep-ms' => 0, '--minimum-eligible' => 2,
         ])->assertSuccessful();
-        $runId = (int) DB::table('tw_stock_eps_growth_runs')->value('id');
-
+        $before = DB::table('tw_stock_eps_growth_rankings')->get()->toJson();
         $this->includeNeutralEstimates = true;
-        $this->artisan('tw-stock:backfill-neutral-eps-growth-estimates', ['--sleep-ms' => 0])
-            ->assertSuccessful();
-        $this->artisan('tw-stock:backfill-neutral-eps-growth-estimates', ['--sleep-ms' => 0])
-            ->assertSuccessful();
-
-        $this->assertSame(1, DB::table('tw_stock_eps_growth_runs')->count());
-        $this->assertSame($runId, (int) DB::table('tw_stock_eps_growth_runs')->value('id'));
-        $this->assertSame(4, DB::table('tw_stock_eps_growth_rankings')->count());
-        $this->assertSame(2, DB::table('tw_stock_eps_growth_rankings')->where('is_neutral_estimate', true)->count());
-        $run = DB::table('tw_stock_eps_growth_runs')->first();
-        $this->assertSame(4, (int) $run->forecast_count);
-        $this->assertSame(4, (int) $run->eligible_count);
+        $this->artisan('tw-stock:backfill-neutral-eps-growth-estimates', ['--sleep-ms' => 0])->assertFailed();
+        $this->assertSame($before, DB::table('tw_stock_eps_growth_rankings')->get()->toJson());
     }
 
     public function test_incomplete_source_fails_closed_without_creating_a_snapshot(): void
@@ -592,6 +444,10 @@ class TwStockEpsGrowthRankingsTest extends TestCase
     private function fakeForecastSources(): void
     {
         Http::fake(function ($request) {
+            if (str_starts_with($request->url(), 'https://example.test/eps/')) {
+                $code = basename(parse_url($request->url(), PHP_URL_PATH));
+                return Http::response(['statusCode' => 200, 'data' => $this->feedRows[$code] ?? []]);
+            }
             if (str_starts_with($request->url(), 'https://example.test/cnyes')) {
                 $secondForecast = $this->forecastPhase === 1
                     ? [12, 18, 27]
@@ -621,6 +477,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
                     '2222' => 10.0,
                     '2455' => 2.96,
                     '3081' => 4.66,
+                    '3167' => 8.13,
                     '4971' => 1.61,
                     default => 0.0,
                 };
@@ -653,7 +510,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
 
         return [
             'newsId' => $newsId,
-            'publishAt' => 1786467600 + $this->forecastPhase,
+            'publishAt' => 1786438800 + $this->forecastPhase,
             'title' => "鉅亨速報 - Factset 最新調查：{$name}({$code}-TW)EPS預估",
             'content' => '<p>共8位分析師</p>' . $table($eps) . $table([100000, 120000, 150000]),
         ];
@@ -680,7 +537,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
 
         return [
             'newsId' => $newsId,
-            'publishAt' => 1786467600 + $this->forecastPhase,
+            'publishAt' => 1786438800 + $this->forecastPhase,
             'title' => "鉅亨速報 - Factset 最新調查：{$name}({$code}-TW)EPS預估",
             'content' => '<p>共9位分析師</p>'.$table($eps).$table($revenue),
         ];
@@ -807,6 +664,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
 
         Schema::connection('sqlite')->create('tw_stock_eps_growth_runs', function (Blueprint $table): void {
             $table->id();
+            $table->json('forecast_audit')->nullable();
             $table->date('snapshot_date');
             $table->date('price_date')->nullable();
             $table->unsignedSmallInteger('base_year');
@@ -829,6 +687,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             $table->smallInteger('rank_change')->nullable();
             $table->string('stock_code', 12);
             $table->string('stock_name', 80);
+            $table->json('forecast_metadata')->nullable();
             $table->decimal('eps_2025', 16, 4);
             $table->decimal('eps_2026', 16, 4);
             $table->decimal('eps_2027', 16, 4);

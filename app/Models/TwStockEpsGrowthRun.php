@@ -12,6 +12,7 @@ class TwStockEpsGrowthRun extends Model
     protected $guarded = [];
 
     protected $casts = [
+        'forecast_audit' => 'array',
         'snapshot_date' => 'date',
         'price_date' => 'date',
         'base_year' => 'integer',

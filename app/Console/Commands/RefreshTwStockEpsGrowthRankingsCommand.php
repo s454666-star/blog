@@ -14,6 +14,8 @@ class RefreshTwStockEpsGrowthRankingsCommand extends Command
         {--lookback-days= : FactSet 文章回溯天數}
         {--sleep-ms=80 : FinMind 每檔查詢間隔毫秒}
         {--minimum-eligible= : 最少完整可比股票數}
+        {--dry-run : 只讀取來源並輸出查核 JSON，不寫入快照}
+        {--audit-output= : dry-run 查核 JSON 的輸出路徑}
         {--allow-missing-top-prices : 允許前 50 名缺少收盤價，僅供診斷}';
 
     protected $description = '更新台股 2025A 至 2028E EPS 原始加權成長率百分位排行與上週名次變化。';
@@ -46,6 +48,7 @@ class RefreshTwStockEpsGrowthRankingsCommand extends Command
                 $sleepMs,
                 $minimumEligible,
                 !(bool) $this->option('allow-missing-top-prices'),
+                (bool) $this->option('dry-run'),
             );
         } catch (Throwable $exception) {
             report($exception);
@@ -54,6 +57,16 @@ class RefreshTwStockEpsGrowthRankingsCommand extends Command
             return self::FAILURE;
         }
 
+        if ($this->option('dry-run')) {
+            $json = json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            if ($this->option('audit-output')) {
+                file_put_contents((string) $this->option('audit-output'), $json);
+                $this->info('EPS 查核完成（未寫入資料庫）：'.count($result['audit']).' 家');
+            } else {
+                $this->line($json);
+            }
+            return self::SUCCESS;
+        }
         $run = $result['run'];
         $this->info(sprintf(
             'EPS 成長排行完成：run=%d snapshot=%s price_date=%s articles=%d forecasts=%d eligible=%d top=%d',

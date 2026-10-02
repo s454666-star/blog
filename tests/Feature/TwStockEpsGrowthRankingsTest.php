@@ -192,7 +192,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
             ->assertDontSee('營收成長預估')
             ->assertDontSee('三段合計')
             ->assertSee('掉單風險')
-            ->assertSee('待評估')
+            ->assertSee('未提供評級')
             ->assertSee('2027預期價格')
             ->assertSee('最新收盤')
             ->assertSee('最新股價日')
@@ -285,7 +285,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
                     ->assertSee('人工固定分級，僅反映結構性替代風險，不代表近期訂單流失預測')
                     ->assertSee('https://example.test/company')->assertSee('2026-10-01');
                 $response->assertSee('class="order-loss-risk" title="測試用人工依據">低', false);
-                $this->assertSame(1, substr_count($response->getContent(), 'title="尚無足夠依據，待人工評估">待評估'));
+                $this->assertSame(1, substr_count($response->getContent(), 'title="公開資料尚不足以判定替代風險">未提供評級'));
             }
         }
 
@@ -299,7 +299,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
         foreach ([['level' => '未知', 'basis' => '有依據'], ['level' => '高'], ['level' => '低', 'basis' => '  ']] as $invalid) {
             config()->set('tw_stock_order_loss_risk.stocks.1111', $invalid);
             $response = $this->get(route('tw-stock.eps-growth-rankings.index'))->assertOk();
-            $this->assertSame(2, substr_count($response->getContent(), 'title="尚無足夠依據，待人工評估">待評估'));
+            $this->assertSame(2, substr_count($response->getContent(), 'title="公開資料尚不足以判定替代風險">未提供評級'));
         }
     }
 

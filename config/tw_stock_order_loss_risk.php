@@ -5,8 +5,29 @@ return [
     // Higher means easier substitution by peers / transfer of orders, not a probability.
     // Official sources support product/technology facts; the levels are editorial judgments.
     // Do not derive from valuation groups or update in weekly EPS/AI jobs.
-    // New/unreviewed stocks stay 待評估. Source dates may predate the assessment.
+    // Unreviewed stocks remain explicitly unrated. Source dates may predate the assessment.
     'stocks' => [
+        '6643' => [
+            'stock_name' => 'M31',
+            'level' => '低',
+            'basis' => '矽智財需完成製程與晶片設計驗證，嵌入客戶SoC後更換需重新整合驗證；新設計案仍有其他IP供應商競爭',
+            'source_url' => 'https://www.m31tech.com/qa/',
+            'assessed_at' => '2026-10-02',
+        ],
+        '8021' => [
+            'stock_name' => '尖點',
+            'level' => '中',
+            'basis' => '精密微型鑽針與機械、雷射鑽孔整合服務形成品質和製程配合門檻，但耗材及加工服務仍可配置其他合格供應商',
+            'source_url' => 'https://www.topoint.tw/tw/about',
+            'assessed_at' => '2026-10-02',
+        ],
+        '5347' => [
+            'stock_name' => '世界',
+            'level' => '中',
+            'basis' => '特殊製程晶圓代工涉及類比、電源管理及混合訊號設計，轉廠需製程移植與驗證；成熟製程仍有同業替代供給',
+            'source_url' => 'https://www.nxp.com/company/about-nxp/newsroom/NW-VSMC-V2',
+            'assessed_at' => '2026-10-02',
+        ],
         '3481' => [
             'stock_name' => '群創',
             'level' => '高',

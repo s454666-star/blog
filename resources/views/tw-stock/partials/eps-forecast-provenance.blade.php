@@ -6,13 +6,19 @@
         <div class="stock-meta">{{ match ($source['date_type'] ?? '') { 'article_publication' => '發布日', 'calculation_date' => '推估日', default => '資料日' } }} {{ $source['source_date'] }}</div>
     @endif
     @if(($source['source_type'] ?? '') === 'site_neutral')
-        <div class="stock-meta" style="color:var(--gold)">本站中性推估，非分析師共識</div>
+        <div class="stock-meta" style="color:var(--gold)">{{ ($source['estimate_kind'] ?? '') === 'industry_model' ? '本站模型估算，非機構或 FactSet 預測' : '本站中性推估，非分析師共識' }}</div>
     @endif
     @if(!empty($source['method']))
         <details class="stock-meta" style="max-width:320px;white-space:normal;text-align:left">
             <summary>方法、股數口徑與不確定性</summary>
             <p>{{ $source['method'] }}</p>
             @foreach($source['assumptions'] ?? [] as $assumption)<p>{{ $assumption }}</p>@endforeach
+            @if(!empty($source['sensitivity']))
+                <p><strong>敏感度情境（非機率或信賴區間）</strong></p>
+                @foreach($source['sensitivity'] as $scenario)
+                    <p>{{ $scenario['label'] }}：EPS {{ number_format($scenario['eps'], 2) }} 元；{{ $scenario['assumption'] }}</p>
+                @endforeach
+            @endif
             @if(!empty($source['uncertainty']))<p>{{ $source['uncertainty'] }}</p>@endif
             @foreach($source['references'] ?? [] as $reference)
                 <p><a href="{{ $reference['url'] }}" target="_blank" rel="noopener">{{ $reference['label'] }} ↗</a></p>

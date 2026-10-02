@@ -54,6 +54,7 @@ class TwStockEpsGrowthRankingService
                 'eps_2025' => $actuals[$code] ?? null,
                 'actual_source' => $this->actualSources[$code] ?? '未取得完整 2025 年度實績',
                 'years' => $forecast['forecast_metadata'],
+                'source_review' => $forecast['source_review'] ?? null,
                 'rankable' => in_array((string) $code, $eligibleCodes, true),
             ];
         }
@@ -200,10 +201,12 @@ class TwStockEpsGrowthRankingService
 
         $latestRun = TwStockEpsGrowthRun::query()->whereNotNull('completed_at')->orderByDesc('snapshot_date')->orderByDesc('id')->first();
         $universe = $latestRun?->rankings()->pluck('stock_name', 'stock_code')->all() ?? [];
+        $previousReviews = [];
         foreach ($latestRun?->forecast_audit ?? [] as $audited) {
+            $previousReviews[$audited['stock_code']] = $audited['source_review'] ?? [];
             $universe[$audited['stock_code']] = $audited['stock_name'];
         }
-        $forecasts = app(TwStockEpsForecastSource::class)->latest(array_values($articles), $universe, $snapshotDate);
+        $forecasts = app(TwStockEpsForecastSource::class)->latest(array_values($articles), $universe, $snapshotDate, $previousReviews);
         return ['article_count' => count($articles), 'forecasts' => $forecasts];
     }
 

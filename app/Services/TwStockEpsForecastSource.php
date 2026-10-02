@@ -110,6 +110,10 @@ class TwStockEpsForecastSource
                 continue;
             }
             $old = $existing[$year] ?? null;
+            if ($old !== null && ($candidate['source_type'] ?? '') === 'site_neutral'
+                && ($old['source_type'] ?? '') !== 'site_neutral') {
+                continue;
+            }
             if ($old !== null && ($candidate['source_type'] ?? '') === 'single_research' && ($old['source_type'] ?? '') === 'factset') {
                 continue;
             }
@@ -124,7 +128,8 @@ class TwStockEpsForecastSource
             $hasSourceDifference = $old !== null && $candidate['value'] !== $old['value']
                 && ($candidate['source_type'] ?? '') === 'factset' && ($old['source_type'] ?? '') === 'factset'
                 && ($candidate['priority'] ?? 0) !== ($old['priority'] ?? 0);
-            if ($old === null || (($candidate['source_type'] ?? '') === 'factset' && ($old['source_type'] ?? '') === 'single_research') || $date > $old['source_date']
+            if ($old === null || (($candidate['source_type'] ?? '') === 'factset' && in_array($old['source_type'] ?? '', ['single_research', 'site_neutral'], true))
+                || (($candidate['source_type'] ?? '') === 'single_research' && ($old['source_type'] ?? '') === 'site_neutral') || $date > $old['source_date']
                 || ($date === $old['source_date'] && ($candidate['priority'] ?? 0) > ($old['priority'] ?? 0))) {
                 // A newer explicit null is meaningful: do not resurrect an older numeric estimate.
                 $existing[$year] = $candidate;
@@ -140,7 +145,7 @@ class TwStockEpsForecastSource
         return $existing;
     }
 
-    public function latest(array $articles, array $universe, CarbonImmutable $asOf): array
+    public function latest(array $articles, array $universe, CarbonImmutable $asOf, array $previousReviews = []): array
     {
         $observations = [];
         foreach ($articles as $article) {
@@ -170,12 +175,42 @@ class TwStockEpsForecastSource
                 $observations[$code] = $this->merge($observations[$code] ?? [], [$year => $candidate], $asOf);
             }
         }
+        // Explicit dated references are loaded on every scheduled refresh, not copied from a prior snapshot.
+        foreach (config('tw_stock_eps_supplemental.stocks', []) as $code => $reference) {
+            $universe[(string) $code] = $reference['stock_name'];
+            foreach ($reference['years'] as $year => $source) {
+                if (!in_array((int) $year, [2026, 2027, 2028], true)
+                    || !in_array($source['source_type'] ?? '', ['single_research', 'site_neutral'], true)
+                    || !is_numeric($source['value'] ?? null)) {
+                    throw new RuntimeException('補充 EPS 來源設定錯誤：'.$code.' / '.$year);
+                }
+                $candidate = [...$source, 'value' => (float) $source['value'],
+                    'analyst_count' => null, 'currency' => 'TWD', 'news_id' => null, 'priority' => 0];
+                $observations[$code] = $this->merge($observations[$code] ?? [], [(int) $year => $candidate], $asOf);
+            }
+        }
         $forecasts = [];
         foreach ($universe as $code => $name) {
             $code = (string) $code;
             $url = str_replace('{code}', $code, config('tw_stock.eps_growth_ranking.factset_eps_url'));
             $payload = Http::acceptJson()->timeout(25)->retry(2, 300)->get($url)->throw()->json();
             $years = $this->merge($observations[$code] ?? [], $this->feed($code, $payload, $url), $asOf);
+            $reference = config('tw_stock_eps_supplemental.stocks.'.$code, []);
+            if (($reference['selection_policy'] ?? '') === 'reviewed_reference') {
+                foreach ($reference['years'] as $year => $source) {
+                    if ($source['source_date'] > $asOf->toDateString()) { continue; }
+                    $alternative = $years[$year] ?? null;
+                    $years[$year] = [...$source, 'value' => (float) $source['value'],
+                        'analyst_count' => null, 'currency' => 'TWD', 'news_id' => null];
+                    if ($alternative !== null && $alternative['source_type'] !== 'site_neutral') {
+                        unset($alternative['priority']);
+                        $years[$year]['alternate_source'] = $alternative;
+                    }
+                }
+            }
+            $sourceReview = isset($reference['review_url'])
+                ? app(TwStockSupplementalEpsReviewService::class)->review($code, $reference, $asOf, $previousReviews[$code] ?? [])
+                : null;
             $dates = [];
             foreach ([2026, 2027, 2028] as $year) {
                 $observation = $years[$year] ?? ['value' => null, 'source_date' => null, 'source_type' => null, 'source_label' => null, 'source_url' => null, 'analyst_count' => null, 'currency' => 'TWD'];
@@ -192,8 +227,10 @@ class TwStockEpsForecastSource
                 'stock_code' => $code, 'stock_name' => $name,
                 'eps_2026' => $years[2026]['value'], 'eps_2027' => $years[2027]['value'], 'eps_2028' => $years[2028]['value'],
                 'forecast_metadata' => $years,
+                'source_review' => $sourceReview,
                 'forecast_date' => $dates === [] ? null : max($dates),
-                'news_id' => null, 'analyst_count' => null, 'is_neutral_estimate' => false,
+                'news_id' => null, 'analyst_count' => null,
+                'is_neutral_estimate' => count(array_filter($years, fn ($source) => ($source['source_type'] ?? null) === 'site_neutral')) > 0,
                 'revenue_2026_thousands' => null, 'revenue_2027_thousands' => null, 'revenue_2028_thousands' => null,
             ];
         }

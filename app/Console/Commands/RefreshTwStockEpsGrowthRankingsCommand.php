@@ -79,6 +79,12 @@ class RefreshTwStockEpsGrowthRankingsCommand extends Command
             $run->top_count,
         ));
 
+        foreach ($run->forecast_audit ?? [] as $entry) {
+            if (!empty($entry['source_review'])) {
+                $this->line('Supplemental review '.$entry['stock_code'].': '.$entry['source_review']['status'].' candidates='.count($entry['source_review']['candidates']));
+            }
+        }
+
         foreach (array_slice($result['top_rows'], 0, 5) as $row) {
             $this->line(sprintf(
                 '#%d %s %s score=%.2f sum=%.1f%% close=%s change=%s',

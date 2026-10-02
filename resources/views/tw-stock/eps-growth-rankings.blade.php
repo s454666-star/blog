@@ -815,6 +815,24 @@ $isAbove = $row->close_price >= $signal['average'];
         </section>
 
         @if($hasAudit)
+            @foreach(collect($run->forecast_audit)->filter(fn ($entry) => isset($entry['source_review']) && $entry['source_review'] !== null) as $referenceEntry)
+                <section class="glass" style="margin-top:16px;padding:18px;border-radius:18px" data-supplemental-code="{{ $referenceEntry['stock_code'] }}">
+                    <h2>補充中性參考：{{ $referenceEntry['stock_name'] }}（{{ $referenceEntry['stock_code'] }}）</h2>
+                    <p>來源不完整時不強行排名。此列保留研究參考，不隨上方「實際2026」年化情境切換。</p>
+                    <div class="table-scroll"><table style="min-width:850px"><thead><tr><th>2025A</th><th>2026E</th><th>2027E</th><th>2028E</th></tr></thead><tbody><tr>
+                        <td>{{ $referenceEntry['eps_2025'] === null ? '缺值' : number_format($referenceEntry['eps_2025'], 2) }}</td>
+                        @foreach([2026, 2027, 2028] as $year)
+                            <td>{{ $referenceEntry['years'][$year]['value'] === null ? '缺值' : number_format($referenceEntry['years'][$year]['value'], 2) }}
+                                @include('tw-stock.partials.eps-forecast-provenance', ['source' => $referenceEntry['years'][$year]])
+                            </td>
+                        @endforeach
+                    </tr></tbody></table></div>
+                    @include('tw-stock.partials.eps-source-review', ['review' => $referenceEntry['source_review']])
+                </section>
+            @endforeach
+        @endif
+
+        @if($hasAudit)
             <details class="glass" style="margin-top:16px;padding:18px;border-radius:18px" id="epsSourceAudit">
                 <summary style="cursor:pointer">全部 {{ count($run->forecast_audit) }} 家逐年 EPS 查核（含未納入排名公司）</summary>
                 <p>單位：新台幣元／股。查核快照 {{ $run->snapshot_date->format('Y-m-d') }}；各年度來源日另列。此表保留共識資料，不隨上方年化情境切換。</p>
@@ -852,7 +870,7 @@ $isAbove = $row->close_price >= $signal['average'];
                 2027預期價格以<span class="formula">該股票族群平均本益比 × 2027E EPS</span>計算；旁邊百分比為<span class="formula">（2027預期價格 ÷ 顯示收盤價 − 1）× 100%</span>。最新一期使用每日股價表的最新官方收盤，歷史週快照則保留該週收盤，僅供估值參考。
                 @if($hasAudit)
                     各年度分別核對 FactSet 中位數與具日期的原始新聞；日期標示為調查資料日或新聞發布日，不代表本站查核日。相同數值轉載保留原始資料日；同日數值不同時優先採原始資料。樣本僅 1 位會特別標示。
-                    缺少可信年度資料不外推；來源超過 90 天標示過期。僅 2025A 與三年預估皆為正值且來源未過期的公司納入完整排名，其餘留在查核表。2026「實際」模式仍為本站年化情境，並非全年實績。
+                    缺少可信年度資料原則上不外推；經指定的補充參考股可列本站中性推估，另附方法、股數假設與不確定性，並非分析師共識。來源超過 90 天標示過期。僅 2025A 與三年預估皆為正值且來源未過期的公司納入完整排名，其餘留在查核表。符合完整條件的指定補充參考股即使名次超過 50，仍列於表格後方。2026「實際」模式仍為本站年化情境，並非全年實績。
                 @else
                 全新（2455）與聯亞（3081）若 FactSet 尚缺 2028E，會以最新 2026E、2027E 共識為基礎；大量（3167）使用 2026/6/11 富果研究員預估的 2026E 19.53 元、2027E 30.59 元；IET-KY（4971）因 FactSet 頁面未提供 EPS 共識，改用 2026/8/31 公開法人預估的 2026E 6.10 元、2027E 10.94 元；永擎（7711）使用 2026/4/23 元大投顧預估的 2026E 31.31 元、2027E 42.11 元。五檔的 2028E 均將 2026→2027 成長率折半（限制於 0～30%）作為中性年增率，並以「中性估算」標示。
                 五檔為固定參考列；即使實際名次低於第 50 名，仍會顯示在前 50 名表格後方。

@@ -35,7 +35,8 @@ class TwStockEpsGrowthRankingController extends Controller
         $usesLatestPrices = $run !== null && $run->id === $availableRuns->first()?->id;
 
         $epsBasis = $request->query('eps_basis') === 'actual' ? 'actual' : 'forecast';
-        $neutralEstimateCodes = config('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', []);
+        $neutralEstimateCodes = array_unique([...config('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', []),
+            ...array_map('strval', array_keys(config('tw_stock_eps_supplemental.stocks', [])))]);
         $rows = $run?->rankings()
             ->orderBy('rank')
             ->get() ?? collect();

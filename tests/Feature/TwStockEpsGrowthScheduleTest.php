@@ -20,6 +20,7 @@ class TwStockEpsGrowthScheduleTest extends TestCase
             fn ($event): bool => str_contains($event->command, 'tw-stock:refresh-eps-growth-rankings'),
         );
 
+        $this->assertCount(1, collect($schedule->events())->filter(fn ($event) => str_contains($event->command ?? '', 'tw-stock:refresh-eps-growth-rankings')));
         $this->assertNotNull($event);
         $this->assertSame('0 9 * * 1', $event->expression);
         $this->assertSame('tw-stock-refresh-eps-growth-rankings-weekly', $event->description);

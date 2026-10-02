@@ -42,6 +42,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
         config()->set('tw_stock.eps_growth_ranking.neutral_estimate_stock_codes', ['2455', '3081']);
         config()->set('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []);
         config()->set('tw_stock_order_loss_risk.stocks', []);
+        config()->set('tw_stock_eps_supplemental.stocks', []);
 
         DB::purge('sqlite');
         DB::reconnect('sqlite');
@@ -426,6 +427,79 @@ class TwStockEpsGrowthRankingsTest extends TestCase
         $this->assertSame($before, DB::table('tw_stock_eps_growth_rankings')->get()->toJson());
     }
 
+    public function test_supplemental_company_survives_next_week_and_factset_replaces_only_the_projected_year(): void
+    {
+        // Deliberately synthetic EPS values: verify the weekly integration, not investment assumptions.
+        config()->set('tw_stock_eps_supplemental.stocks', ['8021' => [
+            'stock_name' => '尖點', 'years' => [2028 => [
+                'value' => 6, 'source_date' => '2026-10-02', 'date_type' => 'calculation_date',
+                'source_type' => 'site_neutral', 'source_label' => '本站中性情境',
+                'source_url' => 'https://example.test/topoint', 'method' => '測試情境：淨利除以稀釋股數',
+                'assumptions' => ['測試股數假設'], 'uncertainty' => '不代表機構共識',
+            ]],
+        ]]);
+        $this->feedRows['8021'] = array_map(fn ($year, $value) => [
+            'code' => '8021', 'financialYear' => $year, 'feMedian' => $value,
+            'rateDate' => '2026-09-25', 'numEst' => 1, 'currency' => 'TWD',
+        ], [2026, 2027], [4, 5]);
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            ['fiscal_year' => 2026, 'quarter' => 1, 'stock_code' => '8021', 'q1_eps' => 1],
+            ['fiscal_year' => 2026, 'quarter' => 2, 'stock_code' => '8021', 'q1_eps' => 1],
+        ]);
+        foreach (['2026-10-02', '2026-10-05'] as $date) {
+            $this->insertPrices($date, 100, 200);
+            $this->artisan('tw-stock:refresh-eps-growth-rankings', [
+                '--date' => $date, '--lookback-days' => 35, '--sleep-ms' => 0,
+                '--minimum-eligible' => 3, '--allow-missing-top-prices' => true,
+            ])->assertSuccessful();
+        }
+        $rows = \App\Models\TwStockEpsGrowthRanking::where('stock_code', '8021')->orderBy('run_id')->get();
+        $this->assertCount(2, $rows);
+        foreach ($rows as $row) {
+            $this->assertEquals(4, $row->eps_2026);
+            $this->assertEquals(6, $row->eps_2028);
+            $this->assertTrue($row->is_neutral_estimate);
+            $this->assertSame('2026-10-02', $row->forecast_metadata[2028]['source_date']);
+            $this->assertSame('site_neutral', $row->forecast_metadata[2028]['source_type']);
+            $this->assertNull($row->forecast_metadata[2028]['analyst_count']);
+        }
+        DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '8021')->update(['rank' => 51]);
+        foreach (['forecast', 'actual'] as $basis) {
+            $this->get(route('tw-stock.eps-growth-rankings.index', ['eps_basis' => $basis]))
+                ->assertOk()->assertSee('尖點')->assertSee('本站中性推估，非分析師共識')
+                ->assertSee('方法、股數口徑與不確定性')->assertSee('測試股數假設')
+                ->assertSee('6.00');
+        }
+        $this->feedRows['8021'][] = ['code' => '8021', 'financialYear' => 2028, 'feMedian' => 7,
+            'rateDate' => '2026-10-05', 'numEst' => 2, 'currency' => 'TWD'];
+        $this->artisan('tw-stock:refresh-eps-growth-rankings', [
+            '--date' => '2026-10-12', '--lookback-days' => 35, '--sleep-ms' => 0,
+            '--minimum-eligible' => 3, '--allow-missing-top-prices' => true,
+        ])->assertSuccessful();
+        $latest = \App\Models\TwStockEpsGrowthRanking::where('stock_code', '8021')->orderByDesc('run_id')->first();
+        $this->assertEquals(7, $latest->eps_2028);
+        $this->assertFalse($latest->is_neutral_estimate);
+        $this->assertEquals(6, $rows[0]->fresh()->eps_2028);
+    }
+
+    public function test_topoint_is_visible_in_both_modes_when_2028_is_missing_and_no_rank_is_invented(): void
+    {
+        config()->set('tw_stock_eps_supplemental', require base_path('config/tw_stock_eps_supplemental.php'));
+        $this->insertPrices('2026-10-02', 100, 200);
+        $this->artisan('tw-stock:refresh-eps-growth-rankings', [
+            '--date' => '2026-10-02', '--lookback-days' => 35, '--sleep-ms' => 0,
+            '--minimum-eligible' => 2,
+        ])->assertSuccessful();
+        $this->assertSame(0, DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '8021')->count());
+        foreach (['forecast', 'actual'] as $basis) {
+            $this->get(route('tw-stock.eps-growth-rankings.index', ['eps_basis' => $basis]))
+                ->assertOk()->assertSee('補充中性參考：尖點（8021）')
+                ->assertSee('8.80')->assertSee('16.80')->assertSee('每週來源查核')
+                ->assertSee('未取得此年度估值，不外推')->assertSee('2.64%')
+                ->assertSee('券商 EPS 是否已計入現增未知，因此不自動重複扣減');
+        }
+    }
+
     public function test_incomplete_source_fails_closed_without_creating_a_snapshot(): void
     {
         $this->insertPrices('2026-08-11', 100, 200);
@@ -444,6 +518,8 @@ class TwStockEpsGrowthRankingsTest extends TestCase
     private function fakeForecastSources(): void
     {
         Http::fake(function ($request) {
+            if (str_contains($request->url(), 'ess.api.cnyes.com')) { return Http::response(['data' => ['items' => []]]); }
+            if (str_contains($request->url(), 'www.topoint.tw/tw/finance/')) { return Http::response('<main>Test finance page</main>'); }
             if (str_starts_with($request->url(), 'https://example.test/eps/')) {
                 $code = basename(parse_url($request->url(), PHP_URL_PATH));
                 return Http::response(['statusCode' => 200, 'data' => $this->feedRows[$code] ?? []]);
@@ -478,6 +554,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
                     '2455' => 2.96,
                     '3081' => 4.66,
                     '3167' => 8.13,
+                    '8021' => 2.5,
                     '4971' => 1.61,
                     default => 0.0,
                 };

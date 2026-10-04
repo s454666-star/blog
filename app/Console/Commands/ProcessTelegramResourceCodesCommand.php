@@ -80,6 +80,8 @@ class ProcessTelegramResourceCodesCommand extends Command
 
     private int $nextProcessingProfileOffset = 0;
 
+    private int $nextProcessingAccountOffset = 0;
+
     public function handle(): int
     {
         if (!extension_loaded('redis')) {
@@ -363,7 +365,13 @@ class ProcessTelegramResourceCodesCommand extends Command
         $processingFailureCountsTowardLimit = false;
         $processingFailureReason = 'unknown';
 
-        foreach ($this->baseUris as $accountIndex => $baseUri) {
+        $accountCount = count($this->baseUris);
+        $accountStart = $this->nextProcessingAccountOffset % max(1, $accountCount);
+        $this->nextProcessingAccountOffset = ($accountStart + 1) % max(1, $accountCount);
+
+        for ($step = 0; $step < $accountCount; $step++) {
+            $accountIndex = ($accountStart + $step) % $accountCount;
+            $baseUri = $this->baseUris[$accountIndex];
             $cooldownUntil = $this->processCooldownUntil($baseUri, $botUsername);
             if ($cooldownUntil > time()) {
                 $earliestCooldown = $earliestCooldown === null ? $cooldownUntil : min($earliestCooldown, $cooldownUntil);

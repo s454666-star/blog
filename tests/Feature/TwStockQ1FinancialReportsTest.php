@@ -1173,7 +1173,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertEqualsWithDelta(75.5, (float) $row->latest_close_price, 0.0001);
     }
 
-    public function test_market_data_only_does_not_keep_rows_when_today_price_exists_but_volume_is_too_low(): void
+    public function test_market_data_only_keeps_low_volume_rows_when_keep_missing_flag_is_set(): void
     {
         DB::table('tw_stock_q1_financial_reports')->insert($this->row([
             'stock_code' => '3054',
@@ -1196,7 +1196,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             '--sleep-ms' => 0,
         ])->assertExitCode(0);
 
-        $this->assertDatabaseMissing('tw_stock_q1_financial_reports', ['stock_code' => '3054']);
+        $this->assertDatabaseHas('tw_stock_q1_financial_reports', ['stock_code' => '3054']);
     }
 
     public function test_market_data_only_uses_latest_official_quote_when_daily_history_is_stale(): void

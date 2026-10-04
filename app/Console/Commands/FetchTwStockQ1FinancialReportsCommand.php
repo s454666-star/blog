@@ -387,7 +387,9 @@ class FetchTwStockQ1FinancialReportsCommand extends Command
                         && (int) ($marketData['volume_lots'] ?? 0) >= $minVolumeLots;
 
                     if (!$hasRequiredMarketData) {
-                        if ($keepMissingMarketData && !$hasCurrentTradingDate) {
+                        // EPS ranking and other pages depend on these rows, so never drop a row only
+                        // because its market data is stale or below the volume threshold.
+                        if ($keepMissingMarketData) {
                             continue;
                         }
 

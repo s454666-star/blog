@@ -31,14 +31,4 @@ class TwStockEpsSourceSummaryTest extends TestCase
         $this->assertStringContainsString('本站模型', $html);
         $this->assertStringNotContainsString('來源未披露人數', $html);
     }
-
-    public function test_newly_ranked_companies_have_sourced_qualitative_ratings(): void
-    {
-        foreach (['6643' => '低', '8021' => '中', '5347' => '中'] as $code => $level) {
-            $source = config('tw_stock_order_loss_risk.stocks.'.$code);
-            $this->assertSame($level, $source['level']);
-            $this->assertNotEmpty($source['basis']);
-            $this->assertStringStartsWith('https://', $source['source_url']);
-        }
-    }
 }

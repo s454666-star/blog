@@ -704,7 +704,7 @@
                         <th>26→27</th>
                         <th>27→28</th>
                         <th>加權分</th>
-                        <th title="被同業取代、訂單轉移的結構性風險；靜態參考">掉單風險</th>
+                        <th title="被同業取代、訂單轉移的結構性風險；靜態參考；0～100%">掉單風險</th>
                         <th>分析師</th>
                         <th>預估日期</th>
                     </tr>
@@ -797,7 +797,7 @@ $isAbove = $row->close_price >= $signal['average'];
                                 <td class="{{ $growth >= 0 ? 'positive' : 'negative' }}">{{ $growth >= 0 ? '+' : '' }}{{ number_format($growth, 1) }}%</td>
                             @endforeach
                             <td><span class="weighted-score">{{ number_format($row->weighted_score, 2) }} <small>/ 100</small></span></td>
-                            <td class="order-loss-risk" title="{{ $row->order_loss_risk_basis ?? '公開資料尚不足以判定替代風險' }}">{{ $row->order_loss_risk ?? '未提供評級' }}
+                            <td class="order-loss-risk" title="{{ $row->order_loss_risk_basis ?? '公開資料尚不足以判定替代風險' }}">{{ $row->order_loss_risk === null ? '未提供評級' : $row->order_loss_risk.'%' }}
                                 @if ($row->order_loss_risk_source_url || $row->order_loss_risk_assessed_at)
                                     <div class="stock-meta">
                                         @if ($row->order_loss_risk_source_url)<a href="{{ $row->order_loss_risk_source_url }}" target="_blank" rel="noopener">依據 ↗</a>@endif
@@ -869,7 +869,7 @@ $isAbove = $row->close_price >= $signal['average'];
                 全新（2455）與聯亞（3081）若 FactSet 尚缺 2028E，會以最新 2026E、2027E 共識為基礎；大量（3167）使用 2026/6/11 富果研究員預估的 2026E 19.53 元、2027E 30.59 元；IET-KY（4971）因 FactSet 頁面未提供 EPS 共識，改用 2026/8/31 公開法人預估的 2026E 6.10 元、2027E 10.94 元；永擎（7711）使用 2026/4/23 元大投顧預估的 2026E 31.31 元、2027E 42.11 元。五檔的 2028E 均將 2026→2027 成長率折半（限制於 0～30%）作為中性年增率，並以「中性估算」標示。
                 五檔為固定參考列；即使實際名次低於第 50 名，仍會顯示在前 50 名表格後方。
                 @endif
-                <br><strong>掉單風險：</strong>被同業取代、訂單轉移的結構性風險，分為極高／高／中／低／極低；越高代表越容易被取代。人工固定分級，僅反映結構性替代風險，不代表近期訂單流失預測，不影響 EPS 排名；歷史週也顯示同一份固定參考。評級為人工質性判斷，來源支持產品與技術事實，各產品線及客戶可能不同。
+                <br><strong>掉單風險：</strong>被同業取代、訂單轉移的結構性風險，以 0～100% 表示；越高代表越容易被取代。百分比綜合產品替代性、客戶集中度與 2026～2027 年需求（供不應求者調低）判斷，為人工估計而非機率預測。人工固定百分比（寫入資料庫），僅反映結構性替代風險，不代表近期訂單流失預測，不影響 EPS 排名；歷史週也顯示同一份固定參考。評級為人工質性判斷，來源支持產品與技術事實，各產品線及客戶可能不同。
                 <br><strong>分析師與預估日期：</strong>逐年列出原預估來源的人數與日期；新聞只披露特定年度的調查人數時，其他年度註明未分列，括號保留已披露年度及人數。研究中性參考與本站模型不列為分析師共識。實際2026模式的2026 EPS採H1年化，這兩欄仍保留原預估來源資料。
             </div>
             <div>EPS 排行每週一更新<br>掉單風險為固定參考，不隨週更重評</div>

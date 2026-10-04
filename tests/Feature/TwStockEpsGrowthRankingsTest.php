@@ -496,10 +496,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
         $this->assertSame(0, DB::table('tw_stock_eps_growth_rankings')->where('stock_code', '8021')->count());
         foreach (['forecast', 'actual'] as $basis) {
             $this->get(route('tw-stock.eps-growth-rankings.index', ['eps_basis' => $basis]))
-                ->assertOk()->assertSee('補充中性參考：尖點（8021）')
-                ->assertSee('8.80')->assertSee('16.80')->assertSee('每週來源查核')
-                ->assertSee('未取得此年度估值，不外推')->assertSee('2.64%')
-                ->assertSee('券商 EPS 是否已計入現增未知，因此不自動重複扣減');
+                ->assertOk()->assertDontSee('補充中性參考：尖點（8021）');
         }
     }
 

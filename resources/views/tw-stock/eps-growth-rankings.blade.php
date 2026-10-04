@@ -827,24 +827,6 @@ $isAbove = $row->close_price >= $signal['average'];
         </section>
 
         @if($hasAudit)
-            @foreach(collect($run->forecast_audit)->filter(fn ($entry) => isset($entry['source_review']) && $entry['source_review'] !== null) as $referenceEntry)
-                <section class="glass" style="margin-top:16px;padding:18px;border-radius:18px" data-supplemental-code="{{ $referenceEntry['stock_code'] }}">
-                    <h2>補充中性參考：{{ $referenceEntry['stock_name'] }}（{{ $referenceEntry['stock_code'] }}）</h2>
-                    <p>{{ $referenceEntry['rankable'] ? '此情境已納入上方完整排名；本站模型不等於機構預測。' : '來源不完整時不強行排名。' }}此列保留原研究與模型參考，不隨上方「實際2026」年化情境切換。</p>
-                    <div class="table-scroll"><table style="min-width:850px"><thead><tr><th>2025A</th><th>2026E</th><th>2027E</th><th>2028E</th></tr></thead><tbody><tr>
-                        <td>{{ $referenceEntry['eps_2025'] === null ? '缺值' : number_format($referenceEntry['eps_2025'], 2) }}</td>
-                        @foreach([2026, 2027, 2028] as $year)
-                            <td>{{ $referenceEntry['years'][$year]['value'] === null ? '缺值' : number_format($referenceEntry['years'][$year]['value'], 2) }}
-                                @include('tw-stock.partials.eps-forecast-provenance', ['source' => $referenceEntry['years'][$year]])
-                            </td>
-                        @endforeach
-                    </tr></tbody></table></div>
-                    @include('tw-stock.partials.eps-source-review', ['review' => $referenceEntry['source_review']])
-                </section>
-            @endforeach
-        @endif
-
-        @if($hasAudit)
             <details class="glass" style="margin-top:16px;padding:18px;border-radius:18px" id="epsSourceAudit">
                 <summary style="cursor:pointer">全部 {{ count($run->forecast_audit) }} 家逐年 EPS 查核（含未納入排名公司）</summary>
                 <p>單位：新台幣元／股。查核快照 {{ $run->snapshot_date->format('Y-m-d') }}；各年度來源日另列。此表保留共識資料，不隨上方年化情境切換。</p>

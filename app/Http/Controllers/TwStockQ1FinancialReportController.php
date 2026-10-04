@@ -48,6 +48,8 @@ class TwStockQ1FinancialReportController extends Controller
 
     private const STOCK_CACHE_TTL_SECONDS = 43200;
 
+    private const VERSION_MEMO_TTL_SECONDS = 60;
+
     /**
      * @var array<string, string>
      */
@@ -316,7 +318,7 @@ class TwStockQ1FinancialReportController extends Controller
         return TwStockAnnualFinancialComparison::hydrate($records);
     }
 
-    private function q1CacheVersion(?int $year = null): string
+    private function q1CacheVersionRaw(?int $year = null): string
     {
         $cacheKey = $year === null ? 'all' : 'year:' . $year;
         if (isset($this->q1CacheVersionMemo[$cacheKey])) {
@@ -399,7 +401,7 @@ class TwStockQ1FinancialReportController extends Controller
             ->count();
     }
 
-    private function annualComparisonCacheVersion(int $contextYear): string
+    private function annualComparisonCacheVersionRaw(int $contextYear): string
     {
         $row = TwStockAnnualFinancialComparison::query()
             ->where('context_year', $contextYear)
@@ -418,7 +420,7 @@ class TwStockQ1FinancialReportController extends Controller
     /**
      * @param list<int> $ids
      */
-    private function annualComparisonIdsCacheVersion(array $ids): string
+    private function annualComparisonIdsCacheVersionRaw(array $ids): string
     {
         $row = TwStockAnnualFinancialComparison::query()
             ->whereIn('id', $ids)
@@ -438,7 +440,7 @@ class TwStockQ1FinancialReportController extends Controller
      * @param list<string> $stockCodes
      * @param list<string> $exchanges
      */
-    private function companyProfileCacheVersion(array $stockCodes, array $exchanges): string
+    private function companyProfileCacheVersionRaw(array $stockCodes, array $exchanges): string
     {
         $row = TwStockCompanyProfile::query()
             ->whereIn('stock_code', $stockCodes)
@@ -671,7 +673,7 @@ class TwStockQ1FinancialReportController extends Controller
         );
     }
 
-    private function dailyTurnoverGlobalCacheVersion(): string
+    private function dailyTurnoverGlobalCacheVersionRaw(): string
     {
         $row = TwStockDailyTurnoverRate::query()
             ->selectRaw('COUNT(*) as row_count, MAX(trade_date) as max_trade_date, MAX(updated_at) as max_updated_at, MAX(fetched_at) as max_fetched_at, MAX(id) as max_id')
@@ -777,7 +779,7 @@ class TwStockQ1FinancialReportController extends Controller
      * @param list<string> $stockCodes
      * @param list<string> $exchanges
      */
-    private function dailyTurnoverCacheVersion(array $dates, array $stockCodes, array $exchanges): string
+    private function dailyTurnoverCacheVersionRaw(array $dates, array $stockCodes, array $exchanges): string
     {
         $row = TwStockDailyTurnoverRate::query()
             ->whereIn('trade_date', $dates)
@@ -1165,10 +1167,14 @@ class TwStockQ1FinancialReportController extends Controller
             ->values()
             ->all();
 
-        $latestDate = TwStockDailyPrice::query()
-            ->whereIn('stock_code', $stockCodes)
-            ->whereIn('exchange', $exchanges)
-            ->max('trade_date');
+        $latestDate = Cache::remember(
+            'tw-stock:q1:version-memo:v1:latest-trade-date:' . sha1(serialize([$stockCodes, $exchanges])),
+            now()->addSeconds(self::VERSION_MEMO_TTL_SECONDS),
+            fn () => TwStockDailyPrice::query()
+                ->whereIn('stock_code', $stockCodes)
+                ->whereIn('exchange', $exchanges)
+                ->max('trade_date'),
+        );
         if ($latestDate === null) {
             return [];
         }
@@ -1224,7 +1230,7 @@ class TwStockQ1FinancialReportController extends Controller
      * @param list<string> $stockCodes
      * @param list<string> $exchanges
      */
-    private function dailyPriceCacheVersion(array $stockCodes, array $exchanges, string $startDate): string
+    private function dailyPriceCacheVersionRaw(array $stockCodes, array $exchanges, string $startDate): string
     {
         $row = TwStockDailyPrice::query()
             ->whereIn('stock_code', $stockCodes)
@@ -1242,6 +1248,68 @@ class TwStockQ1FinancialReportController extends Controller
         ]);
     }
 
+    private function q1CacheVersion(?int $year = null): string
+    {
+        return $this->briefVersionMemo('q1CacheVersion', func_get_args(), fn (): string => $this->q1CacheVersionRaw(...func_get_args()));
+    }
+
+    private function annualComparisonCacheVersion(int $contextYear): string
+    {
+        $arguments = func_get_args();
+
+        return $this->briefVersionMemo('annualComparisonCacheVersion', $arguments, fn (): string => $this->annualComparisonCacheVersionRaw(...$arguments));
+    }
+
+    private function annualComparisonIdsCacheVersion(array $ids): string
+    {
+        $arguments = func_get_args();
+
+        return $this->briefVersionMemo('annualComparisonIdsCacheVersion', $arguments, fn (): string => $this->annualComparisonIdsCacheVersionRaw(...$arguments));
+    }
+
+    private function companyProfileCacheVersion(array $stockCodes, array $exchanges): string
+    {
+        $arguments = func_get_args();
+
+        return $this->briefVersionMemo('companyProfileCacheVersion', $arguments, fn (): string => $this->companyProfileCacheVersionRaw(...$arguments));
+    }
+
+    private function dailyTurnoverGlobalCacheVersion(): string
+    {
+        $arguments = func_get_args();
+
+        return $this->briefVersionMemo('dailyTurnoverGlobalCacheVersion', $arguments, fn (): string => $this->dailyTurnoverGlobalCacheVersionRaw(...$arguments));
+    }
+
+    private function dailyTurnoverCacheVersion(array $dates, array $stockCodes, array $exchanges): string
+    {
+        $arguments = func_get_args();
+
+        return $this->briefVersionMemo('dailyTurnoverCacheVersion', $arguments, fn (): string => $this->dailyTurnoverCacheVersionRaw(...$arguments));
+    }
+
+    private function dailyPriceCacheVersion(array $stockCodes, array $exchanges, string $startDate): string
+    {
+        $arguments = func_get_args();
+
+        return $this->briefVersionMemo('dailyPriceCacheVersion', $arguments, fn (): string => $this->dailyPriceCacheVersionRaw(...$arguments));
+    }
+
+    /**
+     * Cache-version probes (COUNT/MAX over large tables) ran on every request; data only changes via
+     * scheduled jobs, so a short memo keeps pages fast while still picking up new data within a minute.
+     *
+     * @param array<int, mixed> $arguments
+     * @param \Closure(): string $resolver
+     */
+    private function briefVersionMemo(string $name, array $arguments, \Closure $resolver): string
+    {
+        return Cache::remember(
+            'tw-stock:q1:version-memo:v1:' . $name . ':' . sha1(serialize($arguments)),
+            now()->addSeconds(self::VERSION_MEMO_TTL_SECONDS),
+            $resolver,
+        );
+    }
     private function stockKey(string $exchange, string $stockCode): string
     {
         return $exchange . '|' . $stockCode;

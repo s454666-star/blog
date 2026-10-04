@@ -191,3 +191,70 @@ body.tw-stock-experience {
 @media print {
     .tw-stock-experience :is(.sx-utilities, .sx-top, .sx-progress, .sx-toast, .sx-scroll-note, .sx-dialog) { display: none !important; }
 }
+
+/* ---- 2026-10 polish layer: buttons, controls, pagination, tables, scrollbars ---- */
+body.tw-stock-experience {
+    --sx-up: #e5484d; --sx-down: #1f9d6b;
+    --sx-btn-from: #f2d98f; --sx-btn-to: #7fd8b6; --sx-btn-ink: #10261b;
+}
+.tw-stock-experience :is(.submit-button, .button.primary, button[type="submit"]:not(.sort-button):not(.sx-dialog-close)) {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 42px; padding: 0 20px; border: 1px solid #ffffff3d; border-radius: 11px;
+    background: linear-gradient(135deg, var(--sx-btn-from), var(--sx-btn-to)); color: var(--sx-btn-ink);
+    font: 750 13px/1 "Segoe UI", "Microsoft JhengHei", sans-serif; letter-spacing: .02em; cursor: pointer;
+    box-shadow: 0 6px 18px #4fc7a026, inset 0 1px #ffffff55;
+    transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+}
+.tw-stock-experience :is(.submit-button, .button.primary, button[type="submit"]:not(.sort-button):not(.sx-dialog-close)):hover { filter: brightness(1.05) saturate(1.05); box-shadow: 0 10px 26px #4fc7a03d, inset 0 1px #ffffff66; transform: translateY(-1px); }
+.tw-stock-experience :is(.submit-button, .button.primary, button[type="submit"]):active { transform: translateY(0); filter: brightness(.97); box-shadow: 0 3px 10px #4fc7a02e; }
+.tw-stock-experience :is(.button.secondary, .tool-button, .interval-button) {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    min-height: 40px; padding: 0 16px; border: 1px solid #8fb9a54d; border-radius: 10px;
+    background: #ffffff0d; color: #d7e9df; font: 650 13px/1 "Segoe UI", "Microsoft JhengHei", sans-serif;
+    cursor: pointer; text-decoration: none; backdrop-filter: blur(6px);
+    transition: background-color .16s, border-color .16s, color .16s, transform .16s;
+}
+.tw-stock-experience :is(.button.secondary, .tool-button, .interval-button):hover { background: #ffffff1a; border-color: #b5ddca88; color: #fff; transform: translateY(-1px); }
+.tw-stock-experience :is(.tool-button, .interval-button).active, .tw-stock-experience :is(.tool-button, .interval-button)[aria-pressed="true"] {
+    background: linear-gradient(135deg, #eed79c33, #7fd8b633); border-color: #d9e8a8; color: #f6fbe9; box-shadow: inset 0 0 0 1px #eed79c33;
+}
+.tw-stock-experience :is(button, .button, .submit-button, .tool-button, .interval-button):disabled { opacity: .5; cursor: not-allowed; transform: none; filter: none; box-shadow: none; }
+.tw-stock-experience .sort-button { border-radius: 8px; transition: background-color .14s, color .14s; }
+.tw-stock-experience .sort-button:hover { background: #2f5a4614; }
+/* Pagination */
+.tw-stock-experience .tw-stock-pagination__list { gap: 6px; }
+.tw-stock-experience .tw-stock-pagination__item {
+    min-width: 40px; min-height: 40px; border-radius: 10px; border: 1px solid #6d9b8644;
+    background: #ffffff0f; color: #d4e7dc; font-weight: 650; font-variant-numeric: tabular-nums;
+    transition: background-color .16s, border-color .16s, transform .16s;
+}
+.tw-stock-experience a.tw-stock-pagination__item:hover { background: #ffffff1f; border-color: #b0dcc6; transform: translateY(-1px); }
+.tw-stock-experience .tw-stock-pagination__item.active { background: linear-gradient(135deg, var(--sx-btn-from), var(--sx-btn-to)); color: var(--sx-btn-ink); border-color: #ffffff55; box-shadow: 0 4px 14px #4fc7a02e; }
+.tw-stock-experience .tw-stock-pagination__item.disabled { opacity: .4; }
+/* Inputs: calmer focus ring, consistent dark/light fields */
+.tw-stock-experience :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) { border-radius: 10px; transition: border-color .16s, box-shadow .16s, background-color .16s; }
+.tw-stock-experience :is(input, select, textarea):hover:not(:focus) { border-color: #78a68e; }
+.tw-stock-experience :is(input, select, textarea):focus-visible { outline: 2px solid #8fd9b8; outline-offset: 1px; border-color: #8fd9b8; box-shadow: 0 0 0 4px #8fd9b822 !important; }
+.tw-stock-experience input::placeholder { color: #8ea89b; opacity: 1; }
+/* Cards and panels: subtle depth, consistent top accent */
+.tw-stock-experience :is(.summary-card, .stat, .etf-card) { background-image: linear-gradient(180deg, #ffffff10, transparent 60%); }
+.tw-stock-experience :is(.table-panel, .ledger-panel, .chart-panel, .filter-panel, .control-panel) { border: 1px solid #aac8b933; }
+/* Tables: zebra, sticky-friendly headers, calmer hover */
+.tw-stock-experience tbody tr:nth-child(even) > td { background-color: color-mix(in srgb, currentColor 2.5%, transparent); }
+.tw-stock-experience tbody tr:hover > td { background-color: color-mix(in srgb, #5fb58a 9%, transparent); }
+.tw-stock-experience table { border-collapse: separate; border-spacing: 0; }
+.tw-stock-experience td, .tw-stock-experience th { border-bottom-color: #8fa89a2e; }
+/* Chips / badges / links */
+.tw-stock-experience :is(.badge, .chip, .tag, .pill) { border-radius: 999px; font-weight: 700; letter-spacing: .02em; }
+.tw-stock-experience td a:not(.button) { text-underline-offset: 3px; text-decoration-color: #7fc4a066; transition: color .14s, text-decoration-color .14s; }
+.tw-stock-experience td a:not(.button):hover { text-decoration-color: currentColor; }
+/* Scrollbars */
+.tw-stock-experience * { scrollbar-width: thin; scrollbar-color: #6f9b84 transparent; }
+.tw-stock-experience ::-webkit-scrollbar { width: 10px; height: 10px; }
+.tw-stock-experience ::-webkit-scrollbar-thumb { background: #6f9b84; border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+.tw-stock-experience ::-webkit-scrollbar-thumb:hover { background: #8fc4a8; background-clip: content-box; border: 2px solid transparent; }
+.tw-stock-experience ::selection { background: #8be3cd55; }
+@media (max-width: 640px) {
+    .tw-stock-experience :is(.submit-button, .tool-button, .interval-button, .button) { min-height: 44px; }
+    .tw-stock-experience .tw-stock-pagination__item { min-width: 44px; min-height: 44px; }
+}

@@ -20,7 +20,31 @@ class TwStockEpsGrowthRankingController extends Controller
 
     public function index(Request $request): View
     {
+        $connection = DB::connection();
+        $originalSortBuffer = null;
+        if ($connection->getDriverName() === 'mysql') {
+            $originalSortBuffer = (int) $connection->selectOne('SELECT @@SESSION.sort_buffer_size AS size')->size;
+            if ($originalSortBuffer < 8 * 1024 * 1024) {
+                $connection->statement('SET SESSION sort_buffer_size = 8388608');
+            }
+        }
+
+        try {
+            return $this->rankingView($request);
+        } finally {
+            if ($originalSortBuffer !== null && $originalSortBuffer < 8 * 1024 * 1024) {
+                $connection->statement('SET SESSION sort_buffer_size = ' . $originalSortBuffer);
+            }
+        }
+    }
+
+    private function rankingView(Request $request): View
+    {
         $availableRuns = TwStockEpsGrowthRun::query()
+            // Keep large audit JSON out of MySQL's sorted historical workset.
+            ->select(['id', 'snapshot_date', 'price_date', 'base_year', 'forecast_year_1',
+                'forecast_year_2', 'forecast_year_3', 'article_count', 'forecast_count',
+                'eligible_count', 'top_count', 'completed_at'])
             ->whereNotNull('completed_at')
             ->orderByDesc('snapshot_date')
             ->orderByDesc('id')
@@ -32,6 +56,10 @@ class TwStockEpsGrowthRankingController extends Controller
         $run = $requestedRunId > 0
             ? $availableRuns->firstWhere('id', $requestedRunId)
             : $availableRuns->first();
+        if ($run !== null) {
+            $run->setAttribute('forecast_audit', TwStockEpsGrowthRun::query()
+                ->whereKey($run->id)->value('forecast_audit'));
+        }
         $usesLatestPrices = $run !== null && $run->id === $availableRuns->first()?->id;
 
         $epsBasis = $request->query('eps_basis') === 'actual' ? 'actual' : 'forecast';
@@ -55,6 +83,7 @@ class TwStockEpsGrowthRankingController extends Controller
         $this->attachOrderLossRisk($rows);
         $this->attachMovingAveragePositions($rows, $usesLatestPrices ? null : $run?->price_date?->toDateString());
         $previousRun = $run === null ? null : TwStockEpsGrowthRun::query()
+            ->select(['id', 'snapshot_date'])
             ->whereDate('snapshot_date', '<', $run->snapshot_date->toDateString())
             ->whereNotNull('completed_at')
             ->orderByDesc('snapshot_date')

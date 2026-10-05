@@ -11,7 +11,7 @@ class TwStockMonthlyRevenueController extends Controller
 {
     private const DEFAULT_YOY_THRESHOLD = 30.0;
 
-    private const DEFAULT_SUM_THRESHOLD = 60.0;
+    private const DEFAULT_SUM_THRESHOLD = 30.0;
 
     private const SORTS = [
         'stock' => 'stock_code',

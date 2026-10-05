@@ -299,16 +299,15 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_company_profiles.log'));
 
-        $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=1 --min-volume-lots=1000 --sleep-ms=80 --skip-non-trading-day')
-            ->dailyAt('16:45')
-            ->weekdays()
+        // Early-morning refresh of every reported quarter (Q1~Q4) for the current year.
+        // --keep-missing keeps rows for quarters not yet published; --min-volume-lots=0 keeps low-volume
+        // stocks that appear in the EPS growth ranking.
+        $schedule->command('tw-stock:fetch-q1-financial-reports --year=' . now(config('app.timezone'))->year . ' --all-quarters --keep-missing --min-volume-lots=0 --sleep-ms=80')
+            ->dailyAt('03:30')
             ->name('tw-stock-fetch-q1-financial-reports')
             ->withoutOverlapping(180)
             ->runInBackground()
-            ->appendOutputTo(storage_path('logs/tw_stock_q1_financial_reports.log'))
-            ->when(fn (): bool => now(config('app.timezone'))->lessThanOrEqualTo(
-                \Carbon\CarbonImmutable::parse('2026-05-15 23:59:59', config('app.timezone'))
-            ));
+            ->appendOutputTo(storage_path('logs/tw_stock_q1_financial_reports.log'));
 
         // Telegram / filestore
         $schedule->command('schedule:unlock-stale-filestore-restore')

@@ -114,21 +114,25 @@ class TwStockEpsGrowthRankingController extends Controller
 
     private function attachOrderLossRisk(Collection $rows): void
     {
-        // Presentation-only references: weekly refresh/recalculation never writes these.
-        $references = config('tw_stock_order_loss_risk.stocks', []);
+        // Presentation-only fixed percentages stored in the database; weekly refresh never writes them.
+        $references = DB::table('tw_stock_order_loss_risks')
+            ->whereIn('stock_code', $rows->pluck('stock_code')->filter()->unique()->values())
+            ->get()
+            ->keyBy('stock_code');
         foreach ($rows as $row) {
-            $reference = $references[$row->stock_code] ?? [];
-            $level = $reference['level'] ?? null;
-            $basis = trim((string) ($reference['basis'] ?? ''));
-            $isValid = in_array($level, ['極高', '高', '中', '低', '極低'], true) && $basis !== '';
-            $row->setAttribute('order_loss_risk', $isValid ? $level : null);
-            $row->setAttribute('order_loss_risk_basis', $isValid ? $basis : null);
-            $sourceUrl = $reference['source_url'] ?? null;
+            $reference = $references->get($row->stock_code);
+            $isValid = $reference !== null
+                && $reference->risk_percent >= 0
+                && $reference->risk_percent <= 100
+                && trim((string) $reference->basis) !== '';
+            $row->setAttribute('order_loss_risk', $isValid ? (int) $reference->risk_percent : null);
+            $row->setAttribute('order_loss_risk_basis', $isValid ? $reference->basis : null);
+            $sourceUrl = $reference->source_url ?? null;
             $isValidUrl = is_string($sourceUrl)
                 && filter_var($sourceUrl, FILTER_VALIDATE_URL)
                 && in_array(parse_url($sourceUrl, PHP_URL_SCHEME), ['http', 'https'], true);
             $row->setAttribute('order_loss_risk_source_url', $isValid && $isValidUrl ? $sourceUrl : null);
-            $row->setAttribute('order_loss_risk_assessed_at', $isValid ? ($reference['assessed_at'] ?? null) : null);
+            $row->setAttribute('order_loss_risk_assessed_at', $isValid ? $reference->assessed_at : null);
         }
     }
 

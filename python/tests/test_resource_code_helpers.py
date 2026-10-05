@@ -74,6 +74,17 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
         )
         self.assertIsNone(service._normalize_resource_code("notJSfileeesbot_87V0P0D_2TZN-NN8C"))
 
+    def test_suupjsbot_and_qycodesbot_codes_are_accepted_and_prefix_is_normalized(self) -> None:
+        self.assertEqual(
+            "SuupJSbot_87V0P0D_2TZN-NN8C",
+            service._normalize_resource_code("suupjsbot_87V0P0D_2TZN-NN8C"),
+        )
+        self.assertEqual(
+            "QYcodesbot_87V0P0D_2TZN-NN8C",
+            service._normalize_resource_code("qycodesbot_87V0P0D_2TZN-NN8C"),
+        )
+        self.assertIsNone(service._normalize_resource_code("notSuupJSbot"))
+
     def test_yyjmqg_codes_are_accepted_and_prefix_is_normalized(self) -> None:
         self.assertEqual(
             "yyjmqg_bot_87V0P0D_2TZN-NN8C",

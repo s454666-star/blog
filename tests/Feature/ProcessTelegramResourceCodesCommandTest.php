@@ -203,6 +203,49 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         Http::assertSentCount(3);
     }
 
+    public function test_suupjsbot_and_qycodesbot_profiles_route_codes_and_rotate_accounts(): void
+    {
+        config()->set('telegram.resource_codes.processing_profiles', '16:SuupJSbot,17:QYcodesbot');
+        config()->set('telegram.resource_codes.scan_code_types', '16,17');
+
+        $sent = [];
+
+        Http::fake(function ($request) use (&$sent) {
+            if ($request->method() === 'GET') {
+                return Http::response([
+                    'status' => 'ok',
+                    'items' => [[
+                        'id' => 104801,
+                        'text' => 'suupjsbot_A1-b2 QYcodesbot_C3-d4 SuupJSbot_E5-f6 QYcodesbot_G7-h8 yyjmq_old_A1-b2',
+                    ]],
+                ]);
+            }
+
+            $sent[] = [$request['code'], $request['bot_username'], $request->url()];
+
+            return Http::response([
+                'status' => 'ok',
+                'forwarded_count' => 1,
+                'expected_media_count' => 1,
+                'declared_file_count' => 1,
+                'cleanup_complete' => true,
+            ]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--source-peer-ids' => '3779285711',
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', ['code' => 'SuupJSbot_A1-b2', 'code_type' => 16]);
+        $this->assertDatabaseHas('telegram_resource_codes', ['code' => 'QYcodesbot_C3-d4', 'code_type' => 17]);
+        $this->assertDatabaseMissing('telegram_resource_codes', ['code' => 'yyjmq_old_A1-b2']);
+        $this->assertContains('SuupJSbot', array_column($sent, 1));
+        $this->assertContains('QYcodesbot', array_column($sent, 1));
+        $this->assertCount(4, $sent);
+        $this->assertGreaterThan(1, count(array_unique(array_column($sent, 2))));
+    }
+
     public function test_scan_limits_a_forum_source_to_its_configured_topic(): void
     {
         config()->set('telegram.resource_codes.source_peer_ids', '2589355088');

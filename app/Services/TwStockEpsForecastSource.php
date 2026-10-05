@@ -42,6 +42,12 @@ class TwStockEpsForecastSource
         if ($median === null) {
             return null;
         }
+        $surveyYear = null;
+        $surveyCount = null;
+        if (preg_match('/共\s*(\d+)\s*位分析師[^。]*?做出\s*(202[678])\s*年\s*EPS\s*預估/u', strip_tags($html), $survey)) {
+            $surveyCount = (int) $survey[1];
+            $surveyYear = (int) $survey[2];
+        }
         $observations = [];
         foreach ($rows[0] ?? [] as $index => $header) {
             if (!preg_match('/^(202[678])年/u', $header, $year)) {
@@ -54,8 +60,10 @@ class TwStockEpsForecastSource
                 'date_type' => 'article_publication',
                 'source_label' => 'FactSet 中位數（鉅亨新聞）',
                 'source_url' => 'https://news.cnyes.com/news/id/'.(int) $article['newsId'],
-                // The article's headline count is not necessarily the count for every year.
-                'analyst_count' => null,
+                // Only assign the count to the year explicitly named in the article.
+                'analyst_count' => (int) $year[1] === $surveyYear ? $surveyCount : null,
+                'survey_year' => $surveyYear,
+                'survey_analyst_count' => $surveyCount,
                 'currency' => 'TWD',
                 'news_id' => (int) $article['newsId'],
                 'priority' => 1,

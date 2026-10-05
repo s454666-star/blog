@@ -66,4 +66,21 @@ class TwStockEpsForecastSourceTest extends TestCase
         $this->assertNull($source->number('—'));
         $this->assertSame(1234.5, $source->number('1,234.50'));
     }
+
+    public function test_news_analyst_count_only_belongs_to_the_explicit_survey_year(): void
+    {
+        $article = ['title' => '鉅亨速報 - Factset 最新調查：創意(3443-TW)EPS預估',
+            'newsId' => 1, 'publishAt' => 1790899838,
+            'content' => '<p>根據FactSet最新調查，共17位分析師，對創意(<a>3443-TW</a>)做出2026年EPS預估：</p><table><tr><td>預估值</td><td>2026年</td><td>2027年</td><td>2028年</td></tr><tr><td>中位數</td><td>48.02</td><td>92.64</td><td>145.31</td></tr></table>'];
+        $years = (new TwStockEpsForecastSource)->article($article)['years'];
+        $this->assertSame(17, $years[2026]['analyst_count']);
+        $this->assertNull($years[2027]['analyst_count']);
+        $this->assertNull($years[2028]['analyst_count']);
+        $this->assertSame(2026, $years[2028]['survey_year']);
+        $this->assertSame(17, $years[2028]['survey_analyst_count']);
+        $article['content'] = str_replace('做出2026年EPS', '做出2027年EPS', $article['content']);
+        $years = (new TwStockEpsForecastSource)->article($article)['years'];
+        $this->assertNull($years[2026]['analyst_count']);
+        $this->assertSame(17, $years[2027]['analyst_count']);
+    }
 }

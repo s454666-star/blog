@@ -46,6 +46,8 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const NW_CODE_REGEX = '/(?<![A-Za-z0-9_])NW[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const NW_UNDERSCORE_CODE_REGEX = '/(?<![A-Za-z0-9_])NW_[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const SHUTTLE67BOT_CODE_REGEX = '/(?<![A-Za-z0-9_])shuttle67bot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
+    private const SUUPJSBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])SuupJSbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
+    private const QYCODESBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])QYcodesbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
     private const ACCOUNT_LIMIT_COOLDOWN_SECONDS = 900;
@@ -77,6 +79,8 @@ class ProcessTelegramResourceCodesCommand extends Command
     private array $localCooldownUntil = [];
 
     private int $nextProcessingProfileOffset = 0;
+
+    private int $nextProcessingAccountOffset = 0;
 
     public function handle(): int
     {
@@ -361,7 +365,13 @@ class ProcessTelegramResourceCodesCommand extends Command
         $processingFailureCountsTowardLimit = false;
         $processingFailureReason = 'unknown';
 
-        foreach ($this->baseUris as $accountIndex => $baseUri) {
+        $accountCount = count($this->baseUris);
+        $accountStart = $this->nextProcessingAccountOffset % max(1, $accountCount);
+        $this->nextProcessingAccountOffset = ($accountStart + 1) % max(1, $accountCount);
+
+        for ($step = 0; $step < $accountCount; $step++) {
+            $accountIndex = ($accountStart + $step) % $accountCount;
+            $baseUri = $this->baseUris[$accountIndex];
             $cooldownUntil = $this->processCooldownUntil($baseUri, $botUsername);
             if ($cooldownUntil > time()) {
                 $earliestCooldown = $earliestCooldown === null ? $cooldownUntil : min($earliestCooldown, $cooldownUntil);
@@ -543,6 +553,8 @@ class ProcessTelegramResourceCodesCommand extends Command
             13 => self::QZCCUJSBOT_CODE_REGEX,
             14 => self::NW_UNDERSCORE_CODE_REGEX,
             15 => self::SHUTTLE67BOT_CODE_REGEX,
+            16 => self::SUUPJSBOT_CODE_REGEX,
+            17 => self::QYCODESBOT_CODE_REGEX,
             default => self::HEX_CODE_REGEX,
         };
     }
@@ -607,6 +619,14 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         if ($codeType === 15) {
             return (string) preg_replace('/^shuttle67bot/i', 'shuttle67bot', $code);
+        }
+
+        if ($codeType === 16) {
+            return (string) preg_replace('/^SuupJSbot/i', 'SuupJSbot', $code);
+        }
+
+        if ($codeType === 17) {
+            return (string) preg_replace('/^QYcodesbot/i', 'QYcodesbot', $code);
         }
 
         return $code;

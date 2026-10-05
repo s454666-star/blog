@@ -33,6 +33,9 @@ class TwStockEpsGrowthMemoryTest extends TestCase
             $table->integer('run_id');
             $table->integer('rank');
         });
+        Schema::create('tw_stock_order_loss_risks', function (Blueprint $table): void {
+            $table->string('stock_code');
+        });
 
         $oldAudit = [['stock_code' => '1111', 'source_excerpt' => str_repeat('a', 1024 * 1024)]];
         $newAudit = [['stock_code' => '2222', 'source_excerpt' => str_repeat('b', 1024 * 1024)]];

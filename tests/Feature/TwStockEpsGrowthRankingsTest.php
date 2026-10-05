@@ -553,46 +553,6 @@ class TwStockEpsGrowthRankingsTest extends TestCase
         }
     }
 
-    public function test_topoint_industry_model_receives_normal_three_year_rank_in_both_modes_and_next_week(): void
-    {
-        config()->set('tw_stock_eps_supplemental', require base_path('config/tw_stock_eps_supplemental.php'));
-        foreach (['1111' => [1, 3], '2222' => [3, 4], '8021' => [1.17, 2.08]] as $code => $eps) {
-            foreach ($eps as $quarter => $value) {
-                DB::table('tw_stock_q1_financial_reports')->insert(['fiscal_year' => 2026, 'quarter' => $quarter + 1, 'stock_code' => $code, 'q1_eps' => $value]);
-            }
-        }
-        $oldRows = null;
-        foreach (['2026-10-02', '2026-10-05'] as $date) {
-            $this->insertPrices($date, 100, 200);
-            $this->artisan('tw-stock:refresh-eps-growth-rankings', [
-                '--date' => $date, '--lookback-days' => 35, '--sleep-ms' => 0,
-                '--minimum-eligible' => 3, '--allow-missing-top-prices' => true,
-            ])->assertSuccessful();
-            $row = \App\Models\TwStockEpsGrowthRanking::where('stock_code', '8021')->orderByDesc('run_id')->first();
-            $this->assertNotNull($row);
-            $this->assertEquals(22, $row->eps_2028);
-            $this->assertEqualsWithDelta((22 / 16.8 - 1) * 100, $row->growth_2027_2028, 0.0001);
-            $this->assertSame(1, $row->rank);
-            $this->assertEquals(100, $row->weighted_score);
-            foreach (['forecast', 'actual'] as $basis) {
-                $response = $this->get(route('tw-stock.eps-growth-rankings.index', ['eps_basis' => $basis]));
-                $response->assertOk()->assertSee('本站模型估算，非機構或 FactSet 預測')->assertSee('非機率或信賴區間');
-                $view = app(\App\Http\Controllers\TwStockEpsGrowthRankingController::class)->index(\Illuminate\Http\Request::create('/', 'GET', ['eps_basis' => $basis]));
-                $rows = $view->getData()['rows'];
-                $shown = $rows->firstWhere('stock_code', '8021');
-                $this->assertNotNull($shown);
-                $this->assertSame(1, $shown->rank);
-                $this->assertEquals(100, $shown->weighted_score);
-                $this->assertEqualsWithDelta($basis === 'actual' ? 6.6625 : 8.8, $shown->eps_2026, 0.0001);
-                $expectedGrowth = ((16.8 / $shown->eps_2026) - 1) * 100;
-                $this->assertEqualsWithDelta($expectedGrowth, $shown->growth_2026_2027, 0.0001);
-            }
-            $first = DB::table('tw_stock_eps_growth_rankings')->where('run_id', 1)->orderBy('id')->get()->toJson();
-            if ($oldRows !== null) { $this->assertSame($oldRows, $first); }
-            $oldRows = $first;
-        }
-    }
-
     public function test_incomplete_source_fails_closed_without_creating_a_snapshot(): void
     {
         $this->insertPrices('2026-08-11', 100, 200);

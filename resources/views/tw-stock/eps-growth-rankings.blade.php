@@ -818,7 +818,7 @@ $isAbove = $row->close_price >= $signal['average'];
             @foreach(collect($run->forecast_audit)->filter(fn ($entry) => isset($entry['source_review']) && $entry['source_review'] !== null) as $referenceEntry)
                 <section class="glass" style="margin-top:16px;padding:18px;border-radius:18px" data-supplemental-code="{{ $referenceEntry['stock_code'] }}">
                     <h2>補充中性參考：{{ $referenceEntry['stock_name'] }}（{{ $referenceEntry['stock_code'] }}）</h2>
-                    <p>來源不完整時不強行排名。此列保留研究參考，不隨上方「實際2026」年化情境切換。</p>
+                    <p>{{ $referenceEntry['rankable'] ? '此情境已納入上方完整排名；本站模型不等於機構預測。' : '來源不完整時不強行排名。' }}此列保留原研究與模型參考，不隨上方「實際2026」年化情境切換。</p>
                     <div class="table-scroll"><table style="min-width:850px"><thead><tr><th>2025A</th><th>2026E</th><th>2027E</th><th>2028E</th></tr></thead><tbody><tr>
                         <td>{{ $referenceEntry['eps_2025'] === null ? '缺值' : number_format($referenceEntry['eps_2025'], 2) }}</td>
                         @foreach([2026, 2027, 2028] as $year)

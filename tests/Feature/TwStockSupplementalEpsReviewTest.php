@@ -55,6 +55,25 @@ class TwStockSupplementalEpsReviewTest extends TestCase
         $this->assertSame(['failed', 'failed', 'failed'], array_column($result['checks'], 'status'));
     }
 
+    public function test_attention_trading_self_report_is_detected_without_eps_in_the_headline(): void
+    {
+        Http::fake([
+            '*news/keyword*' => Http::response(['data' => ['items' => [
+                ['title' => '尖點:本公司有價證券於集中交易市場達公布注意交易資訊標準，故公布有關財務業務等重大訊息，以利投資人區別瞭解。',
+                    'publishAt' => CarbonImmutable::parse('2026-10-05 15:33:33', 'Asia/Taipei')->timestamp, 'newsId' => 6621830],
+                ['title' => '尖點股價拉至漲停', 'publishAt' => CarbonImmutable::parse('2026-10-05')->timestamp, 'newsId' => 1],
+            ]]]),
+            '*finmind*' => Http::response(['data' => []]),
+            '*topoint.tw*' => Http::response('<main>financial information</main>'),
+        ]);
+        $result = app(TwStockSupplementalEpsReviewService::class)->review('8021',
+            config('tw_stock_eps_supplemental.stocks.8021'), CarbonImmutable::parse('2026-10-06'));
+        $this->assertSame('needs_review', $result['status']);
+        $this->assertCount(1, $result['candidates']);
+        $this->assertSame('https://news.cnyes.com/news/id/6621830', $result['candidates'][0]['url']);
+        $this->assertSame('2026-10-05', $result['candidates'][0]['date']);
+    }
+
     public function test_real_reference_policy_retains_research_and_model_next_week(): void
     {
         config()->set('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []);

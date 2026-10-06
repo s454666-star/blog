@@ -22,17 +22,18 @@ class TwStockEpsGrowthRankingController extends Controller
     {
         $connection = DB::connection();
         $originalSortBuffer = null;
+        $sortBuffer = max(16 * 1024 * 1024, (int) config('tw_stock.eps_growth_ranking.sort_buffer_size', 16 * 1024 * 1024));
         if ($connection->getDriverName() === 'mysql') {
             $originalSortBuffer = (int) $connection->selectOne('SELECT @@SESSION.sort_buffer_size AS size')->size;
-            if ($originalSortBuffer < 8 * 1024 * 1024) {
-                $connection->statement('SET SESSION sort_buffer_size = 8388608');
+            if ($originalSortBuffer < $sortBuffer) {
+                $connection->statement('SET SESSION sort_buffer_size = '.$sortBuffer);
             }
         }
 
         try {
             return $this->rankingView($request);
         } finally {
-            if ($originalSortBuffer !== null && $originalSortBuffer < 8 * 1024 * 1024) {
+            if ($originalSortBuffer !== null && $originalSortBuffer < $sortBuffer) {
                 $connection->statement('SET SESSION sort_buffer_size = ' . $originalSortBuffer);
             }
         }

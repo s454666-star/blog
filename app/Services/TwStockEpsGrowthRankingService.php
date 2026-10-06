@@ -30,6 +30,32 @@ class TwStockEpsGrowthRankingService
         bool $requireTopPrices = true,
         bool $dryRun = false,
     ): array {
+        $connection = DB::connection();
+        $originalSortBuffer = null;
+        $sortBuffer = max(16 * 1024 * 1024, (int) config('tw_stock.eps_growth_ranking.sort_buffer_size', 16 * 1024 * 1024));
+        if ($connection->getDriverName() === 'mysql') {
+            $originalSortBuffer = (int) $connection->selectOne('SELECT @@SESSION.sort_buffer_size AS size')->size;
+            if ($originalSortBuffer < $sortBuffer) {
+                $connection->statement('SET SESSION sort_buffer_size = '.$sortBuffer);
+            }
+        }
+        try {
+            return $this->refreshSnapshot($snapshotDate, $lookbackDays, $sleepMs, $minimumEligible, $requireTopPrices, $dryRun);
+        } finally {
+            if ($originalSortBuffer !== null && $originalSortBuffer < $sortBuffer) {
+                $connection->statement('SET SESSION sort_buffer_size = '.$originalSortBuffer);
+            }
+        }
+    }
+
+    private function refreshSnapshot(
+        CarbonImmutable $snapshotDate,
+        int $lookbackDays,
+        int $sleepMs,
+        int $minimumEligible,
+        bool $requireTopPrices,
+        bool $dryRun,
+    ): array {
         $forecastResult = $this->fetchLatestForecasts($snapshotDate, $lookbackDays);
         $forecasts = $forecastResult['forecasts'];
         if ($forecasts === []) {
@@ -199,7 +225,10 @@ class TwStockEpsGrowthRankingService
             $cursor = $windowEnd;
         }
 
-        $latestRun = TwStockEpsGrowthRun::query()->whereNotNull('completed_at')->orderByDesc('snapshot_date')->orderByDesc('id')->first();
+        // Sort only the small identifier; load the large audit after selecting its run.
+        $latestRunId = TwStockEpsGrowthRun::query()->whereNotNull('completed_at')
+            ->orderByDesc('snapshot_date')->orderByDesc('id')->value('id');
+        $latestRun = $latestRunId === null ? null : TwStockEpsGrowthRun::query()->find($latestRunId);
         $universe = $latestRun?->rankings()->pluck('stock_name', 'stock_code')->all() ?? [];
         $previousReviews = [];
         foreach ($latestRun?->forecast_audit ?? [] as $audited) {
@@ -343,6 +372,7 @@ class TwStockEpsGrowthRankingService
     private function previousRanks(CarbonImmutable $snapshotDate): array
     {
         $previousRun = TwStockEpsGrowthRun::query()
+            ->select('id')
             ->whereDate('snapshot_date', '<', $snapshotDate->toDateString())
             ->whereNotNull('completed_at')
             ->orderByDesc('snapshot_date')

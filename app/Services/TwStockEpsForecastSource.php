@@ -5,6 +5,7 @@ namespace App\Services;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Throwable;
 
 class TwStockEpsForecastSource
 {
@@ -201,7 +202,11 @@ class TwStockEpsForecastSource
         foreach ($universe as $code => $name) {
             $code = (string) $code;
             $url = str_replace('{code}', $code, config('tw_stock.eps_growth_ranking.factset_eps_url'));
-            $payload = Http::acceptJson()->timeout(25)->retry(2, 300)->get($url)->throw()->json();
+            try {
+                $payload = Http::acceptJson()->timeout(25)->retry(2, 300)->get($url)->throw()->json();
+            } catch (Throwable $exception) {
+                throw new RuntimeException('FactSet EPS feed 取得失敗：'.$code.' / '.$url.' / '.$exception->getMessage(), 0, $exception);
+            }
             $years = $this->merge($observations[$code] ?? [], $this->feed($code, $payload, $url), $asOf);
             $reference = config('tw_stock_eps_supplemental.stocks.'.$code, []);
             if (($reference['selection_policy'] ?? '') === 'reviewed_reference') {

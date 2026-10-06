@@ -36,6 +36,8 @@ return [
     ],
     'taiex_futures_expected_gap_notify_time' => '13:30',
     'eps_growth_ranking' => [
+        // Per EPS request/refresh connection; restored afterwards, without a server restart.
+        'sort_buffer_size' => 16 * 1024 * 1024,
         'factset_eps_url' => 'https://marketinfo.api.cnyes.com/mi/api/v1/financialIndicator/estimateProfit/TWS:{code}:STOCK?type=eps',
         'max_source_age_days' => 90,
         'base_year' => 2025,

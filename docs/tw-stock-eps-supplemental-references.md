@@ -16,6 +16,10 @@
 
 新文章標示發布日，財報列標示會計期間，不能混為公告日。來源抓取失敗會顯示部分查核失敗；沒有新核實證據時保留預估及原日期，不更新 assessed_at 或 source_date。來源檢索有限制，不能保證涵蓋所有付費研究。
 
+2026-10-06 起亦辨識「財務業務／自結／注意交易」公告，避免漏掉標題未直接出現 EPS 的單月獲利資料。單月自結仍只列待審，不能直接當作新全年機構財測。
+
+EPS 頁面與更新命令使用至少 16 MiB 的 MySQL session `sort_buffer_size`（設定於 `tw_stock.eps_growth_ranking.sort_buffer_size`），完成或失敗時還原原值。快照排序只載入必要欄位／id，選定當期後才取得大型 `forecast_audit`，避免歷史查核 JSON 進入排序工作集。
+
 ## 人工採入新研究
 
 1. 查看頁面「查核紀錄與待審來源」及 `storage/logs/tw_stock_eps_growth_rankings.log`。新證據只入待審，不從標題自動猜數值。

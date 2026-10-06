@@ -22,7 +22,7 @@ class TwStockSupplementalEpsReviewService
             foreach (data_get($data, 'data.items') as $item) {
                 $title = html_entity_decode(strip_tags($item['title'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
                 if (!str_contains($title, $reference['stock_name'])
-                    || !preg_match('/EPS|預估|盈餘|財報|財務報告|現金增資|轉換公司債|轉換價格|認股|股本|法說/iu', $title)
+                    || !preg_match('/EPS|預估|盈餘|財報|財務報告|財務業務|自結|注意交易|現金增資|轉換公司債|轉換價格|認股|股本|法說/iu', $title)
                     || !is_numeric($item['publishAt'] ?? null)) {
                     continue;
                 }

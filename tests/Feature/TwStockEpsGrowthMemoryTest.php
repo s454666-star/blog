@@ -3,9 +3,12 @@
 namespace Tests\Feature;
 
 use App\Http\Controllers\TwStockEpsGrowthRankingController;
+use App\Services\TwStockEpsGrowthRankingService;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -37,8 +40,8 @@ class TwStockEpsGrowthMemoryTest extends TestCase
             $table->string('stock_code');
         });
 
-        $oldAudit = [['stock_code' => '1111', 'source_excerpt' => str_repeat('a', 1024 * 1024)]];
-        $newAudit = [['stock_code' => '2222', 'source_excerpt' => str_repeat('b', 1024 * 1024)]];
+        $oldAudit = [['stock_code' => '1111', 'stock_name' => 'Old stock', 'source_excerpt' => str_repeat('a', 1024 * 1024)]];
+        $newAudit = [['stock_code' => '2222', 'stock_name' => 'Latest stock', 'source_excerpt' => str_repeat('b', 1024 * 1024)]];
         foreach (['2026-09-28' => $oldAudit, '2026-10-05' => $newAudit] as $date => $audit) {
             DB::table('tw_stock_eps_growth_runs')->insert([
                 'snapshot_date' => $date,
@@ -63,6 +66,28 @@ class TwStockEpsGrowthMemoryTest extends TestCase
         $olderData = $controller->index(Request::create('/tw-stock/eps-growth-rankings', 'GET', ['run' => 1]))->getData();
         $this->assertSame($oldAudit, $olderData['run']->forecast_audit);
         $this->assertFalse($olderData['usesLatestPrices']);
+
+        config()->set('tw_stock.eps_growth_ranking.manual_neutral_forecasts', []);
+        config()->set('tw_stock_eps_supplemental.stocks', []);
+        Http::fake([
+            '*newslist*' => Http::response(['items' => ['data' => []]]),
+            '*estimateProfit*' => Http::response(['statusCode' => 200, 'data' => []]),
+        ]);
+        DB::flushQueryLog();
+        $service = app(TwStockEpsGrowthRankingService::class);
+        $forecasts = (new \ReflectionMethod($service, 'fetchLatestForecasts'))
+            ->invoke($service, CarbonImmutable::parse('2026-10-06'), 35);
+        $this->assertArrayHasKey('2222', $forecasts['forecasts']);
+        $this->assertArrayNotHasKey('1111', $forecasts['forecasts']);
+        (new \ReflectionMethod($service, 'previousRanks'))
+            ->invoke($service, CarbonImmutable::parse('2026-10-06'));
+        foreach (DB::getQueryLog() as $query) {
+            if (str_contains($query['query'], 'tw_stock_eps_growth_runs')
+                && str_contains($query['query'], 'order by')) {
+                $this->assertStringNotContainsString('forecast_audit', $query['query']);
+                $this->assertStringNotContainsString('select *', $query['query']);
+            }
+        }
         DB::disableQueryLog();
         DB::disconnect('sqlite');
     }

@@ -172,7 +172,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             $this->row(['stock_code' => '8261', 'stock_name' => '富鼎', 'q1_revenue_score' => 40, 'latest_close_price' => 80, 'rank' => 2]),
         ]);
 
-        $this->get(route('tw-stock.q1-financial-reports.index', [
+        $this->get(route('tw-stock.financial-reports.index', [
             'q' => '9951',
             'per_page' => 50,
             'price_min' => 100,
@@ -212,14 +212,60 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertDontSee('套用')
             ->assertDontSee('重設')
             ->assertSee('data-copy-value="9951"', false)
-            ->assertSee('點一下複製代碼')
-            ->assertSee('點一下複製名稱')
+            ->assertDontSee('點一下複製')
             ->assertSee('9951')
             ->assertSee('皇田')
             ->assertSee('value="50"', false)
             ->assertSee('value="250"', false)
             ->assertSee('value="500"', false)
             ->assertDontSee('富鼎');
+    }
+
+    public function test_dashboard_defaults_to_latest_quarter_and_switches_quarters(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            $this->row(['stock_code' => '8261', 'stock_name' => '富鼎', 'quarter' => 1, 'rank' => 1]),
+            $this->row(['stock_code' => '9951', 'stock_name' => '皇田', 'quarter' => 2, 'financial_period' => '202602', 'rank' => 1]),
+        ]);
+
+        $this->get(route('tw-stock.financial-reports.index'))
+            ->assertOk()
+            ->assertSee('2026 Q2 財報評分排名')
+            ->assertSee('Q2整體財報評分')
+            ->assertSee('aria-label="財報季度"', false)
+            ->assertSee('quarter=1', false)
+            ->assertSee('皇田')
+            ->assertDontSee('富鼎');
+
+        $this->get(route('tw-stock.financial-reports.index', ['quarter' => 1]))
+            ->assertOk()
+            ->assertSee('2026 Q1 財報評分排名')
+            ->assertSee('name="quarter" value="1"', false)
+            ->assertSee('富鼎')
+            ->assertDontSee('皇田');
+    }
+
+    public function test_legacy_q1_url_redirects_to_financial_reports(): void
+    {
+        $this->get('/tw-stock/q1-financial-reports?q=2330')
+            ->assertRedirect(route('tw-stock.financial-reports.index', ['quarter' => 1, 'q' => '2330']))
+            ->assertStatus(301);
+    }
+
+    public function test_dashboard_ranks_rows_within_the_liquid_universe(): void
+    {
+        DB::table('tw_stock_q1_financial_reports')->insert([
+            $this->row(['stock_code' => '8261', 'stock_name' => '富鼎', 'q1_revenue_score' => 80, 'rank' => 7]),
+            $this->row(['stock_code' => '9951', 'stock_name' => '皇田', 'q1_revenue_score' => 60, 'rank' => 12]),
+            $this->row(['stock_code' => '1101', 'stock_name' => '台泥', 'q1_revenue_score' => 90, 'volume_lots' => 10, 'rank' => 3]),
+        ]);
+
+        $this->get(route('tw-stock.financial-reports.index'))
+            ->assertOk()
+            ->assertSee('<span class="rank top">1</span>', false)
+            ->assertSee('<span class="rank top">2</span>', false)
+            ->assertDontSee('<span class="rank top">7</span>', false)
+            ->assertDontSee('台泥');
     }
 
     public function test_dashboard_shows_exchange_badges_under_stock_name(): void
@@ -247,7 +293,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ]),
         ]);
 
-        $response = $this->get(route('tw-stock.q1-financial-reports.index', ['per_page' => 50]))
+        $response = $this->get(route('tw-stock.financial-reports.index', ['per_page' => 50]))
             ->assertOk()
             ->assertSee('exchange-badge exchange-badge--twse', false)
             ->assertSee('title="上市"', false)
@@ -280,7 +326,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
         ]);
         Cache::flush();
 
-        $this->get(route('tw-stock.q1-financial-reports.index', ['per_page' => 50]))
+        $this->get(route('tw-stock.financial-reports.index', ['per_page' => 50]))
             ->assertOk()
             ->assertDontSee('class="latest-update-badge"', false);
     }
@@ -311,7 +357,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ]),
         ]);
 
-        $response = $this->get(route('tw-stock.q1-financial-reports.index', [
+        $response = $this->get(route('tw-stock.financial-reports.index', [
             'valuation_groups' => ['汽車/電動車', '記憶體/儲存'],
             'per_page' => 50,
         ]));
@@ -361,7 +407,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
 
         DB::table('tw_stock_daily_prices')->insert($dailyRows);
 
-        $response = $this->get(route('tw-stock.q1-financial-reports.index', [
+        $response = $this->get(route('tw-stock.financial-reports.index', [
             'sort' => 'recent_two_month_high',
             'direction' => 'desc',
             'per_page' => 50,
@@ -374,7 +420,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertDontSee('本業佔比');
         $this->assertTableOrder($response->getContent(), ['9951', '8261']);
 
-        $filteredResponse = $this->get(route('tw-stock.q1-financial-reports.index', [
+        $filteredResponse = $this->get(route('tw-stock.financial-reports.index', [
             'recent_two_month_high' => 1,
             'per_page' => 50,
         ]));
@@ -400,7 +446,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             'rank' => 1,
         ]));
 
-        $this->get(route('tw-stock.q1-financial-reports.index', ['q' => '3138']))
+        $this->get(route('tw-stock.financial-reports.index', ['q' => '3138']))
             ->assertOk()
             ->assertSee('--')
             ->assertSee('通信網路 24.0x');
@@ -494,7 +540,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ]),
         ]);
 
-        $priceResponse = $this->get(route('tw-stock.q1-financial-reports.index', [
+        $priceResponse = $this->get(route('tw-stock.financial-reports.index', [
             'sort' => 'price',
             'direction' => 'asc',
             'per_page' => 50,
@@ -506,7 +552,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $priceResponse->assertSee('sort=price', false)
             ->assertSee('direction=desc', false);
 
-        $expectedPriceResponse = $this->get(route('tw-stock.q1-financial-reports.index', [
+        $expectedPriceResponse = $this->get(route('tw-stock.financial-reports.index', [
             'sort' => 'expected_price',
             'direction' => 'desc',
             'per_page' => 50,
@@ -517,7 +563,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $expectedPriceResponse->assertSee('sort=expected_price', false)
             ->assertSee('direction=asc', false);
 
-        $monthlyResponse = $this->get(route('tw-stock.q1-financial-reports.index', [
+        $monthlyResponse = $this->get(route('tw-stock.financial-reports.index', [
             'sort' => 'month_1',
             'direction' => 'desc',
             'per_page' => 50,
@@ -723,7 +769,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertSee('預期股價')
             ->assertSee('121.60')
             ->assertSee('2020 → 2021')
-            ->assertSee('點一下複製');
+            ->assertDontSee('點一下複製');
 
         $html = $response->getContent();
         $highGrowthPosition = strpos($html, 'data-copy-value="2408"');

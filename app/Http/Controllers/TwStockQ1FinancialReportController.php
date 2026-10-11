@@ -55,6 +55,11 @@ class TwStockQ1FinancialReportController extends Controller
      */
     private array $q1CacheVersionMemo = [];
 
+    /**
+     * Fiscal quarter shown on the financial-report dashboard (rows keep the historical q1_* column names).
+     */
+    private int $quarter = 1;
+
     public function index(Request $request): View
     {
         $allowedPerPage = [50, 250, 500];
@@ -65,6 +70,11 @@ class TwStockQ1FinancialReportController extends Controller
 
         $latestYear = $this->latestQ1Year();
         $year = (int) $request->query('year', $latestYear);
+        $availableQuarters = $this->availableQuarters($year);
+        $requestedQuarter = (int) $request->query('quarter', 0);
+        $this->quarter = in_array($requestedQuarter, $availableQuarters, true)
+            ? $requestedQuarter
+            : (int) (max($availableQuarters ?: [1]));
         $search = trim((string) $request->query('q', ''));
         $priceMin = $this->priceFilterValue($request->query('price_min'));
         $priceMax = $this->priceFilterValue($request->query('price_max'));
@@ -84,7 +94,10 @@ class TwStockQ1FinancialReportController extends Controller
 
         $baseQuery = $this->reportQuery($year, $search, $priceMin, $priceMax, $valuationGroups);
         $groupTotalRows = $this->groupTotalRows($year);
-        $matchingRows = $this->attachRecentTwoMonthHighFlags((clone $baseQuery)->get());
+        $matchingRows = $this->attachDashboardRanks(
+            $this->attachRecentTwoMonthHighFlags((clone $baseQuery)->get()),
+            $this->dashboardRanks($year),
+        );
         if ($recentTwoMonthHighOnly) {
             $matchingRows = $matchingRows
                 ->filter(fn (TwStockQ1FinancialReport $row): bool => (bool) $row->getAttribute('recent_two_month_high'))
@@ -102,7 +115,9 @@ class TwStockQ1FinancialReportController extends Controller
 
         $availableYears = $this->availableQ1Years();
 
-        return view('tw-stock.q1-financial-reports', [
+        return view('tw-stock.financial-reports', [
+            'quarter' => $this->quarter,
+            'availableQuarters' => $availableQuarters,
             'allowedPerPage' => $allowedPerPage,
             'perPage' => $perPage,
             'year' => $year,
@@ -266,14 +281,81 @@ class TwStockQ1FinancialReportController extends Controller
         );
     }
 
+    /**
+     * Quarters of the year that already have dashboard-eligible rows.
+     *
+     * @return list<int>
+     */
+    private function availableQuarters(int $year): array
+    {
+        return Cache::remember(
+            'tw-stock:q1:available-quarters:v1:' . $year . ':' . $this->q1CacheVersion(),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): array => TwStockQ1FinancialReport::query()
+                ->where('fiscal_year', $year)
+                ->where('volume_lots', '>=', self::DASHBOARD_MIN_VOLUME_LOTS)
+                ->whereNotNull('q1_revenue_billion')
+                ->whereNotNull('q1_eps')
+                ->select('quarter')
+                ->distinct()
+                ->orderBy('quarter')
+                ->pluck('quarter')
+                ->map(fn ($value): int => (int) $value)
+                ->all(),
+        );
+    }
+
+    /**
+     * Rank within the dashboard universe (liquid stocks only). Stored ranks may come from a
+     * run without the volume threshold, which would inflate them and skew the group badges.
+     *
+     * @return array<string, int>
+     */
+    private function dashboardRanks(int $year): array
+    {
+        return Cache::remember(
+            'tw-stock:q1:dashboard-ranks:v1:' . $year . ':q' . $this->quarter . ':' . $this->q1CacheVersion($year, $this->quarter),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            fn (): array => $this->reportQuery($year, '', null, null, [])
+                ->whereNotNull('q1_revenue_score')
+                ->orderByDesc('q1_revenue_score')
+                ->orderByDesc('q1_eps_yoy_percent')
+                ->orderByDesc('q1_operating_margin_percent')
+                ->orderByDesc('q1_gross_margin_percent')
+                ->orderByDesc('q1_net_margin_percent')
+                ->orderBy('stock_code')
+                ->get(['exchange', 'stock_code'])
+                ->values()
+                ->mapWithKeys(fn (TwStockQ1FinancialReport $row, int $index): array => [
+                    $this->stockKey((string) $row->exchange, (string) $row->stock_code) => $index + 1,
+                ])
+                ->all(),
+        );
+    }
+
+    /**
+     * @param Collection<int, TwStockQ1FinancialReport> $rows
+     * @param array<string, int> $ranks
+     * @return Collection<int, TwStockQ1FinancialReport>
+     */
+    private function attachDashboardRanks(Collection $rows, array $ranks): Collection
+    {
+        return $rows->each(function (TwStockQ1FinancialReport $row) use ($ranks): void {
+            $rank = $ranks[$this->stockKey((string) $row->exchange, (string) $row->stock_code)] ?? null;
+            if ($rank !== null) {
+                $row->setAttribute('rank', $rank);
+            }
+        });
+    }
+
     private function groupTotalRows(int $year): int
     {
         return (int) Cache::remember(
-            'tw-stock:q1:group-total:v1:' . $year . ':' . $this->q1CacheVersion($year),
+            'tw-stock:q1:group-total:v1:' . $year . ':q' . $this->quarter . ':' . $this->q1CacheVersion($year, $this->quarter),
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
             fn (): int => TwStockQ1FinancialReport::query()
                 ->where('fiscal_year', $year)
-                ->where('quarter', 1)
+                ->where('quarter', $this->quarter)
                 ->where('volume_lots', '>=', self::DASHBOARD_MIN_VOLUME_LOTS)
                 ->whereNotNull('q1_revenue_billion')
                 ->whereNotNull('q1_eps')
@@ -318,9 +400,9 @@ class TwStockQ1FinancialReportController extends Controller
         return TwStockAnnualFinancialComparison::hydrate($records);
     }
 
-    private function q1CacheVersionRaw(?int $year = null): string
+    private function q1CacheVersionRaw(?int $year = null, int $quarter = 1): string
     {
-        $cacheKey = $year === null ? 'all' : 'year:' . $year;
+        $cacheKey = $year === null ? 'all' : 'year:' . $year . ':q' . $quarter;
         if (isset($this->q1CacheVersionMemo[$cacheKey])) {
             return $this->q1CacheVersionMemo[$cacheKey];
         }
@@ -330,7 +412,7 @@ class TwStockQ1FinancialReportController extends Controller
         if ($year !== null) {
             $query
                 ->where('fiscal_year', $year)
-                ->where('quarter', 1);
+                ->where('quarter', $quarter);
         }
 
         $row = $query
@@ -352,7 +434,7 @@ class TwStockQ1FinancialReportController extends Controller
     private function latestCreatedStockKeys(int $year): array
     {
         return Cache::remember(
-            'tw-stock:q1:latest-created-stock-keys:v1:' . $year . ':' . $this->q1CacheVersion($year),
+            'tw-stock:q1:latest-created-stock-keys:v1:' . $year . ':q' . $this->quarter . ':' . $this->q1CacheVersion($year, $this->quarter),
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
             function () use ($year): array {
                 $baseQuery = $this->reportQuery($year, '', null, null, []);
@@ -960,7 +1042,7 @@ class TwStockQ1FinancialReportController extends Controller
     {
         return TwStockQ1FinancialReport::query()
             ->where('fiscal_year', $year)
-            ->where('quarter', 1)
+            ->where('quarter', $this->quarter)
             ->where('volume_lots', '>=', self::DASHBOARD_MIN_VOLUME_LOTS)
             ->whereNotNull('q1_revenue_billion')
             ->whereNotNull('q1_eps')
@@ -989,10 +1071,10 @@ class TwStockQ1FinancialReportController extends Controller
             'rank' => '排名',
             'group' => '分組',
             'stock' => '股票',
-            'score' => 'Q1整體財報評分',
-            'revenue' => 'Q1營收(億)',
+            'score' => 'Q' . $this->quarter . '整體財報評分',
+            'revenue' => 'Q' . $this->quarter . '營收(億)',
             'revenue_yoy' => '營收YoY',
-            'eps' => 'Q1 EPS',
+            'eps' => 'Q' . $this->quarter . ' EPS',
             'eps_yoy' => 'EPS YoY',
             'gross_margin' => '毛利率',
             'operating_margin' => '營益率',
@@ -1248,7 +1330,7 @@ class TwStockQ1FinancialReportController extends Controller
         ]);
     }
 
-    private function q1CacheVersion(?int $year = null): string
+    private function q1CacheVersion(?int $year = null, int $quarter = 1): string
     {
         return $this->briefVersionMemo('q1CacheVersion', func_get_args(), fn (): string => $this->q1CacheVersionRaw(...func_get_args()));
     }
@@ -1380,11 +1462,11 @@ class TwStockQ1FinancialReportController extends Controller
     private function availableValuationGroups(int $year): array
     {
         return Cache::remember(
-            'tw-stock:q1:valuation-groups:v1:' . $year . ':' . $this->q1CacheVersion($year),
+            'tw-stock:q1:valuation-groups:v1:' . $year . ':q' . $this->quarter . ':' . $this->q1CacheVersion($year, $this->quarter),
             now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
             fn (): array => TwStockQ1FinancialReport::query()
                 ->where('fiscal_year', $year)
-                ->where('quarter', 1)
+                ->where('quarter', $this->quarter)
                 ->where('volume_lots', '>=', self::DASHBOARD_MIN_VOLUME_LOTS)
                 ->whereNotNull('q1_revenue_billion')
                 ->whereNotNull('q1_eps')

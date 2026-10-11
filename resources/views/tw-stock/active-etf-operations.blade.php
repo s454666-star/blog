@@ -6,22 +6,22 @@
     <title>主動式 ETF 操作日報</title>
     <style>
         :root {
-            --bg: #111513;
-            --bg-warm: #1d1718;
-            --panel: rgba(248, 252, 247, 0.92);
-            --panel-dark: rgba(21, 27, 24, 0.82);
-            --line: rgba(212, 235, 220, 0.22);
-            --line-dark: rgba(16, 24, 20, 0.12);
-            --text: #f6fbf8;
-            --ink: #17201b;
-            --muted: #8ea096;
-            --muted-dark: #65746b;
+            --bg: #f2f7ff;
+            --bg-warm: #eef5ff;
+            --panel: rgba(255, 255, 255, 0.94);
+            --panel-dark: rgba(255, 255, 255, 0.93);
+            --line: #dbe8f8;
+            --line-dark: #e2ecf8;
+            --text: #0f2747;
+            --ink: #0f2747;
+            --muted: #5b6f8c;
+            --muted-dark: #5b6f8c;
             --new: #f2b84b;
             --add: #e05262;
             --reduce: #28aa78;
             --remove: #7b8790;
-            --cyan: #58d8d0;
-            --glow: rgba(88, 216, 208, 0.24);
+            --cyan: #19c3ff;
+            --glow: rgba(0, 128, 255, 0.18);
         }
 
         * {
@@ -146,14 +146,14 @@
             align-items: center;
             justify-content: center;
             min-height: 38px;
-            border: 1px solid rgba(235, 247, 239, 0.2);
-            border-radius: 8px;
-            color: #dff4e9;
-            background: rgba(10, 20, 17, 0.62);
+            border: 1px solid #cfe0f5;
+            border-radius: 10px;
+            color: #29425f;
+            background: #ffffff;
             text-decoration: none;
             font-size: 13px;
-            font-weight: 900;
-            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+            font-weight: 800;
+            box-shadow: none;
             transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
         }
 
@@ -164,15 +164,16 @@
         .nav-actions a:hover,
         .submit-button:hover,
         .action-tabs button:hover {
-            border-color: rgba(88, 216, 208, 0.58);
+            border-color: #8db8ec;
             transform: translateY(-1px);
         }
 
         .nav-actions a.active,
         .action-tabs button.active {
-            border-color: rgba(242, 184, 75, 0.72);
-            color: #121611;
-            background: linear-gradient(135deg, #f7d06d, #57d5c8);
+            border-color: transparent;
+            color: #ffffff;
+            background: linear-gradient(135deg, #0080ff, #2894ff);
+            box-shadow: 0 6px 16px rgba(0, 128, 255, 0.28);
         }
 
         .filter-tool,
@@ -217,7 +218,7 @@
         .field label {
             display: block;
             margin-bottom: 7px;
-            color: #bdd2c7;
+            color: #5b6f8c;
             font-size: 12px;
             font-weight: 800;
         }
@@ -553,7 +554,7 @@
 
         .rank-number {
             width: 72px;
-            color: #8a6400;
+            color: #0062d6;
             font-size: 18px;
             font-weight: 950;
         }
@@ -1024,17 +1025,7 @@
                 最後抓取：{{ $summary['latest_fetched_at'] ?? 'N/A' }}
             </div>
         </div>
-        <nav class="nav-actions" aria-label="台股頁面">
-            <a href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
-            <a href="{{ route('tw-stock.annual-comparison.index') }}">年度比較</a>
-            <a href="{{ route('tw-stock.daily-prices.index') }}">每日漲幅</a>
-            <a href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
-            <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
-            <a href="{{ route('tw-stock.monthly-revenues.index') }}">月營收</a>
-            @include('tw-stock.partials.eps-growth-ranking-nav-link')
-            <a class="active" href="{{ route('tw-stock.active-etf-operations.index') }}">主動ETF</a>
-            <a href="{{ route('tw-stock.taiex-futures.kline') }}">台指期K線</a>
-        </nav>
+        @include('tw-stock.partials.nav', ['navClass' => 'nav-actions'])
     </header>
 
     @if ($selectedEtfModel)
@@ -1067,8 +1058,8 @@
                                 <td class="rank-number">#{{ $loop->iteration }}</td>
                                 <td>
                                     <div class="stock-line">
-                                        <strong>{{ $holding['target_name'] }}</strong>
-                                        <span>{{ $holding['target_code'] }}</span>
+                                        <strong data-copy-value="{{ $holding['target_name'] }}">{{ $holding['target_name'] }}</strong>
+                                        <span data-copy-value="{{ $holding['target_code'] }}">{{ $holding['target_code'] }}</span>
                                     </div>
                                 </td>
                                 <td>{{ $holding['asset_type'] ?: 'N/A' }}</td>
@@ -1160,8 +1151,8 @@
                             <td class="rank-number">#{{ $row['rank'] }}</td>
                             <td>
                                 <div class="stock-line">
-                                    <strong>{{ $row['stock_name'] }}</strong>
-                                    <span>{{ $row['stock_code'] }}</span>
+                                    <strong data-copy-value="{{ $row['stock_name'] }}">{{ $row['stock_name'] }}</strong>
+                                    <span data-copy-value="{{ $row['stock_code'] }}">{{ $row['stock_code'] }}</span>
                                 </div>
                             </td>
                             <td class="numeric-cell">
@@ -1228,7 +1219,7 @@
         <button class="submit-button" type="submit">套用</button>
         <div class="action-tabs" role="group" aria-label="操作類型">
             @foreach ($actions as $action => $label)
-                <button class="{{ $selectedAction === $action ? 'active' : '' }}" type="submit" name="action" value="{{ $action }}">
+                <button class="sx-plain {{ $selectedAction === $action ? 'active' : '' }}" type="submit" name="action" value="{{ $action }}">
                     {{ $label }}
                 </button>
             @endforeach

@@ -7,12 +7,12 @@
     <style>
         :root {
             --bg: #eef3f8;
-            --ink: #172033;
+            --ink: #0f2747;
             --muted: #627084;
             --line: #d8e1ee;
             --panel: rgba(255, 255, 255, 0.92);
             --blue: #2563eb;
-            --teal: #0f766e;
+            --teal: #00a6d6;
             --rose: #e11d48;
             --amber: #b45309;
             --green: #047857;
@@ -108,9 +108,10 @@
 
         .nav a.active,
         .sort-link.active {
-            border-color: #172033;
+            border-color: transparent;
             color: #fff;
-            background: #172033;
+            background: linear-gradient(135deg, #0080ff, #2894ff);
+            box-shadow: 0 8px 18px rgba(0, 128, 255, 0.28);
         }
 
         .control-panel {
@@ -649,13 +650,13 @@
         }
 
         .turnover-chip {
-            color: #0f766e;
+            color: #0068d6;
             border-color: rgba(15, 118, 110, 0.24);
             background: linear-gradient(135deg, rgba(240, 253, 250, 0.98), rgba(239, 246, 255, 0.88));
         }
 
         .turnover-chip strong {
-            color: #0f766e;
+            color: #0068d6;
         }
 
         .turnover-strip {
@@ -685,7 +686,7 @@
         }
 
         .turnover-pill strong {
-            color: #0f766e;
+            color: #0068d6;
             font-size: 13px;
             font-weight: 950;
             line-height: 1.1;
@@ -798,7 +799,7 @@
         }
 
         tbody tr:nth-child(even) td {
-            background: rgba(240, 253, 250, 0.70);
+            background: rgba(232, 243, 255, 0.5);
         }
 
         tbody tr:hover td {
@@ -830,7 +831,7 @@
 
         .pass {
             color: #fff;
-            background: #166534;
+            background: linear-gradient(135deg, #0080ff, #2894ff);
         }
 
         .hot {
@@ -859,26 +860,6 @@
             margin-top: 18px;
         }
 
-        .copy-tooltip {
-            position: fixed;
-            z-index: 50;
-            pointer-events: none;
-            transform: translate(-50%, -120%);
-            border: 1px solid rgba(23, 32, 51, 0.14);
-            border-radius: 8px;
-            padding: 7px 10px;
-            color: #fff;
-            background: rgba(23, 32, 51, 0.94);
-            font-size: 12px;
-            font-weight: 900;
-            opacity: 0;
-            transition: opacity 140ms ease;
-            box-shadow: 0 12px 28px rgba(23, 32, 51, 0.18);
-        }
-
-        .copy-tooltip.show {
-            opacity: 1;
-        }
 
         @media (max-width: 980px) {
             .topbar,
@@ -940,17 +921,7 @@
             <h1>台股年度營收 EPS 比較</h1>
             <div class="meta">2020-2025 年度比較，每檔股票 5 列；2026 Q1、1-4 月營收與 {{ $turnoverDateLabel }} 周轉率列為即時摘要。</div>
         </div>
-        <nav class="nav" aria-label="台股頁面">
-            <a href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
-            <a class="active" href="{{ route('tw-stock.annual-comparison.index') }}">年度比較</a>
-            <a href="{{ route('tw-stock.daily-prices.index') }}">每日漲幅</a>
-            <a href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
-            <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
-            <a href="{{ route('tw-stock.monthly-revenues.index') }}">月營收</a>
-            @include('tw-stock.partials.eps-growth-ranking-nav-link')
-            <a href="{{ route('tw-stock.active-etf-operations.index') }}">主動ETF</a>
-            <a href="{{ route('tw-stock.taiex-futures.kline') }}">台指期K線</a>
-        </nav>
+        @include('tw-stock.partials.nav', ['navClass' => 'nav'])
     </header>
 
     <form class="control-panel" method="GET" action="{{ route('tw-stock.annual-comparison.index') }}" data-filter-form>
@@ -1255,8 +1226,6 @@
     @endif
 </div>
 
-<div class="copy-tooltip" data-copy-tooltip>點一下複製</div>
-
 <script>
     const form = document.querySelector('[data-filter-form]');
     let timer = null;
@@ -1272,31 +1241,6 @@
         document.querySelectorAll('[data-multi-select][open]').forEach((multiSelect) => {
             if (!multiSelect.contains(event.target)) {
                 multiSelect.removeAttribute('open');
-            }
-        });
-    });
-
-    const tooltip = document.querySelector('[data-copy-tooltip]');
-    const showTooltip = (target, text) => {
-        const rect = target.getBoundingClientRect();
-        tooltip.textContent = text;
-        tooltip.style.left = `${rect.left + rect.width / 2}px`;
-        tooltip.style.top = `${rect.top - 8}px`;
-        tooltip.classList.add('show');
-        clearTimeout(tooltip.hideTimer);
-        tooltip.hideTimer = setTimeout(() => tooltip.classList.remove('show'), 900);
-    };
-
-    document.querySelectorAll('[data-copy-value]').forEach((item) => {
-        item.addEventListener('mouseenter', () => showTooltip(item, '點一下複製'));
-        item.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
-        item.addEventListener('click', async () => {
-            const value = item.dataset.copyValue || item.textContent.trim();
-            try {
-                await navigator.clipboard.writeText(value);
-                showTooltip(item, '已複製');
-            } catch (error) {
-                showTooltip(item, '複製失敗');
             }
         });
     });

@@ -6,13 +6,13 @@
     <title>每月營收排行</title>
     <style>
         :root {
-            --bg: #0d1412;
-            --panel: rgba(250, 253, 248, 0.94);
-            --panel-dark: rgba(12, 22, 19, 0.78);
-            --line: rgba(185, 219, 202, 0.22);
-            --ink: #15201b;
-            --text: #f5fbf7;
-            --muted: #89a096;
+            --bg: #f2f7ff;
+            --panel: rgba(255, 255, 255, 0.94);
+            --panel-dark: rgba(255, 255, 255, 0.93);
+            --line: #dbe8f8;
+            --ink: #0f2747;
+            --text: #0f2747;
+            --muted: #5b6f8c;
             --green: #17a06a;
             --red: #d94458;
             --gold: #f0bd4d;
@@ -195,7 +195,7 @@
         .field label {
             display: block;
             margin-bottom: 7px;
-            color: #bdd2c7;
+            color: #5b6f8c;
             font-size: 12px;
             font-weight: 850;
         }
@@ -208,7 +208,7 @@
             border: 1px solid rgba(235, 247, 239, 0.18);
             border-radius: 8px;
             color: var(--text);
-            background: rgba(7, 13, 11, 0.74);
+            background: #ffffff;
             font: inherit;
             font-size: 14px;
             outline: none;
@@ -303,8 +303,8 @@
             position: sticky;
             top: 0;
             z-index: 1;
-            background: #edf5ef;
-            color: #45544d;
+            background: #eaf3ff;
+            color: #0b3a78;
             font-size: 12px;
             font-weight: 950;
             white-space: nowrap;
@@ -320,7 +320,7 @@
         }
 
         tbody tr:hover {
-            background: #f8fbf2;
+            background: #f0f7ff;
             box-shadow: inset 4px 0 0 var(--gold);
         }
 
@@ -331,15 +331,15 @@
             align-items: center;
             justify-content: center;
             border-radius: 8px;
-            color: #12211b;
-            background: linear-gradient(135deg, #f8d66d, #69decf);
+            color: #ffffff;
+            background: linear-gradient(135deg, #0080ff, #19c3ff);
             font-size: 13px;
             font-weight: 950;
         }
 
         .stock-code {
             display: block;
-            color: #14201a;
+            color: #0f2747;
             font-size: 18px;
             font-weight: 950;
             line-height: 1.1;
@@ -406,8 +406,8 @@
             justify-content: center;
             padding: 7px 10px;
             border-radius: 8px;
-            color: #111a16;
-            background: linear-gradient(135deg, rgba(248, 214, 109, 0.9), rgba(105, 222, 207, 0.9));
+            color: #0062d6;
+            background: #e8f3ff;
             box-shadow: 0 8px 18px rgba(84, 212, 197, 0.18);
             font-weight: 950;
         }
@@ -563,17 +563,7 @@
                 <br>營收公布日期目前採 MOPS 出表日期，非公司首次公告日期。
             </div>
         </div>
-        <nav class="nav-actions" aria-label="台股頁面">
-            <a href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
-            <a href="{{ route('tw-stock.annual-comparison.index') }}">年度比較</a>
-            <a href="{{ route('tw-stock.daily-prices.index') }}">每日漲幅</a>
-            <a href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
-            <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
-            <a class="active" href="{{ route('tw-stock.monthly-revenues.index') }}">月營收</a>
-            @include('tw-stock.partials.eps-growth-ranking-nav-link')
-            <a href="{{ route('tw-stock.active-etf-operations.index') }}">主動ETF</a>
-            <a href="{{ route('tw-stock.taiex-futures.kline') }}">台指期K線</a>
-        </nav>
+        @include('tw-stock.partials.nav', ['navClass' => 'nav-actions'])
     </section>
 
     <form class="filter-panel" method="get" action="{{ route('tw-stock.monthly-revenues.index') }}">
@@ -679,8 +669,8 @@
                         <td data-label="#"><span class="rank">{{ $index + 1 }}</span></td>
                         <td data-label="股票">
                             <span>
-                                <span class="stock-code">{{ $row->stock_code }}</span>
-                                <span class="stock-name">{{ $row->stock_name }}{{ $row->industry ? ' · ' . $row->industry : '' }}</span>
+                                <span class="stock-code" data-copy-value="{{ $row->stock_code }}">{{ $row->stock_code }}</span>
+                                <span class="stock-name"><span data-copy-value="{{ $row->stock_name }}">{{ $row->stock_name }}</span>{{ $row->industry ? ' · ' . $row->industry : '' }}</span>
                                 <span class="stock-exchange">
                                     <span class="exchange-badge exchange-badge--{{ $badge['class'] }}" title="{{ $badge['title'] }}" aria-label="{{ $badge['title'] }}">{{ $badge['label'] }}</span>
                                     <a class="realtime-price-link" href="{{ $quoteUrl }}" target="_blank" rel="noopener noreferrer" title="Yahoo 即時股價 {{ $row->stock_code }}" aria-label="開啟 Yahoo 即時股價 {{ $row->stock_code }}">即時</a>

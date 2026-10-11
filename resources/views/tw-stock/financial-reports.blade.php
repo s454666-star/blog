@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $year }} Q1 財報評分排名</title>
+    <title>{{ $year }} Q{{ $quarter }} 財報評分排名</title>
     <style>
         :root {
             --bg: #f4f7fb;
@@ -1055,6 +1055,43 @@
             }
         }
 
+        /* Tablet / laptop cards: lay the metrics out as a compact grid instead of one long column. */
+        @media (min-width: 641px) and (max-width: 1440px) {
+            tbody tr {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+                column-gap: 0;
+            }
+
+            tbody tr > td,
+            tbody tr > td:nth-child(n) {
+                width: auto;
+                grid-template-columns: max-content minmax(0, 1fr);
+                align-content: center;
+                border-right: 1px solid #edf3fb;
+                border-bottom: 1px solid #edf3fb;
+            }
+
+            tbody tr > td::before { white-space: nowrap; }
+            tbody tr > td > * { min-width: 0; justify-self: end; }
+            tbody tr > td[data-label="排名"] .rank { width: auto; min-width: 36px; }
+
+            tbody tr > td[data-label="股票"] {
+                grid-column: 1 / -1;
+                grid-template-columns: auto;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                padding: 12px 16px;
+                text-align: left;
+                background: linear-gradient(90deg, #eef6ff, transparent);
+            }
+
+            tbody tr > td[data-label="股票"]::before { display: none; }
+            tbody tr > td[data-label="股票"] .stock-code { font-size: 18px; }
+            tbody tr > td[data-label="股票"] .stock-exchange { justify-content: flex-start; }
+        }
+
         @media (min-width: 1441px) and (max-width: 1800px) {
             body .shell {
                 width: calc(100vw - 8px);
@@ -1111,9 +1148,10 @@
     $latestCreatedStockKeys = is_array($latestCreatedStockKeys ?? null) ? $latestCreatedStockKeys : [];
     $priceValue = fn ($value): string => $value === null ? '' : rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.');
     $defaultSortDirection = fn (string $key): string => in_array($key, ['rank', 'group', 'stock'], true) ? 'asc' : 'desc';
-    $sortUrl = function (string $key) use ($sort, $direction, $defaultSortDirection): string {
-        return route('tw-stock.q1-financial-reports.index', [
+    $sortUrl = function (string $key) use ($sort, $direction, $defaultSortDirection, $quarter): string {
+        return route('tw-stock.financial-reports.index', [
             ...request()->except('page'),
+            'quarter' => $quarter,
             'sort' => $key,
             'direction' => $sort === $key
                 ? ($direction === 'asc' ? 'desc' : 'asc')
@@ -1158,25 +1196,26 @@
 <main class="shell">
     <header class="topbar">
         <div>
-            <h1>{{ $year }} Q1 財報評分排名</h1>
+            <h1>{{ $year }} Q{{ $quarter }} 財報評分排名</h1>
             <div class="meta">
-                只列入已公布 Q1 財報且符合 1,000 張以上流動性門檻的普通股，排序依 EPS YoY、毛利率、營益率、淨利率加權評分由高到低。
+                只列入已公布 Q{{ $quarter }} 財報且符合 1,000 張以上流動性門檻的普通股，排序依 EPS YoY、毛利率、營益率、淨利率加權評分由高到低。
             </div>
         </div>
-        <nav class="nav-actions" aria-label="台股頁面">
-            <a class="active" href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
-            <a href="{{ route('tw-stock.annual-comparison.index') }}">年度比較</a>
-            <a href="{{ route('tw-stock.daily-prices.index') }}">每日漲幅</a>
-            <a href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
-            <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
-            <a href="{{ route('tw-stock.monthly-revenues.index') }}">月營收</a>
-            @include('tw-stock.partials.eps-growth-ranking-nav-link')
-            <a href="{{ route('tw-stock.active-etf-operations.index') }}">主動ETF</a>
-            <a href="{{ route('tw-stock.taiex-futures.kline') }}">台指期K線</a>
+        <nav class="sx-segment" aria-label="財報季度">
+            @foreach ([1, 2, 3, 4] as $quarterOption)
+                @if (in_array($quarterOption, $availableQuarters, true))
+                    <a class="{{ $quarterOption === $quarter ? 'active' : '' }}" href="{{ route('tw-stock.financial-reports.index', [...request()->except(['page', 'quarter']), 'quarter' => $quarterOption]) }}" @if ($quarterOption === $quarter) aria-current="page" @endif>
+                        Q{{ $quarterOption }}<small>{{ $year }}</small>
+                    </a>
+                @elseif ($quarterOption <= 2)
+                    <span class="disabled" aria-disabled="true" title="{{ $year }} Q{{ $quarterOption }} 尚未公布">Q{{ $quarterOption }}<small>未公布</small></span>
+                @endif
+            @endforeach
         </nav>
+        @include('tw-stock.partials.nav', ['navClass' => 'nav-actions'])
     </header>
 
-    <section class="summary-grid" aria-label="Q1 財報摘要">
+    <section class="summary-grid" aria-label="Q{{ $quarter }} 財報摘要">
         <article class="summary-card">
             <div class="label">已入榜股票</div>
             <div class="value">{{ number_format($totalRows) }}</div>
@@ -1200,7 +1239,8 @@
     </section>
 
     <section class="filter-panel" aria-label="篩選">
-        <form class="filters" method="get" action="{{ route('tw-stock.q1-financial-reports.index') }}" data-auto-submit-form>
+        <form class="filters" method="get" action="{{ route('tw-stock.financial-reports.index') }}" data-auto-submit-form>
+            <input type="hidden" name="quarter" value="{{ $quarter }}">
             <input type="hidden" name="sort" value="{{ $sort }}">
             <input type="hidden" name="direction" value="{{ $direction }}">
             <label class="filter-field">
@@ -1259,7 +1299,7 @@
         </form>
     </section>
 
-    <section id="q1-report-table" class="table-panel" aria-label="Q1 財報排名表">
+    <section id="q1-report-table" class="table-panel" aria-label="Q{{ $quarter }} 財報排名表">
         <div class="table-head">
             <h2 class="panel-title">公開資訊比較表</h2>
             <div class="count-text">
@@ -1268,7 +1308,7 @@
         </div>
 
         @if ($rows->isEmpty())
-            <div class="empty">目前沒有符合條件的 Q1 財報資料。</div>
+            <div class="empty">目前沒有符合條件的 Q{{ $quarter }} 財報資料。</div>
         @else
             <div class="table-wrap" data-sticky-table-wrap>
                 <table>
@@ -1305,12 +1345,12 @@
                             <td data-label="分組"><span class="group-badge">{{ $group['label'] }}</span></td>
                             <td data-label="股票">
                                 <div class="stock-code">
-                                    <button class="copy-stock" type="button" data-copy-value="{{ $row->stock_code }}" data-tooltip="點一下複製代碼" title="點一下複製代碼" aria-label="複製股票代碼 {{ $row->stock_code }}">
+                                    <button class="copy-stock" type="button" data-copy-value="{{ $row->stock_code }}" aria-label="複製股票代碼 {{ $row->stock_code }}">
                                         {{ $row->stock_code }}
                                     </button>
                                 </div>
                                 <div class="stock-name">
-                                    <button class="copy-stock" type="button" data-copy-value="{{ $row->stock_name }}" data-tooltip="點一下複製名稱" title="點一下複製名稱" aria-label="複製股票名稱 {{ $row->stock_name }}">
+                                    <button class="copy-stock" type="button" data-copy-value="{{ $row->stock_name }}" aria-label="複製股票名稱 {{ $row->stock_name }}">
                                         {{ $row->stock_name }}
                                     </button>
                                 </div>
@@ -1324,7 +1364,7 @@
                                     </div>
                                 @endif
                             </td>
-                            <td data-label="Q1整體財報評分">
+                            <td data-label="Q{{ $quarter }}整體財報評分">
                                 <div class="score-cell">
                                     <span class="score-value">{{ $fmt($row->q1_revenue_score, 2) }}</span>
                                     <span class="score-track" aria-hidden="true">
@@ -1332,9 +1372,9 @@
                                     </span>
                                 </div>
                             </td>
-                            <td data-label="Q1營收(億)">{{ $fmt($row->q1_revenue_billion, 2) }}</td>
+                            <td data-label="Q{{ $quarter }}營收(億)">{{ $fmt($row->q1_revenue_billion, 2) }}</td>
                             <td data-label="營收YoY" class="{{ $pctClass($row->q1_revenue_yoy_percent) }}">{{ $pctShort($row->q1_revenue_yoy_percent) }}</td>
-                            <td data-label="Q1 EPS">{{ $fmt($row->q1_eps, 2) }}</td>
+                            <td data-label="Q{{ $quarter }} EPS">{{ $fmt($row->q1_eps, 2) }}</td>
                             <td data-label="EPS YoY" class="{{ $pctClass($row->q1_eps_yoy_percent) }}">{{ $pctShort($row->q1_eps_yoy_percent) }}</td>
                             <td data-label="毛利率">{{ $pctShort($row->q1_gross_margin_percent) }}</td>
                             <td data-label="營益率">{{ $pctShort($row->q1_operating_margin_percent) }}</td>
@@ -1368,7 +1408,7 @@
                                         <div class="sub">PE {{ $fmt($reasonablePeRatio, 1) }}x</div>
                                         @if ($revenueMomentumPercent !== null && $revenuePeAdjustmentPercent !== null)
                                             <div class="pe-adjustment-note {{ $pctClass($revenueMomentumPercent) }}">
-                                                月營收 vs Q1均 {{ $signedPct($revenueMomentumPercent) }} / PE {{ $signedPct($revenuePeAdjustmentPercent) }}
+                                                月營收 vs Q{{ $quarter }}均 {{ $signedPct($revenueMomentumPercent) }} / PE {{ $signedPct($revenuePeAdjustmentPercent) }}
                                             </div>
                                         @endif
                                         @if ($valuationGroup && $valuationGroupPe)
@@ -1518,35 +1558,6 @@
         if (event.target.closest('[data-tooltip]')) {
             hideCopyTooltip();
         }
-    });
-
-    document.addEventListener('click', async (event) => {
-        const button = event.target.closest('.copy-stock');
-        if (!button) {
-            return;
-        }
-
-        const value = button.dataset.copyValue || button.textContent.trim();
-        try {
-            await navigator.clipboard.writeText(value);
-        } catch (error) {
-            const textarea = document.createElement('textarea');
-            textarea.value = value;
-            textarea.setAttribute('readonly', 'readonly');
-            textarea.style.position = 'fixed';
-            textarea.style.opacity = '0';
-            document.body.appendChild(textarea);
-            textarea.select();
-            document.execCommand('copy');
-            textarea.remove();
-        }
-
-        button.classList.add('copied');
-        showCopyTooltip(button, '已複製');
-        copyTooltipTimer = window.setTimeout(() => {
-            button.classList.remove('copied');
-            hideCopyTooltip();
-        }, 900);
     });
 
     window.addEventListener('scroll', hideCopyTooltip, { passive: true });

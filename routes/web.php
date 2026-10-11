@@ -38,6 +38,7 @@ use App\Http\Controllers\TestImageController;
 use App\Http\Controllers\TwActiveEtfOperationController;
 use App\Http\Controllers\TwStockDailyPriceController;
 use App\Http\Controllers\TwStockEpsGrowthRankingController;
+use App\Http\Controllers\TwStockPortalController;
 use App\Http\Controllers\TwFuturesHourlyPriceController;
 use App\Http\Controllers\TwStockInstitutionalFlowController;
 use App\Http\Controllers\TwStockMonthlyRevenueController;
@@ -162,7 +163,7 @@ Route::post('/command-runner/stop', [CommandRunnerController::class, 'stop'])->n
 
 // 靜態頁面和身份驗證頁面
 Route::domain('stock.mystar.monster')
-    ->get('/', [TwFuturesHourlyPriceController::class, 'index'])
+    ->get('/', [TwStockPortalController::class, 'index'])
     ->name('stock.home');
 
 Route::get('/', function () {
@@ -264,7 +265,9 @@ Route::get('/btdig/images/{image}', [BtdigController::class, 'image'])->name('bt
 Route::post('/btdig/mark-copied', [BtdigController::class, 'markCopied'])->name('btdig.markCopied');
 Route::get('/crawler/85sugarbaby', [CrawlerProfileController::class, 'index'])->name('crawler.profiles');
 Route::get('/crawler/85sugarbaby/session/login', [CrawlerProfileController::class, 'loginSession'])->name('crawler.profiles.login-session');
-Route::get('/tw-stock/q1-financial-reports', [TwStockQ1FinancialReportController::class, 'index'])->name('tw-stock.q1-financial-reports.index');
+Route::get('/tw-stock/financial-reports', [TwStockQ1FinancialReportController::class, 'index'])->name('tw-stock.financial-reports.index');
+Route::get('/tw-stock/q1-financial-reports', fn (\Illuminate\Http\Request $request) => redirect()->route('tw-stock.financial-reports.index', ['quarter' => 1, ...$request->query()], 301))
+    ->name('tw-stock.q1-financial-reports.index');
 Route::get('/tw-stock/annual-financial-comparison', [TwStockQ1FinancialReportController::class, 'annualComparison'])->name('tw-stock.annual-comparison.index');
 Route::get('/tw-stock/monthly-revenue-rankings', [TwStockMonthlyRevenueController::class, 'index'])->name('tw-stock.monthly-revenues.index');
 Route::get('/tw-stock/daily-price-rankings', [TwStockDailyPriceController::class, 'index'])->name('tw-stock.daily-prices.index');
@@ -289,7 +292,7 @@ Route::get('/tw-stock/taiex-index-kline/data', [TwStockTaiexIndexController::cla
 Route::get('/tw-stock/upcoming-dividends', [TwStockUpcomingDividendController::class, 'index'])->name('tw-stock.upcoming-dividends.index');
 Route::get('/tw-stock/active-etf-operations', [TwActiveEtfOperationController::class, 'index'])->name('tw-stock.active-etf-operations.index');
 Route::get('/tw-stock/institutional-flows', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.institutional-flows.index');
-Route::get('/tw-stock', [TwStockInstitutionalFlowController::class, 'index'])->name('tw-stock.index');
+Route::get('/tw-stock', [TwStockPortalController::class, 'index'])->name('tw-stock.index');
 Route::get('/tw-stock/esun-portfolio', [EsunPortfolioController::class, 'index'])->name('tw-stock.esun-portfolio.index');
 Route::get('/tw-stock/esun-portfolio/data', [EsunPortfolioController::class, 'data'])->name('tw-stock.esun-portfolio.data');
 Route::get('/tw-stock/esun-portfolio/quotes', [EsunPortfolioController::class, 'quotes'])->name('tw-stock.esun-portfolio.quotes');

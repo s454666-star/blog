@@ -187,7 +187,7 @@ class TwStockEpsGrowthRankingsTest extends TestCase
 
         $this->get(route('tw-stock.eps-growth-rankings.index'))
             ->assertOk()
-            ->assertSee('EPS 三年成長')
+            ->assertSee('台股三年 EPS 成長排行')
             ->assertSee('歷史週快照')
             ->assertDontSee('營收成長預估')
             ->assertDontSee('三段合計')

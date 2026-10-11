@@ -447,18 +447,7 @@
             </div>
         </div>
         <div class="top-actions">
-            <nav class="nav-actions" aria-label="台股頁面">
-                <a href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
-                <a href="{{ route('tw-stock.annual-comparison.index') }}">年度比較</a>
-                <a href="{{ route('tw-stock.daily-prices.index') }}">每日漲幅</a>
-                <a class="active" href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
-                <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
-                <a href="{{ route('tw-stock.monthly-revenues.index') }}">月營收</a>
-                @include('tw-stock.partials.eps-growth-ranking-nav-link')
-                <a href="{{ route('tw-stock.active-etf-operations.index') }}">主動ETF</a>
-                <a href="{{ route('tw-stock.taiex-index.kline') }}">加權指數K線</a>
-                <a href="{{ route('tw-stock.taiex-futures.kline') }}">台指期K線</a>
-            </nav>
+            @include('tw-stock.partials.nav', ['navClass' => 'nav-actions'])
             <nav class="segments" aria-label="天數切換">
                 @foreach ($allowedDays as $allowedDay)
                     <a href="{{ route('tw-stock.institutional-flows.index', ['days' => $allowedDay]) }}"

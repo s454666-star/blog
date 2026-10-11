@@ -64,8 +64,8 @@
                         </td>
                         <td>
                             <div class="stock-line">
-                                <strong>{{ $item->stock_name }}</strong>
-                                <span>{{ $item->stock_code }}</span>
+                                <strong data-copy-value="{{ $item->stock_name }}">{{ $item->stock_name }}</strong>
+                                <span data-copy-value="{{ $item->stock_code }}">{{ $item->stock_code }}</span>
                             </div>
                         </td>
                     </tr>
@@ -86,8 +86,8 @@
                     </div>
                     <div class="operation-card-body">
                         <div class="stock-line">
-                            <strong>{{ $item->stock_name }}</strong>
-                            <span>{{ $item->stock_code }}</span>
+                            <strong data-copy-value="{{ $item->stock_name }}">{{ $item->stock_name }}</strong>
+                            <span data-copy-value="{{ $item->stock_code }}">{{ $item->stock_code }}</span>
                         </div>
                         <div class="operation-metrics">
                             <div class="mobile-metric">

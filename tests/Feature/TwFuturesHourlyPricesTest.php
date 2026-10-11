@@ -324,14 +324,14 @@ class TwFuturesHourlyPricesTest extends TestCase
         }
     }
 
-    public function test_stock_domain_home_renders_taiex_futures_kline_page(): void
+    public function test_stock_domain_home_renders_workspace_portal_instead_of_futures_chart(): void
     {
-        $this->seedHourlyRows();
-
         $this->get('http://stock.mystar.monster/')
             ->assertOk()
+            ->assertSee('Star 台股資訊站')
             ->assertSee('台指期 15K 差值 K 線')
-            ->assertSee('data-summary-field="latestClose"', false);
+            ->assertSee('/tw-stock/taiex-futures-kline', false)
+            ->assertDontSee('data-summary-field="latestClose"', false);
     }
 
     public function test_taiex_futures_kline_data_endpoint_returns_chart_payload(): void

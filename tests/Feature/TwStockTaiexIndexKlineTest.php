@@ -81,7 +81,8 @@ class TwStockTaiexIndexKlineTest extends TestCase
 
         $this->get(route('tw-stock.index'))
             ->assertOk()
-            ->assertSee('加權指數K線')
+            ->assertSee('加權指數 K 線')
+            ->assertSee(route('tw-stock.taiex-index.kline'), false)
             ->assertDontSee('id="taiexChart"', false);
     }
 

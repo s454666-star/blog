@@ -252,13 +252,13 @@
 
         tbody tr:hover .code {
             color: #ffffff;
-            border-color: var(--red);
-            background: var(--red);
-            box-shadow: 0 8px 18px rgba(220, 38, 38, 0.22);
+            border-color: transparent;
+            background: linear-gradient(135deg, #0080ff, #2894ff);
+            box-shadow: 0 8px 18px rgba(0, 128, 255, 0.25);
         }
 
         tbody tr:hover .name {
-            color: #991b1b;
+            color: #0062d6;
         }
 
         .stock {
@@ -275,10 +275,10 @@
             min-width: 58px;
             min-height: 30px;
             padding: 0 10px;
-            border: 1px solid #fecaca;
-            border-radius: 8px;
-            color: #991b1b;
-            background: #fef2f2;
+            border: 1px solid #cfe3fb;
+            border-radius: 9px;
+            color: #0062d6;
+            background: #eef6ff;
             font-weight: 900;
         }
 
@@ -463,17 +463,7 @@
                 除權息隔天自動不顯示；殖利率以本次現金股利 ÷ 最新收盤價估算
             </div>
         </div>
-        <nav class="nav-actions" aria-label="台股頁面">
-            <a href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
-            <a href="{{ route('tw-stock.annual-comparison.index') }}">年度比較</a>
-            <a href="{{ route('tw-stock.daily-prices.index') }}">每日漲幅</a>
-            <a href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
-            <a class="active" href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
-            <a href="{{ route('tw-stock.monthly-revenues.index') }}">月營收</a>
-            @include('tw-stock.partials.eps-growth-ranking-nav-link')
-            <a href="{{ route('tw-stock.active-etf-operations.index') }}">主動ETF</a>
-            <a href="{{ route('tw-stock.taiex-futures.kline') }}">台指期K線</a>
-        </nav>
+        @include('tw-stock.partials.nav', ['navClass' => 'nav-actions'])
     </header>
 
     <section class="summary-grid">
@@ -531,9 +521,9 @@
                             <tr>
                                 <td>
                                     <div class="stock">
-                                        <span class="code">{{ $row->stock_code }}</span>
+                                        <span class="code" data-copy-value="{{ $row->stock_code }}">{{ $row->stock_code }}</span>
                                         <div>
-                                            <div class="name">{{ $row->stock_name }}</div>
+                                            <div class="name"><span data-copy-value="{{ $row->stock_name }}">{{ $row->stock_name }}</span></div>
                                             <div class="market">{{ $row->exchange === 'TWSE' ? '上市' : '上櫃' }} · {{ $row->ex_dividend_type }}</div>
                                         </div>
                                     </div>

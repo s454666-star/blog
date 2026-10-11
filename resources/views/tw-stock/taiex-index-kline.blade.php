@@ -7,18 +7,18 @@
     <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         :root {
-            --bg: #0d1117;
-            --panel: #141a23;
-            --panel-soft: #19212d;
-            --line: #2a3443;
-            --text: #edf2f7;
-            --muted: #94a3b8;
+            --bg: #f2f7ff;
+            --panel: #ffffff;
+            --panel-soft: #f6faff;
+            --line: #dbe8f8;
+            --text: #0f2747;
+            --muted: #5b6f8c;
             --red: #ef5350;
             --green: #26a69a;
             --orange: #f59e0b;
             --violet: #a78bfa;
-            --blue: #60a5fa;
-            --cyan: #22d3ee;
+            --blue: #0080ff;
+            --cyan: #0098d6;
         }
 
         * { box-sizing: border-box; }
@@ -94,8 +94,8 @@
             padding: 0 13px;
             border: 1px solid var(--line);
             border-radius: 8px;
-            color: #dbe3ee;
-            background: rgba(20, 26, 35, 0.94);
+            color: #29425f;
+            background: #ffffff;
             text-decoration: none;
             font-size: 13px;
             font-weight: 850;
@@ -104,9 +104,9 @@
 
         .nav-actions a.active,
         .interval-button.active {
-            border-color: rgba(96, 165, 250, 0.72);
-            color: #eff6ff;
-            background: rgba(37, 99, 235, 0.34);
+            border-color: transparent;
+            color: #ffffff;
+            background: linear-gradient(135deg, #0080ff, #2894ff);
         }
 
         .summary-grid {
@@ -121,7 +121,7 @@
         .analysis-note {
             border: 1px solid var(--line);
             border-radius: 10px;
-            background: rgba(20, 26, 35, 0.96);
+            background: rgba(255, 255, 255, 0.94);
             box-shadow: 0 14px 38px rgba(0, 0, 0, 0.2);
         }
 
@@ -161,7 +161,7 @@
             gap: 14px;
             padding: 12px 14px;
             border-bottom: 1px solid var(--line);
-            background: rgba(25, 33, 45, 0.92);
+            background: #f6faff;
         }
 
         .intervals { flex-wrap: wrap; }
@@ -205,7 +205,7 @@
         .hover-cell {
             min-height: 50px;
             padding: 9px 11px;
-            background: #111720;
+            background: #ffffff;
             font-variant-numeric: tabular-nums;
         }
 
@@ -230,7 +230,7 @@
             position: relative;
             height: min(680px, calc(100vh - 310px));
             min-height: 460px;
-            background: #0f141c;
+            background: #ffffff;
         }
 
         #taiexChart {
@@ -246,10 +246,10 @@
             left: 50%;
             max-width: calc(100% - 32px);
             padding: 9px 13px;
-            border: 1px solid rgba(96, 165, 250, 0.42);
-            border-radius: 8px;
-            color: #dbeafe;
-            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid #cfe3fb;
+            border-radius: 10px;
+            color: #0062d6;
+            background: rgba(255, 255, 255, 0.95);
             font-size: 12px;
             font-weight: 800;
             transform: translateX(-50%);
@@ -257,9 +257,9 @@
         }
 
         .chart-message.error {
-            border-color: rgba(248, 113, 113, 0.52);
-            color: #fecaca;
-            background: rgba(69, 10, 10, 0.9);
+            border-color: #fecaca;
+            color: #b91c1c;
+            background: #fff1f2;
         }
 
         .chart-message[hidden] { display: none; }
@@ -277,7 +277,7 @@
 
         .refresh-status {
             flex: 0 0 auto;
-            color: #bfdbfe;
+            color: #0062d6;
             font-weight: 800;
             white-space: nowrap;
         }
@@ -328,15 +328,7 @@
             <h1>加權指數 K 線分析</h1>
             <span class="symbol">TAIEX · 現貨指數 · TWSE</span>
         </div>
-        <nav class="nav-actions" aria-label="台股頁面">
-            <a href="{{ route('tw-stock.index') }}">法人資金</a>
-            <a href="{{ route('tw-stock.daily-prices.index') }}">每日漲幅</a>
-            <a href="{{ route('tw-stock.monthly-revenues.index') }}">月營收</a>
-            @include('tw-stock.partials.eps-growth-ranking-nav-link')
-            <a href="{{ route('tw-stock.active-etf-operations.index') }}">主動ETF</a>
-            <a class="active" href="{{ route('tw-stock.taiex-index.kline') }}">加權指數K線</a>
-            <a href="{{ route('tw-stock.taiex-futures.kline') }}">台指期K線</a>
-        </nav>
+        @include('tw-stock.partials.nav', ['navClass' => 'nav-actions'])
     </header>
 
     <section class="summary-grid" aria-label="加權指數摘要">
@@ -505,22 +497,22 @@
 
     const chart = LightweightCharts.createChart(chartElement, {
         layout: {
-            background: { color: '#0f141c' },
-            textColor: '#cbd5e1',
+            background: { color: '#ffffff' },
+            textColor: '#29425f',
         },
         grid: {
-            vertLines: { color: 'rgba(148, 163, 184, 0.12)' },
-            horzLines: { color: 'rgba(148, 163, 184, 0.12)' },
+            vertLines: { color: 'rgba(15, 39, 71, 0.06)' },
+            horzLines: { color: 'rgba(15, 39, 71, 0.06)' },
         },
         crosshair: {
             mode: LightweightCharts.CrosshairMode.Normal,
             vertLine: {
-                color: 'rgba(226, 232, 240, 0.78)',
+                color: 'rgba(0, 98, 214, 0.55)',
                 width: 1,
                 style: LightweightCharts.LineStyle.LargeDashed,
                 visible: true,
                 labelVisible: true,
-                labelBackgroundColor: '#334155',
+                labelBackgroundColor: '#0062d6',
             },
             horzLine: {
                 color: 'rgba(250, 204, 21, 0.88)',
@@ -536,11 +528,11 @@
             timeFormatter: formatTime,
         },
         rightPriceScale: {
-            borderColor: '#2a3443',
+            borderColor: '#dbe8f8',
             scaleMargins: { top: 0.08, bottom: 0.22 },
         },
         timeScale: {
-            borderColor: '#2a3443',
+            borderColor: '#dbe8f8',
             timeVisible: true,
             secondsVisible: false,
             rightOffset: 4,
@@ -578,7 +570,7 @@
         lastValueVisible: false,
     });
     const highTrendSeries = chart.addLineSeries({
-        color: '#22d3ee',
+        color: '#0098d6',
         lineWidth: 3,
         priceLineVisible: false,
         lastValueVisible: true,

@@ -3,26 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="dark">
     <title>台股三年 EPS 成長排行</title>
     <style>
         :root {
-            --bg-deep: #050816;
-            --bg-mid: #09112a;
-            --panel: rgba(11, 20, 48, 0.78);
-            --panel-strong: rgba(14, 26, 60, 0.94);
-            --line: rgba(142, 175, 255, 0.18);
-            --line-hot: rgba(99, 218, 255, 0.48);
-            --text: #f4f7ff;
-            --muted: #9daed1;
-            --cyan: #67e8f9;
-            --blue: #8aa8ff;
-            --violet: #c4a7ff;
-            --gold: #ffd875;
-            --up: #ff6b83;
-            --down: #45d6a4;
-            --flat: #9aa8c5;
-            --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+            --bg: #f2f7ff;
+            --panel: rgba(255, 255, 255, 0.93);
+            --panel-strong: #ffffff;
+            --line: #dbe8f8;
+            --line-hot: #8db8ec;
+            --text: #0f2747;
+            --muted: #5b6f8c;
+            --cyan: #0098d6;
+            --blue: #0080ff;
+            --violet: #6b4fe0;
+            --gold: #b7791f;
+            --up: #e5364b;
+            --down: #0f9960;
+            --flat: #7b8ea8;
+            --shadow: 0 16px 44px rgba(18, 74, 160, 0.10);
         }
 
         * { box-sizing: border-box; }
@@ -33,49 +31,13 @@
             margin: 0;
             min-height: 100vh;
             color: var(--text);
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
-            background:
-                radial-gradient(circle at 14% 4%, rgba(69, 93, 255, 0.28), transparent 32rem),
-                radial-gradient(circle at 88% 12%, rgba(0, 224, 255, 0.18), transparent 28rem),
-                radial-gradient(circle at 60% 90%, rgba(153, 80, 255, 0.16), transparent 34rem),
-                linear-gradient(145deg, var(--bg-deep), var(--bg-mid) 52%, #071227);
+            font-family: "Segoe UI", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+            background: var(--bg);
             overflow-x: hidden;
         }
 
-        body::before {
-            content: "";
-            position: fixed;
-            inset: 0;
-            pointer-events: none;
-            opacity: 0.28;
-            background-image:
-                linear-gradient(rgba(105, 142, 220, 0.08) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(105, 142, 220, 0.08) 1px, transparent 1px);
-            background-size: 48px 48px;
-            mask-image: linear-gradient(to bottom, black, transparent 88%);
-        }
-
-        .aurora {
-            position: fixed;
-            width: 34rem;
-            height: 34rem;
-            border-radius: 50%;
-            filter: blur(85px);
-            opacity: 0.18;
-            pointer-events: none;
-            animation: drift 15s ease-in-out infinite alternate;
-        }
-
-        .aurora.one { top: -14rem; right: 6%; background: #36d9ff; }
-        .aurora.two { bottom: -17rem; left: 8%; background: #8259ff; animation-delay: -6s; }
-
-        @keyframes drift {
-            from { transform: translate3d(-4%, -2%, 0) scale(0.92); }
-            to { transform: translate3d(8%, 9%, 0) scale(1.12); }
-        }
-
         @keyframes rise {
-            from { opacity: 0; transform: translateY(16px); }
+            from { opacity: 0; transform: translateY(14px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
@@ -89,181 +51,68 @@
 
         .glass {
             border: 1px solid var(--line);
-            background: linear-gradient(145deg, rgba(16, 29, 66, 0.82), rgba(7, 15, 38, 0.74));
-            box-shadow: var(--shadow), inset 0 1px rgba(255, 255, 255, 0.04);
-            backdrop-filter: blur(20px);
+            background: var(--panel);
+            box-shadow: var(--shadow);
         }
 
         .hero {
             position: relative;
-            overflow: hidden;
-            padding: clamp(24px, 4vw, 48px);
-            border-radius: 30px;
             animation: rise 0.6s ease both;
-        }
-
-        .hero::after {
-            content: "EPS";
-            position: absolute;
-            right: clamp(12px, 5vw, 70px);
-            bottom: -34px;
-            color: rgba(127, 229, 255, 0.055);
-            font-size: clamp(8rem, 18vw, 17rem);
-            font-weight: 950;
-            line-height: 1;
-            letter-spacing: -0.09em;
-            pointer-events: none;
-        }
-
-        .eyebrow {
-            display: inline-flex;
-            align-items: center;
-            gap: 9px;
-            margin-bottom: 14px;
-            color: var(--cyan);
-            font-size: 0.76rem;
-            font-weight: 800;
-            letter-spacing: 0.16em;
-            text-transform: uppercase;
-        }
-
-        .eyebrow::before {
-            content: "";
-            width: 28px;
-            height: 2px;
-            background: linear-gradient(90deg, var(--cyan), transparent);
-            box-shadow: 0 0 16px var(--cyan);
-        }
-
-        h1 {
-            max-width: 900px;
-            margin: 0;
-            font-size: clamp(2.15rem, 5vw, 5.2rem);
-            line-height: 0.98;
-            letter-spacing: -0.055em;
-        }
-
-        h1 span {
-            color: transparent;
-            background: linear-gradient(100deg, #ffffff 10%, var(--cyan) 48%, var(--violet));
-            background-clip: text;
-            -webkit-background-clip: text;
-        }
-
-        .hero-copy {
-            max-width: 850px;
-            margin: 20px 0 0;
-            color: #bec9e4;
-            font-size: clamp(0.94rem, 1.45vw, 1.08rem);
-            line-height: 1.8;
         }
 
         .hero-meta {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 24px;
+            gap: 8px;
         }
 
         .meta-pill {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            min-height: 34px;
-            padding: 7px 13px;
-            border: 1px solid rgba(143, 181, 255, 0.23);
+            min-height: 32px;
+            padding: 6px 13px;
+            border: 1px solid rgba(255, 255, 255, 0.32);
             border-radius: 999px;
-            color: #d7e2fb;
-            background: rgba(5, 13, 34, 0.54);
-            font-size: 0.78rem;
+            font-size: 12px;
             font-weight: 700;
         }
 
         .meta-pill strong { color: #fff; }
-
-        .nav-actions {
-            display: flex;
-            gap: 8px;
-            margin: 16px 0 0;
-            padding: 10px;
-            overflow-x: auto;
-            border: 1px solid rgba(139, 171, 244, 0.16);
-            border-radius: 18px;
-            background: rgba(4, 10, 27, 0.74);
-            scrollbar-width: thin;
-        }
-
-        .nav-actions a {
-            flex: 0 0 auto;
-            padding: 9px 13px;
-            border: 1px solid transparent;
-            border-radius: 11px;
-            color: #9fb0d1;
-            font-size: 0.78rem;
-            font-weight: 750;
-            text-decoration: none;
-            transition: 0.22s ease;
-        }
-
-        .nav-actions a:hover {
-            color: #fff;
-            border-color: rgba(103, 232, 249, 0.28);
-            background: rgba(83, 144, 255, 0.12);
-            transform: translateY(-1px);
-        }
-
-        .nav-actions a.active {
-            color: #071324;
-            background: linear-gradient(110deg, var(--cyan), #9db6ff);
-            box-shadow: 0 8px 24px rgba(103, 232, 249, 0.22);
-        }
 
         .snapshot-picker {
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 14px;
-            margin-top: 12px;
-            padding: 12px 14px;
-            border: 1px solid rgba(139, 171, 244, 0.16);
+            padding: 10px 12px 10px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
             border-radius: 16px;
-            background: rgba(4, 10, 27, 0.64);
+            background: rgba(0, 40, 120, 0.16);
         }
 
         .snapshot-picker label {
-            color: #aebddd;
-            font-size: 0.76rem;
-            font-weight: 780;
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+            font-weight: 750;
         }
 
         .snapshot-picker select {
-            min-width: min(300px, 52vw);
-            min-height: 39px;
-            padding: 0 36px 0 12px;
-            border: 1px solid rgba(103, 232, 249, 0.3);
-            border-radius: 11px;
-            outline: none;
-            color: #f4f7ff;
-            background: #0b1735;
-            font: inherit;
-            font-size: 0.78rem;
-            font-weight: 800;
-            cursor: pointer;
+            min-width: min(320px, 52vw);
+            font-size: 13px;
+            font-weight: 750;
         }
 
         .summary-grid {
             display: grid;
             grid-template-columns: repeat(6, minmax(0, 1fr));
             gap: 12px;
-            margin: 16px 0;
+            margin: 0 0 16px;
         }
 
         .summary-card {
-            position: relative;
-            overflow: hidden;
-            min-height: 126px;
-            padding: 20px;
-            border-radius: 20px;
+            min-height: 120px;
+            padding: 18px 20px;
             animation: rise 0.62s ease both;
         }
 
@@ -271,39 +120,25 @@
         .summary-card:nth-child(3) { animation-delay: 0.08s; }
         .summary-card:nth-child(4) { animation-delay: 0.12s; }
         .summary-card:nth-child(5) { animation-delay: 0.16s; }
-
-        .summary-card::after {
-            content: "";
-            position: absolute;
-            width: 100px;
-            height: 100px;
-            right: -45px;
-            bottom: -45px;
-            border-radius: 50%;
-            background: var(--accent, var(--cyan));
-            filter: blur(28px);
-            opacity: 0.18;
-        }
+        .summary-card:nth-child(6) { animation-delay: 0.2s; }
 
         .summary-label {
-            color: var(--muted);
-            font-size: 0.72rem;
-            font-weight: 780;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
+            font-size: 12px;
+            font-weight: 750;
+            letter-spacing: 0.05em;
         }
 
         .summary-value {
-            margin-top: 12px;
-            font-size: clamp(1.55rem, 2.6vw, 2.4rem);
+            margin-top: 10px;
+            font-size: clamp(1.5rem, 2.4vw, 2.2rem);
             font-weight: 900;
-            line-height: 1;
+            line-height: 1.05;
         }
 
         .summary-note {
-            margin-top: 9px;
-            color: #8fa2c8;
-            font-size: 0.72rem;
+            margin-top: 8px;
+            color: var(--muted);
+            font-size: 12px;
         }
 
         .toolbar {
@@ -311,71 +146,73 @@
             grid-template-columns: minmax(240px, 1fr) auto auto auto auto;
             gap: 10px;
             align-items: center;
-            margin-bottom: 12px;
+            margin-bottom: 14px;
             padding: 12px;
-            border-radius: 18px;
         }
 
         .search-box {
             display: flex;
             align-items: center;
             gap: 9px;
-            min-height: 42px;
-            padding: 0 13px;
-            border: 1px solid var(--line);
+            min-height: 44px;
+            padding: 0 14px;
+            border: 1px solid var(--line-hot);
             border-radius: 12px;
-            background: rgba(3, 9, 25, 0.7);
+            color: var(--blue);
+            background: #fff;
         }
 
-        .search-box input {
+        .search-box:focus-within { border-color: var(--blue); box-shadow: 0 0 0 4px rgba(0, 128, 255, 0.16); }
+
+        .tw-stock-experience .search-box input {
             width: 100%;
+            min-height: 0;
+            padding: 0;
             border: 0;
             outline: 0;
-            color: #fff;
+            color: var(--text);
             background: transparent;
+            box-shadow: none !important;
             font: inherit;
         }
-
-        .search-box input::placeholder { color: #6f80a3; }
 
         .eps-basis-picker {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 8px;
         }
 
         .toggle {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            min-height: 42px;
-            padding: 0 13px;
+            min-height: 44px;
+            padding: 0 14px;
             border: 1px solid var(--line);
             border-radius: 12px;
-            color: #b8c5df;
-            background: rgba(3, 9, 25, 0.62);
-            font-size: 0.76rem;
-            font-weight: 750;
+            color: var(--text);
+            background: #fff;
+            font-size: 13px;
+            font-weight: 700;
             cursor: pointer;
+            transition: border-color 0.16s ease, background-color 0.16s ease;
         }
 
-        .toggle input { accent-color: var(--cyan); }
+        .toggle:hover { border-color: var(--line-hot); }
+        .toggle:has(input:checked) { border-color: var(--blue); color: #0062d6; background: #e8f3ff; box-shadow: 0 0 0 1px rgba(0, 128, 255, 0.2); }
 
         .visible-count {
             min-width: 94px;
-            color: var(--cyan);
+            color: var(--blue);
             text-align: right;
-            font-size: 0.78rem;
-            font-weight: 850;
+            font-size: 13px;
+            font-weight: 800;
         }
 
         .table-panel {
             overflow: hidden;
-            border-radius: 22px;
             animation: rise 0.7s 0.1s ease both;
         }
-
-        .table-scroll { overflow: auto; max-height: 78vh; }
 
         table {
             width: 100%;
@@ -386,68 +223,54 @@
         }
 
         th {
-            position: sticky;
-            top: 0;
-            z-index: 5;
             padding: 13px 11px;
-            border-bottom: 1px solid rgba(126, 160, 232, 0.24);
-            color: #9eb1d7;
-            background: rgba(7, 15, 37, 0.96);
-            font-size: 0.69rem;
-            font-weight: 850;
-            letter-spacing: 0.04em;
+            font-size: 13px;
             text-align: right;
             white-space: nowrap;
-            backdrop-filter: blur(18px);
         }
 
         th:nth-child(1), th:nth-child(2), td:nth-child(1), td:nth-child(2) { text-align: left; }
 
         td {
             padding: 13px 11px;
-            border-bottom: 1px solid rgba(125, 157, 220, 0.1);
-            color: #dbe5fa;
-            font-size: 0.78rem;
+            border-bottom: 1px solid #e2ecf8;
+            color: var(--text);
+            font-size: 13px;
             text-align: right;
             white-space: nowrap;
-            transition: background 0.18s ease, color 0.18s ease;
         }
 
-        tbody tr { background: rgba(7, 14, 34, 0.32); transition: 0.18s ease; }
-        tbody tr:nth-child(even) { background: rgba(20, 34, 69, 0.22); }
-        tbody tr:hover { background: rgba(59, 107, 185, 0.2); }
-        tbody tr:hover td { color: #fff; }
-
-        .rank-cell { font-size: 0.92rem; font-weight: 950; }
+        .rank-cell { font-size: 14px; font-weight: 900; }
 
         .rank-orb {
             display: inline-grid;
             place-items: center;
-            width: 31px;
-            height: 31px;
-            border: 1px solid rgba(133, 173, 255, 0.2);
+            width: 32px;
+            height: 32px;
             border-radius: 10px;
-            background: rgba(17, 31, 68, 0.72);
+            color: #0062d6;
+            background: #e8f3ff;
         }
 
-        tr.top-1 .rank-orb { color: #2b1c00; border-color: #ffe394; background: linear-gradient(135deg, #fff0a4, #f5b942); box-shadow: 0 0 22px rgba(255, 207, 88, 0.32); }
-        tr.top-2 .rank-orb { color: #172033; border-color: #e8efff; background: linear-gradient(135deg, #f6f8ff, #aebed9); }
-        tr.top-3 .rank-orb { color: #2c1606; border-color: #eeb58f; background: linear-gradient(135deg, #f7c5a3, #b9774b); }
+        tr.top-1 .rank-orb { color: #5b3a00; background: linear-gradient(135deg, #ffe58a, #f5b942); box-shadow: 0 6px 16px rgba(245, 185, 66, 0.4); }
+        tr.top-2 .rank-orb { color: #233452; background: linear-gradient(135deg, #f3f6fb, #c3cfe2); }
+        tr.top-3 .rank-orb { color: #4a250b; background: linear-gradient(135deg, #f7c9a8, #d58d5c); }
 
-        .stock-name { color: #fff; font-size: 0.88rem; font-weight: 880; }
-        .stock-group { color: #9fdcf2; font-size: 0.72rem; font-weight: 780; }
-        .stock-meta { margin-top: 3px; color: #7184aa; font-size: 0.67rem; font-weight: 700; }
-        .stock-meta a { color: #8eeaff; text-decoration: none; }
+        .stock-name { color: var(--text); font-size: 14px; font-weight: 850; }
+        .stock-group { color: #0080c8; font-size: 12px; font-weight: 700; }
+        .stock-meta { margin-top: 3px; color: var(--muted); font-size: 11.5px; font-weight: 650; }
+        .stock-meta a { color: var(--blue); text-decoration: none; }
+        .stock-meta a:hover { text-decoration: underline; }
 
-        .price { color: #fff; font-weight: 900; text-align: center; }
-        .price-value { font-size: 0.94rem; }
+        .price { color: var(--text); font-weight: 900; text-align: center; }
+        .price-value { font-size: 15px; }
         .expected-price-value {
             display: inline-flex;
             align-items: baseline;
             gap: 5px;
             white-space: nowrap;
         }
-        .potential-return { font-size: 0.67rem; }
+        .potential-return { font-size: 11px; }
         .moving-average-signals {
             display: flex;
             align-items: center;
@@ -461,14 +284,14 @@
             display: inline-flex;
             align-items: center;
             gap: 4px;
-            font-size: 0.66rem;
-            font-weight: 850;
+            font-size: 11px;
+            font-weight: 800;
             line-height: 1.2;
         }
         .moving-average-signal.above { color: var(--up); }
         .moving-average-signal.below { color: var(--down); }
         .moving-average-signal.unavailable { color: var(--flat); }
-        .moving-average-arrow { font-size: 0.82rem; line-height: 1; }
+        .moving-average-arrow { font-size: 13px; line-height: 1; }
         .positive { color: var(--up); font-weight: 850; }
         .negative { color: var(--down); font-weight: 850; }
 
@@ -478,61 +301,58 @@
             justify-content: center;
             gap: 4px;
             min-width: 92px;
-            padding: 8px 11px;
-            border: 1px solid rgba(255, 211, 105, 0.42);
+            padding: 7px 11px;
             border-radius: 11px;
-            color: #ffd976;
-            background: linear-gradient(135deg, rgba(255, 194, 71, 0.18), rgba(255, 107, 131, 0.08));
-            font-weight: 950;
-            box-shadow: 0 0 24px rgba(255, 194, 71, 0.1), inset 0 0 18px rgba(255, 223, 133, 0.05);
+            color: #fff;
+            background: linear-gradient(135deg, #0080ff, #2894ff 60%, #19c3ff);
+            font-weight: 900;
+            box-shadow: 0 6px 16px rgba(0, 128, 255, 0.25);
         }
 
-        .weighted-score small { color: #9baccc; font-size: 0.62rem; }
+        .weighted-score small { color: rgba(255, 255, 255, 0.78); font-size: 10px; }
 
         .rank-change {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             min-width: 48px;
-            min-height: 29px;
-            padding: 5px 8px;
+            min-height: 28px;
+            padding: 4px 9px;
             border-radius: 999px;
-            font-weight: 950;
+            font-weight: 900;
         }
 
-        .rank-change.up { color: #ffdce2; border: 1px solid rgba(255, 107, 131, 0.35); background: rgba(255, 70, 104, 0.15); }
-        .rank-change.down { color: #b9ffe7; border: 1px solid rgba(69, 214, 164, 0.35); background: rgba(36, 190, 136, 0.13); }
-        .rank-change.flat { color: #aab8d1; border: 1px solid rgba(153, 170, 204, 0.18); background: rgba(112, 129, 164, 0.1); }
+        .rank-change.up { color: #c81e36; background: #ffe8ec; }
+        .rank-change.down { color: #0b7a4c; background: #e3f7ee; }
+        .rank-change.flat { color: #5b6f8c; background: #eef2f8; }
 
         .low-base {
             display: inline-flex;
             margin-left: 5px;
-            padding: 3px 6px;
-            border: 1px solid rgba(255, 216, 117, 0.3);
+            padding: 2px 7px;
             border-radius: 6px;
-            color: #ffe7a5;
-            background: rgba(255, 194, 63, 0.1);
-            font-size: 0.61rem;
-            font-weight: 850;
+            color: #9a5b00;
+            background: #fff3d6;
+            font-size: 11px;
+            font-weight: 800;
         }
 
         .neutral-estimate {
             display: inline-flex;
             margin-left: 5px;
-            padding: 3px 7px;
-            border: 1px solid rgba(196, 167, 255, 0.38);
+            padding: 2px 8px;
             border-radius: 999px;
-            color: #d9c7ff;
-            background: rgba(145, 104, 222, 0.15);
-            font-size: 0.58rem;
-            font-weight: 900;
+            color: #5a3fd0;
+            background: #efeaff;
+            font-size: 10.5px;
+            font-weight: 850;
             vertical-align: middle;
         }
 
         .empty-state {
             padding: 70px 24px;
             border-radius: 22px;
-            color: #b9c6e2;
+            color: var(--muted);
             text-align: center;
         }
 
@@ -544,12 +364,12 @@
             margin-top: 14px;
             padding: 18px 20px;
             border-radius: 18px;
-            color: #9fb0cf;
-            font-size: 0.76rem;
+            color: var(--muted);
+            font-size: 13px;
             line-height: 1.7;
         }
 
-        .formula { color: var(--cyan); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 800; }
+        .formula { color: var(--blue); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 800; }
 
         @media (max-width: 1100px) {
             .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -557,7 +377,6 @@
 
         @media (max-width: 760px) {
             .page-shell { padding-top: 10px; }
-            .hero { border-radius: 22px; }
             .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .toolbar { grid-template-columns: 1fr; }
             .visible-count { text-align: left; }
@@ -566,25 +385,19 @@
             .snapshot-picker select { width: 100%; min-width: 0; }
         }
 
-        @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
-        }
-
         @include('tw-stock.partials.shared-shell-width')
     </style>
     @include('tw-stock.partials.experience-head')
 </head>
 <body class="tw-stock-experience">
-<div class="aurora one"></div>
-<div class="aurora two"></div>
 
 <main class="page-shell">
     @php
         $hasAudit = !empty($run?->forecast_audit);
     @endphp
-    <header class="hero glass">
+    <header class="hero">
         <div class="eyebrow">TW EQUITY GROWTH RADAR</div>
-        <h1>台股三年 <span>EPS 成長排行</span></h1>
+        <h1>台股三年 EPS 成長排行</h1>
         <p class="hero-copy">
             將 2025→2026、2026→2027、2027→2028 三段 EPS 年增率依 1.8：2.5：1 合成，
             再換算為滿分 100 的當週百分位分數，並同步追蹤最新收盤價與前次週排行。
@@ -597,18 +410,7 @@
             <span class="meta-pill">完整樣本 <strong>{{ number_format($run?->eligible_count ?? 0) }} 檔</strong></span>
         </div>
 
-        <nav class="nav-actions" aria-label="台股頁面">
-            <a href="{{ route('tw-stock.q1-financial-reports.index') }}">Q1 排名</a>
-            <a href="{{ route('tw-stock.annual-comparison.index') }}">年度比較</a>
-            <a href="{{ route('tw-stock.daily-prices.index') }}">每日漲幅</a>
-            <a href="{{ route('tw-stock.institutional-flows.index') }}">法人資金</a>
-            <a href="{{ route('tw-stock.upcoming-dividends.index') }}">除權息</a>
-            <a href="{{ route('tw-stock.monthly-revenues.index') }}">月營收</a>
-            <a class="active" href="{{ route('tw-stock.eps-growth-rankings.index') }}">EPS 三年成長</a>
-            <a href="{{ route('tw-stock.active-etf-operations.index') }}">主動 ETF</a>
-            <a href="{{ route('tw-stock.taiex-index.kline') }}">加權指數 K 線</a>
-            <a href="{{ route('tw-stock.taiex-futures.kline') }}">台指期 K 線</a>
-        </nav>
+        @include('tw-stock.partials.nav', ['navClass' => 'nav-actions'])
 
         @if ($availableRuns->isNotEmpty())
             <form class="snapshot-picker" method="get" action="{{ route('tw-stock.eps-growth-rankings.index') }}">
@@ -654,7 +456,7 @@
             </article>
             <article class="summary-card glass" style="--accent: #d8b4fe">
                 <div class="summary-label">{{ $hasAudit ? '逐年查核' : '中性情境' }}</div>
-                <div class="summary-value" style="color: #d9c7ff">{{ $hasAudit ? count($run->forecast_audit) : $summary['neutral_estimates'] }}</div>
+                <div class="summary-value" style="color: var(--violet)">{{ $hasAudit ? count($run->forecast_audit) : $summary['neutral_estimates'] }}</div>
                 <div class="summary-note">{{ $hasAudit ? '含缺值與過期來源，詳見下方查核表' : '5 檔固定參考股的 2028E 中性估算' }}</div>
             </article>
         </section>
@@ -727,12 +529,12 @@
                             <td class="rank-cell"><span class="rank-orb">{{ $row->rank }}</span></td>
                             <td>
                                 <div class="stock-name">
-                                    {{ $row->stock_name }}@if($row->stock_group)<span class="stock-group">（{{ $row->stock_group }}）</span>@endif
+                                    <span data-copy-value="{{ $row->stock_name }}">{{ $row->stock_name }}</span>@if($row->stock_group)<span class="stock-group">（{{ $row->stock_group }}）</span>@endif
                                     @if ($row->low_base)<span class="low-base">低基期</span>@endif
                                     @if ($row->is_neutral_estimate)<span class="neutral-estimate">中性估算</span>@endif
                                 </div>
                                 <div class="stock-meta">
-                                    {{ $row->stock_code }}
+                                    <span data-copy-value="{{ $row->stock_code }}">{{ $row->stock_code }}</span>
                                     @if ($row->news_id)
                                         · <a href="https://news.cnyes.com/news/id/{{ $row->news_id }}" target="_blank" rel="noopener">FactSet ↗</a>
                                     @elseif ($row->forecast_source_url)

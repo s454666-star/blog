@@ -9,10 +9,11 @@
             'accentRgb' => '74, 222, 128',
             'links' => [
                 ['mark' => 'ETF', 'title' => '主動式 ETF 操作日報', 'description' => '追蹤台灣主動式 ETF 每日持股異動、買賣操作與報告日期。', 'url' => url('/tw-stock/active-etf-operations')],
-                ['mark' => '法人', 'title' => '台股法人進出', 'description' => '查看外資、投信與自營商買賣超，快速掌握法人資金流向。', 'url' => url('/tw-stock')],
+                ['mark' => '台股', 'title' => 'Star 台股資訊站', 'description' => '所有台股看板的入口：財報、營收、籌碼、除權息與指數。', 'url' => url('/tw-stock')],
+                ['mark' => '法人', 'title' => '台股法人進出', 'description' => '查看外資、投信與自營商買賣超，快速掌握法人資金流向。', 'url' => url('/tw-stock/institutional-flows')],
                 ['mark' => '漲幅', 'title' => '台股每日漲幅排行', 'description' => '依每日漲幅整理個股排行，並可進入個股 K 線頁面。', 'url' => url('/tw-stock/daily-price-rankings')],
                 ['mark' => '營收', 'title' => '每月營收排行', 'description' => '比較上市櫃公司月營收、年增率與近期營運表現。', 'url' => url('/tw-stock/monthly-revenue-rankings')],
-                ['mark' => 'Q1', 'title' => 'Q1 財報評分排名', 'description' => '用財務指標整理第一季財報分數與公司排名。', 'url' => url('/tw-stock/q1-financial-reports')],
+                ['mark' => '財報', 'title' => '季度財報評分排名', 'description' => '用財務指標整理 Q1 / Q2 財報分數與公司排名。', 'url' => url('/tw-stock/financial-reports')],
                 ['mark' => 'EPS', 'title' => '年度營收 EPS 比較', 'description' => '跨年度比較營收、EPS 與價格表現，觀察基本面趨勢。', 'url' => url('/tw-stock/annual-financial-comparison')],
                 ['mark' => '除息', 'title' => '近 30 天除權息股票', 'description' => '整理近期除權息日期、股利資訊與重要時程。', 'url' => url('/tw-stock/upcoming-dividends')],
                 ['mark' => 'TX', 'title' => '台指期 15K 差值 K 線', 'description' => '檢視台指期 15 分、60 分與日線，含差值、乖離與標記工具。', 'url' => url('/tw-stock/taiex-futures-kline')],

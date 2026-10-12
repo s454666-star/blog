@@ -553,6 +553,7 @@
             pinch: true,
         },
     });
+    window.twStockTrackChart?.(chart).applyOptions(window.twStockChartTheme());
 
     const candleSeries = chart.addCandlestickSeries({
         upColor: '#ef5350',

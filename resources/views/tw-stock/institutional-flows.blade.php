@@ -901,6 +901,29 @@
         },
     });
 
+    // Follow the workspace light/dark toggle: axis text, titles, grid lines and legend.
+    function applyChartTheme() {
+        const dark = document.documentElement.dataset.sxTheme === 'dark';
+        const text = dark ? '#c3d2ea' : '#475569';
+        const tick = dark ? '#8fa3c4' : '#64748b';
+        const grid = dark ? 'rgba(143, 163, 196, 0.16)' : '#e2e8f0';
+        stockFlowChart.data.datasets.forEach((dataset) => {
+            if (dataset.sxInk === undefined && dataset.borderColor === '#0f172a') dataset.sxInk = true;
+            if (dataset.sxInk) dataset.borderColor = dataset.backgroundColor = dark ? '#e6eefc' : '#0f172a';
+        });
+        [stockFlowChart, openInterestChart].forEach((chart) => {
+            chart.options.plugins.legend.labels.color = dark ? '#e6eefc' : '#334155';
+            Object.values(chart.options.scales).forEach((scale) => {
+                if (scale.ticks) scale.ticks.color = tick;
+                if (scale.title) scale.title.color = text;
+                if (scale.grid && scale.grid.display !== false) scale.grid.color = grid;
+            });
+            chart.update('none');
+        });
+    }
+    applyChartTheme();
+    window.addEventListener('sx-themechange', applyChartTheme);
+
     function refreshCharts() {
         const visibleData = getVisibleChartData();
         updateRangeLabel(visibleData);

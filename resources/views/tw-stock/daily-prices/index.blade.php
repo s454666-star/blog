@@ -1353,6 +1353,7 @@
                 minBarSpacing: 16,
             },
         });
+        window.twStockTrackChart?.(previewChart).applyOptions(window.twStockChartTheme());
         const candles = previewChart.addCandlestickSeries({
             upColor: '#dc2626',
             downColor: '#15803d',

@@ -47,6 +47,12 @@
             letter-spacing: .14em;
         }
 
+        .portal-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
         .portal-clock {
             display: inline-flex;
             align-items: center;
@@ -426,9 +432,11 @@
             {!! TwStockPages::badgeSvg('portal', 40) !!}
             <span>Star 台股資訊站<small>TAIWAN STOCK WORKSPACE</small></span>
         </a>
-        <div class="portal-clock" aria-live="off">
-            <span data-portal-clock>--:--:--</span>
-            <span class="portal-status" data-portal-status>台股</span>
+        <div class="portal-actions">
+            <div class="portal-clock" aria-live="off">
+                <span data-portal-clock>--:--:--</span>
+                <span class="portal-status" data-portal-status>台股</span>
+            </div>
         </div>
     </header>
 

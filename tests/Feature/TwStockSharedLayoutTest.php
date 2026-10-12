@@ -96,6 +96,42 @@ class TwStockSharedLayoutTest extends TestCase
         $this->assertSame(count($icons), count(array_unique($icons)), 'Each page should have a distinct icon.');
     }
 
+    public function test_theme_choice_is_applied_before_paint_and_covers_every_page(): void
+    {
+        $head = file_get_contents(resource_path('views/tw-stock/partials/experience-head.blade.php'));
+        $this->assertIsString($head);
+        $this->assertStringContainsString('tw_stock_theme=(light|dark)', $head);
+        $this->assertStringContainsString('dataset.sxTheme', $head);
+        $this->assertStringContainsString('css/tw-stock-dark-pages.css', $head);
+        $this->assertLessThan(
+            strpos($head, 'css/tw-stock-experience.css'),
+            strpos($head, 'css/tw-stock-dark-pages.css'),
+            'Generated page overrides must load before the shared theme.',
+        );
+
+        $script = file_get_contents(public_path('js/tw-stock-experience.js'));
+        $this->assertIsString($script);
+        $this->assertStringContainsString('Max-Age=34560000', $script);
+        $this->assertStringContainsString('sx-themechange', $script);
+
+        $dark = file_get_contents(public_path('css/tw-stock-dark-pages.css'));
+        $this->assertIsString($dark);
+        foreach ([
+            'tw-stock.financial-reports.index',
+            'tw-stock.annual-comparison.index',
+            'tw-stock.daily-prices.index',
+            'tw-stock.daily-prices.show',
+            'tw-stock.institutional-flows.index',
+            'tw-stock.upcoming-dividends.index',
+            'tw-stock.monthly-revenues.index',
+            'tw-stock.eps-growth-rankings.index',
+            'tw-stock.active-etf-operations.index',
+            'tw-stock.taiex-index.kline',
+        ] as $route) {
+            $this->assertStringContainsString('data-sx-route="' . $route . '"', $dark);
+        }
+    }
+
     public function test_portal_lists_all_workspace_pages(): void
     {
         $response = $this->get(route('tw-stock.index'))->assertOk();

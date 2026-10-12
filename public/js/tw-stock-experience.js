@@ -11,6 +11,60 @@
     };
 
     /* ------------------------------------------------------------------
+     * Light / dark theme. The head partial applies the cookie before paint;
+     * here we persist it and expose a toggle. Browsers cap cookie lifetime
+     * (Chrome: 400 days), so the cookie is re-issued on every visit and
+     * therefore never lapses while the workspace is in use.
+     * ------------------------------------------------------------------ */
+    const themeCookie = 'tw_stock_theme';
+    const root = document.documentElement;
+    const currentTheme = () => (root.dataset.sxTheme === 'dark' ? 'dark' : 'light');
+    const saveTheme = theme => {
+        const secure = location.protocol === 'https:' ? '; Secure' : '';
+        document.cookie = `${themeCookie}=${theme}; Max-Age=34560000; Path=/; SameSite=Lax${secure}`;
+    };
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    const themeButtons = [];
+    const syncThemeUi = () => {
+        const dark = currentTheme() === 'dark';
+        themeMeta?.setAttribute('content', dark ? '#0b1730' : '#0080ff');
+        themeButtons.forEach(button => {
+            button.setAttribute('aria-pressed', String(dark));
+            button.title = dark ? '切換為淺色模式' : '切換為深色模式';
+            button.querySelector('.sx-theme-label').textContent = dark ? '深色' : '淺色';
+        });
+    };
+    const setTheme = theme => {
+        root.dataset.sxTheme = theme;
+        saveTheme(theme);
+        syncThemeUi();
+        window.dispatchEvent(new CustomEvent('sx-themechange', { detail: { theme } }));
+    };
+    const makeThemeButton = () => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'sx-theme-toggle';
+        button.innerHTML = '<span class="sx-theme-icon" aria-hidden="true">'
+            + '<svg class="sx-sun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
+            + '<svg class="sx-moon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>'
+            + '</span><span class="sx-theme-label"></span>';
+        button.addEventListener('click', () => setTheme(currentTheme() === 'dark' ? 'light' : 'dark'));
+        themeButtons.push(button);
+        syncThemeUi();
+        return button;
+    };
+    saveTheme(currentTheme());
+    // Other open tabs pick up a theme switched elsewhere as soon as they regain focus.
+    const adoptCookieTheme = () => {
+        const saved = document.cookie.match(/(?:^|;\s*)tw_stock_theme=(light|dark)/)?.[1];
+        if (saved && saved !== currentTheme()) setTheme(saved);
+    };
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) adoptCookieTheme(); });
+    window.addEventListener('focus', adoptCookieTheme);
+    window.twStockTheme = { get: currentTheme, set: setTheme };
+    document.querySelector('.portal-actions')?.append(makeThemeButton());
+
+    /* ------------------------------------------------------------------
      * Toast (shared by copy, density toggle, etc.)
      * ------------------------------------------------------------------ */
     const toast = make('div', 'sx-toast');
@@ -82,7 +136,8 @@
         const value = (hex || '#0080ff').replace('#', '');
         return [0, 2, 4].map(i => parseInt(value.slice(i, i + 2), 16));
     };
-    const rgba = (rgb, alpha) => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+    // Ambient scenes need a little more presence on the dark canvas.
+    const rgba = (rgb, alpha) => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${Math.min(1, alpha * (currentTheme() === 'dark' ? 1.6 : 1))})`;
     const C = {
         blue: [0, 128, 255],
         sky: [40, 148, 255],
@@ -614,6 +669,7 @@
             resizeTimer = setTimeout(() => { resize(); if (reducedMotion.matches) render(0); }, 150);
         });
         document.addEventListener('visibilitychange', play);
+        window.addEventListener('sx-themechange', () => { if (reducedMotion.matches) render(0); });
         reducedMotion.addEventListener?.('change', play);
         if (sceneName === 'constellation') {
             window.addEventListener('pointermove', event => { state.pointer = { x: event.clientX, y: event.clientY }; }, { passive: true });
@@ -667,7 +723,7 @@
     density.type = 'button';
     density.title = '記住桌面表格的閱讀密度';
     const note = make('span', 'sx-utility-note', '專注數據，從容閱讀');
-    utilities.append(quick, density, note);
+    utilities.append(quick, density, makeThemeButton(), note);
     nav.after(utilities);
 
     const setCompact = compact => {

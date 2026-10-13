@@ -821,7 +821,17 @@ async def archive_password_candidates(
         value = str(token)
         if value and value not in values:
             values.append(value)
-    return values
+    return archive_password_at_variants(values)
+
+
+def archive_password_at_variants(values: list[str]) -> list[str]:
+    expanded: list[str] = []
+    for value in values:
+        alternate = value[1:] if value.startswith("@") else "@" + value
+        for candidate in (value, alternate):
+            if candidate and candidate != "@" and candidate not in expanded:
+                expanded.append(candidate)
+    return expanded
 
 
 def validate_zip_headers(archive_path: Path) -> None:
@@ -1080,6 +1090,10 @@ async def forward_image(
                 raise RuntimeError("protected_image_download_failed")
             if expected_size > 0 and downloaded.stat().st_size != expected_size:
                 raise RuntimeError("protected_image_size_verification_failed")
+            if downloaded.suffix.lower() not in IMAGE_FILE_EXTENSIONS:
+                # Fingerprint staging stores photos as photo.bin; Telegram would upload that as a plain document.
+                shutil.copyfile(downloaded, local_path)
+                downloaded = local_path
             sent = await client.send_file(target, str(downloaded), caption=None, force_document=False)
     if isinstance(sent, list):
         sent = sent[0] if len(sent) == 1 else None

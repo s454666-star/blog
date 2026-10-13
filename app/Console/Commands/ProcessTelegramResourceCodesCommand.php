@@ -49,6 +49,10 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const SUUPJSBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])SuupJSbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const QYCODESBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])QYcodesbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const QYCODES3BOT_CODE_REGEX = '/(?<![A-Za-z0-9_])QYcodes3bot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
+    private const LINK_CODE_TYPE = 19;
+    private const LINK_PROFILE_NAME = '__links__';
+    private const LINK_MAX_ATTEMPTS = 5;
+    private const PIKPAK_LINK_REGEX = '/(?<![A-Za-z0-9_])mypikpak(?:点|點|。|．|\.)com\/s\/[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/iu';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
     private const ACCOUNT_LIMIT_COOLDOWN_SECONDS = 900;
@@ -82,6 +86,11 @@ class ProcessTelegramResourceCodesCommand extends Command
     private int $nextProcessingProfileOffset = 0;
 
     private int $nextProcessingAccountOffset = 0;
+
+    private string $linkBaseUri = '';
+
+    /** @var array<int, int> */
+    private array $linkTargetPeerIds = [];
 
     public function handle(): int
     {
@@ -185,6 +194,18 @@ class ProcessTelegramResourceCodesCommand extends Command
         ), static fn (int $value): bool => $value > 0)));
         if ($this->scanCodeTypes === []) {
             $this->scanCodeTypes = [$this->codeType];
+        }
+        $this->linkBaseUri = rtrim(trim((string) ($config['link_base_uri'] ?? '')), '/');
+        $this->linkTargetPeerIds = array_values(array_unique(array_filter(array_map(
+            static fn (string $value): int => (int) $value,
+            $this->csv((string) ($config['link_target_peer_ids'] ?? ''))
+        ), static fn (int $value): bool => $value > 0)));
+        if (
+            in_array(self::LINK_CODE_TYPE, $this->scanCodeTypes, true)
+            && $this->linkBaseUri !== ''
+            && $this->linkTargetPeerIds !== []
+        ) {
+            $this->processingProfiles[self::LINK_CODE_TYPE] = self::LINK_PROFILE_NAME;
         }
         $this->initialScanLimit = max(1, min(5000, (int) ($this->option('initial-scan-limit') ?: ($config['initial_scan_limit'] ?? 1000))));
         $this->scanBatchSize = max(1, min(1000, (int) ($this->option('scan-batch-size') ?: ($config['scan_batch_size'] ?? 500))));
@@ -361,6 +382,10 @@ class ProcessTelegramResourceCodesCommand extends Command
             return false;
         }
 
+        if ($rowCodeType === self::LINK_CODE_TYPE) {
+            return $this->forwardLinkCode($row);
+        }
+
         $earliestCooldown = null;
         $transportFailures = 0;
         $processingFailureCountsTowardLimit = false;
@@ -531,6 +556,82 @@ class ProcessTelegramResourceCodesCommand extends Command
         return false;
     }
 
+    private function forwardLinkCode(object $row): bool
+    {
+        $text = (string) $row->code;
+        $sentCount = max(0, (int) $row->forwarded_message_count);
+        $total = count($this->linkTargetPeerIds);
+        $failure = '';
+
+        for ($index = $sentCount; $index < $total; $index++) {
+            try {
+                $response = Http::connectTimeout(8)
+                    ->timeout(60)
+                    ->post($this->linkBaseUri . '/groups/send-message', [
+                        'peer_id' => $this->linkTargetPeerIds[$index],
+                        'text' => $text,
+                    ]);
+                $payload = $response->json();
+                $ok = $response->successful() && is_array($payload) && (string) ($payload['status'] ?? '') === 'ok';
+                $failure = $ok ? '' : (string) (is_array($payload) ? ($payload['reason'] ?? 'send_failed') : 'send_failed');
+            } catch (\Throwable $e) {
+                $ok = false;
+                $failure = 'transport_error';
+            }
+
+            if (!$ok) {
+                break;
+            }
+
+            $sentCount = $index + 1;
+            DB::table('telegram_resource_codes')->where('id', $row->id)->update([
+                'forwarded_message_count' => $sentCount,
+                'updated_at' => now(),
+            ]);
+        }
+
+        if ($sentCount >= $total) {
+            DB::table('telegram_resource_codes')->where('id', $row->id)->update([
+                'status' => TelegramResourceCode::STATUS_COMPLETED,
+                'forwarded_message_count' => $total,
+                'decoder_sent_count' => $total,
+                'decoder_total_count' => $total,
+                'processing_started_at' => null,
+                'available_at' => null,
+                'completed_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $this->info("code_id={$row->id} code_type=" . self::LINK_CODE_TYPE . " link sent targets={$total}");
+
+            return true;
+        }
+
+        $attemptNumber = (int) $row->attempts + 1;
+        if ($attemptNumber >= self::LINK_MAX_ATTEMPTS) {
+            DB::table('telegram_resource_codes')->where('id', $row->id)->update([
+                'status' => TelegramResourceCode::STATUS_SKIPPED,
+                'skip_reason' => TelegramResourceCode::SKIP_REASON_RETRY_LIMIT,
+                'processing_started_at' => null,
+                'available_at' => null,
+                'skipped_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $this->warn("code_id={$row->id} link skipped reason=retry_limit last_failure={$failure}");
+
+            return true;
+        }
+
+        DB::table('telegram_resource_codes')->where('id', $row->id)->update([
+            'status' => TelegramResourceCode::STATUS_PENDING,
+            'processing_started_at' => null,
+            'available_at' => now()->addSeconds(60 * $attemptNumber),
+            'updated_at' => now(),
+        ]);
+        $this->warn("code_id={$row->id} link send failed reason={$failure} sent={$sentCount}/{$total}");
+
+        return false;
+    }
+
     private function countsTowardRetryLimit(string $reason): bool
     {
         return in_array($reason, ['not_found', 'media_timeout', 'media_count_mismatch'], true);
@@ -557,6 +658,7 @@ class ProcessTelegramResourceCodesCommand extends Command
             16 => self::SUUPJSBOT_CODE_REGEX,
             17 => self::QYCODESBOT_CODE_REGEX,
             18 => self::QYCODES3BOT_CODE_REGEX,
+            19 => self::PIKPAK_LINK_REGEX,
             default => self::HEX_CODE_REGEX,
         };
     }
@@ -629,6 +731,10 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         if ($codeType === 17) {
             return (string) preg_replace('/^QYcodesbot/i', 'QYcodesbot', $code);
+        }
+
+        if ($codeType === self::LINK_CODE_TYPE) {
+            return (string) preg_replace('/^mypikpak(?:点|點|。|．|\.)com\/s\//iu', 'mypikpak.com/s/', $code);
         }
 
         if ($codeType === 18) {

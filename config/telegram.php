@@ -39,6 +39,8 @@
             'target_peer_id' => (int) env('TELEGRAM_RESOURCE_CODE_TARGET_PEER_ID', 3967395258),
             'bot_username' => env('TELEGRAM_RESOURCE_CODE_BOT_USERNAME', 'QzccxYYbot'),
             'code_type' => (int) env('TELEGRAM_RESOURCE_CODE_TYPE', 9),
+            'link_base_uri' => env('TELEGRAM_RESOURCE_LINK_BASE_URI', ''),
+            'link_target_peer_ids' => env('TELEGRAM_RESOURCE_LINK_TARGET_PEER_IDS', ''),
             'processing_profiles' => env('TELEGRAM_RESOURCE_CODE_PROCESSING_PROFILES', '9:QzccxYYbot'),
             'scan_code_types' => env('TELEGRAM_RESOURCE_CODE_SCAN_TYPES', '9'),
             'initial_scan_limit' => (int) env('TELEGRAM_RESOURCE_CODE_INITIAL_SCAN_LIMIT', 1000),

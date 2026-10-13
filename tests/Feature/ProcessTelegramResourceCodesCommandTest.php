@@ -246,6 +246,50 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         $this->assertGreaterThan(1, count(array_unique(array_column($sent, 2))));
     }
 
+    public function test_pikpak_links_are_normalized_and_sent_once_to_each_link_target(): void
+    {
+        config()->set('telegram.resource_codes.processing_profiles', '9:yyflsbot');
+        config()->set('telegram.resource_codes.scan_code_types', '19');
+        config()->set('telegram.resource_codes.link_base_uri', 'http://127.0.0.1:8004');
+        config()->set('telegram.resource_codes.link_target_peer_ids', '111,222');
+
+        $sent = [];
+
+        Http::fake(function ($request) use (&$sent) {
+            if ($request->method() === 'GET') {
+                return Http::response([
+                    'status' => 'ok',
+                    'items' => [[
+                        'id' => 104801,
+                        'text' => 'a mypikpak点com/s/AbC-1 b MyPikPak點com/s/Def_2 c https://mypikpak。com/s/Ghi3 d mypikpak.com/s/Jkl4 e mypikpak点com/s/AbC-1',
+                    ]],
+                ]);
+            }
+
+            $sent[] = [$request['peer_id'], $request['text'], $request->url()];
+
+            return Http::response(['status' => 'ok', 'peer_id' => $request['peer_id'], 'message_id' => 1]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', [
+            '--once' => true,
+            '--source-peer-ids' => '3779285711',
+        ])->assertExitCode(0);
+
+        foreach (['mypikpak.com/s/AbC-1', 'mypikpak.com/s/Def_2', 'mypikpak.com/s/Ghi3', 'mypikpak.com/s/Jkl4'] as $link) {
+            $this->assertDatabaseHas('telegram_resource_codes', [
+                'code' => $link,
+                'code_type' => 19,
+                'status' => TelegramResourceCode::STATUS_COMPLETED,
+                'forwarded_message_count' => 2,
+            ]);
+        }
+        $this->assertDatabaseCount('telegram_resource_codes', 4);
+        $this->assertCount(8, $sent);
+        $this->assertSame([111, 222], [$sent[0][0], $sent[1][0]]);
+        $this->assertSame('http://127.0.0.1:8004/groups/send-message', $sent[0][2]);
+    }
+
     public function test_scan_limits_a_forum_source_to_its_configured_topic(): void
     {
         config()->set('telegram.resource_codes.source_peer_ids', '2589355088');

@@ -9837,6 +9837,31 @@ async def download_bot_message_media(payload: BotMessageDownloadRequest):
         }
 
 
+@app.get("/dialogs/search")
+async def search_dialogs(q: str = "", limit: int = 2000):
+    needle = "".join(str(q or "").split()).lower()
+    me = await client.get_me()
+    items: List[Dict[str, Any]] = []
+    async for d in client.iter_dialogs(limit=max(int(limit or 2000), 1)):
+        try:
+            title = str(getattr(d, "name", "") or "")
+            username = str(getattr(getattr(d, "entity", None), "username", "") or "")
+            haystack = "".join(title.split()).lower()
+            if needle and needle not in haystack and needle not in username.lower():
+                continue
+            items.append({
+                "id": int(getattr(getattr(d, "entity", None), "id", 0) or 0),
+                "title": title,
+                "username": username or None,
+                "is_user": bool(getattr(d, "is_user", False)),
+                "is_group": bool(getattr(d, "is_group", False)),
+                "is_channel": bool(getattr(d, "is_channel", False)),
+            })
+        except Exception:
+            continue
+    return {"me_username": getattr(me, "username", None), "items": items, "count": len(items)}
+
+
 @app.get("/bots/dialogs")
 async def list_bot_dialogs(limit: int = 300):
     items: List[Dict[str, Any]] = []

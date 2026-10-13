@@ -48,6 +48,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const SHUTTLE67BOT_CODE_REGEX = '/(?<![A-Za-z0-9_])shuttle67bot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const SUUPJSBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])SuupJSbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const QYCODESBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])QYcodesbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
+    private const QYCODES3BOT_CODE_REGEX = '/(?<![A-Za-z0-9_])QYcodes3bot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const STALE_PROCESSING_MINUTES = 30;
     private const MAX_PROCESSING_ATTEMPTS = 3;
     private const ACCOUNT_LIMIT_COOLDOWN_SECONDS = 900;
@@ -555,6 +556,7 @@ class ProcessTelegramResourceCodesCommand extends Command
             15 => self::SHUTTLE67BOT_CODE_REGEX,
             16 => self::SUUPJSBOT_CODE_REGEX,
             17 => self::QYCODESBOT_CODE_REGEX,
+            18 => self::QYCODES3BOT_CODE_REGEX,
             default => self::HEX_CODE_REGEX,
         };
     }
@@ -627,6 +629,10 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         if ($codeType === 17) {
             return (string) preg_replace('/^QYcodesbot/i', 'QYcodesbot', $code);
+        }
+
+        if ($codeType === 18) {
+            return (string) preg_replace('/^QYcodes3bot/i', 'QYcodes3bot', $code);
         }
 
         return $code;

@@ -588,6 +588,7 @@
     let playerFallbackPending = false;
     let stopPlayerDragSeek = () => {};
     let scrubbing = false;
+    let forceIndexRefresh = false;
     const previewPreparation = new Map();
     const tvPreviewPreparation = new Map();
 
@@ -1577,6 +1578,7 @@
             offset: String(cursor.offset || 0),
             order: isNewestFirst() ? 'newest' : 'random',
             seed: sessionSeed,
+            refresh: forceIndexRefresh && !(cursor.offset > 0) ? '1' : '0',
             source: isFcMode() ? 'fc' : '',
         });
 
@@ -1586,6 +1588,7 @@
                 throw new Error(`HTTP ${response.status}`);
             }
 
+            forceIndexRefresh = false;
             const payload = await response.json();
             const items = payload.data || [];
             items.forEach((video) => upsertVideo(video));
@@ -2480,6 +2483,7 @@
 
     elements.refresh.addEventListener('click', async () => {
         await fetchAppConfig();
+        forceIndexRefresh = true;
         await loadMoreVideos(true);
         checkForUpdates();
     });

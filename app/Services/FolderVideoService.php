@@ -22,7 +22,8 @@ class FolderVideoService
         string $order = 'duration',
         string $seed = '',
         ?int $newFirstAfter = null,
-        string $source = ''
+        string $source = '',
+        bool $refreshIndex = false
     ): array
     {
         $limit = max(1, min($limit, 100));
@@ -42,7 +43,8 @@ class FolderVideoService
                 max(0, (int) ($offset ?? 0)),
                 $order,
                 $seed,
-                $newFirstAfter
+                $newFirstAfter,
+                $refreshIndex
             );
         }
 
@@ -510,13 +512,18 @@ class FolderVideoService
         int $offset = 0,
         string $order = 'duration',
         string $seed = '',
-        ?int $newFirstAfter = null
+        ?int $newFirstAfter = null,
+        bool $refreshIndex = false
     ): array
     {
         $index = $this->readIndex();
 
-        if ($index === []) {
+        if ($index === [] || ($refreshIndex && $offset === 0)) {
             $index = $this->refreshLightweightIndex($index);
+        } elseif ($offset === 0 && $this->shouldRefreshIndex($index)) {
+            // A full scan takes several seconds, so serve the current index now
+            // and rebuild it in the background for the next load.
+            $this->refreshIndexInBackground();
         }
 
         if ($index !== []) {
@@ -754,6 +761,27 @@ class FolderVideoService
         $generatedAt = (int) ($payload['generated_at_unix'] ?? 0);
 
         return $generatedAt === 0 || time() - $generatedAt >= $refreshSeconds;
+    }
+
+    protected function refreshIndexInBackground(): void
+    {
+        $lockPath = $this->indexFilePath().'.refreshing';
+        if (is_file($lockPath) && time() - (int) @filemtime($lockPath) < 120) {
+            return;
+        }
+        @touch($lockPath);
+
+        $command = escapeshellarg(PHP_BINARY).' '.escapeshellarg(base_path('artisan')).' folder-video:warm-cache';
+        if (PHP_OS_FAMILY === 'Windows') {
+            $handle = @popen('start "" /B '.$command.' >NUL 2>&1', 'r');
+            if (is_resource($handle)) {
+                pclose($handle);
+            }
+
+            return;
+        }
+
+        @exec($command.' > /dev/null 2>&1 &');
     }
 
     protected function refreshLightweightIndex(?array $existingIndex = null): array
@@ -1474,9 +1502,10 @@ POWERSHELL;
 
         $path = $this->indexFilePath();
         File::ensureDirectoryExists(dirname($path));
+        $temporaryPath = $path.'.tmp.'.getmypid();
 
         file_put_contents(
-            $path,
+            $temporaryPath,
             json_encode([
                 'generated_at' => now()->toIso8601String(),
                 'generated_at_unix' => time(),
@@ -1485,6 +1514,13 @@ POWERSHELL;
                 'videos' => $records,
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
         );
+
+        // Replace atomically so readers never see a half-written index.
+        if (! @rename($temporaryPath, $path)) {
+            @copy($temporaryPath, $path);
+            @unlink($temporaryPath);
+        }
+        @unlink($path.'.refreshing');
     }
 
     protected function rootDirectoryMTime(): int

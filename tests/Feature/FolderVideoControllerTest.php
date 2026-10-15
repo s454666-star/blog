@@ -362,7 +362,7 @@ class FolderVideoControllerTest extends TestCase
             ->assertDontSee('likedOnlyButton')
             ->assertDontSee('playerRateButton')
             ->assertSee('/api/folder-videos', false)
-            ->assertSee("order: 'random'", false)
+            ->assertSee("order: isNewestFirst() ? 'newest' : 'random'", false)
             ->assertDontSee('random_new_first', false)
             ->assertDontSee('new_first_after', false)
             ->assertSee('const visible = visiblePixels > 0;', false)

@@ -35,7 +35,8 @@ class FolderVideoController extends Controller
             $order,
             $seed,
             $newFirstAfterValue,
-            $source
+            $source,
+            $request->boolean('refresh')
         );
         $videos = $page['videos'];
         $lastVideo = $videos->last();

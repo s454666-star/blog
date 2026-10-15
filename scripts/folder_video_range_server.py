@@ -423,7 +423,7 @@ def transcode_hls(
 
 def preview_worker(
     stop_event: threading.Event,
-    media_root: Path,
+    source_roots: list[Path],
     queue_root: Path,
     preview_root: Path,
     ffmpeg: str,
@@ -451,7 +451,7 @@ def preview_worker(
             payload = json.loads(working_path.read_text(encoding="utf-8"))
             source = Path(str(payload.get("source_path", ""))).resolve()
             destination = Path(str(payload.get("preview_path", ""))).resolve()
-            if not is_within(source, media_root) or not source.is_file():
+            if not any(is_within(source, root) for root in source_roots) or not source.is_file():
                 continue
             if not is_within(destination, preview_root):
                 continue
@@ -526,6 +526,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hls-root", required=True)
     parser.add_argument("--hls-segment-seconds", type=int, default=2)
     parser.add_argument("--hls-source-root", action="append", default=[])
+    parser.add_argument("--preview-source-root", action="append", default=[])
     parser.add_argument("--ffmpeg", default="ffmpeg")
     parser.add_argument("--preview-seconds", type=int, default=4)
     parser.add_argument("--preview-height", type=int, default=360)
@@ -543,13 +544,14 @@ def main() -> None:
     hls_source_roots = [Path(path).resolve() for path in args.hls_source_root]
     if not hls_source_roots:
         hls_source_roots = [media_root]
+    preview_source_roots = [media_root] + [Path(path).resolve() for path in args.preview_source_root]
     stop_event = threading.Event()
     for worker_index in range(max(1, min(args.preview_workers, 8))):
         worker = threading.Thread(
             target=preview_worker,
             args=(
                 stop_event,
-                media_root,
+                preview_source_roots,
                 queue_root,
                 preview_root,
                 args.ffmpeg,

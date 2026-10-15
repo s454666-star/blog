@@ -11,6 +11,7 @@ param(
     [string]$MediaRoot = "",
     [string]$MediaShare = "",
     [string]$PhotoRoot = "",
+    [string]$FcRoot = "",
     [int]$MediaWaitSeconds = 120
 )
 
@@ -293,6 +294,10 @@ if (-not (Test-PhotoRoot)) {
     throw "Folder photo media root is not available: $PhotoRoot"
 }
 
+if ([string]::IsNullOrWhiteSpace($FcRoot)) {
+    $FcRoot = Get-EnvFileValueOrDefault -Name "FOLDER_VIDEO_FC_ROOT" -DefaultValue ("F:\" + [char]0x5DF2 + [char]0x8655 + [char]0x7406)
+}
+
 $NasRoot30TA = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_30T_A" -DefaultValue "\\mc\30T-A"
 $NasRoot30TB = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_30T_B" -DefaultValue "\\mc\30T-B"
 $NasRootFhd = Get-EnvFileValueOrDefault -Name "NAS_VIEWER_ROOT_FHD" -DefaultValue "\\mc\FHD"
@@ -362,10 +367,12 @@ $mediaArguments = @(
         "--ffmpeg=$ffmpegBin",
         "--preview-seconds=$previewSeconds",
         "--preview-height=$previewHeight",
-        "--preview-workers=$previewWorkers"
+        "--preview-workers=$previewWorkers",
+        "--preview-source-root=$FcRoot"
     )
 foreach ($hlsSourceRoot in @(
     $MediaRoot,
+    $FcRoot,
     $NasRoot30TA,
     $NasRoot30TB,
     $NasRootFhd,
@@ -481,6 +488,24 @@ $configText = @"
             Access-Control-Allow-Headers "Range, If-Range, If-None-Match"
             Access-Control-Expose-Headers "Accept-Ranges, Content-Length, Content-Range, Etag, Last-Modified"
             Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
+            X-Content-Type-Options "nosniff"
+        }
+        file_server
+    }
+
+    @fcVideoMedia path /fc-video/*
+    handle @fcVideoMedia {
+        uri strip_prefix /fc-video
+        @fcNotMp4 not path *.mp4 *.MP4
+        respond @fcNotMp4 404
+        root * "$FcRoot"
+        header {
+            Accept-Ranges "bytes"
+            Access-Control-Allow-Origin "*"
+            Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+            Access-Control-Allow-Headers "Range, If-Range, If-None-Match"
+            Access-Control-Expose-Headers "Accept-Ranges, Content-Length, Content-Range, Etag, Last-Modified"
+            Cache-Control "private, max-age=600"
             X-Content-Type-Options "nosniff"
         }
         file_server
@@ -627,6 +652,7 @@ $lanIps = Get-LanIps
     media_stream_port = $MediaStreamPort
     bind_address = $BindAddress
     media_root = $MediaRoot
+    fc_root = $FcRoot
     photo_root = $PhotoRoot
     static_stream_path = "/video"
     static_photo_path = "/folder-photo-media"

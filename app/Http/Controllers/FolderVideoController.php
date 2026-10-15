@@ -26,7 +26,7 @@ class FolderVideoController extends Controller
         $seed = (string) $request->query('seed', '');
         $newFirstAfter = $request->query('new_first_after');
         $newFirstAfterValue = is_numeric($newFirstAfter) ? (int) $newFirstAfter : null;
-        $likedOnly = $request->boolean('liked');
+        $source = (string) $request->query('source', '');
         $page = $this->folderVideoService->listVideosPage(
             $limit,
             $afterDurationValue,
@@ -35,7 +35,7 @@ class FolderVideoController extends Controller
             $order,
             $seed,
             $newFirstAfterValue,
-            $likedOnly
+            $source
         );
         $videos = $page['videos'];
         $lastVideo = $videos->last();
@@ -144,26 +144,6 @@ class FolderVideoController extends Controller
         $data = $this->folderVideoService->queueTvHls($id);
         return response()->json(['data' => $data], $data['ready'] ? 200 : 202)
             ->header('Cache-Control', 'no-store, max-age=0');
-    }
-
-    public function like(string $id): JsonResponse
-    {
-        $result = $this->folderVideoService->moveToGood($id);
-
-        return response()->json([
-            'message' => 'Video moved to good folder.',
-            'data' => $result,
-        ]);
-    }
-
-    public function unlike(string $id): JsonResponse
-    {
-        $result = $this->folderVideoService->moveFromGood($id);
-
-        return response()->json([
-            'message' => 'Video moved back to video folder.',
-            'data' => $result,
-        ]);
     }
 
     public function destroy(string $id): JsonResponse

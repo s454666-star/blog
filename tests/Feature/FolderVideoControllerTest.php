@@ -25,7 +25,6 @@ class FolderVideoControllerTest extends TestCase
         file_put_contents($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4', 'short-video');
         file_put_contents($this->tempRoot.DIRECTORY_SEPARATOR.'long.mp4', 'long-video');
         file_put_contents($this->fakeApk, 'fake-apk');
-        File::ensureDirectoryExists($this->tempRoot.DIRECTORY_SEPARATOR.'good');
 
         file_put_contents(
             $this->fakeFfprobe,
@@ -101,61 +100,47 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.0.filename', 'long.mp4');
     }
 
-    public function test_it_moves_video_to_good_folder(): void
+    public function test_like_endpoints_are_removed(): void
     {
         $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
 
-        $response = $this->postJson("/api/folder-videos/{$id}/like");
-
-        $response->assertOk()
-            ->assertJsonPath('data.filename', 'short.mp4')
-            ->assertJsonPath('data.liked', true)
-            ->assertJsonPath('data.stream_url', "/api/folder-videos/{$id}/stream")
-            ->assertJsonPath('data.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'));
-
-        $this->assertFileDoesNotExist($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4');
-        $this->assertFileExists($this->tempRoot.DIRECTORY_SEPARATOR.'good'.DIRECTORY_SEPARATOR.'short.mp4');
+        $this->postJson("/api/folder-videos/{$id}/like")->assertNotFound();
+        $this->assertFileExists($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4');
     }
 
-    public function test_it_lists_and_streams_liked_videos_from_good_folder(): void
+    public function test_it_lists_and_streams_fc_videos_from_the_fc_folder(): void
     {
-        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
-        $this->postJson("/api/folder-videos/{$id}/like")->assertOk();
+        $fcRoot = $this->tempRoot.DIRECTORY_SEPARATOR.'fc-source';
+        File::ensureDirectoryExists($fcRoot);
+        file_put_contents($fcRoot.DIRECTORY_SEPARATOR.'pick.mp4', 'fc-video');
+        file_put_contents($fcRoot.DIRECTORY_SEPARATOR.'pick.srt', 'subtitle');
+        file_put_contents($fcRoot.DIRECTORY_SEPARATOR.'other.mkv', 'not-mp4');
+        config()->set('folder_video.fc_root', $fcRoot);
+        config()->set('folder_video.fc_stream_base_path', '/fc-video');
 
-        $this->getJson('/api/folder-videos?liked=1')
+        $id = 'fc.'.rtrim(strtr(base64_encode('pick.mp4'), '+/', '-_'), '=');
+
+        $this->getJson('/api/folder-videos?source=fc&order=random&seed=x')
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.filename', 'short.mp4')
-            ->assertJsonPath('data.0.liked', true)
-            ->assertJsonPath('data.0.stream_url', "/api/folder-videos/{$id}/stream")
+            ->assertJsonPath('data.0.id', $id)
+            ->assertJsonPath('data.0.filename', 'pick.mp4')
+            ->assertJsonPath('data.0.source', 'fc')
+            ->assertJsonPath('data.0.stream_url', '/fc-video/pick.mp4')
+            ->assertJsonPath('data.0.thumbnail_url', "/api/folder-videos/{$id}/thumbnail")
             ->assertJsonPath('data.0.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'));
 
-        $this->get("/api/folder-videos/{$id}/stream")
-            ->assertOk();
+        $this->get("/api/folder-videos/{$id}/stream")->assertOk();
+        $this->postJson("/api/folder-videos/{$id}/preview-queue")->assertStatus(202);
 
-        $this->assertFileDoesNotExist($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4');
-        $this->assertFileExists($this->tempRoot.DIRECTORY_SEPARATOR.'good'.DIRECTORY_SEPARATOR.'short.mp4');
-    }
+        $otherId = 'fc.'.rtrim(strtr(base64_encode('other.mkv'), '+/', '-_'), '=');
+        $this->get("/api/folder-videos/{$otherId}/stream")->assertNotFound();
+        $traversalId = 'fc.'.rtrim(strtr(base64_encode('../short.mp4'), '+/', '-_'), '=');
+        $this->get("/api/folder-videos/{$traversalId}/stream")->assertNotFound();
 
-    public function test_it_can_cancel_liked_video(): void
-    {
-        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
-        $this->postJson("/api/folder-videos/{$id}/like")->assertOk();
-
-        $response = $this->deleteJson("/api/folder-videos/{$id}/like");
-
-        $response->assertOk()
-            ->assertJsonPath('data.filename', 'short.mp4')
-            ->assertJsonPath('data.liked', false)
-            ->assertJsonPath('data.stream_url', "/api/folder-videos/{$id}/stream")
-            ->assertJsonPath('data.preview_url', fn (string $url): bool => str_starts_with($url, '/folder-video-preview-cache/'));
-
-        $this->assertFileExists($this->tempRoot.DIRECTORY_SEPARATOR.'short.mp4');
-        $this->assertFileDoesNotExist($this->tempRoot.DIRECTORY_SEPARATOR.'good'.DIRECTORY_SEPARATOR.'short.mp4');
-
-        $this->getJson('/api/folder-videos?liked=1')
+        $this->getJson('/api/folder-videos?limit=10')
             ->assertOk()
-            ->assertJsonCount(0, 'data');
+            ->assertJsonMissing(['filename' => 'pick.mp4']);
     }
 
     public function test_it_deletes_video(): void
@@ -254,12 +239,6 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonPath('data.0.thumbnail_url', '/api/folder-videos/c2hvcnQubXA0/thumbnail')
             ->assertJsonPath('data.0.preview_cached', false)
             ->assertJsonPath('data.0.thumbnail_cached', false);
-
-        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
-
-        $this->postJson("/api/folder-videos/{$id}/like")
-            ->assertOk()
-            ->assertJsonPath('data.stream_url', '/folder-video-media/good/short.mp4');
     }
 
     public function test_it_indexes_and_streams_videos_in_nested_directories_with_static_urls(): void
@@ -375,8 +354,13 @@ class FolderVideoControllerTest extends TestCase
 
         $response->assertOk()
             ->assertSee('Folder Video')
-            ->assertSee('watchedOnlyButton')
-            ->assertSee('likedOnlyButton')
+            ->assertSee('newestFirstButton')
+            ->assertDontSee('watchedOnlyButton')
+            ->assertSee('fcOnlyButton')
+            ->assertSee('loopToggleButton')
+            ->assertSee('playerTime')
+            ->assertDontSee('likedOnlyButton')
+            ->assertDontSee('playerRateButton')
             ->assertSee('/api/folder-videos', false)
             ->assertSee("order: 'random'", false)
             ->assertDontSee('random_new_first', false)

@@ -4,7 +4,7 @@ Android TV WebView wrapper for the local Folder Video LAN app.
 
 - Package: `monster.mystar.foldervideotv`
 - Label: `Folder Video TV`
-- Version: `2026.07.24.17-tv` / code `17`
+- Version: `2026.10.15.18-tv` / code `18`
 - Default URL: `http://10.0.0.31:8090/folder-video-app`
 - Android TV: Leanback launcher, landscape, touchscreen not required
 - Remote while playing: left `-5s`, right `+5s`, hold for repeated seeking, up next, down previous, center play/pause; seeking shows a progress bar and time for 0.5 seconds after the final key event

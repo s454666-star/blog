@@ -223,16 +223,6 @@
             outline-offset: -2px;
         }
 
-        .video-card.is-liked::after {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            content: "♥";
-            color: var(--coral);
-            font-size: 20px;
-            text-shadow: 0 2px 12px rgba(0, 0, 0, .6);
-        }
-
         .card-meta {
             position: absolute;
             right: 0;
@@ -336,8 +326,7 @@
             pointer-events: none;
         }
 
-        .player-top .icon-button,
-        .player-actions .icon-button {
+        .player-top .icon-button {
             background: rgba(0, 0, 0, .38);
             pointer-events: auto;
         }
@@ -351,13 +340,42 @@
             white-space: nowrap;
         }
 
-        .player-actions {
+        .player-hud {
             position: absolute;
-            right: 8px;
-            bottom: calc(var(--bottom-safe) + 22px);
-            z-index: 4;
-            display: grid;
+            right: 10px;
+            bottom: calc(var(--bottom-safe) + 14px);
+            z-index: 6;
+            display: flex;
             gap: 10px;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        .player-time {
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: rgba(0, 0, 0, .46);
+            color: #fff;
+            font-size: 13px;
+            font-variant-numeric: tabular-nums;
+            font-weight: 650;
+            letter-spacing: .02em;
+            white-space: nowrap;
+        }
+
+        .loop-toggle {
+            display: grid;
+            width: 38px;
+            height: 26px;
+            padding: 0;
+            place-items: center;
+            border: 2px solid #fff;
+            border-radius: 4px;
+            background: rgba(0, 0, 0, .32);
+            color: #fff;
+            font: 800 15px/1 system-ui, sans-serif;
+            pointer-events: auto;
+            cursor: pointer;
         }
 
         .player-progress {
@@ -450,8 +468,16 @@
         </div>
         <div class="status-pill" id="statusPill">v{{ $appConfig['version'] }}</div>
         <div class="toolbar-actions">
-            <button class="icon-button" id="watchedOnlyButton" type="button" title="只看已觀看">✓</button>
-            <button class="icon-button" id="likedOnlyButton" type="button" title="只看 LIKE">♥</button>
+            <button class="icon-button" id="newestFirstButton" type="button" title="新到舊播放" aria-pressed="false">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M7 4v16"></path>
+                    <path d="M3 16l4 4 4-4"></path>
+                    <path d="M13 6h8"></path>
+                    <path d="M13 11h6"></path>
+                    <path d="M13 16h4"></path>
+                </svg>
+            </button>
+            <button class="icon-button" id="fcOnlyButton" type="button" title="FC精選">FC</button>
             <button class="icon-button" id="zoomOutButton" type="button" title="縮小">−</button>
             <button class="icon-button" id="zoomResetButton" type="button" title="回到 3x3">3</button>
             <button class="icon-button" id="zoomInButton" type="button" title="放大">＋</button>
@@ -471,12 +497,11 @@
     <div class="player-top">
         <button class="icon-button" id="closePlayerButton" type="button" title="返回">‹</button>
         <div class="player-title" id="playerTitle"></div>
-        <button class="icon-button" id="playerLikeButton" type="button" title="喜歡">♥</button>
+        <span></span>
     </div>
-    <div class="player-actions">
-        <button class="icon-button" id="playerPrevButton" type="button" title="上一支">↑</button>
-        <button class="icon-button" id="playerRateButton" type="button" title="播放速度">1x</button>
-        <button class="icon-button" id="playerNextButton" type="button" title="下一支">↓</button>
+    <div class="player-hud">
+        <span class="player-time" id="playerTime">00:00 / 00:00</span>
+        <button class="loop-toggle" id="loopToggleButton" type="button" title="隨機播放" aria-pressed="false"></button>
     </div>
     <div class="player-progress"><span id="playerProgress"></span></div>
 </section>
@@ -498,13 +523,16 @@
     const GRID_PRESET_VERSION = '3x3-20260707-11';
     const DOUBLE_TAP_MS = 280;
     const DOUBLE_TAP_DISTANCE = 30;
-    const PLAYER_HOLD_SEEK_MS = 260;
-    const PLAYER_DRAG_SEEK_STEP_PX = 42;
-    const PLAYER_DRAG_SEEK_RATIO = .05;
-    const PLAYBACK_RATES = [1, 1.25, 1.5, 1.75, 2];
+    const PLAYER_TAP_MAX_MS = 600;
+    const PLAYER_TAP_SLOP_PX = 12;
+    // Dragging across the full player width moves the playhead across the full video.
+    const PLAYER_SCRUB_SPAN = 1;
+    const PLAYER_SCRUB_SEEK_INTERVAL_MS = 90;
     const MODE_ALL = 'all';
-    const MODE_WATCHED = 'watched';
-    const MODE_LIKED = 'liked';
+    const MODE_FC = 'fc';
+    const MODES = [MODE_ALL, MODE_FC];
+    const LOOP_ONE = 'one';
+    const LOOP_RANDOM = 'random';
 
     const elements = {
         shell: document.getElementById('appShell'),
@@ -513,8 +541,8 @@
         empty: document.getElementById('emptyState'),
         subtitle: document.getElementById('subtitle'),
         status: document.getElementById('statusPill'),
-        watchedOnly: document.getElementById('watchedOnlyButton'),
-        likedOnly: document.getElementById('likedOnlyButton'),
+        newestFirst: document.getElementById('newestFirstButton'),
+        fcOnly: document.getElementById('fcOnlyButton'),
         zoomIn: document.getElementById('zoomInButton'),
         zoomOut: document.getElementById('zoomOutButton'),
         zoomReset: document.getElementById('zoomResetButton'),
@@ -523,11 +551,9 @@
         playerVideo: document.getElementById('playerVideo'),
         playerTitle: document.getElementById('playerTitle'),
         playerProgress: document.getElementById('playerProgress'),
+        playerTime: document.getElementById('playerTime'),
+        loopToggle: document.getElementById('loopToggleButton'),
         closePlayer: document.getElementById('closePlayerButton'),
-        playerLike: document.getElementById('playerLikeButton'),
-        playerPrev: document.getElementById('playerPrevButton'),
-        playerRate: document.getElementById('playerRateButton'),
-        playerNext: document.getElementById('playerNextButton'),
         toast: document.getElementById('toast'),
         flash: document.getElementById('gestureFlash'),
     };
@@ -561,7 +587,7 @@
     let hlsLibraryPromise = null;
     let playerFallbackPending = false;
     let stopPlayerDragSeek = () => {};
-    const likeInFlight = new Set();
+    let scrubbing = false;
     const previewPreparation = new Map();
     const tvPreviewPreparation = new Map();
 
@@ -572,41 +598,41 @@
     });
     const visiblePreviewCards = new Map();
 
+    function defaultState() {
+        return {
+            gridColumns: DEFAULT_GRID_COLUMNS,
+            layoutPresetVersion: '',
+            progress: {},
+            completed: {},
+            viewMode: MODE_ALL,
+            loopMode: LOOP_RANDOM,
+            newestFirst: false,
+            known: {},
+            lastLibraryScanAt: 0,
+            currentId: null,
+            currentVideo: null,
+        };
+    }
+
     function loadState() {
+        let parsed = {};
         try {
-            const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-            return Object.assign({
-                gridColumns: DEFAULT_GRID_COLUMNS,
-                layoutPresetVersion: '',
-                progress: {},
-                completed: {},
-                liked: {},
-                pendingLikeActions: {},
-                viewMode: parsed.showLikedOnly ? MODE_LIKED : MODE_ALL,
-                showLikedOnly: false,
-                known: {},
-                lastLibraryScanAt: 0,
-                currentId: null,
-                currentVideo: null,
-                playbackRate: 1,
-            }, parsed);
+            parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {};
         } catch (error) {
-            return {
-                gridColumns: DEFAULT_GRID_COLUMNS,
-                layoutPresetVersion: '',
-                progress: {},
-                completed: {},
-                liked: {},
-                pendingLikeActions: {},
-                viewMode: MODE_ALL,
-                showLikedOnly: false,
-                known: {},
-                lastLibraryScanAt: 0,
-                currentId: null,
-                currentVideo: null,
-                playbackRate: 1,
-            };
+            parsed = {};
         }
+
+        // LIKE was removed: drop its leftovers so liked videos show up as normal videos again.
+        delete parsed.liked;
+        delete parsed.pendingLikeActions;
+        delete parsed.showLikedOnly;
+        delete parsed.playbackRate;
+        const loaded = Object.assign(defaultState(), parsed);
+        if (!MODES.includes(loaded.viewMode)) loaded.viewMode = MODE_ALL;
+        if (![LOOP_ONE, LOOP_RANDOM].includes(loaded.loopMode)) loaded.loopMode = LOOP_RANDOM;
+        loaded.newestFirst = loaded.newestFirst === true;
+
+        return loaded;
     }
 
     function saveState() {
@@ -614,25 +640,28 @@
     }
 
     function currentMode() {
-        if ([MODE_ALL, MODE_WATCHED, MODE_LIKED].includes(state.viewMode)) {
-            return state.viewMode;
-        }
-
-        return state.showLikedOnly ? MODE_LIKED : MODE_ALL;
+        return MODES.includes(state.viewMode) ? state.viewMode : MODE_ALL;
     }
 
     function setMode(mode) {
-        state.viewMode = [MODE_ALL, MODE_WATCHED, MODE_LIKED].includes(mode) ? mode : MODE_ALL;
-        state.showLikedOnly = state.viewMode === MODE_LIKED;
+        state.viewMode = MODES.includes(mode) ? mode : MODE_ALL;
         saveState();
     }
 
-    function isWatchedMode() {
-        return currentMode() === MODE_WATCHED;
+    function isNewestFirst() {
+        return state.newestFirst === true;
     }
 
-    function isLikedMode() {
-        return currentMode() === MODE_LIKED;
+    function isFcMode() {
+        return currentMode() === MODE_FC;
+    }
+
+    function isFcVideo(video) {
+        return String(video?.id || '').startsWith('fc.');
+    }
+
+    function isLoopOne() {
+        return state.loopMode === LOOP_ONE;
     }
 
     function clamp(value, min, max) {
@@ -643,25 +672,8 @@
         return new Promise((resolve) => window.setTimeout(resolve, ms));
     }
 
-    function normalizePlaybackRate(value) {
-        const numeric = Number(value || 1);
-        const closest = PLAYBACK_RATES.reduce((best, rate) => (
-            Math.abs(rate - numeric) < Math.abs(best - numeric) ? rate : best
-        ), 1);
-
-        return PLAYBACK_RATES.includes(closest) ? closest : 1;
-    }
-
-    function playbackRateLabel(rate = normalizePlaybackRate(state.playbackRate)) {
-        return `${Number(rate).toFixed(rate % 1 === 0 ? 0 : 2).replace(/0$/, '')}x`;
-    }
-
     function applyPlaybackRate() {
-        const rate = normalizePlaybackRate(state.playbackRate);
-        state.playbackRate = rate;
-        elements.playerVideo.playbackRate = rate;
-        elements.playerRate.textContent = playbackRateLabel(rate);
-        elements.playerRate.title = `播放速度 ${playbackRateLabel(rate)}`;
+        elements.playerVideo.playbackRate = 1;
     }
 
     function destroyPlayerHls() {
@@ -741,15 +753,6 @@
         return true;
     }
 
-    function cyclePlaybackRate() {
-        const current = normalizePlaybackRate(state.playbackRate);
-        const index = PLAYBACK_RATES.indexOf(current);
-        state.playbackRate = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length];
-        saveState();
-        applyPlaybackRate();
-        showFlash(playbackRateLabel(state.playbackRate));
-    }
-
     function escapeHtml(value) {
         return String(value || '').replace(/[&<>"']/g, (match) => ({
             '&': '&amp;',
@@ -799,7 +802,6 @@
             thumbnail_url: toPlayableUrl(video.thumbnail_url || `${API_BASE}/${video.id}/thumbnail`),
             preview_cached: Boolean(video.preview_cached),
             thumbnail_cached: Boolean(video.thumbnail_cached),
-            liked: Boolean(video.liked),
         };
     }
 
@@ -807,7 +809,7 @@
         return Boolean(state.completed[id]);
     }
 
-    function videoFromStoredRecord(id, record, fallbackLiked = false) {
+    function videoFromStoredRecord(id, record) {
         const stored = record?.video || {};
 
         return normalizeVideo({
@@ -823,85 +825,13 @@
             thumbnail_url: stored.thumbnail_url || `${API_BASE}/${id}/thumbnail`,
             preview_cached: Boolean(stored.preview_cached),
             thumbnail_cached: Boolean(stored.thumbnail_cached),
-            liked: fallbackLiked || Boolean(stored.liked),
         });
-    }
-
-    function completedVideos() {
-        return Object.entries(state.completed || {})
-            .map(([id, record]) => videoFromStoredRecord(id, record, isLiked(id)))
-            .sort((left, right) => {
-                const leftAt = Number(state.completed?.[left.id]?.completedAt || 0);
-                const rightAt = Number(state.completed?.[right.id]?.completedAt || 0);
-
-                return rightAt - leftAt;
-            });
-    }
-
-    function isLiked(id) {
-        return Boolean(state.liked?.[id]);
-    }
-
-    function rememberLikedVideo(video, likedAt = Date.now()) {
-        const normalized = normalizeVideo(video);
-        if (!normalized.id) {
-            return;
-        }
-
-        state.liked = state.liked || {};
-        state.liked[normalized.id] = {
-            filename: normalized.filename,
-            likedAt,
-            video: normalized,
-        };
-    }
-
-    function forgetLikedVideo(id) {
-        if (!state.liked) {
-            return;
-        }
-
-        delete state.liked[id];
-    }
-
-    function pendingLikeAction(id) {
-        return state.pendingLikeActions?.[id] || null;
-    }
-
-    function rememberPendingLikeAction(video, liked) {
-        const normalized = normalizeVideo(video);
-        if (!normalized.id) {
-            return;
-        }
-
-        state.pendingLikeActions = state.pendingLikeActions || {};
-        state.pendingLikeActions[normalized.id] = {
-            action: liked ? 'like' : 'unlike',
-            queuedAt: Date.now(),
-            mode: currentMode(),
-            video: Object.assign({}, normalized, {liked}),
-        };
-    }
-
-    function forgetPendingLikeAction(id) {
-        if (!state.pendingLikeActions) {
-            return;
-        }
-
-        delete state.pendingLikeActions[id];
     }
 
     function upsertVideo(video, placeFirst = false) {
         const normalized = normalizeVideo(video);
         if (!normalized.id) {
             return;
-        }
-
-        if (normalized.liked) {
-            rememberLikedVideo(normalized);
-        } else if (isLikedMode() && !isLiked(normalized.id)) {
-            normalized.liked = true;
-            rememberLikedVideo(normalized);
         }
 
         if (videoById.has(normalized.id)) {
@@ -920,15 +850,11 @@
 
     function displayVideos() {
         return videos.filter((video) => {
-            if (isWatchedMode()) {
-                return isCompleted(video.id);
+            if (isFcMode()) {
+                return isFcVideo(video);
             }
 
-            if (isLikedMode()) {
-                return isLiked(video.id);
-            }
-
-            return !isCompleted(video.id);
+            return !isFcVideo(video);
         });
     }
 
@@ -1114,27 +1040,22 @@
 
     function updateStatus() {
         const visible = displayVideos().length;
-        const liked = Object.keys(state.liked || {}).length;
         const completed = Object.keys(state.completed || {}).length;
-        if (isWatchedMode()) {
-            elements.subtitle.textContent = `${visible} 已觀看 · ${liked} LIKE`;
-        } else if (isLikedMode()) {
-            elements.subtitle.textContent = `${visible} LIKE · ${completed} 已看`;
+        if (isFcMode()) {
+            elements.subtitle.textContent = `FC精選 · ${visible} 部`;
         } else {
-            elements.subtitle.textContent = `${visible} 可播放 · ${liked} LIKE · ${completed} 已看`;
+            elements.subtitle.textContent = `${visible} 可播放 · ${completed} 已看`;
         }
         elements.status.textContent = `v${appConfig.version}`;
-        elements.watchedOnly.classList.toggle('is-active', isWatchedMode());
-        elements.likedOnly.classList.toggle('is-active', isLikedMode());
+        elements.newestFirst.classList.toggle('is-active', isNewestFirst());
+        elements.newestFirst.setAttribute('aria-pressed', isNewestFirst() ? 'true' : 'false');
+        elements.newestFirst.title = isNewestFirst() ? '新到舊播放（點一下改回隨機）' : '新到舊播放';
+        elements.fcOnly.classList.toggle('is-active', isFcMode());
     }
 
     function emptyMessage() {
-        if (isWatchedMode()) {
-            return '沒有已觀看影片';
-        }
-
-        if (isLikedMode()) {
-            return '沒有 LIKE 影片';
+        if (isFcMode()) {
+            return '沒有 FC精選 影片';
         }
 
         return '沒有可播放的影片';
@@ -1189,10 +1110,6 @@
 
             if (state.currentId === video.id) {
                 card.classList.add('is-current');
-            }
-
-            if (isLiked(video.id)) {
-                card.classList.add('is-liked');
             }
 
             bindCardGestures(card, video);
@@ -1608,7 +1525,7 @@
     }
 
     function maybeLoadMoreSoon() {
-        if (isLoading || isWatchedMode() || isLikedMode() || !cursor.hasMore || loadMoreQueued) {
+        if (isLoading || !cursor.hasMore || loadMoreQueued) {
             return;
         }
 
@@ -1643,17 +1560,6 @@
             return;
         }
 
-        if (isWatchedMode()) {
-            cursor = {offset: 0, hasMore: false};
-            videos = completedVideos();
-            videoById = new Map(videos.map((video) => [video.id, video]));
-            renderGrid();
-            updateStatus();
-            elements.empty.textContent = emptyMessage();
-            elements.empty.classList.toggle('show', displayVideos().length === 0);
-            return;
-        }
-
         isLoading = true;
         elements.subtitle.textContent = '載入中';
 
@@ -1661,7 +1567,7 @@
             cursor = {offset: 0, hasMore: true};
             videos = [];
             videoById = new Map();
-            if (state.currentVideo && (isLikedMode() ? isLiked(state.currentVideo.id) : !isCompleted(state.currentVideo.id))) {
+            if (!isNewestFirst() && state.currentVideo && belongsToCurrentMode(state.currentVideo)) {
                 upsertVideo(state.currentVideo, true);
             }
         }
@@ -1669,9 +1575,9 @@
         const params = new URLSearchParams({
             limit: String(appConfig.page_limit || 36),
             offset: String(cursor.offset || 0),
-            order: 'random',
+            order: isNewestFirst() ? 'newest' : 'random',
             seed: sessionSeed,
-            liked: isLikedMode() ? '1' : '0',
+            source: isFcMode() ? 'fc' : '',
         });
 
         try {
@@ -1690,7 +1596,7 @@
             };
             renderGrid();
 
-            if (!isLikedMode() && displayVideos().length < bufferedTargetCount() && cursor.hasMore) {
+            if (displayVideos().length < bufferedTargetCount() && cursor.hasMore) {
                 await loadMoreVideos();
             }
         } catch (error) {
@@ -1702,6 +1608,11 @@
             elements.empty.classList.toggle('show', displayVideos().length === 0 && !cursor.hasMore);
             maybeLoadMoreSoon();
         }
+    }
+
+    function belongsToCurrentMode(video) {
+        if (isFcMode()) return isFcVideo(video);
+        return !isFcVideo(video);
     }
 
     function rememberCurrent(video) {
@@ -1744,8 +1655,8 @@
         elements.player.setAttribute('aria-hidden', 'false');
         notifyFolderVideoTvPlayer(true);
         elements.playerTitle.textContent = normalized.filename;
-        elements.playerLike.classList.toggle('is-active', isLiked(normalized.id));
-        elements.playerLike.title = isLiked(normalized.id) ? '取消 LIKE' : '喜歡';
+        elements.playerProgress.style.width = '0%';
+        updatePlayerTime(0, Number(normalized.duration_seconds || 0));
         elements.playerVideo.pause();
         destroyPlayerHls();
         playerFallbackPending = false;
@@ -1888,7 +1799,6 @@
         playerLoadGeneration++;
         destroyPlayerHls();
         playerFallbackPending = false;
-        const closingId = playerItem?.id || null;
         recordPlayerProgress();
         stopPlayerDragSeek();
         elements.player.classList.remove('open');
@@ -1906,9 +1816,6 @@
         elements.playerVideo.pause();
         elements.playerVideo.removeAttribute('src');
         elements.playerVideo.load();
-        if (closingId) {
-            await flushPendingLikeAction(closingId);
-        }
         previewPaused = false;
         schedulePreviewRefresh();
     }
@@ -1986,9 +1893,7 @@
 
     window.folderVideoTvNativeEnded = async () => {
         if (!playerItem) return;
-        markCompleted(playerItem);
-        renderGrid();
-        await playAdjacent(1);
+        await handlePlaybackEnded();
     };
 
     window.folderVideoTvNativeClosed = () => {
@@ -2019,6 +1924,8 @@
         };
         saveState();
         updateCardProgress(playerItem.id);
+        updatePlayerTime(safeSeconds, safeDuration);
+        elements.playerProgress.style.width = `${safeDuration ? clamp((safeSeconds / safeDuration) * 100, 0, 100) : 0}%`;
     };
 
     function recordPlayerProgress() {
@@ -2089,7 +1996,6 @@
     async function playAdjacent(delta) {
         if (playerSwitching) return;
         playerSwitching = true;
-        const leavingId = playerItem?.id || null;
         try {
             recordPlayerProgress();
             const next = await findNextPlayable(delta);
@@ -2102,330 +2008,116 @@
                 window.FolderVideoTvAndroid?.stopVideo?.();
             } catch (error) {
             }
-            if (leavingId) await flushPendingLikeAction(leavingId);
             await openPlayer(next);
         } finally {
             playerSwitching = false;
         }
     }
 
-    function updateLikeVisuals(id) {
-        const liked = isLiked(id);
-        const card = elements.grid.querySelector(`.video-card[data-id="${CSS.escape(id)}"]`);
-        if (card) {
-            card.classList.toggle('is-liked', liked);
-        }
-
-        if (playerItem && playerItem.id === id) {
-            elements.playerLike.classList.toggle('is-active', liked);
-            elements.playerLike.title = liked ? '取消 LIKE' : '喜歡';
-        }
-    }
-
-    async function releaseVideoBeforeMove(id) {
-        const card = elements.grid.querySelector(`.video-card[data-id="${CSS.escape(id)}"]`);
-        if (card) {
-            stopPreview(card);
-        }
-
-        if (!playerItem || playerItem.id !== id) {
-            await sleep(180);
-            return null;
-        }
-
-        const snapshot = {
-            time: Number(elements.playerVideo.currentTime || 0),
-            shouldResume: !elements.playerVideo.paused,
-            wasOpen: elements.player.classList.contains('open'),
-        };
-
+    async function playRandom() {
+        if (playerSwitching) return;
+        playerSwitching = true;
         try {
-            elements.playerVideo.pause();
-            elements.playerVideo.removeAttribute('src');
-            elements.playerVideo.load();
-        } catch (error) {
-        }
-
-        await sleep(320);
-
-        return snapshot;
-    }
-
-    function mergeMovedVideoRecords(originalId, returned) {
-        if (state.completed?.[originalId]) {
-            const completedRecord = state.completed[originalId];
-            delete state.completed[originalId];
-            state.completed[returned.id] = Object.assign({}, completedRecord, {
-                filename: returned.filename,
-                video: returned,
-            });
-        }
-
-        if (state.progress?.[originalId] && originalId !== returned.id) {
-            const progressRecord = state.progress[originalId];
-            delete state.progress[originalId];
-            state.progress[returned.id] = progressRecord;
+            recordPlayerProgress();
+            const currentId = playerItem?.id || null;
+            let candidates = displayVideos().filter((video) => video.id !== currentId);
+            if (candidates.length < 2 && cursor.hasMore) {
+                await loadMoreVideos();
+                candidates = displayVideos().filter((video) => video.id !== currentId);
+            }
+            if (candidates.length === 0) {
+                showToast('沒有其他影片');
+                return;
+            }
+            const next = candidates[Math.floor(Math.random() * candidates.length)];
+            try {
+                window.FolderVideoTvAndroid?.stopVideo?.();
+            } catch (error) {
+            }
+            await openPlayer(next);
+        } finally {
+            playerSwitching = false;
         }
     }
 
-    function syncCollectionAfterLike(target, returned, liked, modeAtStart, previousPlayerIndex) {
-        const shouldKeep = (
-            (modeAtStart === MODE_WATCHED && isCompleted(returned.id))
-            || (modeAtStart === MODE_LIKED && liked)
-            || (modeAtStart === MODE_ALL && !liked)
-        );
+    async function handlePlaybackEnded() {
+        if (!playerItem) return;
 
-        videos = videos.filter((item) => item.id !== target.id && item.id !== returned.id);
-        videoById.delete(target.id);
-        videoById.delete(returned.id);
-
-        if (shouldKeep) {
-            videos.push(returned);
-            videoById.set(returned.id, returned);
-        }
-
-        const removedFromCurrentQueue = (modeAtStart === MODE_ALL && liked) || (modeAtStart === MODE_LIKED && !liked);
-        if (removedFromCurrentQueue && playerItem && (playerItem.id === target.id || playerItem.id === returned.id)) {
-            playerIndex = previousPlayerIndex - 1;
-        }
-    }
-
-    function updateCurrentPlayerRecord(target, returned, liked) {
-        if (!playerItem || playerItem.id !== target.id) {
+        if (isLoopOne()) {
+            delete state.progress[playerItem.id];
+            saveState();
+            if (window.FolderVideoTvAndroid?.playVideo) {
+                await openPlayer(playerItem);
+                return;
+            }
+            elements.playerVideo.currentTime = 0;
+            elements.playerVideo.play().catch(() => {});
             return;
         }
 
-        playerItem = Object.assign({}, playerItem, returned, {liked});
-        state.currentId = playerItem.id;
-        state.currentVideo = playerItem;
-        elements.playerTitle.textContent = playerItem.filename;
+        if (isNewestFirst()) {
+            await playNextInOrder();
+            return;
+        }
+
+        markCompleted(playerItem);
+        renderGrid();
+        await playRandom();
     }
 
-    function applyDeferredLikeVisualState(target, liked) {
-        const optimistic = Object.assign({}, target, {liked});
-        if (liked) {
-            rememberLikedVideo(optimistic);
-        } else {
-            forgetLikedVideo(target.id);
+    async function playNextInOrder() {
+        if (playerSwitching) return;
+        playerSwitching = true;
+        try {
+            const finished = playerItem;
+            const next = await findNextPlayable(1);
+            markCompleted(finished);
+            renderGrid();
+            if (!next) {
+                showToast('已經到底');
+                return;
+            }
+            try {
+                window.FolderVideoTvAndroid?.stopVideo?.();
+            } catch (error) {
+            }
+            await openPlayer(next);
+        } finally {
+            playerSwitching = false;
         }
+    }
 
-        rememberPendingLikeAction(optimistic, liked);
+    function renderLoopToggle() {
+        const one = isLoopOne();
+        elements.loopToggle.textContent = one ? '1' : '';
+        elements.loopToggle.title = one ? '單片循環' : '隨機播放';
+        elements.loopToggle.setAttribute('aria-pressed', one ? 'true' : 'false');
+    }
 
-        if (playerItem && playerItem.id === target.id) {
-            playerItem = Object.assign({}, playerItem, {liked});
-            state.currentVideo = playerItem;
-        }
-
-        if (videoById.has(target.id)) {
-            Object.assign(videoById.get(target.id), {liked});
-        }
-
+    function toggleLoopMode() {
+        state.loopMode = isLoopOne() ? LOOP_RANDOM : LOOP_ONE;
         saveState();
-        updateLikeVisuals(target.id);
-        updateStatus();
-        showFlash(liked ? '♥' : '♡');
-        showToast(liked ? '已加入 LIKE' : '已取消 LIKE');
+        renderLoopToggle();
+        showFlash(isLoopOne() ? '單片循環' : '隨機播放');
     }
 
-    function togglePlayerLikeDeferred(video) {
-        const target = normalizeVideo(video || playerItem);
-        if (!target.id || likeInFlight.has(target.id)) {
-            return;
-        }
-
-        applyDeferredLikeVisualState(target, !isLiked(target.id));
+    function updatePlayerTime(seconds, duration) {
+        elements.playerTime.textContent = `${formatDuration(Number(seconds) || 0)} / ${formatDuration(Number(duration) || 0)}`;
     }
 
-    async function flushPendingLikeAction(id) {
-        const pending = pendingLikeAction(id);
-        if (!pending || likeInFlight.has(id)) {
-            return null;
-        }
-
-        const liked = pending.action !== 'unlike';
-        const target = normalizeVideo(pending.video || videoById.get(id) || playerItem || {id});
-        const modeAtStart = currentMode();
-        const previousPlayerIndex = playerIndex;
-        const endpoint = `${API_BASE}/${encodeURIComponent(id)}/like`;
-
-        try {
-            likeInFlight.add(id);
-            await releaseVideoBeforeMove(id);
-            const response = await fetch(endpoint, {method: liked ? 'POST' : 'DELETE'});
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const payload = await response.json();
-            const returned = normalizeVideo(Object.assign({}, target, payload.data || {}, {
-                liked,
-                duration_seconds: target.duration_seconds,
-                duration_label: target.duration_label,
-            }));
-
-            mergeMovedVideoRecords(id, returned);
-            if (liked) {
-                forgetLikedVideo(id);
-                rememberLikedVideo(returned, pending.queuedAt || Date.now());
-            } else {
-                forgetLikedVideo(id);
-                forgetLikedVideo(returned.id);
-            }
-
-            updateCurrentPlayerRecord(target, returned, liked);
-            syncCollectionAfterLike(target, returned, liked, modeAtStart, previousPlayerIndex);
-            forgetPendingLikeAction(id);
-            if (returned.id !== id) {
-                forgetPendingLikeAction(returned.id);
-            }
-
-            saveState();
-            renderGrid();
-            updateLikeVisuals(id);
-            updateLikeVisuals(returned.id);
-
-            return returned;
-        } catch (error) {
-            showToast(liked ? 'LIKE 儲存失敗' : '取消 LIKE 儲存失敗');
-            return null;
-        } finally {
-            likeInFlight.delete(id);
-        }
+    function playerDuration() {
+        return Number(elements.playerVideo.duration || playerItem?.duration_seconds || 0);
     }
 
-    async function flushPendingLikeActions() {
-        const ids = Object.keys(state.pendingLikeActions || {});
-        for (const id of ids) {
-            await flushPendingLikeAction(id);
+    function togglePlayPause() {
+        const video = elements.playerVideo;
+        if (video.paused) {
+            video.play().catch(() => {});
+            showFlash('▶');
+        } else {
+            video.pause();
+            showFlash('❚❚');
         }
-    }
-
-    async function toggleLike(video) {
-        const target = normalizeVideo(video || playerItem);
-        if (!target.id) {
-            return;
-        }
-
-        if (playerItem && playerItem.id === target.id && elements.player.classList.contains('open')) {
-            togglePlayerLikeDeferred(target);
-            return;
-        }
-
-        if (likeInFlight.has(target.id)) {
-            return;
-        }
-
-        const wasLiked = isLiked(target.id);
-        const previousPlayerIndex = playerIndex;
-        const modeAtStart = currentMode();
-        const removedFromCurrentQueue = (modeAtStart === MODE_ALL && !wasLiked) || (modeAtStart === MODE_LIKED && wasLiked);
-        const endpoint = `${API_BASE}/${encodeURIComponent(target.id)}/like`;
-        let releasedPlayer = null;
-
-        try {
-            likeInFlight.add(target.id);
-            releasedPlayer = await releaseVideoBeforeMove(target.id);
-            const response = await fetch(endpoint, {method: wasLiked ? 'DELETE' : 'POST'});
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const payload = await response.json();
-            const returned = normalizeVideo(Object.assign({}, target, payload.data || {}, {
-                liked: !wasLiked,
-                duration_seconds: target.duration_seconds,
-                duration_label: target.duration_label,
-            }));
-            if (state.completed?.[target.id]) {
-                const completedRecord = state.completed[target.id];
-                delete state.completed[target.id];
-                state.completed[returned.id] = Object.assign({}, completedRecord, {
-                    filename: returned.filename,
-                    video: returned,
-                });
-            }
-
-            if (wasLiked) {
-                forgetLikedVideo(target.id);
-                showFlash('♡');
-                showToast('已取消 LIKE');
-            } else {
-                rememberLikedVideo(returned);
-                showFlash('♥');
-                showToast('已加入 LIKE');
-            }
-
-            if (playerItem && playerItem.id === target.id) {
-                const previousStreamUrl = playerItem.stream_url;
-                const previousTime = Number(releasedPlayer?.time || elements.playerVideo.currentTime || 0);
-                const shouldResume = Boolean(releasedPlayer?.shouldResume);
-                playerItem = Object.assign({}, playerItem, returned, {liked: !wasLiked});
-                state.currentId = playerItem.id;
-                state.currentVideo = playerItem;
-                elements.playerTitle.textContent = playerItem.filename;
-                if (releasedPlayer?.wasOpen || (returned.stream_url && returned.stream_url !== previousStreamUrl)) {
-                    elements.playerVideo.src = returned.stream_url;
-                    applyPlaybackRate();
-                    elements.playerVideo.onloadedmetadata = () => {
-                        applyPlaybackRate();
-                        if (previousTime > 0 && elements.playerVideo.duration && previousTime < elements.playerVideo.duration - 1) {
-                            elements.playerVideo.currentTime = previousTime;
-                        }
-                        if (shouldResume) {
-                            elements.playerVideo.play().catch(() => {});
-                        }
-                    };
-                    elements.playerVideo.load();
-                }
-            }
-
-            videos = videos.filter((item) => item.id !== target.id);
-            if (
-                (modeAtStart === MODE_WATCHED && isCompleted(returned.id))
-                || (modeAtStart === MODE_LIKED && !wasLiked)
-                || (modeAtStart === MODE_ALL && wasLiked)
-            ) {
-                videos.push(returned);
-            }
-            videoById.delete(target.id);
-            if (
-                (modeAtStart === MODE_WATCHED && isCompleted(returned.id))
-                || (modeAtStart === MODE_LIKED && !wasLiked)
-                || (modeAtStart === MODE_ALL && wasLiked)
-            ) {
-                videoById.set(returned.id, returned);
-            }
-            if (removedFromCurrentQueue && playerItem && playerItem.id === returned.id) {
-                playerIndex = previousPlayerIndex - 1;
-            }
-
-            saveState();
-            renderGrid();
-            updateLikeVisuals(target.id);
-            updateLikeVisuals(returned.id);
-        } catch (error) {
-            showToast(wasLiked ? '取消 LIKE 失敗' : '按讚失敗');
-            if (releasedPlayer?.wasOpen && playerItem && playerItem.id === target.id && target.stream_url) {
-                elements.playerVideo.src = target.stream_url;
-                applyPlaybackRate();
-                elements.playerVideo.onloadedmetadata = () => {
-                    applyPlaybackRate();
-                    if (releasedPlayer.time > 0 && elements.playerVideo.duration && releasedPlayer.time < elements.playerVideo.duration - 1) {
-                        elements.playerVideo.currentTime = releasedPlayer.time;
-                    }
-                    if (releasedPlayer.shouldResume) {
-                        elements.playerVideo.play().catch(() => {});
-                    }
-                };
-                elements.playerVideo.load();
-            }
-        } finally {
-            likeInFlight.delete(target.id);
-        }
-    }
-
-    function toggleCurrentLike() {
-        return toggleLike(playerItem);
     }
 
     function seekPlayer(seconds, label = null) {
@@ -2440,39 +2132,28 @@
         showFlash(label || (seconds > 0 ? `+${seconds}s` : `${seconds}s`));
     }
 
-    function seekPlayerByRatio(stepCount) {
-        const video = elements.playerVideo;
-        const duration = Number(video.duration || playerItem?.duration_seconds || 0);
-        if (!duration || !stepCount) {
-            return;
-        }
-
-        const percent = stepCount * PLAYER_DRAG_SEEK_RATIO;
-        const labelPercent = Math.round(percent * 100);
-        seekPlayer(duration * percent, `${labelPercent > 0 ? '+' : ''}${labelPercent}%`);
-    }
-
     elements.playerVideo.addEventListener('timeupdate', () => {
         if (!playerItem || !elements.playerVideo.duration) {
             return;
         }
 
+        if (scrubbing) {
+            return;
+        }
+
         const percent = clamp((elements.playerVideo.currentTime / elements.playerVideo.duration) * 100, 0, 100);
         elements.playerProgress.style.width = `${percent}%`;
+        updatePlayerTime(elements.playerVideo.currentTime, elements.playerVideo.duration);
 
         clearTimeout(saveProgressTimer);
         saveProgressTimer = setTimeout(recordPlayerProgress, 450);
     });
 
-    elements.playerVideo.addEventListener('ended', async () => {
-        if (!playerItem) {
-            return;
-        }
-
-        markCompleted(playerItem);
-        renderGrid();
-        await playAdjacent(1);
+    elements.playerVideo.addEventListener('durationchange', () => {
+        if (playerItem && !scrubbing) updatePlayerTime(elements.playerVideo.currentTime, playerDuration());
     });
+
+    elements.playerVideo.addEventListener('ended', handlePlaybackEnded);
 
     elements.playerVideo.addEventListener('error', () => {
         if (playerFallbackPending || activePlayerHls) return;
@@ -2498,13 +2179,6 @@
         let startY = 0;
         let startTime = 0;
         let moved = false;
-        let singleTapTimer = null;
-        let lastTap = {time: 0, x: 0, y: 0};
-
-        const clearSingleTap = () => {
-            clearTimeout(singleTapTimer);
-            singleTapTimer = null;
-        };
 
         card.addEventListener('pointerdown', (event) => {
             if (event.button !== undefined && event.button !== 0) {
@@ -2520,157 +2194,161 @@
         card.addEventListener('pointermove', (event) => {
             if (Math.abs(event.clientX - startX) > 16 || Math.abs(event.clientY - startY) > 16) {
                 moved = true;
-                clearLongPress();
             }
         });
 
         card.addEventListener('pointerup', (event) => {
-            if (Date.now() - startTime > 950) {
-                clearSingleTap();
-                event.preventDefault();
-                event.stopPropagation();
+            if (moved || Date.now() - startTime > 950) {
                 return;
             }
 
-            if (!moved) {
-                const now = Date.now();
-                const distance = Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y);
-                if (now - lastTap.time <= DOUBLE_TAP_MS && distance <= DOUBLE_TAP_DISTANCE) {
-                    clearSingleTap();
-                    lastTap = {time: 0, x: 0, y: 0};
-                    event.preventDefault();
-                    event.stopPropagation();
-                    toggleLike(video);
-                    return;
-                }
-
-                lastTap = {time: now, x: event.clientX, y: event.clientY};
-                clearSingleTap();
-                singleTapTimer = window.setTimeout(() => {
-                    singleTapTimer = null;
-                    openPlayer(video);
-                }, DOUBLE_TAP_MS);
-            }
-        });
-
-        card.addEventListener('pointercancel', () => {
-            clearSingleTap();
+            event.preventDefault();
+            openPlayer(video);
         });
     }
 
     function bindPlayerGestures() {
+        let pointerId = null;
         let startX = 0;
         let startY = 0;
         let startTime = 0;
-        let moved = false;
-        let holdSeekTimer = null;
-        let holdSeekArmed = false;
-        let dragSeekApplied = false;
-        let dragSeekStepIndex = 0;
-        let lastTap = {time: 0, x: 0, y: 0};
+        let startPosition = 0;
+        let gesture = 'none';
+        let scrubTarget = 0;
+        let lastScrubSeekAt = 0;
 
-        const clearDragSeek = () => {
-            clearTimeout(holdSeekTimer);
-            holdSeekTimer = null;
-            holdSeekArmed = false;
-            dragSeekApplied = false;
-            dragSeekStepIndex = 0;
+        const applyScrubPreview = (target, duration) => {
+            elements.playerProgress.style.width = `${duration ? clamp((target / duration) * 100, 0, 100) : 0}%`;
+            updatePlayerTime(target, duration);
+            elements.flash.textContent = `${formatDuration(target)} / ${formatDuration(duration)}`;
+            elements.flash.classList.add('show');
+            clearTimeout(flashTimer);
         };
 
-        stopPlayerDragSeek = clearDragSeek;
+        const seekTo = (target, precise) => {
+            const video = elements.playerVideo;
+            if (!precise && typeof video.fastSeek === 'function') {
+                video.fastSeek(target);
+            } else {
+                video.currentTime = target;
+            }
+        };
+
+        const reset = () => {
+            pointerId = null;
+            gesture = 'none';
+            if (scrubbing) {
+                scrubbing = false;
+                flashTimer = setTimeout(() => elements.flash.classList.remove('show'), 450);
+            }
+        };
+
+        stopPlayerDragSeek = reset;
 
         elements.player.addEventListener('pointerdown', (event) => {
-            if (event.target.closest('button')) {
+            if (event.target.closest('button') || pointerId !== null) {
+                return;
+            }
+            if (event.button !== undefined && event.button !== 0) {
                 return;
             }
 
+            pointerId = event.pointerId;
             startX = event.clientX;
             startY = event.clientY;
             startTime = Date.now();
-            moved = false;
-            holdSeekArmed = false;
-            dragSeekApplied = false;
-            dragSeekStepIndex = 0;
-            clearTimeout(holdSeekTimer);
-            holdSeekTimer = setTimeout(() => {
-                if (!moved) {
-                    holdSeekArmed = true;
-                }
-            }, PLAYER_HOLD_SEEK_MS);
+            startPosition = Number(elements.playerVideo.currentTime || 0);
+            gesture = 'pending';
+            try {
+                elements.player.setPointerCapture(event.pointerId);
+            } catch (error) {
+            }
         });
 
         elements.player.addEventListener('pointermove', (event) => {
+            if (event.pointerId !== pointerId || gesture === 'none') {
+                return;
+            }
+
             const dx = event.clientX - startX;
             const dy = event.clientY - startY;
             const absX = Math.abs(dx);
             const absY = Math.abs(dy);
 
-            if (absX > 16 || absY > 16) {
-                moved = true;
-                if (!holdSeekArmed) {
-                    clearTimeout(holdSeekTimer);
-                    holdSeekTimer = null;
+            if (gesture === 'pending') {
+                if (absX > PLAYER_TAP_SLOP_PX && absX >= absY) {
+                    const duration = playerDuration();
+                    if (!duration) {
+                        gesture = 'ignored';
+                        return;
+                    }
+                    gesture = 'scrub';
+                    scrubbing = true;
+                    // Re-anchor so the playhead does not jump by the slop distance.
+                    startX = event.clientX;
+                } else if (absY > PLAYER_TAP_SLOP_PX && absY > absX) {
+                    gesture = 'swipe';
+                } else {
+                    return;
                 }
             }
 
-            if (holdSeekArmed && ((absX > 28 && absX > absY * 1.15) || dragSeekApplied)) {
-                const nextStepIndex = Math.round(dx / PLAYER_DRAG_SEEK_STEP_PX);
-                const stepDelta = nextStepIndex - dragSeekStepIndex;
-                if (stepDelta !== 0) {
-                    seekPlayerByRatio(stepDelta);
-                    dragSeekStepIndex = nextStepIndex;
-                    dragSeekApplied = true;
-                }
-
-                event.preventDefault();
+            if (gesture !== 'scrub') {
                 return;
             }
 
-            if (absY > 28 && absY > absX && !dragSeekApplied) {
-                clearDragSeek();
+            event.preventDefault();
+            const duration = playerDuration();
+            const width = Math.max(1, elements.player.clientWidth);
+            scrubTarget = clamp(startPosition + ((event.clientX - startX) / width) * duration * PLAYER_SCRUB_SPAN, 0, duration);
+            applyScrubPreview(scrubTarget, duration);
+
+            const now = Date.now();
+            if (now - lastScrubSeekAt >= PLAYER_SCRUB_SEEK_INTERVAL_MS) {
+                lastScrubSeekAt = now;
+                seekTo(scrubTarget, false);
             }
         });
 
         elements.player.addEventListener('pointerup', (event) => {
-            clearTimeout(holdSeekTimer);
-            const hadDragSeek = dragSeekApplied;
-            clearDragSeek();
-            if (hadDragSeek) {
+            if (event.pointerId !== pointerId) {
+                return;
+            }
+
+            const finished = gesture;
+            const dx = event.clientX - startX;
+            const dy = event.clientY - startY;
+            const elapsed = Date.now() - startTime;
+
+            if (finished === 'scrub') {
+                seekTo(scrubTarget, true);
+                reset();
+                recordPlayerProgress();
                 event.preventDefault();
                 return;
             }
 
-            if (Date.now() - startTime > 900) {
-                return;
-            }
+            reset();
 
-            const dx = event.clientX - startX;
-            const dy = event.clientY - startY;
-
-            if (Math.abs(dy) > 56 && Math.abs(dy) > Math.abs(dx)) {
+            if (finished === 'swipe' && Math.abs(dy) > 56 && Math.abs(dy) > Math.abs(dx)) {
                 playAdjacent(dy < 0 ? 1 : -1);
                 return;
             }
 
-            if (Math.abs(dx) <= 18 && Math.abs(dy) <= 18) {
-                const now = Date.now();
-                const distance = Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y);
-                if (now - lastTap.time <= DOUBLE_TAP_MS && distance <= DOUBLE_TAP_DISTANCE) {
-                    lastTap = {time: 0, x: 0, y: 0};
-                    toggleCurrentLike();
-                    return;
-                }
-
-                lastTap = {time: now, x: event.clientX, y: event.clientY};
+            if (finished === 'pending' && elapsed <= PLAYER_TAP_MAX_MS) {
+                togglePlayPause();
             }
         });
 
-        elements.player.addEventListener('pointercancel', () => {
-            clearDragSeek();
-        });
+        elements.player.addEventListener('pointercancel', (event) => {
+            if (event.pointerId !== pointerId) {
+                return;
+            }
 
-        elements.player.addEventListener('pointerleave', () => {
-            clearDragSeek();
+            if (gesture === 'scrub') {
+                seekTo(scrubTarget, true);
+            }
+            reset();
         });
     }
 
@@ -2786,14 +2464,16 @@
         setGridColumns(DEFAULT_GRID_COLUMNS);
     });
 
-    elements.watchedOnly.addEventListener('click', async () => {
-        setMode(isWatchedMode() ? MODE_ALL : MODE_WATCHED);
+    elements.newestFirst.addEventListener('click', async () => {
+        state.newestFirst = !isNewestFirst();
+        saveState();
         updateStatus();
+        showToast(isNewestFirst() ? '新到舊播放' : '隨機播放');
         await loadMoreVideos(true);
     });
 
-    elements.likedOnly.addEventListener('click', async () => {
-        setMode(isLikedMode() ? MODE_ALL : MODE_LIKED);
+    elements.fcOnly.addEventListener('click', async () => {
+        setMode(isFcMode() ? MODE_ALL : MODE_FC);
         updateStatus();
         await loadMoreVideos(true);
     });
@@ -2805,10 +2485,10 @@
     });
 
     elements.closePlayer.addEventListener('click', closePlayer);
-    elements.playerLike.addEventListener('click', toggleCurrentLike);
-    elements.playerNext.addEventListener('click', () => playAdjacent(1));
-    elements.playerPrev.addEventListener('click', () => playAdjacent(-1));
-    elements.playerRate.addEventListener('click', cyclePlaybackRate);
+    elements.loopToggle.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleLoopMode();
+    });
 
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
@@ -2900,17 +2580,14 @@
         applyGridColumns();
         bindPlayerGestures();
         bindGridPinch();
-        if (state.currentVideo && (
-            isWatchedMode()
-                ? isCompleted(state.currentVideo.id)
-                : (isLikedMode() ? isLiked(state.currentVideo.id) : !isCompleted(state.currentVideo.id))
-        )) {
+        renderLoopToggle();
+        saveState();
+        if (!isNewestFirst() && state.currentVideo && belongsToCurrentMode(state.currentVideo)) {
             upsertVideo(state.currentVideo, true);
             renderGrid();
         }
         await fetchAppConfig();
         await loadMoreVideos(true);
-        flushPendingLikeActions().catch(() => {});
         if (isFolderVideoTvApp()) {
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.getRegistrations()

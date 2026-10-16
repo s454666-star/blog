@@ -18,7 +18,7 @@
         </form>
 
         <!-- Batch Delete Form -->
-        <form id="batch-delete-form" action="{{ url('blog/batch-delete-bt') }}" method="POST">
+        <form id="batch-delete-form" action="{{ url('blog/batch-delete-bt') }}" method="POST" autocomplete="off">
             @csrf
             @method('DELETE')
 

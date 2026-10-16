@@ -53,6 +53,8 @@ class TgVideoReviewController extends Controller
         ], $validated['items']);
         $ids = array_column($items, 'id');
         $records = TgVideoReview::query()->whereIn('id', $ids)->get()->keyBy('id');
+        $deleteIds = array_column(array_filter($items, static fn (array $item): bool => $item['action'] === 'delete'), 'id');
+        $results = $service->deleteMany($records->only($deleteIds)->values());
         $completed = [];
         $failed = [];
 
@@ -64,7 +66,7 @@ class TgVideoReviewController extends Controller
                 continue;
             }
 
-            $result = $service->handle($record, $item['action']);
+            $result = $results[$id] ?? $service->handle($record, $item['action']);
             if ($result['ok']) {
                 $completed[] = $id;
             } else {

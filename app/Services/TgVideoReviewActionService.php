@@ -21,33 +21,19 @@ class TgVideoReviewActionService
                 throw new RuntimeException('不支援的操作。');
             }
 
-            if ($action === 'delete'
-                && !file_exists((string) $record->video_path)
-                && !file_exists((string) $record->image_path)) {
-                $record->delete();
-
-                return ['ok' => true, 'message' => '已清除不存在檔案的資料列。'];
+            if ($action === 'delete') {
+                return $this->deleteMany([$record])[$record->id];
             }
 
             [$videoPath, $imagePath, $root] = $this->validatedPaths($record);
 
-            if ($action === 'delete') {
-                $existingPaths = array_values(array_filter(
-                    [$videoPath, $imagePath],
-                    fn (string $path): bool => is_file($path)
-                ));
-                if ($existingPaths !== []) {
-                    $this->recycleBin->move($existingPaths);
-                }
-            } elseif (in_array($action, ['ok', 'watermark'], true)) {
-                if (!is_file($videoPath)) {
-                    throw new RuntimeException('影片已不存在，未刪除資料列。');
-                }
-                $subdirectory = $action === 'ok'
-                    ? (string) config('tg_video_review.ok_subdirectory')
-                    : (string) config('tg_video_review.watermark_subdirectory');
-                $this->moveVideoAndDeleteImage($videoPath, $imagePath, $root, $subdirectory);
+            if (!is_file($videoPath)) {
+                throw new RuntimeException('影片已不存在，未刪除資料列。');
             }
+            $subdirectory = $action === 'ok'
+                ? (string) config('tg_video_review.ok_subdirectory')
+                : (string) config('tg_video_review.watermark_subdirectory');
+            $this->moveVideoAndDeleteImage($videoPath, $imagePath, $root, $subdirectory);
 
             $record->delete();
 
@@ -55,6 +41,82 @@ class TgVideoReviewActionService
         } catch (Throwable $e) {
             return ['ok' => false, 'message' => $this->utf8Message($e->getMessage())];
         }
+    }
+
+    /**
+     * Sends every record's files to the recycle bin in one batch, then deletes only the rows whose files are gone.
+     *
+     * @param iterable<TgVideoReview> $records
+     * @return array<int, array{ok: bool, message: string}> keyed by record id
+     */
+    public function deleteMany(iterable $records): array
+    {
+        $results = [];
+        $pending = [];
+
+        foreach ($records as $record) {
+            try {
+                if (!file_exists((string) $record->video_path) && !file_exists((string) $record->image_path)) {
+                    $results[$record->id] = ['ok' => true, 'message' => '已清除不存在檔案的資料列。'];
+                    continue;
+                }
+
+                [$videoPath, $imagePath] = $this->validatedPaths($record);
+                $pending[$record->id] = array_values(array_filter(
+                    [$videoPath, $imagePath],
+                    fn (string $path): bool => is_file($path)
+                ));
+            } catch (Throwable $e) {
+                $results[$record->id] = ['ok' => false, 'message' => $this->utf8Message($e->getMessage())];
+            }
+        }
+
+        $recycleError = null;
+        $paths = array_merge(...array_values($pending));
+        if ($paths !== []) {
+            try {
+                $this->recycleBin->move($paths);
+            } catch (Throwable $e) {
+                $recycleError = $this->utf8Message($e->getMessage());
+            }
+        }
+
+        foreach ($pending as $id => $recordPaths) {
+            $remaining = array_values(array_filter($recordPaths, 'file_exists'));
+            $results[$id] = $remaining === []
+                ? ['ok' => true, 'message' => '處理完成。']
+                : ['ok' => false, 'message' => $this->recycleFailureMessage($remaining, $recycleError)];
+        }
+
+        $deletableIds = array_keys(array_filter($results, fn (array $result): bool => $result['ok']));
+        foreach (array_chunk($deletableIds, 500) as $chunk) {
+            TgVideoReview::query()->whereIn('id', $chunk)->delete();
+        }
+
+        return $results;
+    }
+
+    /** @param array<int, string> $remaining */
+    private function recycleFailureMessage(array $remaining, ?string $recycleError): string
+    {
+        if ($recycleError === null || $recycleError === '') {
+            return '檔案仍存在，垃圾桶操作未完成。';
+        }
+
+        $lines = array_filter(
+            preg_split('/\R/u', $recycleError) ?: [],
+            function (string $line) use ($remaining): bool {
+                foreach ($remaining as $path) {
+                    if (str_contains($line, $path)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        );
+
+        return mb_substr($lines !== [] ? implode(PHP_EOL, $lines) : $recycleError, 0, 500);
     }
 
     /** @return array{0: string, 1: string, 2: string} */

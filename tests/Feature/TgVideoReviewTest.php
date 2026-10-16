@@ -208,6 +208,90 @@ class TgVideoReviewTest extends TestCase
         $this->assertFileExists($record->image_path);
     }
 
+    public function test_batch_delete_recycles_all_files_in_one_call_and_deletes_all_rows(): void
+    {
+        $records = array_map(fn (int $i): TgVideoReview => $this->makeRecord("bulk-{$i}.mp4"), range(1, 30));
+        $recycleBin = new class implements RecycleBin {
+            public array $calls = [];
+            public function move(array $paths): void
+            {
+                $this->calls[] = $paths;
+                foreach ($paths as $path) {
+                    unlink($path);
+                }
+            }
+        };
+        $this->app->instance(RecycleBin::class, $recycleBin);
+
+        $response = $this->postJson(route('tg-video-review.actions'), ['items' => array_map(
+            static fn (TgVideoReview $record): array => ['id' => $record->id, 'action' => 'delete'],
+            $records
+        )]);
+
+        $ids = array_map(static fn (TgVideoReview $record): int => $record->id, $records);
+        $response->assertOk()->assertJson(['ok' => true, 'completed_ids' => $ids, 'failed' => []]);
+        $this->assertCount(1, $recycleBin->calls);
+        $this->assertCount(60, $recycleBin->calls[0]);
+        $this->assertDatabaseCount('tg_video_reviews', 0);
+    }
+
+    public function test_batch_delete_partial_failure_reports_only_rows_whose_files_remain(): void
+    {
+        $first = $this->makeRecord('partial-a.mp4');
+        $stuck = $this->makeRecord('partial-b.mp4');
+        $last = $this->makeRecord('partial-c.mp4');
+        $this->app->instance(RecycleBin::class, new class($stuck->video_path) implements RecycleBin {
+            public function __construct(private string $stuckPath)
+            {
+            }
+
+            public function move(array $paths): void
+            {
+                foreach ($paths as $path) {
+                    if ($path !== $this->stuckPath) {
+                        unlink($path);
+                    }
+                }
+                throw new \RuntimeException("Failed: {$this->stuckPath}: in use");
+            }
+        });
+
+        $response = $this->postJson(route('tg-video-review.actions'), ['items' => [
+            ['id' => $first->id, 'action' => 'delete'],
+            ['id' => $stuck->id, 'action' => 'delete'],
+            ['id' => $last->id, 'action' => 'delete'],
+        ]]);
+
+        $response->assertOk()
+            ->assertJsonPath('ok', false)
+            ->assertJsonPath('completed_ids', [$first->id, $last->id])
+            ->assertJsonPath('failed.0.id', $stuck->id)
+            ->assertJsonPath('failed.0.message', "Failed: {$stuck->video_path}: in use");
+        $this->assertDatabaseMissing('tg_video_reviews', ['id' => $first->id]);
+        $this->assertDatabaseMissing('tg_video_reviews', ['id' => $last->id]);
+        $this->assertDatabaseHas('tg_video_reviews', ['id' => $stuck->id]);
+        $this->assertFileExists($stuck->video_path);
+    }
+
+    public function test_batch_delete_keeps_row_when_recycle_bin_silently_leaves_its_file(): void
+    {
+        $record = $this->makeRecord('silent-left.mp4');
+        $this->app->instance(RecycleBin::class, new class implements RecycleBin {
+            public function move(array $paths): void
+            {
+            }
+        });
+
+        $response = $this->postJson(route('tg-video-review.actions'), [
+            'items' => [['id' => $record->id, 'action' => 'delete']],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('ok', false)
+            ->assertJsonPath('failed.0.message', '檔案仍存在，垃圾桶操作未完成。');
+        $this->assertDatabaseHas('tg_video_reviews', ['id' => $record->id]);
+    }
+
     public function test_windows_recycle_bin_passes_multiple_paths_through_a_utf8_manifest(): void
     {
         $service = file_get_contents(app_path('Services/WindowsRecycleBin.php'));

@@ -12,4 +12,5 @@ return [
     'contact_sheet_columns' => 5,
     'contact_sheet_rows' => 4,
     'cell_height' => 270,
+    'header_font' => env('TG_VIDEO_REVIEW_HEADER_FONT', 'C:\\Windows\\Fonts\\msjh.ttc'),
 ];

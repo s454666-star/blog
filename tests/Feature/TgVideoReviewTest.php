@@ -663,7 +663,8 @@ class TgVideoReviewTest extends TestCase
         $this->assertSame(['videos' => 1, 'generated' => 1, 'unchanged' => 0, 'disappeared' => 0, 'failed' => 0], $result);
         $this->assertIsArray($size);
         $this->assertSame(784, $size[0]);
-        $this->assertSame(1100, $size[1]);
+        // 1100px of tiles plus a 66px file-info header sized for a 784px-wide sheet.
+        $this->assertSame(1166, $size[1]);
     }
 
     public function test_scanner_accepts_a_valid_contact_sheet_for_an_extremely_narrow_portrait_video(): void
@@ -683,7 +684,42 @@ class TgVideoReviewTest extends TestCase
         ]);
         $this->assertIsArray($size);
         $this->assertLessThan(500, $size[0]);
-        $this->assertSame(1100, $size[1]);
+        $this->assertSame(1158, $size[1]);
+    }
+
+    public function test_contact_sheet_header_reports_displayed_size_of_rotated_video(): void
+    {
+        $plain = $this->root . DIRECTORY_SEPARATOR . 'plain.mp4';
+        $rotated = $this->root . DIRECTORY_SEPARATOR . 'rotated.mp4';
+        $this->generateFakeVideo($plain, '320x180');
+        $process = new Process([
+            (string) config('tg_video_review.ffmpeg_bin'), '-hide_banner', '-loglevel', 'error', '-y',
+            '-display_rotation', '90', '-i', $plain, '-c', 'copy', $rotated,
+        ]);
+        $process->setTimeout(60);
+        $process->mustRun();
+
+        $probe = (new \ReflectionMethod(TgVideoReviewScanner::class, 'probeVideo'))
+            ->invoke(app(TgVideoReviewScanner::class), $rotated);
+
+        $this->assertSame(180, $probe['width']);
+        $this->assertSame(320, $probe['height']);
+        $this->assertEqualsWithDelta(2.0, $probe['duration'], 0.1);
+    }
+
+    public function test_contact_sheet_header_shortens_long_names_but_keeps_the_extension(): void
+    {
+        $scanner = app(TgVideoReviewScanner::class);
+        $fit = new \ReflectionMethod(TgVideoReviewScanner::class, 'fitText');
+        $format = new \ReflectionMethod(TgVideoReviewScanner::class, 'formatDuration');
+
+        $this->assertSame('short.mp4', $fit->invoke($scanner, 'short.mp4', 400, 16));
+        $long = $fit->invoke($scanner, str_repeat('很長的檔名', 20) . '.mp4', 400, 16);
+        $this->assertStringEndsWith('….mp4', $long);
+        $this->assertLessThanOrEqual(400, mb_strwidth($long) * 0.56 * 16);
+        $this->assertSame('0:05', $format->invoke($scanner, 5.2));
+        $this->assertSame('12:34', $format->invoke($scanner, 754));
+        $this->assertSame('1:02:03', $format->invoke($scanner, 3723));
     }
 
     public function test_scanner_never_overwrites_an_unmanaged_same_name_jpeg(): void

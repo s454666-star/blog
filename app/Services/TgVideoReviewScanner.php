@@ -101,8 +101,9 @@ class TgVideoReviewScanner
 
                 $stagePath = $stageDirectory . DIRECTORY_SEPARATOR . sprintf('%04d.jpg', $index + 1);
                 try {
-                    $duration = $this->probeDuration($videoPath);
-                    $this->generateContactSheet($videoPath, $stagePath, $duration);
+                    $probe = $this->probeVideo($videoPath);
+                    $duration = $probe['duration'];
+                    $this->generateContactSheet($videoPath, $stagePath, $probe);
                 } catch (Throwable) {
                     if (is_file($stagePath)) {
                         @unlink($stagePath);
@@ -327,19 +328,39 @@ class TgVideoReviewScanner
         }
     }
 
-    private function probeDuration(string $videoPath): float
+    /** @return array{duration: float, width: int|null, height: int|null} */
+    private function probeVideo(string $videoPath): array
     {
         $process = new Process([
-            (string) config('tg_video_review.ffprobe_bin'), '-v', 'error',
-            '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', $videoPath,
+            (string) config('tg_video_review.ffprobe_bin'), '-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'format=duration:stream=width,height:stream_side_data=rotation:stream_tags=rotate',
+            '-of', 'json', $videoPath,
         ]);
         $process->setTimeout(60);
         $process->mustRun();
-        $duration = (float) trim($process->getOutput());
+        $probe = json_decode($process->getOutput(), true);
+        $duration = (float) ($probe['format']['duration'] ?? 0);
         if (!is_finite($duration) || $duration <= 0) {
             throw new RuntimeException('無法取得有效影片長度。');
         }
-        return $duration;
+
+        $stream = $probe['streams'][0] ?? [];
+        $width = (int) ($stream['width'] ?? 0);
+        $height = (int) ($stream['height'] ?? 0);
+        $rotation = $stream['tags']['rotate'] ?? null;
+        foreach ($stream['side_data_list'] ?? [] as $sideData) {
+            $rotation = $sideData['rotation'] ?? $rotation;
+        }
+        // FFmpeg auto-rotates decoded frames, so report the size as displayed.
+        if (abs((int) $rotation) % 180 === 90) {
+            [$width, $height] = [$height, $width];
+        }
+
+        return [
+            'duration' => $duration,
+            'width' => $width > 0 ? $width : null,
+            'height' => $height > 0 ? $height : null,
+        ];
     }
 
     private function assertMediaToolsAvailable(): void
@@ -352,7 +373,8 @@ class TgVideoReviewScanner
         }
     }
 
-    private function generateContactSheet(string $videoPath, string $outputPath, float $duration): void
+    /** @param array{duration: float, width: int|null, height: int|null} $probe */
+    private function generateContactSheet(string $videoPath, string $outputPath, array $probe): void
     {
         $columns = (int) config('tg_video_review.contact_sheet_columns', 5);
         $rows = (int) config('tg_video_review.contact_sheet_rows', 4);
@@ -362,29 +384,121 @@ class TgVideoReviewScanner
         $frameCount = $columns * $rows;
         // Ask for one extra sample so videos whose final timestamp falls just
         // short of their container duration still yield a complete tile.
-        $frameRate = ($frameCount + 1) / $duration;
+        $frameRate = ($frameCount + 1) / $probe['duration'];
+
+        // Estimate the tiled width up front so the header text can be sized to fit it.
+        $aspect = $probe['width'] !== null && $probe['height'] !== null ? $probe['width'] / $probe['height'] : 16 / 9;
+        $cellWidth = max(2, 2 * (int) round($height * $aspect / 2));
+        $sheetWidth = ($columns * $cellWidth) + (($columns - 1) * $padding) + (2 * $margin);
+        $header = $this->headerLayout($sheetWidth);
+
+        $nameFile = $outputPath . '.name.txt';
+        $infoFile = $outputPath . '.info.txt';
+        $resolution = $probe['width'] !== null && $probe['height'] !== null
+            ? $probe['width'] . '×' . $probe['height']
+            : '未知';
+        $info = '時長 ' . $this->formatDuration($probe['duration']) . '　解析度 ' . $resolution;
+
         $filter = sprintf(
             'setpts=N/FRAME_RATE/TB,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709,fps=%.12F,scale=-2:%d,format=yuvj420p,tile=%dx%d:padding=%d:margin=%d',
             $frameRate, $height, $columns, $rows, $padding, $margin
         );
+        $filter .= sprintf(',pad=iw:ih+%1$d:0:%1$d:color=0x0b1220', $header['height']);
+        $font = (string) config('tg_video_review.header_font', '');
+        $fontOption = $font !== '' && is_file($font) ? 'fontfile=' . $this->filterValue($font) . ':' : '';
+        foreach ([
+            [$nameFile, $header['name_size'], 'white', $header['name_y']],
+            [$infoFile, $header['info_size'], '0x7dd3fc', $header['info_y']],
+        ] as [$textFile, $size, $color, $y]) {
+            $filter .= sprintf(
+                ',drawtext=%stextfile=%s:expansion=none:fontsize=%d:fontcolor=%s:x=%d:y=%d',
+                $fontOption, $this->filterValue($textFile), $size, $color, $header['x'], $y
+            );
+        }
 
-        $process = new Process([
-            (string) config('tg_video_review.ffmpeg_bin'), '-hide_banner', '-loglevel', 'error', '-y',
-            '-fflags', '+discardcorrupt', '-err_detect', 'ignore_err',
-            '-i', $videoPath, '-vf', $filter, '-frames:v', '1', '-q:v', '3', $outputPath,
-        ]);
-        $process->setTimeout(600);
-        $process->mustRun();
+        try {
+            $name = $this->fitText(basename($videoPath), $sheetWidth - (2 * $header['x']), $header['name_size']);
+            if (file_put_contents($nameFile, $name) === false || file_put_contents($infoFile, $info) === false) {
+                throw new RuntimeException('無法建立接觸表標題文字。');
+            }
+
+            $process = new Process([
+                (string) config('tg_video_review.ffmpeg_bin'), '-hide_banner', '-loglevel', 'error', '-y',
+                '-fflags', '+discardcorrupt', '-err_detect', 'ignore_err',
+                '-i', $videoPath, '-vf', $filter, '-frames:v', '1', '-q:v', '3', $outputPath,
+            ]);
+            $process->setTimeout(600);
+            $process->mustRun();
+        } finally {
+            @unlink($nameFile);
+            @unlink($infoFile);
+        }
 
         $size = @getimagesize($outputPath);
         $minimumWidth = ($columns * 2) + (($columns - 1) * $padding) + (2 * $margin);
-        $expectedHeight = ($rows * $height) + (($rows - 1) * $padding) + (2 * $margin);
+        $expectedHeight = $header['height'] + ($rows * $height) + (($rows - 1) * $padding) + (2 * $margin);
         if (!is_array($size)
             || $size[2] !== IMAGETYPE_JPEG
             || $size[0] < $minimumWidth
             || $size[1] !== $expectedHeight) {
             throw new RuntimeException('接觸表驗證失敗。');
         }
+    }
+
+    /** @return array{height: int, x: int, name_size: int, name_y: int, info_size: int, info_y: int} */
+    private function headerLayout(int $sheetWidth): array
+    {
+        $nameSize = max(16, min(40, intdiv($sheetWidth, 40)));
+        $infoSize = (int) round($nameSize * 0.8);
+        $gap = (int) round($nameSize * 0.5);
+        $edge = (int) round($nameSize * 0.6);
+        $height = $edge + $nameSize + $gap + $infoSize + $edge;
+
+        return [
+            // yuvj420p needs an even height.
+            'height' => $height + ($height % 2),
+            'x' => max(8, $edge),
+            'name_size' => $nameSize,
+            'name_y' => $edge,
+            'info_size' => $infoSize,
+            'info_y' => $edge + $nameSize + $gap,
+        ];
+    }
+
+    /** Shortens long names in the middle, keeping the extension, so they stay inside the sheet width. */
+    private function fitText(string $text, int $maxWidth, int $fontSize): string
+    {
+        $width = fn (string $value): float => mb_strwidth($value) * 0.56 * $fontSize;
+        if ($width($text) <= $maxWidth) {
+            return $text;
+        }
+
+        $extension = pathinfo($text, PATHINFO_EXTENSION);
+        $suffix = $extension !== '' ? '.' . $extension : '';
+        $stem = mb_substr($text, 0, mb_strlen($text) - mb_strlen($suffix));
+        while ($stem !== '' && $width($stem . '…' . $suffix) > $maxWidth) {
+            $stem = mb_substr($stem, 0, -1);
+        }
+
+        return $stem . '…' . $suffix;
+    }
+
+    private function formatDuration(float $seconds): string
+    {
+        $total = (int) round($seconds);
+        $hours = intdiv($total, 3600);
+        $minutes = intdiv($total % 3600, 60);
+        $secs = $total % 60;
+
+        return $hours > 0
+            ? sprintf('%d:%02d:%02d', $hours, $minutes, $secs)
+            : sprintf('%d:%02d', $minutes, $secs);
+    }
+
+    /** Quotes a path for an FFmpeg filter option value. */
+    private function filterValue(string $path): string
+    {
+        return "'" . str_replace([':', "'"], ['\\:', "'\\''"], str_replace('\\', '/', $path)) . "'";
     }
 
     /** @return array{size: int, modified_at: int}|null */

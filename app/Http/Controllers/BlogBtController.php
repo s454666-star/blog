@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Article;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
@@ -71,12 +72,16 @@ class BlogBtController
         return back()->with('success', 'BT 重跑完成：' . $article->title);
     }
 
-    public function batchDelete(Request $request): RedirectResponse
+    public function batchDelete(Request $request): RedirectResponse|JsonResponse
     {
         $selectedArticles = $request->input('selected_articles', []);
 
         if (count($selectedArticles) > 0) {
             Article::whereIn('article_id', $selectedArticles)->update(['is_disabled' => 1]);
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json(['deleted' => array_values(array_map('intval', $selectedArticles))]);
         }
 
         return redirect()->route('blogBt.index')->with('success', '選中的文章已成功刪除。');

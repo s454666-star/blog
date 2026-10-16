@@ -247,15 +247,46 @@
                         showToast('未找到此文章的種子鏈結');
                     }
 
-                    // 再延後觸發批次刪除，避免阻擋彈窗
-                    const batchDeleteForm = document.getElementById('batch-delete-form');
-                    if (batchDeleteForm) {
-                        setTimeout(() => batchDeleteForm.submit(), 0);
-                    }
-
-                    showToast('批次刪除已觸發');
+                    // 用 fetch 刪除、不換頁：表單 submit 會讓頁面跳轉，Chrome 會取消尚未交給 BT 程式的 magnet
+                    batchDeleteInPlace();
                 });
             });
+        }
+
+        /**
+         * 以 AJAX 送出批次刪除，成功後把已勾選的文章從畫面移除。
+         */
+        function batchDeleteInPlace() {
+            const form = document.getElementById('batch-delete-form');
+            if (!form) return;
+
+            const formData = new FormData(form);
+            if (formData.getAll('selected_articles[]').length === 0) return;
+
+            fetch(form.action, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'Accept': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+            })
+                .then(response => {
+                    if (!response.ok) throw new Error('HTTP ' + response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    (data.deleted || []).forEach(id => {
+                        const el = document.getElementById('article-' + id);
+                        if (el) el.remove();
+                    });
+                    showToast('已刪除 ' + (data.deleted || []).length + ' 篇');
+                })
+                .catch(error => {
+                    console.error('Batch delete error:', error);
+                    showToast('刪除失敗，請重試');
+                });
         }
 
         /**
@@ -268,9 +299,18 @@
                 return;
             }
             try {
-                const w = window.open(link, '_blank', 'noopener');
-                // 若被瀏覽器阻擋，改用動態 <a> 觸發
-                if (!w) {
+                // magnet 交給系統協定處理（BT 程式），不會讓本頁離開；開新分頁反而容易被吃掉
+                if (/^magnet:/i.test(link)) {
+                    window.location.href = link;
+                    return;
+                }
+
+                // 不帶 'noopener' 參數（帶了 window.open 永遠回傳 null，會誤觸後備而開兩次），改手動切斷 opener
+                const w = window.open(link, '_blank');
+                if (w) {
+                    w.opener = null;
+                } else {
+                    // 被瀏覽器阻擋時，改用動態 <a> 觸發
                     const a = document.createElement('a');
                     a.href = link;
                     a.target = '_blank';

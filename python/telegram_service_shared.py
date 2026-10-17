@@ -1687,6 +1687,11 @@ BOT_NOT_FOUND_KEYWORDS = [
     "已加入缓存列表，稍后进行请求。",
 ]
 
+RESOURCE_CODE_MISSING_KEYWORDS = [
+    "取件码不存在",
+    "取件碼不存在",
+]
+
 RESOURCE_CODE_DORMANT_KEYWORDS = [
     "处于休眠状态",
     "處於休眠狀態",
@@ -5397,6 +5402,8 @@ async def _resource_code_bot_media(
                 if page_match is not None:
                     declared_file_count = max(0, int(page_match.group(3)))
                 if _resource_code_media_kind(msg) is None:
+                    if any(keyword in message_text for keyword in RESOURCE_CODE_MISSING_KEYWORDS):
+                        return collected_media(), sorted(all_reply_ids), "code_missing", expected_media_count, declared_file_count
                     if _resource_code_is_dormant_text(message_text):
                         return collected_media(), sorted(all_reply_ids), "dormant", expected_media_count, declared_file_count
                     if _match_bot_not_found_keyword(message_text):
@@ -5554,9 +5561,10 @@ async def process_resource_code(payload: ProcessResourceCodeRequest):
                 phase = "cleanup_no_media"
                 remaining = await _cleanup_resource_code_run(bot_peer, sent_message_id, bot_reply_ids + bot_media_ids)
                 return {
-                    "status": "skip" if media_outcome == "dormant" else "error",
+                    "status": "skip" if media_outcome in ("dormant", "code_missing") else "error",
                     "reason": (
                         "dormant" if media_outcome == "dormant"
+                        else "code_missing" if media_outcome == "code_missing"
                         else "not_found" if media_outcome == "not_found"
                         else "account_limited" if media_outcome == "account_limited"
                         else "media_timeout"

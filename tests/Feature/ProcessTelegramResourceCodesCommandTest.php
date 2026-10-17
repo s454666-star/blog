@@ -1547,6 +1547,53 @@ class ProcessTelegramResourceCodesCommandTest extends TestCase
         $this->assertNotNull(DB::table('telegram_resource_codes')->where('code', 'f2d32d20fd97cc0f7a40d0a7ab4e282d479c14d5')->value('skipped_at'));
     }
 
+    public function test_missing_pickup_code_is_skipped_immediately_and_next_code_continues(): void
+    {
+        foreach (['zyxfiles_missing_A1', 'zyxfiles_next_B2'] as $code) {
+            DB::table('telegram_resource_codes')->insert([
+                'code' => $code,
+                'code_type' => 1,
+                'status' => TelegramResourceCode::STATUS_PENDING,
+                'attempts' => 0,
+                'forwarded_message_count' => 0,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        Http::fake(function ($request) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            if ($request->method() === 'GET' && str_starts_with($path, '/groups/')) {
+                return Http::response(['status' => 'ok', 'items' => []]);
+            }
+
+            if ($request['code'] === 'zyxfiles_missing_A1') {
+                return Http::response(['status' => 'skip', 'reason' => 'code_missing', 'cleanup_complete' => false]);
+            }
+
+            return Http::response([
+                'status' => 'ok',
+                'forwarded_count' => 1,
+                'expected_media_count' => 1,
+                'declared_file_count' => 1,
+                'cleanup_complete' => true,
+            ]);
+        });
+
+        $this->artisan('telegram:process-resource-codes', ['--once' => true])->assertExitCode(0);
+
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => 'zyxfiles_missing_A1',
+            'status' => TelegramResourceCode::STATUS_SKIPPED,
+            'skip_reason' => TelegramResourceCode::SKIP_REASON_CODE_MISSING,
+            'attempts' => 1,
+        ]);
+        $this->assertDatabaseHas('telegram_resource_codes', [
+            'code' => 'zyxfiles_next_B2',
+            'status' => TelegramResourceCode::STATUS_COMPLETED,
+        ]);
+    }
+
     public function test_partial_forward_count_is_not_marked_completed(): void
     {
         DB::table('telegram_resource_codes')->insert([

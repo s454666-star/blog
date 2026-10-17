@@ -484,6 +484,27 @@ class ProcessTelegramResourceCodesCommand extends Command
 
             if ($response->successful()
                 && (string) ($payload['status'] ?? '') === 'skip'
+                && (string) ($payload['reason'] ?? '') === 'code_missing') {
+                DB::table('telegram_resource_codes')->where('id', $row->id)->update([
+                    'status' => TelegramResourceCode::STATUS_SKIPPED,
+                    'skip_reason' => TelegramResourceCode::SKIP_REASON_CODE_MISSING,
+                    'processing_account' => $accountIndex + 1,
+                    'forwarded_message_count' => 0,
+                    'decoder_sent_count' => 0,
+                    'decoder_total_count' => 0,
+                    'processing_started_at' => null,
+                    'available_at' => null,
+                    'completed_at' => null,
+                    'skipped_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $this->warn("code_id={$row->id} skipped reason=code_missing account=" . ($accountIndex + 1));
+                return true;
+            }
+
+            if ($response->successful()
+                && (string) ($payload['status'] ?? '') === 'skip'
                 && (string) ($payload['reason'] ?? '') === 'dormant'
                 && (bool) ($payload['cleanup_complete'] ?? false)) {
                 DB::table('telegram_resource_codes')->where('id', $row->id)->update([

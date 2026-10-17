@@ -14,6 +14,7 @@ class TelegramResourceCode extends Model
     public const SKIP_REASON_DORMANT = 1;
     public const SKIP_REASON_RETRY_LIMIT = 2;
     public const SKIP_REASON_RETIRED_ROUTE = 3;
+    public const SKIP_REASON_CODE_MISSING = 4;
 
     protected $table = 'telegram_resource_codes';
 

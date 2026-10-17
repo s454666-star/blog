@@ -133,6 +133,8 @@
     Route::get('/folder-videos/{id}/preview', [FolderVideoController::class, 'preview'])->name('folder-videos.preview');
     Route::get('/folder-videos/{id}/stream', [FolderVideoController::class, 'stream'])->name('folder-videos.stream');
     Route::post('/folder-videos/{id}/play', [FolderVideoController::class, 'recordPlay'])->name('folder-videos.play');
+    Route::post('/folder-videos/{id}/dislike', [FolderVideoController::class, 'dislike'])->name('folder-videos.dislike');
+    Route::delete('/folder-videos/{id}/dislike', [FolderVideoController::class, 'undislike'])->name('folder-videos.undislike');
     Route::delete('/folder-videos/{id}', [FolderVideoController::class, 'destroy'])->name('folder-videos.destroy');
     Route::get('/folder-photos/app-config', [FolderPhotoController::class, 'appConfig'])->name('folder-photos.app-config');
     Route::get('/folder-photos/random', [FolderPhotoController::class, 'random'])->name('folder-photos.random');

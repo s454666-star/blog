@@ -365,6 +365,45 @@
             pointer-events: none;
         }
 
+        .player-hud-left {
+            position: absolute;
+            left: 10px;
+            bottom: calc(var(--bottom-safe) + 14px);
+            z-index: 6;
+            display: flex;
+            align-items: center;
+        }
+
+        .dislike-toggle {
+            display: grid;
+            width: 38px;
+            height: 32px;
+            padding: 0;
+            place-items: center;
+            border: 0;
+            border-radius: 6px;
+            background: rgba(0, 0, 0, .32);
+            color: #fff;
+            cursor: pointer;
+        }
+
+        .dislike-toggle svg {
+            width: 22px;
+            height: 22px;
+        }
+
+        .dislike-toggle.is-active {
+            color: var(--coral);
+        }
+
+        .dislike-toggle.is-active svg path {
+            fill: currentColor;
+        }
+
+        .video-card.is-disliked {
+            opacity: .45;
+        }
+
         .player-time {
             padding: 4px 8px;
             border-radius: 6px;
@@ -513,6 +552,14 @@
         <div class="player-title" id="playerTitle"></div>
         <span></span>
     </div>
+    <div class="player-hud-left">
+        <button class="dislike-toggle" id="playerDislikeButton" type="button" title="不喜歡" aria-pressed="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"></path>
+                <path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path>
+            </svg>
+        </button>
+    </div>
     <div class="player-hud">
         <span class="player-time" id="playerTime">00:00 / 00:00</span>
         <button class="loop-toggle" id="loopToggleButton" type="button" title="隨機播放" aria-pressed="false"></button>
@@ -567,6 +614,7 @@
         playerProgress: document.getElementById('playerProgress'),
         playerTime: document.getElementById('playerTime'),
         loopToggle: document.getElementById('loopToggleButton'),
+        playerDislike: document.getElementById('playerDislikeButton'),
         closePlayer: document.getElementById('closePlayerButton'),
         toast: document.getElementById('toast'),
         flash: document.getElementById('gestureFlash'),
@@ -605,6 +653,8 @@
     let forceIndexRefresh = false;
     // One play is recorded per viewing once progress passes 50%.
     let playRecorded = false;
+    let dislikeChanged = false;
+    const dislikeInFlight = new Set();
     let playRecordRetryAt = 0;
     const previewPreparation = new Map();
     const tvPreviewPreparation = new Map();
@@ -821,6 +871,7 @@
             preview_cached: Boolean(video.preview_cached),
             thumbnail_cached: Boolean(video.thumbnail_cached),
             play_count: Math.max(0, Number(video.play_count || 0)),
+            disliked: Boolean(video.disliked),
         };
     }
 
@@ -845,6 +896,7 @@
             preview_cached: Boolean(stored.preview_cached),
             thumbnail_cached: Boolean(stored.thumbnail_cached),
             play_count: stored.play_count || 0,
+            disliked: Boolean(stored.disliked),
         });
     }
 
@@ -870,6 +922,12 @@
 
     function displayVideos() {
         return videos.filter((video) => {
+            // Disliked videos stay out of the random pool (the playing one stays
+            // until the player moves on so list positions do not shift under it).
+            if (video.disliked && !isNewestFirst() && video.id !== playerItem?.id) {
+                return false;
+            }
+
             if (isFcMode()) {
                 return isFcVideo(video);
             }
@@ -1131,6 +1189,10 @@
 
             if (state.currentId === video.id) {
                 card.classList.add('is-current');
+            }
+
+            if (video.disliked) {
+                card.classList.add('is-disliked');
             }
 
             bindCardGestures(card, video);
@@ -1680,6 +1742,7 @@
         elements.playerTitle.textContent = normalized.filename;
         playRecorded = false;
         playRecordRetryAt = 0;
+        renderDislikeButton();
         elements.playerProgress.style.width = '0%';
         updatePlayerTime(0, Number(normalized.duration_seconds || 0));
         elements.playerVideo.pause();
@@ -1841,6 +1904,10 @@
         elements.playerVideo.pause();
         elements.playerVideo.removeAttribute('src');
         elements.playerVideo.load();
+        if (dislikeChanged) {
+            dislikeChanged = false;
+            renderGrid();
+        }
         previewPaused = false;
         schedulePreviewRefresh();
     }
@@ -2132,6 +2199,51 @@
         saveState();
         renderLoopToggle();
         showFlash(isLoopOne() ? '單片循環' : '隨機播放');
+    }
+
+    function renderDislikeButton() {
+        const disliked = Boolean(playerItem?.disliked);
+        elements.playerDislike.classList.toggle('is-active', disliked);
+        elements.playerDislike.setAttribute('aria-pressed', disliked ? 'true' : 'false');
+        elements.playerDislike.title = disliked ? '取消不喜歡' : '不喜歡';
+    }
+
+    function setDisliked(id, disliked) {
+        const video = videoById.get(id);
+        if (video) video.disliked = disliked;
+        if (playerItem?.id === id) playerItem.disliked = disliked;
+        if (state.currentVideo?.id === id) state.currentVideo.disliked = disliked;
+        if (state.completed?.[id]?.video) state.completed[id].video.disliked = disliked;
+        saveState();
+        const card = elements.grid.querySelector(`.video-card[data-id="${CSS.escape(id)}"]`);
+        card?.classList.toggle('is-disliked', disliked);
+        renderDislikeButton();
+    }
+
+    async function toggleDislike() {
+        const id = playerItem?.id;
+        if (!id || dislikeInFlight.has(id)) return;
+
+        const disliked = !playerItem.disliked;
+        dislikeInFlight.add(id);
+        setDisliked(id, disliked);
+        dislikeChanged = true;
+        showFlash(disliked ? '👎' : '↺');
+        try {
+            const response = await fetch(`${API_BASE}/${encodeURIComponent(id)}/dislike`, {
+                method: disliked ? 'POST' : 'DELETE',
+                cache: 'no-store',
+                headers: {'Accept': 'application/json', 'Content-Type': 'application/json'},
+                body: disliked ? JSON.stringify({client: playClientName()}) : undefined,
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            showToast(disliked ? '已標記不喜歡，之後不會出現在隨機播放' : '已取消不喜歡');
+        } catch (error) {
+            setDisliked(id, !disliked);
+            showToast(disliked ? '不喜歡儲存失敗' : '取消不喜歡失敗');
+        } finally {
+            dislikeInFlight.delete(id);
+        }
     }
 
     function playCountLabel(video) {
@@ -2566,6 +2678,10 @@
     });
 
     elements.closePlayer.addEventListener('click', closePlayer);
+    elements.playerDislike.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleDislike();
+    });
     elements.loopToggle.addEventListener('click', (event) => {
         event.stopPropagation();
         toggleLoopMode();

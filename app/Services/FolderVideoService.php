@@ -14,6 +14,9 @@ class FolderVideoService
 
     protected const FC_ID_PREFIX = 'fc.';
 
+    /** @var array<string, int> video ids left out of the current listing */
+    protected array $excludedIds = [];
+
     public function listVideosPage(
         int $limit = 15,
         ?float $afterDuration = null,
@@ -23,10 +26,12 @@ class FolderVideoService
         string $seed = '',
         ?int $newFirstAfter = null,
         string $source = '',
-        bool $refreshIndex = false
+        bool $refreshIndex = false,
+        array $excludedIds = []
     ): array
     {
         $limit = max(1, min($limit, 100));
+        $this->excludedIds = array_flip(array_values(array_filter($excludedIds, 'is_string')));
         if ($source === self::SOURCE_FC) {
             return $this->listFcVideosPage(
                 $limit,
@@ -48,7 +53,7 @@ class FolderVideoService
             );
         }
 
-        $videos = $this->filteredVideos($afterDuration, $afterFilename);
+        $videos = $this->withoutExcluded($this->filteredVideos($afterDuration, $afterFilename));
         if ($this->isCustomOrder($order)) {
             $videos = $this->sortRecords($videos, $order, $seed, $newFirstAfter)->values();
         }
@@ -544,6 +549,17 @@ class FolderVideoService
         return $this->listDirectoryVideosPage($limit, $offset, $order, $seed, $newFirstAfter);
     }
 
+    protected function withoutExcluded(Collection $records): Collection
+    {
+        if ($this->excludedIds === []) {
+            return $records;
+        }
+
+        return $records->reject(fn (array $record) => isset(
+            $this->excludedIds[$record['id'] ?? $this->encodeId((string) ($record['filename'] ?? ''))]
+        ));
+    }
+
     protected function listFcVideosPage(
         int $limit,
         int $offset = 0,
@@ -574,7 +590,7 @@ class FolderVideoService
             $records->push($this->fcVideoPayloadFromFile($file));
         }
 
-        $records = $this->sortRecords($records, $order, $seed, $newFirstAfter)->values();
+        $records = $this->sortRecords($this->withoutExcluded($records), $order, $seed, $newFirstAfter)->values();
         $slice = $records->slice($offset, $limit + 1)->values();
         $videos = $slice->take($limit)->values();
 
@@ -594,7 +610,7 @@ class FolderVideoService
         ?int $newFirstAfter = null
     ): array
     {
-        $records = collect($index);
+        $records = $this->withoutExcluded(collect($index));
         if ($this->isCustomOrder($order)) {
             $records = $this->sortRecords($records, $order, $seed, $newFirstAfter);
         }

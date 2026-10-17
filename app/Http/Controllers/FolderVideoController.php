@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\FolderVideoDislikeService;
 use App\Services\FolderVideoPlayService;
 use App\Services\FolderVideoService;
 use Illuminate\Http\JsonResponse;
@@ -12,7 +13,8 @@ class FolderVideoController extends Controller
 {
     public function __construct(
         private readonly FolderVideoService $folderVideoService,
-        private readonly FolderVideoPlayService $folderVideoPlayService
+        private readonly FolderVideoPlayService $folderVideoPlayService,
+        private readonly FolderVideoDislikeService $folderVideoDislikeService
     ) {
     }
 
@@ -30,6 +32,7 @@ class FolderVideoController extends Controller
         $newFirstAfter = $request->query('new_first_after');
         $newFirstAfterValue = is_numeric($newFirstAfter) ? (int) $newFirstAfter : null;
         $source = (string) $request->query('source', '');
+        $dislikedIds = $this->folderVideoDislikeService->dislikedIds();
         $page = $this->folderVideoService->listVideosPage(
             $limit,
             $afterDurationValue,
@@ -39,9 +42,14 @@ class FolderVideoController extends Controller
             $seed,
             $newFirstAfterValue,
             $source,
-            $request->boolean('refresh')
+            $request->boolean('refresh'),
+            // Disliked videos never enter the random playback pool.
+            $order === 'random' ? $dislikedIds : []
         );
-        $videos = $this->folderVideoPlayService->withCounts($page['videos']);
+        $videos = $this->folderVideoDislikeService->withFlags(
+            $this->folderVideoPlayService->withCounts($page['videos']),
+            $dislikedIds
+        );
         $lastVideo = $videos->last();
 
         return response()->json([
@@ -163,6 +171,28 @@ class FolderVideoController extends Controller
         return response()->json([
             'data' => ['id' => $id, 'play_count' => $count],
         ])->header('Cache-Control', 'no-store, max-age=0');
+    }
+
+    public function dislike(Request $request, string $id): JsonResponse
+    {
+        $video = $this->folderVideoService->describeVideo($id);
+        $this->folderVideoDislikeService->dislike(
+            $id,
+            $video['filename'],
+            $video['source'],
+            $request->string('client')->toString() ?: null
+        );
+
+        return response()->json(['data' => ['id' => $id, 'disliked' => true]])
+            ->header('Cache-Control', 'no-store, max-age=0');
+    }
+
+    public function undislike(string $id): JsonResponse
+    {
+        $this->folderVideoDislikeService->undislike($id);
+
+        return response()->json(['data' => ['id' => $id, 'disliked' => false]])
+            ->header('Cache-Control', 'no-store, max-age=0');
     }
 
     public function destroy(string $id): JsonResponse

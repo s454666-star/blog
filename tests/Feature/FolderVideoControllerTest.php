@@ -171,6 +171,32 @@ class FolderVideoControllerTest extends TestCase
         $this->postJson("/api/folder-videos/{$missingId}/play")->assertNotFound();
     }
 
+    public function test_disliked_videos_are_left_out_of_the_random_pool(): void
+    {
+        (require base_path('database/migrations/2026_10_17_010000_create_folder_video_dislikes_table.php'))->up();
+        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
+
+        $this->postJson("/api/folder-videos/{$id}/dislike", ['client' => 'tv'])
+            ->assertOk()
+            ->assertJsonPath('data.disliked', true);
+        $this->postJson("/api/folder-videos/{$id}/dislike")->assertOk();
+        $this->assertDatabaseCount('folder_video_dislikes', 1);
+        $this->assertDatabaseHas('folder_video_dislikes', ['video_key' => sha1($id), 'filename' => 'short.mp4', 'source' => 'main']);
+
+        $random = collect($this->getJson('/api/folder-videos?order=random&seed=a&limit=10')->assertOk()->json('data'));
+        $this->assertSame(['long.mp4'], $random->pluck('filename')->all());
+
+        $newest = collect($this->getJson('/api/folder-videos?order=newest&limit=10')->assertOk()->json('data'))->keyBy('filename');
+        $this->assertTrue($newest['short.mp4']['disliked']);
+        $this->assertFalse($newest['long.mp4']['disliked']);
+
+        $this->deleteJson("/api/folder-videos/{$id}/dislike")
+            ->assertOk()
+            ->assertJsonPath('data.disliked', false);
+        $this->assertDatabaseCount('folder_video_dislikes', 0);
+        $this->assertCount(2, $this->getJson('/api/folder-videos?order=random&seed=a&limit=10')->json('data'));
+    }
+
     public function test_listing_still_works_without_the_plays_table(): void
     {
         $this->getJson('/api/folder-videos?limit=10')

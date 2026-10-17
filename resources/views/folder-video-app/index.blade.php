@@ -1980,8 +1980,15 @@
             return queue[index];
         }
 
-        if (delta > 0 && cursor.hasMore) {
-            await loadMoreVideos();
+        if (delta > 0 && (cursor.hasMore || isLoading)) {
+            // A scroll-triggered page load may already be running; wait for it
+            // instead of giving up and wrapping back to videos already played.
+            for (let waited = 0; isLoading && waited < 15000; waited += 100) {
+                await sleep(100);
+            }
+            if (cursor.hasMore) {
+                await loadMoreVideos();
+            }
             queue = displayVideos();
             current = playerItem ? queue.findIndex((video) => video.id === playerItem.id) : current;
             if (current < 0) {
@@ -2023,16 +2030,15 @@
         try {
             recordPlayerProgress();
             const currentId = playerItem?.id || null;
-            let candidates = displayVideos().filter((video) => video.id !== currentId);
-            if (candidates.length < 2 && cursor.hasMore) {
-                await loadMoreVideos();
-                candidates = displayVideos().filter((video) => video.id !== currentId);
-            }
-            if (candidates.length === 0) {
+            // The server list is already a seeded shuffle of the whole library, so
+            // walking it forward (and loading more pages as needed) never repeats a
+            // video until every one has played; only then wrap to the start.
+            const next = await findNextPlayable(1)
+                || displayVideos().find((video) => video.id !== currentId);
+            if (!next) {
                 showToast('沒有其他影片');
                 return;
             }
-            const next = candidates[Math.floor(Math.random() * candidates.length)];
             try {
                 window.FolderVideoTvAndroid?.stopVideo?.();
             } catch (error) {

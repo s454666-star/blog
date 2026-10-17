@@ -127,6 +127,10 @@ RESOURCE_CODE_SUUPJSBOT_PATTERN = re.compile(
     r"SuupJSbot[A-Za-z0-9_:-]+",
     re.IGNORECASE,
 )
+RESOURCE_CODE_QINGYOUCODES2BOT_PATTERN = re.compile(
+    r"QingYoucodes2bot[A-Za-z0-9_:-]+",
+    re.IGNORECASE,
+)
 RESOURCE_CODE_QYCODES3BOT_PATTERN = re.compile(
     r"QYcodes3bot[A-Za-z0-9_:-]+",
     re.IGNORECASE,
@@ -372,6 +376,8 @@ def _normalize_resource_code(raw_code: Any) -> Optional[str]:
         return "shuttle67bot" + code[len("shuttle67bot"):]
     if RESOURCE_CODE_SUUPJSBOT_PATTERN.fullmatch(code):
         return "SuupJSbot" + code[len("SuupJSbot"):]
+    if RESOURCE_CODE_QINGYOUCODES2BOT_PATTERN.fullmatch(code):
+        return "QingYoucodes2bot" + code[len("QingYoucodes2bot"):]
     if RESOURCE_CODE_QYCODES3BOT_PATTERN.fullmatch(code):
         return "QYcodes3bot" + code[len("QYcodes3bot"):]
     if RESOURCE_CODE_QYCODESBOT_PATTERN.fullmatch(code):

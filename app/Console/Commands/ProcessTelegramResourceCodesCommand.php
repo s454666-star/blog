@@ -49,6 +49,7 @@ class ProcessTelegramResourceCodesCommand extends Command
     private const SUUPJSBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])SuupJSbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const QYCODESBOT_CODE_REGEX = '/(?<![A-Za-z0-9_])QYcodesbot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const QYCODES3BOT_CODE_REGEX = '/(?<![A-Za-z0-9_])QYcodes3bot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
+    private const QINGYOUCODES2BOT_CODE_REGEX = '/(?<![A-Za-z0-9_])QingYoucodes2bot[A-Za-z0-9_:-]+(?![A-Za-z0-9_:-])/i';
     private const LINK_CODE_TYPE = 19;
     private const LINK_PROFILE_NAME = '__links__';
     private const LINK_MAX_ATTEMPTS = 5;
@@ -659,6 +660,7 @@ class ProcessTelegramResourceCodesCommand extends Command
             17 => self::QYCODESBOT_CODE_REGEX,
             18 => self::QYCODES3BOT_CODE_REGEX,
             19 => self::PIKPAK_LINK_REGEX,
+            20 => self::QINGYOUCODES2BOT_CODE_REGEX,
             default => self::HEX_CODE_REGEX,
         };
     }
@@ -735,6 +737,10 @@ class ProcessTelegramResourceCodesCommand extends Command
 
         if ($codeType === self::LINK_CODE_TYPE) {
             return (string) preg_replace('/^mypikpak(?:点|點|。|．|\.)com\/s\//iu', 'mypikpak.com/s/', $code);
+        }
+
+        if ($codeType === 20) {
+            return (string) preg_replace('/^QingYoucodes2bot/i', 'QingYoucodes2bot', $code);
         }
 
         if ($codeType === 18) {

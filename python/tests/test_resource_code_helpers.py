@@ -85,6 +85,10 @@ class ResourceCodeDormantTextTest(unittest.TestCase):
         )
         self.assertIsNone(service._normalize_resource_code("notSuupJSbot"))
         self.assertEqual(
+            "QingYoucodes2bot_87V0P0D_2TZN-NN8C",
+            service._normalize_resource_code("qingyoucodes2bot_87V0P0D_2TZN-NN8C"),
+        )
+        self.assertEqual(
             "QYcodes3bot_87V0P0D_2TZN-NN8C",
             service._normalize_resource_code("qycodes3bot_87V0P0D_2TZN-NN8C"),
         )

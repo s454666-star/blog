@@ -464,6 +464,68 @@ class TelegramMediaQueueDeadlineTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(("connection_recovered", {"status": "running"}), self.events)
 
+    async def test_dialog_resolution_skips_missing_sources_but_requires_image_target(self):
+        def client_with(peer_ids):
+            async def iter_dialogs():
+                for peer_id in peer_ids:
+                    yield SimpleNamespace(name="images" if peer_id == -300 else "group", entity=peer_id)
+
+            return SimpleNamespace(iter_dialogs=iter_dialogs)
+
+        self.patch("marked_peer_id", lambda entity: entity)
+        config = {
+            "sources": [
+                {"alias": "kept", "title": "kept", "peer_id": -100},
+                {"alias": "gone", "title": "gone", "peer_id": -200},
+            ],
+            "image_target_title": "images",
+            "image_target_peer_id": -300,
+        }
+
+        dialogs = await QUEUE.resolve_exact_dialogs(client_with([-100, -300]), config)
+
+        self.assertEqual({"kept": -100, "image_target": -300}, dialogs)
+        self.assertIn(("dialog_source_unavailable", {"status": "running", "count": 1, "sources": ["gone"]}), self.events)
+        with self.assertRaisesRegex(RuntimeError, "dialog_match_count"):
+            await QUEUE.resolve_exact_dialogs(client_with([-100, -200]), config)
+
+    async def test_worker_skips_a_source_that_became_private_and_keeps_scanning_the_rest(self):
+        client = SimpleNamespace(
+            connect=AsyncMock(), is_user_authorized=AsyncMock(return_value=True), disconnect=AsyncMock()
+        )
+        state = {"sources": {alias: {"last_scanned_id": 0, "pending": {}} for alias in ("private", "missing", "after")}}
+        scanned = []
+
+        async def process(client, source, target, alias, config, state):
+            scanned.append(alias)
+            if alias == "private":
+                raise QUEUE.ChannelPrivateError(request=None)
+            return False
+
+        with (
+            patch.object(QUEUE, "load_state", return_value=state),
+            patch.object(QUEUE, "TelegramClient", return_value=client),
+            patch.object(QUEUE, "resolve_exact_dialogs", AsyncMock(return_value={
+                "private": "p", "after": "a", "image_target": "i",
+            })),
+            patch.object(QUEUE, "process_source", process),
+        ):
+            await QUEUE.run_worker(
+                {
+                    "api_id": 1,
+                    "api_hash": "fixture",
+                    "sources": [{"alias": "private"}, {"alias": "missing"}, {"alias": "after"}],
+                },
+                True,
+            )
+
+        self.assertEqual(["private", "after"], scanned)
+        self.assertIn(
+            ("source_unavailable", {"source": "private", "status": "skipped", "error_class": "ChannelPrivateError"}),
+            self.events,
+        )
+        self.assertEqual("cycle_complete", self.events[-1][0])
+
 
 if __name__ == "__main__":
     unittest.main()

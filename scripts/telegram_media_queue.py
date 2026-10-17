@@ -21,7 +21,13 @@ from typing import Any
 from types import SimpleNamespace
 
 from telethon import TelegramClient, utils
-from telethon.errors import FloodWaitError, SessionPasswordNeededError
+from telethon.errors import (
+    ChannelInvalidError,
+    ChannelPrivateError,
+    FloodWaitError,
+    SessionPasswordNeededError,
+    UserBannedInChannelError,
+)
 from telethon.errors.rpcerrorlist import (
     ChatForwardsRestrictedError,
     MessageIdInvalidError,
@@ -623,12 +629,17 @@ async def resolve_exact_dialogs(client: TelegramClient, config: dict[str, Any]) 
             title_matches = alias != "image_target" or title == expected["title"]
             if title_matches and peer_id == expected["peer_id"]:
                 matches[alias].append(dialog.entity)
-    invalid = [alias for alias, entities in matches.items() if len(entities) != 1]
+    # A source group the account has left or lost access to must not stop the
+    # other sources; skip it. The image target and ambiguous matches still block.
+    missing = [alias for alias, entities in matches.items() if not entities and alias != "image_target"]
+    invalid = [alias for alias, entities in matches.items() if len(entities) > 1 or (alias == "image_target" and len(entities) != 1)]
     if invalid:
         safe_log("dialog_resolution_blocked", status="blocked", count=len(invalid), error_class="dialog_match_count")
         raise RuntimeError("dialog_match_count")
-    safe_log("dialog_resolution_ok", status="running", count=len(matches))
-    return {alias: entities[0] for alias, entities in matches.items()}
+    if missing:
+        safe_log("dialog_source_unavailable", status="running", count=len(missing), sources=missing)
+    safe_log("dialog_resolution_ok", status="running", count=len(matches) - len(missing))
+    return {alias: entities[0] for alias, entities in matches.items() if entities}
 
 
 async def source_message_deleted(client: TelegramClient, source: Any, message_id: int) -> bool:
@@ -1302,12 +1313,20 @@ async def run_worker(config: dict[str, Any], once: bool) -> None:
                 backlog_remaining = False
                 for item in config["sources"]:
                     alias = str(item["alias"])
-                    yielded = await process_source(client, dialogs[alias], dialogs["image_target"], alias, config, state)
-                    backlog_remaining = backlog_remaining or yielded
-                    if file_features.enabled(config, alias):
-                        feature_work = await file_features.backfill_batch(
-                            feature_api(), client, dialogs[alias], dialogs["image_target"], alias, config, state)
-                        backlog_remaining = backlog_remaining or feature_work
+                    if alias not in dialogs:
+                        continue
+                    try:
+                        yielded = await process_source(client, dialogs[alias], dialogs["image_target"], alias, config, state)
+                        backlog_remaining = backlog_remaining or yielded
+                        if file_features.enabled(config, alias):
+                            feature_work = await file_features.backfill_batch(
+                                feature_api(), client, dialogs[alias], dialogs["image_target"], alias, config, state)
+                            backlog_remaining = backlog_remaining or feature_work
+                    except (ChannelPrivateError, ChannelInvalidError, UserBannedInChannelError) as error:
+                        # Lost access mid-run: drop this source until the next restart instead of
+                        # aborting the whole cycle, which starved every source listed after it.
+                        dialogs.pop(alias, None)
+                        safe_log("source_unavailable", source=alias, status="skipped", error_class=type(error).__name__)
                 state["cycle"] = int(state.get("cycle") or 0) + 1
                 state["active_source"] = None
                 save_state(state, "idle")
@@ -1432,6 +1451,8 @@ async def print_inventory(config: dict[str, Any]) -> None:
             if bool(item.get("delete_source", True)):
                 continue
             alias = str(item["alias"])
+            if alias not in dialogs:
+                continue
             counts = {"video": 0, "image": 0, "archive": 0}
             samples: dict[str, list[int]] = {"video": [], "image": [], "archive": []}
             scanned = 0
@@ -1475,6 +1496,8 @@ async def process_exact_messages(config: dict[str, Any], requests: list[str]) ->
         dialogs = await resolve_exact_dialogs(client, config)
         results: list[dict[str, Any]] = []
         for alias, message_id in parsed:
+            if alias not in dialogs:
+                raise RuntimeError("requested_source_unavailable")
             message = await client.get_messages(dialogs[alias], ids=message_id)
             if message is None or isinstance(message, MessageEmpty):
                 raise RuntimeError("requested_message_missing")

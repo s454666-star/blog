@@ -1690,6 +1690,8 @@ BOT_NOT_FOUND_KEYWORDS = [
 RESOURCE_CODE_MISSING_KEYWORDS = [
     "取件码不存在",
     "取件碼不存在",
+    "未识别到有效取件码",
+    "未識別到有效取件碼",
 ]
 
 RESOURCE_CODE_DORMANT_KEYWORDS = [

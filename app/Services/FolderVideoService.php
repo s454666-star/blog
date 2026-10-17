@@ -185,6 +185,17 @@ class FolderVideoService
         abort(404, 'Video not found.');
     }
 
+    /**
+     * @return array{filename: string, source: string}
+     */
+    public function describeVideo(string $id): array
+    {
+        return [
+            'filename' => $this->relativeFilenameForSource($this->resolveVideoPath($id)),
+            'source' => str_starts_with($id, self::FC_ID_PREFIX) ? self::SOURCE_FC : 'main',
+        ];
+    }
+
     public function resolveThumbnailPath(string $id): ?string
     {
         $sourcePath = $this->resolveVideoPath($id);

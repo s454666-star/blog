@@ -252,6 +252,20 @@
             font-size: 11px;
         }
 
+        .play-count {
+            flex: none;
+            padding: 0 4px;
+            border-radius: 4px;
+            background: rgba(0, 0, 0, .45);
+            color: #fff;
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+        }
+
+        .play-count:empty {
+            display: none;
+        }
+
         .progress-shell {
             flex: 1;
             height: 3px;
@@ -589,6 +603,9 @@
     let stopPlayerDragSeek = () => {};
     let scrubbing = false;
     let forceIndexRefresh = false;
+    // One play is recorded per viewing once progress passes 50%.
+    let playRecorded = false;
+    let playRecordRetryAt = 0;
     const previewPreparation = new Map();
     const tvPreviewPreparation = new Map();
 
@@ -803,6 +820,7 @@
             thumbnail_url: toPlayableUrl(video.thumbnail_url || `${API_BASE}/${video.id}/thumbnail`),
             preview_cached: Boolean(video.preview_cached),
             thumbnail_cached: Boolean(video.thumbnail_cached),
+            play_count: Math.max(0, Number(video.play_count || 0)),
         };
     }
 
@@ -826,6 +844,7 @@
             thumbnail_url: stored.thumbnail_url || `${API_BASE}/${id}/thumbnail`,
             preview_cached: Boolean(stored.preview_cached),
             thumbnail_cached: Boolean(stored.thumbnail_cached),
+            play_count: stored.play_count || 0,
         });
     }
 
@@ -1105,6 +1124,7 @@
                     <div class="card-row">
                         <span class="preview-time">${escapeHtml(progressPercent(video) > 0 ? formatDuration(Number(state.progress?.[video.id]?.time || 0)) : '00:00')}</span>
                         <span class="progress-shell"><span class="progress-fill" style="width:${progressPercent(video)}%"></span></span>
+                        <span class="play-count" title="播放次數">${escapeHtml(playCountLabel(video))}</span>
                     </div>
                 </div>
             `;
@@ -1658,6 +1678,8 @@
         elements.player.setAttribute('aria-hidden', 'false');
         notifyFolderVideoTvPlayer(true);
         elements.playerTitle.textContent = normalized.filename;
+        playRecorded = false;
+        playRecordRetryAt = 0;
         elements.playerProgress.style.width = '0%';
         updatePlayerTime(0, Number(normalized.duration_seconds || 0));
         elements.playerVideo.pause();
@@ -1928,6 +1950,7 @@
         saveState();
         updateCardProgress(playerItem.id);
         updatePlayerTime(safeSeconds, safeDuration);
+        maybeRecordPlay(safeSeconds, safeDuration);
         elements.playerProgress.style.width = `${safeDuration ? clamp((safeSeconds / safeDuration) * 100, 0, 100) : 0}%`;
     };
 
@@ -2054,6 +2077,7 @@
 
         if (isLoopOne()) {
             delete state.progress[playerItem.id];
+            playRecorded = false;
             saveState();
             if (window.FolderVideoTvAndroid?.playVideo) {
                 await openPlayer(playerItem);
@@ -2110,6 +2134,52 @@
         showFlash(isLoopOne() ? '單片循環' : '隨機播放');
     }
 
+    function playCountLabel(video) {
+        const count = Number(video?.play_count || 0);
+        return count > 0 ? `▶ ${count}` : '';
+    }
+
+    function playClientName() {
+        if (isFolderVideoTvApp()) return 'tv';
+        if (isFolderVideoAndroidApp()) return 'android';
+        return 'web';
+    }
+
+    function setPlayCount(id, count) {
+        const video = videoById.get(id);
+        if (video) video.play_count = count;
+        if (playerItem?.id === id) playerItem.play_count = count;
+        if (state.currentVideo?.id === id) state.currentVideo.play_count = count;
+        const card = elements.grid.querySelector(`.video-card[data-id="${CSS.escape(id)}"]`);
+        const badge = card?.querySelector('.play-count');
+        if (badge) badge.textContent = playCountLabel({play_count: count});
+    }
+
+    async function maybeRecordPlay(seconds, duration) {
+        if (!playerItem || playRecorded || Date.now() < playRecordRetryAt) return;
+        if (!(duration > 0) || seconds / duration < 0.5) return;
+
+        const id = playerItem.id;
+        playRecorded = true;
+        try {
+            const response = await fetch(`${API_BASE}/${encodeURIComponent(id)}/play`, {
+                method: 'POST',
+                cache: 'no-store',
+                headers: {'Accept': 'application/json', 'Content-Type': 'application/json'},
+                body: JSON.stringify({client: playClientName()}),
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const payload = await response.json();
+            setPlayCount(id, Number(payload.data?.play_count || 0));
+        } catch (error) {
+            // Retry later, but only while the same video is still on screen.
+            if (playerItem?.id === id) {
+                playRecorded = false;
+                playRecordRetryAt = Date.now() + 30_000;
+            }
+        }
+    }
+
     function updatePlayerTime(seconds, duration) {
         elements.playerTime.textContent = `${formatDuration(Number(seconds) || 0)} / ${formatDuration(Number(duration) || 0)}`;
     }
@@ -2153,6 +2223,7 @@
         const percent = clamp((elements.playerVideo.currentTime / elements.playerVideo.duration) * 100, 0, 100);
         elements.playerProgress.style.width = `${percent}%`;
         updatePlayerTime(elements.playerVideo.currentTime, elements.playerVideo.duration);
+        maybeRecordPlay(elements.playerVideo.currentTime, elements.playerVideo.duration);
 
         clearTimeout(saveProgressTimer);
         saveProgressTimer = setTimeout(recordPlayerProgress, 450);

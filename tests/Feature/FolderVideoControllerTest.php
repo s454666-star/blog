@@ -143,6 +143,41 @@ class FolderVideoControllerTest extends TestCase
             ->assertJsonMissing(['filename' => 'pick.mp4']);
     }
 
+    public function test_it_records_plays_and_lists_play_counts(): void
+    {
+        (require base_path('database/migrations/2026_10_17_000000_create_folder_video_plays_table.php'))->up();
+        $id = rtrim(strtr(base64_encode('short.mp4'), '+/', '-_'), '=');
+
+        $this->postJson("/api/folder-videos/{$id}/play", ['client' => 'android'])
+            ->assertOk()
+            ->assertJsonPath('data.play_count', 1);
+        $this->postJson("/api/folder-videos/{$id}/play", ['client' => 'bogus'])
+            ->assertOk()
+            ->assertJsonPath('data.play_count', 2);
+
+        $this->assertDatabaseHas('folder_video_plays', [
+            'video_key' => sha1($id),
+            'filename' => 'short.mp4',
+            'source' => 'main',
+            'client' => 'android',
+        ]);
+        $this->assertDatabaseHas('folder_video_plays', ['video_key' => sha1($id), 'client' => null]);
+
+        $videos = collect($this->getJson('/api/folder-videos?limit=10')->assertOk()->json('data'))->keyBy('filename');
+        $this->assertSame(2, $videos['short.mp4']['play_count']);
+        $this->assertSame(0, $videos['long.mp4']['play_count']);
+
+        $missingId = rtrim(strtr(base64_encode('missing.mp4'), '+/', '-_'), '=');
+        $this->postJson("/api/folder-videos/{$missingId}/play")->assertNotFound();
+    }
+
+    public function test_listing_still_works_without_the_plays_table(): void
+    {
+        $this->getJson('/api/folder-videos?limit=10')
+            ->assertOk()
+            ->assertJsonPath('data.0.play_count', 0);
+    }
+
     public function test_it_deletes_video(): void
     {
         $id = rtrim(strtr(base64_encode('long.mp4'), '+/', '-_'), '=');

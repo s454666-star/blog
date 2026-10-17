@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\FolderVideoPlayService;
 use App\Services\FolderVideoService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -9,8 +10,10 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class FolderVideoController extends Controller
 {
-    public function __construct(private readonly FolderVideoService $folderVideoService)
-    {
+    public function __construct(
+        private readonly FolderVideoService $folderVideoService,
+        private readonly FolderVideoPlayService $folderVideoPlayService
+    ) {
     }
 
     public function index(Request $request): JsonResponse
@@ -38,7 +41,7 @@ class FolderVideoController extends Controller
             $source,
             $request->boolean('refresh')
         );
-        $videos = $page['videos'];
+        $videos = $this->folderVideoPlayService->withCounts($page['videos']);
         $lastVideo = $videos->last();
 
         return response()->json([
@@ -145,6 +148,21 @@ class FolderVideoController extends Controller
         $data = $this->folderVideoService->queueTvHls($id);
         return response()->json(['data' => $data], $data['ready'] ? 200 : 202)
             ->header('Cache-Control', 'no-store, max-age=0');
+    }
+
+    public function recordPlay(Request $request, string $id): JsonResponse
+    {
+        $video = $this->folderVideoService->describeVideo($id);
+        $count = $this->folderVideoPlayService->record(
+            $id,
+            $video['filename'],
+            $video['source'],
+            $request->string('client')->toString() ?: null
+        );
+
+        return response()->json([
+            'data' => ['id' => $id, 'play_count' => $count],
+        ])->header('Cache-Control', 'no-store, max-age=0');
     }
 
     public function destroy(string $id): JsonResponse

@@ -113,6 +113,13 @@ class TwStockQ1FinancialReportController extends Controller
                 $this->dashboardRanks($year),
             );
         }
+        $latestQuarterOnly = $combined && $request->boolean('latest_quarter_only');
+        if ($latestQuarterOnly) {
+            $matchingRows = $matchingRows
+                ->filter(fn (TwStockQ1FinancialReport $row): bool => (int) $row->quarter === $this->quarter)
+                ->values();
+        }
+
         if ($recentTwoMonthHighOnly) {
             $matchingRows = $matchingRows
                 ->filter(fn (TwStockQ1FinancialReport $row): bool => (bool) $row->getAttribute('recent_two_month_high'))
@@ -143,6 +150,7 @@ class TwStockQ1FinancialReportController extends Controller
             'valuationGroups' => $valuationGroups,
             'availableValuationGroups' => $availableValuationGroups,
             'recentTwoMonthHighOnly' => $recentTwoMonthHighOnly,
+            'latestQuarterOnly' => $latestQuarterOnly,
             'sort' => $sort,
             'direction' => $direction,
             'sortableColumns' => $sortableColumns,

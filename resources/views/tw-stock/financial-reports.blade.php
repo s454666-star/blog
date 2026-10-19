@@ -1343,6 +1343,15 @@
                     <span>近3日創兩個月新高</span>
                 </span>
             </label>
+            @if ($combined)
+                <label class="filter-field">
+                    <span class="filter-label">季度</span>
+                    <span class="check">
+                        <input type="checkbox" name="latest_quarter_only" value="1" @checked($latestQuarterOnly ?? false)>
+                        <span>只顯示 Q{{ $quarter }} 有資料</span>
+                    </span>
+                </label>
+            @endif
             <label class="filter-field">
                 <span class="filter-label">每頁</span>
                 <select name="per_page">

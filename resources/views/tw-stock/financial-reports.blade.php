@@ -303,15 +303,44 @@
                 grid-template-columns: repeat(4, minmax(0, 1fr));
             }
 
-            .tw-stock-experience .filters--dual-conditions .filter-field:has(input[type="search"]),
-            .tw-stock-experience .filters--dual-conditions .filter-field--conditions {
+            .tw-stock-experience .filters--dual-conditions .filter-field:has(input[type="search"]) {
                 grid-column: span 2;
+            }
+        }
+
+        /* Row 1: year / search / per page, row 2: price range / groups, row 3: the two checkboxes. */
+        @media (min-width: 761px) and (max-width: 1360px) {
+            .tw-stock-experience .filters--dual-conditions .filter-field:has(select[name="per_page"]) {
+                order: 1;
+            }
+
+            .tw-stock-experience .filters--dual-conditions .filter-field:has(input[name="price_min"]),
+            .tw-stock-experience .filters--dual-conditions .filter-field:has(input[name="price_max"]),
+            .tw-stock-experience .filters--dual-conditions .filter-field--groups {
+                order: 2;
+            }
+
+            .tw-stock-experience .filters--dual-conditions .filter-field--groups {
+                grid-column: span 2;
+            }
+
+            .tw-stock-experience .filters--dual-conditions .filter-field--conditions {
+                order: 3;
+                grid-column: 1 / -1;
+            }
+
+            .filters--dual-conditions .check-group {
+                grid-auto-columns: minmax(0, 300px);
             }
         }
 
         @media (max-width: 760px) {
             .tw-stock-experience .filters[data-auto-submit-form].filters--dual-conditions {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .tw-stock-experience .filters--dual-conditions .filter-field--conditions {
+                grid-column: 1 / -1;
             }
         }
 

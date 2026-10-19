@@ -1346,9 +1346,9 @@
             @if ($combined)
                 <label class="filter-field">
                     <span class="filter-label">季度</span>
-                    <span class="check">
+                    <span class="check" title="目前最新一季：Q{{ $quarter }}">
                         <input type="checkbox" name="latest_quarter_only" value="1" @checked($latestQuarterOnly ?? false)>
-                        <span>只顯示 Q{{ $quarter }} 有資料</span>
+                        <span>只顯示最新一季有數字</span>
                     </span>
                 </label>
             @endif

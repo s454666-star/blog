@@ -247,7 +247,7 @@ class TwStockQ1FinancialReportsTest extends TestCase
 
         $this->get(route('tw-stock.financial-reports.index', ['latest_quarter_only' => 1]))
             ->assertOk()
-            ->assertSee('只顯示 Q3 有資料')
+            ->assertSee('只顯示最新一季有數字')
             ->assertSee('name="latest_quarter_only" value="1" checked', false)
             ->assertSee('皇田')
             ->assertDontSee('富鼎');

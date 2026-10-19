@@ -1126,6 +1126,8 @@ class TwStockQ1FinancialReportFetcher
                 || str_contains($compact, '財務報表')
                 || str_contains($compact, '財報')
                 || str_contains($compact, '每股盈餘')
+                // Self-settled results (自結損益) come out weeks before the audited Q2/Q3 reports.
+                || str_contains($compact, '損益')
             );
     }
 
@@ -1222,7 +1224,19 @@ class TwStockQ1FinancialReportFetcher
         }
 
         if ($revenueThousand === null || $revenueThousand <= 0.0 || $eps === null) {
-            return null;
+            $selfSettledRow = $this->selfSettledAnnouncementTextToRow($valueText, $stockCode, $year, $quarter);
+            if ($selfSettledRow === null) {
+                return null;
+            }
+
+            $selfSettledRow['_source'] = $source;
+            $selfSettledRow['_source_url'] = $sourceUrl;
+            $selfSettledRow['_raw'] = [
+                ...$sourceMeta,
+                ...($selfSettledRow['_raw'] ?? []),
+            ];
+
+            return $selfSettledRow;
         }
 
         $revenueBillion = $revenueThousand / 100000;
@@ -1288,10 +1302,6 @@ class TwStockQ1FinancialReportFetcher
      */
     private function financialPressReleaseTextToRow(string $text, string $stockCode, int $year, int $quarter): ?array
     {
-        if ($quarter !== 1) {
-            return null;
-        }
-
         $revenueBillion = $this->announcementTaiwanDollarBillion($text, '合併營收')
             ?? $this->announcementTaiwanDollarBillion($text, '營收');
         $netIncomeBillion = $this->announcementTaiwanDollarBillion($text, '稅後純益')
@@ -1333,6 +1343,141 @@ class TwStockQ1FinancialReportFetcher
                 'press_release_parser' => true,
             ],
         ];
+    }
+
+    /**
+     * Free-text self-settled results (自結損益), e.g. "第3季EPS4.90元" or "合併營業額952億2,486萬元".
+     * Only single-quarter figures are taken; cumulative and prior-period figures are skipped.
+     * When the announcement has no revenue, the quarter's monthly revenues are summed instead.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function selfSettledAnnouncementTextToRow(string $text, string $stockCode, int $year, int $quarter): ?array
+    {
+        $compact = preg_replace('/\s+/u', '', $text) ?? $text;
+        $thousandUnit = preg_match('/單位[:：](?:新台幣|新臺幣)?(?:仟|千)元/u', $compact) === 1;
+
+        $eps = $this->selfSettledFirstValue($compact, '(?:每股(?:稅後)?盈餘|EPS)(?:\(元\))?(?:為|約|達|[:：])*(?:新台幣|新臺幣)?(-?\d+(?:\.\d{1,2})?)(?!\d*%)');
+        if ($eps === null) {
+            return null;
+        }
+
+        $revenueBillion = $this->selfSettledAmountBillion($compact, '(?:營業額|營業收入|營收)', $thousandUnit);
+        $revenueSource = 'announcement';
+        if ($revenueBillion === null || $revenueBillion <= 0.0) {
+            $revenueBillion = $this->quarterMonthlyRevenueBillion($stockCode, $year, $quarter);
+            $revenueSource = 'monthly_revenue_sum';
+        }
+
+        if ($revenueBillion === null || $revenueBillion <= 0.0) {
+            return null;
+        }
+
+        $operatingIncomeBillion = $this->selfSettledAmountBillion($compact, '(?:營業利益|營業淨利)', $thousandUnit);
+        $netIncomeBillion = $this->selfSettledAmountBillion($compact, '(?:稅後利益|稅後淨利|稅後純益|本期淨利)', $thousandUnit);
+        $grossMarginPercent = $this->selfSettledFirstValue($compact, '毛利率(?:約|為|達)*(-?\d+(?:\.\d+)?)%');
+        $previousYearRevenueBillion = $this->previousYearRevenueBillion($stockCode, $year, $quarter);
+        $previousYearEps = $this->previousYearEps($stockCode, $year, $quarter);
+
+        return [
+            '年季' => sprintf('%04d%02d', $year, $quarter),
+            '公告基本每股盈餘(元)' => $this->decimal($eps, 2),
+            '公告基本每股盈餘年成長2(%)' => $this->growthPercent($eps, $previousYearEps),
+            '季營收(億)' => $this->decimal($revenueBillion, 4),
+            '單季年成長(％)' => $this->growthPercent($revenueBillion, $previousYearRevenueBillion),
+            '單季毛利率(％)' => $this->decimal($grossMarginPercent, 4, 1000),
+            '單季營業利益率(％)' => $this->marginPercent($operatingIncomeBillion, $revenueBillion),
+            '單季稅後淨利率(％)' => $this->marginPercent($netIncomeBillion, $revenueBillion),
+            '單季稅後淨利(億)' => $netIncomeBillion === null ? null : $this->decimal($netIncomeBillion, 4),
+            '稅後權益報酬率(%)' => null,
+            '稅後資產報酬率(%)' => null,
+            '本業佔比' => $this->marginPercent($operatingIncomeBillion, $netIncomeBillion),
+            '_raw' => [
+                'self_settled_parser' => true,
+                'revenue_source' => $revenueSource,
+                'revenue_billion' => $revenueBillion,
+                'operating_income_billion' => $operatingIncomeBillion,
+                'net_income_billion' => $netIncomeBillion,
+            ],
+        ];
+    }
+
+    /**
+     * First match of $pattern (one capture group) whose clause is not about a cumulative or prior period.
+     */
+    private function selfSettledFirstValue(string $compact, string $pattern): ?float
+    {
+        $match = $this->selfSettledFirstMatch($compact, $pattern);
+
+        return $match === null ? null : $this->parseAccountingNumber($match[1]);
+    }
+
+    /**
+     * @return list<string>|null
+     */
+    private function selfSettledFirstMatch(string $compact, string $pattern): ?array
+    {
+        if (!preg_match_all('/' . $pattern . '/u', $compact, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+            return null;
+        }
+
+        foreach ($matches as $match) {
+            $offset = $match[0][1];
+            $before = mb_strcut($compact, max(0, $offset - 120), min($offset, 120));
+            $clause = (string) preg_replace('/^.*[，,。；;、:：]/us', '', $before);
+            if (preg_match('/累計|前[3三]季|前[二2]季|上季|第[二2]季|去年|同期/u', $clause) === 1) {
+                continue;
+            }
+
+            return array_map(fn (array $group): string => (string) $group[0], $match);
+        }
+
+        return null;
+    }
+
+    private function selfSettledAmountBillion(string $compact, string $labelPattern, bool $thousandUnit): ?float
+    {
+        $number = '(\(?-?\d{1,3}(?:,\d{3})+(?:\.\d+)?\)?|\(?-?\d+(?:\.\d+)?\)?)';
+        $match = $this->selfSettledFirstMatch(
+            $compact,
+            $labelPattern . '(?:約|為|達|[:：])*(?:新台幣|新臺幣)?' . $number . '(兆|億|仟元|千元|萬元)?(?:(\d{1,3}(?:,\d{3})*|\d+)萬)?(?!\d*%)',
+        );
+        if ($match === null) {
+            return null;
+        }
+
+        $value = $this->parseAccountingNumber($match[1]);
+        if ($value === null) {
+            return null;
+        }
+
+        $unit = $match[2] ?? '';
+        $tenThousands = ($match[3] ?? '') === '' ? 0.0 : (float) str_replace(',', '', $match[3]);
+
+        return match ($unit) {
+            '兆' => $value * 10000,
+            '億' => $value + $tenThousands / 10000,
+            '萬元' => $value / 10000,
+            '仟元', '千元' => $value / 100000,
+            default => $thousandUnit ? $value / 100000 : null,
+        };
+    }
+
+    private function quarterMonthlyRevenueBillion(string $stockCode, int $year, int $quarter): ?float
+    {
+        $byMonth = collect($this->fetchRecentMonthlyRevenueRowsFromNstock($stockCode, 12))
+            ->keyBy('year_month');
+        $total = 0.0;
+        foreach (range($quarter * 3 - 2, $quarter * 3) as $month) {
+            $revenue = $this->parseDecimal($byMonth->get(sprintf('%04d%02d', $year, $month))['revenue_billion'] ?? null);
+            if ($revenue === null) {
+                return null;
+            }
+
+            $total += $revenue;
+        }
+
+        return $total;
     }
 
     private function normalizeAnnouncementItemSeparators(string $text): string

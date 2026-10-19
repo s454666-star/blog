@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $year }} Q{{ $quarter }} 財報評分排名</title>
+    <title>{{ $year }} {{ ($combined ?? false) && count($availableQuarters) > 1 ? 'Q' . min($availableQuarters) . '–Q' . max($availableQuarters) : 'Q' . $quarter }} 財報評分排名</title>
     <style>
         :root {
             --bg: #f4f7fb;
@@ -758,6 +758,29 @@
             font-weight: 900;
         }
 
+        .quarter-stack {
+            display: grid;
+            gap: 2px;
+            justify-items: end;
+            white-space: nowrap;
+        }
+
+        .quarter-line {
+            display: inline-flex;
+            gap: 5px;
+            align-items: baseline;
+        }
+
+        .quarter-line .quarter-tag {
+            color: #64748b;
+            font-size: 10px;
+            font-weight: 800;
+        }
+
+        .quarter-line.latest {
+            font-weight: 800;
+        }
+
         .score-track {
             width: 58px;
             height: 7px;
@@ -1148,10 +1171,31 @@
     $latestCreatedStockKeys = is_array($latestCreatedStockKeys ?? null) ? $latestCreatedStockKeys : [];
     $priceValue = fn ($value): string => $value === null ? '' : rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.');
     $defaultSortDirection = fn (string $key): string => in_array($key, ['rank', 'group', 'stock'], true) ? 'asc' : 'desc';
-    $sortUrl = function (string $key) use ($sort, $direction, $defaultSortDirection, $quarter): string {
+    $combined = (bool) ($combined ?? false);
+    $quarterTitle = $combined ? 'Q' . min($availableQuarters) . '–Q' . max($availableQuarters) : 'Q' . $quarter;
+    // Side-by-side cell: one line per quarter the stock has published, latest quarter emphasised.
+    $quarterStack = function ($row, string $field, callable $format, bool $colored = false) use ($combined, $pctClass): string {
+        if (!$combined) {
+            return e($format($row->{$field}));
+        }
+
+        $quarterRows = $row->getAttribute('quarter_rows') ?? [];
+        $latestQuarter = $quarterRows === [] ? null : max(array_keys($quarterRows));
+        $lines = '';
+        foreach ($quarterRows as $rowQuarter => $quarterRow) {
+            $value = $quarterRow->{$field};
+            $lines .= '<span class="quarter-line' . ($rowQuarter === $latestQuarter ? ' latest' : '') . ($colored ? ' ' . $pctClass($value) : '') . '">'
+                . '<span class="quarter-tag">Q' . $rowQuarter . '</span>'
+                . '<span>' . e($format($value)) . '</span>'
+                . '</span>';
+        }
+
+        return '<div class="quarter-stack">' . $lines . '</div>';
+    };
+    $sortUrl = function (string $key) use ($sort, $direction, $defaultSortDirection, $quarter, $combined): string {
         return route('tw-stock.financial-reports.index', [
-            ...request()->except('page'),
-            'quarter' => $quarter,
+            ...request()->except(['page', 'quarter']),
+            ...($combined ? [] : ['quarter' => $quarter]),
             'sort' => $key,
             'direction' => $sort === $key
                 ? ($direction === 'asc' ? 'desc' : 'asc')
@@ -1196,18 +1240,27 @@
 <main class="shell">
     <header class="topbar">
         <div>
-            <h1>{{ $year }} Q{{ $quarter }} 財報評分排名</h1>
+            <h1>{{ $year }} {{ $quarterTitle }} 財報評分排名</h1>
             <div class="meta">
-                只列入已公布 Q{{ $quarter }} 財報且符合 1,000 張以上流動性門檻的普通股，排序依 EPS YoY、毛利率、營益率、淨利率加權評分由高到低。
+                @if ($combined)
+                    同時列出 {{ $year }} 已公布的各季財報（尚未公布的季度不顯示），評分、排名與排序以各股最新公布的一季為準；只列入符合 1,000 張以上流動性門檻的普通股。
+                @else
+                    只列入已公布 Q{{ $quarter }} 財報且符合 1,000 張以上流動性門檻的普通股，排序依 EPS YoY、毛利率、營益率、淨利率加權評分由高到低。
+                @endif
             </div>
         </div>
         <nav class="sx-segment" aria-label="財報季度">
+            @if (count($availableQuarters) > 1)
+                <a class="{{ $combined ? 'active' : '' }}" href="{{ route('tw-stock.financial-reports.index', request()->except(['page', 'quarter'])) }}" @if ($combined) aria-current="page" @endif>
+                    Q{{ min($availableQuarters) }}–Q{{ max($availableQuarters) }}<small>合併</small>
+                </a>
+            @endif
             @foreach ([1, 2, 3, 4] as $quarterOption)
                 @if (in_array($quarterOption, $availableQuarters, true))
-                    <a class="{{ $quarterOption === $quarter ? 'active' : '' }}" href="{{ route('tw-stock.financial-reports.index', [...request()->except(['page', 'quarter']), 'quarter' => $quarterOption]) }}" @if ($quarterOption === $quarter) aria-current="page" @endif>
+                    <a class="{{ !$combined && $quarterOption === $quarter ? 'active' : '' }}" href="{{ route('tw-stock.financial-reports.index', [...request()->except(['page', 'quarter']), 'quarter' => $quarterOption]) }}" @if (!$combined && $quarterOption === $quarter) aria-current="page" @endif>
                         Q{{ $quarterOption }}<small>{{ $year }}</small>
                     </a>
-                @elseif ($quarterOption <= 2)
+                @elseif ($quarterOption <= 3)
                     <span class="disabled" aria-disabled="true" title="{{ $year }} Q{{ $quarterOption }} 尚未公布">Q{{ $quarterOption }}<small>未公布</small></span>
                 @endif
             @endforeach
@@ -1215,7 +1268,7 @@
         @include('tw-stock.partials.nav', ['navClass' => 'nav-actions'])
     </header>
 
-    <section class="summary-grid" aria-label="Q{{ $quarter }} 財報摘要">
+    <section class="summary-grid" aria-label="{{ $quarterTitle }} 財報摘要">
         <article class="summary-card">
             <div class="label">已入榜股票</div>
             <div class="value">{{ number_format($totalRows) }}</div>
@@ -1240,7 +1293,9 @@
 
     <section class="filter-panel" aria-label="篩選">
         <form class="filters" method="get" action="{{ route('tw-stock.financial-reports.index') }}" data-auto-submit-form>
-            <input type="hidden" name="quarter" value="{{ $quarter }}">
+            @unless ($combined)
+                <input type="hidden" name="quarter" value="{{ $quarter }}">
+            @endunless
             <input type="hidden" name="sort" value="{{ $sort }}">
             <input type="hidden" name="direction" value="{{ $direction }}">
             <label class="filter-field">
@@ -1299,7 +1354,7 @@
         </form>
     </section>
 
-    <section id="q1-report-table" class="table-panel" aria-label="Q{{ $quarter }} 財報排名表">
+    <section id="q1-report-table" class="table-panel" aria-label="{{ $quarterTitle }} 財報排名表">
         <div class="table-head">
             <h2 class="panel-title">公開資訊比較表</h2>
             <div class="count-text">
@@ -1308,7 +1363,7 @@
         </div>
 
         @if ($rows->isEmpty())
-            <div class="empty">目前沒有符合條件的 Q{{ $quarter }} 財報資料。</div>
+            <div class="empty">目前沒有符合條件的 {{ $quarterTitle }} 財報資料。</div>
         @else
             <div class="table-wrap" data-sticky-table-wrap>
                 <table>
@@ -1364,22 +1419,26 @@
                                     </div>
                                 @endif
                             </td>
-                            <td data-label="Q{{ $quarter }}整體財報評分">
+                            <td data-label="{{ $sortableColumns['score'] }}">
                                 <div class="score-cell">
-                                    <span class="score-value">{{ $fmt($row->q1_revenue_score, 2) }}</span>
+                                    @if ($combined)
+                                        {!! $quarterStack($row, 'q1_revenue_score', fn ($value) => $fmt($value, 2)) !!}
+                                    @else
+                                        <span class="score-value">{{ $fmt($row->q1_revenue_score, 2) }}</span>
+                                    @endif
                                     <span class="score-track" aria-hidden="true">
                                         <span class="score-fill" style="width: {{ $scoreWidth($row->q1_revenue_score) }}%"></span>
                                     </span>
                                 </div>
                             </td>
-                            <td data-label="Q{{ $quarter }}營收(億)">{{ $fmt($row->q1_revenue_billion, 2) }}</td>
-                            <td data-label="營收YoY" class="{{ $pctClass($row->q1_revenue_yoy_percent) }}">{{ $pctShort($row->q1_revenue_yoy_percent) }}</td>
-                            <td data-label="Q{{ $quarter }} EPS">{{ $fmt($row->q1_eps, 2) }}</td>
-                            <td data-label="EPS YoY" class="{{ $pctClass($row->q1_eps_yoy_percent) }}">{{ $pctShort($row->q1_eps_yoy_percent) }}</td>
-                            <td data-label="毛利率">{{ $pctShort($row->q1_gross_margin_percent) }}</td>
-                            <td data-label="營益率">{{ $pctShort($row->q1_operating_margin_percent) }}</td>
-                            <td data-label="淨利率">{{ $pctShort($row->q1_net_margin_percent) }}</td>
-                            <td data-label="ROE">{{ $pctShort($row->roe_percent) }}</td>
+                            <td data-label="{{ $sortableColumns['revenue'] }}">{!! $quarterStack($row, 'q1_revenue_billion', fn ($value) => $fmt($value, 2)) !!}</td>
+                            <td data-label="營收YoY" class="{{ $combined ? '' : $pctClass($row->q1_revenue_yoy_percent) }}">{!! $quarterStack($row, 'q1_revenue_yoy_percent', $pctShort, true) !!}</td>
+                            <td data-label="{{ $sortableColumns['eps'] }}">{!! $quarterStack($row, 'q1_eps', fn ($value) => $fmt($value, 2)) !!}</td>
+                            <td data-label="EPS YoY" class="{{ $combined ? '' : $pctClass($row->q1_eps_yoy_percent) }}">{!! $quarterStack($row, 'q1_eps_yoy_percent', $pctShort, true) !!}</td>
+                            <td data-label="毛利率">{!! $quarterStack($row, 'q1_gross_margin_percent', $pctShort) !!}</td>
+                            <td data-label="營益率">{!! $quarterStack($row, 'q1_operating_margin_percent', $pctShort) !!}</td>
+                            <td data-label="淨利率">{!! $quarterStack($row, 'q1_net_margin_percent', $pctShort) !!}</td>
+                            <td data-label="ROE">{!! $quarterStack($row, 'roe_percent', $pctShort) !!}</td>
                             <td data-label="近3日兩月新高">
                                 @if ($row->recent_two_month_high)
                                     <span class="recent-high-check" aria-label="近三日內有兩個月新高">✓</span>
@@ -1408,7 +1467,7 @@
                                         <div class="sub">PE {{ $fmt($reasonablePeRatio, 1) }}x</div>
                                         @if ($revenueMomentumPercent !== null && $revenuePeAdjustmentPercent !== null)
                                             <div class="pe-adjustment-note {{ $pctClass($revenueMomentumPercent) }}">
-                                                月營收 vs Q{{ $quarter }}均 {{ $signedPct($revenueMomentumPercent) }} / PE {{ $signedPct($revenuePeAdjustmentPercent) }}
+                                                月營收 vs Q{{ $row->quarter }}均 {{ $signedPct($revenueMomentumPercent) }} / PE {{ $signedPct($revenuePeAdjustmentPercent) }}
                                             </div>
                                         @endif
                                         @if ($valuationGroup && $valuationGroupPe)

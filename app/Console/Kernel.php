@@ -77,6 +77,14 @@ class Kernel extends ConsoleKernel
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_q1_market_data.log'));
 
+        // Q3 is shown side by side with Q1/Q2 once companies start publishing it.
+        $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=3 --market-data-only --min-volume-lots=1000 --sleep-ms=80 --skip-non-trading-day --keep-missing-market-data')
+            ->dailyAt('15:50')
+            ->name('tw-stock-refresh-q3-market-data')
+            ->withoutOverlapping(180)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_q1_market_data.log'));
+
         if ($this->shouldScheduleTwStockAnnualFinancialComparisons()) {
             $schedule->command('tw-stock:sync-annual-financial-comparison-prices --context-year=2026')
                 ->dailyAt('15:25')
@@ -241,6 +249,13 @@ class Kernel extends ConsoleKernel
         $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=2 --market-data-only --min-volume-lots=1000 --sleep-ms=80 --skip-non-trading-day --keep-missing-market-data')
             ->dailyAt('16:35')
             ->name('tw-stock-refresh-q2-market-data-late')
+            ->withoutOverlapping(180)
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/tw_stock_q1_market_data.log'));
+
+        $schedule->command('tw-stock:fetch-q1-financial-reports --year=2026 --quarter=3 --market-data-only --min-volume-lots=1000 --sleep-ms=80 --skip-non-trading-day --keep-missing-market-data')
+            ->dailyAt('16:55')
+            ->name('tw-stock-refresh-q3-market-data-late')
             ->withoutOverlapping(180)
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/tw_stock_q1_market_data.log'));

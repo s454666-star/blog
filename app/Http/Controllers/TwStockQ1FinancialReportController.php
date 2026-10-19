@@ -72,16 +72,20 @@ class TwStockQ1FinancialReportController extends Controller
         $year = (int) $request->query('year', $latestYear);
         $availableQuarters = $this->availableQuarters($year);
         $requestedQuarter = (int) $request->query('quarter', 0);
+        // Without an explicit quarter, every published quarter of the year is shown side by side.
+        $combined = !in_array($requestedQuarter, $availableQuarters, true) && count($availableQuarters) > 1;
         $this->quarter = in_array($requestedQuarter, $availableQuarters, true)
             ? $requestedQuarter
             : (int) (max($availableQuarters ?: [1]));
         $search = trim((string) $request->query('q', ''));
         $priceMin = $this->priceFilterValue($request->query('price_min'));
         $priceMax = $this->priceFilterValue($request->query('price_max'));
-        $availableValuationGroups = $this->availableValuationGroups($year);
+        $availableValuationGroups = $combined
+            ? $this->combinedValuationGroups($year, $availableQuarters)
+            : $this->availableValuationGroups($year);
         $valuationGroups = $this->selectedValuationGroups($request->query('valuation_groups', []), $availableValuationGroups);
         $recentTwoMonthHighOnly = $request->boolean('recent_two_month_high');
-        $sortableColumns = $this->sortableColumns();
+        $sortableColumns = $this->sortableColumns($combined);
         $sort = (string) $request->query('sort', 'score');
         if (!array_key_exists($sort, $sortableColumns)) {
             $sort = 'score';
@@ -92,12 +96,23 @@ class TwStockQ1FinancialReportController extends Controller
             $direction = 'desc';
         }
 
-        $baseQuery = $this->reportQuery($year, $search, $priceMin, $priceMax, $valuationGroups);
-        $groupTotalRows = $this->groupTotalRows($year);
-        $matchingRows = $this->attachDashboardRanks(
-            $this->attachRecentTwoMonthHighFlags((clone $baseQuery)->get()),
-            $this->dashboardRanks($year),
-        );
+        if ($combined) {
+            $combinedRanks = $this->combinedDashboardRanks($year, $availableQuarters);
+            $groupTotalRows = count($combinedRanks);
+            $matchingRows = $this->attachDashboardRanks(
+                $this->attachRecentTwoMonthHighFlags(
+                    $this->combinedQuarterRows($year, $availableQuarters, $search, $priceMin, $priceMax, $valuationGroups),
+                ),
+                $combinedRanks,
+            );
+        } else {
+            $baseQuery = $this->reportQuery($year, $search, $priceMin, $priceMax, $valuationGroups);
+            $groupTotalRows = $this->groupTotalRows($year);
+            $matchingRows = $this->attachDashboardRanks(
+                $this->attachRecentTwoMonthHighFlags((clone $baseQuery)->get()),
+                $this->dashboardRanks($year),
+            );
+        }
         if ($recentTwoMonthHighOnly) {
             $matchingRows = $matchingRows
                 ->filter(fn (TwStockQ1FinancialReport $row): bool => (bool) $row->getAttribute('recent_two_month_high'))
@@ -117,6 +132,7 @@ class TwStockQ1FinancialReportController extends Controller
 
         return view('tw-stock.financial-reports', [
             'quarter' => $this->quarter,
+            'combined' => $combined,
             'availableQuarters' => $availableQuarters,
             'allowedPerPage' => $allowedPerPage,
             'perPage' => $perPage,
@@ -331,6 +347,113 @@ class TwStockQ1FinancialReportController extends Controller
                 ])
                 ->all(),
         );
+    }
+
+    /**
+     * One row per stock for the side-by-side view: the stock's latest published quarter is the
+     * primary row (score, price, sorting), and every quarter's row is attached as `quarter_rows`.
+     *
+     * @param list<int> $quarters
+     * @param list<string> $valuationGroups
+     * @return Collection<int, TwStockQ1FinancialReport>
+     */
+    private function combinedQuarterRows(int $year, array $quarters, string $search, ?float $priceMin, ?float $priceMax, array $valuationGroups): Collection
+    {
+        $rowsByQuarter = [];
+        foreach ($quarters as $quarter) {
+            $this->quarter = $quarter;
+            $rowsByQuarter[$quarter] = $this->reportQuery($year, $search, $priceMin, $priceMax, $valuationGroups)
+                ->get()
+                ->keyBy(fn (TwStockQ1FinancialReport $row): string => $this->stockKey((string) $row->exchange, (string) $row->stock_code));
+        }
+        $this->quarter = max($quarters);
+
+        $stockKeys = collect($rowsByQuarter)
+            ->flatMap(fn (Collection $rows): array => $rows->keys()->all())
+            ->unique()
+            ->values();
+
+        return $stockKeys->map(function (string $stockKey) use ($rowsByQuarter, $quarters): TwStockQ1FinancialReport {
+            $quarterRows = [];
+            foreach ($quarters as $quarter) {
+                if ($rowsByQuarter[$quarter]->has($stockKey)) {
+                    $quarterRows[$quarter] = $rowsByQuarter[$quarter]->get($stockKey);
+                }
+            }
+
+            $primary = $quarterRows[max(array_keys($quarterRows))];
+            $primary->setAttribute('quarter_rows', $quarterRows);
+
+            return $primary;
+        });
+    }
+
+    /**
+     * Ranks for the side-by-side view, ordered by each stock's latest published quarter.
+     *
+     * @param list<int> $quarters
+     * @return array<string, int>
+     */
+    private function combinedDashboardRanks(int $year, array $quarters): array
+    {
+        $versions = array_map(fn (int $quarter): string => $this->q1CacheVersion($year, $quarter), $quarters);
+        $currentQuarter = $this->quarter;
+
+        $ranks = Cache::remember(
+            'tw-stock:q1:combined-dashboard-ranks:v1:' . $year . ':' . sha1(serialize([$quarters, $versions])),
+            now()->addSeconds(self::STOCK_CACHE_TTL_SECONDS),
+            function () use ($year, $quarters): array {
+                $primaryRows = [];
+                foreach ($quarters as $quarter) {
+                    $this->quarter = $quarter;
+                    $rows = $this->reportQuery($year, '', null, null, [])
+                        ->whereNotNull('q1_revenue_score')
+                        ->get(['exchange', 'stock_code', 'q1_revenue_score', 'q1_eps_yoy_percent', 'q1_operating_margin_percent', 'q1_gross_margin_percent', 'q1_net_margin_percent']);
+                    foreach ($rows as $row) {
+                        // Quarters run in ascending order, so the latest published quarter wins.
+                        $primaryRows[$this->stockKey((string) $row->exchange, (string) $row->stock_code)] = $row;
+                    }
+                }
+
+                $fields = ['q1_revenue_score', 'q1_eps_yoy_percent', 'q1_operating_margin_percent', 'q1_gross_margin_percent', 'q1_net_margin_percent'];
+
+                return collect($primaryRows)
+                    ->sort(function (TwStockQ1FinancialReport $left, TwStockQ1FinancialReport $right) use ($fields): int {
+                        foreach ($fields as $field) {
+                            $comparison = $this->compareSortValues($this->numericSortValue($left->{$field}), $this->numericSortValue($right->{$field}));
+                            if ($comparison !== 0) {
+                                return $left->{$field} === null || $right->{$field} === null ? $comparison : -$comparison;
+                            }
+                        }
+
+                        return strcmp((string) $left->stock_code, (string) $right->stock_code);
+                    })
+                    ->keys()
+                    ->values()
+                    ->mapWithKeys(fn (string $stockKey, int $index): array => [$stockKey => $index + 1])
+                    ->all();
+            },
+        );
+        $this->quarter = $currentQuarter;
+
+        return $ranks;
+    }
+
+    /**
+     * @param list<int> $quarters
+     * @return list<string>
+     */
+    private function combinedValuationGroups(int $year, array $quarters): array
+    {
+        $currentQuarter = $this->quarter;
+        $groups = [];
+        foreach ($quarters as $quarter) {
+            $this->quarter = $quarter;
+            $groups = [...$groups, ...$this->availableValuationGroups($year)];
+        }
+        $this->quarter = $currentQuarter;
+
+        return collect($groups)->unique()->sort()->values()->all();
     }
 
     /**
@@ -1065,16 +1188,18 @@ class TwStockQ1FinancialReportController extends Controller
     /**
      * @return array<string, string>
      */
-    private function sortableColumns(): array
+    private function sortableColumns(bool $combined = false): array
     {
+        $prefix = $combined ? '' : 'Q' . $this->quarter;
+
         return [
             'rank' => '排名',
             'group' => '分組',
             'stock' => '股票',
-            'score' => 'Q' . $this->quarter . '整體財報評分',
-            'revenue' => 'Q' . $this->quarter . '營收(億)',
+            'score' => $prefix . '整體財報評分',
+            'revenue' => $prefix . '營收(億)',
             'revenue_yoy' => '營收YoY',
-            'eps' => 'Q' . $this->quarter . ' EPS',
+            'eps' => ltrim($prefix . ' EPS'),
             'eps_yoy' => 'EPS YoY',
             'gross_margin' => '毛利率',
             'operating_margin' => '營益率',

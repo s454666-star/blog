@@ -221,19 +221,34 @@ class TwStockQ1FinancialReportsTest extends TestCase
             ->assertDontSee('富鼎');
     }
 
-    public function test_dashboard_defaults_to_latest_quarter_and_switches_quarters(): void
+    public function test_dashboard_defaults_to_all_published_quarters_side_by_side_and_switches_quarters(): void
     {
         DB::table('tw_stock_q1_financial_reports')->insert([
-            $this->row(['stock_code' => '8261', 'stock_name' => '富鼎', 'quarter' => 1, 'rank' => 1]),
+            $this->row(['stock_code' => '8261', 'stock_name' => '富鼎', 'quarter' => 1, 'rank' => 1, 'q1_eps' => 1.11]),
+            $this->row(['stock_code' => '8261', 'stock_name' => '富鼎', 'quarter' => 2, 'financial_period' => '202602', 'rank' => 2, 'q1_eps' => 2.22]),
             $this->row(['stock_code' => '9951', 'stock_name' => '皇田', 'quarter' => 2, 'financial_period' => '202602', 'rank' => 1]),
+            $this->row(['stock_code' => '9951', 'stock_name' => '皇田', 'quarter' => 3, 'financial_period' => '202603', 'rank' => 1, 'q1_eps' => 3.33]),
         ]);
 
         $this->get(route('tw-stock.financial-reports.index'))
             ->assertOk()
-            ->assertSee('2026 Q2 財報評分排名')
-            ->assertSee('Q2整體財報評分')
+            ->assertSee('2026 Q1–Q3 財報評分排名')
+            ->assertSee('整體財報評分')
+            ->assertDontSee('Q3整體財報評分')
             ->assertSee('aria-label="財報季度"', false)
             ->assertSee('quarter=1', false)
+            ->assertSee('quarter=3', false)
+            ->assertDontSee('name="quarter"', false)
+            ->assertSee('<span class="quarter-tag">Q1</span><span>1.11</span>', false)
+            ->assertSee('<span class="quarter-tag">Q2</span><span>2.22</span>', false)
+            ->assertSee('<span class="quarter-tag">Q3</span><span>3.33</span>', false)
+            ->assertSee('皇田')
+            ->assertSee('富鼎');
+
+        $this->get(route('tw-stock.financial-reports.index', ['quarter' => 3]))
+            ->assertOk()
+            ->assertSee('2026 Q3 財報評分排名')
+            ->assertSee('Q3整體財報評分')
             ->assertSee('皇田')
             ->assertDontSee('富鼎');
 
@@ -929,6 +944,41 @@ class TwStockQ1FinancialReportsTest extends TestCase
         $this->assertSame('202104', $rows[60]['year_month']);
         $this->assertEqualsWithDelta(12.34, (float) $rows[60]['revenue_billion'], 0.0001);
         $this->assertEqualsWithDelta(25.5, (float) $rows[60]['revenue_yoy_percent'], 0.0001);
+    }
+
+    public function test_self_settled_q3_announcements_parse_single_quarter_figures(): void
+    {
+        Http::fake(function ($request) {
+            if (str_starts_with($request->url(), 'https://www.nstock.tw/api/v2/monthly-revenue/data')) {
+                return Http::response(['data' => [['月營收' => [
+                    ['年月' => '2026/09', '單月營收(億)' => '3.5'],
+                    ['年月' => '2026/08', '單月營收(億)' => '3.0'],
+                    ['年月' => '2026/07', '單月營收(億)' => '2.5'],
+                ]]]], 200);
+            }
+
+            return Http::response(['data' => []], 200);
+        });
+
+        $fetcher = app(TwStockQ1FinancialReportFetcher::class);
+        $parse = new \ReflectionMethod($fetcher, 'financialAnnouncementTextToRow');
+        $parse->setAccessible(true);
+
+        $nanya = $parse->invoke($fetcher, '5.發生緣由:公告本公司2026年第3季自結合併損益 一、2026年第3季自結合併損益與2026年第2季比較：本公司2026年第3季EPS4.90元、前3季累計EPS10.07元。(一)合併營業額956.0億元，較2026年第2季增加119.5億元。(三)2026年第3季歸屬母公司稅後利益為388.3億元，每股稅後盈餘4.90元。', '1303', 2026, 3, 'MOPS', null, []);
+        $this->assertSame('4.90', $nanya['公告基本每股盈餘(元)']);
+        $this->assertSame('956.0000', $nanya['季營收(億)']);
+        $this->assertEqualsWithDelta(40.6172, (float) $nanya['單季稅後淨利率(％)'], 0.0001);
+
+        $formosa = $parse->invoke($fetcher, '2026年第3季合併營業額952億2,486萬元，與2026年第2季比較，增加80.7億元。每股稅前盈餘為0.83元，歸屬母公司每股稅後盈餘為0.9元。', '1326', 2026, 3, 'MOPS', null, []);
+        $this->assertSame('0.90', $formosa['公告基本每股盈餘(元)']);
+        $this->assertSame('952.2486', $formosa['季營收(億)']);
+
+        $epsOnly = $parse->invoke($fetcher, '5.發生緣由:本公司115年第3季合併稅前淨利為339,373仟元；歸屬於母公司業主之稅後淨利為269,298仟元；每股盈餘為9.38元。115年累計至09月份為止，每股盈餘為18.94元。', '6640', 2026, 3, 'MOPS', null, []);
+        $this->assertSame('9.38', $epsOnly['公告基本每股盈餘(元)']);
+        $this->assertSame('9.0000', $epsOnly['季營收(億)']);
+        $this->assertSame('monthly_revenue_sum', $epsOnly['_raw']['revenue_source']);
+
+        $this->assertNull($parse->invoke($fetcher, '毅嘉科技自行結算115年第三季合併營收約新台幣34.17億元，合併稅後淨利約新台幣1.01億元。', '2402', 2026, 3, 'MOPS', null, []));
     }
 
     public function test_fetch_command_uses_mops_announcements_when_eps_api_has_not_synced(): void

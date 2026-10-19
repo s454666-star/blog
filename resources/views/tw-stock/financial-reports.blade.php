@@ -275,6 +275,65 @@
             transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
         }
 
+        .check-group {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: minmax(0, 1fr);
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .check-group .check {
+            min-width: 0;
+            white-space: nowrap;
+        }
+
+        .check-group .check > span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Combined view has two condition checkboxes; give that column room instead of adding a column. */
+        .tw-stock-experience .filters[data-auto-submit-form].filters--dual-conditions {
+            grid-template-columns: 90px minmax(160px, 1.6fr) repeat(2, minmax(95px, 0.9fr)) minmax(170px, 1.6fr) minmax(340px, 2.6fr) 90px;
+        }
+
+        @media (max-width: 1360px) {
+            .tw-stock-experience .filters[data-auto-submit-form].filters--dual-conditions {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+
+            .tw-stock-experience .filters--dual-conditions .filter-field:has(input[type="search"]),
+            .tw-stock-experience .filters--dual-conditions .filter-field--conditions {
+                grid-column: span 2;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .tw-stock-experience .filters[data-auto-submit-form].filters--dual-conditions {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 420px) {
+            .tw-stock-experience .filters[data-auto-submit-form].filters--dual-conditions {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .tw-stock-experience .filters--dual-conditions .filter-field:has(input[type="search"]),
+            .tw-stock-experience .filters--dual-conditions .filter-field--conditions {
+                grid-column: auto;
+            }
+
+            .filters--dual-conditions .filter-field--conditions {
+                grid-template-rows: var(--filter-label-height) auto;
+            }
+
+            .filters--dual-conditions .check-group {
+                grid-auto-flow: row;
+            }
+        }
+
         .check:hover {
             transform: translateY(-1px);
             border-color: #a9b7ca;
@@ -1292,7 +1351,7 @@
     </section>
 
     <section class="filter-panel" aria-label="篩選">
-        <form class="filters" method="get" action="{{ route('tw-stock.financial-reports.index') }}" data-auto-submit-form>
+        <form class="filters {{ $combined ? 'filters--dual-conditions' : '' }}" method="get" action="{{ route('tw-stock.financial-reports.index') }}" data-auto-submit-form>
             @unless ($combined)
                 <input type="hidden" name="quarter" value="{{ $quarter }}">
             @endunless
@@ -1336,22 +1395,21 @@
                     </div>
                 </details>
             </div>
-            <label class="filter-field">
+            <div class="filter-field filter-field--conditions">
                 <span class="filter-label">條件</span>
-                <span class="check">
-                    <input type="checkbox" name="recent_two_month_high" value="1" @checked($recentTwoMonthHighOnly)>
-                    <span>近3日創兩個月新高</span>
-                </span>
-            </label>
-            @if ($combined)
-                <label class="filter-field">
-                    <span class="filter-label">季度</span>
-                    <span class="check" title="目前最新一季：Q{{ $quarter }}">
-                        <input type="checkbox" name="latest_quarter_only" value="1" @checked($latestQuarterOnly ?? false)>
-                        <span>只顯示最新一季有數字</span>
-                    </span>
-                </label>
-            @endif
+                <div class="check-group">
+                    <label class="check">
+                        <input type="checkbox" name="recent_two_month_high" value="1" @checked($recentTwoMonthHighOnly)>
+                        <span>近3日創兩個月新高</span>
+                    </label>
+                    @if ($combined)
+                        <label class="check" title="目前最新一季：Q{{ $quarter }}">
+                            <input type="checkbox" name="latest_quarter_only" value="1" @checked($latestQuarterOnly ?? false)>
+                            <span>只顯示最新一季有數字</span>
+                        </label>
+                    @endif
+                </div>
+            </div>
             <label class="filter-field">
                 <span class="filter-label">每頁</span>
                 <select name="per_page">

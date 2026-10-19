@@ -295,7 +295,7 @@
 
         /* Combined view has two condition checkboxes; give that column room instead of adding a column. */
         .tw-stock-experience .filters[data-auto-submit-form].filters--dual-conditions {
-            grid-template-columns: 84px minmax(130px, 1.4fr) repeat(2, minmax(76px, 0.8fr)) minmax(140px, 1.4fr) minmax(360px, 2.4fr) 84px;
+            grid-template-columns: 84px minmax(120px, 1.2fr) repeat(2, minmax(76px, 0.7fr)) minmax(130px, 1.2fr) minmax(390px, 2.8fr) 84px;
         }
 
         .filters--dual-conditions .check-group {

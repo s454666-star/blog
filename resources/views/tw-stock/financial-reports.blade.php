@@ -303,7 +303,7 @@
         }
 
         /* The shared layout widens search below 1200px; in the one-row layout it must stay one column. */
-        .tw-stock-experience .filters--dual-conditions .filter-field:has(input[type="search"]) {
+        .tw-stock-experience .filters.filters--dual-conditions .filter-field:has(input[type="search"]) {
             grid-column: auto;
         }
 
@@ -312,7 +312,7 @@
                 grid-template-columns: repeat(4, minmax(0, 1fr));
             }
 
-            .tw-stock-experience .filters--dual-conditions .filter-field:has(input[type="search"]) {
+            .tw-stock-experience .filters.filters--dual-conditions .filter-field:has(input[type="search"]) {
                 grid-column: span 2;
             }
         }
@@ -358,7 +358,7 @@
                 grid-template-columns: minmax(0, 1fr);
             }
 
-            .tw-stock-experience .filters--dual-conditions .filter-field:has(input[type="search"]),
+            .tw-stock-experience .filters.filters--dual-conditions .filter-field:has(input[type="search"]),
             .tw-stock-experience .filters--dual-conditions .filter-field--conditions {
                 grid-column: auto;
             }

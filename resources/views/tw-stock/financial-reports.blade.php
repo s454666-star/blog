@@ -295,10 +295,14 @@
 
         /* Combined view has two condition checkboxes; give that column room instead of adding a column. */
         .tw-stock-experience .filters[data-auto-submit-form].filters--dual-conditions {
-            grid-template-columns: 90px minmax(160px, 1.6fr) repeat(2, minmax(95px, 0.9fr)) minmax(170px, 1.6fr) minmax(340px, 2.6fr) 90px;
+            grid-template-columns: 84px minmax(130px, 1.4fr) repeat(2, minmax(76px, 0.8fr)) minmax(140px, 1.4fr) minmax(360px, 2.4fr) 84px;
         }
 
-        @media (max-width: 1360px) {
+        .filters--dual-conditions .check-group {
+            grid-auto-columns: minmax(0, auto);
+        }
+
+        @media (max-width: 1120px) {
             .tw-stock-experience .filters[data-auto-submit-form].filters--dual-conditions {
                 grid-template-columns: repeat(4, minmax(0, 1fr));
             }
@@ -309,7 +313,7 @@
         }
 
         /* Row 1: year / search / per page, row 2: price range / groups, row 3: the two checkboxes. */
-        @media (min-width: 761px) and (max-width: 1360px) {
+        @media (min-width: 761px) and (max-width: 1120px) {
             .tw-stock-experience .filters--dual-conditions .filter-field:has(select[name="per_page"]) {
                 order: 1;
             }

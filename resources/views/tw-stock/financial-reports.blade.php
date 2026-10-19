@@ -302,6 +302,11 @@
             grid-auto-columns: minmax(0, auto);
         }
 
+        /* The shared layout widens search below 1200px; in the one-row layout it must stay one column. */
+        .tw-stock-experience .filters--dual-conditions .filter-field:has(input[type="search"]) {
+            grid-column: auto;
+        }
+
         @media (max-width: 1120px) {
             .tw-stock-experience .filters[data-auto-submit-form].filters--dual-conditions {
                 grid-template-columns: repeat(4, minmax(0, 1fr));

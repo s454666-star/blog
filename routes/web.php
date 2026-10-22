@@ -104,8 +104,8 @@ Route::prefix('admin')->name('customer-admin.')->group(function () {
 Route::get('/videos', [VideosController::class, 'index'])->name('video.index');
 Route::get('/videos/load-more', [VideosController::class, 'loadMore'])->name('video.loadMore');
 Route::post('/videos/upload', [VideosController::class, 'upload'])->name('video.upload');
-Route::post('/videos/deleteSelected', [VideosController::class, 'deleteSelected'])->name('video.deleteSelected');
-Route::post('/videos/delete-screenshot', [VideosController::class, 'deleteScreenshot'])->name('video.deleteScreenshot');
+Route::post('/videos/deleteSelected', [VideosController::class, 'deleteSelected'])->name('video.deleteSelected')->middleware('local.only');
+Route::post('/videos/delete-screenshot', [VideosController::class, 'deleteScreenshot'])->name('video.deleteScreenshot')->middleware('local.only');
 Route::post('/videos/upload-face-screenshot', [VideosController::class, 'uploadFaceScreenshot'])->name('video.uploadFaceScreenshot');
 Route::post('/videos/set-master-face', [VideosController::class, 'setMasterFace'])->name('video.setMasterFace');
 Route::get('/videos/load-master-faces', [VideosController::class, 'loadMasterFaces'])->name('video.loadMasterFaces');
@@ -117,7 +117,7 @@ Route::get('/videos/test', [VideosController::class, 'getTest'])->name('videos.t
 Route::get('/video-player', [VideosController::class, 'player'])->name('videos.player');
 Route::get('/api/videos/random-type', [VideosController::class, 'getRandomVideoType'])->name('videos.api.random_type');
 Route::get('/videos/search', [VideosController::class, 'search'])->name('videos.search');
-Route::delete('/videos/{id}', [VideosController::class, 'destroy'])->name('videos.destroy');
+Route::delete('/videos/{id}', [VideosController::class, 'destroy'])->name('videos.destroy')->middleware('local.only');
 
 Route::middleware('web')->post('/admin-login', [UserController::class, 'login']);
 
@@ -126,8 +126,8 @@ Route::post('/encrypt', [EncryptionController::class, 'encrypt'])->name('encrypt
 Route::post('/decrypt', [EncryptionController::class, 'decrypt'])->name('decrypt.folder');
 Route::post('/download-folder/{folder}', [EncryptionController::class, 'downloadFolder'])->name('download.folder');
 Route::post('/download-file/{file}', [EncryptionController::class, 'downloadFile'])->name('download.file');
-Route::delete('/delete-folder/{folder}', [EncryptionController::class, 'deleteFolder'])->name('delete.folder');
-Route::delete('/delete-file/{file}', [EncryptionController::class, 'deleteFile'])->name('delete.file');
+Route::delete('/delete-folder/{folder}', [EncryptionController::class, 'deleteFolder'])->name('delete.folder')->middleware('local.only');
+Route::delete('/delete-file/{file}', [EncryptionController::class, 'deleteFile'])->name('delete.file')->middleware('local.only');
 Route::post('/download-chunk/{folder}/{file}', [EncryptionController::class, 'downloadChunk'])->name('download.chunk');
 
 Route::get('/videoplayer-list', [VideoPlayerController::class, 'getVideoPlayerList'])
@@ -156,10 +156,10 @@ Route::get('/nas-viewer-app/nas-viewer-app.apk', [NasViewerAppController::class,
 Route::get('/nas-viewer-app/tv/android-version.json', [NasViewerAppController::class, 'tvAndroidVersion'])->name('nas-viewer-app.tv-android-version');
 Route::get('/nas-viewer-app/tv/nas-viewer-tv.apk', [NasViewerAppController::class, 'tvAndroidApk'])->name('nas-viewer-app.tv-android-apk');
 
-Route::get('/command-runner', [CommandRunnerController::class, 'index'])->name('command-runner.index');
-Route::post('/command-runner/run', [CommandRunnerController::class, 'run'])->name('command-runner.run');
-Route::post('/command-runner/stream', [CommandRunnerController::class, 'stream'])->name('command-runner.stream');
-Route::post('/command-runner/stop', [CommandRunnerController::class, 'stop'])->name('command-runner.stop');
+Route::get('/command-runner', [CommandRunnerController::class, 'index'])->name('command-runner.index')->middleware('local.only');
+Route::post('/command-runner/run', [CommandRunnerController::class, 'run'])->name('command-runner.run')->middleware('local.only');
+Route::post('/command-runner/stream', [CommandRunnerController::class, 'stream'])->name('command-runner.stream')->middleware('local.only');
+Route::post('/command-runner/stop', [CommandRunnerController::class, 'stop'])->name('command-runner.stop')->middleware('local.only');
 
 // 靜態頁面和身份驗證頁面
 Route::domain('stock.mystar.monster')
@@ -186,16 +186,16 @@ Route::get('/login', function () {
 // 博客相關路由
 Route::prefix('blog')->group(function () {
     Route::get('/', [ BlogController::class, 'index' ])->name('blog.index');
-    Route::delete('/articles/{article}', [ BlogController::class, 'destroy' ])->name('articles.destroy');
-    Route::delete('/batch-delete', [ BlogController::class, 'batchDelete' ])->name('blog.batch-delete');
+    Route::delete('/articles/{article}', [ BlogController::class, 'destroy' ])->name('articles.destroy')->middleware('local.only');
+    Route::delete('/batch-delete', [ BlogController::class, 'batchDelete' ])->name('blog.batch-delete')->middleware('local.only');
     Route::post('/preserve', [ BlogController::class, 'preserve' ])->name('blog.preserve');
     Route::get('/show-preserved', [ BlogController::class, 'showPreserved' ])->name('blog.show-preserved');
-    Route::delete('/batch-delete-bt', [ BlogBtController::class, 'batchDelete' ])->name('blogBt.batch-delete');
+    Route::delete('/batch-delete-bt', [ BlogBtController::class, 'batchDelete' ])->name('blogBt.batch-delete')->middleware('local.only');
 });
 
 Route::get('/blog-bt', [ BlogBtController::class, 'index' ])->name('blogBt.index');
 Route::get('/bt', [ BlogBtController::class, 'index' ])->name('blogBt.index');
-Route::post('/blog-bt/{article}/rerun', [BlogBtController::class, 'rerun'])->name('blogBt.rerun');
+Route::post('/blog-bt/{article}/rerun', [BlogBtController::class, 'rerun'])->name('blogBt.rerun')->middleware('local.only');
 
 Route::get('/ocr', function () {
     return view('ocr');
@@ -228,25 +228,25 @@ Route::get('/videos-management', [ App\Http\Controllers\LibraryController::class
 Route::post('/generate-thumbnails', [LibraryController::class, 'generateThumbnails'])->name('generate-thumbnails');
 
 Route::view('/product-import2', 'fetch-url');
-Route::post('/fetch', [ FetchController::class, 'fetchData' ]);
+Route::post('/fetch', [ FetchController::class, 'fetchData' ])->middleware('local.only');
 Route::get('/verify-success', [MemberController::class, 'showVerificationSuccess'])->name('verify.success');
 Route::get('/already-verified', [MemberController::class, 'showAlreadyVerified'])->name('verify.already');
 
 Route::get('/data/{path}', [StaticProxyController::class, 'proxy'])
-    ->where('path', '.*'); // 支援多層目錄
-Route::get('/proxy-image', [TestImageController::class, 'proxy'])->name('crawler.image-proxy');
+    ->where('path', '.*')->middleware('local.only'); // 支援多層目錄
+Route::get('/proxy-image', [TestImageController::class, 'proxy'])->name('crawler.image-proxy')->middleware('local.only');
 
 Route::get('/extract', [ExtractController::class, 'index'])->name('extract.index');
 Route::post('/extract', [ExtractController::class, 'process'])->name('extract.process');
 
 Route::get('/url-viewer', [UrlViewerController::class, 'index']);
-Route::post('/fetch-url', [UrlViewerController::class, 'fetch']);
-Route::get('/download', [UrlViewerController::class, 'download']);
+Route::post('/fetch-url', [UrlViewerController::class, 'fetch'])->middleware('local.only');
+Route::get('/download', [UrlViewerController::class, 'download'])->middleware('local.only');
 Route::post('/save-session', [UrlViewerController::class, 'saveSession']);
 
 Route::get('/ig-grabber', [IgGrabController::class, 'index'])->name('ig.index');
-Route::post('/ig-grabber/fetch', [IgGrabController::class, 'fetch'])->name('ig.fetch');
-Route::get('/ig-grabber/download', [IgGrabController::class, 'download'])->name('ig.download');
+Route::post('/ig-grabber/fetch', [IgGrabController::class, 'fetch'])->name('ig.fetch')->middleware('local.only');
+Route::get('/ig-grabber/download', [IgGrabController::class, 'download'])->name('ig.download')->middleware('local.only');
 Route::get('/dialogues/mark-read', [DialogueReadController::class, 'page'])->name('dialogues.markRead.page');
 Route::post('/dialogues/mark-read', [DialogueReadController::class, 'mark'])->name('dialogues.markRead.mark');
 Route::get('/dialogues/token-stats', DialogueTokenStatsController::class)->name('dialogues.tokenStats');
@@ -256,7 +256,7 @@ Route::get('/btdig', [BtdigController::class, 'index'])->name('btdig.index');
 Route::get('/btdig/images/{image}', [BtdigController::class, 'image'])->name('btdig.image');
 Route::post('/btdig/mark-copied', [BtdigController::class, 'markCopied'])->name('btdig.markCopied');
 Route::get('/crawler/85sugarbaby', [CrawlerProfileController::class, 'index'])->name('crawler.profiles');
-Route::get('/crawler/85sugarbaby/session/login', [CrawlerProfileController::class, 'loginSession'])->name('crawler.profiles.login-session');
+Route::get('/crawler/85sugarbaby/session/login', [CrawlerProfileController::class, 'loginSession'])->name('crawler.profiles.login-session')->middleware('local.only');
 Route::get('/tw-stock/financial-reports', [TwStockQ1FinancialReportController::class, 'index'])->name('tw-stock.financial-reports.index');
 Route::get('/tw-stock/q1-financial-reports', fn (\Illuminate\Http\Request $request) => redirect()->route('tw-stock.financial-reports.index', ['quarter' => 1, ...$request->query()], 301))
     ->name('tw-stock.q1-financial-reports.index');
@@ -298,20 +298,20 @@ Route::get('/tw-stock/yuanta-portfolio/intraday', [YuantaPortfolioController::cl
 Route::get('/tw-stock/yuanta-portfolio/history/dates', [YuantaPortfolioController::class, 'historyDates'])->name('tw-stock.yuanta-portfolio.history-dates');
 Route::get('/tw-stock/yuanta-portfolio/history', [YuantaPortfolioController::class, 'history'])->name('tw-stock.yuanta-portfolio.history');
 Route::get('/videos/duplicates', [VideoDuplicateController::class, 'index'])->name('videos.duplicates.index');
-Route::post('/videos/duplicates/open', [VideoDuplicateController::class, 'open'])->name('videos.duplicates.open');
-Route::post('/videos/duplicates/mark-unique', [VideoDuplicateController::class, 'markUnique'])->name('videos.duplicates.markUnique');
-Route::post('/videos/duplicates/mark-group-unique', [VideoDuplicateController::class, 'markGroupUnique'])->name('videos.duplicates.markGroupUnique');
-Route::post('/videos/duplicates/delete', [VideoDuplicateController::class, 'delete'])->name('videos.duplicates.delete');
+Route::post('/videos/duplicates/open', [VideoDuplicateController::class, 'open'])->name('videos.duplicates.open')->middleware('local.only');
+Route::post('/videos/duplicates/mark-unique', [VideoDuplicateController::class, 'markUnique'])->name('videos.duplicates.markUnique')->middleware('local.only');
+Route::post('/videos/duplicates/mark-group-unique', [VideoDuplicateController::class, 'markGroupUnique'])->name('videos.duplicates.markGroupUnique')->middleware('local.only');
+Route::post('/videos/duplicates/delete', [VideoDuplicateController::class, 'delete'])->name('videos.duplicates.delete')->middleware('local.only');
 Route::get('/videos/external-duplicates', [ExternalVideoDuplicateController::class, 'index'])->name('videos.external-duplicates.index');
 Route::get('/videos/external-duplicates/{match}/stream', [ExternalVideoDuplicateController::class, 'stream'])->name('videos.external-duplicates.stream');
-Route::post('/videos/external-duplicates/batch-delete', [ExternalVideoDuplicateController::class, 'batchDelete'])->name('videos.external-duplicates.batch-delete');
-Route::post('/videos/external-duplicates/batch-dismiss', [ExternalVideoDuplicateController::class, 'batchDismiss'])->name('videos.external-duplicates.batch-dismiss');
+Route::post('/videos/external-duplicates/batch-delete', [ExternalVideoDuplicateController::class, 'batchDelete'])->name('videos.external-duplicates.batch-delete')->middleware('local.only');
+Route::post('/videos/external-duplicates/batch-dismiss', [ExternalVideoDuplicateController::class, 'batchDismiss'])->name('videos.external-duplicates.batch-dismiss')->middleware('local.only');
 Route::get('/videos/rerun-sync', [VideoRerunSyncController::class, 'index'])->name('videos.rerun-sync.index');
-Route::post('/videos/rerun-sync/apply', [VideoRerunSyncController::class, 'apply'])->name('videos.rerun-sync.apply');
+Route::post('/videos/rerun-sync/apply', [VideoRerunSyncController::class, 'apply'])->name('videos.rerun-sync.apply')->middleware('local.only');
 Route::get('/face-identities', [FaceIdentityController::class, 'index'])->name('face-identities.index');
 Route::get('/face-identities/image', [FaceIdentityController::class, 'image'])->name('face-identities.image');
 Route::get('/face-identities/videos/{video}/stream', [FaceIdentityController::class, 'video'])->name('face-identities.video');
-Route::post('/face-identities/videos/{video}/detach', [FaceIdentityController::class, 'detach'])->name('face-identities.detach');
+Route::post('/face-identities/videos/{video}/detach', [FaceIdentityController::class, 'detach'])->name('face-identities.detach')->middleware('local.only');
 
 Route::get('/env-test', function () {
     return config('app.env');

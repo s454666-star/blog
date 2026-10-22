@@ -13,7 +13,6 @@ class TwStockEpsGrowthScheduleTest extends TestCase
     {
         $schedule = new Schedule(config('app.timezone'));
         $method = new ReflectionMethod(Kernel::class, 'schedule');
-        $method->setAccessible(true);
         $method->invoke(app(Kernel::class), $schedule);
 
         $event = collect($schedule->events())->first(

@@ -62,7 +62,6 @@ class TokenScanStorageRoutingTest extends TestCase
         $command = $this->app->make(ScanGroupTokensCommand::class);
         $command->setOutput(new OutputStyle(new ArrayInput([]), new BufferedOutput()));
         $method = new ReflectionMethod($command, 'extractAndInsertTokensFromItems');
-        $method->setAccessible(true);
 
         $inserted = $method->invoke($command, 99, [[
             'message' => 'Messengercode_abc123 showfilesbot_123P_abcdef filestoebot_abc123 QQfile_bot:14120_108172_755-39P_10V yzfile_bot:abc123 mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2',
@@ -135,7 +134,6 @@ class TokenScanStorageRoutingTest extends TestCase
     {
         $command = $this->app->make(ScanGroupMediaCommand::class);
         $method = new ReflectionMethod($command, 'queueTokenIfNeeded');
-        $method->setAccessible(true);
 
         $messengerResult = $method->invoke($command, 321, 'Media Chat', 'Messengercode_abc123', 1001);
         $qqResult = $method->invoke($command, 321, 'Media Chat', 'QQfile_bot:14120_108172_755-39P_10V', 1002);
@@ -210,7 +208,6 @@ class TokenScanStorageRoutingTest extends TestCase
         $command = $this->app->make(ScanGroupTokensCommand::class);
         $command->setOutput(new OutputStyle(new ArrayInput([]), new BufferedOutput()));
         $method = new ReflectionMethod($command, 'extractAndInsertTokensFromItems');
-        $method->setAccessible(true);
 
         $inserted = $method->invoke($command, 88, [[
             'message' => 'prefix mtfxq2bot_9V_A1R7u7F592Q4o6c6c1r5 suffix',

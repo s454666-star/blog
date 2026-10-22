@@ -655,7 +655,6 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $command = new NotifyTaiexFuturesLineAlertsCommand();
         $method = new ReflectionMethod(NotifyTaiexFuturesLineAlertsCommand::class, 'priceAlert');
-        $method->setAccessible(true);
 
         $baseRow = [
             'time' => CarbonImmutable::parse('2026-01-01 09:00:00', 'Asia/Taipei')->timestamp,
@@ -713,7 +712,6 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $command = new NotifyTaiexFuturesLineAlertsCommand();
         $method = new ReflectionMethod(NotifyTaiexFuturesLineAlertsCommand::class, 'expectedGapAlert');
-        $method->setAccessible(true);
         $chartRows = [
             [
                 'time' => CarbonImmutable::parse('2026-07-17 13:45:00', 'Asia/Taipei')->timestamp,
@@ -1419,7 +1417,6 @@ class TwFuturesHourlyPricesTest extends TestCase
     {
         $fetcher = app(TwFuturesHourlyPriceFetcher::class);
         $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'tradeDate');
-        $method->setAccessible(true);
 
         $this->assertSame(
             '2026-05-25',
@@ -1452,7 +1449,6 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $fetcher = app(TwFuturesHourlyPriceFetcher::class);
         $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'tradingViewAuthContext');
-        $method->setAccessible(true);
         $context = $method->invoke($fetcher);
 
         $this->assertSame($token, $context['token']);
@@ -1473,7 +1469,6 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $fetcher = app(TwFuturesHourlyPriceFetcher::class);
         $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'tradingViewAuthContext');
-        $method->setAccessible(true);
         $context = $method->invoke($fetcher);
 
         $this->assertSame('unauthorized_user_token', $context['token']);
@@ -1486,11 +1481,8 @@ class TwFuturesHourlyPricesTest extends TestCase
         $command = new BackfillTwFuturesContinuousPricesCommand();
 
         $frontContractMonthForDate = new ReflectionMethod(BackfillTwFuturesContinuousPricesCommand::class, 'frontContractMonthForDate');
-        $frontContractMonthForDate->setAccessible(true);
         $thirdWednesday = new ReflectionMethod(BackfillTwFuturesContinuousPricesCommand::class, 'thirdWednesday');
-        $thirdWednesday->setAccessible(true);
         $contractCode = new ReflectionMethod(BackfillTwFuturesContinuousPricesCommand::class, 'contractCode');
-        $contractCode->setAccessible(true);
 
         $this->assertSame(
             '2026-05-01',
@@ -1523,7 +1515,6 @@ class TwFuturesHourlyPricesTest extends TestCase
     {
         $fetcher = app(TwFuturesHourlyPriceFetcher::class);
         $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'expectedCurrentBarStartedAtUnix');
-        $method->setAccessible(true);
 
         Carbon::setTestNow('2026-06-23 15:03:00');
         CarbonImmutable::setTestNow('2026-06-23 15:03:00');
@@ -1575,7 +1566,6 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $fetcher = app(TwFuturesHourlyPriceFetcher::class);
         $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'appendCurrentSessionOpeningQuoteRow');
-        $method->setAccessible(true);
         $rows = [
             $this->priceRow(
                 interval: '15',
@@ -1642,7 +1632,6 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $fetcher = app(TwFuturesHourlyPriceFetcher::class);
         $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'appendCurrentSessionOpeningQuoteRow');
-        $method->setAccessible(true);
         $rows = [
             $this->priceRow(
                 interval: '15',
@@ -1720,7 +1709,6 @@ class TwFuturesHourlyPricesTest extends TestCase
 
         $fetcher = app(TwFuturesHourlyPriceFetcher::class);
         $method = new ReflectionMethod(TwFuturesHourlyPriceFetcher::class, 'mergeYahooLatestValidation');
-        $method->setAccessible(true);
 
         $rows = $method->invoke(
             $fetcher,

@@ -12,7 +12,6 @@ class ReencodeVideoMediumHighCommandTest extends TestCase
     {
         $command = new ReencodeVideoMediumHighCommand();
         $method = new ReflectionMethod($command, 'resolveTargetPath');
-        $method->setAccessible(true);
 
         $resolved = $method->invoke($command, 'C:\\Users\\User\\Videos\\暫', 'clip-001');
 
@@ -23,7 +22,6 @@ class ReencodeVideoMediumHighCommandTest extends TestCase
     {
         $command = new ReencodeVideoMediumHighCommand();
         $method = new ReflectionMethod($command, 'resolveTargetPath');
-        $method->setAccessible(true);
 
         $resolved = $method->invoke($command, 'C:\\Users\\User\\Videos\\暫', 'clip-001.mkv');
 

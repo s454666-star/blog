@@ -42,8 +42,10 @@ class StaticProxyController extends Controller
                 return response("Can't open remote file", 500);
             }
 
+            $responseHeaders = stream_get_meta_data($handle)['wrapper_data'] ?? [];
+
             // 回傳來源的標頭
-            foreach ($http_response_header as $header) {
+            foreach ($responseHeaders as $header) {
                 if (stripos($header, 'Content-Type:') !== false ||
                     stripos($header, 'Content-Length:') !== false ||
                     stripos($header, 'Accept-Ranges:') !== false ||
@@ -56,7 +58,7 @@ class StaticProxyController extends Controller
             header('Content-Disposition: inline');
 
             // 若有 Content-Range，就回傳 206 Partial Content，否則 200 OK
-            $httpCode = collect($http_response_header)
+            $httpCode = collect($responseHeaders)
                 ->first(fn($h) => str_starts_with($h, 'HTTP/'));
             if (strpos($httpCode, '206') !== false) {
                 http_response_code(206);

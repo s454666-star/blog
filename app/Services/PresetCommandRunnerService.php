@@ -56,7 +56,7 @@ class PresetCommandRunnerService
         return $this->executePreset($preset);
     }
 
-    public function stream(string $id, array $input = [], callable $onEvent = null, ?string $runToken = null): void
+    public function stream(string $id, array $input = [], ?callable $onEvent = null, ?string $runToken = null): void
     {
         $preset = $this->getPreset($id, $input);
 
@@ -276,7 +276,7 @@ class PresetCommandRunnerService
         return $text;
     }
 
-    private function executePreset(array $preset, callable $onEvent = null, ?string $runToken = null): array
+    private function executePreset(array $preset, ?callable $onEvent = null, ?string $runToken = null): array
     {
         $startedAt = microtime(true);
         $timestamp = now();

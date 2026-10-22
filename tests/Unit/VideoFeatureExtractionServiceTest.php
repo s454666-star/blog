@@ -61,7 +61,6 @@ class VideoFeatureExtractionServiceTest extends TestCase
             imagedestroy($bordered);
 
             $method = new ReflectionMethod(VideoFeatureExtractionService::class, 'computeDhashHexFromJpeg');
-            $method->setAccessible(true);
             $service = new VideoFeatureExtractionService();
 
             $contentHash = (string) $method->invoke($service, $contentPath);

@@ -82,7 +82,6 @@ class ImportBtdigThreeXPlanetImagesCommandFeatureTest extends TestCase
         $command = $this->app->make(ImportBtdigThreeXPlanetImagesCommand::class);
         $reflection = new ReflectionClass($command);
         $method = $reflection->getMethod('resolveKeywordGroups');
-        $method->setAccessible(true);
 
         $groups = $method->invoke($command, 1233512, 10);
 

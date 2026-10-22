@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $projectPath = 'C:\Users\USER\Documents\project\blog'
-$phpCgi = 'C:\Users\USER\AppData\Local\Programs\PHP\8.4.20\php-cgi.exe'
+$phpCgi = 'C:\Users\USER\AppData\Local\Programs\PHP\8.5.12\php-cgi.exe'
 $caddy = 'C:\Users\USER\AppData\Local\Microsoft\WinGet\Packages\CaddyServer.Caddy_Microsoft.Winget.Source_8wekyb3d8bbwe\caddy.exe'
 $caddyConfig = Join-Path $projectPath 'Caddyfile.local'
 $logPath = Join-Path $projectPath 'storage\logs'

@@ -308,7 +308,6 @@ class TelegramFilestoreTokenBridgeServiceTest extends TestCase
     {
         $service = app(TelegramFilestoreTokenBridgeService::class);
         $method = new \ReflectionMethod($service, 'resolveWaitTimeoutSeconds');
-        $method->setAccessible(true);
 
         $timeout = (int) $method->invoke(
             $service,

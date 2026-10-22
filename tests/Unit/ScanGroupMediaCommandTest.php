@@ -13,7 +13,6 @@ class ScanGroupMediaCommandTest extends TestCase
     {
         $command = new ScanGroupMediaCommand(new TelegramCodeTokenService());
         $method = new ReflectionMethod($command, 'resolveBotByToken');
-        $method->setAccessible(true);
 
         $showfilesBot = $method->invoke($command, 'showfilesbot_123P_abcdef');
         $showfiles3Bot = $method->invoke($command, 'showfiles3bot_123P_abcdef');
@@ -28,7 +27,6 @@ class ScanGroupMediaCommandTest extends TestCase
     {
         $command = new ScanGroupMediaCommand(new TelegramCodeTokenService());
         $method = new ReflectionMethod($command, 'resolveBotByToken');
-        $method->setAccessible(true);
 
         $legacyBot = $method->invoke($command, 'mtfxqbot_13P_1V_51t7y7v4u5i6I6v5p7A2');
         $newBot = $method->invoke($command, 'mtfxq2bot_9V_A1R7u7F592Q4o6c6c1r5');

@@ -307,7 +307,6 @@ class Crawler85SugarbabyImportCommandTest extends TestCase
     private function invokePersistCandidates(string $source, array $candidates, CarbonImmutable $capturedAt): int
     {
         $method = new ReflectionMethod(Crawler85SugarbabyImportCommand::class, 'persistCandidates');
-        $method->setAccessible(true);
 
         return (int) $method->invoke(
             $this->app->make(Crawler85SugarbabyImportCommand::class),

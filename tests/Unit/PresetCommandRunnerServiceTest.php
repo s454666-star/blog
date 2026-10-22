@@ -91,14 +91,12 @@ class PresetCommandRunnerServiceTest extends TestCase
         ];
 
         $commandLockKey = new ReflectionMethod($service, 'commandLockKey');
-        $commandLockKey->setAccessible(true);
         $lock = Cache::lock((string) $commandLockKey->invoke($service, $preset), 60);
 
         $this->assertTrue($lock->get());
 
         try {
             $executePreset = new ReflectionMethod($service, 'executePreset');
-            $executePreset->setAccessible(true);
 
             $result = $executePreset->invoke($service, $preset);
         } finally {

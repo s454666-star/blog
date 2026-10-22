@@ -197,7 +197,6 @@ HTML;
     {
         $reflection = new ReflectionClass($this->command);
         $method = $reflection->getMethod($methodName);
-        $method->setAccessible(true);
 
         return $method->invokeArgs($this->command, $arguments);
     }

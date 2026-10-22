@@ -146,7 +146,6 @@ class TelegramFilestoreDebouncedPromptJobTest extends TestCase
     private function readPrivateIntProperty(object $target, string $property): int
     {
         $reflection = new \ReflectionProperty($target, $property);
-        $reflection->setAccessible(true);
 
         return (int) $reflection->getValue($target);
     }

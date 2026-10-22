@@ -12,7 +12,6 @@ class DispatchTokenScanItemsCommandTest extends TestCase
     {
         $command = new DispatchTokenScanItemsCommand();
         $method = new ReflectionMethod($command, 'resolveBotByToken');
-        $method->setAccessible(true);
 
         $qqBot = $method->invoke($command, 'QQfile_bot:14106_76302_385-140P_15V');
         $viBot = $method->invoke($command, 'vi_BAACAgEAAxkBFfAqOmUJtMF-kwAB-hQFXznApJqihypLQQACdwEAAkRp0EW8apA6GKpUJTAE');
@@ -30,7 +29,6 @@ class DispatchTokenScanItemsCommandTest extends TestCase
     {
         $command = new DispatchTokenScanItemsCommand();
         $method = new ReflectionMethod($command, 'determineDelayBeforeNextJob');
-        $method->setAccessible(true);
 
         $delay = $method->invoke($command, [
             'bot_api' => 'QQfile_bot',
@@ -55,7 +53,6 @@ class DispatchTokenScanItemsCommandTest extends TestCase
     {
         $command = new DispatchTokenScanItemsCommand();
         $method = new ReflectionMethod($command, 'determineDelayBeforeNextJob');
-        $method->setAccessible(true);
 
         $vipDelay = $method->invoke($command, [
             'bot_api' => 'QQfile_bot',
@@ -79,7 +76,6 @@ class DispatchTokenScanItemsCommandTest extends TestCase
     {
         $command = new DispatchTokenScanItemsCommand();
         $method = new ReflectionMethod($command, 'resolveBotByToken');
-        $method->setAccessible(true);
 
         $legacyBot = $method->invoke($command, 'mtfxqbot_12V_n1I7l7r4v7e890S029L4');
         $newBot = $method->invoke($command, 'mtfxq2bot_9V_A1R7u7F592Q4o6c6c1r5');
@@ -94,7 +90,6 @@ class DispatchTokenScanItemsCommandTest extends TestCase
     {
         $command = new DispatchTokenScanItemsCommand();
         $method = new ReflectionMethod($command, 'resolveForcedBotOption');
-        $method->setAccessible(true);
 
         $legacyAliasBot = $method->invoke($command, '@mtfxqbot');
         $newAliasBot = $method->invoke($command, '@mtfxq2bot');

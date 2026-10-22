@@ -969,7 +969,6 @@ class TwStockQ1FinancialReportsTest extends TestCase
 
         $fetcher = app(TwStockQ1FinancialReportFetcher::class);
         $parse = new \ReflectionMethod($fetcher, 'financialAnnouncementTextToRow');
-        $parse->setAccessible(true);
 
         $nanya = $parse->invoke($fetcher, '5.發生緣由:公告本公司2026年第3季自結合併損益 一、2026年第3季自結合併損益與2026年第2季比較：本公司2026年第3季EPS4.90元、前3季累計EPS10.07元。(一)合併營業額956.0億元，較2026年第2季增加119.5億元。(三)2026年第3季歸屬母公司稅後利益為388.3億元，每股稅後盈餘4.90元。', '1303', 2026, 3, 'MOPS', null, []);
         $this->assertSame('4.90', $nanya['公告基本每股盈餘(元)']);

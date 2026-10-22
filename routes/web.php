@@ -227,14 +227,6 @@ Route::post('/upload', [ UploadStorageController::class, 'upload' ]);
 Route::get('/videos-management', [ App\Http\Controllers\LibraryController::class, 'index' ])->name('videos.index');
 Route::post('/generate-thumbnails', [LibraryController::class, 'generateThumbnails'])->name('generate-thumbnails');
 
-Route::get('/phpinfo', function () {
-    phpinfo();
-});
-
-Route::get('/env', function () {
-    dd(env('APP_KEY'), $_ENV, getenv('APP_KEY'));
-});
-
 Route::view('/product-import2', 'fetch-url');
 Route::post('/fetch', [ FetchController::class, 'fetchData' ]);
 Route::get('/verify-success', [MemberController::class, 'showVerificationSuccess'])->name('verify.success');

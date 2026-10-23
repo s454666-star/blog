@@ -30,6 +30,14 @@ class LocalOnlyRoutesTest extends TestCase
         $this->withServerVariables($public)->get('https://mystar.monster/proxy-image?url=https://example.com/a.jpg')->assertForbidden();
     }
 
+    public function test_bt_right_click_delete_stays_available_online(): void
+    {
+        $this->withServerVariables(['HTTP_HOST' => 'mystar.monster', 'REMOTE_ADDR' => '203.0.113.10'])
+            ->deleteJson('https://mystar.monster/blog/batch-delete-bt', ['selected_articles' => []])
+            ->assertOk()
+            ->assertJson(['deleted' => []]);
+    }
+
     public function test_command_runner_is_allowed_on_the_local_site(): void
     {
         $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
